@@ -12,13 +12,17 @@
 //!   or by panicking ([`Panics`], also a driver).
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
-//!   [`Spread`], which changes the needs and the offer; [`Pool`], which
-//!   draws two block types from one pool below; [`Queue`], which lowers
-//!   the most shots; [`LoweringWithoutParity`], which offers no readout
-//!   parities; [`Trap`], which fails a shot; [`FailsOnce`], which fails
-//!   one `adapt`; [`PanicsEnding`], which panics in `end_shots`;
-//!   [`Shifting`], whose offer changes once provisioned; [`Misbehaving`],
-//!   which breaks the protocol's rules.
+//!   [`NamesBelow`], which logs the name of the part below;
+//!   [`Spread`], which changes the needs and the offer; [`Capped`], a
+//!   `Spread` with a most of its own; [`Pool`], which draws two block
+//!   types from one pool below; [`Queue`], which lowers the most shots;
+//!   [`LoweringWithoutParity`], which offers no readout parities;
+//!   [`Contrary`], whose offer shrinks as the offer below grows; [`Trap`],
+//!   which fails a shot; [`FailsOnce`], which fails one `adapt`;
+//!   [`PanicsEnding`], which panics in `end_shots`; [`Shifting`], whose
+//!   offer changes once provisioned; [`Misbehaving`], which breaks the
+//!   protocol's rules.
+//! - Any role: [`Renamed`], a part with a name other than its type's.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads
 //! once the parts are composed.
@@ -40,10 +44,12 @@ use crate::{
 mod adapters;
 mod drivers;
 mod executors;
+mod renamed;
 
 pub(crate) use adapters::*;
 pub(crate) use drivers::*;
 pub(crate) use executors::*;
+pub(crate) use renamed::Renamed;
 
 instruction_set! {
     /// QIR's `h`, `x` and `mz`: what every fake part sends and accepts,

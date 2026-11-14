@@ -20,6 +20,18 @@ use crate::{
 pub trait Adapt {
     // Composition time.
 
+    /// The part's name in messages, such as an admission fault or a
+    /// run's failure; by default its type's, `std::any::type_name`.
+    ///
+    /// A part overrides it when its type does not say what it is: a part
+    /// built at run time, such as a runtime made from an instruction set's
+    /// description, has one Rust type for every configuration; and the
+    /// default's text is a module path, whose format the standard library
+    /// does not guarantee.
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
+
     /// The instructions it receives, which the part above must fit.
     fn accepts(&self) -> &InstructionSet;
 
@@ -37,15 +49,22 @@ pub trait Adapt {
     }
 
     /// What it offers above, given what is offered `below`; by default the
-    /// same. The admission checks the needs of the part above against it,
-    /// and names this adapter for a need it falls short of where the part
-    /// below meets that kind of need, such as readout parities it cannot
-    /// lower; the part above also counts on its most shots and
-    /// instructions, and on whether a run may fix its seed. Where an offer
-    /// cannot be exact, such as for two block types drawn from one pool
-    /// below, the admission still checks what
-    /// [`needs_below`](Self::needs_below) passes down against the
-    /// executor's own offer.
+    /// same. The admission checks the needs of the part above against it;
+    /// the part above also counts on its most shots and instructions, and
+    /// on whether a run may fix its seed. Where an offer cannot be exact,
+    /// such as for two block types drawn from one pool below, the admission
+    /// still checks what [`needs_below`](Self::needs_below) passes down
+    /// against the executor's own offer.
+    ///
+    /// A refusal names this adapter when it is short on its own: when its
+    /// answer for an offer below that meets exactly what `needs_below`
+    /// asks (each block type at that count, and readout parities resolved
+    /// only if needed) does not meet the needs of the part above, such as
+    /// readout parities it cannot lower, or more qubits than its decoder
+    /// takes; or when its answer for the real offer below, which meets
+    /// those needs below too, does not. So an adapter that only passes a
+    /// shortage below up is not named. The `>>` that makes a runner asks
+    /// it for both answers.
     ///
     /// Its answer must not change once the adapter is composed, not even
     /// by its own `provision`: the `>>` that makes a runner reads it once,
@@ -68,7 +87,7 @@ pub trait Adapt {
     #[doc(hidden)]
     fn needs_by_part(&self, above: Needs, by_part: &mut ByPart) -> Needs {
         let below = self.needs_below(above);
-        by_part.note_needs::<Self>(&below);
+        by_part.note_needs(Adapt::name(self), &below);
         below
     }
 
@@ -78,8 +97,10 @@ pub trait Adapt {
     /// any part is provisioned.
     #[doc(hidden)]
     fn offers_by_part(&mut self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
-        let above = self.offers_above(below);
-        by_part.note_offer::<Self>(&above);
+        let above = self.offers_above(below.clone());
+        by_part.note_adapter_offer(Adapt::name(self), &above, &below, |exactly| {
+            self.offers_above(exactly)
+        });
         above
     }
 
@@ -109,6 +130,10 @@ pub trait Adapt {
 }
 
 impl<A: Adapt + ?Sized> Adapt for &mut A {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+
     fn accepts(&self) -> &InstructionSet {
         (**self).accepts()
     }

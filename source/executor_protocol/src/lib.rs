@@ -19,7 +19,7 @@ mod shot_set;
 #[cfg(test)]
 mod tests;
 
-pub use admission::{AdmissionFaults, Capabilities, Needs, ShortOffer, UnmetNeed};
+pub use admission::{AdmissionFaults, Capabilities, ChainPart, Needs, ShortOffer, UnmetNeed};
 pub use batch::Batch;
 pub use batch_readouts::{
     BatchReadouts, ReadoutFailure, ReadoutIndex, ReadoutValue, ShapeFault, ShotConditions,

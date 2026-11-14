@@ -49,6 +49,11 @@ impl<'a, E: Execute> Checked<'a, E> {
 }
 
 impl<E: Execute> Execute for Checked<'_, E> {
+    /// The receiver's.
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
     fn accepts(&self) -> &InstructionSet {
         self.inner.accepts()
     }
@@ -84,7 +89,10 @@ impl<E: Execute> Execute for Checked<'_, E> {
             Err(message) => {
                 return Err(ExecuteError::Failed {
                     shot: first_shot(first.shots),
-                    failure: Failure::Panicked(message),
+                    failure: Failure::Panicked {
+                        part: self.inner.name().to_owned(),
+                        message,
+                    },
                 });
             }
         };

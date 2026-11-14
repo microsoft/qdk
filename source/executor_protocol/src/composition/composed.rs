@@ -65,6 +65,11 @@ impl<U, L> Composed<U, L> {
 impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
     type Output = U::Output;
 
+    /// The driver's.
+    fn name(&self) -> &str {
+        self.upper.name()
+    }
+
     fn sends(&self) -> &InstructionSet {
         self.lower.sends()
     }
@@ -139,6 +144,11 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
 
 /// Adapter `>>` adapter: an adapter.
 impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
+    /// The upper part's, which receives its calls.
+    fn name(&self) -> &str {
+        self.upper.name()
+    }
+
     fn accepts(&self) -> &InstructionSet {
         self.upper.accepts()
     }
@@ -221,6 +231,11 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
 
 /// Adapter `>>` executor: an executor.
 impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
+    /// The adapter's, which receives its calls.
+    fn name(&self) -> &str {
+        self.upper.name()
+    }
+
     fn accepts(&self) -> &InstructionSet {
         self.upper.accepts()
     }
@@ -293,6 +308,11 @@ struct ChainBelow<'a, A, B> {
 }
 
 impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
+    /// The adapter's, which receives its calls.
+    fn name(&self) -> &str {
+        self.adapter.name()
+    }
+
     fn accepts(&self) -> &InstructionSet {
         self.adapter.accepts()
     }

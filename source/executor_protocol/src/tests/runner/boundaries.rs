@@ -6,19 +6,20 @@
 //! ends the run as it does at the executor's, and each boundary is checked
 //! once.
 
+use std::any::type_name;
 use std::cell::Cell;
 use std::rc::Rc;
 
 use super::{SEED, failed, runner};
 use crate::checked::BATCHES_CHECKED;
 use crate::tests::fake_parts::{
-    Bits, Log, Misbehaving, Misbehaviour, Misshape, Misshapen, Panics, PanicsWhen, Profiler,
-    Program,
+    Bits, Log, Misbehaving, Misbehaviour, Misshape, Misshapen, NamesBelow, Panics, PanicsWhen,
+    Profiler, Program, Renamed,
 };
 use crate::{
     Adapt, Adapter, Capabilities, CompositionFaults, Drive, DriveError, Driver, Execute,
-    ExecuteRefusal, Executor, Failure, InstructionFault, Needs, Runner, ShapeFault, ShotId,
-    ShotSet,
+    ExecuteRefusal, Executor, Failure, InstructionFault, Needs, RunError, Runner, ShapeFault,
+    ShotId, ShotSet,
 };
 
 /// A run of a chain in one bracketing: how it failed, what its parts
@@ -252,7 +253,7 @@ fn a_misshapen_answer_below_an_adapter_is_a_failure() {
 }
 
 /// An executor panicking while polled, below a profiler: a failure naming
-/// the batch's first shot and the message.
+/// the batch's first shot, the executor and the message.
 #[test]
 fn an_executors_panic_below_an_adapter_is_a_failure_of_its_batch() {
     for run in failed_in_both_brackets(&ShotSet::ids([6, 1]), |log, counted| {
@@ -269,7 +270,9 @@ fn an_executors_panic_below_an_adapter_is_a_failure_of_its_batch() {
         assert!(
             matches!(
                 &error.failure,
-                Failure::Panicked(Some(message)) if message == "the part broke while it was polled"
+                Failure::Panicked { part, message: Some(message) }
+                    if part == type_name::<Panics>()
+                        && message == "the part broke while it was polled"
             ),
             "{brackets}: {error:?}"
         );
@@ -277,7 +280,7 @@ fn an_executors_panic_below_an_adapter_is_a_failure_of_its_batch() {
 }
 
 /// An adapter panicking with a formatted message, a `String`: the failure
-/// carries the message.
+/// names the adapter and carries the message.
 #[test]
 fn an_adapters_panic_with_a_formatted_message_carries_it() {
     for run in failed_in_both_brackets(&ShotSet::ids([3, 1]), |log, _| {
@@ -294,7 +297,9 @@ fn an_adapters_panic_with_a_formatted_message_carries_it() {
         assert!(
             matches!(
                 &error.failure,
-                Failure::Panicked(Some(message)) if message == "the adapter broke on 1 batches"
+                Failure::Panicked { part, message: Some(message) }
+                    if part == type_name::<Misbehaving>()
+                        && message == "the adapter broke on 1 batches"
             ),
             "{brackets}: {error:?}"
         );
@@ -302,7 +307,7 @@ fn an_adapters_panic_with_a_formatted_message_carries_it() {
 }
 
 /// An adapter panicking with a number, a payload that is not text: a
-/// failure with no message.
+/// failure naming the adapter, with no message.
 #[test]
 fn an_adapters_panic_with_no_text_is_a_failure_with_no_message() {
     for run in failed_in_both_brackets(&ShotSet::ids([3, 1]), |log, _| {
@@ -317,10 +322,77 @@ fn an_adapters_panic_with_no_text_is_a_failure_with_no_message() {
         } = &run;
         assert_eq!(error.shot, ShotId::new(3), "{brackets}");
         assert!(
-            matches!(&error.failure, Failure::Panicked(None)),
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: None } if part == type_name::<Misbehaving>()
+            ),
             "{brackets}: {error:?}"
         );
     }
+}
+
+/// An adapter panicking with a formatted message, above a profiler, in
+/// each of the five bracketings of four parts: every failure names the
+/// adapter, not the profiler nor a composed part's other parts.
+#[test]
+fn an_adapters_panic_names_it_wherever_the_brackets_go() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let program = || Driver::new(Program::new(&[("mz", 0)]));
+    let misbehaving = || Adapter::new(Misbehaving::new(Misbehaviour::PanicsWithAString));
+    let profiler = || Adapter::new(Profiler::new(&counted, &log));
+    let bits = || Executor::new(Bits::new(&log));
+    let shots = ShotSet::ids([3, 1]);
+    let errors = [
+        failed(runner(((program() >> misbehaving()) >> profiler()) >> bits()).run(&shots, SEED)),
+        failed(runner((program() >> misbehaving()) >> (profiler() >> bits())).run(&shots, SEED)),
+        failed(runner(program() >> (misbehaving() >> (profiler() >> bits()))).run(&shots, SEED)),
+        failed(runner(program() >> ((misbehaving() >> profiler()) >> bits())).run(&shots, SEED)),
+        failed(runner((program() >> (misbehaving() >> profiler())) >> bits()).run(&shots, SEED)),
+    ];
+    for (i, error) in errors.iter().enumerate() {
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, .. } if part == type_name::<Misbehaving>()
+            ),
+            "bracketing {i}: {error:?}"
+        );
+    }
+}
+
+/// An adapter that reads the name of the part below it, over an executor
+/// or over an adapter, each named as a part built at run time is,
+/// bracketed both ways: it reads that part's name, though the protocol
+/// checks each `execute` it sends.
+#[test]
+fn an_adapter_reads_the_name_of_the_part_below() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let program = || Driver::new(Program::new(&[("mz", 0)]));
+    let names_below = || Adapter::new(NamesBelow::new(&log));
+    let runtime = || Executor::new(Renamed::new(Bits::new(&log), "qodec runtime"));
+    let profiler = || Adapter::new(Renamed::new(Profiler::new(&counted, &log), "profiler"));
+    let shots = ShotSet::ids([3, 1]);
+    let run = |result: Result<_, RunError>| result.expect("a run");
+    run(runner((program() >> names_below()) >> runtime()).run(&shots, SEED));
+    run(runner(program() >> (names_below() >> runtime())).run(&shots, SEED));
+    run(runner((program() >> names_below()) >> (profiler() >> runtime())).run(&shots, SEED));
+    run(runner(program() >> (names_below() >> (profiler() >> runtime()))).run(&shots, SEED));
+    let read = log
+        .entries()
+        .into_iter()
+        .filter(|entry| entry.starts_with("below: "))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        read,
+        [
+            "below: qodec runtime",
+            "below: qodec runtime",
+            "below: profiler",
+            "below: profiler"
+        ]
+    );
 }
 
 /// How many batches the `Checked`s of the chain `composed` checked in a

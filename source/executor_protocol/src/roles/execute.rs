@@ -25,6 +25,18 @@ use crate::{
 pub trait Execute {
     // Composition time.
 
+    /// The part's name in messages, such as an admission fault or a
+    /// run's failure; by default its type's, `std::any::type_name`.
+    ///
+    /// A part overrides it when its type does not say what it is: a part
+    /// built at run time, such as a runtime made from an instruction set's
+    /// description, has one Rust type for every configuration; and the
+    /// default's text is a module path, whose format the standard library
+    /// does not guarantee.
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
+
     /// The instructions it runs, which the part above must fit.
     fn accepts(&self) -> &InstructionSet;
 
@@ -61,7 +73,7 @@ pub trait Execute {
     #[doc(hidden)]
     fn offers_by_part(&mut self, by_part: &mut ByPart) -> Capabilities {
         let offer = self.offers();
-        by_part.note_offer::<Self>(&offer);
+        by_part.note_executor_offer(Execute::name(self), &offer);
         offer
     }
 
@@ -122,6 +134,10 @@ pub trait Execute {
 }
 
 impl<E: Execute + ?Sized> Execute for &mut E {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+
     fn accepts(&self) -> &InstructionSet {
         (**self).accepts()
     }

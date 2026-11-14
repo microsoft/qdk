@@ -147,7 +147,10 @@ impl<D: Drive, E: Execute> Runner<D, E> {
                 Ok(Err(failure)) => failure,
                 Err(message) => DriveError {
                     shot: shots.iter().next().expect("a shot set is never empty"),
-                    failure: Failure::Panicked(message),
+                    failure: Failure::Panicked {
+                        part: driver.name().to_owned(),
+                        message,
+                    },
                 },
             };
             drop(unended);

@@ -26,6 +26,18 @@ pub trait Drive {
 
     // Composition time.
 
+    /// The part's name in messages, such as an admission fault or a
+    /// run's failure; by default its type's, `std::any::type_name`.
+    ///
+    /// A part overrides it when its type does not say what it is: a part
+    /// built at run time, such as a runtime made from an instruction set's
+    /// description, has one Rust type for every configuration; and the
+    /// default's text is a module path, whose format the standard library
+    /// does not guarantee.
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
+
     /// The instructions it sends, which must fit the part below.
     fn sends(&self) -> &InstructionSet;
 
@@ -51,7 +63,7 @@ pub trait Drive {
     #[doc(hidden)]
     fn needs_by_part(&self, by_part: &mut ByPart) -> Needs {
         let needs = self.needs();
-        by_part.note_needs::<Self>(&needs);
+        by_part.note_needs(Drive::name(self), &needs);
         needs
     }
 

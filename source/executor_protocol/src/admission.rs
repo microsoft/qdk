@@ -9,18 +9,22 @@
 //! both: the needs for the part below it, the offer for the part above.
 //! The `>>` checks every boundary of the chain: the needs of the part above
 //! it, as the adapters above adapt them, against the offer of the part
-//! below, as the adapters below adapt it ([`Needs::fit`]). An adapter's
-//! offer is the one below it, adapted, so it mostly falls short of a need
-//! where the part below does. So each unmet need is named only where
-//! the boundary below has no unmet need of its kind (blocks of the same
-//! type, or readout parities): at the part where its shortage starts. An
-//! adapter is named for what it cannot carry, such as readout parities,
-//! and the executor for what it cannot hold, while an adapter that only
-//! passes a shortage up, such as a profiler, is not. Every boundary is
-//! checked the same way wherever the brackets go, so the verdict, the parts
-//! named and their numbers are too. It refuses the chain with each offer
-//! where a shortage starts ([`ShortOffer`]), naming its part, and each
-//! part's needs and offer ([`AdmissionFaults`]).
+//! below, as the adapters below adapt it ([`Needs::fit`]). It refuses the
+//! chain when any of them falls short.
+//!
+//! An adapter's offer is the one below it, adapted, so it mostly falls
+//! short where the part below does. So a refusal names each part that is
+//! short on its own ([`ShortOffer`]): the executor, when its offer falls
+//! short of the needs that reach it; an adapter, when its offer would fall
+//! short even if the part below gave exactly what the adapter needs below.
+//! An adapter is named for what it cannot carry or hold itself, such as
+//! readout parities, or more logical qubits than its decoder takes, even
+//! while the executor is short too; an adapter that only passes a shortage
+//! up, such as a profiler, is not. Every boundary is checked the same way
+//! wherever the brackets go, so the verdict, the parts named and their
+//! numbers are too. The refusal also lists each part's needs and offer
+//! ([`AdmissionFaults`]), and names each part by its position in the chain
+//! and its name ([`ChainPart`]).
 //!
 //! At the executor's boundary, the executor's own offer meets the needs
 //! that reach it, which no adapted offer replaces: an offer is a most per
@@ -31,6 +35,7 @@
 
 pub(crate) mod by_part;
 mod capabilities;
+mod chain_part;
 mod needs;
 
 use std::fmt;
@@ -39,6 +44,7 @@ use crate::BlockType;
 use by_part::ByPart;
 
 pub use capabilities::Capabilities;
+pub use chain_part::ChainPart;
 pub use needs::Needs;
 
 impl Needs {
@@ -86,23 +92,6 @@ pub enum UnmetNeed {
     ReadoutParity,
 }
 
-impl UnmetNeed {
-    /// Whether `other` is a need of the same kind: blocks of the same type,
-    /// or readout parities.
-    fn same_kind(&self, other: &UnmetNeed) -> bool {
-        match (self, other) {
-            (
-                UnmetNeed::Blocks { block_type, .. },
-                UnmetNeed::Blocks {
-                    block_type: other, ..
-                },
-            ) => block_type == other,
-            (UnmetNeed::ReadoutParity, UnmetNeed::ReadoutParity) => true,
-            _ => false,
-        }
-    }
-}
-
 impl fmt::Display for UnmetNeed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -122,61 +111,70 @@ impl fmt::Display for UnmetNeed {
 }
 
 /// Why the `>>` that makes a runner refused its chain's admission: each
-/// offer where a shortage starts, and each part's needs and offer, so that
-/// a user sees which part asks too much or offers too little.
+/// part short on its own, and each part's needs and offer, so that a user
+/// sees which part asks too much or offers too little.
 ///
-/// Each part is named by its type (`std::any::type_name`). Every field is
-/// the same whatever the brackets of the `>>`s. Its message names each
-/// part where a shortage starts and every need it starts; each part's
-/// needs and offer are in the fields only.
+/// Each part is named by its position in the chain and its name
+/// ([`ChainPart`]). Every field is the same whatever the brackets of the
+/// `>>`s. Its message names each part short on its own and every need it
+/// falls short of; each part's needs and offer are in the fields only.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AdmissionFaults {
-    /// Each offer where a shortage starts, bottom to top, in the order of
-    /// `offers_by_part`: the executor's first, if it falls short. An offer
-    /// that falls short only of kinds of needs the boundary below lacks too
-    /// is not listed.
+    /// Each part short on its own, bottom to top, in the order of
+    /// `offers_by_part`: the executor first, if it falls short. A part
+    /// whose offer falls short only because the part below falls short,
+    /// such as a profiler over a short executor, is not listed.
     pub short_offers: Vec<ShortOffer>,
     /// The driver's needs, then each adapter's needs for the part below it,
     /// top to bottom.
-    pub needs_by_part: Vec<(&'static str, Needs)>,
+    pub needs_by_part: Vec<(ChainPart, Needs)>,
     /// The executor's offer, then each adapter's offer to the part above
-    /// it, bottom to top.
-    pub offers_by_part: Vec<(&'static str, Capabilities)>,
+    /// it, given the offer below it, bottom to top.
+    pub offers_by_part: Vec<(ChainPart, Capabilities)>,
 }
 
 impl AdmissionFaults {
     /// The faults of the chain whose parts' needs and offers `by_part`
-    /// lists, if an offer falls short: at each boundary, the needs of the
-    /// part above against the offer of the part below, each unmet need
-    /// kept where its shortage starts.
+    /// lists, if an offer falls short at a boundary, the needs of the part
+    /// above against the offer of the part below: each part short on its
+    /// own, by its own offer ([`ShortOffer::offered`]).
     pub(crate) fn of(by_part: ByPart) -> Option<Self> {
-        let ByPart { needs, offers, .. } = by_part;
+        let ByPart {
+            needs,
+            offers,
+            own_offers,
+            ..
+        } = by_part;
         debug_assert_eq!(
             needs.len(),
             offers.len(),
             "a need and an offer per boundary"
         );
+        let mut refused = false;
         let mut short_offers = Vec::new();
-        let mut unmet_below: Vec<UnmetNeed> = Vec::new();
-        for ((part, offered), (_, needed)) in offers.iter().zip(needs.iter().rev()) {
-            let unmet = needed.fit(offered).err().unwrap_or_default();
-            let starting: Vec<UnmetNeed> = unmet
-                .iter()
-                .filter(|need| !unmet_below.iter().any(|below| below.same_kind(need)))
-                .cloned()
-                .collect();
-            if !starting.is_empty() {
+        let mut below_fits = true;
+        for (((part, offered), own), (_, needed)) in
+            offers.iter().zip(&own_offers).zip(needs.iter().rev())
+        {
+            let fit = needed.fit(offered);
+            refused |= fit.is_err();
+            let short = match (needed.fit(own), &fit) {
+                (Err(unmet), _) => Some((own, unmet)),
+                (Ok(()), Err(unmet)) if below_fits => Some((offered, unmet.clone())),
+                _ => None,
+            };
+            if let Some((offered, unmet)) = short {
                 short_offers.push(ShortOffer {
-                    part,
+                    part: part.clone(),
                     needed: needed.clone(),
                     offered: offered.clone(),
-                    unmet: starting,
+                    unmet,
                 });
             }
-            unmet_below = unmet;
+            below_fits = fit.is_ok();
         }
-        (!short_offers.is_empty()).then_some(Self {
+        refused.then_some(Self {
             short_offers,
             needs_by_part: needs,
             offers_by_part: offers,
@@ -199,30 +197,32 @@ impl fmt::Display for AdmissionFaults {
 
 impl std::error::Error for AdmissionFaults {}
 
-/// An offer where a shortage starts, at one boundary of a chain: the part
-/// below the boundary offers too little for the part above, for a kind of
-/// need (blocks of a type, or readout parities) that the boundary below
-/// it, if any, meets.
+/// A part short on its own, below one boundary of a chain: its offer falls
+/// short of the needs of the part above, and not only because the part
+/// below it falls short.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ShortOffer {
-    /// The part whose offer falls short, named by its type: the executor or
-    /// an adapter.
-    pub part: &'static str,
+    /// The part: the executor or an adapter.
+    pub part: ChainPart,
     /// The needs that reach it: the driver's, adapted by each adapter above
     /// it.
     pub needed: Needs,
-    /// Its offer to the part above: the executor's own, or an adapter's,
-    /// given the offer below it.
+    /// Its offer on its own: the executor's offer; an adapter's offer
+    /// given an offer below that meets exactly what it needs below
+    /// ([`Adapt::offers_above`](crate::Adapt::offers_above)): the real
+    /// offer below, with each block type it needs below at its count and
+    /// no other, and readout parities resolved only if it uses them below.
+    /// Where that offer meets `needed`, and its offer given the real offer
+    /// below, which meets what it needs below too, does not, that one.
     pub offered: Capabilities,
-    /// Each need of `needed` that `offered` does not meet, and whose kind
-    /// (blocks of its type, or readout parities) the boundary below meets.
+    /// Each need of `needed` that `offered` does not meet.
     pub unmet: Vec<UnmetNeed>,
 }
 
 impl fmt::Display for ShortOffer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "`{}` cannot serve the needs that reach it (", self.part)?;
+        write!(f, "{} cannot serve the needs that reach it (", self.part)?;
         for (i, unmet) in self.unmet.iter().enumerate() {
             if i > 0 {
                 f.write_str("; ")?;

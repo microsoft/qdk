@@ -7,6 +7,7 @@
 mod boundaries;
 mod wait;
 
+use std::any::type_name;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -19,7 +20,8 @@ use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Misshape, Misshapen, Panics,
-    PanicsEnding, PanicsWhen, Profiler, Program, Queue, Splitter, Spread, Trap, Values, YieldNow,
+    PanicsEnding, PanicsWhen, Profiler, Program, Queue, Renamed, Splitter, Spread, Trap, Values,
+    YieldNow,
 };
 use crate::{
     Adapter, Capabilities, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure,
@@ -1168,7 +1170,8 @@ fn of_two_panics_ending_shots_the_first_is_raised() {
 }
 
 /// An executor that panics, while making its future or while it is
-/// polled: the run fails naming the batch's first shot and the message.
+/// polled: the run fails naming the batch's first shot, the executor and
+/// the message.
 #[test]
 fn an_executors_panic_is_a_failure_of_its_batch() {
     for (when, message) in [
@@ -1183,13 +1186,18 @@ fn an_executors_panic_is_a_failure_of_its_batch() {
         let error = failed(runner.run(&ShotSet::ids([3, 1]), SEED));
         assert_eq!(error.shot, ShotId::new(3));
         assert!(
-            matches!(&error.failure, Failure::Panicked(Some(m)) if m == message),
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(m) }
+                    if part == type_name::<Panics>() && m == message
+            ),
             "{error:?}"
         );
     }
 }
 
-/// A driver that panics: the run fails naming its first shot.
+/// A driver that panics: the run fails naming its first shot and the
+/// driver.
 #[test]
 fn a_drivers_panic_is_a_failure_of_the_run() {
     for (when, message) in [
@@ -1204,8 +1212,66 @@ fn a_drivers_panic_is_a_failure_of_the_run() {
         let error = failed(runner.run(&ShotSet::ids([9, 1]), SEED));
         assert_eq!(error.shot, ShotId::new(9));
         assert!(
-            matches!(&error.failure, Failure::Panicked(Some(m)) if m == message),
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(m) }
+                    if part == type_name::<Panics>() && m == message
+            ),
             "{error:?}"
+        );
+    }
+}
+
+/// A driver panicking while polled, composed with a profiler: the run
+/// fails naming the driver, not the profiler.
+#[test]
+fn a_composed_drivers_panic_names_the_driver() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let mut runner = runner(
+        (Driver::new(Panics(PanicsWhen::Polled)) >> Adapter::new(Profiler::new(&counted, &log)))
+            >> Executor::new(Bits::new(&log)),
+    );
+    let error = failed(runner.run(&ShotSet::ids([9, 1]), SEED));
+    assert!(
+        matches!(
+            &error.failure,
+            Failure::Panicked { part, .. } if part == type_name::<Panics>()
+        ),
+        "{error:?}"
+    );
+}
+
+/// A driver and an executor that panic, each named as a part built at
+/// run time is, by what it was built from: the failure names the part by
+/// that name.
+#[test]
+fn a_panic_names_the_part_by_its_name() {
+    let log = Log::default();
+    let shots = ShotSet::ids([9, 1]);
+    let mut executor = runner(
+        Driver::new(Program::new(&[("mz", 0)]))
+            >> Executor::new(Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")),
+    );
+    let mut driver = runner(
+        Driver::new(Renamed::new(Panics(PanicsWhen::Polled), "h2 program"))
+            >> Executor::new(Bits::new(&log)),
+    );
+    for (runner_name, error, name) in [
+        (
+            "executor",
+            failed(executor.run(&shots, SEED)),
+            "qodec runtime",
+        ),
+        ("driver", failed(driver.run(&shots, SEED)), "h2 program"),
+    ] {
+        assert!(
+            matches!(&error.failure, Failure::Panicked { part, .. } if part == name),
+            "{runner_name}: {error:?}"
+        );
+        assert!(
+            error.to_string().contains(&format!("`{name}` panicked")),
+            "{runner_name}: {error}"
         );
     }
 }

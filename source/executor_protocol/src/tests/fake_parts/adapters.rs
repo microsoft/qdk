@@ -170,6 +170,51 @@ impl Adapt for Profiler {
     }
 }
 
+/// An adapter that passes each batch down unchanged, logging the name of
+/// the part below as `below: <name>` first, as an adapter naming the part
+/// below in its own errors would read it.
+pub(crate) struct NamesBelow {
+    below: Option<OpcodeMap>,
+    log: Log,
+}
+
+impl NamesBelow {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self {
+            below: None,
+            log: log.clone(),
+        }
+    }
+}
+
+impl Adapt for NamesBelow {
+    fn accepts(&self) -> &InstructionSet {
+        coin_gates()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.accepts()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.below = Some(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.log.push(format!("below: {}", below.name()));
+        let map = bound(self.below.as_ref());
+        forward(batches, seed, below, |batch| {
+            mapped(map, batch.instructions)
+        })
+        .await
+    }
+}
+
 /// An adapter that sends each instruction of a batch as a batch of its
 /// own, one `execute` each, as a stepping debugger does, and joins their
 /// readouts.
@@ -335,6 +380,100 @@ impl Adapt for Pool {
             None => Some(0),
         };
         above.max_blocks.insert(Self::carbon(), carbon);
+        above
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.0.adapt(batches, seed, below).await
+    }
+}
+
+/// A toy encoding whose decoder holds at most `most` logical qubits: a
+/// [`Spread`] of `k` that offers above at most `most` qubits, whatever the
+/// qubits below.
+pub(crate) struct Capped {
+    most: u32,
+    spread: Spread,
+}
+
+impl Capped {
+    pub(crate) fn new(k: u32, most: u32, log: &Log) -> Self {
+        Self {
+            most,
+            spread: Spread::new(k, log),
+        }
+    }
+}
+
+impl Adapt for Capped {
+    fn accepts(&self) -> &InstructionSet {
+        self.spread.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.spread.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.spread.bind(below);
+    }
+
+    fn needs_below(&self, above: Needs) -> Needs {
+        self.spread.needs_below(above)
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        let mut above = self.spread.offers_above(below);
+        if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
+            *qubits = Some(qubits.map_or(self.most, |q| q.min(self.most)));
+        }
+        above
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.spread.adapt(batches, seed, below).await
+    }
+}
+
+/// An adapter whose offer shrinks as the offer below grows, as no real
+/// part's does: the qubits below, up to 10, and 1 over more. At run time
+/// it passes instructions through, as a [`Spread`] of 1.
+pub(crate) struct Contrary(Spread);
+
+impl Contrary {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self(Spread::new(1, log))
+    }
+}
+
+impl Adapt for Contrary {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        let mut above = below;
+        if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
+            *qubits = Some(qubits.filter(|&q| q <= 10).unwrap_or(1));
+        }
         above
     }
 

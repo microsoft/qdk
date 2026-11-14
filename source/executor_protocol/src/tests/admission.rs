@@ -11,11 +11,12 @@ use std::rc::Rc;
 
 use crate::tests::composition::{faults, plain, records};
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, Log, LoweringWithoutParity, Pool, Profiler, Program, Spread,
+    Bits, Capped, CoinCopy, Contrary, Log, LoweringWithoutParity, Pool, Profiler, Program, Renamed,
+    Spread,
 };
 use crate::{
-    Adapter, AdmissionFaults, BlockType, Capabilities, CompositionFaults, Drive, Driver, Execute,
-    Executor, Needs, Runner, ShortOffer, ShotSet, UnmetNeed,
+    Adapter, AdmissionFaults, BlockType, Capabilities, ChainPart, CompositionFaults, Drive, Driver,
+    Execute, Executor, Needs, Runner, ShortOffer, ShotSet, UnmetNeed,
 };
 
 // ---------------------------------------------------------------- one boundary
@@ -115,14 +116,33 @@ fn unmet_qubits(needed: u32, offered: u32) -> UnmetNeed {
     unmet_blocks(BlockType::qubit(), needed, offered)
 }
 
-/// The offer of `part`, `offered`, falling short of `needed` by `unmet`.
-fn short_offer<P>(needed: Needs, offered: Capabilities, unmet: Vec<UnmetNeed>) -> ShortOffer {
+/// The part of type `P` at `position`, named by its type.
+fn part<P>(position: usize) -> ChainPart {
+    ChainPart::new(position, type_name::<P>())
+}
+
+/// The offer of the part of type `P` at `position`, `offered`, falling
+/// short of `needed` by `unmet`.
+fn short_offer<P>(
+    position: usize,
+    needed: Needs,
+    offered: Capabilities,
+    unmet: Vec<UnmetNeed>,
+) -> ShortOffer {
     ShortOffer {
-        part: type_name::<P>(),
+        part: part::<P>(position),
         needed,
         offered,
         unmet,
     }
+}
+
+/// The parts `short_offers` name.
+fn parts(short_offers: &[ShortOffer]) -> Vec<ChainPart> {
+    short_offers
+        .iter()
+        .map(|short| short.part.clone())
+        .collect()
 }
 
 /// The admission faults of the chain `composed` gave, which must not be
@@ -149,10 +169,11 @@ fn a_program_within_the_offer_runs_unchanged() {
 
 /// A program on 7 qubits, through an encoding of 7 qubits per qubit, over
 /// 30 qubits: the `>>` fails, naming the bits' offer of 30 for 49 qubits,
-/// where the shortage starts, and each part's needs and offer. The
-/// encoding's 4 for 7 only passes that shortage up, so it is not named.
+/// and each part's needs and offer. The encoding's 4 for 7 only passes
+/// that shortage up: given the 49 it needs below, it would offer 7, so it
+/// is not named.
 #[test]
-fn an_unmet_need_is_a_fault_naming_where_it_starts_and_each_parts_needs_and_offer() {
+fn an_unmet_need_is_a_fault_naming_the_short_part_and_each_parts_needs_and_offer() {
     let log = Log::default();
     let offer = Capabilities::unlimited().max_qubits(30);
     let composed = Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(7)))
@@ -164,6 +185,7 @@ fn an_unmet_need_is_a_fault_naming_where_it_starts_and_each_parts_needs_and_offe
     assert_eq!(
         admission.short_offers,
         [short_offer::<Bits>(
+            2,
             Needs::qubits(49),
             offer.clone(),
             vec![unmet_qubits(49, 30)]
@@ -172,18 +194,15 @@ fn an_unmet_need_is_a_fault_naming_where_it_starts_and_each_parts_needs_and_offe
     assert_eq!(
         admission.needs_by_part,
         [
-            (type_name::<Program>(), Needs::qubits(7)),
-            (type_name::<Spread>(), Needs::qubits(49)),
+            (part::<Program>(0), Needs::qubits(7)),
+            (part::<Spread>(1), Needs::qubits(49)),
         ]
     );
     assert_eq!(
         admission.offers_by_part,
         [
-            (type_name::<Bits>(), offer),
-            (
-                type_name::<Spread>(),
-                Capabilities::unlimited().max_qubits(4)
-            ),
+            (part::<Bits>(2), offer),
+            (part::<Spread>(1), Capabilities::unlimited().max_qubits(4)),
         ]
     );
     assert_eq!(log.entries(), Vec::<String>::new(), "nothing provisioned");
@@ -203,15 +222,9 @@ fn offers_go_up_through_adapters() {
     assert_eq!(
         admission(composed).offers_by_part,
         [
-            (type_name::<Bits>(), eleven),
-            (
-                type_name::<Spread>(),
-                Capabilities::unlimited().max_qubits(3)
-            ),
-            (
-                type_name::<Spread>(),
-                Capabilities::unlimited().max_qubits(1)
-            ),
+            (part::<Bits>(3), eleven),
+            (part::<Spread>(2), Capabilities::unlimited().max_qubits(3)),
+            (part::<Spread>(1), Capabilities::unlimited().max_qubits(1)),
         ]
     );
 }
@@ -230,6 +243,7 @@ fn a_part_that_only_passes_a_shortage_up_is_not_named() {
     assert_eq!(
         admission(composed).short_offers,
         [short_offer::<Bits>(
+            2,
             Needs::qubits(9),
             eight,
             vec![unmet_qubits(9, 8)]
@@ -237,21 +251,118 @@ fn a_part_that_only_passes_a_shortage_up_is_not_named() {
     );
 }
 
-/// The encoding of 7 over 30 qubits, then the same with a profiler above
-/// and below the encoding: the same short offers, and the same message.
+/// 1 qubit and 3 carbon blocks, drawn from one pool of qubits below, over
+/// 5 qubits: the 7 qubits the pool draws fall short at the bits, and the
+/// pool's 2 carbon blocks above them short of 3; but given the 7 qubits it
+/// needs, the pool would offer 3 carbon blocks, so only the bits are named.
 #[test]
-fn inserting_a_profiler_changes_no_short_offer() {
+fn a_pool_that_only_passes_a_shortage_up_is_not_named() {
+    let log = Log::default();
+    let needs = Needs::qubits(1).blocks(Pool::carbon(), 3);
+    let five = Capabilities::unlimited().max_qubits(5);
+    let composed = Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()))
+        >> Adapter::new(Pool::new(&log))
+        >> Executor::new(Bits::new(&log).offering(five.clone()));
+    assert_eq!(
+        admission(composed).short_offers,
+        [short_offer::<Bits>(
+            2,
+            Needs::qubits(7),
+            five,
+            vec![unmet_qubits(7, 5)]
+        )]
+    );
+}
+
+/// A program on 3 qubits, through an encoding of 7 qubits per qubit whose
+/// decoder holds 1 logical qubit: over 20 qubits, both the bits, 20 for
+/// 21, and the encoding, 1 for 3 even given the 21 it needs, are named,
+/// the encoding as over 21 qubits, where the bits are not short.
+#[test]
+fn an_encoding_short_on_its_own_is_named_even_while_the_executor_is_short() {
+    let log = Log::default();
+    let over = |qubits: u32| {
+        admission(
+            Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(3)))
+                >> Adapter::new(Capped::new(7, 1, &log))
+                >> Executor::new(
+                    Bits::new(&log).offering(Capabilities::unlimited().max_qubits(qubits)),
+                ),
+        )
+    };
+    let capped = short_offer::<Capped>(
+        1,
+        Needs::qubits(3),
+        Capabilities::unlimited()
+            .max_qubits(1)
+            .without_readout_parity(),
+        vec![unmet_qubits(3, 1)],
+    );
+    assert_eq!(
+        over(20).short_offers,
+        [
+            short_offer::<Bits>(
+                2,
+                Needs::qubits(21),
+                Capabilities::unlimited().max_qubits(20),
+                vec![unmet_qubits(21, 20)]
+            ),
+            capped.clone(),
+        ]
+    );
+    assert_eq!(over(21).short_offers, [capped]);
+}
+
+/// A program on 3 qubits, through an adapter that offers 1 qubit over more
+/// than 10 below, over 20 qubits: the bits serve the 3 qubits that reach
+/// them, and the adapter, which would offer 3 given exactly those, falls
+/// short of them over the 20, so it is named, with that offer.
+#[test]
+fn an_adapter_short_only_over_a_larger_offer_below_is_named() {
+    let log = Log::default();
+    let composed = Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(3)))
+        >> Adapter::new(Contrary::new(&log))
+        >> Executor::new(Bits::new(&log).offering(Capabilities::unlimited().max_qubits(20)));
+    assert_eq!(
+        admission(composed).short_offers,
+        [short_offer::<Contrary>(
+            1,
+            Needs::qubits(3),
+            Capabilities::unlimited().max_qubits(1),
+            vec![unmet_qubits(3, 1)]
+        )]
+    );
+}
+
+/// The capped encoding over 20 qubits, then the same with a profiler above
+/// and below the encoding: the same parts named, with the same figures and
+/// unmet needs, at the positions the profilers shift.
+#[test]
+fn inserting_a_profiler_changes_only_the_positions_of_the_short_offers() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
-    let thirty = || Capabilities::unlimited().max_qubits(30);
-    let program = || Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(7)));
+    let program = || Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(3)));
     let profiler = || Adapter::new(Profiler::new(&counted, &log));
-    let spread = || Adapter::new(Spread::new(7, &log));
-    let bits = || Executor::new(Bits::new(&log).offering(thirty()));
-    let without = admission(program() >> spread() >> bits());
-    let with = admission(program() >> profiler() >> spread() >> profiler() >> bits());
-    assert_eq!(with.short_offers, without.short_offers);
-    assert_eq!(with.to_string(), without.to_string());
+    let capped = || Adapter::new(Capped::new(7, 1, &log));
+    let bits = || Executor::new(Bits::new(&log).offering(Capabilities::unlimited().max_qubits(20)));
+    let without = admission(program() >> capped() >> bits());
+    let with = admission(program() >> profiler() >> capped() >> profiler() >> bits());
+    assert_eq!(
+        parts(&without.short_offers),
+        [part::<Bits>(2), part::<Capped>(1)]
+    );
+    assert_eq!(
+        parts(&with.short_offers),
+        [part::<Bits>(4), part::<Capped>(2)]
+    );
+    let unplaced = |faults: AdmissionFaults| {
+        faults
+            .short_offers
+            .into_iter()
+            .map(|short| (short.part.name, short.needed, short.offered, short.unmet))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(unplaced(with), unplaced(without));
 }
 
 /// The same chain, bracketed both ways: the same admission fault.
@@ -285,6 +396,7 @@ fn where_the_brackets_go_changes_no_verdict_even_through_a_pool() {
     assert_eq!(
         right.short_offers,
         [short_offer::<Bits>(
+            2,
             Needs::qubits(7),
             five,
             vec![unmet_qubits(7, 5)]
@@ -304,6 +416,7 @@ fn a_need_the_executor_does_not_offer_is_a_fault() {
     assert_eq!(
         admission(composed).short_offers,
         [short_offer::<Bits>(
+            1,
             needs,
             Bits::new(&log).offers(),
             vec![UnmetNeed::ReadoutParity]
@@ -312,8 +425,9 @@ fn a_need_the_executor_does_not_offer_is_a_fault() {
 }
 
 /// A program using readout parities, through a lowering that cannot carry
-/// them, over bits that resolve them: refused, naming the lowering, since
-/// the bits would serve what reaches them.
+/// them, over bits that resolve them: refused, naming the lowering with
+/// its offer given exactly the 1 qubit and the parities it needs below,
+/// since the bits would serve what reaches them.
 #[test]
 fn an_adapter_that_cannot_carry_a_need_is_named_by_the_fault() {
     let log = Log::default();
@@ -324,8 +438,11 @@ fn an_adapter_that_cannot_carry_a_need_is_named_by_the_fault() {
     assert_eq!(
         admission(composed).short_offers,
         [short_offer::<LoweringWithoutParity>(
+            1,
             needs,
-            Capabilities::unlimited().without_readout_parity(),
+            Capabilities::unlimited()
+                .max_qubits(1)
+                .without_readout_parity(),
             vec![UnmetNeed::ReadoutParity]
         )]
     );
@@ -333,10 +450,10 @@ fn an_adapter_that_cannot_carry_a_need_is_named_by_the_fault() {
 
 /// 9 qubits and readout parities, through the lowering, over bits of 8
 /// qubits that resolve parities: two shortages of different kinds, the
-/// qubits starting at the bits and the parities at the lowering, both
-/// named, bottom to top.
+/// qubits at the bits and the parities at the lowering, each short on its
+/// own, both named, bottom to top.
 #[test]
-fn shortages_of_different_kinds_name_each_part_where_one_starts() {
+fn shortages_of_different_kinds_name_each_part_short_on_its_own() {
     let log = Log::default();
     let needs = Needs::qubits(9).with_readout_parity();
     let eight = Capabilities::unlimited().max_qubits(8);
@@ -346,36 +463,14 @@ fn shortages_of_different_kinds_name_each_part_where_one_starts() {
     assert_eq!(
         admission(composed).short_offers,
         [
-            short_offer::<Bits>(needs.clone(), eight.clone(), vec![unmet_qubits(9, 8)]),
+            short_offer::<Bits>(2, needs.clone(), eight, vec![unmet_qubits(9, 8)]),
             short_offer::<LoweringWithoutParity>(
+                1,
                 needs,
-                eight.without_readout_parity(),
+                Capabilities::unlimited()
+                    .max_qubits(9)
+                    .without_readout_parity(),
                 vec![UnmetNeed::ReadoutParity]
-            ),
-        ]
-    );
-}
-
-/// 1 qubit and 3 carbon blocks, drawn from one pool of qubits below, over
-/// 5 qubits: the 7 qubits the pool draws fall short at the bits, and the
-/// pool's 2 carbon blocks above them short of 3; a shortage of another
-/// block type starts at the pool, so both are named.
-#[test]
-fn a_shortage_of_another_block_type_is_named_where_it_starts() {
-    let log = Log::default();
-    let needs = Needs::qubits(1).blocks(Pool::carbon(), 3);
-    let five = Capabilities::unlimited().max_qubits(5);
-    let composed = Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()))
-        >> Adapter::new(Pool::new(&log))
-        >> Executor::new(Bits::new(&log).offering(five.clone()));
-    assert_eq!(
-        admission(composed).short_offers,
-        [
-            short_offer::<Bits>(Needs::qubits(7), five.clone(), vec![unmet_qubits(7, 5)]),
-            short_offer::<Pool>(
-                needs,
-                five.max_blocks(Pool::carbon(), 2),
-                vec![unmet_blocks(Pool::carbon(), 3, 2)]
             ),
         ]
     );
@@ -401,11 +496,35 @@ fn where_the_brackets_go_changes_no_adapters_short_offer() {
         admission((program() >> (profiler() >> lowering())) >> bits()),
     ];
     assert_eq!(
-        left.short_offers
-            .iter()
-            .map(|short| short.part)
-            .collect::<Vec<_>>(),
-        [type_name::<Bits>(), type_name::<LoweringWithoutParity>()]
+        parts(&left.short_offers),
+        [part::<Bits>(3), part::<LoweringWithoutParity>(2)]
+    );
+    for (i, admission) in bracketed.iter().enumerate() {
+        assert_eq!(*admission, left, "bracketing {i}");
+    }
+}
+
+/// The capped encoding over 20 qubits under a profiler, in each of the
+/// five bracketings of four parts: the same admission fault, naming the
+/// bits and the encoding, each short on its own.
+#[test]
+fn where_the_brackets_go_changes_no_part_short_on_its_own() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let program = || Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(3)));
+    let profiler = || Adapter::new(Profiler::new(&counted, &log));
+    let capped = || Adapter::new(Capped::new(7, 1, &log));
+    let bits = || Executor::new(Bits::new(&log).offering(Capabilities::unlimited().max_qubits(20)));
+    let left = admission(((program() >> profiler()) >> capped()) >> bits());
+    let bracketed = [
+        admission((program() >> profiler()) >> (capped() >> bits())),
+        admission(program() >> (profiler() >> (capped() >> bits()))),
+        admission(program() >> ((profiler() >> capped()) >> bits())),
+        admission((program() >> (profiler() >> capped())) >> bits()),
+    ];
+    assert_eq!(
+        parts(&left.short_offers),
+        [part::<Bits>(3), part::<Capped>(2)]
     );
     for (i, admission) in bracketed.iter().enumerate() {
         assert_eq!(*admission, left, "bracketing {i}");
@@ -433,13 +552,14 @@ fn a_readout_parity_need_passes_through_an_adapter() {
         assert_eq!(
             admission.needs_by_part,
             [
-                (type_name::<Program>(), needs.clone()),
-                (type_name::<Profiler>(), needs.clone()),
+                (part::<Program>(0), needs.clone()),
+                (part::<Profiler>(1), needs.clone()),
             ]
         );
         assert_eq!(
             admission.short_offers,
             [short_offer::<Bits>(
+                2,
                 needs.clone(),
                 Bits::new(&log).offers(),
                 vec![UnmetNeed::ReadoutParity]
@@ -464,16 +584,16 @@ fn an_admission_fault_says_which_part_and_every_unmet_need() {
     assert_eq!(
         admission(composed).to_string(),
         format!(
-            "the chain is not admitted: `{}` cannot serve the needs that reach it (needs 9 of \
-             block type `qubit`, where the offer allows at most 8; uses readout parities, and \
-             the offer does not resolve them)",
+            "the chain is not admitted: `{}` (part 1) cannot serve the needs that reach it \
+             (needs 9 of block type `qubit`, where the offer allows at most 8; uses readout \
+             parities, and the offer does not resolve them)",
             type_name::<Bits>()
         )
     );
 }
 
 /// The two shortages of different kinds: the message names each part
-/// where one starts, with its unmet need, bottom to top.
+/// short on its own, with its unmet need, bottom to top.
 #[test]
 fn an_admission_fault_names_every_short_part() {
     let log = Log::default();
@@ -484,11 +604,85 @@ fn an_admission_fault_names_every_short_part() {
     assert_eq!(
         admission(composed).to_string(),
         format!(
-            "the chain is not admitted: `{}` cannot serve the needs that reach it (needs 9 of \
-             block type `qubit`, where the offer allows at most 8); `{}` cannot serve the \
-             needs that reach it (uses readout parities, and the offer does not resolve them)",
+            "the chain is not admitted: `{}` (part 2) cannot serve the needs that reach it \
+             (needs 9 of block type `qubit`, where the offer allows at most 8); `{}` (part 1) \
+             cannot serve the needs that reach it (uses readout parities, and the offer does \
+             not resolve them)",
             type_name::<Bits>(),
             type_name::<LoweringWithoutParity>()
         )
     );
+}
+
+/// The two shortages of different kinds, with each part named as one
+/// built at run time is, by what it was built from: the fault names each
+/// part by that name, in its fields and its message.
+#[test]
+fn an_admission_fault_names_each_part_by_its_name() {
+    let log = Log::default();
+    let needs = Needs::qubits(9).with_readout_parity();
+    let composed = Driver::new(Renamed::new(
+        Program::new(&[("mz", 0)]).needing(needs.clone()),
+        "h2 program",
+    )) >> Adapter::new(Renamed::new(
+        LoweringWithoutParity::new(&log),
+        "parity-free lowering",
+    )) >> Executor::new(Renamed::new(
+        Bits::new(&log).offering(Capabilities::unlimited().max_qubits(8)),
+        "qodec runtime",
+    ));
+    let admission = admission(composed);
+    let named = |position, name| ChainPart::new(position, name);
+    assert_eq!(
+        admission
+            .needs_by_part
+            .iter()
+            .map(|(part, _)| part.clone())
+            .collect::<Vec<_>>(),
+        [named(0, "h2 program"), named(1, "parity-free lowering")]
+    );
+    assert_eq!(
+        admission
+            .offers_by_part
+            .iter()
+            .map(|(part, _)| part.clone())
+            .collect::<Vec<_>>(),
+        [named(2, "qodec runtime"), named(1, "parity-free lowering")]
+    );
+    assert_eq!(
+        parts(&admission.short_offers),
+        [named(2, "qodec runtime"), named(1, "parity-free lowering")]
+    );
+    assert_eq!(
+        admission.to_string(),
+        "the chain is not admitted: `qodec runtime` (part 2) cannot serve the needs that \
+         reach it (needs 9 of block type `qubit`, where the offer allows at most 8); \
+         `parity-free lowering` (part 1) cannot serve the needs that reach it (uses readout \
+         parities, and the offer does not resolve them)"
+    );
+}
+
+/// A program using readout parities, through two lowerings that cannot
+/// carry them, over bits that resolve them: both lowerings are named, of
+/// one type, told apart by their positions.
+#[test]
+fn two_parts_of_one_type_are_told_apart_by_position() {
+    let log = Log::default();
+    let needs = Needs::qubits(1).with_readout_parity();
+    let composed = Driver::new(Program::new(&[("mz", 0)]).needing(needs))
+        >> Adapter::new(LoweringWithoutParity::new(&log))
+        >> Adapter::new(LoweringWithoutParity::new(&log))
+        >> Executor::new(Bits::new(&log).offering(Capabilities::unlimited()));
+    let admission = admission(composed);
+    assert_eq!(
+        parts(&admission.short_offers),
+        [
+            part::<LoweringWithoutParity>(2),
+            part::<LoweringWithoutParity>(1)
+        ]
+    );
+    let message = admission.to_string();
+    let name = type_name::<LoweringWithoutParity>();
+    assert!(message.contains(&format!("`{name}` (part 2)")), "{message}");
+    assert!(message.contains(&format!("`{name}` (part 1)")), "{message}");
 }

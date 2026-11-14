@@ -82,10 +82,18 @@ pub enum Failure {
     /// [`ShapeFault`](crate::ShapeFault). A caller tells them apart by
     /// downcasting: `error.downcast_ref::<ShapeFault>()`.
     Part(Box<dyn Error + Send + Sync>),
-    /// A part panicked, with its message when the panic's payload is text
-    /// (a `&str` or a `String`). Only where a panic unwinds: on wasm32, it
-    /// aborts, and nothing is caught.
-    Panicked(Option<String>),
+    /// A part panicked. Only where a panic unwinds: on wasm32, it aborts,
+    /// and nothing is caught.
+    Panicked {
+        /// The name of the part whose call panicked
+        /// ([`Execute::name`](crate::Execute::name)); a composed part is
+        /// named as its upper part, since each part below it is called
+        /// through a check of its own, which names it.
+        part: String,
+        /// Its message, when the panic's payload is text (a `&str` or a
+        /// `String`).
+        message: Option<String>,
+    },
     /// An `execute` was refused once the run had started.
     Refused(ExecuteRefusal),
 }
@@ -94,8 +102,14 @@ impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Failure::Part(error) => write!(f, "{error}"),
-            Failure::Panicked(Some(message)) => write!(f, "a part panicked: {message}"),
-            Failure::Panicked(None) => f.write_str("a part panicked"),
+            Failure::Panicked {
+                part,
+                message: Some(message),
+            } => write!(f, "`{part}` panicked: {message}"),
+            Failure::Panicked {
+                part,
+                message: None,
+            } => write!(f, "`{part}` panicked"),
             Failure::Refused(refusal) => write!(f, "an execute was refused: {refusal}"),
         }
     }
