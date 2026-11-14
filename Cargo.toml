@@ -24,6 +24,7 @@ members = [
     "source/compiler/qsc_passes",
     "source/compiler/qsc_project",
     "source/compiler/qsc_rir",
+    "source/executor_protocol",
     "source/fuzz",
     "source/index_map",
     "source/language_service",
@@ -86,6 +87,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 sorted-vec = "0.8"
 sorted-iter = "0.1"
+smallvec = "1.15"
 wasm-bindgen = "0.2.127"
 wasm-bindgen-futures = "0.4"
 rand = "0.10.2"
