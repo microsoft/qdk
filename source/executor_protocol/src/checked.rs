@@ -12,7 +12,9 @@
 //! than a `u32` counts), and makes a failure of an answer of the wrong
 //! shape or of a panic (where a panic unwinds: on wasm32, it aborts), so
 //! that the part above gets readouts it can index without a check of its
-//! own.
+//! own. An `execute` that fails, or is dropped before it answers, leaves
+//! the caller's [`Readouts`] as they were, so the caller never reads part
+//! of an answer.
 
 use smallvec::SmallVec;
 
@@ -20,7 +22,7 @@ use crate::instruction_set::instruction::batch_check::{BatchFault, BatchLimits, 
 use crate::panics::catch_panic;
 use crate::{
     Batch, BatchReadouts, Capabilities, ChainPart, Execute, ExecuteError, ExecuteRefusal, Failure,
-    InstructionSet, Needs, Seed, ShapeFault, ShotId, ShotSet,
+    InstructionSet, Needs, Readouts, Seed, ShapeFault, ShotId, ShotSet,
 };
 
 /// `inner`, the receiver of a boundary, with every `execute` it receives
@@ -79,39 +81,42 @@ impl<E: Execute> Execute for Checked<'_, E> {
     }
 
     /// Refuses `batches` if any is refused, before any runs; an empty
-    /// `execute` answers no readouts without reaching the receiver. Then
+    /// `execute` appends no readouts without reaching the receiver. Then
     /// runs them on the receiver, and makes a failure of its panic (where a
-    /// panic unwinds), or of an answer whose shape is not the batches'.
+    /// panic unwinds), or of an answer whose shape is not the batches'. On
+    /// a failure, or when its future is dropped before it answers, the
+    /// receiver's answer is removed from `readouts`.
     async fn execute(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let Some(first) = batches.first() else {
-            return Ok(Vec::new());
+            return Ok(());
         };
         let mut slots: SmallVec<[u32; 4]> = SmallVec::with_capacity(batches.len());
         for (index, batch) in batches.iter().enumerate() {
             #[cfg(test)]
             BATCHES_CHECKED.with(|checked| checked.set(checked.get() + 1));
-            let readouts = check_batch(batch.instructions, self.batch_limits)
+            let width = check_batch(batch.instructions, self.batch_limits)
                 .map_err(|fault| ExecuteError::Refused(refusal(index, batch, fault)))?;
-            slots.push(readouts);
+            slots.push(width);
         }
-        let answer = match catch_panic(|| self.inner.execute(batches, seed)).await {
-            Ok(answer) => answer?,
-            Err(message) => {
-                return Err(ExecuteError::Failed {
-                    shot: first_shot(first.shots),
-                    failure: Failure::Panicked {
-                        part: self.part.clone(),
-                        message,
-                    },
-                });
-            }
+        let mut answer = PendingAnswer::new(readouts);
+        let ran = match catch_panic(|| self.inner.execute(batches, seed, answer.readouts())).await {
+            Ok(ran) => ran,
+            Err(message) => Err(ExecuteError::Failed {
+                shot: first_shot(first.shots),
+                failure: Failure::Panicked {
+                    part: self.part.clone(),
+                    message,
+                },
+            }),
         };
-        check_shape(batches, &slots, &answer)?;
-        Ok(answer)
+        ran.and_then(|()| check_shape(batches, &slots, answer.appended()))?;
+        answer.keep();
+        Ok(())
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
@@ -161,10 +166,56 @@ fn refusal(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteRefusal
     }
 }
 
-/// Whether `answer` has the shape of `batches`, whose instructions have
-/// `slots` readout slots: a readouts per batch, a row per shot, a value per
-/// slot. A failure of the batch's first shot if not; of the first batch's,
-/// for a count of readouts that is not the batches'.
+/// The caller's `readouts` while an `execute` appends its answer to them,
+/// from `start`, their length before it: dropped unkept, it removes the
+/// answer, so that an `execute` that fails, panics or is dropped leaves
+/// them as they were.
+struct PendingAnswer<'a> {
+    readouts: &'a mut Readouts,
+    start: usize,
+    kept: bool,
+}
+
+impl<'a> PendingAnswer<'a> {
+    fn new(readouts: &'a mut Readouts) -> Self {
+        let start = readouts.len();
+        Self {
+            readouts,
+            start,
+            kept: false,
+        }
+    }
+
+    /// The readouts, to lend to the receiver.
+    fn readouts(&mut self) -> &mut Readouts {
+        self.readouts
+    }
+
+    /// The readouts the receiver appended: none if it removed some it
+    /// found.
+    fn appended(&self) -> &[BatchReadouts] {
+        self.readouts.get(self.start..).unwrap_or_default()
+    }
+
+    /// Keeps the answer, once checked.
+    fn keep(mut self) {
+        self.kept = true;
+    }
+}
+
+impl Drop for PendingAnswer<'_> {
+    fn drop(&mut self) {
+        if !self.kept {
+            self.readouts.truncate(self.start);
+        }
+    }
+}
+
+/// Whether `answer`, the readouts appended for `batches`, has their shape,
+/// their instructions having `slots` readout slots: a readouts per batch,
+/// a row per shot, a value per slot. A failure of the batch's first shot
+/// if not; of the first batch's, for a count of readouts that is not the
+/// batches'.
 fn check_shape(
     batches: &[Batch<'_>],
     slots: &[u32],

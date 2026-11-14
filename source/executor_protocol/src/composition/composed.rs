@@ -30,8 +30,8 @@ use crate::checked::batch_limits;
 use crate::instruction_set::instruction::batch_check::BatchLimits;
 use crate::panics::end_both;
 use crate::{
-    Adapt, Batch, BatchReadouts, Capabilities, ChainPart, Execute, ExecuteError, InstructionSet,
-    Needs, Seed, ShotSet,
+    Adapt, Batch, Capabilities, ChainPart, Execute, ExecuteError, InstructionSet, Needs, Readouts,
+    Seed, ShotSet,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
@@ -99,8 +99,10 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-    ) -> impl Future<Output = Result<Vec<BatchReadouts>, ExecuteError>> {
-        self.adapter.adapt(batches, seed, &mut *self.below)
+        readouts: &mut Readouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        self.adapter
+            .adapt(batches, seed, &mut *self.below, readouts)
     }
 
     /// The adapter, then the chain below it, ended even if the adapter

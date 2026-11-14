@@ -26,21 +26,27 @@
 //! for, on every shot, at its index.
 //!
 //! The rows are dense: every value of the batch in one buffer, a byte or
-//! two each, so a shot's row is a slice, and a batch's readouts, made with
-//! its number of shots, take at most two allocations, whatever that number.
+//! two each, so a shot's row is a slice; and the shots' conditions are kept
+//! only once a shot has any. So a batch's readouts, made with its number of
+//! shots, take one allocation while every shot is clear, and at most two,
+//! whatever that number. An `execute` appends them to the caller's
+//! [`Readouts`], which keeps their memory for the next answer.
 
 mod readout_value;
+mod readouts;
 mod shot_conditions;
 
 use std::error::Error;
 use std::fmt;
 
 pub use readout_value::{ReadoutFailure, ReadoutValue};
+pub use readouts::Readouts;
 pub use shot_conditions::ShotConditions;
 
 /// One batch's readouts: a row per shot, in its shot set's order, of one
 /// [`ReadoutValue`] per readout slot, and each shot's conditions. An
-/// `execute` returns one per batch, in the batches' order.
+/// `execute` appends one per batch to the caller's [`Readouts`], in the
+/// batches' order.
 ///
 /// Every row has exactly R values, R being the width given to
 /// [`with_capacity`](Self::with_capacity) (`push_row` refuses others);
@@ -49,17 +55,35 @@ pub use shot_conditions::ShotConditions;
 /// readout slots; slot k is the same readout on every shot; and a lost
 /// value is [`ReadoutValue::Missing`]. A shot is read by its position in
 /// the batch's shot set, as `row(i)`.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct BatchReadouts {
     /// R, the number of values in each row.
     readouts: u32,
+    /// How many rows there are.
+    shots: usize,
+    /// The rows it was made with room for: the room the conditions take
+    /// when a shot first has any.
+    room: usize,
     /// The rows, one after another: shot i's row is
     /// `values[i * R..(i + 1) * R]`.
     values: Vec<ReadoutValue>,
-    /// Each shot's conditions, by its position: also how many rows there
-    /// are, since a row of no slots holds no value.
+    /// Each shot's conditions, by its position; empty while every shot's
+    /// conditions are `NONE`, so that readouts of clear shots take no
+    /// allocation for them.
     conditions: Vec<ShotConditions>,
 }
+
+/// The same width, rows and conditions, whatever memory each keeps.
+impl PartialEq for BatchReadouts {
+    fn eq(&self, other: &Self) -> bool {
+        self.readouts == other.readouts
+            && self.shots == other.shots
+            && self.values == other.values
+            && (0..self.shots).all(|i| self.conditions(i) == other.conditions(i))
+    }
+}
+
+impl Eq for BatchReadouts {}
 
 impl BatchReadouts {
     /// No rows yet, of `readouts` values each, with room for `shots` rows.
@@ -72,9 +96,39 @@ impl BatchReadouts {
     pub fn with_capacity(shots: usize, readouts: u32) -> Self {
         Self {
             readouts,
+            shots: 0,
+            room: shots,
             values: Vec::with_capacity(shots.saturating_mul(readouts as usize)),
-            conditions: Vec::with_capacity(shots),
+            conditions: Vec::new(),
         }
+    }
+
+    /// Empties it for rows of `readouts` values, with room for `shots`
+    /// rows, keeping its memory: as [`with_capacity`](Self::with_capacity),
+    /// with no allocation where its memory has the room.
+    pub(crate) fn reset(&mut self, shots: usize, readouts: u32) {
+        self.readouts = readouts;
+        self.shots = 0;
+        self.room = shots;
+        self.values.clear();
+        self.values.reserve(shots.saturating_mul(readouts as usize));
+        self.conditions.clear();
+    }
+
+    /// Records the next shot's `conditions`, its values already added: the
+    /// conditions are kept from the first shot that has any, with room for
+    /// every row.
+    fn record_shot(&mut self, conditions: ShotConditions) {
+        if self.conditions.is_empty() {
+            if conditions.is_empty() {
+                self.shots += 1;
+                return;
+            }
+            self.conditions.reserve(self.room.max(self.shots + 1));
+            self.conditions.resize(self.shots, ShotConditions::NONE);
+        }
+        self.conditions.push(conditions);
+        self.shots += 1;
     }
 
     /// Adds the next shot's row, `values`, with its `conditions`.
@@ -95,7 +149,7 @@ impl BatchReadouts {
             });
         }
         self.values.extend_from_slice(values);
-        self.conditions.push(conditions);
+        self.record_shot(conditions);
         Ok(())
     }
 
@@ -109,7 +163,7 @@ impl BatchReadouts {
     /// How many rows it holds: one per shot, once complete.
     #[must_use]
     pub fn shots(&self) -> usize {
-        self.conditions.len()
+        self.shots
     }
 
     /// The row of the shot at `position` in the batch's shot set: its R
@@ -154,7 +208,10 @@ impl BatchReadouts {
     #[track_caller]
     pub fn conditions(&self, position: usize) -> ShotConditions {
         self.check_position(position);
-        self.conditions[position]
+        self.conditions
+            .get(position)
+            .copied()
+            .unwrap_or(ShotConditions::NONE)
     }
 
     /// Joins the readouts of one batch's instructions sent below in parts,
@@ -194,7 +251,7 @@ impl BatchReadouts {
                 joined.values.extend_from_slice(part.row(position));
                 conditions |= part.conditions(position);
             }
-            joined.conditions.push(conditions);
+            joined.record_shot(conditions);
         }
         joined
     }
@@ -220,7 +277,7 @@ impl BatchReadouts {
 impl fmt::Debug for BatchReadouts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let rows =
-            (0..self.shots()).map(|position| (self.row(position), self.conditions[position]));
+            (0..self.shots()).map(|position| (self.row(position), self.conditions(position)));
         f.debug_struct("BatchReadouts")
             .field("readouts", &self.readouts)
             .field("rows", &DebugRows(rows))
@@ -282,12 +339,13 @@ pub enum ShapeFault {
         /// The number of values the row held.
         got: usize,
     },
-    /// An `execute` answered `got` batches' readouts, where it was sent
-    /// `expected` batches.
+    /// An `execute` appended `got` batches' readouts to the caller's
+    /// [`Readouts`], where it was sent `expected` batches; `got` is 0 when
+    /// it removed readouts it found there.
     Batches {
         /// The batches sent.
         expected: usize,
-        /// The readouts answered.
+        /// The readouts appended.
         got: usize,
     },
     /// The readouts of `batches[batch]` hold `got` rows, where the batch

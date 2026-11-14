@@ -2,16 +2,16 @@
 // Licensed under the MIT License.
 
 //! The executor's role, [`Execute`], and what an `execute` returns when it
-//! gives no readouts: [`ExecuteError`], with [`ExecuteRefusal`] when nothing
-//! of it ran.
+//! appends no readouts: [`ExecuteError`], with [`ExecuteRefusal`] when
+//! nothing of it ran.
 
 use std::error::Error;
 use std::fmt;
 
 use crate::admission::by_part::ByPart;
 use crate::{
-    Batch, BatchReadouts, Capabilities, Failure, InstructionFault, InstructionSet, Needs,
-    RunRefusal, Seed, ShotId, ShotSet,
+    Batch, Capabilities, Failure, InstructionFault, InstructionSet, Needs, Readouts, RunRefusal,
+    Seed, ShotId, ShotSet,
 };
 
 /// Runs batches of the instructions it accepts on their shots' states.
@@ -20,8 +20,8 @@ use crate::{
 /// adapter calls below it: the rest of the chain, composed, is one executor
 /// to the part above. The protocol checks each `execute` it receives: every
 /// instruction against its set and the needs it was provisioned for, each
-/// batch against its most instructions, and its answer's shape; so it runs
-/// only what it accepts.
+/// batch against its most instructions, and the shape of the readouts it
+/// appends; so it runs only what it accepts.
 pub trait Execute {
     // Composition time.
 
@@ -101,10 +101,16 @@ pub trait Execute {
         async { Ok(()) }
     }
 
-    /// Runs each batch's instructions on its shots' states, and returns
-    /// their readouts: `readouts[i]` answers `batches[i]`, a row per shot, in
-    /// its set's order, of a value per readout slot. A shot's state is made
-    /// at its first batch, from the needs it was provisioned for and
+    /// Runs each batch's instructions on its shots' states, and appends
+    /// their readouts to `readouts`, which the caller lends: one
+    /// [`BatchReadouts`](crate::BatchReadouts) per batch, in the batches'
+    /// order, a row per shot, in its set's order, of a value per readout
+    /// slot. So, `start` being the length of `readouts` before, entry
+    /// `start + i` answers `batches[i]`; the executor touches none of those
+    /// before. An `execute` that fails, or is dropped before it answers,
+    /// leaves `readouts` as they were when it is called through the
+    /// protocol, which removes what was appended. A shot's state is made at
+    /// its first batch, from the needs it was provisioned for and
     /// [`seed.shot(id)`](Seed::shot), and kept until
     /// [`end_shots`](Self::end_shots).
     ///
@@ -130,7 +136,8 @@ pub trait Execute {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-    ) -> impl Future<Output = Result<Vec<BatchReadouts>, ExecuteError>>;
+        readouts: &mut Readouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>>;
 
     /// Frees what it holds for shots that ended. The protocol calls it on
     /// every part, so a part never forwards it below; by default it does
@@ -183,8 +190,9 @@ impl<E: Execute + ?Sized> Execute for &mut E {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-    ) -> impl Future<Output = Result<Vec<BatchReadouts>, ExecuteError>> {
-        (**self).execute(batches, seed)
+        readouts: &mut Readouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        (**self).execute(batches, seed, readouts)
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
@@ -192,8 +200,8 @@ impl<E: Execute + ?Sized> Execute for &mut E {
     }
 }
 
-/// What an `execute` returns when it gives no readouts: it was refused, and
-/// nothing of it ran, or it failed for a shot.
+/// What an `execute` returns when it appends no readouts: it was refused,
+/// and nothing of it ran, or it failed for a shot.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ExecuteError {

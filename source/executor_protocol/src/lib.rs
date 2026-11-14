@@ -22,7 +22,7 @@ mod tests;
 pub use admission::{AdmissionFaults, Capabilities, ChainPart, Needs, ShortOffer, UnmetNeed};
 pub use batch::Batch;
 pub use batch_readouts::{
-    BatchReadouts, ReadoutFailure, ReadoutIndex, ReadoutValue, ShapeFault, ShotConditions,
+    BatchReadouts, ReadoutFailure, ReadoutIndex, ReadoutValue, Readouts, ShapeFault, ShotConditions,
 };
 pub use composition::{Adapter, Compose, Composed, CompositionFaults, Driver, Executor};
 pub use instruction_set::{

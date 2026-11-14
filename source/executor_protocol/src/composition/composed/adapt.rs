@@ -8,8 +8,8 @@ use crate::admission::by_part::ByPart;
 use crate::checked::Checked;
 use crate::panics::{await_part, end_both};
 use crate::{
-    Adapt, Batch, BatchReadouts, Capabilities, Execute, ExecuteError, InstructionSet, Needs,
-    OpcodeMap, RunRefusal, Seed, ShotSet,
+    Adapt, Batch, Capabilities, Execute, ExecuteError, InstructionSet, Needs, OpcodeMap, Readouts,
+    RunRefusal, Seed, ShotSet,
 };
 
 /// Adapter `>>` adapter: an adapter.
@@ -75,7 +75,8 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let (part, offer, batch_limits) = kept(
             self.below_part.as_ref(),
             self.below_offer.as_ref(),
@@ -89,6 +90,7 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
             batches,
             seed,
             &mut Checked::new(&mut rest, part, offer, batch_limits),
+            readouts,
         ))
         .await
     }
