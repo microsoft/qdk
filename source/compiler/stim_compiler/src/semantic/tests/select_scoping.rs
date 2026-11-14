@@ -121,7 +121,7 @@ fn require_with_at_least_one_record_in_scope_lowers() {
                         negated: false,
                         q: 0,
                     }
-                    SelectBlock:
+                    SelectBlock [4-50]:
                         body:
                             [17-20] SingleQubitMeasurement {
                                 reset: false,
@@ -171,7 +171,7 @@ fn measure_reset_produces_record_in_select() {
         &expect![[r#"
             Circuit [0-40]:
                 items:
-                    SelectBlock:
+                    SelectBlock [0-39]:
                         body:
                             [13-17] SingleQubitMeasurement {
                                 reset: true,
@@ -210,7 +210,7 @@ fn pair_measurement_produces_record_in_select() {
         &expect![[r#"
             Circuit [0-43]:
                 items:
-                    SelectBlock:
+                    SelectBlock [0-42]:
                         body:
                             [13-20] TwoQubitMeasurement {
                                 readout_noise: 0.0,
@@ -384,7 +384,7 @@ fn notleaked_with_at_least_one_record_in_scope_lowers() {
                         negated: false,
                         q: 0,
                     }
-                    SelectBlock:
+                    SelectBlock [4-52]:
                         body:
                             [17-20] SingleQubitMeasurement {
                                 reset: false,

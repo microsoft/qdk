@@ -36,6 +36,9 @@ pub(crate) type ResultId = u32;
 
 pub(crate) const QUBIT_REGISTER: &str = "qs";
 
+/// The span of Q# nodes the compiler generates, which have no counterpart in the Stim source.
+pub(crate) const GENERATED_SPAN: Span = Span { lo: 0, hi: 0 };
+
 const READOUT_NOISE_INTRINSIC: &str = "__quantum__rt__readout_noise";
 const PEEK_LOSS_INTRINSIC: &str = "__quantum__qis__peek_loss__body";
 
@@ -47,7 +50,7 @@ fn select_block_can_restart(body: &[semantic::Item]) -> bool {
             instruction.kind,
             semantic::InstructionKind::Require { .. } | semantic::InstructionKind::NotLeaked { .. }
         ),
-        semantic::Item::Block(semantic::Block::RepeatBlock { count, body }) => {
+        semantic::Item::Block(semantic::Block::RepeatBlock { count, body, .. }) => {
             *count > 0 && select_block_can_restart(body)
         }
         semantic::Item::Block(semantic::Block::SelectBlock { .. }) => false,
@@ -424,11 +427,13 @@ impl<'noise> Compiler<'noise> {
         // Compiled first, because it determines the qubits and records to declare.
         let body = self.compile_block_body(&circuit.items);
 
-        let span = circuit.span;
         let mut stmts = Vec::new();
-        stmts.extend(self.variable_declarations(span));
+        stmts.extend(self.variable_declarations());
         stmts.extend(body);
-        stmts.push(build_records_return_stmt(self.symbols.record_count, span));
+        stmts.push(build_records_return_stmt(
+            self.symbols.record_count,
+            GENERATED_SPAN,
+        ));
 
         let mut items = vec![build_main(stmts, circuit.span)];
         items.extend(self.sorted_intrinsic_declarations());
@@ -441,21 +446,21 @@ impl<'noise> Compiler<'noise> {
 
     /// `use qs = Qubit[N];` (if any qubits are used), then `mutable r_k = Zero;` for each hoisted
     /// record.
-    fn variable_declarations(&self, span: Span) -> Vec<ast::Stmt> {
+    fn variable_declarations(&self) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
         let num_qubits = self.symbols.num_qubits();
         if num_qubits > 0 {
             stmts.push(managed_qubit_alloc_array(
                 QUBIT_REGISTER,
                 num_qubits,
-                span,
-                span,
-                span,
+                GENERATED_SPAN,
+                GENERATED_SPAN,
+                GENERATED_SPAN,
                 ast::QubitSource::Fresh,
             ));
         }
         for &result_id in &self.symbols.hoisted_record_ids {
-            stmts.push(build_record_mutable_decl_stmt(result_id, span));
+            stmts.push(build_record_mutable_decl_stmt(result_id, GENERATED_SPAN));
         }
         stmts
     }
@@ -493,10 +498,10 @@ impl<'noise> Compiler<'noise> {
         // Chains can't enter a block either.
         stmts.extend(self.finish_correlated_noise());
         stmts.extend(match block {
-            semantic::Block::RepeatBlock { count, body } => self.compile_repeat_block(*count, body),
-            semantic::Block::SelectBlock { body } => {
-                self.compile_select_block(body, Span::default())
+            semantic::Block::RepeatBlock { count, body, .. } => {
+                self.compile_repeat_block(*count, body)
             }
+            semantic::Block::SelectBlock { span, body } => self.compile_select_block(body, *span),
         });
         stmts
     }
@@ -528,9 +533,9 @@ impl<'noise> Compiler<'noise> {
         let mut body_stmts = self.compile_block_body(body);
         self.symbols.hoist_records = hoist_outer_records;
 
-        body_stmts.push(build_break_stmt(span));
+        body_stmts.push(build_break_stmt(GENERATED_SPAN));
         vec![build_while_stmt(
-            build_lit_bool_expr(true, span),
+            build_lit_bool_expr(true, GENERATED_SPAN),
             build_block(body_stmts, span),
             span,
         )]
@@ -942,7 +947,8 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         };
 
-        vec![self.conditional_pauli_stmt(pauli, result_id, target, span)]
+        let record = build_record_expr(result_id, control.span);
+        vec![self.conditional_pauli_stmt(pauli, record, target, span)]
     }
 
     fn compile_noise(&mut self, noise: &semantic::Noise, span: Span) -> Vec<ast::Stmt> {
@@ -1195,7 +1201,12 @@ impl<'noise> Compiler<'noise> {
         };
 
         // loss = IsLossResult(r_a) or IsLossResult(r_b) or …
-        let loss_expr = build_any_loss_expr(&result_ids, span);
+        let loss_terms = result_ids
+            .iter()
+            .zip(records)
+            .map(|(&r, record)| build_record_expr(r, record.record.span))
+            .collect();
+        let loss_expr = build_any_loss_expr(loss_terms, span);
 
         // parity = (r_a == One) != (r_b == One) != …, with `Zero` for `!rec[..]`
         let parity_terms: Vec<ast::Expr> = result_ids
@@ -1207,7 +1218,11 @@ impl<'noise> Compiler<'noise> {
                 } else {
                     ast::Result::One
                 };
-                let term = build_record_equals_expr(r, expected, span);
+                let term = build_record_equals_expr(
+                    build_record_expr(r, record.record.span),
+                    expected,
+                    span,
+                );
                 // `==` and `!=` are non-associative in Q#, so chained terms need parentheses.
                 if result_ids.len() > 1 {
                     wrap_expr_in_parens(term, span)
@@ -1218,10 +1233,10 @@ impl<'noise> Compiler<'noise> {
             .collect();
         let parity_expr = fold_exprs_with_op(ast::BinOp::Neq, parity_terms, span);
 
-        let (loss, loss_stmt) = self.bind_local("loss", loss_expr, span);
-        let (parity, parity_stmt) = self.bind_local("parity", parity_expr, span);
-        let restart_expr = build_binary_expr(false, ast::BinOp::OrL, loss, parity, span);
-        let (restart, restart_stmt) = self.bind_local("restart", restart_expr, span);
+        let (loss, loss_stmt) = self.bind_local("loss", loss_expr);
+        let (parity, parity_stmt) = self.bind_local("parity", parity_expr);
+        let restart_expr = build_binary_expr(false, ast::BinOp::OrL, loss, parity, GENERATED_SPAN);
+        let (restart, restart_stmt) = self.bind_local("restart", restart_expr);
 
         vec![
             loss_stmt,
@@ -1256,9 +1271,14 @@ impl<'noise> Compiler<'noise> {
         }
 
         // loss = IsLossResult(r_a) or IsLossResult(r_b) or …
-        let loss_expr = build_any_loss_expr(&result_ids, span);
+        let loss_terms = result_ids
+            .iter()
+            .zip(records)
+            .map(|(&r, record)| build_record_expr(r, record.span))
+            .collect();
+        let loss_expr = build_any_loss_expr(loss_terms, span);
 
-        let (loss, loss_stmt) = self.bind_local("loss", loss_expr, span);
+        let (loss, loss_stmt) = self.bind_local("loss", loss_expr);
         vec![loss_stmt, build_continue_if_stmt(loss, span)]
     }
 
@@ -1331,13 +1351,7 @@ impl<'noise> Compiler<'noise> {
 
     fn peek_loss(&mut self, qubit: StimQubitId, span: Span) -> (ResultId, ast::Stmt) {
         let args = self.qubit_args(&[qubit], span);
-        self.declare_intrinsic(
-            PEEK_LOSS_INTRINSIC,
-            "Measurement",
-            &["Qubit"],
-            "Result",
-            span,
-        );
+        self.declare_intrinsic(PEEK_LOSS_INTRINSIC, "Measurement", &["Qubit"], "Result");
         let peek_loss_call = build_intrinsic_call_expr(PEEK_LOSS_INTRINSIC, args, span);
         let (result_id, assignment) = self.record_result(peek_loss_call, span);
         self.symbols.peek_loss_record_ids.insert(result_id);
@@ -1458,7 +1472,7 @@ impl<'noise> Compiler<'noise> {
     fn conditional_pauli_stmt(
         &mut self,
         pauli: Pauli,
-        result_id: ResultId,
+        record: ast::Expr,
         target: StimQubitId,
         span: Span,
     ) -> ast::Stmt {
@@ -1467,7 +1481,7 @@ impl<'noise> Compiler<'noise> {
             Y => QSharpOp::Y,
             Z => QSharpOp::Z,
         };
-        let condition = build_record_equals_expr(result_id, ast::Result::One, span);
+        let condition = build_record_equals_expr(record, ast::Result::One, span);
         let then_block = build_block(vec![self.op_call_stmt(op, &[target], span)], span);
         build_stmt_semi_from_expr(build_if_expr_then_block(condition, then_block, span))
     }
@@ -1486,15 +1500,19 @@ impl<'noise> Compiler<'noise> {
     }
 
     /// `let {prefix}_n = value;` with a fresh name `{prefix}_n`. Also returns a reference to it.
-    fn bind_local(
-        &mut self,
-        prefix: &'static str,
-        value: ast::Expr,
-        span: Span,
-    ) -> (ast::Expr, ast::Stmt) {
+    fn bind_local(&mut self, prefix: &'static str, value: ast::Expr) -> (ast::Expr, ast::Stmt) {
         let name = self.symbols.fresh_name(prefix);
-        let stmt = build_local_decl(&name, ast::Mutability::Immutable, value, span, span);
-        (build_path_ident_expr(name, span, span), stmt)
+        let stmt = build_local_decl(
+            &name,
+            ast::Mutability::Immutable,
+            value,
+            GENERATED_SPAN,
+            GENERATED_SPAN,
+        );
+        (
+            build_path_ident_expr(name, GENERATED_SPAN, GENERATED_SPAN),
+            stmt,
+        )
     }
 
     /// `let r_k = value;` for a new record `r_k`, or `r_k = value;` when records are hoisted.
@@ -1510,18 +1528,17 @@ impl<'noise> Compiler<'noise> {
     }
 
     /// Declares the intrinsic `@{attr}() operation {name}(…: {param_tys}) : {output}`, once.
-    fn declare_intrinsic(
-        &mut self,
-        name: &str,
-        attr: &str,
-        param_tys: &[&str],
-        output: &str,
-        span: Span,
-    ) {
+    fn declare_intrinsic(&mut self, name: &str, attr: &str, param_tys: &[&str], output: &str) {
         self.symbols
             .declared_intrinsics
             .entry(name.to_string())
-            .or_insert(build_intrinsic_decl(name, attr, param_tys, output, span));
+            .or_insert(build_intrinsic_decl(
+                name,
+                attr,
+                param_tys,
+                output,
+                GENERATED_SPAN,
+            ));
     }
 
     /// `__quantum__rt__readout_noise(p, p, r_k);`, or nothing when `p` is 0.
@@ -1544,7 +1561,6 @@ impl<'noise> Compiler<'noise> {
             "NoiseIntrinsic",
             &["Double", "Double", "Result"],
             "Unit",
-            span,
         );
         Some(build_intrinsic_call_stmt(
             READOUT_NOISE_INTRINSIC,
@@ -1570,7 +1586,7 @@ impl<'noise> Compiler<'noise> {
         let name = self.noise_accumulator.get_or_insert_intrinsic(table);
         let args = self.qubit_args(qubits, span);
         let param_tys = vec!["Qubit"; qubits.len()];
-        self.declare_intrinsic(&name, "NoiseIntrinsic", &param_tys, "Unit", span);
+        self.declare_intrinsic(&name, "NoiseIntrinsic", &param_tys, "Unit");
         build_intrinsic_call_stmt(&name, args, span)
     }
 

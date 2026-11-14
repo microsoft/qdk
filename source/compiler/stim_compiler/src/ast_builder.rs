@@ -144,30 +144,24 @@ pub(crate) fn build_records_return_stmt(count: u32, span: Span) -> ast::Stmt {
 
 /// `r_k == value`
 pub(crate) fn build_record_equals_expr(
-    result_id: ResultId,
+    record: ast::Expr,
     value: ast::Result,
     span: Span,
 ) -> ast::Expr {
     build_binary_expr(
         false,
         ast::BinOp::Eq,
-        build_record_expr(result_id, span),
+        record,
         build_lit_result_expr(value, span),
         span,
     )
 }
 
 /// `IsLossResult(r_a) or IsLossResult(r_b) or …`
-pub(crate) fn build_any_loss_expr(result_ids: &[ResultId], span: Span) -> ast::Expr {
-    let losses = result_ids
-        .iter()
-        .map(|&result_id| {
-            build_qsharp_op_call_expr(
-                QSharpOp::IsLossResult,
-                vec![build_record_expr(result_id, span)],
-                span,
-            )
-        })
+pub(crate) fn build_any_loss_expr(records: Vec<ast::Expr>, span: Span) -> ast::Expr {
+    let losses = records
+        .into_iter()
+        .map(|record| build_qsharp_op_call_expr(QSharpOp::IsLossResult, vec![record], span))
         .collect();
     fold_exprs_with_op(ast::BinOp::OrL, losses, span)
 }
