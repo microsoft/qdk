@@ -167,11 +167,11 @@ impl Meaning {
 
     /// Every fault of this meaning for an instruction with `parameters` and
     /// `outcomes`: first the slips made while building it, in order; then,
-    /// in the order of its steps, an angle, a guard or an observable
-    /// naming a parameter it lacks or of another kind, a guard naming an
-    /// outcome not observed before its step, a guard on an observation;
-    /// and, when declared, observations that give other than `outcomes`
-    /// outcomes.
+    /// step by step, a guard on an observation, a guard naming a parameter
+    /// it lacks or of another kind or an outcome not observed before its
+    /// step, an angle or an observable naming a parameter it lacks or of
+    /// another kind; and, when declared, observations that give other than
+    /// `outcomes` outcomes.
     pub(crate) fn faults(&self, parameters: &[Parameter], outcomes: u32) -> Vec<MeaningFault> {
         let mut faults = self.slips.clone();
         let Some(steps) = &self.steps else {

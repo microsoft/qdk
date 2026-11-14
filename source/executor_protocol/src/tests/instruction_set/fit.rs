@@ -258,6 +258,18 @@ fn declared_instruction_with_no_namesake_nor_one_doing_the_same_is_missing() {
     assert_eq!(sent.fits(&accepted), Err(vec![missing("h")]));
 }
 
+/// A receiver's `had` does what `h` does, on two qubits instead of one: an
+/// instruction doing the same on other blocks is no match.
+#[test]
+fn instruction_doing_the_same_on_other_blocks_is_no_match() {
+    let sent = set_of("Gates", 1, vec![gate("h").meaning(hadamard())]);
+    let had = InstructionDef::new("had")
+        .acts_on([BlockType::qubit(), BlockType::qubit()])
+        .meaning(hadamard());
+    let accepted = set_of("Gates", 1, vec![had]);
+    assert_eq!(sent.fits(&accepted), Err(vec![missing("h")]));
+}
+
 /// One mnemonic declared to do two things at one boundary is a collision,
 /// refused though another instruction does the same.
 #[test]

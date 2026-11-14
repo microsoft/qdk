@@ -1,13 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Building an instruction by name, its flag patterns, and its `pauli`
-//! arguments.
+//! Building an instruction by name, its flag patterns, its `pauli`
+//! arguments, and copying it.
 
+use crate::tests::allocations;
 use crate::{
-    Argument, BlockOperand, BlockType, InstructionDef, InstructionFault, InstructionSet,
-    ParameterKind, Pauli,
+    Argument, BlockOperand, BlockType, Instruction, InstructionDef, InstructionFault,
+    InstructionSet, Opcode, ParameterKind, Pauli,
 };
+use smallvec::smallvec;
 use std::sync::Arc;
 
 /// A device's gates: QIR's, a feed-forward `x`, Stim's `MPP`, and a
@@ -309,4 +311,25 @@ fn pauli_text_reads_back_as_the_same_pauli() {
             "{p}"
         );
     }
+}
+
+/// A part forwards instructions by copying them: with up to three blocks
+/// and three arguments, held inline, and its text and Pauli shared, a copy
+/// allocates nothing.
+#[test]
+fn copying_an_instruction_of_up_to_three_blocks_and_arguments_allocates_nothing() {
+    let instruction = Instruction {
+        opcode: Opcode::__from_macro(0),
+        blocks: smallvec![0, 1, 2],
+        arguments: smallvec![
+            Argument::Text("label".into()),
+            pauli("X_0 Z_2"),
+            Argument::recent(1),
+        ],
+        select: None,
+    };
+    let copies = allocations(|| {
+        std::hint::black_box(instruction.clone());
+    });
+    assert_eq!(copies, 0);
 }

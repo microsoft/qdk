@@ -12,8 +12,8 @@ use smallvec::SmallVec;
 use std::sync::Arc;
 
 /// The value of one of an instruction's parameters, of the parameter's
-/// kind. Text and Paulis are shared, so that copying an instruction
-/// allocates nothing.
+/// kind. Text and Paulis are shared, so that copying one allocates
+/// nothing.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Argument {

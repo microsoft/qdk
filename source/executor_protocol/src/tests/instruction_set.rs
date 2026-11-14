@@ -1,17 +1,23 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The checks of a set's declaration, its opcodes by name, and the
-//! canonical form of what its instructions do.
+//! The checks of a set's declaration, its opcodes by name, and sets made
+//! at run time. The faults of a meaning are here too, since a set's
+//! declaration reports them ([`DeclarationFault::Meaning`]); its
+//! canonical form is in `meaning.rs`, Pauli operators' in `pauli.rs`.
 
 mod batch_check;
 mod fit;
 mod instruction;
+mod meaning;
+mod pauli;
 
 use crate::{
-    Angle, BlockOperand, BlockType, DeclarationFault, Guard, InstructionDef, InstructionSet,
-    Meaning, MeaningFault, Observable, Opcode, ParameterKind, Pauli, instruction_set,
+    Angle, Argument, BlockOperand, BlockType, DeclarationFault, Guard, InstructionDef,
+    InstructionSet, Meaning, MeaningFault, Observable, Opcode, ParameterKind, Pauli,
+    instruction_set,
 };
+use std::sync::Arc;
 
 // Copied in `instruction_set!`'s doc: keep the two the same.
 instruction_set! {
@@ -70,7 +76,11 @@ fn macro_constants_are_the_opcodes_of_their_mnemonics() {
 /// `observe Z_0`, or `rotate Z_0` by the parameter (a number), `-` for
 /// none.
 fn load(name: &str, text: &str) -> InstructionSet {
-    let pauli = |text: &str| Pauli::parse(text).expect("a Pauli");
+    // A Pauli from Qodec's text, as a loader outside the crate reads it.
+    let pauli = |text: &str| match Argument::pauli(text).expect("a Pauli") {
+        Argument::Pauli(pauli) => Arc::unwrap_or_clone(pauli),
+        other => panic!("`Argument::pauli` gives a Pauli, not {other:?}"),
+    };
     let instructions = text.split("; ").map(|line| {
         let fields: Vec<&str> = line.split(' ').collect();
         let [mnemonic, qubits, parameter, outcomes] = fields[..4] else {
@@ -543,104 +553,4 @@ fn undeclared_meaning_accepts_any_outcome_count() {
         [rotate_z0().outcomes(3).meaning(Meaning::undeclared())],
     )
     .expect("an undeclared meaning");
-}
-
-#[test]
-fn clifford_lists_only_the_generators_it_changes() {
-    let cx = |images: Vec<(Pauli, Pauli)>| Meaning::declared().clifford(images);
-    assert_eq!(
-        cx(vec![
-            (Pauli::x(0), Pauli::x(0) * Pauli::x(1)),
-            (Pauli::z(0), Pauli::z(0)),
-        ]),
-        cx(vec![(Pauli::x(0), Pauli::x(0) * Pauli::x(1))]),
-    );
-}
-
-#[test]
-fn clifford_images_compare_in_any_order() {
-    let cx = |images: Vec<(Pauli, Pauli)>| Meaning::declared().clifford(images);
-    let x = (Pauli::x(0), Pauli::x(0) * Pauli::x(1));
-    let z = (Pauli::z(1), Pauli::z(0) * Pauli::z(1));
-    assert_eq!(cx(vec![x.clone(), z.clone()]), cx(vec![z, x]));
-}
-
-#[test]
-fn guard_terms_compare_in_any_order() {
-    let guarded = |guards: [Guard; 2]| Meaning::declared().pauli(Pauli::x(0)).only_if(guards);
-    assert_eq!(
-        guarded([Guard::Parameter(0), Guard::Outcome(0)]),
-        guarded([Guard::Outcome(0), Guard::Parameter(0)]),
-    );
-}
-
-/// A term twice cancels in a parity.
-#[test]
-fn guard_term_given_twice_cancels() {
-    let x = || Meaning::declared().pauli(Pauli::x(0));
-    assert_eq!(
-        x().only_if([
-            Guard::Parameter(0),
-            Guard::Parameter(1),
-            Guard::Parameter(0)
-        ]),
-        x().only_if([Guard::Parameter(1)]),
-    );
-}
-
-/// `unless` an empty parity always runs; `if` it never does.
-#[test]
-fn unless_no_term_is_no_guard() {
-    let x = || Meaning::declared().pauli(Pauli::x(0));
-    assert_eq!(x().unless([]), x());
-    assert_ne!(x().only_if([]), x());
-}
-
-#[test]
-fn if_and_unless_differ() {
-    let x = || Meaning::declared().pauli(Pauli::x(0));
-    assert_ne!(
-        x().only_if([Guard::Parameter(0)]),
-        x().unless([Guard::Parameter(0)])
-    );
-}
-
-#[test]
-fn declared_and_undeclared_meanings_differ() {
-    assert_ne!(Meaning::declared(), Meaning::undeclared());
-}
-
-/// Angles compare bit for bit, so a meaning is `Eq`.
-#[test]
-fn angles_compare_bit_for_bit() {
-    let rotate = |angle: f64| Meaning::declared().rotate(Pauli::z(0), Angle::Literal(angle));
-    assert_eq!(rotate(0.5), rotate(0.5));
-    assert_ne!(rotate(0.0), rotate(-0.0));
-    assert_eq!(rotate(f64::NAN), rotate(f64::NAN));
-}
-
-/// `X_0 · Y_0 = i Z_0`, and `Y_0 · X_0 = -i Z_0`.
-#[test]
-fn pauli_factors_on_one_qubit_multiply_into_one() {
-    assert_eq!((Pauli::x(0) * Pauli::y(0)).to_string(), "i Z_0");
-    assert_eq!((Pauli::y(0) * Pauli::x(0)).to_string(), "-i Z_0");
-}
-
-#[test]
-fn pauli_squared_is_the_identity() {
-    let xz = Pauli::x(0) * Pauli::z(3);
-    assert_eq!((xz.clone() * xz).to_string(), "I");
-}
-
-#[test]
-fn pauli_factors_are_sorted_by_qubit() {
-    assert_eq!(Pauli::z(2) * Pauli::x(0), Pauli::x(0) * Pauli::z(2));
-    assert_eq!((Pauli::z(2) * Pauli::x(0)).to_string(), "X_0 Z_2");
-}
-
-#[test]
-fn pauli_negation_flips_its_sign() {
-    assert_eq!((-Pauli::z(0)).to_string(), "-Z_0");
-    assert_eq!(-(-Pauli::z(0)), Pauli::z(0));
-    assert_eq!((-(Pauli::x(0) * Pauli::x(0))).to_string(), "-I");
 }

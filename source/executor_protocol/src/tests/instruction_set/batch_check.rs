@@ -19,8 +19,9 @@ fn carbon() -> BlockType {
 /// A device's set over qubits and a code's `carbon` blocks: gates, Stim's
 /// `MPP`, a flagged measurement, an encoding that turns a qubit into a
 /// block, a preparation that makes a block, a gate coupling a qubit to a
-/// block, another coupling a block to many qubits, and an `x` run if a
-/// parity of earlier readouts is odd.
+/// block, another coupling a block to many qubits, an `x` run if a
+/// parity of earlier readouts is odd, and two encodings of a qubit beside
+/// a block, one keeping that block, one consuming it.
 fn device() -> InstructionSet {
     let qubit = || [BlockType::qubit()];
     InstructionSet::new(
@@ -48,6 +49,12 @@ fn device() -> InstructionSet {
             InstructionDef::new("cond_x")
                 .acts_on(qubit())
                 .parameter("c", ParameterKind::Bit),
+            InstructionDef::new("encode_beside")
+                .takes([BlockType::qubit(), carbon()])
+                .gives([carbon(), carbon()]),
+            InstructionDef::new("encode_consuming")
+                .takes([BlockType::qubit(), carbon()])
+                .gives([carbon()]),
         ],
     )
     .expect("a valid set")
@@ -335,4 +342,38 @@ fn bit_argument_counting_back_zero_is_refused() {
             }
         )
     );
+}
+
+/// A block keeps its index when it changes type: qubit 0 encoded beside
+/// block 0, which survives, would leave two blocks 0.
+#[test]
+fn block_changing_type_onto_the_index_of_a_surviving_block_is_refused() {
+    let set = device();
+    assert_eq!(
+        check_batch(
+            &set,
+            &[literal(&set, "encode_beside", &[0, 0])],
+            &limits(&set, None, 1, 1)
+        ),
+        fault_at(
+            0,
+            InstructionFault::RepeatedBlock {
+                mnemonic: "encode_beside".into(),
+                block: 0,
+            }
+        )
+    );
+}
+
+/// Qubit 0 encoded as block 0 while block 0 is consumed: one block 0
+/// before the instruction, one after.
+#[test]
+fn block_changing_type_onto_the_index_of_a_consumed_block_is_accepted() {
+    let set = device();
+    check_batch(
+        &set,
+        &[literal(&set, "encode_consuming", &[0, 0])],
+        &limits(&set, None, 1, 1),
+    )
+    .expect("block 0 replaced");
 }

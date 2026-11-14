@@ -40,7 +40,8 @@ impl InstructionSet {
     /// [`Meaning`](InstructionMismatch::Meaning) when both it and the
     /// receiver's instruction of its mnemonic declare what they do, and
     /// differ; [`Missing`](InstructionMismatch::Missing) when the receiver
-    /// has no instruction of its mnemonic, nor one doing the same; each of
+    /// has no instruction of its mnemonic, nor one doing the same with the
+    /// same blocks, parameters and readouts; each of
     /// [`Blocks`](InstructionMismatch::Blocks),
     /// [`Parameters`](InstructionMismatch::Parameters) and
     /// [`Readouts`](InstructionMismatch::Readouts) that differ from the
@@ -233,7 +234,7 @@ pub enum InstructionMismatch {
     /// differ, so a mnemonic proves nothing.
     OtherSet,
     /// The receiver has no instruction of this mnemonic, nor one doing the
-    /// same.
+    /// same with the same blocks, parameters and readouts.
     Missing { mnemonic: String },
     /// Its `in` or `out` differ: their block types, their sizes, or which
     /// are variadic.

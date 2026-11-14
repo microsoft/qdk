@@ -4,9 +4,10 @@
 //! The crate's tests: one file per module with run-time behaviour.
 //!
 //! This module also installs a counting `#[global_allocator]` for the whole
-//! test binary, so that the promises on allocations (`ShotSet`'s and
-//! `BatchReadouts`') are tested: [`allocations`] counts those made on its
-//! own thread, so tests running in parallel do not disturb its count.
+//! test binary, so that the promises on allocations (`ShotSet`'s,
+//! `BatchReadouts`' and a copied `Instruction`'s) are tested:
+//! [`allocations`] counts those made on its own thread, so tests running
+//! in parallel do not disturb its count.
 
 mod batch_readouts;
 mod instruction_set;

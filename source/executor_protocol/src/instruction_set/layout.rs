@@ -32,15 +32,31 @@ pub(crate) struct Layout {
 }
 
 /// The block types of one position, as indices among the set's block
-/// types: `pool`, the type whose blocks its index numbers (its `in` type,
-/// or its `out` type for a new block), and `also`, the type it has after
-/// the instruction (`pool` unless the instruction changes the block's
-/// type, as Qodec's lattice-surgery merge does). Its index must be below
-/// the shot's blocks of both.
+/// types: `input`, its type before the instruction (`None` for a new
+/// block), and `output`, its type after (`None` for a block the
+/// instruction consumes). They differ when the instruction changes the
+/// block's type, as Qodec's lattice-surgery merge does, and the block
+/// keeps its index: so its index must be below the shot's blocks of each.
 #[derive(Clone, Copy, Debug)]
 struct Slot {
-    pool: u32,
-    also: u32,
+    input: Option<u32>,
+    output: Option<u32>,
+}
+
+impl Slot {
+    /// Its types, before then after, each at most once.
+    fn types(self) -> impl Iterator<Item = u32> {
+        let after = self.output.filter(|&output| Some(output) != self.input);
+        self.input.into_iter().chain(after)
+    }
+
+    /// Whether the blocks of this position and `other`'s are one block
+    /// when they have the same index: one before the instruction (both of
+    /// one `in` type) or one after it (both of one `out` type).
+    fn shares_a_block_with(self, other: Self) -> bool {
+        (self.input.is_some() && self.input == other.input)
+            || (self.output.is_some() && self.output == other.output)
+    }
 }
 
 /// The most flags an instruction may declare: a flag pattern is a `u64`.
@@ -60,16 +76,11 @@ impl Layout {
         let positions = def.inputs.len().max(def.outputs.len());
         let mut slots = Vec::with_capacity(positions);
         for k in 0..positions {
-            let (input, output) = (def.inputs.get(k), def.outputs.get(k));
-            let first = &input
-                .or(output)
-                .expect("a position of `in` or `out`")
-                .block_type;
-            let pool = index_of(block_types, first, &mut unknown);
-            let also = output.map_or(pool, |output| {
-                index_of(block_types, &output.block_type, &mut unknown)
+            let [input, output] = [&def.inputs, &def.outputs].map(|operands| {
+                let operand = operands.get(k)?;
+                Some(index_of(block_types, &operand.block_type, &mut unknown))
             });
-            slots.push(Slot { pool, also });
+            slots.push(Slot { input, output });
         }
         for block_type in unknown {
             faults.push(DeclarationFault::UnknownBlockType {
@@ -125,8 +136,8 @@ impl Layout {
         }
         if let Some(blocks_of) = blocks_of {
             for (position, &block) in blocks.iter().enumerate() {
-                let slot = self.slot(position);
-                for needs in [blocks_of[slot.pool as usize], blocks_of[slot.also as usize]] {
+                for block_type in self.slot(position).types() {
+                    let needs = blocks_of[block_type as usize];
                     if block >= needs {
                         return Err(InstructionFault::BlockBeyondNeeds {
                             mnemonic: mnemonic(),
@@ -193,34 +204,39 @@ impl Layout {
         self.slots[position.min(self.slots.len() - 1)]
     }
 
-    /// A block given twice in one pool, if any: the first found.
+    /// A block given twice, if any, the first found: two positions of one
+    /// index that are one block before the instruction or after it
+    /// ([`Slot::shares_a_block_with`]).
     fn repeated_block(&self, blocks: &[u32]) -> Option<u32> {
         // Pairwise for the few blocks most instructions take; sorted for a
         // variadic operand's many.
         const PAIRWISE: usize = 16;
         if blocks.len() <= PAIRWISE {
             for (j, &block) in blocks.iter().enumerate() {
-                let pool = self.slot(j).pool;
+                let slot = self.slot(j);
                 if blocks[..j]
                     .iter()
                     .enumerate()
-                    .any(|(i, &earlier)| earlier == block && self.slot(i).pool == pool)
+                    .any(|(i, &earlier)| earlier == block && self.slot(i).shares_a_block_with(slot))
                 {
                     return Some(block);
                 }
             }
             return None;
         }
-        let mut keyed: Vec<(u32, u32)> = blocks
-            .iter()
-            .enumerate()
-            .map(|(position, &block)| (self.slot(position).pool, block))
-            .collect();
+        // Each block as it is before the instruction (`false`) and after it
+        // (`true`), with its type there: one block twice is a pair.
+        let mut keyed: Vec<(bool, u32, u32)> = Vec::with_capacity(2 * blocks.len());
+        for (position, &block) in blocks.iter().enumerate() {
+            let slot = self.slot(position);
+            keyed.extend(slot.input.map(|input| (false, input, block)));
+            keyed.extend(slot.output.map(|output| (true, output, block)));
+        }
         keyed.sort_unstable();
         keyed
             .windows(2)
             .find(|pair| pair[0] == pair[1])
-            .map(|pair| pair[0].1)
+            .map(|pair| pair[0].2)
     }
 }
 

@@ -152,7 +152,9 @@ pub enum InstructionFault {
         block: u32,
         needs: u32,
     },
-    /// Both: one block twice, as `cx [0, 0]`.
+    /// Both: one block twice, as `cx [0, 0]`, before the instruction or
+    /// after it (a block turned into another type, given the index of a
+    /// block of that type that survives).
     RepeatedBlock { mnemonic: String, block: u32 },
     /// Built: an argument named for no parameter of the instruction.
     UnknownParameter { mnemonic: String, name: String },

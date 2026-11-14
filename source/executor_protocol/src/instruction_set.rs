@@ -19,9 +19,12 @@
 //! A set is checked once, when it is built ([`InstructionSet::new`]),
 //! which refuses every fault of its declaration at once
 //! ([`DeclarationFault`]), and derives what each instruction's check
-//! compares. Its submodules hold the rest of the vocabulary: the
-//! instructions a batch holds and their checks (`instruction`), and the
-//! fit of one set to another (`fit`).
+//! compares. Its submodules hold the rest of the vocabulary: the kinds of
+//! blocks and an instruction's operands (`block_type`), its classical
+//! inputs (`parameter`), Pauli operators (`pauli`), what an instruction
+//! does (`meaning`), what each instruction's check compares (`layout`),
+//! the instructions a batch holds and their checks (`instruction`), and
+//! the fit of one set to another (`fit`).
 
 mod block_type;
 mod fit;
@@ -412,7 +415,7 @@ impl std::error::Error for DeclarationFault {}
 ///
 /// # Panics
 ///
-/// `set()` panics, on its first call, if the declaration has a fault
+/// `set()` panics, on every call, if the declaration has a fault
 /// ([`DeclarationFault`]), such as a block type not listed.
 #[macro_export]
 macro_rules! instruction_set {
