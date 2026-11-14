@@ -21,3 +21,11 @@ workspace = true
 [lib]
 doctest = false
 bench = false
+
+[[example]]
+name = "compose_and_run"
+test = true
+
+[[example]]
+name = "bench"
+test = true
