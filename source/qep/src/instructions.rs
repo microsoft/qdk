@@ -12,7 +12,7 @@ pub type InstructionId = usize;
 
 /// Defines canonical IDs, names, and operand shapes.
 macro_rules! define_instructions {
-    ($(($id:ident, $value:literal, $name:literal, $parameters:pat)),* $(,)?) => {
+    ($(($id:ident, $value:literal, $name:literal, [$($parameter:ident(_)),*])),* $(,)?) => {
         $(
             #[doc = concat!("Instruction ID for `", $name, "`.")]
             pub const $id: InstructionId = $value;
@@ -41,14 +41,47 @@ macro_rules! define_instructions {
 
         /// Rejects unknown instruction names and malformed operand shapes.
         pub fn validate_instruction(instruction: &QuantumBackendInstruction) {
-            let valid = match instruction.instruction_name {
+            assert!(
+                instruction_is_valid(instruction),
+                "Unsupported or malformed QIR instruction: {instruction:?}"
+            );
+        }
+
+        /// Checks names and operand shapes without panicking on untrusted input.
+        pub(crate) fn instruction_is_valid(instruction: &QuantumBackendInstruction) -> bool {
+            match instruction.instruction_name {
                 $($name => matches!(
                     instruction.parameters.as_slice(),
-                    $parameters
+                    [$($parameter(_)),*]
                 ),)*
                 _ => false,
+            }
+        }
+
+        /// Parses wire operands using the canonical instruction's parameter types.
+        pub(crate) fn parse_instruction(
+            name: &str,
+            arguments: &[&str],
+        ) -> Result<QuantumBackendInstruction, String> {
+            let mut arguments = arguments.iter();
+            let instruction = match name {
+                $($name => QuantumBackendInstruction {
+                    instruction_name: $name,
+                    parameters: smallvec::smallvec![$(
+                        $parameter(
+                            arguments.next()
+                                .ok_or_else(|| format!("Missing argument for {name}"))?
+                                .parse()
+                                .map_err(|error| format!("Invalid argument for {name}: {error}"))?
+                        )
+                    ),*],
+                },)*
+                _ => return Err(format!("Unknown instruction: {name}")),
             };
-            assert!(valid, "Unsupported or malformed QIR instruction: {instruction:?}");
+            if arguments.next().is_some() {
+                return Err(format!("Too many arguments for {name}"));
+            }
+            Ok(instruction)
         }
     };
 }

@@ -19,20 +19,23 @@ mod tests;
 
 mod adapters;
 mod backends;
+mod drivers;
 pub mod instructions;
 pub mod interface;
 mod models;
 mod profilers;
 mod runner;
+pub mod serde;
 mod transpilers;
 pub use adapters::{ResultAdapter, TranspilingAdapter};
-pub use backends::{QsBackendShim, QuantumBackends};
+pub use backends::{QsBackendShim, QuantumBackends, StdioBackend};
+pub use drivers::StdioDriver;
 pub use instructions::{
     InstructionId, OPERATION_COUNT, instruction_id_to_name, instruction_name_to_id,
     validate_instruction,
 };
 pub use interface::{
-    BatchResult, Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
+    BatchResult, Driver, Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
 };
 pub use models::DemoModel1;
 pub use profilers::{

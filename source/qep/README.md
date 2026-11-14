@@ -69,6 +69,35 @@ leave result-free instructions pending, while preserving their dependency order.
 The driver reuses its instruction buffer across calls.
 Backend failures are returned as `Err(String)` and propagated by adapters and the runners.
 
+### Stream transport
+
+`StdioBackend::new(instruction_stream, result_stream)` accepts any instruction
+writer (`Write`) and result reader (`Read`). `StdioBackend::stdio()` uses stdout
+for instructions and stdin for results.
+
+`StdioDriver::new(backend, instruction_stream, result_stream)` owns a backend,
+reads instructions, executes them, and writes the returned results.
+`StdioDriver::stdio(backend)` uses stdin for instructions and stdout for results.
+Call `process_next_batch()` to serve one batch (`Ok(false)` means clean EOF), or
+`run()` to serve until EOF. `Driver::get_backend()` exposes the wrapped backend.
+
+Both sides use the shared `qep::serde` serialization functions. Each message is
+compact JSON followed by a newline; writers flush after every message. A batch
+is an array of strings, for example `["h(1)","ccx(1,2,3)"]`. Names and operand
+types follow the canonical instruction table (controlled-controlled X is `ccx`,
+not `ccnot`). Angles follow qubit IDs; result IDs retain their instruction-defined
+positions, for example `["rz(1,-0.125)","mz_store(1,7)","read_result(7)"]`.
+An ordered result list is a quoted string using `0` for Zero, `1` for One, and
+`2` for Error: `"0102"`. Empty batches and results are `[]` and `""`.
+
+The protocol is synchronous: each batch, including a result-free batch, receives
+one result message before the next batch is sent. Reserve the protocol streams
+for these messages; send diagnostics elsewhere. Invalid messages, truncated
+frames, I/O failures, and backend failures return `Err(String)`. A driver stops
+on errors; execution failures have no separate wire encoding, so its owner must
+close the connection on failure to unblock the peer. `Error` result values are
+transmitted unchanged and are distinct from an `execute_batch` failure.
+
 `QuantumBackends::sparse_sim()` creates a sparse simulator wrapped in
 `QsBackendShim`, supporting all QEP instructions. Qubits are allocated lazily;
 stored QIR result IDs are maintained separately across batches, so immediate

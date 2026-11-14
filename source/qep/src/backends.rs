@@ -2,8 +2,10 @@
 // Licensed under the MIT License.
 
 mod qs_backend_shim;
+mod stdio_backend;
 pub use qs_backend_shim::QsBackendShim;
 use qsc_eval::backend::{CliffordSim, SparseSim};
+pub use stdio_backend::StdioBackend;
 
 /// Constructors for built-in quantum backends.
 pub struct QuantumBackends;
