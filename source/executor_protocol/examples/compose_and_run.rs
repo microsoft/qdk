@@ -78,6 +78,7 @@ impl Drive for CoinCopy {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<Vec<ReadoutValue>>, DriveError> {
+        // First, every shot tosses its coin.
         let toss = Batch {
             shots,
             instructions: &self.sequences[0],
@@ -87,41 +88,42 @@ impl Drive for CoinCopy {
         let mut outputs: Vec<Vec<ReadoutValue>> =
             (0..shots.len()).map(|i| coin.row(i).to_vec()).collect();
 
-        let at = |value: ReadoutValue| -> Vec<usize> {
-            (0..shots.len())
-                .filter(|&i| coin.row(i) == [value])
-                .collect()
-        };
-        let (heads, tails) = (at(ReadoutValue::One), at(ReadoutValue::Zero));
-        // A side no shot took has no batch: a shot set is never empty.
-        let sides: Vec<(&[usize], ShotSet, &[Instruction])> =
-            [(&heads, &self.sequences[1]), (&tails, &self.sequences[2])]
-                .into_iter()
-                .filter_map(|(positions, sequence)| {
-                    Some((
-                        positions.as_slice(),
-                        shots.select(positions)?,
-                        &sequence[..],
-                    ))
-                })
-                .collect();
+        // Then the heads flip qubit 1 and read it, and the tails only read
+        // it: one batch for each side, if some shot took it, since a shot
+        // set is never empty.
+        let heads = positions_showing(coin, ReadoutValue::One);
+        let tails = positions_showing(coin, ReadoutValue::Zero);
+        let mut sides = Vec::new();
+        for (positions, sequence) in [(heads, &self.sequences[1]), (tails, &self.sequences[2])] {
+            if let Some(side) = shots.select(&positions) {
+                sides.push((positions, side, sequence));
+            }
+        }
         let batches: Vec<Batch<'_>> = sides
             .iter()
-            .map(|(_, shots, instructions)| Batch {
+            .map(|(_, shots, sequence)| Batch {
                 shots,
-                instructions,
+                instructions: sequence,
             })
             .collect();
+        // The same seed: each part keeps a shot's stream from its first
+        // batch until the shot ends.
         let read = below.execute(&batches, seed).await?;
         for ((positions, _, _), rows) in sides.iter().zip(&read) {
             for (j, &i) in positions.iter().enumerate() {
                 outputs[i].extend_from_slice(rows.row(j));
             }
         }
-        // Every shot is done: the parts below free its state.
-        below.end_shots(shots);
         Ok(outputs)
     }
+}
+
+/// The positions, among a batch's shots, of those whose coin came out
+/// `value`.
+fn positions_showing(coin: &BatchReadouts, value: ReadoutValue) -> Vec<usize> {
+    (0..coin.shots())
+        .filter(|&i| coin.row(i) == [value])
+        .collect()
 }
 
 // --------------------------------------------------------------- the adapter
@@ -328,11 +330,18 @@ impl Stream {
 // ------------------------------------------------------------------ the run
 
 /// The three parts, composed: the coin, under 20% bit-flip noise, on bits.
+///
+/// After each run, the runner ends every shot of the run on every part, so
+/// the parts free its state and a rerun with the same seed starts it
+/// afresh; the driver need not end them.
 fn coin_runner() -> Runner<Composed<CoinCopy, BitFlip>, Bits> {
-    let chain = Driver::new(CoinCopy::new())
+    // `>>` joins the driver and the adapter into one driver, a `Composed`;
+    // the last `>>`, onto the executor, checks that the parts fit and gives
+    // the runner, or every fault.
+    let runner = Driver::new(CoinCopy::new())
         >> Adapter::new(BitFlip::new(200))
         >> Executor::new(Bits::new());
-    chain.expect("the parts compose: they all send and accept CoinGates")
+    runner.expect("the parts compose: they all send and accept CoinGates")
 }
 
 fn main() {
@@ -346,6 +355,8 @@ fn main() {
     }
     println!("A copy unlike its coin: the noise flipped it.");
 
+    // The runner ended every shot of the first run, so shots 4 and 5 start
+    // afresh, and the seed gives them the same values.
     let again = runner
         .run(&ShotSet::ids([4, 5]), SEED)
         .expect("the chain runs 2 shots");

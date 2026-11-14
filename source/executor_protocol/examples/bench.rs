@@ -12,7 +12,8 @@
 //! The executors only count what they get, so the time is the protocol's
 //! and the parts' own. Each variant runs once untimed, and must count what
 //! the program holds (or, in F, answer what the direct call answers),
-//! before it is timed: the best of 7. Run it with
+//! before it is timed: the best of 7. W instead checks the count of each
+//! timed run, and keeps the best of 5. Run it with
 //! `cargo run --release --example bench [D|C|F|W]`.
 
 use std::fmt::Debug;
@@ -82,7 +83,7 @@ struct Size {
     most_calls: usize,
 }
 
-/// The size of the tables: the prototype's.
+/// The size of the tables, which `main` runs.
 const FULL: Size = Size {
     instructions: 4_000_000,
     repeats: 7,
@@ -147,11 +148,11 @@ fn run(size: &Size, only: Option<&str>) {
 enum Chain {
     /// The driver calls the executor itself, past the protocol: the baseline.
     Direct,
-    /// `Driver ≫ Executor`: one boundary, so one check of each `execute`.
+    /// `Driver >> Executor`: one boundary, so one check of each `execute`.
     Bare,
-    /// `Driver ≫ Adapter ≫ Executor`, an adapter that forwards.
+    /// `Driver >> Adapter >> Executor`, an adapter that forwards.
     OneAdapter,
-    /// `Driver ≫ Adapter ≫ Adapter ≫ Executor`, both forwarding.
+    /// `Driver >> Adapter >> Adapter >> Executor`, both forwarding.
     TwoAdapters,
     /// `Bare`, with the executor offering `max_instructions` this many.
     Limited(u32),
@@ -246,7 +247,8 @@ fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
         );
     }
     // Into one buffer, reused, so that the row times building, not
-    // allocating and freeing a program of 168-byte instructions.
+    // allocating and freeing a program of instructions (their size printed
+    // above).
     let set = MixGates::set();
     let mut buffer = Vec::with_capacity(BUILD_BUFFER);
     let built = best(size.repeats, &program.len(), || {
@@ -863,7 +865,6 @@ impl Drive for ProgramInBatches<'_> {
         below: &mut impl Execute,
     ) -> Result<Vec<Received>, DriveError> {
         let received = self.send(below, shots, seed).await?;
-        below.end_shots(shots);
         Ok(vec![received])
     }
 }
@@ -892,12 +893,13 @@ impl<E: Execute> Drive for Direct<'_, E> {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        _chain: &mut impl Execute,
     ) -> Result<Vec<Received>, DriveError> {
         let Self(in_batches, executor) = self;
         let received = in_batches.send(executor, shots, seed).await?;
+        // Its executor is past the chain, so the runner does not end the
+        // run's shots on it.
         executor.end_shots(shots);
-        below.end_shots(shots);
         Ok(vec![received])
     }
 }
