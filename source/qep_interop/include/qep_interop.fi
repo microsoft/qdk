@@ -1,12 +1,14 @@
 ! Include in the specification part of a free-form Fortran program or module.
 interface
     ! Replaces the backend with fresh state selected by a NUL-terminated name.
+    ! Optional: defaults to stdio (instructions on stdout, results on stdin).
     subroutine qdk_init(backend) bind(C, name="qdk_init")
         use, intrinsic :: iso_c_binding, only: c_char
         character(kind=c_char), intent(in) :: backend(*)
     end subroutine qdk_init
 
     ! Flushes pending instructions and saves profiling data to a NUL-terminated UTF-8 path.
+    ! In stdio mode, only prints guidance to stderr; does not flush or inspect path.
     subroutine qdk_save_profile(path) bind(C, name="qdk_save_profile")
         use, intrinsic :: iso_c_binding, only: c_char
         character(kind=c_char), intent(in) :: path(*)

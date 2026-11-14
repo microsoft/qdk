@@ -11,8 +11,8 @@ Typical usage:
 - Write code for a quantum application in a language (e.g., C, C++, or Fortran)
   that calls the corresponding function exposed by the library for each quantum
   instruction (gate or measurement).
-- At the beginning of the code, call `qdk_init()` to instantiate a backend (which can
-  be a simulator or profiler).
+- By default, instructions are streamed to stdout and results are read from stdin.
+  Optionally call `qdk_init()` to select a simulator or local profiler instead.
 - When using a profiler, call `qdk_save_profile()` at the end to save the profile to a
   JSON file (which will contain a resource estimate based on profiling).
 - Compile your code, statically linking it against the library provided by this package.
@@ -24,13 +24,23 @@ See [qep_interop.h](include/qep_interop.h) for the full list of exposed function
 
 ## Supported backends in qdk_init()
 
-For now, we support only three backends, specified by name:
+The following backends can be selected by name:
 
+- "stdio" - streams instructions to stdout and reads results from stdin. This is
+  also the default when `qdk_init()` has not been called.
 - "sparse_sim" - a sparse simulator.
 - "counting_profiler" - CountingProfiler with default parameters.
 - "temporal_profiler" - TemporalProfiler with default parameters, result-register support,
   and default instruction transpilers. Combined measurement/reset is profiled as separate
   measurement and reset operations.
+
+The stdio backend uses the [QEP stream protocol](../qep/README.md#stream-transport)
+and can connect to a `StdioDriver` wrapping a simulator or profiler. Reserve stdout
+for instructions and stdin for results; print application diagnostics to stderr.
+Instructions are buffered until a measurement/result read or the batch capacity
+is reached. `qdk_save_profile()` in stdio mode only prints an informational message
+to stderr: it does not flush, inspect the path, or write a file. Profiling and
+saving must be handled by the profiler receiving the instruction stream.
 
 Coming soon: profilers will load configuration from a file. Meanwhile, if you need
 to instantiate backend with custom parameters, define custom backend name (e.g.
@@ -44,7 +54,8 @@ to instantiate backend with custom parameters, define custom backend name (e.g.
 1. Install Rust/Cargo and a C or C++ compiler. LLVM development libraries are not required.
 2. Include `qep_interop.h` in your source file. Add this package's `include`
    directory to your compiler's include path.
-3. Call `qdk_init(...)` before executing quantum instructions.
+3. Optionally call `qdk_init(...)` to replace the default stdio backend before
+   executing quantum instructions.
 4. Call the instruction functions directly. Qubit and result IDs use `size_t`;
    rotation angles use `double` and are in radians. `qdk_mz()`, `qdk_mz_reset()`, and
    `qdk_read_result()` return `size_t`: 0 for zero, 1 for one, or 2 for a

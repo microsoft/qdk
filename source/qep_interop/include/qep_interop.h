@@ -9,12 +9,13 @@ extern "C" {
 #endif
 
 /* Initializes backend (see README for possible values).
-   Must be called before calling any quantum instructions.
+   Optional: defaults to stdio (instructions on stdout, results on stdin).
    If called again, old backend and pending instructions will be discarded. */
 void qdk_init(const char *backend);
 
 /* Flushes pending instructions and saves profiler output to JSON at given path.
-   Does not write a file if backend is not profiler. */
+   Does not write a file if backend is not profiler.
+   In stdio mode, only prints guidance to stderr; does not flush or inspect path. */
 void qdk_save_profile(const char *path);
 
 /* Quantum instructions not returning result. Rotation angles are in radians. */
