@@ -19,9 +19,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Misshape, Misshapen, Panics,
-    PanicsEnding, PanicsWhen, Profiler, Program, Queue, Renamed, Splitter, Spread, Trap, Values,
-    YieldNow,
+    BitFlip, Bits, CoinCopy, EndsBelow, FailsOnce, FromThread, Later, Log, Misshape, Misshapen,
+    Panics, PanicsEnding, PanicsWhen, Profiler, Program, Queue, Renamed, Splitter, Spread, Trap,
+    Values, YieldNow,
 };
 use crate::{
     Adapter, Capabilities, ChainPart, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor,
@@ -1187,6 +1187,52 @@ fn a_panic_ending_shots_the_driver_ends_is_named_as_the_driver() {
     for chain in bracketings {
         chain(&Log::default());
     }
+}
+
+/// A program that never ends its shots, over an adapter that ends its
+/// shots below inside `adapt`, over an adapter whose first `end_shots`
+/// panics, over bits, in each bracketing: the panic unwinds through the
+/// ending adapter's `adapt`, so the run fails naming that adapter, part 1,
+/// not the driver, and not the part that panicked.
+#[test]
+fn a_panic_ending_shots_an_adapter_ends_is_named_as_that_adapter() {
+    /// Runs `runner` on 8 shots, and checks it as above.
+    fn names_the_adapter<D: Drive, E: Execute>(mut runner: Runner<D, E>) {
+        let error = failed(
+            runner
+                .run(&ShotSet::ids(0..8), SEED)
+                .map(|records| records.len()),
+        );
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(message) }
+                    if *part == ChainPart::new(1, type_name::<EndsBelow>())
+                        && message == "end_shots broke"
+            ),
+            "{error:?}"
+        );
+    }
+    let program = || Driver::new(Program::new(&[("mz", 0)]).not_ending());
+    let ends = |log: &Log| Adapter::new(EndsBelow::new(log));
+    let panics = |log: &Log| Adapter::new(PanicsEnding::once(log));
+    let bits = |log: &Log| Executor::new(Bits::new(log));
+    let logs: [Log; 5] = Default::default();
+    names_the_adapter(runner(
+        ((program() >> ends(&logs[0])) >> panics(&logs[0])) >> bits(&logs[0]),
+    ));
+    names_the_adapter(runner(
+        (program() >> ends(&logs[1])) >> (panics(&logs[1]) >> bits(&logs[1])),
+    ));
+    names_the_adapter(runner(
+        program() >> (ends(&logs[2]) >> (panics(&logs[2]) >> bits(&logs[2]))),
+    ));
+    names_the_adapter(runner(
+        program() >> ((ends(&logs[3]) >> panics(&logs[3])) >> bits(&logs[3])),
+    ));
+    names_the_adapter(runner(
+        (program() >> (ends(&logs[4]) >> panics(&logs[4]))) >> bits(&logs[4]),
+    ));
 }
 
 /// A program that never ends its shots, over an adapter whose first

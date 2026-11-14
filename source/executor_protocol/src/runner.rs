@@ -102,7 +102,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// the offer that reaches the driver), or when a part's `ready` refuses
     /// it; each part is asked, the executor first. Then the driver runs the
     /// shots, and a failure ends the run with the shot it names, including
-    /// a part's panic in `drive`, `execute` or an `end_shots` the driver
+    /// a part's panic in `drive`, `execute` or an `end_shots` a part above
     /// calls, where a panic unwinds (on wasm32, it aborts).
     ///
     /// Once `drive` returns, fails or panics, or the future is dropped
@@ -117,8 +117,9 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// A panic in a part's `ready` is not caught.
     ///
     /// A part's panic in `end_shots` thus leaves the run in one of two
-    /// ways, by who ended the shots: in an end the driver calls, it
-    /// unwinds through `drive`, and the run fails naming the driver
+    /// ways, by who ended the shots: in an end a part above calls (the
+    /// driver in `drive`, or an adapter in `adapt`), it unwinds through
+    /// that part's call, and the run fails naming that part
     /// ([`Failure::Panicked`](crate::Failure::Panicked)); in the runner's
     /// end, it is raised again from the run, and the driver's outputs are
     /// lost.

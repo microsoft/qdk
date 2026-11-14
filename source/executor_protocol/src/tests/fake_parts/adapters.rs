@@ -979,3 +979,42 @@ impl Adapt for PanicsEnding {
         }
     }
 }
+
+/// An adapter that, inside `adapt`, ends below the shots of each batch
+/// once their answer is in, as an adapter freeing state below early
+/// would. At run time it passes instructions through, as a [`Spread`] of
+/// 1.
+pub(crate) struct EndsBelow(Spread);
+
+impl EndsBelow {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self(Spread::new(1, log))
+    }
+}
+
+impl Adapt for EndsBelow {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        let readouts = self.0.adapt(batches, seed, below).await?;
+        for batch in batches {
+            below.end_shots(batch.shots);
+        }
+        Ok(readouts)
+    }
+}

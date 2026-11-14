@@ -75,8 +75,9 @@ impl Error for RunRefusal {}
 /// a whole batch, or a whole run, so it names the first shot of what
 /// failed: of the batch, for a refusal or an answer's rows or slots; of the
 /// first batch, for an answer of readouts not one per batch, or a panic in
-/// an `execute`; of the run, for the driver's panic, which includes a
-/// panic in an `end_shots` the driver calls on the chain below.
+/// an `execute`, which includes a panic in an `end_shots` an adapter calls
+/// in `adapt`; of the run, for the driver's panic, which includes a panic
+/// in an `end_shots` the driver calls on the chain below.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Failure {
@@ -95,9 +96,10 @@ pub enum Failure {
     Panicked {
         /// The part whose call panicked: the driver, for a panic in its
         /// `drive`; else the part whose `execute` or `adapt` panicked. A
-        /// panic in an `end_shots` that the driver calls on the chain below,
-        /// as each shot ends, unwinds through its `drive`, so it names the
-        /// driver.
+        /// panic in an `end_shots` that a part above calls on the chain
+        /// below unwinds through that part's call, so it names that part:
+        /// the driver, for an end it calls as each shot ends; an adapter,
+        /// for an end it calls in `adapt`.
         part: ChainPart,
         /// Its message, when the panic's payload is text (a `&str` or a
         /// `String`).

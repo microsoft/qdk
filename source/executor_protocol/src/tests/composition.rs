@@ -223,8 +223,8 @@ fn one_driver_runs_on_every_chain_it_fits() {
     );
 }
 
-/// A chain of a driver, a profiler, a noise and bits, bracketed three
-/// ways: the same records.
+/// A chain of a driver, a profiler, a noise and bits, in each of the five
+/// bracketings of four parts: the same records.
 #[test]
 fn where_the_brackets_go_changes_no_record() {
     let log = Log::default();
@@ -237,8 +237,12 @@ fn where_the_brackets_go_changes_no_record() {
     let left = records(((d() >> profiler()) >> noise()) >> bits(), &shots);
     let right = records(d() >> (profiler() >> (noise() >> bits())), &shots);
     let middle = records((d() >> profiler()) >> (noise() >> bits()), &shots);
+    let adapters_joined = records(d() >> ((profiler() >> noise()) >> bits()), &shots);
+    let adapters_joined_left = records((d() >> (profiler() >> noise())) >> bits(), &shots);
     assert_eq!(left, right);
     assert_eq!(left, middle);
+    assert_eq!(left, adapters_joined);
+    assert_eq!(left, adapters_joined_left);
 }
 
 /// The same chain, with two faults, bracketed both ways: the same faults.

@@ -53,6 +53,11 @@ pub trait Adapt {
     /// rule, but which parts a refusal names does: an adapter that asks
     /// for less than it needs may be named in a refusal another part
     /// causes.
+    ///
+    /// Its answer for a given `above` must not change once the adapter is
+    /// composed, not even by its own `provision`: the admission checks it,
+    /// and each part below is provisioned for it, as read before that
+    /// `provision`.
     fn needs_below(&self, above: Needs) -> Needs {
         above
     }

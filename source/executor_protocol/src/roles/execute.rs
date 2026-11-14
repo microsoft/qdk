@@ -136,9 +136,10 @@ pub trait Execute {
     /// when its run's future was dropped, a part above panicked while it
     /// waited, or a part above stopped waiting for it: the part then
     /// cancels the work that `execute` started for these shots, or ignores
-    /// its answer. A panic here, in an end the driver calls, fails the run
-    /// naming the driver; in the runner's end, it is raised again from the
-    /// run ([`Runner::run_async`](crate::Runner::run_async)).
+    /// its answer. A panic here, in an end a part above calls (the driver,
+    /// or an adapter in `adapt`), fails the run naming that part; in the
+    /// runner's end, it is raised again from the run
+    /// ([`Runner::run_async`](crate::Runner::run_async)).
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }

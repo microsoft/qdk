@@ -22,6 +22,7 @@
 //!   [`Workspace`], which takes qubits below it does not ask for; [`Trap`],
 //!   which fails a shot; [`FailsOnce`], which fails one `adapt`;
 //!   [`PanicsEnding`], which panics in `end_shots`, each time or once;
+//!   [`EndsBelow`], which ends its shots below inside `adapt`;
 //!   [`Shifting`], whose offer changes once provisioned; [`Misbehaving`],
 //!   which breaks the protocol's rules; [`ForwardsParity`], which passes
 //!   readout parities down while its needs below use none.

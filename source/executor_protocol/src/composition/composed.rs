@@ -68,6 +68,7 @@ impl<U, L> Composed<U, L> {
         }
     }
 }
+
 /// An adapter with the rest of the chain below it, as one executor: what a
 /// `Composed` lends its upper part at run time. Unlike a `Composed`, it
 /// checks no boundary of its own: the boundary between `adapter` and
