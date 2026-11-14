@@ -10,16 +10,18 @@ use std::any::type_name;
 use std::cell::Cell;
 use std::rc::Rc;
 
+use smallvec::smallvec;
+
 use super::{SEED, failed, runner};
 use crate::checked::BATCHES_CHECKED;
 use crate::tests::fake_parts::{
-    Bits, Log, Misbehaving, Misbehaviour, Misshape, Misshapen, NamesBelow, Panics, PanicsWhen,
-    Profiler, Program, Renamed,
+    Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, Misshape, Misshapen, NamesBelow, Panics,
+    PanicsWhen, ParityGates, Profiler, Program, Renamed,
 };
 use crate::{
-    Adapt, Adapter, Capabilities, ChainPart, CompositionFaults, Drive, DriveError, Driver, Execute,
-    ExecuteRefusal, Executor, Failure, InstructionFault, Needs, RunError, Runner, ShapeFault,
-    ShotId, ShotSet,
+    Adapt, Adapter, Argument, Capabilities, ChainPart, CompositionFaults, Drive, DriveError,
+    Driver, Execute, ExecuteRefusal, Executor, Failure, Instruction, InstructionFault, Needs,
+    RunError, Runner, ShapeFault, ShotId, ShotSet,
 };
 
 /// A run of a chain in one bracketing: how it failed, what its parts
@@ -220,6 +222,119 @@ fn a_drivers_instruction_beyond_its_needs_is_refused_above_an_adapter() {
             "{brackets}: the profiler counted none"
         );
     }
+}
+
+/// Reads qubit 0, flips it if the readout parity of that read is odd,
+/// and reads it again, in [`ParityGates`], written as struct literals, as
+/// a part writes them on its hot path, with shots needing `needs`.
+fn flip_on_a_parity(needs: Needs) -> Driver<Program> {
+    let on_qubit_0 = |opcode, arguments| Instruction {
+        opcode,
+        blocks: smallvec![0],
+        arguments,
+        select: None,
+    };
+    let mz = on_qubit_0(ParityGates::MZ, smallvec![]);
+    let x_if = on_qubit_0(ParityGates::X_IF, smallvec![Argument::recent(1)]);
+    Driver::new(Program::sending(
+        ParityGates::set(),
+        vec![mz.clone(), x_if, mz],
+        needs,
+    ))
+}
+
+/// The refusal of a readout parity for `x_if`'s `c`, the batch's second
+/// instruction, at the batch's first shot, `shot`.
+fn parity_refused(error: &DriveError, shot: u32) -> bool {
+    error.shot == ShotId::new(shot)
+        && matches!(
+            &error.failure,
+            Failure::Refused(ExecuteRefusal::Instruction {
+                batch: 0,
+                at: 1,
+                fault: InstructionFault::ParityNotProvisioned { mnemonic, parameter },
+                ..
+            }) if mnemonic == "x_if" && parameter == "c"
+        )
+}
+
+/// A driver sending a readout parity while its needs use none, through a
+/// profiler, above an executor that resolves them: refused at the
+/// driver's boundary, before the profiler counts any, since the admission
+/// never checked that the parts below resolve them.
+#[test]
+fn a_drivers_readout_parity_its_needs_do_not_use_is_refused_above_an_adapter() {
+    for run in failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
+        (
+            flip_on_a_parity(Needs::qubits(1)),
+            Adapter::new(Profiler::on(ParityGates::set(), counted, log)),
+            Executor::new(
+                Bits::accepting(ParityGates::set(), log)
+                    .offering(Capabilities::unlimited().max_qubits(64)),
+            ),
+        )
+    }) {
+        let Failed {
+            brackets, error, ..
+        } = &run;
+        assert!(parity_refused(error, 5), "{brackets}: {error:?}");
+        assert_eq!(
+            run.counted.get(),
+            0,
+            "{brackets}: the profiler counted none"
+        );
+        assert_eq!(run.log.count("Bits execute"), 0, "{brackets}: nothing ran");
+    }
+}
+
+/// A driver whose needs use readout parities, above an adapter that says
+/// it resolves them, so that its needs below use none, but passes them
+/// down, over an executor that resolves none: the adapter's batch is
+/// refused before the executor runs it.
+#[test]
+fn an_adapters_readout_parity_its_needs_below_do_not_use_is_refused_before_it_runs() {
+    for run in failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, _| {
+        (
+            flip_on_a_parity(Needs::qubits(1).with_readout_parity()),
+            Adapter::new(ForwardsParity::on(ParityGates::set(), log)),
+            Executor::new(Bits::accepting(ParityGates::set(), log)),
+        )
+    }) {
+        let Failed {
+            brackets, error, ..
+        } = &run;
+        assert!(parity_refused(error, 5), "{brackets}: {error:?}");
+        assert_eq!(run.log.count("Bits execute"), 0, "{brackets}: nothing ran");
+    }
+}
+
+/// A driver whose needs use readout parities, through two profilers, over
+/// an executor that resolves them, in each of the five bracketings of
+/// four parts: every boundary passes the parity, and the executor runs it.
+#[test]
+fn a_readout_parity_the_needs_use_crosses_every_boundary() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let program = || flip_on_a_parity(Needs::qubits(1).with_readout_parity());
+    let profiler = || Adapter::new(Profiler::on(ParityGates::set(), &counted, &log));
+    let bits = || {
+        Executor::new(
+            Bits::accepting(ParityGates::set(), &log)
+                .offering(Capabilities::unlimited().max_qubits(64)),
+        )
+    };
+    let shots = ShotSet::ids([5, 3]);
+    let runs = [
+        runner(((program() >> profiler()) >> profiler()) >> bits()).run(&shots, SEED),
+        runner((program() >> profiler()) >> (profiler() >> bits())).run(&shots, SEED),
+        runner(program() >> (profiler() >> (profiler() >> bits()))).run(&shots, SEED),
+        runner(program() >> ((profiler() >> profiler()) >> bits())).run(&shots, SEED),
+        runner((program() >> (profiler() >> profiler())) >> bits()).run(&shots, SEED),
+    ];
+    for (i, run) in runs.into_iter().enumerate() {
+        run.unwrap_or_else(|error| panic!("bracketing {i}: {error:?}"));
+    }
+    assert_eq!(log.count("Bits execute"), 5, "each bracketing ran it");
 }
 
 /// An executor answering a row fewer than the batch's two shots, below a

@@ -10,13 +10,14 @@
 //! Each sent instruction must be accepted with the same blocks (`in` and
 //! `out`, their types and sizes), parameters (their kinds, in order) and
 //! readouts (outcomes, then flags). It is matched by meaning where both
-//! sets declare one, so a set of another name fits when its instructions
-//! do the same (Stim's `H` is a state vector's `h`); by mnemonic only
-//! where neither declares one and the sets' names agree, each such match
-//! reported, since what the instruction does is then not checked; and
-//! refused otherwise. A shared set name alone proves nothing, since two
-//! sets may share one: one mnemonic both sets declare to do different
-//! things is refused, though another instruction does the same.
+//! sets declare one, so a set of another name fits when its instructions do
+//! the same (Stim's `H` is a state vector's `h`); by mnemonic only where
+//! neither declares one and the sets' names agree, each such match listed
+//! in the [`OpcodeMap`] that the sender's `bind` receives, since what the
+//! instruction does is then not checked; and refused otherwise. A shared
+//! set name alone proves nothing, since two sets may share one: one
+//! mnemonic both sets declare to do different things is refused, though
+//! another instruction does the same.
 
 use super::{InstructionDef, InstructionSet, Opcode};
 use std::fmt;
@@ -30,7 +31,8 @@ impl InstructionSet {
     /// meaning where it declares one, to the receiver's instruction of its
     /// mnemonic if that one does the same, else to any that does; by
     /// mnemonic where neither declares one and the sets' names agree,
-    /// listed in [`OpcodeMap::by_mnemonic`].
+    /// listed in [`OpcodeMap::by_mnemonic`] of the map the sender's `bind`
+    /// receives.
     ///
     /// # Errors
     ///
@@ -218,7 +220,9 @@ impl OpcodeMap {
 
     /// The mnemonics of the sent instructions matched by mnemonic alone,
     /// in the sending set's order: neither set declares what they do, so
-    /// that they do the same rests on the sets' shared name.
+    /// that they do the same rests on the sets' shared name. Only the
+    /// sender, whose `bind` receives this map, sees the list: the protocol
+    /// reports it nowhere else.
     #[must_use]
     pub fn by_mnemonic(&self) -> &[String] {
         &self.by_mnemonic

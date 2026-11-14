@@ -45,7 +45,8 @@ pub enum ParameterKind {
     Boolean,
     /// A string, Qodec's `string`.
     Text,
-    /// A Pauli operator over the instruction's qubits, Qodec's `pauli`.
+    /// A Pauli operator over the instruction's qubits (not checked),
+    /// Qodec's `pauli`.
     Pauli,
 }
 

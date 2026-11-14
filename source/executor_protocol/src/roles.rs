@@ -29,7 +29,7 @@ use std::fmt;
 use crate::ChainPart;
 
 pub use adapt::Adapt;
-pub(crate) use drive::FailedRun;
+pub(crate) use drive::EndedRun;
 pub use drive::{Drive, DriveError};
 pub use execute::{Execute, ExecuteError, ExecuteRefusal};
 

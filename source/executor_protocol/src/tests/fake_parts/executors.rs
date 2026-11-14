@@ -18,7 +18,8 @@ use crate::{
 };
 
 /// A toy executor on classical bits: `h` tosses a bit from the shot's
-/// stream, `x` flips it, and `mz` reads it.
+/// stream, `x` flips it, and `mz` reads it; any other instruction of its
+/// set does nothing.
 pub(crate) struct Bits {
     set: InstructionSet,
     opcodes: [Option<Opcode>; 3],
@@ -126,10 +127,10 @@ impl Execute for Bits {
                         bits[q] = stream.chance(500);
                     } else if opcode == x {
                         bits[q] = !bits[q];
-                    } else if self.loses {
-                        row.push(ReadoutValue::Missing(ReadoutFailure::Loss));
-                    } else {
-                        row.push(if bits[q] {
+                    } else if opcode == mz {
+                        row.push(if self.loses {
+                            ReadoutValue::Missing(ReadoutFailure::Loss)
+                        } else if bits[q] {
                             ReadoutValue::One
                         } else {
                             ReadoutValue::Zero

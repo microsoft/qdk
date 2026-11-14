@@ -23,7 +23,8 @@ pub enum Argument {
     Integer(i64),
     Boolean(bool),
     Text(Arc<str>),
-    /// In Qodec's sparse form over the instruction's qubits, `Z_0 Z_2`.
+    /// In Qodec's sparse form over the instruction's qubits (not checked),
+    /// `Z_0 Z_2`.
     Pauli(Arc<Pauli>),
 }
 

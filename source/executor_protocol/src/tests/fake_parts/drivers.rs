@@ -107,6 +107,8 @@ pub(crate) struct Program {
     needs: Needs,
     /// The needs it states once provisioned, breaking `needs`' rule.
     needs_once_provisioned: Option<Needs>,
+    /// Whether it ends its shots below once it has their readouts.
+    ends_its_shots: bool,
 }
 
 impl Program {
@@ -142,12 +144,36 @@ impl Program {
                 .collect(),
             needs: Needs::qubits(qubits),
             needs_once_provisioned: None,
+            ends_its_shots: true,
+        }
+    }
+
+    /// `instructions` of `set`, as one batch for every shot, needing
+    /// `needs`.
+    pub(crate) fn sending(
+        set: InstructionSet,
+        instructions: Vec<Instruction>,
+        needs: Needs,
+    ) -> Self {
+        Self {
+            set,
+            sequences: vec![instructions],
+            needs,
+            needs_once_provisioned: None,
+            ends_its_shots: true,
         }
     }
 
     /// This program, stating `needs` instead.
     pub(crate) fn needing(mut self, needs: Needs) -> Self {
         self.needs = needs;
+        self
+    }
+
+    /// This program, never ending its shots below, which it leaves to the
+    /// runner.
+    pub(crate) fn not_ending(mut self) -> Self {
+        self.ends_its_shots = false;
         self
     }
 
@@ -209,7 +235,9 @@ impl Drive for Program {
             })
             .collect();
         let readouts = below.execute(&batches, seed).await?;
-        below.end_shots(shots);
+        if self.ends_its_shots {
+            below.end_shots(shots);
+        }
         Ok(readouts
             .iter()
             .flat_map(|rows| (0..rows.shots()).map(|i| (rows.row(i).to_vec(), rows.conditions(i))))

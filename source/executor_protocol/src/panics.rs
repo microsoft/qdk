@@ -20,8 +20,8 @@ use std::task::Poll;
 ///
 /// `AssertUnwindSafe`, because a part may be left half-updated by its
 /// panic, and the protocol calls it again: the panic reaches the part
-/// above as a failure, the runner ends the failed run's shots on every
-/// part, the part that panicked included, and a later run calls it as
+/// above as a failure, the runner ends the run's shots on every part, the
+/// part that panicked included, and a later run calls it as
 /// before. So a part must tolerate being called after its panic, as after
 /// an error, as [`Failure::Panicked`](crate::Failure::Panicked) says.
 /// Unless a part above recovers from the failure, the run gives no output,

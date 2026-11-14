@@ -35,7 +35,10 @@ pub struct Needs {
     pub blocks: BTreeMap<BlockType, u32>,
     /// Whether its instructions hold a readout parity
     /// ([`Bit::Parity`](crate::Bit::Parity)), which the executor must
-    /// resolve per shot, as the shot runs.
+    /// resolve per shot, as the shot runs. An `execute` holding one is
+    /// refused at a boundary whose needs, as they reach it, say `false`
+    /// here
+    /// ([`ParityNotProvisioned`](crate::InstructionFault::ParityNotProvisioned)).
     pub uses_readout_parity: bool,
 }
 

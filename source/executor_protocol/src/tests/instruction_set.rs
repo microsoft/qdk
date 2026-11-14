@@ -22,7 +22,7 @@ use std::sync::Arc;
 // Copied in `instruction_set!`'s doc: keep the two the same.
 instruction_set! {
     /// QIR's gates, as a state-vector simulator accepts them.
-    CoinGates {
+    RotationGates {
         H = h(qubit),
         RZ = rz(qubit; theta: Number),
         CX = cx(qubit, qubit),
@@ -57,12 +57,12 @@ fn faults_of(instructions: impl IntoIterator<Item = InstructionDef>) -> Vec<Decl
 
 #[test]
 fn macro_constants_are_the_opcodes_of_their_mnemonics() {
-    let set = CoinGates::set();
+    let set = RotationGates::set();
     for (opcode, mnemonic) in [
-        (CoinGates::H, "h"),
-        (CoinGates::RZ, "rz"),
-        (CoinGates::CX, "cx"),
-        (CoinGates::MZ, "mz"),
+        (RotationGates::H, "h"),
+        (RotationGates::RZ, "rz"),
+        (RotationGates::CX, "cx"),
+        (RotationGates::MZ, "mz"),
     ] {
         assert_eq!(set.opcode(mnemonic), Some(opcode), "{mnemonic}");
         assert_eq!(set.mnemonic(opcode), Some(mnemonic));
@@ -186,9 +186,9 @@ fn load(name: &str, text: &str) -> InstructionSet {
     InstructionSet::new(name, [(BlockType::qubit(), 1)], instructions).expect("a valid set")
 }
 
-/// `CoinGates`, read at run time.
+/// `RotationGates`, read at run time.
 fn coin_gates_loaded() -> InstructionSet {
-    load("CoinGates", "h 1 - 0; rz 1 theta 0; cx 2 - 0; mz 1 - 1")
+    load("RotationGates", "h 1 - 0; rz 1 theta 0; cx 2 - 0; mz 1 - 1")
 }
 
 /// A set known only at run time is the set the macro writes: they fit
@@ -196,12 +196,17 @@ fn coin_gates_loaded() -> InstructionSet {
 #[test]
 fn set_made_at_run_time_fits_as_a_static_one() {
     let loaded = coin_gates_loaded();
-    let map = CoinGates::set().fits(&loaded).expect("the same set");
-    for opcode in [CoinGates::H, CoinGates::RZ, CoinGates::CX, CoinGates::MZ] {
+    let map = RotationGates::set().fits(&loaded).expect("the same set");
+    for opcode in [
+        RotationGates::H,
+        RotationGates::RZ,
+        RotationGates::CX,
+        RotationGates::MZ,
+    ] {
         assert_eq!(map.map(opcode), opcode);
     }
     loaded
-        .fits(&CoinGates::set())
+        .fits(&RotationGates::set())
         .expect("the same set, the other way");
 }
 
@@ -212,7 +217,7 @@ fn instruction_built_by_name_on_a_run_time_set_holds_the_static_constant() {
     let rz = coin_gates_loaded()
         .instruction("rz", [3], &[("theta", 0.25.into())])
         .expect("a valid instruction");
-    assert_eq!(rz.opcode, CoinGates::RZ);
+    assert_eq!(rz.opcode, RotationGates::RZ);
 }
 
 /// A run-time set that declares what its instructions do fits a set of
@@ -267,17 +272,17 @@ fn macro_set_with_a_declaration_fault_panics() {
 
 #[test]
 fn macro_set_is_named_for_its_type() {
-    assert_eq!(CoinGates::set().name(), "CoinGates");
+    assert_eq!(RotationGates::set().name(), "RotationGates");
 }
 
 #[test]
 fn opcode_of_an_unknown_mnemonic_is_none() {
-    assert_eq!(CoinGates::set().opcode("t"), None);
+    assert_eq!(RotationGates::set().opcode("t"), None);
 }
 
 #[test]
 fn mnemonic_beyond_the_set_is_none() {
-    assert_eq!(CodeGates::set().mnemonic(CoinGates::MZ), None);
+    assert_eq!(CodeGates::set().mnemonic(RotationGates::MZ), None);
 }
 
 /// Opcodes are the instructions' places, in the order given.
@@ -588,6 +593,35 @@ fn step_guarded_twice_is_refused() {
             .unless([Guard::Outcome(0)]),
     );
     assert_eq!(meaning_faults(def), [MeaningFault::GuardTwice { step: 1 }]);
+}
+
+/// `only_if` of no guard, or of one guard twice, which cancels: the
+/// parity is always even, so the step would never run; one guard is
+/// accepted.
+#[test]
+fn step_guarded_by_a_parity_that_is_always_even_is_refused() {
+    let guarded = |guards: &[Guard]| {
+        rotate_z0().meaning(
+            Meaning::declared()
+                .observe([Pauli::z(0)])
+                .pauli(Pauli::x(0))
+                .only_if(guards.iter().copied()),
+        )
+    };
+    InstructionSet::new(
+        "Gates",
+        [(BlockType::qubit(), 1)],
+        [guarded(&[Guard::Parameter(0)])],
+    )
+    .expect("a step guarded by one guard");
+    assert_eq!(
+        meaning_faults(guarded(&[])),
+        [MeaningFault::GuardNeverMet { step: 1 }]
+    );
+    assert_eq!(
+        meaning_faults(guarded(&[Guard::Parameter(0), Guard::Parameter(0)])),
+        [MeaningFault::GuardNeverMet { step: 1 }]
+    );
 }
 
 /// A second image of one generator would replace the first unseen, even

@@ -42,6 +42,9 @@ pub trait Execute {
     }
 
     /// The instructions it runs, which the part above must fit.
+    ///
+    /// Its answer must not change once the part is composed: the fit and
+    /// `bind`'s map are made once, by `>>`.
     fn accepts(&self) -> &InstructionSet;
 
     /// What it can ever serve, such as its most qubits, which the driver's
@@ -85,8 +88,8 @@ pub trait Execute {
 
     /// Says whether this part can take a run now, and refuses it if not,
     /// before anything runs. The runner asks every part once per run, the
-    /// part below first, before the driver starts; by default `Ok`. A device
-    /// opens its session here, or refuses with
+    /// part below first, before the driver starts; by default `Ok`. A part
+    /// that cannot take a run now, such as a busy device, refuses with
     /// [`RunRefusal::Unavailable`].
     fn ready(&mut self) -> impl Future<Output = Result<(), RunRefusal>> {
         async { Ok(()) }
@@ -113,9 +116,10 @@ pub trait Execute {
     ///
     /// Its future may be dropped before it answers: when its run's future
     /// is dropped, when a part above panics while it waits, or when a part
-    /// above stops waiting for it. The runner then ends the run's shots
-    /// ([`end_shots`](Self::end_shots)), once the run fails or its future is
-    /// dropped; otherwise the driver ends them as each shot ends.
+    /// above stops waiting for it. The runner ends the run's shots
+    /// ([`end_shots`](Self::end_shots)) once the run ends, whether it gave
+    /// outputs, failed, or its future was dropped; the driver may also end
+    /// each shot earlier, as it ends.
     fn execute(
         &mut self,
         batches: &[Batch<'_>],
@@ -125,13 +129,13 @@ pub trait Execute {
     /// Frees what it holds for shots that ended. The protocol calls it on
     /// every part, so a part never forwards it below; by default it does
     /// nothing. `shots` may hold shots it does not hold, or no longer
-    /// holds, such as when the runner ends every shot of a failed run,
-    /// some of which the driver had already ended: it does nothing for
-    /// those. It may also follow an `execute` dropped before it answered,
-    /// such as when its run's future was dropped, a part above panicked
-    /// while it waited, or a part above stopped waiting for it: the part
-    /// then cancels the work that `execute` started for these shots, or
-    /// ignores its answer.
+    /// holds, such as when the runner ends every shot of a run, some of
+    /// which the driver had already ended: it does nothing for those. It
+    /// may also follow an `execute` dropped before it answered, such as
+    /// when its run's future was dropped, a part above panicked while it
+    /// waited, or a part above stopped waiting for it: the part then
+    /// cancels the work that `execute` started for these shots, or ignores
+    /// its answer.
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }

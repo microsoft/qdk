@@ -254,10 +254,11 @@ fn a_lost_value_and_a_rejected_shot_reach_the_driver() {
     );
 }
 
-/// A driver that ends its shots: every part below it is told once, and
-/// holds nothing of them after, wherever the brackets go.
+/// A driver that ends its shots: every part below it is told, and holds
+/// nothing of them after, wherever the brackets go; the runner's end of
+/// the same shots after the run then does nothing.
 #[test]
-fn ending_shots_reaches_every_part_once() {
+fn a_drivers_end_of_its_shots_reaches_every_part_below() {
     let log = Log::default();
     let shots = ShotSet::ids(0..8);
     let left = runner(
@@ -272,15 +273,59 @@ fn ending_shots_reaches_every_part_once() {
     let mut right = right;
     left.run(&shots, SEED).expect("the run succeeds");
     right.run(&shots, SEED).expect("the run succeeds");
-    assert_eq!(log.count("BitFlip end_shots, holding 0"), 2);
-    assert_eq!(log.count("Bits end_shots, holding 0"), 2);
+    assert_eq!(log.count("BitFlip end_shots, holding 0"), 4);
+    assert_eq!(log.count("Bits end_shots, holding 0"), 4);
     assert_eq!(
         log.entries()
             .iter()
             .filter(|entry| entry.contains("end_shots"))
             .count(),
-        4
+        8
     );
+}
+
+/// A program that never ends its shots, over a noise, over bits, in both
+/// bracketings: once its run gives its outputs, every part has ended every
+/// shot of it, once, by the runner.
+#[test]
+fn a_successful_runs_shots_are_ended_on_every_part_even_when_the_driver_ends_none() {
+    let chains: [fn(&Log) -> usize; 2] = [
+        |log| {
+            let mut runner = runner(
+                (Driver::new(Program::new(&[("mz", 0)]).not_ending())
+                    >> Adapter::new(BitFlip::new(300, log)))
+                    >> Executor::new(Bits::new(log)),
+            );
+            runner
+                .run(&ShotSet::ids(0..3), SEED)
+                .expect("the run succeeds")
+                .len()
+        },
+        |log| {
+            let mut runner = runner(
+                Driver::new(Program::new(&[("mz", 0)]).not_ending())
+                    >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log))),
+            );
+            runner
+                .run(&ShotSet::ids(0..3), SEED)
+                .expect("the run succeeds")
+                .len()
+        },
+    ];
+    for (bracketing, chain) in chains.into_iter().enumerate() {
+        let log = Log::default();
+        assert_eq!(chain(&log), 3, "bracketing {bracketing}: every shot ran");
+        let ended: Vec<String> = log
+            .entries()
+            .into_iter()
+            .filter(|entry| entry.contains("end_shots"))
+            .collect();
+        assert_eq!(
+            ended,
+            ["BitFlip end_shots, holding 0", "Bits end_shots, holding 0"],
+            "bracketing {bracketing}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------- async
@@ -931,7 +976,8 @@ fn shape_fault(misshape: Misshape) -> ShapeFault {
 
 /// Coin copies under a noise, above a trap on shot 5, over bits, in each
 /// bracketing: a run's shots are ended on the noise, then the trap, then
-/// the bits, both when the driver ends them and when the run fails.
+/// the bits, both when the run succeeds, by the driver and then by the
+/// runner, and when it fails, by the runner.
 #[test]
 fn a_runs_shots_are_ended_top_to_bottom_even_when_it_fails() {
     /// The ends logged by a run that succeeds, then by one that fails.
@@ -1000,8 +1046,9 @@ fn a_runs_shots_are_ended_top_to_bottom_even_when_it_fails() {
     for (bracketing, chain) in bracketings.into_iter().enumerate() {
         let [succeeded, failed_run] = chain(&Log::default());
         assert_eq!(
-            succeeded, top_to_bottom,
-            "bracketing {bracketing}, ended by the driver"
+            succeeded,
+            [top_to_bottom, top_to_bottom].concat(),
+            "bracketing {bracketing}, ended by the driver, then the runner"
         );
         assert_eq!(failed_run, top_to_bottom, "bracketing {bracketing}, failed");
     }

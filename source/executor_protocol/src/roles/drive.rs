@@ -32,6 +32,9 @@ pub trait Drive {
     }
 
     /// The instructions it sends, which must fit the part below.
+    ///
+    /// Its answer must not change once the part is composed: the fit and
+    /// `bind`'s map are made once, by `>>`.
     fn sends(&self) -> &InstructionSet;
 
     /// Takes the receiver's opcode for each instruction it sends; `>>`
@@ -70,11 +73,12 @@ pub trait Drive {
         below
     }
 
-    /// Ends the shots of `run`, which failed, on each adapter it holds, top
-    /// to bottom; by default it holds none. The runner calls it, then the
-    /// executor's `end_shots`; only the crate overrides it.
+    /// Ends the shots of `run`, which ended, on each adapter it holds, top
+    /// to bottom; by default it holds none. The runner calls it after every
+    /// run whose `drive` started, then the executor's `end_shots`; only the
+    /// crate overrides it.
     #[doc(hidden)]
-    fn end_failed_run(&mut self, run: FailedRun<'_>) {
+    fn end_run(&mut self, run: EndedRun<'_>) {
         let _ = run;
     }
 
@@ -86,11 +90,23 @@ pub trait Drive {
     }
 
     /// Runs `shots` by calling `below`, the rest of the chain as one
-    /// executor, until each shot ends; ends each shot below when it ends;
-    /// and gives each shot's output, in the order of `shots`. An error from
-    /// below passes up with `?`, through `From<ExecuteError>`. The runner
-    /// returns the outputs as given: it does not check their count or
-    /// order.
+    /// executor, until each shot ends, and gives each shot's output, in the
+    /// order of `shots`. An error from below passes up with `?`, through
+    /// `From<ExecuteError>`. The runner returns the outputs as given: it
+    /// does not check their count or order.
+    ///
+    /// Each batch it sends below holds only shots of `shots`: a rule the
+    /// driver keeps, which the protocol does not check. A shot outside them
+    /// is not counted against the most shots a run may have
+    /// ([`Capabilities::max_shots`]), and the runner does not end it, so a
+    /// part may carry its state into a later run, which then does not
+    /// repeat with its seed.
+    ///
+    /// Once `drive` returns, fails or panics, or its run's future is
+    /// dropped, the runner ends every shot of `shots` on every part below
+    /// ([`Execute::end_shots`]), so a driver need not end them. It may end
+    /// a shot below as soon as that shot ends, to free its state early; the
+    /// runner's second end of it does nothing.
     fn drive(
         &mut self,
         shots: &ShotSet,
@@ -99,14 +115,14 @@ pub trait Drive {
     ) -> impl Future<Output = Result<Vec<Self::Output>, DriveError>>;
 }
 
-/// A run whose `drive` failed, as the runner tells
-/// [`Drive::end_failed_run`]: its shots.
+/// A run whose `drive` started and ended, as the runner tells
+/// [`Drive::end_run`]: its shots.
 ///
 /// Code outside the crate cannot name it, because this module is private:
 /// so only the crate overrides that method, and every part a driver holds
 /// is told.
 #[derive(Clone, Copy)]
-pub struct FailedRun<'a> {
+pub struct EndedRun<'a> {
     /// The run's shots.
     pub(crate) shots: &'a ShotSet,
 }

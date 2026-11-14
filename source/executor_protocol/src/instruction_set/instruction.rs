@@ -23,6 +23,7 @@ pub use argument::{Argument, Bit, ReadoutParity};
 pub use select_pattern::SelectPattern;
 
 use super::{InstructionSet, Opcode, ParameterKind};
+use batch_check::Provisioned;
 use smallvec::SmallVec;
 use std::fmt;
 
@@ -43,7 +44,8 @@ pub struct Instruction {
     /// One per parameter, in the parameters' order.
     pub arguments: Arguments,
     /// Its flags' values without noise: one pattern must match. Rare, so
-    /// one word when absent.
+    /// one word when absent. `Some` of no pattern is refused at an
+    /// `execute` ([`InstructionFault::EmptySelect`]).
     pub select: Option<Box<[SelectPattern]>>,
 }
 
@@ -110,20 +112,21 @@ impl InstructionSet {
         Ok(instruction)
     }
 
-    /// Checks `instruction` against this set, and, given `blocks_of`, its
-    /// blocks against the shot's: its readout slots (its outcomes, then its
-    /// flags), or the first fault.
+    /// Checks `instruction` against this set, and, given what its shots
+    /// were `provisioned` for, its blocks and readout parities against
+    /// that: its readout slots (its outcomes, then its flags), or the first
+    /// fault.
     pub(crate) fn check(
         &self,
         instruction: &Instruction,
-        blocks_of: Option<&[u32]>,
+        provisioned: Option<&Provisioned>,
     ) -> Result<u32, InstructionFault> {
         let index = instruction.opcode.index();
         let (Some(def), Some(layout)) = (self.instructions.get(index), self.layouts.get(index))
         else {
             return Err(InstructionFault::UnknownOpcode(instruction.opcode));
         };
-        layout.check(def, instruction, blocks_of)?;
+        layout.check(def, instruction, provisioned)?;
         Ok(def.outcomes.saturating_add(layout.flags()))
     }
 }
@@ -182,6 +185,11 @@ pub enum InstructionFault {
     UnknownFlag { mnemonic: String, name: String },
     /// [`Instruction::select`]: one flag twice in one pattern.
     RepeatedFlag { mnemonic: String, name: String },
+    /// At an `execute`: a [`select`](Instruction::select) field of no
+    /// patterns, `Some` of an empty list, which no shot's flags could
+    /// match; the builder makes `None` of no pattern, which expects
+    /// nothing.
+    EmptySelect { mnemonic: String },
     /// [`Instruction::select`]: a flag's value other than 0 or 1.
     FlagValueNotABit {
         mnemonic: String,
@@ -193,6 +201,12 @@ pub enum InstructionFault {
     /// Both: a readout parity counting back 0, as `Argument::recent(0)`;
     /// counts back start at 1, the shot's latest readout.
     ZeroLookback { mnemonic: String },
+    /// At an `execute`: a readout parity for this parameter, sent to shots
+    /// whose needs, as they reach the receiver, use none
+    /// ([`Needs::uses_readout_parity`](crate::Needs::uses_readout_parity)),
+    /// so that the admission did not check that the receiver resolves
+    /// them.
+    ParityNotProvisioned { mnemonic: String, parameter: String },
     /// An executor's own rule beyond the set, in its words: a batch sampler
     /// refusing a measurement before the batch's end; an argument out of
     /// its range. A rule a capability can state is a capability instead.
@@ -262,6 +276,12 @@ impl fmt::Display for InstructionFault {
                     "`{mnemonic}`'s flag `{name}` is selected twice in one pattern"
                 )
             }
+            InstructionFault::EmptySelect { mnemonic } => {
+                write!(
+                    f,
+                    "`{mnemonic}` selects on no pattern, which no flags match"
+                )
+            }
             InstructionFault::FlagValueNotABit {
                 mnemonic,
                 name,
@@ -276,6 +296,14 @@ impl fmt::Display for InstructionFault {
             InstructionFault::ZeroLookback { mnemonic } => {
                 write!(f, "`{mnemonic}` counts back 0 readouts; the latest is 1")
             }
+            InstructionFault::ParityNotProvisioned {
+                mnemonic,
+                parameter,
+            } => write!(
+                f,
+                "`{mnemonic}` is given a readout parity for `{parameter}`, \
+                 but its shots' needs use none"
+            ),
             InstructionFault::Unsupported { mnemonic, reason } => {
                 write!(f, "`{mnemonic}` is not supported: {reason}")
             }

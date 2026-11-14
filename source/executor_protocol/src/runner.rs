@@ -11,9 +11,9 @@
 //! have (by the offer that reaches the driver), its seed against whether
 //! the chain is seedable, and whether each part can take a run now. Then
 //! the driver runs the shots, calling the chain below it as one executor,
-//! whose every `execute` the protocol checks. When the run fails, or its
-//! future is dropped before it ends, the runner ends its shots on every
-//! part, so that none keeps them.
+//! whose every `execute` the protocol checks. Once the run ends, whether it
+//! gave outputs, failed, or its future was dropped, the runner ends its
+//! shots on every part, so that none keeps them.
 
 mod run_error;
 #[cfg(not(target_arch = "wasm32"))]
@@ -22,7 +22,7 @@ pub(crate) mod wait;
 use crate::checked::Checked;
 use crate::instruction_set::instruction::batch_check::BatchLimits;
 use crate::panics::{catch_panic, end_both};
-use crate::roles::FailedRun;
+use crate::roles::EndedRun;
 use crate::{
     Capabilities, ChainPart, Drive, DriveError, Execute, Failure, RunRefusal, Seed, ShotSet,
 };
@@ -105,15 +105,16 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// a part's panic in `drive`, `execute` or an `end_shots` the driver
     /// calls, where a panic unwinds (on wasm32, it aborts).
     ///
-    /// A failed run's shots are then ended on every part, every adapter top
-    /// to bottom, then the executor at the bottom, so that no part carries
-    /// them into the next run; so are those of a run whose future is
-    /// dropped before it ends. Every part is ended even if one panics in
-    /// `end_shots`; the first such panic, top to bottom, is then raised
-    /// again from the run, or from the drop of its future, unless the
-    /// thread is already unwinding. So a part that panics each time it
-    /// ends shots makes the run panic, once every other part is ended. A
-    /// panic in a part's `ready` is not caught.
+    /// Once `drive` returns, fails or panics, or the future is dropped
+    /// before it ends, the run's shots are ended on every part, every
+    /// adapter top to bottom, then the executor at the bottom, so that no
+    /// part carries them into the next run, whether or not the driver ended
+    /// them. Every part is ended even if one panics in `end_shots`; the
+    /// first such panic, top to bottom, is then raised again from the run,
+    /// or from the drop of its future, unless the thread is already
+    /// unwinding. So a part that panics each time it ends shots makes every
+    /// run that started its `drive` panic, once every other part is ended.
+    /// A panic in a part's `ready` is not caught.
     ///
     /// The future is `Send` exactly when every part and every part's
     /// future is: no trait bounds the futures its parts return, and the
@@ -153,7 +154,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             let driver = &mut *unended.driver;
             let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
                 Ok(Ok(outputs)) => {
-                    unended.ended_by_the_driver();
+                    drop(unended);
                     return Ok(outputs);
                 }
                 Ok(Err(failure)) => failure,
@@ -172,27 +173,21 @@ impl<D: Drive, E: Execute> Runner<D, E> {
 }
 
 /// The shots of a run whose `drive` started, which any part may hold:
-/// dropped before the driver ended them, when the run failed or its future
-/// was dropped, it ends them on every part, as [`Drive::end_failed_run`]
-/// says, then on the executor.
+/// dropped once the run ends, whether it gave outputs, failed, or its
+/// future was dropped, it ends them on every part, as [`Drive::end_run`]
+/// says, then on the executor. One end for the three, so that freeing a
+/// run's shots never depends on the driver.
 struct UnendedShots<'a, D: Drive, E: Execute> {
     driver: &'a mut D,
     executor: &'a mut E,
     shots: &'a ShotSet,
 }
 
-impl<D: Drive, E: Execute> UnendedShots<'_, D, E> {
-    /// The run succeeded, so the driver ended each shot.
-    fn ended_by_the_driver(self) {
-        std::mem::forget(self);
-    }
-}
-
 impl<D: Drive, E: Execute> Drop for UnendedShots<'_, D, E> {
     fn drop(&mut self) {
         let shots = self.shots;
         end_both(
-            || self.driver.end_failed_run(FailedRun { shots }),
+            || self.driver.end_run(EndedRun { shots }),
             || self.executor.end_shots(shots),
         );
     }

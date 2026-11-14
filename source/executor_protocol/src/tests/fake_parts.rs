@@ -6,7 +6,8 @@
 //! bits, written in QIR's `h`, `x` and `mz`.
 //!
 //! - Drivers: [`CoinCopy`], which branches on a readout, and [`Program`],
-//!   one batch for every shot, or one for each half of them.
+//!   one batch for every shot, or one for each half of them, in
+//!   [`CoinGates`] or another set, such as [`ParityGates`].
 //! - Executors: [`Bits`], and executors that answer later ([`Later`]),
 //!   from a thread ([`FromThread`]), with the wrong shape ([`Misshapen`]),
 //!   or by panicking ([`Panics`], also a driver).
@@ -22,7 +23,8 @@
 //!   which fails a shot; [`FailsOnce`], which fails one `adapt`;
 //!   [`PanicsEnding`], which panics in `end_shots`, each time or once;
 //!   [`Shifting`], whose offer changes once provisioned; [`Misbehaving`],
-//!   which breaks the protocol's rules.
+//!   which breaks the protocol's rules; [`ForwardsParity`], which passes
+//!   readout parities down while its needs below use none.
 //! - Any role: [`Renamed`], a part with a name other than its type's.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads
@@ -56,6 +58,12 @@ instruction_set! {
     /// QIR's `h`, `x` and `mz`: what every fake part sends and accepts,
     /// unless a test gives it another set.
     pub(crate) CoinGates { H = h(qubit), X = x(qubit), MZ = mz(qubit) -> 1 outcome }
+}
+
+instruction_set! {
+    /// `mz`, and an `x` run if a bit is 1, which a readout parity may give:
+    /// what the tests of readout parities send.
+    pub(crate) ParityGates { MZ = mz(qubit) -> 1 outcome, X_IF = x_if(qubit; c: Bit) }
 }
 
 /// What the fake parts did, in order, shared with the test that reads it.

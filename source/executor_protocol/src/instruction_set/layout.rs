@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 
 use super::{
     BlockType, DeclarationFault, Instruction, InstructionDef, InstructionFault, ParameterKind,
-    instruction::{Argument, Bit},
+    instruction::{Argument, Bit, batch_check::Provisioned},
 };
 
 /// What an instruction's check compares, derived from its declaration.
@@ -118,18 +118,19 @@ impl Layout {
         })
     }
 
-    /// Checks `instruction`, of `def`, against this layout, and, given
-    /// `blocks_of` (the shot's blocks of each of the set's block types, in
-    /// the set's order), each block's index against them; the first fault:
-    /// a block count other than the layout's (or, for a variadic operand,
-    /// below its least), a block beyond the shot's, a block given twice,
-    /// an argument missing, extra or of another kind, a readout parity
-    /// counting back 0, a flag pattern over flags it lacks.
+    /// Checks `instruction`, of `def`, against this layout, and, given what
+    /// its shots were `provisioned` for, each block's index against their
+    /// blocks of its type and each readout parity against their needs; the
+    /// first fault: a block count other than the layout's (or, for a
+    /// variadic operand, below its least), a block beyond the shot's, a
+    /// block given twice, an argument missing, extra or of another kind, a
+    /// readout parity counting back 0 or not provisioned for, a select of
+    /// no patterns, or a flag pattern over flags it lacks.
     pub(crate) fn check(
         &self,
         def: &InstructionDef,
         instruction: &Instruction,
-        blocks_of: Option<&[u32]>,
+        provisioned: Option<&Provisioned>,
     ) -> Result<(), InstructionFault> {
         let mnemonic = || def.mnemonic.clone();
         let blocks = &instruction.blocks;
@@ -142,7 +143,7 @@ impl Layout {
                 variadic: self.variadic,
             });
         }
-        if let Some(blocks_of) = blocks_of {
+        if let Some(Provisioned { blocks_of, .. }) = provisioned {
             for (position, &block) in blocks.iter().enumerate() {
                 for block_type in self.slot(position).types() {
                     let needs = blocks_of[block_type as usize];
@@ -185,15 +186,26 @@ impl Layout {
                     expected,
                 });
             }
-            if let Argument::Bit(Bit::Parity(parity)) = argument
-                && parity.back().contains(&0)
-            {
-                return Err(InstructionFault::ZeroLookback {
-                    mnemonic: mnemonic(),
-                });
+            if let Argument::Bit(Bit::Parity(parity)) = argument {
+                if parity.back().contains(&0) {
+                    return Err(InstructionFault::ZeroLookback {
+                        mnemonic: mnemonic(),
+                    });
+                }
+                if provisioned.is_some_and(|provisioned| !provisioned.readout_parity) {
+                    return Err(InstructionFault::ParityNotProvisioned {
+                        mnemonic: mnemonic(),
+                        parameter: def.parameters[position].name.clone(),
+                    });
+                }
             }
         }
         if let Some(patterns) = &instruction.select {
+            if patterns.is_empty() {
+                return Err(InstructionFault::EmptySelect {
+                    mnemonic: mnemonic(),
+                });
+            }
             let undeclared = u64::MAX.checked_shl(self.flags).unwrap_or(0);
             if let Some(pattern) = patterns.iter().find(|p| p.mask() & undeclared != 0) {
                 let flag = (pattern.mask() & undeclared).trailing_zeros();

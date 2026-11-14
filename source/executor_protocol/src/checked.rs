@@ -7,10 +7,11 @@
 //! So that no part checks what it is sent, nor what it answers: each
 //! boundary of a chain is crossed through one `Checked`, which refuses a
 //! batch before anything of it runs (an instruction the receiver does not
-//! accept, a block beyond the shot's, more instructions than the receiver
-//! takes), and makes a failure of an answer of the wrong shape or of a
-//! panic (where a panic unwinds: on wasm32, it aborts), so that the part
-//! above gets readouts it can index without a check of its own.
+//! accept, a block beyond the shot's, a readout parity the shots' needs do
+//! not use, more instructions than the receiver takes), and makes a
+//! failure of an answer of the wrong shape or of a panic (where a panic
+//! unwinds: on wasm32, it aborts), so that the part above gets readouts it
+//! can index without a check of its own.
 
 use smallvec::SmallVec;
 
@@ -112,15 +113,19 @@ impl<E: Execute> Execute for Checked<'_, E> {
 
 /// The limits of the batches sent to `receiver`, whose offer is `offer`,
 /// by a part whose shots need `needs`: the receiver's most instructions,
-/// and the blocks of each of its block types.
+/// the blocks of each of its block types, and whether readout parities
+/// may be sent.
 pub(crate) fn batch_limits(
     receiver: &InstructionSet,
     offer: &Capabilities,
     needs: &Needs,
 ) -> BatchLimits {
-    BatchLimits::new(receiver, offer.max_instructions, |block_type| {
-        needs.blocks_of(block_type)
-    })
+    BatchLimits::new(
+        receiver,
+        offer.max_instructions,
+        |block_type| needs.blocks_of(block_type),
+        needs.uses_readout_parity,
+    )
 }
 
 /// The refusal of `batches[index]`, `batch`, for `fault`, named by its

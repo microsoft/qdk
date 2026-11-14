@@ -768,6 +768,55 @@ impl Adapt for Misbehaving {
     }
 }
 
+/// An adapter that says it resolves readout parities itself, as a decoder
+/// would, so that its needs below use none and it offers them above
+/// whatever the part below offers, but passes every batch down as it
+/// came, readout parities included: a [`Profiler`] of `set` otherwise.
+pub(crate) struct ForwardsParity(Profiler);
+
+impl ForwardsParity {
+    pub(crate) fn on(set: InstructionSet, log: &Log) -> Self {
+        Self(Profiler::on(set, &Rc::new(Cell::new(0)), log))
+    }
+}
+
+impl Adapt for ForwardsParity {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    fn needs_below(&self, needs: Needs) -> Needs {
+        Needs {
+            uses_readout_parity: false,
+            ..needs
+        }
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        Capabilities {
+            resolves_readout_parity: true,
+            ..below
+        }
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.0.adapt(batches, seed, below).await
+    }
+}
+
 /// A toy lowering that cannot carry readout parities: it offers none
 /// above, whatever the offer below. At run time it passes instructions
 /// through, as a [`Spread`] of 1.

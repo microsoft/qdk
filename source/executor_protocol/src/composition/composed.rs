@@ -26,7 +26,7 @@ use crate::admission::by_part::ByPart;
 use crate::checked::{Checked, batch_limits};
 use crate::instruction_set::instruction::batch_check::BatchLimits;
 use crate::panics::end_both;
-use crate::roles::FailedRun;
+use crate::roles::EndedRun;
 use crate::{
     Adapt, Batch, BatchReadouts, Capabilities, ChainPart, Drive, DriveError, Execute, ExecuteError,
     InstructionSet, Needs, OpcodeMap, RunRefusal, Seed, ShotSet,
@@ -115,9 +115,9 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
 
     /// The driver's adapters, then this one, each ended even if one
     /// before it panics.
-    fn end_failed_run(&mut self, run: FailedRun<'_>) {
+    fn end_run(&mut self, run: EndedRun<'_>) {
         end_both(
-            || self.upper.end_failed_run(run),
+            || self.upper.end_run(run),
             || self.lower.end_shots(run.shots),
         );
     }

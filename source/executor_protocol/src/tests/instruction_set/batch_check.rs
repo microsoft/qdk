@@ -7,7 +7,7 @@
 
 use crate::instruction_set::instruction::batch_check::{BatchFault, BatchLimits, check_batch};
 use crate::{
-    Argument, BlockOperand, BlockType, Instruction, InstructionDef, InstructionFault,
+    Argument, Bit, BlockOperand, BlockType, Instruction, InstructionDef, InstructionFault,
     InstructionSet, Opcode, ParameterKind,
 };
 use smallvec::smallvec;
@@ -73,15 +73,21 @@ fn device() -> InstructionSet {
     .expect("a valid set")
 }
 
-/// The limits of shots of `qubits` qubits and `carbons` blocks.
+/// The limits of shots of `qubits` qubits and `carbons` blocks, which
+/// use no readout parity.
 fn limits(set: &InstructionSet, max: Option<u32>, qubits: u32, carbons: u32) -> BatchLimits {
-    BatchLimits::new(set, max, |block_type| {
-        if *block_type == BlockType::qubit() {
-            qubits
-        } else {
-            carbons
-        }
-    })
+    BatchLimits::new(
+        set,
+        max,
+        |block_type| {
+            if *block_type == BlockType::qubit() {
+                qubits
+            } else {
+                carbons
+            }
+        },
+        false,
+    )
 }
 
 /// `mnemonic` on `blocks`, with no argument and no flag pattern, as a part
@@ -291,6 +297,30 @@ fn select_over_flags_the_instruction_lacks_is_refused() {
     );
 }
 
+/// A `select` of no patterns, which only a struct literal makes: no shot's
+/// flags could match it, so it is refused, as a select of one pattern is
+/// accepted.
+#[test]
+fn select_of_no_patterns_is_refused() {
+    let set = device();
+    let limits = limits(&set, None, 1, 0);
+    let m = literal(&set, "m", &[0])
+        .select(&set, [[("leak", 0)]])
+        .expect("a declared flag");
+    check_batch(&set, std::slice::from_ref(&m), &limits).expect("a select of one pattern");
+    let mut empty = m;
+    empty.select = Some(Box::new([]));
+    assert_eq!(
+        check_batch(&set, &[empty], &limits),
+        fault_at(
+            0,
+            InstructionFault::EmptySelect {
+                mnemonic: "m".into(),
+            }
+        )
+    );
+}
+
 /// Counts back start at 1, the shot's latest readout: a part writing
 /// `recent(0)` by hand is refused at the check, as when built by name.
 #[test]
@@ -304,6 +334,34 @@ fn bit_argument_counting_back_zero_is_refused() {
             0,
             InstructionFault::ZeroLookback {
                 mnemonic: "cond_x".into(),
+            }
+        )
+    );
+}
+
+/// A readout parity is resolved by the executor, which the admission
+/// checks only for shots whose needs use one: a `cond_x` on a parity is
+/// accepted for such shots, and refused for others; a bit known when
+/// written is accepted for both.
+#[test]
+fn readout_parity_is_refused_unless_the_shots_needs_use_one() {
+    let set = device();
+    let cond_x = |argument: Argument| {
+        let mut cond_x = literal(&set, "cond_x", &[0]);
+        cond_x.arguments = smallvec![argument];
+        cond_x
+    };
+    let without = limits(&set, None, 1, 0);
+    let with = BatchLimits::new(&set, None, |_| 1, true);
+    check_batch(&set, &[cond_x(Argument::recent(1))], &with).expect("parities used");
+    check_batch(&set, &[cond_x(Argument::Bit(Bit::Value(true)))], &without).expect("a known bit");
+    assert_eq!(
+        check_batch(&set, &[cond_x(Argument::recent(1))], &without),
+        fault_at(
+            0,
+            InstructionFault::ParityNotProvisioned {
+                mnemonic: "cond_x".into(),
+                parameter: "c".into(),
             }
         )
     );

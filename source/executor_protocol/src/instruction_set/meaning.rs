@@ -149,7 +149,10 @@ impl Meaning {
 
     /// The latest step, run only if the parity of `guards` is odd, Qodec's
     /// `if`. A step takes one guard: `only_if` or `unless` again on it is
-    /// refused when the set is built ([`MeaningFault::GuardTwice`]).
+    /// refused when the set is built ([`MeaningFault::GuardTwice`]). So is
+    /// a parity that is always even, of no guard or of guards that cancel
+    /// in pairs ([`MeaningFault::GuardNeverMet`]): the step would never
+    /// run.
     #[must_use]
     pub fn only_if(self, guards: impl IntoIterator<Item = Guard>) -> Self {
         self.guarded(true, guards)
@@ -254,6 +257,12 @@ impl Meaning {
         if self.last_step_guarded {
             self.slips.push(MeaningFault::GuardTwice { step });
         }
+        if guard
+            .as_ref()
+            .is_some_and(|guard| guard.odd && guard.terms.is_empty())
+        {
+            self.slips.push(MeaningFault::GuardNeverMet { step });
+        }
         steps[step].guard = guard;
         self.last_step_guarded = true;
         self
@@ -321,6 +330,9 @@ pub enum MeaningFault {
     /// `only_if` or `unless` given twice to one step, which would keep
     /// only the latest.
     GuardTwice { step: usize },
+    /// `only_if` of no guard, or of guards that cancel in pairs: a parity
+    /// that is always even, so the step would never run.
+    GuardNeverMet { step: usize },
     /// A Clifford maps one generator twice, which would keep only the
     /// latest image.
     GeneratorTwice { step: usize, generator: Pauli },
@@ -349,6 +361,9 @@ impl fmt::Display for MeaningFault {
         match self {
             MeaningFault::GuardWithoutStep => f.write_str("a guard before any step"),
             MeaningFault::GuardTwice { step } => write!(f, "step {step} is guarded twice"),
+            MeaningFault::GuardNeverMet { step } => {
+                write!(f, "step {step} is guarded by an odd parity of no guard")
+            }
             MeaningFault::GeneratorTwice { step, generator } => {
                 write!(f, "step {step} maps `{generator}` twice")
             }

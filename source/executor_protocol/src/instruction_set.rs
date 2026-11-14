@@ -392,12 +392,12 @@ impl std::error::Error for DeclarationFault {}
 /// instruction: its constant, its mnemonic, the blocks it acts on in
 /// place (its `in` and its `out`), its parameters after a `;`, and the
 /// outcomes it gives after `->` (`1 outcome` or `2 outcomes`; either word
-/// for any count), as in the crate's tests' `CoinGates`, copied here:
+/// for any count), as in the crate's tests' `RotationGates`, copied here:
 ///
 /// ```ignore
 /// instruction_set! {
 ///     /// QIR's gates, as a state-vector simulator accepts them.
-///     CoinGates {
+///     RotationGates {
 ///         H = h(qubit),
 ///         RZ = rz(qubit; theta: Number),
 ///         CX = cx(qubit, qubit),
@@ -406,11 +406,11 @@ impl std::error::Error for DeclarationFault {}
 /// }
 /// ```
 ///
-/// It gives `CoinGates::set()`, the set, built once and cloned, named
-/// `CoinGates`, and `CoinGates::H`, …, its opcodes. Its block types are
-/// `qubit`, one qubit each, unless listed after the name, as Qodec's
-/// `blocks`: `pub CodeGates [carbon: 2] { … }`. Its instructions declare
-/// no meaning and no flags: a set that needs them is built with
+/// It gives `RotationGates::set()`, the set, built once and cloned, named
+/// `RotationGates`, and `RotationGates::H`, …, its opcodes. Its block types
+/// are `qubit`, one qubit each, unless listed after the name, as Qodec's
+/// `blocks`: `pub CodeGates [carbon: 2] { … }`. Its instructions declare no
+/// meaning and no flags: a set that needs them is built with
 /// [`InstructionSet::new`].
 ///
 /// # Panics

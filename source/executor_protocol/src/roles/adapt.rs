@@ -26,9 +26,15 @@ pub trait Adapt {
     }
 
     /// The instructions it receives, which the part above must fit.
+    ///
+    /// Its answer must not change once the part is composed: the fit and
+    /// `bind`'s map are made once, by `>>`.
     fn accepts(&self) -> &InstructionSet;
 
     /// The instructions it sends below, which must fit the part below.
+    ///
+    /// Its answer must not change once the part is composed: the fit and
+    /// `bind`'s map are made once, by `>>`.
     fn sends(&self) -> &InstructionSet;
 
     /// Takes the receiver's opcode for each instruction it sends; `>>`
@@ -119,6 +125,10 @@ pub trait Adapt {
     /// readout slot. It calls `below.execute`, the rest of the chain as one
     /// executor, any number of times, each with the shots it chooses and
     /// `seed` passed on unchanged.
+    ///
+    /// Each batch it sends below holds only shots of the batches it got: a
+    /// rule the adapter keeps, which the protocol does not check, and
+    /// whose breach [`Drive::drive`](crate::Drive::drive) states.
     fn adapt(
         &mut self,
         batches: &[Batch<'_>],
