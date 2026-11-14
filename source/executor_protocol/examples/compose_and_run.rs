@@ -6,16 +6,16 @@
 //! adds bit-flip noise, and an executor whose qubits are classical bits.
 //!
 //! It prints each shot's two values, runs two of the shots again to show
-//! that a shot's values, noise included, depend only on the seed and its
-//! id, and shows a run the chain refuses. Run it with
-//! `cargo run --example compose_and_run`.
+//! that a shot's values, noise included, are the same each time the chain
+//! runs it with the same seed, whatever shots run beside it, and shows a
+//! run the chain refuses. Run it with `cargo run --example compose_and_run`.
 
 use std::collections::BTreeMap;
 
 use executor_protocol::{
     Adapt, Adapter, Batch, BatchReadouts, BlockType, Capabilities, Composed, Drive, DriveError,
     Driver, Execute, ExecuteError, Executor, Instruction, InstructionSet, Needs, OpcodeMap,
-    ReadoutValue, RunError, Runner, Seed, ShotConditions, ShotId, ShotSet, instruction_set,
+    ReadoutValue, Runner, Seed, ShotConditions, ShotId, ShotSet, instruction_set,
 };
 
 instruction_set! {
@@ -361,25 +361,27 @@ fn main() {
     let same = again == [values[4].clone(), values[5].clone()];
     println!("\nShots 4 and 5, run again alone: the same values, noise included? {same}");
 
-    let Err(RunError::Refused(refusal)) = runner.run(&ShotSet::ids(0..2000), SEED) else {
-        unreachable!("Bits runs at most 1000 shots");
-    };
-    println!("\n2000 shots: refused: {refusal}");
+    let refused = runner
+        .run(&ShotSet::ids(0..2000), SEED)
+        .expect_err("Bits runs at most 1000 shots");
+    println!("\n2000 shots: {refused}");
 }
 
 /// A value as the table prints it.
-fn text(value: ReadoutValue) -> &'static str {
+fn text(value: ReadoutValue) -> String {
     match value {
-        ReadoutValue::Zero => "0",
-        ReadoutValue::One => "1",
-        _ => "missing",
+        ReadoutValue::Zero => "0".to_owned(),
+        ReadoutValue::One => "1".to_owned(),
+        ReadoutValue::Missing(_) => "missing".to_owned(),
+        // `ReadoutValue` may gain variants: shown as they are.
+        other => format!("{other:?}"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use executor_protocol::RunRefusal;
+    use executor_protocol::{RunError, RunRefusal};
 
     /// A user who runs a few shots of a run again, with its seed, to look
     /// at them: each gets the values it had in the first run, the noise's
@@ -390,6 +392,12 @@ mod tests {
         let values = runner
             .run(&ShotSet::ids(0..12), SEED)
             .expect("the chain runs 12 shots");
+        for shot in [4, 5] {
+            assert_ne!(
+                values[shot][0], values[shot][1],
+                "seed 1's noise flips shot {shot}'s copy, so the rerun checks the noise's draws"
+            );
+        }
         let again = runner
             .run(&ShotSet::ids([4, 5]), SEED)
             .expect("the chain runs 2 shots");
@@ -411,6 +419,8 @@ mod tests {
     }
 
     /// The example's `main`, as `cargo run` runs it, ends without a panic.
+    /// Kept beside the two tests above: only it runs the printed path, the
+    /// table with `text` and the refusal's message.
     #[test]
     fn main_runs() {
         main();

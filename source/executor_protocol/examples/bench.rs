@@ -235,7 +235,9 @@ fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
             per(limited, n.div_ceil(batch))
         );
     }
-    let built = best(size.repeats, &program.len(), || build(draws).len());
+    let built = best(size.repeats, &program.len(), || {
+        black_box(build(draws)).len()
+    });
     println!(
         "  building each instruction by name (InstructionSet::instruction) {:>6.2}",
         per(built, n)
@@ -296,14 +298,12 @@ fn lowering_bench(size: &Size) {
             >> Executor::new(&mut recorder),
     );
     let physical = recorder.record.expect("a recording sink");
-    let compose = best(size.repeats, &(), || {
-        black_box(
-            Driver::new(Chunks::new(LogicalGates::set(), &logical, 2, 6))
-                >> Adapter::new(Repetition3::new())
-                >> Executor::new(Sink::new()),
+    let compose = compose_time(size.repeats, || {
+        (
+            Driver::new(Chunks::new(LogicalGates::set(), &logical, 2, 6)),
+            Adapter::new(Repetition3::new()),
+            Executor::new(Sink::new()),
         )
-        .map(drop)
-        .expect("the chain composes");
     });
     println!(
         "\nF. lowering, repetition code of 3 over a sink, {} logical -> {} physical instructions; composing the chain {:.1} µs",
@@ -347,6 +347,26 @@ fn lowering_bench(size: &Size) {
             per(lowered - direct, n)
         );
     }
+}
+
+/// The best time, in seconds, of `repeats` compositions of the three parts
+/// `parts` builds, after an untimed one: only the `>>`s are timed, not
+/// building the parts.
+fn compose_time<'p>(
+    repeats: usize,
+    mut parts: impl FnMut() -> (Driver<Chunks<'p>>, Adapter<Repetition3>, Executor<Sink>),
+) -> f64 {
+    (0..=repeats)
+        .map(|_| {
+            let (driver, adapter, executor) = parts();
+            let start = Instant::now();
+            let chain = black_box(driver >> adapter >> executor);
+            let elapsed = start.elapsed().as_secs_f64();
+            chain.map(drop).expect("the chain composes");
+            elapsed
+        })
+        .skip(1)
+        .fold(f64::INFINITY, f64::min)
 }
 
 /// The physical program sent straight to a sink, `batch` per `execute`:
