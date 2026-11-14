@@ -342,8 +342,6 @@ fn main() {
     let values = runner.run(&shots, SEED).expect("the chain runs 12 shots");
     println!("shot  coin  copy");
     for (id, shot) in shots.iter().zip(&values) {
-        // `ShotId`'s `Display` ignores the width, so it is padded as text.
-        let id = id.to_string();
         println!("{id:>4}  {:>4}  {:>4}", text(shot[0]), text(shot[1]));
     }
     println!("A copy unlike its coin: the noise flipped it.");
