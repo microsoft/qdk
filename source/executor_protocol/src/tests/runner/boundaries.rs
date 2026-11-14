@@ -17,7 +17,7 @@ use crate::tests::fake_parts::{
     Profiler, Program, Renamed,
 };
 use crate::{
-    Adapt, Adapter, Capabilities, CompositionFaults, Drive, DriveError, Driver, Execute,
+    Adapt, Adapter, Capabilities, ChainPart, CompositionFaults, Drive, DriveError, Driver, Execute,
     ExecuteRefusal, Executor, Failure, InstructionFault, Needs, RunError, Runner, ShapeFault,
     ShotId, ShotSet,
 };
@@ -271,7 +271,7 @@ fn an_executors_panic_below_an_adapter_is_a_failure_of_its_batch() {
             matches!(
                 &error.failure,
                 Failure::Panicked { part, message: Some(message) }
-                    if part == type_name::<Panics>()
+                    if *part == ChainPart::new(2, type_name::<Panics>())
                         && message == "the part broke while it was polled"
             ),
             "{brackets}: {error:?}"
@@ -298,7 +298,7 @@ fn an_adapters_panic_with_a_formatted_message_carries_it() {
             matches!(
                 &error.failure,
                 Failure::Panicked { part, message: Some(message) }
-                    if part == type_name::<Misbehaving>()
+                    if *part == ChainPart::new(1, type_name::<Misbehaving>())
                         && message == "the adapter broke on 1 batches"
             ),
             "{brackets}: {error:?}"
@@ -324,7 +324,8 @@ fn an_adapters_panic_with_no_text_is_a_failure_with_no_message() {
         assert!(
             matches!(
                 &error.failure,
-                Failure::Panicked { part, message: None } if part == type_name::<Misbehaving>()
+                Failure::Panicked { part, message: None }
+                    if *part == ChainPart::new(1, type_name::<Misbehaving>())
             ),
             "{brackets}: {error:?}"
         );
@@ -354,7 +355,43 @@ fn an_adapters_panic_names_it_wherever_the_brackets_go() {
         assert!(
             matches!(
                 &error.failure,
-                Failure::Panicked { part, .. } if part == type_name::<Misbehaving>()
+                Failure::Panicked { part, .. }
+                    if *part == ChainPart::new(1, type_name::<Misbehaving>())
+            ),
+            "bracketing {i}: {error:?}"
+        );
+    }
+}
+
+/// Two decoders of one name, a profiler above an adapter that panics, in
+/// each of the five bracketings of four parts: every failure names the
+/// lower one, part 2, so its position tells it from the other.
+#[test]
+fn a_panic_tells_two_parts_of_one_name_apart_by_position() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let program = || Driver::new(Program::new(&[("mz", 0)]));
+    let profiler = || Adapter::new(Renamed::new(Profiler::new(&counted, &log), "decoder"));
+    let misbehaving = || {
+        Adapter::new(Renamed::new(
+            Misbehaving::new(Misbehaviour::PanicsWithAString),
+            "decoder",
+        ))
+    };
+    let bits = || Executor::new(Bits::new(&log));
+    let shots = ShotSet::ids([3, 1]);
+    let errors = [
+        failed(runner(((program() >> profiler()) >> misbehaving()) >> bits()).run(&shots, SEED)),
+        failed(runner((program() >> profiler()) >> (misbehaving() >> bits())).run(&shots, SEED)),
+        failed(runner(program() >> (profiler() >> (misbehaving() >> bits()))).run(&shots, SEED)),
+        failed(runner(program() >> ((profiler() >> misbehaving()) >> bits())).run(&shots, SEED)),
+        failed(runner((program() >> (profiler() >> misbehaving())) >> bits()).run(&shots, SEED)),
+    ];
+    for (i, error) in errors.iter().enumerate() {
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, .. } if *part == ChainPart::new(2, "decoder")
             ),
             "bracketing {i}: {error:?}"
         );

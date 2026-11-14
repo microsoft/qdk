@@ -26,6 +26,8 @@ mod execute;
 use std::error::Error;
 use std::fmt;
 
+use crate::ChainPart;
+
 pub use adapt::Adapt;
 pub(crate) use drive::FailedRun;
 pub use drive::{Drive, DriveError};
@@ -73,7 +75,8 @@ impl Error for RunRefusal {}
 /// a whole batch, or a whole run, so it names the first shot of what
 /// failed: of the batch, for a refusal or an answer's rows or slots; of the
 /// first batch, for an answer of readouts not one per batch, or a panic in
-/// an `execute`; of the run, for the driver's panic.
+/// an `execute`; of the run, for the driver's panic, which includes a
+/// panic in an `end_shots` the driver calls on the chain below.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Failure {
@@ -84,12 +87,18 @@ pub enum Failure {
     Part(Box<dyn Error + Send + Sync>),
     /// A part panicked. Only where a panic unwinds: on wasm32, it aborts,
     /// and nothing is caught.
+    ///
+    /// The part above gets this failure as it gets any other from below,
+    /// and may go on, and the next run calls every part as before, so a
+    /// part must tolerate being called again after it panicked, as after
+    /// an error.
     Panicked {
-        /// The name of the part whose call panicked
-        /// ([`Execute::name`](crate::Execute::name)); a composed part is
-        /// named as its upper part, since each part below it is called
-        /// through a check of its own, which names it.
-        part: String,
+        /// The part whose call panicked: the driver, for a panic in its
+        /// `drive`; else the part whose `execute` or `adapt` panicked. A
+        /// panic in an `end_shots` that the driver calls on the chain below,
+        /// as each shot ends, unwinds through its `drive`, so it names the
+        /// driver.
+        part: ChainPart,
         /// Its message, when the panic's payload is text (a `&str` or a
         /// `String`).
         message: Option<String>,
@@ -105,11 +114,11 @@ impl fmt::Display for Failure {
             Failure::Panicked {
                 part,
                 message: Some(message),
-            } => write!(f, "`{part}` panicked: {message}"),
+            } => write!(f, "{part} panicked: {message}"),
             Failure::Panicked {
                 part,
                 message: None,
-            } => write!(f, "`{part}` panicked"),
+            } => write!(f, "{part} panicked"),
             Failure::Refused(refusal) => write!(f, "an execute was refused: {refusal}"),
         }
     }

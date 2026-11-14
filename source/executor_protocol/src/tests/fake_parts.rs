@@ -17,11 +17,12 @@
 //!   `Spread` with a most of its own; [`Pool`], which draws two block
 //!   types from one pool below; [`Queue`], which lowers the most shots;
 //!   [`LoweringWithoutParity`], which offers no readout parities;
-//!   [`Contrary`], whose offer shrinks as the offer below grows; [`Trap`],
+//!   [`Contrary`], whose offer shrinks as the offer below grows;
+//!   [`Workspace`], which takes qubits below it does not ask for; [`Trap`],
 //!   which fails a shot; [`FailsOnce`], which fails one `adapt`;
-//!   [`PanicsEnding`], which panics in `end_shots`; [`Shifting`], whose
-//!   offer changes once provisioned; [`Misbehaving`], which breaks the
-//!   protocol's rules.
+//!   [`PanicsEnding`], which panics in `end_shots`, each time or once;
+//!   [`Shifting`], whose offer changes once provisioned; [`Misbehaving`],
+//!   which breaks the protocol's rules.
 //! - Any role: [`Renamed`], a part with a name other than its type's.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads

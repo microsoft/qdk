@@ -5,7 +5,8 @@
 //! [`ByPart`].
 //!
 //! The traits' hidden `needs_by_part` and `offers_by_part` take one, and
-//! code outside the crate cannot name it, because this module is private:
+//! code outside the crate cannot name it, because no public path reaches
+//! it:
 //! so those methods cannot be overridden outside the crate, and every part
 //! is listed as the crate lists it. The `>>` that makes a runner lists
 //! every part, since the admission compares, at each boundary, the needs
@@ -93,6 +94,13 @@ impl ByPart {
             };
             self.note_offer(name, above, offers_above(exactly));
         }
+    }
+
+    /// The part whose offer was listed last: the top part of the chain
+    /// whose offers were just listed; `None` if none was, or when nothing
+    /// is kept.
+    pub(crate) fn last_offered(&self) -> Option<ChainPart> {
+        self.offers.last().map(|(part, _)| part.clone())
     }
 
     /// The position of the part whose offer is listed next: the executor's,

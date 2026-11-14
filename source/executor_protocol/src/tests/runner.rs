@@ -24,9 +24,9 @@ use crate::tests::fake_parts::{
     YieldNow,
 };
 use crate::{
-    Adapter, Capabilities, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure,
-    InstructionFault, InstructionSet, Needs, OpcodeMap, ReadoutFailure, ReadoutValue, RunError,
-    RunRefusal, Runner, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
+    Adapter, Capabilities, ChainPart, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor,
+    Failure, InstructionFault, InstructionSet, Needs, OpcodeMap, ReadoutFailure, ReadoutValue,
+    RunError, RunRefusal, Runner, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
 };
 
 const SEED: u64 = 7;
@@ -1063,6 +1063,73 @@ fn a_panic_ending_shots_ends_every_other_part_then_leaves_the_run() {
     }
 }
 
+/// Coin copies over an adapter whose first `end_shots` panics, over a
+/// noise, over bits, in each bracketing: the driver ends each shot on the
+/// chain below, so the panic unwinds through the driver's `drive`, and the
+/// run fails naming the driver, part 0, not the adapter.
+#[test]
+fn a_panic_ending_shots_the_driver_ends_is_named_as_the_driver() {
+    /// Runs `runner` on 8 shots, and checks it as above.
+    fn names_the_driver<D: Drive, E: Execute>(mut runner: Runner<D, E>) {
+        let error = failed(
+            runner
+                .run(&ShotSet::ids(0..8), SEED)
+                .map(|records| records.len()),
+        );
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(message) }
+                    if *part == ChainPart::new(0, type_name::<CoinCopy>())
+                        && message == "end_shots broke"
+            ),
+            "{error:?}"
+        );
+    }
+    let bracketings: [fn(&Log); 5] = [
+        |log| {
+            names_the_driver(runner(
+                Driver::new(CoinCopy::new())
+                    >> Adapter::new(PanicsEnding::once(log))
+                    >> Adapter::new(BitFlip::new(300, log))
+                    >> Executor::new(Bits::new(log)),
+            ));
+        },
+        |log| {
+            names_the_driver(runner(
+                (Driver::new(CoinCopy::new())
+                    >> (Adapter::new(PanicsEnding::once(log))
+                        >> Adapter::new(BitFlip::new(300, log))))
+                    >> Executor::new(Bits::new(log)),
+            ));
+        },
+        |log| {
+            names_the_driver(runner(
+                (Driver::new(CoinCopy::new()) >> Adapter::new(PanicsEnding::once(log)))
+                    >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log))),
+            ));
+        },
+        |log| {
+            names_the_driver(runner(
+                Driver::new(CoinCopy::new())
+                    >> ((Adapter::new(PanicsEnding::once(log))
+                        >> Adapter::new(BitFlip::new(300, log)))
+                        >> Executor::new(Bits::new(log))),
+            ));
+        },
+        |log| {
+            names_the_driver(runner(
+                Driver::new(CoinCopy::new())
+                    >> (Adapter::new(PanicsEnding::once(log))
+                        >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log)))),
+            ));
+        },
+    ];
+    for chain in bracketings {
+        chain(&Log::default());
+    }
+}
+
 /// Coin copies under a noise, over an adapter that panics in `end_shots`,
 /// over bits that answer later: a run whose future is dropped by the
 /// caller's own panic still ends its shots on every other part, and drops
@@ -1170,8 +1237,8 @@ fn of_two_panics_ending_shots_the_first_is_raised() {
 }
 
 /// An executor that panics, while making its future or while it is
-/// polled: the run fails naming the batch's first shot, the executor and
-/// the message.
+/// polled: the run fails naming the batch's first shot, the executor at
+/// its position and the message.
 #[test]
 fn an_executors_panic_is_a_failure_of_its_batch() {
     for (when, message) in [
@@ -1189,7 +1256,7 @@ fn an_executors_panic_is_a_failure_of_its_batch() {
             matches!(
                 &error.failure,
                 Failure::Panicked { part, message: Some(m) }
-                    if part == type_name::<Panics>() && m == message
+                    if *part == ChainPart::new(1, type_name::<Panics>()) && m == message
             ),
             "{error:?}"
         );
@@ -1197,7 +1264,7 @@ fn an_executors_panic_is_a_failure_of_its_batch() {
 }
 
 /// A driver that panics: the run fails naming its first shot and the
-/// driver.
+/// driver, part 0.
 #[test]
 fn a_drivers_panic_is_a_failure_of_the_run() {
     for (when, message) in [
@@ -1215,7 +1282,7 @@ fn a_drivers_panic_is_a_failure_of_the_run() {
             matches!(
                 &error.failure,
                 Failure::Panicked { part, message: Some(m) }
-                    if part == type_name::<Panics>() && m == message
+                    if *part == ChainPart::new(0, type_name::<Panics>()) && m == message
             ),
             "{error:?}"
         );
@@ -1236,7 +1303,8 @@ fn a_composed_drivers_panic_names_the_driver() {
     assert!(
         matches!(
             &error.failure,
-            Failure::Panicked { part, .. } if part == type_name::<Panics>()
+            Failure::Panicked { part, .. }
+                if *part == ChainPart::new(0, type_name::<Panics>())
         ),
         "{error:?}"
     );
@@ -1244,7 +1312,7 @@ fn a_composed_drivers_panic_names_the_driver() {
 
 /// A driver and an executor that panic, each named as a part built at
 /// run time is, by what it was built from: the failure names the part by
-/// that name.
+/// that name, at its position.
 #[test]
 fn a_panic_names_the_part_by_its_name() {
     let log = Log::default();
@@ -1257,20 +1325,26 @@ fn a_panic_names_the_part_by_its_name() {
         Driver::new(Renamed::new(Panics(PanicsWhen::Polled), "h2 program"))
             >> Executor::new(Bits::new(&log)),
     );
-    for (runner_name, error, name) in [
+    for (runner_name, error, position, name) in [
         (
             "executor",
             failed(executor.run(&shots, SEED)),
+            1,
             "qodec runtime",
         ),
-        ("driver", failed(driver.run(&shots, SEED)), "h2 program"),
+        ("driver", failed(driver.run(&shots, SEED)), 0, "h2 program"),
     ] {
         assert!(
-            matches!(&error.failure, Failure::Panicked { part, .. } if part == name),
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, .. } if *part == ChainPart::new(position, name)
+            ),
             "{runner_name}: {error:?}"
         );
         assert!(
-            error.to_string().contains(&format!("`{name}` panicked")),
+            error
+                .to_string()
+                .contains(&format!("`{name}` (part {position}) panicked")),
             "{runner_name}: {error}"
         );
     }

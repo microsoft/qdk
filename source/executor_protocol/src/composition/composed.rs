@@ -17,9 +17,10 @@
 //! boundary of the chain is checked once, whatever the brackets: the
 //! boundary inside a `Composed` here, and the one where the driver meets the
 //! executor by the runner. Each checks against the offer that crosses it,
+//! and names a panic below it by the part that receives the calls, both
 //! kept when the `>>` that makes the runner reads every part's offer, before
-//! any part is provisioned, so that the checks are the same wherever the
-//! brackets go.
+//! any part is provisioned, so that the checks and the names are the same
+//! wherever the brackets go.
 
 use crate::admission::by_part::ByPart;
 use crate::checked::{Checked, batch_limits};
@@ -27,7 +28,7 @@ use crate::instruction_set::instruction::batch_check::BatchLimits;
 use crate::panics::end_both;
 use crate::roles::FailedRun;
 use crate::{
-    Adapt, Batch, BatchReadouts, Capabilities, Drive, DriveError, Execute, ExecuteError,
+    Adapt, Batch, BatchReadouts, Capabilities, ChainPart, Drive, DriveError, Execute, ExecuteError,
     InstructionSet, Needs, OpcodeMap, RunRefusal, Seed, ShotSet,
 };
 
@@ -40,6 +41,10 @@ use crate::{
 pub struct Composed<U, L> {
     upper: U,
     lower: L,
+    /// The lower half's top part, the one that receives its calls, as the
+    /// `>>` that makes the runner lists it: what a panic of the lower half
+    /// names.
+    below_part: Option<ChainPart>,
     /// The offer crossing the boundary between the halves, the lower
     /// half's with the chain below it, kept when the `>>` that makes the
     /// runner reads every part's offer, before any part is provisioned.
@@ -55,6 +60,7 @@ impl<U, L> Composed<U, L> {
         Self {
             upper,
             lower,
+            below_part: None,
             below_offer: None,
             batch_limits: None,
         }
@@ -102,6 +108,7 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
 
     fn offers_by_part(&mut self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
         let above = self.lower.offers_by_part(below, by_part);
+        self.below_part = by_part.last_offered();
         self.below_offer = Some(above.clone());
         self.upper.offers_by_part(above, by_part)
     }
@@ -127,7 +134,11 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<U::Output>, DriveError> {
-        let (offer, batch_limits) = kept(self.below_offer.as_ref(), self.batch_limits.as_ref());
+        let (part, offer, batch_limits) = kept(
+            self.below_part.as_ref(),
+            self.below_offer.as_ref(),
+            self.batch_limits.as_ref(),
+        );
         let mut rest = ChainBelow {
             adapter: &mut self.lower,
             below,
@@ -136,7 +147,7 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
             .drive(
                 shots,
                 seed,
-                &mut Checked::new(&mut rest, offer, batch_limits),
+                &mut Checked::new(&mut rest, part, offer, batch_limits),
             )
             .await
     }
@@ -189,6 +200,7 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
 
     fn offers_by_part(&mut self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
         let middle = self.lower.offers_by_part(below, by_part);
+        self.below_part = by_part.last_offered();
         self.below_offer = Some(middle.clone());
         self.upper.offers_by_part(middle, by_part)
     }
@@ -205,7 +217,11 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let (offer, batch_limits) = kept(self.below_offer.as_ref(), self.batch_limits.as_ref());
+        let (part, offer, batch_limits) = kept(
+            self.below_part.as_ref(),
+            self.below_offer.as_ref(),
+            self.batch_limits.as_ref(),
+        );
         let mut rest = ChainBelow {
             adapter: &mut self.lower,
             below,
@@ -214,7 +230,7 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
             .adapt(
                 batches,
                 seed,
-                &mut Checked::new(&mut rest, offer, batch_limits),
+                &mut Checked::new(&mut rest, part, offer, batch_limits),
             )
             .await
     }
@@ -263,6 +279,7 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
 
     fn offers_by_part(&mut self, by_part: &mut ByPart) -> Capabilities {
         let below = self.lower.offers_by_part(by_part);
+        self.below_part = by_part.last_offered();
         self.below_offer = Some(below.clone());
         self.upper.offers_by_part(below, by_part)
     }
@@ -278,12 +295,16 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         batches: &[Batch<'_>],
         seed: Seed,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let (offer, batch_limits) = kept(self.below_offer.as_ref(), self.batch_limits.as_ref());
+        let (part, offer, batch_limits) = kept(
+            self.below_part.as_ref(),
+            self.below_offer.as_ref(),
+            self.batch_limits.as_ref(),
+        );
         self.upper
             .adapt(
                 batches,
                 seed,
-                &mut Checked::new(&mut self.lower, offer, batch_limits),
+                &mut Checked::new(&mut self.lower, part, offer, batch_limits),
             )
             .await
     }
@@ -342,13 +363,16 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
     }
 }
 
-/// The offer and the batch limits a `Composed` keeps for its boundary.
+/// The lower half's top part, the offer and the batch limits a `Composed`
+/// keeps for its boundary.
 fn kept<'a>(
+    part: Option<&'a ChainPart>,
     offer: Option<&'a Capabilities>,
     batch_limits: Option<&'a BatchLimits>,
-) -> (&'a Capabilities, &'a BatchLimits) {
+) -> (&'a ChainPart, &'a Capabilities, &'a BatchLimits) {
     let precondition = "kept and provisioned by the `>>` that makes its runner";
     (
+        part.expect(precondition),
         offer.expect(precondition),
         batch_limits.expect(precondition),
     )

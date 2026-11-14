@@ -20,11 +20,22 @@
 //! An adapter is named for what it cannot carry or hold itself, such as
 //! readout parities, or more logical qubits than its decoder takes, even
 //! while the executor is short too; an adapter that only passes a shortage
-//! up, such as a profiler, is not. Every boundary is checked the same way
-//! wherever the brackets go, so the verdict, the parts named and their
-//! numbers are too. The refusal also lists each part's needs and offer
-//! ([`AdmissionFaults`]), and names each part by its position in the chain
-//! and its name ([`ChainPart`]).
+//! up, such as a profiler, is not. A fallback names an adapter that is not
+//! short on its own, but whose offer falls short over a larger offer below
+//! (one that shrinks as the offer below grows): where its offer falls short
+//! while the part below meets what it needs below. So the fallback does not
+//! name it while the part below is short, of any kind of need. Every
+//! boundary is checked the same way wherever the brackets go, so the
+//! verdict, the parts named and their numbers are too. The refusal also
+//! lists each part's needs and offer ([`AdmissionFaults`]), and names each
+//! part by its position in the chain and its name ([`ChainPart`]).
+//!
+//! The verdict comes from the boundaries alone: the chain is refused when
+//! the needs at a boundary exceed the offer there, whichever parts the
+//! refusal names. An adapter that asks below less than it needs, against
+//! [`Adapt::needs_below`](crate::Adapt::needs_below)'s rule, may be short
+//! on its own though every boundary fits: it refuses no chain, but a
+//! refusal another part causes may name it.
 //!
 //! At the executor's boundary, the executor's own offer meets the needs
 //! that reach it, which no adapted offer replaces: an offer is a most per
@@ -121,10 +132,11 @@ impl fmt::Display for UnmetNeed {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AdmissionFaults {
-    /// Each part short on its own, bottom to top, in the order of
-    /// `offers_by_part`: the executor first, if it falls short. A part
-    /// whose offer falls short only because the part below falls short,
-    /// such as a profiler over a short executor, is not listed.
+    /// Each part short on its own, or named by the fallback
+    /// ([`ShortOffer`]), bottom to top, in the order of `offers_by_part`:
+    /// the executor first, if it falls short. A part whose offer falls
+    /// short only because the part below falls short, such as a profiler
+    /// over a short executor, is not listed.
     pub short_offers: Vec<ShortOffer>,
     /// The driver's needs, then each adapter's needs for the part below it,
     /// top to bottom.
@@ -138,7 +150,7 @@ impl AdmissionFaults {
     /// The faults of the chain whose parts' needs and offers `by_part`
     /// lists, if an offer falls short at a boundary, the needs of the part
     /// above against the offer of the part below: each part short on its
-    /// own, by its own offer ([`ShortOffer::offered`]).
+    /// own, by its own offer, or by the fallback ([`ShortOffer::offered`]).
     pub(crate) fn of(by_part: ByPart) -> Option<Self> {
         let ByPart {
             needs,
@@ -197,9 +209,12 @@ impl fmt::Display for AdmissionFaults {
 
 impl std::error::Error for AdmissionFaults {}
 
-/// A part short on its own, below one boundary of a chain: its offer falls
-/// short of the needs of the part above, and not only because the part
-/// below it falls short.
+/// A part a refusal names, below one boundary of a chain: its offer on its
+/// own falls short of the needs that reach it, so not only because the part
+/// below it falls short. Or, by the fallback, an adapter that is not short
+/// on its own, but whose offer, given the real offer below, falls short
+/// where the part below meets what the adapter needs below; so the fallback
+/// does not name it while the part below is short.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ShortOffer {
@@ -208,13 +223,13 @@ pub struct ShortOffer {
     /// The needs that reach it: the driver's, adapted by each adapter above
     /// it.
     pub needed: Needs,
-    /// Its offer on its own: the executor's offer; an adapter's offer
-    /// given an offer below that meets exactly what it needs below
-    /// ([`Adapt::offers_above`](crate::Adapt::offers_above)): the real
-    /// offer below, with each block type it needs below at its count and
-    /// no other, and readout parities resolved only if it uses them below.
-    /// Where that offer meets `needed`, and its offer given the real offer
-    /// below, which meets what it needs below too, does not, that one.
+    /// The offer that falls short. For the executor, its offer. For an
+    /// adapter, its offer on its own: its offer given exactly what it needs
+    /// below ([`Adapt::offers_above`](crate::Adapt::offers_above)), the
+    /// real offer below with each block type it needs below at its count
+    /// and no other, and readout parities resolved only if it uses them
+    /// below. When that offer meets `needed` (the fallback), its offer
+    /// given the real offer below.
     pub offered: Capabilities,
     /// Each need of `needed` that `offered` does not meet.
     pub unmet: Vec<UnmetNeed>,

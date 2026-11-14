@@ -32,7 +32,11 @@ pub trait Execute {
     /// built at run time, such as a runtime made from an instruction set's
     /// description, has one Rust type for every configuration; and the
     /// default's text is a module path, whose format the standard library
-    /// does not guarantee.
+    /// does not guarantee. Two parts of one name are told apart by their
+    /// position ([`ChainPart`](crate::ChainPart)). Parts composed by `>>`
+    /// answer the name of their top part, the one that receives their
+    /// calls. The protocol's messages use the answer read by the `>>` that
+    /// makes a runner.
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
@@ -111,7 +115,7 @@ pub trait Execute {
     /// is dropped, when a part above panics while it waits, or when a part
     /// above stops waiting for it. The runner then ends the run's shots
     /// ([`end_shots`](Self::end_shots)), once the run fails or its future is
-    /// dropped.
+    /// dropped; otherwise the driver ends them as each shot ends.
     fn execute(
         &mut self,
         batches: &[Batch<'_>],

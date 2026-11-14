@@ -20,14 +20,7 @@ use crate::{
 pub trait Adapt {
     // Composition time.
 
-    /// The part's name in messages, such as an admission fault or a
-    /// run's failure; by default its type's, `std::any::type_name`.
-    ///
-    /// A part overrides it when its type does not say what it is: a part
-    /// built at run time, such as a runtime made from an instruction set's
-    /// description, has one Rust type for every configuration; and the
-    /// default's text is a module path, whose format the standard library
-    /// does not guarantee.
+    /// As [`Execute::name`].
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
@@ -44,6 +37,15 @@ pub trait Adapt {
 
     /// What it needs below to serve `above`, the needs of the part above
     /// it; by default the same.
+    ///
+    /// Its answer is enough: when this adapter can serve `above` at all, an
+    /// offer below that meets exactly this answer lets it serve them, so
+    /// its [`offers_above`](Self::offers_above) of that offer meets
+    /// `above`. It states every block it takes below, such as a decoder's
+    /// workspace qubits. The verdict of the admission never depends on this
+    /// rule, but which parts a refusal names does: an adapter that asks
+    /// for less than it needs may be named in a refusal another part
+    /// causes.
     fn needs_below(&self, above: Needs) -> Needs {
         above
     }
@@ -61,9 +63,10 @@ pub trait Adapt {
     /// asks (each block type at that count, and readout parities resolved
     /// only if needed) does not meet the needs of the part above, such as
     /// readout parities it cannot lower, or more qubits than its decoder
-    /// takes; or when its answer for the real offer below, which meets
-    /// those needs below too, does not. So an adapter that only passes a
-    /// shortage below up is not named. The `>>` that makes a runner asks
+    /// takes. Or, by a fallback, when that answer meets them, but its
+    /// answer for the real offer below does not, while the real offer
+    /// below meets what `needs_below` asks. So an adapter that only passes
+    /// a shortage below up is not named. The `>>` that makes a runner asks
     /// it for both answers.
     ///
     /// Its answer must not change once the adapter is composed, not even

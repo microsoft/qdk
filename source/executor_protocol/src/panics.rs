@@ -19,11 +19,13 @@ use std::task::Poll;
 /// message of the part's panic, when the message is text.
 ///
 /// `AssertUnwindSafe`, because a part may be left half-updated by its
-/// panic, and the protocol calls it again: the run fails, the runner ends
-/// its shots on every part, the part that panicked included, and a later
-/// run calls it as before. So a part must tolerate being called after its
-/// panic, as after an error; the run that panicked gives no output, so
-/// nothing reaches the user from a half-updated part.
+/// panic, and the protocol calls it again: the panic reaches the part
+/// above as a failure, the runner ends the failed run's shots on every
+/// part, the part that panicked included, and a later run calls it as
+/// before. So a part must tolerate being called after its panic, as after
+/// an error, as [`Failure::Panicked`](crate::Failure::Panicked) says.
+/// Unless a part above recovers from the failure, the run gives no output,
+/// so nothing reaches the user from a half-updated part.
 pub(crate) async fn catch_panic<F: Future>(
     make: impl FnOnce() -> F,
 ) -> Result<F::Output, Option<String>> {

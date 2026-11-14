@@ -12,7 +12,7 @@ use std::rc::Rc;
 use crate::tests::composition::{faults, plain, records};
 use crate::tests::fake_parts::{
     Bits, Capped, CoinCopy, Contrary, Log, LoweringWithoutParity, Pool, Profiler, Program, Renamed,
-    Spread,
+    Spread, Workspace,
 };
 use crate::{
     Adapter, AdmissionFaults, BlockType, Capabilities, ChainPart, CompositionFaults, Drive, Driver,
@@ -332,6 +332,21 @@ fn an_adapter_short_only_over_a_larger_offer_below_is_named() {
             vec![unmet_qubits(3, 1)]
         )]
     );
+}
+
+/// Coin copies, through a toy decoder that takes a workspace from the
+/// qubits below without asking for it, over 20 qubits: given exactly the
+/// qubits it asks for below, the decoder would be short on its own, but
+/// over the 20 it offers them all, so every real boundary fits, and the
+/// chain is admitted and runs unchanged.
+#[test]
+fn a_part_short_only_on_its_own_does_not_refuse_its_chain() {
+    let log = Log::default();
+    let shots = ShotSet::ids(0..32);
+    let composed = Driver::new(CoinCopy::new())
+        >> Adapter::new(Workspace::new(&log))
+        >> Executor::new(Bits::new(&log).offering(Capabilities::unlimited().max_qubits(20)));
+    assert_eq!(records(composed, &shots), plain(&shots));
 }
 
 /// The capped encoding over 20 qubits, then the same with a profiler above

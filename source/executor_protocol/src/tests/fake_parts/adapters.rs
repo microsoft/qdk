@@ -487,6 +487,51 @@ impl Adapt for Contrary {
     }
 }
 
+/// A toy decoder that takes a workspace from the qubits below without
+/// asking for it in its needs below, which [`Adapt::needs_below`]'s rule
+/// forbids: it offers 1 qubit above over at most 10 below, and every qubit
+/// below over more, and needs below what reaches it. So given exactly what
+/// it needs below, it is short on its own, while over more qubits it is
+/// not. At run time it passes instructions through, as a [`Spread`] of 1.
+pub(crate) struct Workspace(Spread);
+
+impl Workspace {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self(Spread::new(1, log))
+    }
+}
+
+impl Adapt for Workspace {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        let mut above = below;
+        if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
+            *qubits = qubits.map(|q| if q <= 10 { 1 } else { q });
+        }
+        above
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.0.adapt(batches, seed, below).await
+    }
+}
+
 /// A toy job queue that takes at most `most` shots a run, so it lowers the
 /// offer's most shots to `most`. At run time it passes instructions
 /// through, as a [`Spread`] of 1.
@@ -816,10 +861,14 @@ impl Adapt for Shifting {
     }
 }
 
-/// An adapter that panics in each `end_shots`, with its message, a `&str`.
-/// At run time it passes instructions through, as a [`Spread`] of 1.
+/// An adapter that panics in each `end_shots`, or in its first only, with
+/// its message, a `&str`. At run time it passes instructions through, as a
+/// [`Spread`] of 1.
 pub(crate) struct PanicsEnding {
     message: &'static str,
+    /// Whether it panics in its first `end_shots` only.
+    once: bool,
+    panicked: bool,
     pass_through: Spread,
 }
 
@@ -833,7 +882,18 @@ impl PanicsEnding {
     pub(crate) fn saying(message: &'static str, log: &Log) -> Self {
         Self {
             message,
+            once: false,
+            panicked: false,
             pass_through: Spread::new(1, log),
+        }
+    }
+
+    /// One that panics with `"end_shots broke"` in its first `end_shots`
+    /// only, as a fault that does not come back.
+    pub(crate) fn once(log: &Log) -> Self {
+        Self {
+            once: true,
+            ..Self::new(log)
         }
     }
 }
@@ -861,6 +921,9 @@ impl Adapt for PanicsEnding {
     }
 
     fn end_shots(&mut self, _shots: &ShotSet) {
-        std::panic::panic_any(self.message);
+        if !(self.once && self.panicked) {
+            self.panicked = true;
+            std::panic::panic_any(self.message);
+        }
     }
 }

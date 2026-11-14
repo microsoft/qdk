@@ -17,7 +17,7 @@ use smallvec::SmallVec;
 use crate::instruction_set::instruction::batch_check::{BatchFault, BatchLimits, check_batch};
 use crate::panics::catch_panic;
 use crate::{
-    Batch, BatchReadouts, Capabilities, Execute, ExecuteError, ExecuteRefusal, Failure,
+    Batch, BatchReadouts, Capabilities, ChainPart, Execute, ExecuteError, ExecuteRefusal, Failure,
     InstructionSet, Needs, Seed, ShapeFault, ShotId, ShotSet,
 };
 
@@ -25,6 +25,9 @@ use crate::{
 /// checked against `batch_limits` and its answer checked against the batches.
 pub(crate) struct Checked<'a, E> {
     inner: &'a mut E,
+    /// The part that receives `inner`'s calls, as the admission listed it:
+    /// what a panic of `inner` names.
+    part: &'a ChainPart,
     /// The offer that crosses the boundary, read before any part was
     /// provisioned.
     offer: &'a Capabilities,
@@ -32,16 +35,18 @@ pub(crate) struct Checked<'a, E> {
 }
 
 impl<'a, E: Execute> Checked<'a, E> {
-    /// `inner`, whose offer was `offer` before any part was provisioned,
-    /// checked against `batch_limits`, built by [`batch_limits`] for it
-    /// from that offer.
+    /// `inner`, whose calls `part` receives, and whose offer was `offer`
+    /// before any part was provisioned, checked against `batch_limits`,
+    /// built by [`batch_limits`] for it from that offer.
     pub(crate) fn new(
         inner: &'a mut E,
+        part: &'a ChainPart,
         offer: &'a Capabilities,
         batch_limits: &'a BatchLimits,
     ) -> Self {
         Self {
             inner,
+            part,
             offer,
             batch_limits,
         }
@@ -90,7 +95,7 @@ impl<E: Execute> Execute for Checked<'_, E> {
                 return Err(ExecuteError::Failed {
                     shot: first_shot(first.shots),
                     failure: Failure::Panicked {
-                        part: self.inner.name().to_owned(),
+                        part: self.part.clone(),
                         message,
                     },
                 });

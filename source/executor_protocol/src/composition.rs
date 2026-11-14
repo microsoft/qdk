@@ -180,7 +180,11 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
         let needs = self.part.needs_by_part(&mut by_part);
         rhs.part.needs_by_part(needs.clone(), &mut by_part);
         let offer = rhs.part.offers_by_part(&mut by_part);
+        let executor_part = by_part
+            .last_offered()
+            .expect("a list that keeps every part");
         let reaching = self.part.offers_by_part(offer.clone(), &mut by_part);
+        let driver_part = by_part.needs[0].0.clone();
         let admission = AdmissionFaults::of(by_part);
         if !fit.is_empty() || admission.is_some() {
             return Err(CompositionFaults::new(fit, admission));
@@ -189,8 +193,8 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
         self.part.provision();
         rhs.part.provision(needs);
         Ok(Runner::new(
-            self.part,
-            rhs.part,
+            (self.part, driver_part),
+            (rhs.part, executor_part),
             reaching,
             offer,
             batch_limits,

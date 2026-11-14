@@ -26,14 +26,7 @@ pub trait Drive {
 
     // Composition time.
 
-    /// The part's name in messages, such as an admission fault or a
-    /// run's failure; by default its type's, `std::any::type_name`.
-    ///
-    /// A part overrides it when its type does not say what it is: a part
-    /// built at run time, such as a runtime made from an instruction set's
-    /// description, has one Rust type for every configuration; and the
-    /// default's text is a module path, whose format the standard library
-    /// does not guarantee.
+    /// As [`Execute::name`].
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }

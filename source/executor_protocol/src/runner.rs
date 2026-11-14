@@ -23,7 +23,9 @@ use crate::checked::Checked;
 use crate::instruction_set::instruction::batch_check::BatchLimits;
 use crate::panics::{catch_panic, end_both};
 use crate::roles::FailedRun;
-use crate::{Capabilities, Drive, DriveError, Execute, Failure, RunRefusal, Seed, ShotSet};
+use crate::{
+    Capabilities, ChainPart, Drive, DriveError, Execute, Failure, RunRefusal, Seed, ShotSet,
+};
 
 pub use run_error::RunError;
 
@@ -36,6 +38,12 @@ pub use run_error::RunError;
 pub struct Runner<D: Drive, E: Execute> {
     driver: D,
     executor: E,
+    /// The driver's top part, as the admission listed it: what its panic
+    /// names.
+    driver_part: ChainPart,
+    /// The executor's top part, as the admission listed it: what its panic
+    /// in an `execute` names.
+    executor_part: ChainPart,
     /// The offer that reaches the driver, the executor's as each adapter
     /// adapts it: its most shots and whether it is seedable, for each run.
     offer: Capabilities,
@@ -47,11 +55,12 @@ pub struct Runner<D: Drive, E: Execute> {
 
 impl<D: Drive, E: Execute> Runner<D, E> {
     /// The runner of `driver` and `executor`, composed, admitted and
-    /// provisioned, with `offer`, the offer that reaches the driver, and
-    /// `executor_offer`, both read before any part was provisioned.
+    /// provisioned, each with its top part as the admission listed it, with
+    /// `offer`, the offer that reaches the driver, and `executor_offer`,
+    /// both read before any part was provisioned.
     pub(crate) fn new(
-        driver: D,
-        executor: E,
+        (driver, driver_part): (D, ChainPart),
+        (executor, executor_part): (E, ChainPart),
         offer: Capabilities,
         executor_offer: Capabilities,
         batch_limits: BatchLimits,
@@ -59,6 +68,8 @@ impl<D: Drive, E: Execute> Runner<D, E> {
         Self {
             driver,
             executor,
+            driver_part,
+            executor_part,
             offer,
             executor_offer,
             batch_limits,
@@ -135,6 +146,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             };
             let mut below = Checked::new(
                 &mut *unended.executor,
+                &self.executor_part,
                 &self.executor_offer,
                 &self.batch_limits,
             );
@@ -148,7 +160,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
                 Err(message) => DriveError {
                     shot: shots.iter().next().expect("a shot set is never empty"),
                     failure: Failure::Panicked {
-                        part: driver.name().to_owned(),
+                        part: self.driver_part.clone(),
                         message,
                     },
                 },
