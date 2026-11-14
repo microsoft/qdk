@@ -314,9 +314,9 @@ fn variadic_position(def: &InstructionDef) -> Result<bool, ()> {
         .iter()
         .chain(&def.outputs)
         .any(|operand| operand.variadic);
-    // So a variadic entry is last on its side, and, its side being the
-    // shorter, the other's entry at its position would be fixed: it is the
-    // last position.
+    // So a variadic entry is the instruction's last position: were its
+    // side the shorter, the other side would have there a fixed entry or a
+    // variadic one not last, both refused above.
     Ok(variadic)
 }
 

@@ -43,7 +43,7 @@ impl Instruction {
     ///
     /// # Errors
     ///
-    /// The first fault: an instruction not of `set`
+    /// The first fault: an opcode beyond `set`'s last instruction
     /// ([`UnknownOpcode`](InstructionFault::UnknownOpcode)), a flag it
     /// lacks ([`UnknownFlag`](InstructionFault::UnknownFlag)), one flag
     /// twice in a pattern

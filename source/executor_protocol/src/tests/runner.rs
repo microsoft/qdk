@@ -724,6 +724,66 @@ fn an_adapter_cannot_make_a_chain_seedable() {
     assert_eq!(log.count("Bits execute"), 0, "nothing ran");
 }
 
+/// Bits running 8 shots at most, under a job queue of 4, under a decoder
+/// that restates its offer with no shot limit, bracketed both ways: the
+/// queue's limit, though neither the executor's nor the one reaching the
+/// driver, holds, so a run of 5 is refused before any part is asked, and a
+/// run of 4 runs.
+#[test]
+fn an_adapter_in_the_middle_lowers_the_most_shots_under_one_restating_its_offer() {
+    let log = Log::default();
+    let d = || Driver::new(CoinCopy::new());
+    let decoder = || Adapter::new(Restating::new(64, &log));
+    let queue = || Adapter::new(Queue::new(4, &log));
+    let offer = Capabilities::unlimited().max_qubits(64).max_shots(8);
+    let bits = || Executor::new(Bits::new(&log).offering(offer.clone()));
+    let mut left = runner(((d() >> decoder()) >> queue()) >> bits());
+    let mut right = runner(d() >> (decoder() >> (queue() >> bits())));
+    let five = ShotSet::ids(0..5);
+    for (refusal, brackets) in [
+        (refused(left.run(&five, SEED)), "left"),
+        (refused(right.run(&five, SEED)), "right"),
+    ] {
+        assert!(
+            matches!(refusal, RunRefusal::TooManyShots { asked: 5, most: 4 }),
+            "{brackets}: {refusal:?}"
+        );
+    }
+    assert_eq!(log.count("Bits ready"), 0, "no part asked");
+    let four = ShotSet::ids(0..4);
+    left.run(&four, SEED).expect("left: a run of 4");
+    right.run(&four, SEED).expect("right: a run of 4");
+}
+
+/// Seedable bits under a link that cannot be seeded, under a decoder that
+/// restates its offer as seedable, bracketed both ways: the link's
+/// seedability, though neither the executor's nor the one reaching the
+/// driver, holds, so a seeded run is refused before any part is asked, and
+/// a run with no seed runs.
+#[test]
+fn an_adapter_in_the_middle_makes_a_chain_not_seedable_under_one_restating_its_offer() {
+    let log = Log::default();
+    let d = || Driver::new(CoinCopy::new());
+    let decoder = || Adapter::new(Restating::new(64, &log));
+    let link = || Adapter::new(Unseedable::new(&log));
+    let bits = || Executor::new(Bits::new(&log));
+    let shots = ShotSet::ids(0..2);
+    let mut left = runner(((d() >> decoder()) >> link()) >> bits());
+    let mut right = runner(d() >> (decoder() >> (link() >> bits())));
+    for (refusal, brackets) in [
+        (refused(left.run(&shots, SEED)), "left"),
+        (refused(right.run(&shots, SEED)), "right"),
+    ] {
+        assert!(
+            matches!(refusal, RunRefusal::NotSeedable),
+            "{brackets}: {refusal:?}"
+        );
+    }
+    assert_eq!(log.count("Bits ready"), 0, "no part asked");
+    left.run(&shots, None).expect("left: a run with no seed");
+    right.run(&shots, None).expect("right: a run with no seed");
+}
+
 /// Seedable bits under a link that cannot be seeded, under a profiler,
 /// bracketed both ways: a seeded run is refused before any part is asked,
 /// and a run with no seed runs.
@@ -1930,5 +1990,29 @@ fn a_panic_dropping_a_parts_future_with_the_run_is_raised_from_the_drop() {
         panic.downcast_ref::<&str>(),
         Some(&"the part's future broke when dropped")
     );
+    assert_eq!(log.count("Bits end_shots, holding 0"), 1);
+}
+
+/// The same chain, whose run's future a caller's panic drops while the
+/// bits' future is pending: the bits' panic in its destructor, a second
+/// panic while the caller's unwinds, is dropped rather than aborting the
+/// process, so the caller's panic leaves, and the shots are ended on the
+/// bits.
+#[test]
+fn a_run_dropped_by_a_panic_keeps_that_panic_when_a_parts_future_panics_in_drop() {
+    let log = Log::default();
+    let mut runner = runner(
+        Driver::new(CoinCopy::new())
+            >> Executor::new(PanicsInDrop::new(Later(Bits::new(&log)), true)),
+    );
+    let shots = ShotSet::ids(0..4);
+    let caught = catch_unwind(AssertUnwindSafe(|| {
+        let mut run = std::pin::pin!(runner.run_async(&shots, SEED));
+        let poll = run.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+        assert!(poll.is_pending(), "the bits answer later");
+        panic!("the caller broke");
+    }));
+    let panic = caught.expect_err("the caller's panic leaves");
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"the caller broke"));
     assert_eq!(log.count("Bits end_shots, holding 0"), 1);
 }

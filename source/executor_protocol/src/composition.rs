@@ -184,9 +184,11 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
         let offer = rhs.part.offers_by_part(&mut by_part);
         let executor_part = by_part
             .last_offered()
-            .expect("a list that keeps every part");
+            .expect("the executor's offer was just listed");
         self.part.offers_by_part(offer.clone(), &mut by_part);
-        let driver_part = by_part.needs[0].0.clone();
+        let driver_part = by_part
+            .first_needing()
+            .expect("the driver's needs were listed first");
         let run_limits = RunLimits::of(by_part.offers.iter().map(|(_, offer)| offer));
         let admission = AdmissionFaults::of(by_part);
         if !fit.is_empty() || admission.is_some() {

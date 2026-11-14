@@ -101,43 +101,50 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// nothing of it runs, when it has more shots than a run may have (the
     /// fewest any part offers), or when a part's `ready` refuses it; each
     /// part is asked, the executor first. Then the driver runs the
-    /// shots, and a failure ends the run with the shot it names, including
-    /// a part's panic in `drive`, `execute` or an `end_shots` a part above
-    /// calls, or in the destructor of the future its `drive`, `adapt` or
-    /// `execute` returned, where a panic unwinds (on wasm32, it aborts).
-    /// The failure names the part whose future it is when the protocol
-    /// drops that future, once it is ready or has panicked; when a part
-    /// above stops waiting and drops it unfinished, it names that part
-    /// above, through whose call the panic unwinds, as
-    /// [`Failure::Panicked`] says. When the run's future is dropped before
-    /// such a future is ready, a panic in that future's destructor is
-    /// raised again from the drop, unless the thread is already unwinding,
-    /// as for `end_shots` below.
+    /// shots, and a failure ends the run with the shot it names, a part's
+    /// panic included, as the Panics section says.
     ///
     /// Once `drive` returns, fails or panics, or the future is dropped
     /// before it ends, the run's shots are ended on every part, every
     /// adapter top to bottom, then the executor at the bottom, so that no
     /// part carries them into the next run, whether or not the driver ended
-    /// them. Every part is ended even if one panics in `end_shots`; the
-    /// first such panic, top to bottom, is then raised again from the run,
-    /// or from the drop of its future, unless the thread is already
-    /// unwinding. So a part that panics each time it ends shots makes every
-    /// run that started its `drive` panic, once every other part is ended.
-    /// A panic in a part's `ready` is not caught: the run raises it again,
-    /// the first one when the future of that `ready` panics again as it is
-    /// dropped.
-    ///
-    /// A part's panic in `end_shots` thus leaves the run in one of two
-    /// ways, by who ended the shots: in an end a part above calls (the
-    /// driver in `drive`, or an adapter in `adapt`), it unwinds through
-    /// that part's call, and the run fails naming that part
-    /// ([`Failure::Panicked`](crate::Failure::Panicked)); in the runner's
-    /// end, it is raised again from the run, and the driver's outputs are
-    /// lost.
+    /// them. Every part is ended even if one panics in `end_shots`.
     ///
     /// The future is `Send` exactly when every part and every part's
     /// future is: no trait bounds the futures its parts return, and the
     /// runner does not box them.
+    ///
+    /// # Panics
+    ///
+    /// Where a panic unwinds (on wasm32, it aborts), a part's panic fails
+    /// the run ([`Failure::Panicked`]) when it is in `drive`, `execute` or
+    /// an `end_shots` a part above calls, or in the destructor of the
+    /// future its `drive`, `adapt` or `execute` returned. The failure names
+    /// the part whose future it is when the protocol drops that future,
+    /// once it is ready or has panicked; when a part above stops waiting
+    /// and drops it unfinished, it names that part above, through whose
+    /// call the panic unwinds, as [`Failure::Panicked`] says.
+    ///
+    /// The run raises a part's panic again, instead of failing:
+    /// - in a part's `ready`, which is not caught: the first one when the
+    ///   future of that `ready` panics again as it is dropped;
+    /// - in the runner's end of the shots: the first such panic, top to
+    ///   bottom, once every other part is ended, from the run, or from the
+    ///   drop of its future, and the driver's outputs are lost. So a part
+    ///   that panics each time it ends shots makes every run that started
+    ///   its `drive` panic;
+    /// - in the destructor of a part's future, when the run's future is
+    ///   dropped before that future is ready: from the drop.
+    ///
+    /// The last two are not raised again while the thread is already
+    /// unwinding, such as when a caller's panic drops the run's future: a
+    /// second panic would abort the process, so its payload is dropped.
+    ///
+    /// So a part's panic in `end_shots` leaves the run in one of two ways,
+    /// by who ended the shots: in an end a part above calls (the driver in
+    /// `drive`, or an adapter in `adapt`), it unwinds through that part's
+    /// call, and the run fails naming that part; in the runner's end, it is
+    /// raised again from the run.
     pub fn run_async(
         &mut self,
         shots: &ShotSet,
@@ -199,8 +206,8 @@ impl<D: Drive, E: Execute> Runner<D, E> {
 /// met by every part's offer, the executor's and each adapter's, so that an
 /// adapter may lower them, such as a job queue, but never raise them above
 /// what a part below offers: an adapter that restates its offer, such as
-/// `Capabilities::unlimited().max_qubits(n)`, keeps the executor's most
-/// shots and seedability.
+/// `Capabilities::unlimited().max_qubits(n)`, keeps the shots and
+/// seedability of the parts below.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RunLimits {
     /// The fewest of the most shots any part offers; `None`: no part has a

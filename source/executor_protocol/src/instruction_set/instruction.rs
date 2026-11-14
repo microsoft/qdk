@@ -141,7 +141,8 @@ impl InstructionSet {
 pub enum InstructionFault {
     /// Built: no instruction of the set has this mnemonic.
     UnknownMnemonic(String),
-    /// At an `execute`: a struct literal's opcode, beyond the set.
+    /// At [`Instruction::select`], or at an `execute`: an opcode beyond the
+    /// set's last instruction.
     UnknownOpcode(Opcode),
     /// Both: `expected` is its count, or, with a variadic operand
     /// (`variadic`), the least.

@@ -64,14 +64,12 @@ pub(crate) enum BatchFault {
 #[derive(Clone, Debug)]
 pub(crate) struct BatchLimits {
     /// The receiver's set, as read when the limits were built, before the
-    /// receiver is provisioned (by the runner's `>>`, or by the provision of
-    /// the `Composed` holding the boundary), whatever the receiver answers
-    /// later.
+    /// receiver is provisioned, whatever the receiver answers later.
     set: InstructionSet,
     /// The most instructions one batch may hold, if the receiver says.
     max_instructions: Option<u32>,
     /// What each of the batch's instructions is checked against.
-    pub(crate) provisioned: Provisioned,
+    provisioned: Provisioned,
 }
 
 /// What the shots were provisioned for, as an instruction's check reads

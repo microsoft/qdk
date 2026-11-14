@@ -96,6 +96,13 @@ impl ByPart {
         }
     }
 
+    /// The part whose needs were listed first: the top part of the chain
+    /// whose needs were listed, the driver for a runner's chain; `None` if
+    /// none was, or when nothing is kept.
+    pub(crate) fn first_needing(&self) -> Option<ChainPart> {
+        self.needs.first().map(|(part, _)| part.clone())
+    }
+
     /// The part whose offer was listed last: the top part of the chain
     /// whose offers were just listed; `None` if none was, or when nothing
     /// is kept.

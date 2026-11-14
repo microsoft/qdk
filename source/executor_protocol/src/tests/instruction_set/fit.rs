@@ -299,7 +299,7 @@ fn each_shape_difference_is_reported() {
 /// A match by meaning needs the same shape too: a Hadamard on a block of
 /// two qubits does not take a qubit's.
 #[test]
-fn instruction_doing_the_same_on_other_blocks_is_refused() {
+fn namesake_on_other_blocks_is_a_block_mismatch() {
     let sent = set_of("Gates", 1, vec![gate("h").meaning(hadamard())]);
     let accepted = set_of("Gates", 2, vec![gate("h").meaning(hadamard())]);
     assert_eq!(sent.fits(&accepted), Err(vec![blocks("h")]));
@@ -315,7 +315,7 @@ fn declared_instruction_with_no_namesake_nor_one_doing_the_same_is_missing() {
 /// A receiver's `had` does what `h` does, on two qubits instead of one: an
 /// instruction doing the same on other blocks is no match.
 #[test]
-fn instruction_doing_the_same_on_other_blocks_is_no_match() {
+fn other_mnemonic_on_other_blocks_is_no_match() {
     let sent = set_of("Gates", 1, vec![gate("h").meaning(hadamard())]);
     let had = InstructionDef::new("had")
         .acts_on([BlockType::qubit(), BlockType::qubit()])

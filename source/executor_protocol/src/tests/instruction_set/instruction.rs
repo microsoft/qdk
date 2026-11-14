@@ -267,8 +267,10 @@ fn select_value_other_than_a_bit_is_refused() {
     );
 }
 
+/// A set of one instruction, and an `m` of a larger set, whose opcode lies
+/// beyond it.
 #[test]
-fn select_on_an_instruction_of_another_set_is_refused() {
+fn select_on_an_opcode_beyond_the_set_is_refused() {
     let small = InstructionSet::new(
         "Small",
         [(BlockType::qubit(), 1)],
