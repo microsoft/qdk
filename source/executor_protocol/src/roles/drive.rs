@@ -35,7 +35,10 @@ pub trait Drive {
 
     /// What its shots need of the chain below, such as their qubits, which
     /// the offer below it must meet, and, adapted by each adapter, the
-    /// offer of each part further below.
+    /// offer of each part further below. Its answer must not change once
+    /// the driver is composed, not even by its own `provision`: the
+    /// admission checks it, and each part below is provisioned for it, as
+    /// read before that `provision`.
     fn needs(&self) -> Needs;
 
     /// Provisions this driver once its chain is admitted; it knows its own

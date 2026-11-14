@@ -3,7 +3,7 @@
 
 //! The fake drivers.
 
-use super::{CoinGates, Values, coin_gate};
+use super::{CoinGates, Values, coin_gate, coin_gates};
 use crate::{
     Batch, Drive, DriveError, Execute, Instruction, InstructionSet, Needs, OpcodeMap, ReadoutValue,
     Seed, ShotConditions, ShotSet,
@@ -32,8 +32,7 @@ impl Drive for CoinCopy {
     type Output = Values;
 
     fn sends(&self) -> &InstructionSet {
-        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
-        SET.get_or_init(CoinGates::set)
+        coin_gates()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -106,6 +105,8 @@ pub(crate) struct Program {
     set: InstructionSet,
     sequences: Vec<Vec<Instruction>>,
     needs: Needs,
+    /// The needs it states once provisioned, breaking `needs`' rule.
+    needs_once_provisioned: Option<Needs>,
 }
 
 impl Program {
@@ -140,12 +141,20 @@ impl Program {
                 })
                 .collect(),
             needs: Needs::qubits(qubits),
+            needs_once_provisioned: None,
         }
     }
 
     /// This program, stating `needs` instead.
     pub(crate) fn needing(mut self, needs: Needs) -> Self {
         self.needs = needs;
+        self
+    }
+
+    /// This program, stating `needs` once provisioned, which a driver must
+    /// not do.
+    pub(crate) fn needing_once_provisioned(mut self, needs: Needs) -> Self {
+        self.needs_once_provisioned = Some(needs);
         self
     }
 }
@@ -165,6 +174,12 @@ impl Drive for Program {
 
     fn needs(&self) -> Needs {
         self.needs.clone()
+    }
+
+    fn provision(&mut self) {
+        if let Some(needs) = self.needs_once_provisioned.take() {
+            self.needs = needs;
+        }
     }
 
     async fn drive(

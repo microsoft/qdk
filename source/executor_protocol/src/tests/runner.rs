@@ -523,6 +523,25 @@ fn a_rerun_after_a_dropped_run_gives_a_new_chains_records() {
     );
 }
 
+/// Whether `T` may move to another thread; it compiles only if so.
+fn is_send<T: Send>(_: &T) {}
+
+/// Parts that are `Send`, and whose futures are, in three bracketings:
+/// the future of `run_async` may move to another thread.
+#[test]
+fn a_runs_future_is_send_when_every_part_and_its_future_are() {
+    let shots = ShotSet::ids(0..2);
+    let driver = || Driver::new(Panics(PanicsWhen::Polled));
+    let splitter = || Adapter::new(Splitter::default());
+    let executor = || Executor::new(Panics(PanicsWhen::Polled));
+    let mut joined = runner(driver() >> executor());
+    is_send(&joined.run_async(&shots, SEED));
+    let mut left = runner((driver() >> splitter()) >> executor());
+    is_send(&left.run_async(&shots, SEED));
+    let mut right = runner(driver() >> (splitter() >> executor()));
+    is_send(&right.run_async(&shots, SEED));
+}
+
 // ---------------------------------------------------------------- refusals
 
 /// An executor running 4 shots at most: a run of 5 is refused before any
@@ -1068,6 +1087,86 @@ fn a_run_dropped_by_a_panic_ends_its_shots_and_keeps_that_panic() {
     assert_eq!(log.count("Bits end_shots, holding 0"), 1);
 }
 
+/// Coin copies over an adapter that panics in `end_shots`, over bits that
+/// answer later: a run whose future is dropped unfinished, outside any
+/// panic, ends its shots on the bits, then raises the end's panic from
+/// the drop.
+#[test]
+fn a_run_dropped_unfinished_raises_an_ends_panic_from_the_drop() {
+    let log = Log::default();
+    let mut runner = runner(
+        Driver::new(CoinCopy::new())
+            >> Adapter::new(PanicsEnding::new(&log))
+            >> Executor::new(Later(Bits::new(&log))),
+    );
+    let shots = ShotSet::ids(0..8);
+    let mut run = Box::pin(runner.run_async(&shots, SEED));
+    let poll = run.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+    assert!(poll.is_pending(), "the run is unfinished");
+    let dropped = catch_unwind(AssertUnwindSafe(|| drop(run)));
+    let panic = dropped.expect_err("the drop raises the end's panic");
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"end_shots broke"));
+    assert_eq!(log.count("Bits end_shots, holding 0"), 1);
+}
+
+/// Coin copies over two adapters that panic in `end_shots`, "first" above
+/// "second", over bits, in each bracketing: `run` raises the first panic,
+/// top to bottom, and the bits are still ended.
+#[test]
+fn of_two_panics_ending_shots_the_first_is_raised() {
+    /// Runs `runner` on 8 shots, and checks it as above.
+    fn raises_the_first<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) {
+        let run = catch_unwind(AssertUnwindSafe(|| {
+            runner
+                .run(&ShotSet::ids(0..8), SEED)
+                .map(|records| records.len())
+        }));
+        let panic = run.expect_err("the run raises a panic");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"first"));
+        assert_eq!(log.count("Bits end_shots, holding 0"), 2);
+    }
+    let bracketings: [fn(&Log); 5] = [
+        |log| {
+            let chain = Driver::new(CoinCopy::new())
+                >> Adapter::new(PanicsEnding::saying("first", log))
+                >> Adapter::new(PanicsEnding::saying("second", log))
+                >> Executor::new(Bits::new(log));
+            raises_the_first(runner(chain), log);
+        },
+        |log| {
+            let chain = (Driver::new(CoinCopy::new())
+                >> (Adapter::new(PanicsEnding::saying("first", log))
+                    >> Adapter::new(PanicsEnding::saying("second", log))))
+                >> Executor::new(Bits::new(log));
+            raises_the_first(runner(chain), log);
+        },
+        |log| {
+            let chain = (Driver::new(CoinCopy::new())
+                >> Adapter::new(PanicsEnding::saying("first", log)))
+                >> (Adapter::new(PanicsEnding::saying("second", log))
+                    >> Executor::new(Bits::new(log)));
+            raises_the_first(runner(chain), log);
+        },
+        |log| {
+            let chain = Driver::new(CoinCopy::new())
+                >> ((Adapter::new(PanicsEnding::saying("first", log))
+                    >> Adapter::new(PanicsEnding::saying("second", log)))
+                    >> Executor::new(Bits::new(log)));
+            raises_the_first(runner(chain), log);
+        },
+        |log| {
+            let chain = Driver::new(CoinCopy::new())
+                >> (Adapter::new(PanicsEnding::saying("first", log))
+                    >> (Adapter::new(PanicsEnding::saying("second", log))
+                        >> Executor::new(Bits::new(log))));
+            raises_the_first(runner(chain), log);
+        },
+    ];
+    for chain in bracketings {
+        chain(&Log::default());
+    }
+}
+
 /// An executor that panics, while making its future or while it is
 /// polled: the run fails naming the batch's first shot and the message.
 #[test]
@@ -1107,6 +1206,40 @@ fn a_drivers_panic_is_a_failure_of_the_run() {
         assert!(
             matches!(&error.failure, Failure::Panicked(Some(m)) if m == message),
             "{error:?}"
+        );
+    }
+}
+
+/// A driver that panics, over a noise, over bits, bracketed both ways:
+/// the failed run ends its shots on the noise and the bits.
+#[test]
+fn a_run_failed_by_a_drivers_panic_ends_its_shots() {
+    /// Runs `runner` on 2 shots, which fails, and checks it as above.
+    fn ends_its_shots<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) {
+        failed(
+            runner
+                .run(&ShotSet::ids([9, 1]), SEED)
+                .map(|records| records.len()),
+        );
+        assert_eq!(log.count("BitFlip end_shots, holding 0"), 1);
+        assert_eq!(log.count("Bits end_shots, holding 0"), 1);
+    }
+    for when in [PanicsWhen::MakingItsFuture, PanicsWhen::Polled] {
+        let log = Log::default();
+        ends_its_shots(
+            runner(
+                (Driver::new(Panics(when)) >> Adapter::new(BitFlip::new(0, &log)))
+                    >> Executor::new(Bits::new(&log)),
+            ),
+            &log,
+        );
+        let log = Log::default();
+        ends_its_shots(
+            runner(
+                Driver::new(Panics(when))
+                    >> (Adapter::new(BitFlip::new(0, &log)) >> Executor::new(Bits::new(&log))),
+            ),
+            &log,
         );
     }
 }

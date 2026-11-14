@@ -91,10 +91,15 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// adapters top to bottom, then the executor, so that no part carries
     /// them into the next run; so are those of a run whose future is
     /// dropped before it ends. Every part is ended even if one panics in
-    /// `end_shots`; that panic is then raised again from the run, unless
-    /// the thread is already unwinding. So a part that panics each time it
+    /// `end_shots`; the first such panic, top to bottom, is then raised
+    /// again from the run, or from the drop of its future, unless the
+    /// thread is already unwinding. So a part that panics each time it
     /// ends shots makes the run panic, once every other part is ended. A
     /// panic in a part's `ready` is not caught.
+    ///
+    /// The future is `Send` exactly when every part and every part's
+    /// future is: no trait bounds the futures its parts return, and the
+    /// runner does not box them.
     pub fn run_async(
         &mut self,
         shots: &ShotSet,

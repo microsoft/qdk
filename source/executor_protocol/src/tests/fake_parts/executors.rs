@@ -10,7 +10,7 @@ use std::task::{Poll, Waker};
 use std::thread;
 use std::time::Duration;
 
-use super::{CoinGates, Log, Stream, YieldNow, zeros};
+use super::{CoinGates, Log, Stream, YieldNow, coin_gates, zeros};
 use crate::{
     Batch, BatchReadouts, BlockType, Capabilities, Drive, DriveError, Execute, ExecuteError,
     InstructionSet, Needs, Opcode, OpcodeMap, ReadoutFailure, ReadoutValue, RunRefusal, Seed,
@@ -294,8 +294,7 @@ pub(crate) struct Misshapen(pub(crate) Misshape);
 
 impl Execute for Misshapen {
     fn accepts(&self) -> &InstructionSet {
-        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
-        SET.get_or_init(CoinGates::set)
+        coin_gates()
     }
 
     fn offers(&self) -> Capabilities {
@@ -354,8 +353,7 @@ impl Drive for Panics {
     type Output = ();
 
     fn sends(&self) -> &InstructionSet {
-        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
-        SET.get_or_init(CoinGates::set)
+        coin_gates()
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}

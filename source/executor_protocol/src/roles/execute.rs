@@ -88,6 +88,10 @@ pub trait Execute {
     /// a check across batches needs a set of their shots per `execute`,
     /// where the protocol's other checks of an `execute` are per
     /// instruction and per batch.
+    ///
+    /// Its future may be dropped before it answers, when its run's future
+    /// is dropped; the runner then ends the run's shots
+    /// ([`end_shots`](Self::end_shots)).
     fn execute(
         &mut self,
         batches: &[Batch<'_>],
@@ -99,7 +103,9 @@ pub trait Execute {
     /// nothing. `shots` may hold shots it does not hold, or no longer
     /// holds, such as when the runner ends every shot of a failed run,
     /// some of which the driver had already ended: it does nothing for
-    /// those.
+    /// those. It may also follow an `execute` dropped before it answered,
+    /// when its run's future was dropped: the part then cancels the work
+    /// that `execute` started for these shots, or ignores its answer.
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }

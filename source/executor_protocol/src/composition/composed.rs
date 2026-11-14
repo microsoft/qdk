@@ -74,10 +74,11 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         self.needs_by_part(&mut ByPart::ignored())
     }
 
-    /// Top down: the driver, then the adapter with the driver's needs.
+    /// Top down: the driver, then the adapter with the driver's needs, as
+    /// the admission checked them, read before the driver is provisioned.
     fn provision(&mut self) {
-        self.upper.provision();
         let below = self.upper.needs();
+        self.upper.provision();
         self.lower.provision(below.clone());
         self.below_needs = Some(below);
         self.batch_limits = None;

@@ -47,6 +47,11 @@ pub(crate) async fn catch_panic<F: Future>(
 /// dropped by another panic: a second panic would abort the process, so
 /// the end's is dropped. `AssertUnwindSafe`, as for [`catch_panic`].
 pub(crate) fn end_both(first: impl FnOnce(), second: impl FnOnce()) {
+    // Known issue: a payload whose own drop panics (`panic_any` of such a
+    // value) is dropped outside any catch, the second panic's here, or
+    // either while unwinding, so its drop's panic escapes; it needs two
+    // bugs at once. So it is wherever this module drops a payload,
+    // `panic_message` included.
     let first = catch_unwind(AssertUnwindSafe(first));
     let second = catch_unwind(AssertUnwindSafe(second));
     if let Err(payload) = first.and(second)

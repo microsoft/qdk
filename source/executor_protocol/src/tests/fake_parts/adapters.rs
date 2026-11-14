@@ -7,7 +7,7 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use super::{CoinGates, Log, Stream, bound, coin_gate, mapped, zeros};
+use super::{CoinGates, Log, Stream, bound, coin_gate, coin_gates, forward, mapped, zeros};
 use crate::{
     Adapt, Batch, BatchReadouts, BlockType, Capabilities, Execute, ExecuteError, Failure,
     Instruction, InstructionSet, Needs, OpcodeMap, RunRefusal, Seed, ShotId, ShotSet,
@@ -36,8 +36,7 @@ impl BitFlip {
 
 impl Adapt for BitFlip {
     fn accepts(&self) -> &InstructionSet {
-        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
-        SET.get_or_init(CoinGates::set)
+        coin_gates()
     }
 
     fn sends(&self) -> &InstructionSet {
@@ -161,22 +160,13 @@ impl Adapt for Profiler {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let map = bound(self.below.as_ref());
-        let sent: Vec<Vec<Instruction>> = batches
-            .iter()
-            .map(|batch| mapped(map, batch.instructions))
-            .collect();
-        let count: usize = sent.iter().map(Vec::len).sum();
+        let count: usize = batches.iter().map(|batch| batch.instructions.len()).sum();
         self.instructions.set(self.instructions.get() + count);
-        let below_batches: Vec<Batch<'_>> = batches
-            .iter()
-            .zip(&sent)
-            .map(|(batch, instructions)| Batch {
-                shots: batch.shots,
-                instructions,
-            })
-            .collect();
-        below.execute(&below_batches, seed).await
+        let map = bound(self.below.as_ref());
+        forward(batches, seed, below, |batch| {
+            mapped(map, batch.instructions)
+        })
+        .await
     }
 }
 
@@ -190,8 +180,7 @@ pub(crate) struct Splitter {
 
 impl Adapt for Splitter {
     fn accepts(&self) -> &InstructionSet {
-        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
-        SET.get_or_init(CoinGates::set)
+        coin_gates()
     }
 
     fn sends(&self) -> &InstructionSet {
@@ -251,8 +240,7 @@ impl Spread {
 
 impl Adapt for Spread {
     fn accepts(&self) -> &InstructionSet {
-        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
-        SET.get_or_init(CoinGates::set)
+        coin_gates()
     }
 
     fn sends(&self) -> &InstructionSet {
@@ -289,25 +277,14 @@ impl Adapt for Spread {
         below: &mut impl Execute,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
         let map = bound(self.below.as_ref());
-        let sent: Vec<Vec<Instruction>> = batches
-            .iter()
-            .map(|batch| {
-                let mut instructions = mapped(map, batch.instructions);
-                for instruction in &mut instructions {
-                    instruction.blocks[0] *= self.k;
-                }
-                instructions
-            })
-            .collect();
-        let below_batches: Vec<Batch<'_>> = batches
-            .iter()
-            .zip(&sent)
-            .map(|(batch, instructions)| Batch {
-                shots: batch.shots,
-                instructions,
-            })
-            .collect();
-        below.execute(&below_batches, seed).await
+        forward(batches, seed, below, |batch| {
+            let mut instructions = mapped(map, batch.instructions);
+            for instruction in &mut instructions {
+                instruction.blocks[0] *= self.k;
+            }
+            instructions
+        })
+        .await
     }
 }
 
@@ -353,10 +330,11 @@ impl Adapt for Pool {
 
     fn offers_above(&self, below: Capabilities) -> Capabilities {
         let mut above = below;
-        let pool = above.max_blocks.get(&BlockType::qubit()).copied().flatten();
-        above
-            .max_blocks
-            .insert(Self::carbon(), pool.map(|qubits| qubits / 2));
+        let carbon = match above.max_blocks.get(&BlockType::qubit()) {
+            Some(pool) => pool.map(|qubits| qubits / 2),
+            None => Some(0),
+        };
+        above.max_blocks.insert(Self::carbon(), carbon);
         above
     }
 
@@ -444,8 +422,7 @@ impl Trap {
 
 impl Adapt for Trap {
     fn accepts(&self) -> &InstructionSet {
-        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
-        SET.get_or_init(CoinGates::set)
+        coin_gates()
     }
 
     fn sends(&self) -> &InstructionSet {
@@ -472,19 +449,10 @@ impl Adapt for Trap {
             });
         }
         let map = bound(self.below.as_ref());
-        let sent: Vec<Vec<Instruction>> = batches
-            .iter()
-            .map(|batch| mapped(map, batch.instructions))
-            .collect();
-        let below_batches: Vec<Batch<'_>> = batches
-            .iter()
-            .zip(&sent)
-            .map(|(batch, instructions)| Batch {
-                shots: batch.shots,
-                instructions,
-            })
-            .collect();
-        below.execute(&below_batches, seed).await
+        forward(batches, seed, below, |batch| {
+            mapped(map, batch.instructions)
+        })
+        .await
     }
 
     fn end_shots(&mut self, _shots: &ShotSet) {
@@ -512,8 +480,7 @@ impl FailsOnce {
 
 impl Adapt for FailsOnce {
     fn accepts(&self) -> &InstructionSet {
-        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
-        SET.get_or_init(CoinGates::set)
+        coin_gates()
     }
 
     fn sends(&self) -> &InstructionSet {
@@ -538,19 +505,10 @@ impl Adapt for FailsOnce {
             });
         }
         let map = bound(self.below.as_ref());
-        let sent: Vec<Vec<Instruction>> = batches
-            .iter()
-            .map(|batch| mapped(map, batch.instructions))
-            .collect();
-        let below_batches: Vec<Batch<'_>> = batches
-            .iter()
-            .zip(&sent)
-            .map(|(batch, instructions)| Batch {
-                shots: batch.shots,
-                instructions,
-            })
-            .collect();
-        below.execute(&below_batches, seed).await
+        forward(batches, seed, below, |batch| {
+            mapped(map, batch.instructions)
+        })
+        .await
     }
 }
 
@@ -586,8 +544,7 @@ impl Misbehaving {
 
 impl Adapt for Misbehaving {
     fn accepts(&self) -> &InstructionSet {
-        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
-        SET.get_or_init(CoinGates::set)
+        coin_gates()
     }
 
     fn sends(&self) -> &InstructionSet {
@@ -612,29 +569,18 @@ impl Adapt for Misbehaving {
             Misbehaviour::SendsBeyondTheNeeds | Misbehaviour::TriplesEachBatch => {}
         }
         let map = bound(self.below.as_ref());
-        let sent: Vec<Vec<Instruction>> = batches
-            .iter()
-            .map(|batch| {
-                let once = batch.instructions;
-                let mut instructions = match self.misbehaviour {
-                    Misbehaviour::TriplesEachBatch => [once, once, once].concat(),
-                    _ => once.to_vec(),
-                };
-                if let Misbehaviour::SendsBeyondTheNeeds = self.misbehaviour {
-                    instructions.push(coin_gate("x", 9));
-                }
-                mapped(map, &instructions)
-            })
-            .collect();
-        let below_batches: Vec<Batch<'_>> = batches
-            .iter()
-            .zip(&sent)
-            .map(|(batch, instructions)| Batch {
-                shots: batch.shots,
-                instructions,
-            })
-            .collect();
-        below.execute(&below_batches, seed).await
+        forward(batches, seed, below, |batch| {
+            let once = batch.instructions;
+            let mut instructions = match self.misbehaviour {
+                Misbehaviour::TriplesEachBatch => [once, once, once].concat(),
+                _ => once.to_vec(),
+            };
+            if let Misbehaviour::SendsBeyondTheNeeds = self.misbehaviour {
+                instructions.push(coin_gate("x", 9));
+            }
+            mapped(map, &instructions)
+        })
+        .await
     }
 }
 
@@ -676,27 +622,39 @@ impl Adapt for LoweringWithoutParity {
     }
 }
 
-/// An adapter that panics in each `end_shots`, with `"end_shots broke"`. At
-/// run time it passes instructions through, as a [`Spread`] of 1.
-pub(crate) struct PanicsEnding(Spread);
+/// An adapter that panics in each `end_shots`, with its message, a `&str`.
+/// At run time it passes instructions through, as a [`Spread`] of 1.
+pub(crate) struct PanicsEnding {
+    message: &'static str,
+    pass_through: Spread,
+}
 
 impl PanicsEnding {
+    /// One that panics with `"end_shots broke"`.
     pub(crate) fn new(log: &Log) -> Self {
-        Self(Spread::new(1, log))
+        Self::saying("end_shots broke", log)
+    }
+
+    /// One that panics with `message`.
+    pub(crate) fn saying(message: &'static str, log: &Log) -> Self {
+        Self {
+            message,
+            pass_through: Spread::new(1, log),
+        }
     }
 }
 
 impl Adapt for PanicsEnding {
     fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
+        self.pass_through.accepts()
     }
 
     fn sends(&self) -> &InstructionSet {
-        self.0.sends()
+        self.pass_through.sends()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
-        self.0.bind(below);
+        self.pass_through.bind(below);
     }
 
     async fn adapt(
@@ -705,10 +663,10 @@ impl Adapt for PanicsEnding {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.0.adapt(batches, seed, below).await
+        self.pass_through.adapt(batches, seed, below).await
     }
 
     fn end_shots(&mut self, _shots: &ShotSet) {
-        panic!("end_shots broke");
+        std::panic::panic_any(self.message);
     }
 }

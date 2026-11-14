@@ -38,11 +38,12 @@ pub trait Adapt {
 
     /// What it offers above, given what is offered `below`; by default the
     /// same. The admission checks the needs of the part above against it,
-    /// so an adapter refuses there what it cannot carry, such as readout
-    /// parities it cannot lower; the part above also counts on its most
-    /// shots and instructions, and on whether a run may fix its seed. Where
-    /// an offer cannot be exact, such as for two block types drawn from one
-    /// pool below, the admission still checks what
+    /// and names this adapter for a need it falls short of where the part
+    /// below meets that kind of need, such as readout parities it cannot
+    /// lower; the part above also counts on its most shots and
+    /// instructions, and on whether a run may fix its seed. Where an offer
+    /// cannot be exact, such as for two block types drawn from one pool
+    /// below, the admission still checks what
     /// [`needs_below`](Self::needs_below) passes down against the
     /// executor's own offer.
     fn offers_above(&self, below: Capabilities) -> Capabilities {

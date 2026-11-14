@@ -28,9 +28,13 @@
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::OnceLock;
 use std::task::{Context, Poll};
 
-use crate::{BatchReadouts, Instruction, OpcodeMap, ReadoutValue, ShotConditions, instruction_set};
+use crate::{
+    Batch, BatchReadouts, Execute, ExecuteError, Instruction, InstructionSet, OpcodeMap,
+    ReadoutValue, Seed, ShotConditions, instruction_set,
+};
 
 mod adapters;
 mod drivers;
@@ -84,6 +88,12 @@ impl Stream {
     }
 }
 
+/// [`CoinGates`]' set, made once: what most fakes accept and send.
+fn coin_gates() -> &'static InstructionSet {
+    static SET: OnceLock<InstructionSet> = OnceLock::new();
+    SET.get_or_init(CoinGates::set)
+}
+
 /// `instructions`, rewritten in the receiver's opcodes.
 fn mapped(map: &OpcodeMap, instructions: &[Instruction]) -> Vec<Instruction> {
     instructions
@@ -94,6 +104,27 @@ fn mapped(map: &OpcodeMap, instructions: &[Instruction]) -> Vec<Instruction> {
             mapped
         })
         .collect()
+}
+
+/// Sends `batches` below, each to its own shots with the instructions
+/// `rewrite` makes of it, in one `execute`, and answers with the readouts
+/// below: the run time of an adapter that keeps each batch's shots.
+async fn forward(
+    batches: &[Batch<'_>],
+    seed: Seed,
+    below: &mut impl Execute,
+    rewrite: impl FnMut(&Batch<'_>) -> Vec<Instruction>,
+) -> Result<Vec<BatchReadouts>, ExecuteError> {
+    let sent: Vec<Vec<Instruction>> = batches.iter().map(rewrite).collect();
+    let below_batches: Vec<Batch<'_>> = batches
+        .iter()
+        .zip(&sent)
+        .map(|(batch, instructions)| Batch {
+            shots: batch.shots,
+            instructions,
+        })
+        .collect();
+    below.execute(&below_batches, seed).await
 }
 
 /// The receiver's opcodes, given by `>>`'s `bind`.

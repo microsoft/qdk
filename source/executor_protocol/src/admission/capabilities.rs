@@ -22,8 +22,9 @@ use crate::BlockType;
 /// Built from [`unlimited`](Self::unlimited), also its `Default`, with the
 /// builders below, since a struct literal is refused outside the crate.
 /// Where each limit is checked: the blocks and the readout parities by the
-/// `>>` that makes a runner, against the driver's needs; the shots and the
-/// seed by the runner, at each run; the instructions at each `execute`.
+/// `>>` that makes a runner, against the needs that reach each part; the
+/// shots and the seed by the runner, at each run; the instructions at each
+/// `execute`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Capabilities {
