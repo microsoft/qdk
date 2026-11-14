@@ -279,7 +279,7 @@ impl Adapt for BitFlip {
         let mut rows = self.one_each.iter();
         for batch in batches {
             let mine: Vec<&BatchReadouts> = rows.by_ref().take(batch.shots.len()).collect();
-            let joined = readouts.push_batch(mine.len(), mine[0].readouts());
+            let joined = readouts.push_with_capacity(mine.len(), mine[0].readouts());
             for one in mine {
                 joined
                     .push_row(one.row(0), one.conditions(0))
@@ -350,7 +350,7 @@ impl Execute for Bits {
                 .filter(|instruction| instruction.opcode == CoinGates::MZ)
                 .count();
             let width = u32::try_from(reads).expect("a short batch");
-            let rows = readouts.push_batch(batch.shots.len(), width);
+            let rows = readouts.push_with_capacity(batch.shots.len(), width);
             for id in batch.shots.iter() {
                 let qubits = self.qubits;
                 let (bits, stream) = self

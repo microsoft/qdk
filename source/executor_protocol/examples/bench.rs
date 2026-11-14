@@ -559,7 +559,7 @@ fn lower(instruction: &Instruction, opcodes: [Opcode; 4], lowered: &mut Vec<Inst
 
 /// The logical readouts of a batch's physical ones: each three's majority.
 fn read_logical(physical: &BatchReadouts, readouts: &mut Readouts) {
-    let logical = readouts.push_batch(physical.shots(), physical.readouts() / 3);
+    let logical = readouts.push_with_capacity(physical.shots(), physical.readouts() / 3);
     for shot in 0..physical.shots() {
         let row = majority_of_threes(physical.row(shot));
         logical
@@ -623,7 +623,7 @@ impl Execute for Sink {
                 record.extend_from_slice(batch.instructions);
             }
             let width = u32::try_from(row.len()).expect("a batch's readouts fit a u32");
-            let rows = readouts.push_batch(batch.shots.len(), width);
+            let rows = readouts.push_with_capacity(batch.shots.len(), width);
             for _ in 0..batch.shots.len() {
                 rows.push_row(&row, ShotConditions::NONE)
                     .expect("one value per `mz`");
