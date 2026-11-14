@@ -220,6 +220,15 @@ enum ErrorKind {
         #[label]
         span: Span,
     },
+    #[error("unused generic type parameter `{name}`")]
+    #[diagnostic(help("remove the unused generic type parameter"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.UnusedGeneric"))]
+    UnusedGeneric {
+        #[label]
+        span: Span,
+        name: String,
+    },
+
     #[error("unrecognized class constraint {name}")]
     #[help(
         "supported classes are Eq, Add, Sub, Mul, Div, Mod, Signed, Ord, Exp, Integral, and Show"
@@ -288,6 +297,7 @@ impl From<TyConversionError> for Error {
         use TyConversionError::*;
         match err {
             MissingTy { span } => Error(ErrorKind::MissingTy { span }),
+            UnusedGeneric { span, name } => Error(ErrorKind::UnusedGeneric { span, name }),
             UnrecognizedClass { span, name } => Error(ErrorKind::UnrecognizedClass { span, name }),
             RecursiveClassConstraint { span, name } => {
                 Error(ErrorKind::RecursiveClassConstraint { span, name })

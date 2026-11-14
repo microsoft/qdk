@@ -15,76 +15,79 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_4 = alloca i64
-  %var_10 = alloca i64
-  %var_16 = alloca i64
-  %var_23 = alloca i64
-  %var_25 = alloca i1
+  %var_12 = alloca i64
+  %var_20 = alloca i64
+  %var_29 = alloca i64
+  %var_33 = alloca i1
   call void @__quantum__rt__initialize(ptr null)
   store i64 0, ptr %var_4
   br label %block_1
 block_1:
-  %var_34 = load i64, ptr %var_4
-  %var_5 = icmp slt i64 %var_34, 2
-  br i1 %var_5, label %block_2, label %block_3
+  %var_5 = load i64, ptr %var_4
+  %var_6 = icmp slt i64 %var_5, 2
+  br i1 %var_6, label %block_2, label %block_3
 block_2:
-  %var_52 = load i64, ptr %var_4
-  %var_6_offset_chk = icmp slt i64 %var_52, 0
-  %var_6_offset = select i1 %var_6_offset_chk, i64 1, i64 0
-  %var_6 = getelementptr [2 x ptr], ptr @array0, i64 %var_6_offset, i64 %var_52
-  %var_53 = load ptr, ptr %var_6
-  call void @X(ptr %var_53)
-  %var_9 = add i64 %var_52, 1
-  store i64 %var_9, ptr %var_4
+  %var_62 = load i64, ptr %var_4
+  %var_63_offset_chk = icmp slt i64 %var_62, 0
+  %var_63_offset = select i1 %var_63_offset_chk, i64 1, i64 0
+  %var_63 = getelementptr [2 x ptr], ptr @array0, i64 %var_63_offset, i64 %var_62
+  %var_7 = load ptr, ptr %var_63
+  call void @X(ptr %var_7)
+  %var_10 = load i64, ptr %var_4
+  %var_11 = add i64 %var_10, 1
+  store i64 %var_11, ptr %var_4
   br label %block_1
 block_3:
-  store i64 0, ptr %var_10
+  store i64 0, ptr %var_12
   br label %block_4
 block_4:
-  %var_36 = load i64, ptr %var_10
-  %var_11 = icmp slt i64 %var_36, 2
-  br i1 %var_11, label %block_5, label %block_6
+  %var_13 = load i64, ptr %var_12
+  %var_14 = icmp slt i64 %var_13, 2
+  br i1 %var_14, label %block_5, label %block_6
 block_5:
-  %var_49 = load i64, ptr %var_10
-  %var_12_offset_chk = icmp slt i64 %var_49, 0
-  %var_12_offset = select i1 %var_12_offset_chk, i64 1, i64 0
-  %var_12 = getelementptr [2 x ptr], ptr @array1, i64 %var_12_offset, i64 %var_49
-  %var_50 = load ptr, ptr %var_12
-  call void @Y(ptr %var_50)
-  %var_15 = add i64 %var_49, 1
-  store i64 %var_15, ptr %var_10
+  %var_59 = load i64, ptr %var_12
+  %var_60_offset_chk = icmp slt i64 %var_59, 0
+  %var_60_offset = select i1 %var_60_offset_chk, i64 1, i64 0
+  %var_60 = getelementptr [2 x ptr], ptr @array1, i64 %var_60_offset, i64 %var_59
+  %var_15 = load ptr, ptr %var_60
+  call void @Y(ptr %var_15)
+  %var_18 = load i64, ptr %var_12
+  %var_19 = add i64 %var_18, 1
+  store i64 %var_19, ptr %var_12
   br label %block_4
 block_6:
-  store i64 0, ptr %var_16
+  store i64 0, ptr %var_20
   br label %block_7
 block_7:
-  %var_38 = load i64, ptr %var_16
-  %var_17 = icmp slt i64 %var_38, 2
-  br i1 %var_17, label %block_8, label %block_9
+  %var_21 = load i64, ptr %var_20
+  %var_22 = icmp slt i64 %var_21, 2
+  br i1 %var_22, label %block_8, label %block_9
 block_8:
-  %var_46 = load i64, ptr %var_16
-  %var_18_offset_chk = icmp slt i64 %var_46, 0
-  %var_18_offset = select i1 %var_18_offset_chk, i64 1, i64 0
-  %var_18 = getelementptr [2 x ptr], ptr @array2, i64 %var_18_offset, i64 %var_46
-  %var_47 = load ptr, ptr %var_18
-  call void @H(ptr %var_47)
-  call void @Z(ptr %var_47)
-  call void @H(ptr %var_47)
-  %var_22 = add i64 %var_46, 1
-  store i64 %var_22, ptr %var_16
+  %var_56 = load i64, ptr %var_20
+  %var_57_offset_chk = icmp slt i64 %var_56, 0
+  %var_57_offset = select i1 %var_57_offset_chk, i64 1, i64 0
+  %var_57 = getelementptr [2 x ptr], ptr @array2, i64 %var_57_offset, i64 %var_56
+  %var_23 = load ptr, ptr %var_57
+  call void @H(ptr %var_23)
+  call void @Z(ptr %var_23)
+  call void @H(ptr %var_23)
+  %var_27 = load i64, ptr %var_20
+  %var_28 = add i64 %var_27, 1
+  store i64 %var_28, ptr %var_20
   br label %block_7
 block_9:
-  store i64 1, ptr %var_23
+  store i64 1, ptr %var_29
   br label %block_10
 block_10:
-  %var_40 = load i64, ptr %var_23
-  %var_24 = icmp sle i64 %var_40, 8
-  store i1 true, ptr %var_25
-  br i1 %var_24, label %block_11, label %block_12
+  %var_30 = load i64, ptr %var_29
+  %var_31 = icmp sle i64 %var_30, 8
+  store i1 true, ptr %var_33
+  br i1 %var_31, label %block_11, label %block_12
 block_11:
-  %var_43 = load i1, ptr %var_25
-  br i1 %var_43, label %block_13, label %block_14
+  %var_54 = load i1, ptr %var_33
+  br i1 %var_54, label %block_13, label %block_14
 block_12:
-  store i1 false, ptr %var_25
+  store i1 false, ptr %var_33
   br label %block_11
 block_13:
   call void @Rx(double 1.5707963267948966, ptr inttoptr (i64 0 to ptr))
@@ -93,9 +96,9 @@ block_13:
   call void @Ry(double 1.5707963267948966, ptr inttoptr (i64 3 to ptr))
   call void @Rz(double 1.5707963267948966, ptr inttoptr (i64 4 to ptr))
   call void @Rz(double 1.5707963267948966, ptr inttoptr (i64 5 to ptr))
-  %var_44 = load i64, ptr %var_23
-  %var_32 = add i64 %var_44, 1
-  store i64 %var_32, ptr %var_23
+  %var_46 = load i64, ptr %var_29
+  %var_47 = add i64 %var_46, 1
+  store i64 %var_47, ptr %var_29
   br label %block_10
 block_14:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -119,57 +122,57 @@ block_14:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define internal void @X(ptr %var_8) {
+define internal void @X(ptr %var_9) {
 block_15:
-  call void @__quantum__qis__x__body(ptr %var_8)
+  call void @__quantum__qis__x__body(ptr %var_9)
   ret void
 }
 
 declare void @__quantum__qis__x__body(ptr)
 
-define internal void @Y(ptr %var_14) {
+define internal void @Y(ptr %var_17) {
 block_16:
-  call void @__quantum__qis__y__body(ptr %var_14)
+  call void @__quantum__qis__y__body(ptr %var_17)
   ret void
 }
 
 declare void @__quantum__qis__y__body(ptr)
 
-define internal void @H(ptr %var_20) {
+define internal void @H(ptr %var_25) {
 block_17:
-  call void @__quantum__qis__h__body(ptr %var_20)
+  call void @__quantum__qis__h__body(ptr %var_25)
   ret void
 }
 
 declare void @__quantum__qis__h__body(ptr)
 
-define internal void @Z(ptr %var_21) {
+define internal void @Z(ptr %var_26) {
 block_18:
-  call void @__quantum__qis__z__body(ptr %var_21)
+  call void @__quantum__qis__z__body(ptr %var_26)
   ret void
 }
 
 declare void @__quantum__qis__z__body(ptr)
 
-define internal void @Rx(double %var_26, ptr %var_27) {
+define internal void @Rx(double %var_34, ptr %var_35) {
 block_19:
-  call void @__quantum__qis__rx__body(double %var_26, ptr %var_27)
+  call void @__quantum__qis__rx__body(double %var_34, ptr %var_35)
   ret void
 }
 
 declare void @__quantum__qis__rx__body(double, ptr)
 
-define internal void @Ry(double %var_28, ptr %var_29) {
+define internal void @Ry(double %var_38, ptr %var_39) {
 block_20:
-  call void @__quantum__qis__ry__body(double %var_28, ptr %var_29)
+  call void @__quantum__qis__ry__body(double %var_38, ptr %var_39)
   ret void
 }
 
 declare void @__quantum__qis__ry__body(double, ptr)
 
-define internal void @Rz(double %var_30, ptr %var_31) {
+define internal void @Rz(double %var_42, ptr %var_43) {
 block_21:
-  call void @__quantum__qis__rz__body(double %var_30, ptr %var_31)
+  call void @__quantum__qis__rz__body(double %var_42, ptr %var_43)
   ret void
 }
 
@@ -189,7 +192,7 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -200,3 +203,4 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

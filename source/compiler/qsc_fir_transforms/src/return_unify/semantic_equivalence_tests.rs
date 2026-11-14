@@ -1,15 +1,1455 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(feature = "slow-proptest-tests")]
 use crate::test_utils::check_semantic_equivalence;
+use crate::test_utils::check_semantic_equivalence_with_expected as check_value;
+#[cfg(feature = "slow-proptest-tests")]
 use indoc::formatdoc;
+#[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
+use qsc_eval::val::Value;
+
+use crate::test_utils::{
+    TraceOp::{QubitAllocate, QubitRelease, Reset},
+    compile_to_fir, try_eval_fir_entry_with_trace,
+};
+use qsc_fir::{
+    fir::{ExprKind, PatKind, StmtKind},
+    ty::{GenericArg, Prim, Ty},
+};
+
+// Keep the specialization bodies without a trailing Unit expression.
+fn check_bare_unit_specialization(call: &str, expected: bool) {
+    let source = format!(
+        r#"
+        operation GuardedX(stop : Bool, target : Qubit) : Unit is Adj + Ctl {{
+            body ... {{
+                if stop {{ return (); }}
+                X(target);
+            }}
+            adjoint ... {{
+                if stop {{ return (); }}
+                X(target);
+            }}
+            controlled (controls, ...) {{
+                if stop {{ return (); }}
+                Controlled X(controls, target);
+            }}
+            controlled adjoint (controls, ...) {{
+                if stop {{ return (); }}
+                Controlled X(controls, target);
+            }}
+        }}
+        @EntryPoint()
+        operation Main() : Result {{
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            {call};
+            Reset(control);
+            MResetZ(target)
+        }}
+        "#
+    );
+    check_value(&source, Value::Result(qsc_eval::val::Result::Val(expected)));
+}
+
+#[test]
+fn bare_unit_body_return_skips_gate() {
+    check_bare_unit_specialization("GuardedX(true, target)", false);
+}
+
+#[test]
+fn bare_unit_body_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization("GuardedX(false, target)", true);
+}
+
+#[test]
+fn bare_unit_adjoint_return_skips_gate() {
+    check_bare_unit_specialization("Adjoint GuardedX(true, target)", false);
+}
+
+#[test]
+fn bare_unit_adjoint_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization("Adjoint GuardedX(false, target)", true);
+}
+
+#[test]
+fn bare_unit_controlled_return_skips_gate() {
+    check_bare_unit_specialization("Controlled GuardedX([control], (true, target))", false);
+}
+
+#[test]
+fn bare_unit_controlled_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization("Controlled GuardedX([control], (false, target))", true);
+}
+
+#[test]
+fn bare_unit_controlled_adjoint_return_skips_gate() {
+    check_bare_unit_specialization(
+        "Controlled Adjoint GuardedX([control], (true, target))",
+        false,
+    );
+}
+
+#[test]
+fn bare_unit_controlled_adjoint_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization(
+        "Controlled Adjoint GuardedX([control], (false, target))",
+        true,
+    );
+}
+
+fn measured_bare_unit_guard_source(prepare_control: &str) -> String {
+    format!(
+        r#"
+        operation GuardedX(stop : Bool, target : Qubit) : Unit {{
+            if stop {{ return (); }}
+            X(target);
+        }}
+        @EntryPoint()
+        operation Main() : Result {{
+            use control = Qubit();
+            use target = Qubit();
+            {prepare_control}
+            let stop = MResetZ(control) == One;
+            GuardedX(stop, target);
+            MResetZ(target)
+        }}
+        "#
+    )
+}
+
+#[test]
+fn measured_bare_unit_guard_return_skips_gate() {
+    check_value(
+        &measured_bare_unit_guard_source("X(control);"),
+        Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn measured_bare_unit_guard_fallthrough_applies_gate_once() {
+    check_value(
+        &measured_bare_unit_guard_source(""),
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn measured_bare_unit_guard_generates_adaptive_qir_with_gate_only_on_fallthrough() {
+    let qir = crate::test_utils::generate_qir(&measured_bare_unit_guard_source(""));
+    expect_test::expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          br i1 %var_0, label %block_1, label %block_2
+        block_1:
+          br label %block_2
+        block_2:
+          %var_6 = phi i1 [false, %block_0], [true, %block_1]
+          %var_5 = xor i1 %var_6, true
+          br i1 %var_5, label %block_3, label %block_4
+        block_3:
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          br label %block_4
+        block_4:
+          br i1 %var_6, label %block_5, label %block_6
+        block_5:
+          br label %block_7
+        block_6:
+          br label %block_7
+        block_7:
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare zeroext i1 @__quantum__rt__read_result(%Result*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn let_before_tail_preserves_the_complete_fallthrough_value() {
+    check_value(
+        r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            let y = 2;
+            y + 100
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false) }
+        "#,
+        Value::Int(102),
+    );
+}
+
+#[test]
+fn taken_guard_before_local_skips_fallthrough_effects() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int { Message("tail"); 2 }
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            let y = Tail();
+            y + 100
+        }
+        @EntryPoint()
+        operation Main() : Int { F(true) }
+        "#,
+        Value::Int(1),
+        "",
+    );
+}
+
+#[test]
+fn untaken_guard_before_local_evaluates_initializer_once_and_preserves_tail_value() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int { Message("tail"); 2 }
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            let y = Tail();
+            y + 100
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false) }
+        "#,
+        Value::Int(102),
+        "tail\n",
+    );
+}
+
+#[test]
+fn earlier_return_survives_a_later_return_and_dead_tail() {
+    check_value(
+        r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            return 2;
+            0
+        }
+        @EntryPoint()
+        operation Main() : Int { F(true) }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn later_return_survives_an_untaken_earlier_guard() {
+    check_value(
+        r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            return 2;
+            0
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false) }
+        "#,
+        Value::Int(2),
+    );
+}
+
+#[test]
+fn nested_tail_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_while_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_return_after_inverted_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true {} else { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn taken_guard_before_nested_tail_returns_one() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn untaken_returns_in_nested_tail_fall_through_to_five() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if false { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(5),
+    );
+}
+
+#[test]
+fn zero_iteration_nested_tail_loop_falls_through_to_five() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { while false { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(5),
+    );
+}
+
+#[test]
+fn nested_tail_return_skips_effectful_scalar_tail_without_leaking_zero() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int { Message("tail"); 5 }
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } Tail() } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+        "",
+    );
+}
+
+#[test]
+fn nested_tail_array_return_remains_indexable_when_effectful_tail_is_skipped() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int[] { Message("tail"); [5] }
+        function F(c : Bool, d : Bool) : Int[] {
+            if c { return [1]; }
+            if true { if d { return [9]; } Tail() } else { [6] }
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false, true)[0] }
+        "#,
+        Value::Int(9),
+        "",
+    );
+}
+
+#[test]
+fn nested_tail_callable_return_remains_invocable_when_effectful_tail_is_skipped() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function First() : Int { 1 }
+        function Nested() : Int { 9 }
+        function Fallback() : Int { 5 }
+        function Tail() : (Unit -> Int) { Message("tail"); Fallback }
+        function F(c : Bool, d : Bool) : (Unit -> Int) {
+            if c { return First; }
+            if true { if d { return Nested; } Tail() } else { Fallback }
+        }
+        @EntryPoint()
+        operation Main() : Int { let f = F(false, true); f() }
+        "#,
+        Value::Int(9),
+        "",
+    );
+}
+
+const MEASURED_NESTED_TAIL: &str = r#"
+    operation F(c : Bool, d : Bool, target : Qubit) : Int {
+        if c { return 1; }
+        if true { if d { return 9; } X(target); 5 } else { 6 }
+    }
+"#;
+
+#[test]
+fn measured_nested_tail_return_yields_nine_and_skips_target_gate() {
+    check_value(
+        &format!(
+            r#"{MEASURED_NESTED_TAIL}
+            @EntryPoint()
+            operation Main() : (Int, Result) {{
+                use flags = Qubit[2];
+                use target = Qubit();
+                X(flags[1]);
+                let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        ),
+        Value::Tuple(
+            vec![
+                Value::Int(9),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measurement_dependent_return_in_trailing_if_loop_preserves_return_value_and_skips_fallthrough_gate()
+ {
+    check_value(
+        r#"
+        operation F(c : Bool, d : Bool, target : Qubit) : Int {
+            if c { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if d and i == 1 { return 9; }
+                    set i += 1;
+                }
+                X(target);
+                5
+            } else { 6 }
+        }
+        @EntryPoint()
+        operation Main() : (Int, Result) {
+            use flags = Qubit[2];
+            use target = Qubit();
+            X(flags[1]);
+            let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+            (value, MResetZ(target))
+        }
+        "#,
+        Value::Tuple(
+            vec![
+                Value::Int(9),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measured_nested_tail_fallthrough_yields_five_and_applies_target_gate_once() {
+    check_value(
+        &format!(
+            r#"{MEASURED_NESTED_TAIL}
+            @EntryPoint()
+            operation Main() : (Int, Result) {{
+                use flags = Qubit[2];
+                use target = Qubit();
+                let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        ),
+        Value::Tuple(
+            vec![
+                Value::Int(5),
+                Value::Result(qsc_eval::val::Result::Val(true)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measured_guard_before_nested_tail_yields_one_and_skips_target_gate() {
+    check_value(
+        &format!(
+            r#"{MEASURED_NESTED_TAIL}
+            @EntryPoint()
+            operation Main() : (Int, Result) {{
+                use flags = Qubit[2];
+                use target = Qubit();
+                X(flags[0]);
+                X(flags[1]);
+                let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        ),
+        Value::Tuple(
+            vec![
+                Value::Int(1),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn unit_nested_tail_return_skips_target_gate() {
+    check_value(
+        r#"
+        operation F(c : Bool, d : Bool, target : Qubit) : Unit {
+            if c { return (); }
+            if true { if d { return (); } X(target); } else {}
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            F(false, true, target);
+            MResetZ(target)
+        }
+        "#,
+        Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn unit_nested_tail_fallthrough_applies_target_gate_once() {
+    check_value(
+        r#"
+        operation F(c : Bool, d : Bool, target : Qubit) : Unit {
+            if c { return (); }
+            if true { if d { return (); } X(target); } else {}
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            F(false, false, target);
+            MResetZ(target)
+        }
+        "#,
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn nested_tail_qubit_return_forwards_the_selected_caller_qubit() {
+    check_value(
+        r#"
+        function F(c : Bool, d : Bool, first : Qubit, nested : Qubit) : Qubit {
+            if c { return first; }
+            if true { if d { return nested; } first } else { first }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use first = Qubit();
+            use nested = Qubit();
+            X(nested);
+            MResetZ(F(false, true, first, nested))
+        }
+        "#,
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn nested_tail_for_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { for i in 0..2 { if i == 1 { return 9; } } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_repeat_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                repeat {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                } until i == 3;
+                5
+            } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_bool_return_after_guard_returns_true() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Bool {
+            if false { return false; }
+            if true { if true { return true; } false } else { false }
+        }
+        "#,
+        Value::Bool(true),
+    );
+}
+
+#[test]
+fn discarded_if_after_taken_return_skips_its_condition() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true { return 1; }
+            if { fail "condition must not run"; true } {
+                while false { return 9; }
+                5
+            } else { 6 }
+            7
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn discarded_if_after_untaken_return_preserves_fallthrough() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+        "#,
+        Value::Int(7),
+    );
+}
+
+#[test]
+fn return_inside_discarded_if_loop_exits_callable() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn discarded_if_executes_side_effect_once() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            mutable value = 0;
+            if false { return 1; }
+            if true { set value += 2; 5 } else { 6 }
+            value
+        }
+        "#,
+        Value::Int(2),
+    );
+}
+
+#[test]
+fn semicolon_if_after_untaken_return_preserves_fallthrough() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 };
+            7
+        }
+        "#,
+        Value::Int(7),
+    );
+}
+
+#[test]
+fn first_return_bearing_tail_if_preserves_fallthrough_value() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+        "#,
+        Value::Int(5),
+    );
+}
+
+#[test]
+fn measurement_selected_early_return_skips_discarded_if_gate() {
+    check_value(
+        r#"
+        operation F(c : Bool, target : Qubit) : Int {
+            if c { return 1; }
+            if true { X(target); 5 } else { 6 }
+            7
+        }
+        @EntryPoint()
+        operation Main() : (Int, Result) {
+            use flag = Qubit();
+            use target = Qubit();
+            X(flag);
+            let value = F(MResetZ(flag) == One, target);
+            (value, MResetZ(target))
+        }
+        "#,
+        Value::Tuple(
+            vec![
+                Value::Int(1),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measurement_selected_fallthrough_executes_discarded_if_gate_once() {
+    check_value(
+        r#"
+        operation F(c : Bool, target : Qubit) : Int {
+            if c { return 1; }
+            if true { X(target); 5 } else { 6 }
+            7
+        }
+        @EntryPoint()
+        operation Main() : (Int, Result) {
+            use flag = Qubit();
+            use target = Qubit();
+            let value = F(MResetZ(flag) == One, target);
+            (value, MResetZ(target))
+        }
+        "#,
+        Value::Tuple(
+            vec![
+                Value::Int(7),
+                Value::Result(qsc_eval::val::Result::Val(true)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn early_return_skips_later_loop_conditional() {
+    for (early, branch, expected) in [
+        (true, true, 1),
+        (true, false, 1),
+        (false, true, 2),
+        (false, false, 3),
+    ] {
+        let source = format!(
+            r#"
+            @EntryPoint() operation Main() : Int {{
+                if {early} {{ return 1; }}
+                if {branch} {{ return 2; }} else {{ for i in [0] {{ return 3; }} }}
+                return 4;
+            }}
+            "#
+        );
+        check_value(&source, Value::Int(expected));
+    }
+}
+
+#[test]
+fn early_return_skips_condition_effects_before_returning_loop() {
+    check_value(
+        r#"
+        @EntryPoint() operation Main() : Int {
+            if true { return 1; }
+            if { fail "condition must not run"; true } {
+                return 2;
+            } else {
+                while false { return 3; }
+            }
+            return 4;
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn guarded_callable_defaults_preserve_functor_effects() {
+    for initializer in ["U", "[V, U][1]"] {
+        for (invocation, expected) in [
+            ("f(q)", true),
+            ("Adjoint f(q)", false),
+            ("Adjoint Adjoint f(q)", true),
+            ("Controlled f([c], q)", true),
+            ("Controlled Adjoint f([c], q)", false),
+        ] {
+            for stop in [false, true] {
+                let source = format!(
+                    r#"
+                    operation U(q : Qubit) : Unit is Adj + Ctl {{ S(q); }}
+                    operation V(q : Qubit) : Unit is Adj + Ctl {{ X(q); }}
+                    @EntryPoint()
+                    operation Main() : Result {{
+                        use q = Qubit();
+                        use c = Qubit();
+                        if {stop} {{ return Zero; }}
+                        H(q);
+                        S(q);
+                        X(c);
+                        let f = {initializer};
+                        {invocation};
+                        Reset(c);
+                        H(q);
+                        MResetZ(q)
+                    }}
+                    "#
+                );
+                check_value(
+                    &source,
+                    Value::Result(qsc_eval::val::Result::Val(!stop && expected)),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn non_defaultable_tails_preserve_returned_payload_and_run_effects_only_on_fallthrough() {
+    for stop in [false, true] {
+        for (output, returned, tail, read, tag, expected_tag) in [
+            ("Qubit", "q", "q", "value", "0", 0),
+            (
+                "(Qubit, Int)",
+                "(q, 7)",
+                "(q, 9)",
+                "Fst(value)",
+                "Snd(value)",
+                if stop { 7 } else { 9 },
+            ),
+            (
+                "Payload",
+                "new Payload { Q = q, Tag = 7 }",
+                "new Payload { Q = q, Tag = 9 }",
+                "value.Q",
+                "value.Tag",
+                if stop { 7 } else { 9 },
+            ),
+        ] {
+            let source = format!(
+                r#"
+                struct Payload {{ Q : Qubit, Tag : Int }}
+                operation Tail(q : Qubit) : {output} {{
+                    Message("tail");
+                    use temporary = Qubit();
+                    {tail}
+                }}
+                operation Run(stop : Bool, q : Qubit, other : Qubit) : {output} {{
+                    {{ if stop {{ return {returned}; }} Tail(other) }}
+                }}
+                @EntryPoint() operation Main() : (Result, Result, Int) {{
+                    use q = Qubit();
+                    use other = Qubit();
+                    let value = Run({stop}, q, other);
+                    X({read});
+                    (MResetZ(q), MResetZ(other), {tag})
+                }}
+            "#
+            );
+            // The helper compares messages and allocation/release/gate traces as
+            // well as the explicit value, so a skipped Tail must do no work.
+            check_value(
+                &source,
+                Value::Tuple(
+                    vec![
+                        Value::Result(qsc_eval::val::Result::Val(stop)),
+                        Value::Result(qsc_eval::val::Result::Val(!stop)),
+                        Value::Int(expected_tag),
+                    ]
+                    .into(),
+                    None,
+                ),
+            );
+        }
+    }
+}
+
+#[test]
+fn non_block_conditional_returns_skip_remaining_operands_and_preserve_fallthrough_values() {
+    for stop in [false, true] {
+        for (body, expected) in [
+            (
+                "let v = stop ? 1 + (return 1) | 2; v",
+                if stop { 1 } else { 2 },
+            ),
+            (
+                "let v = stop ? Inc(return 1) | 2; v",
+                if stop { 1 } else { 2 },
+            ),
+            (
+                "let v = stop ? Inc(2) | Inc(return 1); v",
+                if stop { 3 } else { 1 },
+            ),
+            (
+                "let v = stop ? Inc(return 1) | Inc(return 2); v",
+                if stop { 1 } else { 2 },
+            ),
+            (
+                "let v = stop ? Inc(stop ? (return 4) | 0) | 2; v",
+                if stop { 4 } else { 2 },
+            ),
+            (
+                "if false {} elif (stop ? (return 1) | false) {} 0",
+                i64::from(stop),
+            ),
+            (
+                "while (stop ? Truth(return 1) | false) {} 0",
+                i64::from(stop),
+            ),
+        ] {
+            let source = format!(
+                r#"
+                function Inc(x : Int) : Int {{ Message("inc"); x + 1 }}
+                function Truth(b : Bool) : Bool {{ Message("truth"); b }}
+                function Run(stop : Bool) : Int {{ {body} }}
+                @EntryPoint() operation Main() : Int {{ Run({stop}) }}
+            "#
+            );
+            check_value(&source, Value::Int(expected));
+        }
+    }
+}
+
+#[test]
+fn logical_assignment_returns_preserve_all_short_circuit_paths_and_generate_qir() {
+    for (operator, rhs) in [
+        ("and", "r or (return false)"),
+        ("or", "r and (return true)"),
+    ] {
+        for initial in [false, true] {
+            for measured_one in [false, true] {
+                let preparation = if measured_one { "X(q);" } else { "" };
+                // Keep the qubit in Main: this isolates returning RHS lowering
+                // from conditional cleanup in a resource-owning callable.
+                let source = format!(
+                    r#"
+                    function Run(r : Bool, initial : Bool) : Bool {{
+                        mutable value = initial;
+                        set value {operator}= {{ Message("rhs"); {rhs} }};
+                        Message("continuation");
+                        value
+                    }}
+                    @EntryPoint() operation Main() : Bool {{
+                        use q = Qubit();
+                        {preparation}
+                        Run(MResetZ(q) == One, {initial})
+                    }}
+                "#
+                );
+                let expected = if operator == "and" {
+                    initial && measured_one
+                } else {
+                    initial || measured_one
+                };
+                check_value(&source, Value::Bool(expected));
+                let qir = crate::test_utils::generate_qir(&source);
+                assert!(qir.contains("@ENTRYPOINT__main"), "{qir}");
+            }
+        }
+    }
+}
+
+#[test]
+fn short_circuit_assignment_skips_disabled_rhs_and_calls_after_return() {
+    for (operator, initial, expected) in [("and", false, false), ("or", true, true)] {
+        for enabled in [false, true] {
+            let initial = if enabled { !initial } else { initial };
+            let source = format!(
+                r#"
+                function Use(b : Bool) : Bool {{ fail "call after return"; }}
+                @EntryPoint() operation Main() : Bool {{
+                    mutable value = {initial};
+                    set value {operator}= Use(return {{ Message("rhs"); {expected} }});
+                    Message("continuation");
+                    value
+                }}
+            "#
+            );
+            check_value(&source, Value::Bool(expected));
+        }
+    }
+}
+
+#[test]
+fn nested_returns_preserve_operand_effect_order_and_do_not_overwrite_the_inner_return() {
+    for (a, b, expected) in [
+        (false, false, 1_949),
+        (false, true, 19),
+        (true, false, 123),
+        (true, true, 12),
+    ] {
+        let source = format!(
+            r#"
+            function Identity(x : Int) : Int {{ Message("identity"); x }}
+            @EntryPoint() operation Main() : Int {{
+                mutable marker = 1;
+                let value = {a}
+                    ? Identity({{
+                        set marker = marker * 10 + 2;
+                        if {b} {{ return marker; }}
+                        marker
+                    }})
+                    | Identity({{
+                        set marker = marker * 10 + 9;
+                        if {b} {{ return marker; }}
+                        marker
+                    }});
+                set marker = marker * 10 + 3;
+                return value + (Identity({a} ? (return marker) | marker) * 10);
+            }}
+        "#
+        );
+        // The marker encodes operand order; receiver output also proves that
+        // Identity is not called when its argument returns from Main.
+        check_value(&source, Value::Int(expected));
+    }
+}
+
+#[test]
+fn logical_assignment_returning_int_preserves_bool_rhs_type_and_generates_qir() {
+    for measured_one in [false, true] {
+        let preparation = if measured_one { "X(q);" } else { "" };
+        let source = format!(
+            r#"
+            function Run(r : Bool) : Int {{
+                mutable value = true;
+                set value and= (r or (return 17));
+                if value {{ 3 }} else {{ 5 }}
+            }}
+            @EntryPoint() operation Main() : Int {{
+                use q = Qubit();
+                {preparation}
+                Run(MResetZ(q) == One)
+            }}
+        "#
+        );
+        check_value(&source, Value::Int(if measured_one { 3 } else { 17 }));
+        let qir = crate::test_utils::generate_qir(&source);
+        assert!(qir.contains("@ENTRYPOINT__main"), "{qir}");
+    }
+}
+
+#[test]
+fn non_defaultable_failing_tail_is_skipped_after_return_and_preserves_failure_on_fallthrough() {
+    for stop in [false, true] {
+        let source = format!(
+            r#"
+            operation Tail(q : Qubit) : Qubit {{ fail "tail failure"; }}
+            operation Run(q : Qubit) : Qubit {{
+                {{ if {stop} {{ return q; }} Tail(q) }}
+            }}
+            @EntryPoint() operation Main() : Result {{
+                use q = Qubit();
+                MResetZ(Run(q))
+            }}
+        "#
+        );
+        if stop {
+            check_value(&source, Value::Result(qsc_eval::val::Result::Val(false)));
+        } else {
+            check_preserved_failure(&source, "tail failure", vec![QubitAllocate(0)]);
+        }
+    }
+}
+
+#[test]
+fn semicolon_failure_in_non_unit_body_preserves_user_error() {
+    check_non_unit_failure("fail \"expected\";");
+}
+
+#[test]
+fn eager_operand_failures_in_non_unit_tails_preserve_user_error_and_location() {
+    for body in [
+        "fail \"expected\"",
+        "[fail \"expected\"];",
+        "(1, fail \"expected\");",
+        "function Ignore(value : Int) : Unit {} Ignore(fail \"expected\");",
+        "if fail \"expected\" { 1 } else { 2 }",
+        "$\"{fail \"expected\"}\";",
+        "1 + (fail \"expected\");",
+        "[1, size = fail \"expected\"];",
+        "mutable value = 0; set value += fail \"expected\";",
+    ] {
+        check_non_unit_failure(body);
+    }
+}
+
+#[test]
+fn short_circuit_unselected_branch_and_deferred_closure_failures_return_seventeen() {
+    check_value(
+        indoc::indoc! {r#"
+            @EntryPoint()
+            operation Main() : Int {
+                let a = false and (fail "right and operand");
+                let b = true or (fail "right or operand");
+                let c = if false { fail "unselected branch" } else { 17 };
+                let deferred : Int -> Int = x -> { fail "closure body"; x };
+                if a or not b { fail "unexpected boolean result"; }
+                c
+            }
+        "#},
+        Value::Int(17),
+    );
+}
+
+fn check_non_unit_failure(body: &str) {
+    let source = format!("@EntryPoint() operation Main() : Int {{ {body} }}");
+    check_preserved_failure(&source, "expected", Vec::new());
+}
+
+#[test]
+fn nested_while_condition_preserves_return_and_fallthrough_values() {
+    // Run(2) returns 172 during the third condition; Run(5) exits normally with 24.
+    check_value(
+        indoc::indoc! {r#"
+        namespace Test {
+            function Identity(value : Int) : Int { value }
+            function Run(stop : Int) : Int {
+                mutable count = 0;
+                mutable total = 1;
+                while Identity({
+                    let next = {
+                        set total = total + 2;
+                        if count == stop { return total * 10 + count; }
+                        count
+                    };
+                    next
+                }) < 3 {
+                    set total = total + 5;
+                    set count = count + 1;
+                }
+                total
+            }
+            @EntryPoint()
+            operation Main() : Int { Run(2) * 100 + Run(5) }
+        }
+    "#},
+        Value::Int(17_224),
+    );
+}
+
+#[test]
+fn return_in_while_comparison_operand_returns_forty_two() {
+    check_value(
+        indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                while ({ return 42; 0 }) < 1 {}
+                0
+            }
+        }
+    "#},
+        Value::Int(42),
+    );
+}
+
+#[test]
+fn return_in_while_condition_block_returns_forty_two() {
+    check_value(
+        indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                while ({ return 42; 0 < 1 }) {}
+                0
+            }
+        }
+    "#},
+        Value::Int(42),
+    );
+}
+
+#[test]
+fn while_condition_return_skips_division_by_zero_and_loop_body() {
+    check_value(
+        indoc::indoc! {r#"
+            function Run(stop : Bool, divisor : Int) : Int {
+                while ({ if stop { return 42; } 10 / divisor }) < 2 {
+                    return 7;
+                }
+                0
+            }
+            @EntryPoint()
+            operation Main() : (Int, Int) { (Run(true, 0), Run(false, 10)) }
+        "#},
+        Value::Tuple(vec![Value::Int(42), Value::Int(7)].into(), None),
+    );
+}
+
+#[test]
+fn negated_while_condition_return_does_not_execute_loop_body() {
+    check_value(
+        indoc::indoc! {r#"
+            function Run(stop : Bool) : Int {
+                while not ({ if stop { return 42; } false }) {
+                    fail "loop body executed after condition returned";
+                }
+                0
+            }
+            @EntryPoint()
+            operation Main() : Int { Run(true) }
+        "#},
+        Value::Int(42),
+    );
+}
+
+#[test]
+fn while_condition_qubit_operand_return_skips_measurement_and_preserves_release() {
+    // Qubit operand temporaries have no scalar default. Their array-backed
+    // representation must not be read after the condition returns.
+    check_value(
+        indoc::indoc! {r#"
+            operation Run(stop : Bool) : Int {
+                use qs = Qubit[1];
+                while MResetZ({
+                    if stop { return 42; }
+                    qs[0]
+                }) == One {
+                    fail "zero qubit entered the loop";
+                }
+                7
+            }
+            @EntryPoint()
+            operation Main() : (Int, Int) { (Run(true), Run(false)) }
+        "#},
+        Value::Tuple(vec![Value::Int(42), Value::Int(7)].into(), None),
+    );
+}
+
+#[test]
+fn nested_loop_in_condition_preserves_array_return_and_skips_later_operands() {
+    check_value(
+        indoc::indoc! {r#"
+            function Run(stop : Int) : Int[] {
+                mutable count = 0;
+                while ({
+                    while count < 3 {
+                        set count += 1;
+                        if count == stop { return [count, 42]; }
+                    }
+                    count
+                }) < ({
+                    if count == stop { fail "operand after condition return"; }
+                    3
+                }) {
+                    fail "condition must return or be false";
+                }
+                [count, 7]
+            }
+            @EntryPoint()
+            operation Main() : (Int[], Int[]) { (Run(2), Run(9)) }
+        "#},
+        Value::Tuple(
+            vec![
+                Value::Array(vec![Value::Int(2), Value::Int(42)].into()),
+                Value::Array(vec![Value::Int(3), Value::Int(7)].into()),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn while_operand_return_preserves_repeated_eager_order() {
+    // Decimal digits record the first operand (1), second operand (2), and body (3).
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Below(value : Int, limit : Int) : Bool { value < limit }
+            function Comparison(stop : Int) : Int {
+                mutable count = 0;
+                mutable marker = 0;
+                while ({
+                    set marker = marker * 10 + 1;
+                    if count == stop { return marker; }
+                    count
+                }) < ({
+                    if count == stop { fail "later comparison operand after return"; }
+                    set marker = marker * 10 + 2;
+                    3
+                }) {
+                    set marker = marker * 10 + 3;
+                    set count = count + 1;
+                }
+                marker
+            }
+            function Call(stop : Int) : Int {
+                mutable count = 0;
+                mutable marker = 0;
+                while Below({
+                    set marker = marker * 10 + 1;
+                    if count == stop { return marker; }
+                    count
+                }, {
+                    if count == stop { fail "later call argument after return"; }
+                    set marker = marker * 10 + 2;
+                    3
+                }) {
+                    set marker = marker * 10 + 3;
+                    set count = count + 1;
+                }
+                marker
+            }
+            @EntryPoint()
+            operation Main() : (Int, Int, Int, Int) {
+                (Comparison(2), Comparison(5), Call(2), Call(5))
+            }
+        }
+    "#};
+    check_value(
+        source,
+        Value::Tuple(
+            vec![
+                Value::Int(1_231_231),
+                Value::Int(12_312_312_312),
+                Value::Int(1_231_231),
+                Value::Int(12_312_312_312),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn while_operand_return_preserves_short_circuit_and_body_suppression() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Forbidden() : Bool { fail "skipped operand evaluated" }
+            function RightReturn() : Int {
+                while false and Forbidden() { fail "false condition body"; }
+                while not (true or Forbidden()) { fail "short circuit body"; }
+                while true and ({ return 73; true }) { fail "body after right return"; }
+                0
+            }
+            function LeftReturn() : Int {
+                while ({ return 91; false }) or Forbidden() { fail "body after left return"; }
+                0
+            }
+            @EntryPoint()
+            operation Main() : (Int, Int) { (RightReturn(), LeftReturn()) }
+        }
+    "#};
+    check_value(
+        source,
+        Value::Tuple(vec![Value::Int(73), Value::Int(91)].into(), None),
+    );
+}
 
 /// Generates syntactically valid Q# programs with return statements at
 /// various positions covering all `return_unify` dispatch categories
 /// (structured, flag, no-return). Each program wraps one of 12 template
 /// patterns in a `namespace Test { function Main() : Int { ... } }` shell.
 #[allow(clippy::too_many_lines)]
+#[cfg(feature = "slow-proptest-tests")]
 fn return_pattern_strategy() -> impl Strategy<Value = String> {
     let cmp = || 0..10i64;
     let val = || 0..100i64;
@@ -173,10 +1613,364 @@ fn return_pattern_strategy() -> impl Strategy<Value = String> {
     ]
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
     #[test]
     fn differential_return_unify(source in return_pattern_strategy()) {
         check_semantic_equivalence(&source);
+    }
+}
+
+fn check_preserved_failure(source: &str, message: &str, trace: Vec<crate::test_utils::TraceOp>) {
+    use crate::test_utils::{
+        PipelineStage, compile_and_run_pipeline_to, compile_to_fir, try_eval_fir_entry_with_trace,
+    };
+
+    let (store, package_id) = compile_to_fir(source);
+    let fail_span = store
+        .get(package_id)
+        .exprs
+        .iter()
+        .find_map(|(_, expr)| {
+            matches!(expr.kind, qsc_fir::fir::ExprKind::Fail(_)).then_some(expr.span)
+        })
+        .expect("source must contain a fail expression");
+    let expected = (
+        Err(format!(
+            "{:?}",
+            qsc_eval::Error::UserFail(
+                message.into(),
+                (
+                    qsc_lowerer::map_fir_package_to_hir(fail_span.package),
+                    fail_span.span
+                )
+                    .into()
+            )
+        )),
+        trace,
+    );
+    assert_eq!(try_eval_fir_entry_with_trace(&store, package_id), expected);
+    for stage in [PipelineStage::ReturnUnify, PipelineStage::Full] {
+        let (mut store, package_id) = compile_and_run_pipeline_to(source, stage);
+        crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package_id, &[]);
+        assert_eq!(
+            try_eval_fir_entry_with_trace(&store, package_id),
+            expected,
+            "failure must survive {stage:?}: {source}"
+        );
+    }
+}
+
+fn check_generated_array_loop_types(source: &str, element: &qsc_fir::ty::Ty) {
+    // Inspect the freshly lowered FIR: evaluating a divergent iterable never
+    // reaches Length, and later passes may remove the ill-typed generated code.
+    let (store, package_id) = compile_to_fir(source);
+    let package = store.get(package_id);
+    let array_ty = Ty::Array(Box::new(element.clone()));
+    let mut captures = 0;
+    let mut lengths = 0;
+    for (_, stmt) in &package.stmts {
+        let StmtKind::Local(_, pat, initializer) = &stmt.kind else {
+            continue;
+        };
+        let pat = package.pats.get(*pat).expect("binding pattern must exist");
+        let PatKind::Bind(ident) = &pat.kind else {
+            continue;
+        };
+        let initializer = package
+            .exprs
+            .get(*initializer)
+            .expect("binding initializer must exist");
+        if ident.name.starts_with(".array_id") {
+            captures += 1;
+            assert_eq!(pat.ty, array_ty, "{source}");
+            assert_eq!(initializer.ty, array_ty, "{source}");
+        }
+        if ident.name.starts_with(".len_id") {
+            lengths += 1;
+            let ExprKind::Call(callee, argument) = &initializer.kind else {
+                panic!("generated Length binding must be a call");
+            };
+            assert_eq!(
+                package
+                    .exprs
+                    .get(*argument)
+                    .expect("argument must exist")
+                    .ty,
+                array_ty,
+                "{source}"
+            );
+            let ExprKind::Var(_, generics) =
+                &package.exprs.get(*callee).expect("callee must exist").kind
+            else {
+                panic!("generated Length callee must be a variable");
+            };
+            assert_eq!(generics, &[GenericArg::Ty(element.clone())], "{source}");
+        }
+    }
+    assert!(captures > 0, "fixture must lower an array loop: {source}");
+    assert_eq!(captures, lengths, "{source}");
+}
+
+#[test]
+fn failing_for_iterables_preserve_user_failure_and_source_location() {
+    for body in [
+        "let value = for item : String in fail \"stop\" {};",
+        "for item : String in fail \"stop\" {}",
+        // Explicit array context is the compatibility control for the ordinary path.
+        "let items : String[] = fail \"stop\"; for item in items {}",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Unit {{ {body} }}");
+        check_preserved_failure(&source, "stop", Vec::new());
+    }
+}
+
+#[test]
+fn return_in_for_iterable_returns_seventeen() {
+    check_value(
+        "@EntryPoint() operation Main() : Int { for item : String in return 17 {} 0 }",
+        Value::Int(17),
+    );
+}
+
+#[test]
+fn generated_adjoint_of_failing_for_iterable_reports_failure_before_gates() {
+    for iterable in [
+        "for item : String in fail \"iter\" { X(q); }",
+        "let items : String[] = fail \"iter\"; for item in items { X(q); }",
+    ] {
+        let source = format!(
+            "operation A(q : Qubit) : Unit is Adj {{ {iterable} }}
+             @EntryPoint() operation Main() : Unit {{
+                 use q = Qubit();
+                 Adjoint A(q);
+                 Reset(q);
+             }}"
+        );
+        check_preserved_failure(
+            &source,
+            "iter",
+            vec![crate::test_utils::TraceOp::QubitAllocate(0)],
+        );
+    }
+}
+
+#[test]
+fn loop_control_in_qubit_argument_preserves_singleton_type_and_skips_call() {
+    for transfer in ["break", "continue"] {
+        for take_transfer in [true, false] {
+            let source = format!(
+                "operation UseQubit(q : Qubit) : Unit {{ Reset(q); }}
+                 @EntryPoint() operation Main() : Unit {{
+                     use q = Qubit();
+                     mutable keepGoing = true;
+                     while keepGoing {{
+                         UseQubit(if {take_transfer} {{
+                             keepGoing = false;
+                             {transfer}
+                         }} else {{ q }});
+                         keepGoing = false;
+                     }}
+                 }}"
+            );
+            let (store, package_id) = compile_to_fir(&source);
+            let package = store.get(package_id);
+            // Check the generated singleton before FIR cleanup can hide an invalid
+            // type on a skipped branch. Its element must keep the moved qubit's type.
+            let mut singletons = 0;
+            for (_, expr) in &package.exprs {
+                let (ExprKind::Array(elements) | ExprKind::ArrayLit(elements)) = &expr.kind else {
+                    continue;
+                };
+                let [element] = elements.as_slice() else {
+                    continue;
+                };
+                let element = package.exprs.get(*element).expect("array element");
+                if element.ty == Ty::Prim(Prim::Qubit) {
+                    singletons += 1;
+                    assert_eq!(expr.ty, Ty::Array(Box::new(element.ty.clone())), "{source}");
+                }
+            }
+            assert!(
+                singletons > 0,
+                "fixture must exercise array backing: {source}"
+            );
+            let trace = if take_transfer {
+                vec![QubitAllocate(0), QubitRelease(0)]
+            } else {
+                vec![QubitAllocate(0), Reset(0), QubitRelease(0)]
+            };
+            assert_eq!(
+                try_eval_fir_entry_with_trace(&store, package_id),
+                (Ok(Value::unit()), trace),
+                "{source}"
+            );
+            check_value(&source, Value::unit());
+        }
+    }
+}
+
+#[test]
+fn divergent_for_iterables_generate_typed_array_captures_and_length_calls() {
+    for (pattern, element) in [
+        ("item : Int", Ty::Prim(Prim::Int)),
+        ("item : String", Ty::Prim(Prim::String)),
+        ("item : Int[]", Ty::Array(Box::new(Ty::Prim(Prim::Int)))),
+        (
+            "(number : Int, text : String)",
+            Ty::Tuple(vec![Ty::Prim(Prim::Int), Ty::Prim(Prim::String)]),
+        ),
+    ] {
+        for body in [
+            format!("let value = for {pattern} in fail \"stop\" {{}};"),
+            format!("for {pattern} in fail \"stop\" {{}}"),
+            format!("for {pattern} in return 17 {{}}"),
+        ] {
+            let source = format!("@EntryPoint() operation Main() : Int {{ {body} 0 }}");
+            check_generated_array_loop_types(&source, &element);
+        }
+    }
+}
+
+mod nested_operand_order {
+    use super::check_value;
+    use indoc::indoc;
+    use qsc_eval::val::Value;
+
+    #[test]
+    fn nested_short_circuit_call_operand_return_suppresses_later_operands_and_body() {
+        check_value(
+            indoc! {r#"
+                namespace Test {
+                    function Below(value : Int, limit : Int) : Bool { value < limit }
+                    function Forbidden() : Bool { fail "short circuit tail executed" }
+                    @EntryPoint()
+                    operation Main() : Int {
+                        mutable marker = 0;
+                        while false or (true and Below({
+                            set marker = marker * 10 + 1;
+                            let value = 10 + {
+                                set marker = marker * 10 + 2;
+                                return marker;
+                                0
+                            };
+                            value
+                        }, {
+                            fail "later call operand executed";
+                            100
+                        })) or Forbidden() {
+                            fail "loop body executed after return";
+                        }
+                        -1
+                    }
+                }
+            "#},
+            Value::Int(12),
+        );
+    }
+
+    #[test]
+    fn nested_short_circuit_call_operand_preserves_fallthrough_and_repeated_order() {
+        // Record argument/body order as digits; a disabled condition records nothing.
+        check_value(
+            indoc! {r#"
+                namespace Test {
+                    function Below(value : Int, limit : Int) : Bool { value < limit }
+                    function Run(stop : Int, enabled : Bool) : Int {
+                        mutable marker = 0;
+                        mutable checks = 0;
+                        while false or (enabled and Below({
+                            set marker = marker * 10 + 1;
+                            let value = 0 + {
+                                if checks == stop { return marker; }
+                                checks
+                            };
+                            value
+                        }, {
+                            set marker = marker * 10 + 2;
+                            2
+                        })) {
+                            set marker = marker * 10 + 3;
+                            set checks += 1;
+                        }
+                        marker
+                    }
+                    @EntryPoint()
+                    operation Main() : (Int, Int, Int) {
+                        (Run(1, true), Run(5, true), Run(0, false))
+                    }
+                }
+            "#},
+            Value::Tuple(
+                vec![Value::Int(1231), Value::Int(12_312_312), Value::Int(0)].into(),
+                None,
+            ),
+        );
+    }
+
+    #[test]
+    fn skipped_nested_condition_operands_do_not_return_or_fail() {
+        check_value(
+            indoc! {r#"
+                namespace Test {
+                    function Truth(value : Bool) : Bool { value }
+                    function Below(value : Int, limit : Int) : Bool { value < limit }
+                    @EntryPoint()
+                    operation Main() : Int {
+                        mutable marker = 1;
+                        if (Truth(false) and Below({
+                            set marker = 9;
+                            return marker;
+                            0
+                        }, {
+                            fail "skipped comparison operand executed";
+                            10
+                        })) or (Truth(true) or Below({
+                            return 8;
+                            0
+                        }, 10)) {
+                            set marker = marker * 10 + 2;
+                        } else {
+                            fail "wrong condition branch";
+                        }
+                        set marker = marker * 10 + 3;
+                        marker
+                    }
+                }
+            "#},
+            Value::Int(123),
+        );
+    }
+
+    #[test]
+    fn repeated_condition_preserves_array_snapshot_before_mutation_and_return() {
+        // Encode condition count, current array value, and body history. The first
+        // operand must read the array before the second operand updates it.
+        check_value(
+            indoc! {r#"
+                namespace Test {
+                    function Run(stop : Int) : Int {
+                        mutable values = [0, 7];
+                        mutable checks = 0;
+                        mutable history = 0;
+                        while (values[0] + {
+                            set checks += 1;
+                            set values w/= 0 <- values[0] + 1;
+                            if checks == stop {
+                                return checks * 10000 + values[0] * 100 + history;
+                            }
+                            0
+                        }) < 2 {
+                            set history = history * 10 + values[0];
+                        }
+                        900000 + checks * 10000 + values[0] * 100 + history
+                    }
+                    @EntryPoint()
+                    operation Main() : (Int, Int) { (Run(3), Run(9)) }
+                }
+            "#},
+            Value::Tuple(vec![Value::Int(30312), Value::Int(930_312)].into(), None),
+        );
     }
 }

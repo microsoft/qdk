@@ -1335,12 +1335,6 @@ fn recursive_while_body_qubit_suffix_uses_lazy_continuation() {
                         __ret_val = 1;
                         __has_returned = true;
                     };
-                    if (not __has_returned) {
-                        let q : Qubit = __quantum__rt__qubit_allocate();
-                        Reset(q);
-                        i += 1;
-                        __quantum__rt__qubit_release(q);
-                    };
                 }
 
                 if __has_returned {
@@ -1390,14 +1384,6 @@ fn recursive_nested_block_qubit_suffix_uses_lazy_continuation() {
                             __ret_val = 1;
                             __has_returned = true;
                         };
-                        if (not __has_returned) {
-                            let q : Qubit = __quantum__rt__qubit_allocate();
-                            Reset(q);
-                            __quantum__rt__qubit_release(q);
-                        };
-                    };
-                    if (not __has_returned) {
-                        i += 1;
                     };
                 }
 
@@ -1445,13 +1431,6 @@ fn recursive_qubit_suffix_after_defaultable_local_uses_single_lazy_continuation(
                     {
                         __ret_val = 1;
                         __has_returned = true;
-                    };
-                    if (not __has_returned) {
-                        let fallback : Int = i + 1;
-                        let q : Qubit = __quantum__rt__qubit_allocate();
-                        Reset(q);
-                        i = fallback;
-                        __quantum__rt__qubit_release(q);
                     };
                 }
 

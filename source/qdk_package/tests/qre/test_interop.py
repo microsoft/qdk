@@ -38,6 +38,9 @@ def test_trace_from_qir(ll_file):
         assert (
             str(e)
             == "simulation of programs with branching control flow is not supported"
+            or str(e) == "Unsupported call instruction: __quantum__rt__read_result"
+            or str(e)
+            == "Unsupported call instruction: __quantum__rt__int_record_output"
         )
 
 

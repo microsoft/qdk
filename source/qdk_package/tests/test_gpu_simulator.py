@@ -644,3 +644,29 @@ def test_gpu_reset_preserves_distribution():
     assert (
         abs(q1_one / shots - 0.067) < 0.05
     ), f"Expected ~6.7% |1⟩ for q1, got {q1_one}/{shots}"
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("profile", [TargetProfile.Base, TargetProfile.Adaptive_RI])
+def test_gpu_mx_my_on_eigenstates(profile: TargetProfile):
+    """MX/MY are lowered to basis change + MZ on the GPU. On X/Y eigenstates they
+    must be deterministic and leave the qubit in the measured eigenstate, so a
+    repeated measurement agrees."""
+    qsharp.init(target_profile=profile)
+    qsharp.eval("""
+        operation MxMyEigenstates() : Result[] {
+            use (a, b) = (Qubit(), Qubit());
+            X(a);
+            H(a); // |−⟩
+            H(b);
+            S(b); // |+i⟩
+            [MX(a), MY(b), MX(a), MY(b)]
+        }
+        """)
+
+    qir = str(qsharp.compile("MxMyEigenstates()"))
+    output = run_qir_gpu(qir, shots=100, seed=10)
+
+    assert all(result_array_to_string(r) == "1010" for r in output), Counter(
+        result_array_to_string(r) for r in output
+    )

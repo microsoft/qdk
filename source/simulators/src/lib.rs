@@ -105,7 +105,13 @@ pub trait Simulator {
     /// Two qubits SWAP gate.
     fn swap(&mut self, q1: QubitID, q2: QubitID);
 
-    /// `MZ` operation.
+    /// Measures a single qubit in the X basis.
+    fn mx(&mut self, target: QubitID, result_id: ResultID);
+
+    /// Measures a single qubit in the Y basis.
+    fn my(&mut self, target: QubitID, result_id: ResultID);
+
+    /// Measures a single qubit in the Z basis.
     fn mz(&mut self, target: QubitID, result_id: ResultID);
 
     /// `MResetZ` operation.

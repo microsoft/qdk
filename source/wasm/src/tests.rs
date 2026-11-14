@@ -11,6 +11,97 @@ use crate::get_qir_from_qsharp;
 
 use super::run_internal_with_features;
 
+fn adaptive_fallback_result(source: &str) -> Result<super::QirGenerationResult, String> {
+    let caps = qsc::target::Profile::Adaptive.into();
+    let (std_id, store) = crate::compile::package_store_with_stdlib(caps);
+    qsc::codegen::qir::get_qir_with_diagnostics(
+        SourceMap::new([("fallback.qs".into(), source.into())], None),
+        LanguageFeatures::default(),
+        caps,
+        store,
+        &[(std_id, None)],
+    )
+    .map(super::qir_result)
+    .map_err(super::interpret_errors_into_qsharp_errors_json)
+}
+
+#[test]
+fn adaptive_fallback_detailed_warning_serialization() {
+    let result = adaptive_fallback_result(
+        r#"
+operation Count(q : Qubit) : Int { mutable n = 0; for _ in 1..3 { X(q); set n += 1; } n }
+@EntryPoint() operation Main() : (Int, Result[]) {
+    use q = Qubit(); let n = Count(q); use qs = Qubit[n];
+    let rs = MResetEachZ(qs); (n + (MResetZ(q) == One ? 10 | 0), rs)
+}"#,
+    )
+    .expect("successful fallback");
+    let json = serde_json::to_value(result).expect("serialize success");
+    assert!(
+        json["qir"]
+            .as_str()
+            .expect("QIR string")
+            .contains("ENTRYPOINT")
+    );
+    assert_eq!(json["warnings"].as_array().expect("warning array").len(), 1);
+    assert_eq!(json["warnings"][0]["document"], "fallback.qs");
+    assert_eq!(json["warnings"][0]["diagnostic"]["severity"], "warning");
+    assert_eq!(
+        json["warnings"][0]["diagnostic"]["code"],
+        "Qdk.Qsc.Codegen.AdaptiveProfileFallback"
+    );
+}
+
+#[test]
+fn adaptive_fallback_normal_success_has_no_warning_diagnostics() {
+    let normal = adaptive_fallback_result(
+        "@EntryPoint() operation Main() : Result { use q = Qubit(); MResetZ(q) }",
+    )
+    .expect("normal success");
+    assert!(normal.warnings.is_empty());
+}
+
+#[test]
+fn adaptive_fallback_fatal_evaluation_serializes_as_error() {
+    let fatal =
+        adaptive_fallback_result("@EntryPoint() operation Main() : Int { fail \"user failure\"; }")
+            .expect_err("user failure");
+    let json: serde_json::Value = serde_json::from_str(&fatal).expect("serialize failure");
+    assert_eq!(json[0]["diagnostic"]["severity"], "error");
+}
+
+#[test]
+fn adaptive_fallback_failed_retry_serializes_original_diagnostics_with_one_note() {
+    let source = "@EntryPoint() operation Main() : Result[] { use q = Qubit(); let n = MResetZ(q) == One ? 3 | 2; use qs = Qubit[n]; MResetEachZ(qs) }";
+    let caps = qsc::target::Profile::Adaptive.into();
+    let (std_id, store) = crate::compile::package_store_with_stdlib(caps);
+    let original = qsc::codegen::qir::get_rir(
+        SourceMap::new([("fallback.qs".into(), source.into())], None),
+        LanguageFeatures::default(),
+        caps,
+        store,
+        &[(std_id, None)],
+    )
+    .expect_err("strict Adaptive rejects measurement-dependent allocation");
+    let original: Vec<serde_json::Value> =
+        serde_json::from_str(&super::interpret_errors_into_qsharp_errors_json(original))
+            .expect("original diagnostics");
+    let fatal = adaptive_fallback_result(source).expect_err("genuine dynamic allocation");
+    let errors: Vec<serde_json::Value> = serde_json::from_str(&fatal).expect("errors");
+    assert_eq!(errors.len(), original.len());
+    for (index, (mut error, original)) in errors.into_iter().zip(original).enumerate() {
+        assert_eq!(error["document"], "fallback.qs");
+        if index == 0 {
+            let expected = format!(
+                "{}\n\nAdaptive_RIF fallback was also rejected; these diagnostics describe the requested Adaptive profile.",
+                original["diagnostic"]["message"].as_str().expect("message"),
+            );
+            assert_eq!(error["diagnostic"]["message"], expected);
+            error["diagnostic"]["message"] = original["diagnostic"]["message"].clone();
+        }
+        assert_eq!(error, original);
+    }
+}
 fn run_internal<F>(sources: SourceMap, event_cb: F, shots: u32) -> Result<(), Box<interpret::Error>>
 where
     F: FnMut(&str),
@@ -166,7 +257,7 @@ fn test_matrix() {
         1,
     );
     assert!(result.is_ok());
-    assert!(count.get() == 1);
+    assert_eq!(count.get(), 1);
 }
 
 #[test]

@@ -74,6 +74,7 @@ pub fn run_parallel_shots<'py>(
     let sim_results =
         qdk_simulators::run_shots_sync(qubit_count, result_count, &ops, &noise, shots, rng_seed, 0)
             .map_err(PyRuntimeError::new_err)?;
+    check_shot_result_codes(&sim_results.shot_result_codes)?;
 
     // Build the per-shot unified output record stream. When the program records
     // outputs, each shot yields its recorded measurement results (as `Result`
@@ -505,6 +506,28 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
     Some(op)
 }
 
+fn check_shot_result_codes(codes: &[u32]) -> PyResult<()> {
+    let Some(shot) = codes.iter().position(|&code| code != 0) else {
+        return Ok(());
+    };
+    let code = codes[shot];
+    // Keep descriptions aligned with the error codes in gpu_statevector_shaders.wgsl.
+    let reason = match code {
+        1 => "invalid probabilities",
+        2 => "invalid thread total",
+        3 => "call stack overflow",
+        4 => "call stack underflow",
+        5 => "invalid instruction",
+        6 => "allocation out of bounds",
+        7 => "memory out of bounds",
+        32 => "unsupported qubit-loss policy",
+        _ => "unknown execution error",
+    };
+    Err(PyRuntimeError::new_err(format!(
+        "GPU shot {shot} failed: {reason} (error code {code})"
+    )))
+}
+
 #[pyfunction]
 pub fn run_adaptive_parallel_shots<'py>(
     py: Python<'py>,
@@ -519,6 +542,7 @@ pub fn run_adaptive_parallel_shots<'py>(
     let record_types = output_record_types(&program);
     let sim_results = qdk_simulators::run_adaptive_shots_sync(program, &noise, shots, rng_seed, 0)
         .map_err(PyRuntimeError::new_err)?;
+    check_shot_result_codes(&sim_results.shot_result_codes)?;
 
     // Format each shot as the ordered list of its recorded output values
     // (`Result` enum values for measurement results, plus native bool/int/float

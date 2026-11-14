@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
+use super::pauli_testing::{
+    Pending::{H, Rx, Ry},
+    check_measure_pauli,
+};
 use super::*;
-use std::f64::consts::PI;
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, PI};
 
 fn almost_equal(a: f64, b: f64) -> bool {
     a.max(b) - b.min(a) <= 1e-10
@@ -81,6 +85,76 @@ fn test_measure() {
     assert!(almost_equal(sim.joint_probability(&[q]), 0.0));
     sim.release(extra);
     sim.release(q);
+}
+
+/// Measures in each Pauli basis with different combinations of pending H, Rx and Ry on the target.
+#[test]
+fn test_measure_pauli() {
+    for gates in [
+        &[][..],
+        &[H],
+        &[Ry(FRAC_PI_2)],
+        &[Ry(-FRAC_PI_2)],
+        &[Ry(0.3)],
+        &[Rx(0.3)],
+        &[Rx(FRAC_PI_2)],
+        &[Rx(-FRAC_PI_2)],
+        &[Ry(FRAC_PI_4), Ry(FRAC_PI_4)],
+        &[Rx(FRAC_PI_4), Rx(FRAC_PI_4)],
+        &[H, Ry(FRAC_PI_2)],
+        &[H, Ry(-FRAC_PI_2)],
+        &[H, Ry(0.42)],
+        &[Rx(0.42), Ry(FRAC_PI_2)],
+        &[Rx(0.42), Ry(-FRAC_PI_2)],
+        &[Rx(FRAC_PI_2), Ry(-PI)],
+        &[Rx(-FRAC_PI_2), Ry(PI)],
+        &[Rx(-PI), Ry(FRAC_PI_2)],
+        &[Rx(PI), Ry(-FRAC_PI_2)],
+        &[Rx(0.6), Ry(0.9)],
+    ] {
+        for p1 in [
+            MeasurementBasis::Z,
+            MeasurementBasis::X,
+            MeasurementBasis::Y,
+        ] {
+            for p2 in [
+                MeasurementBasis::Z,
+                MeasurementBasis::X,
+                MeasurementBasis::Y,
+            ] {
+                check_measure_pauli([p1, p2], gates);
+            }
+        }
+    }
+}
+
+/// The eigenstate checks must give the right answer and must not change the state.
+#[test]
+fn test_qubit_is_plus() {
+    let mut sim = SparseStateSim::default();
+    let q = sim.allocate();
+    assert!(!sim.qubit_is_plus(q), "|0⟩");
+    sim.h(q);
+    assert!(sim.qubit_is_plus(q), "|+⟩");
+    sim.z(q);
+    assert!(!sim.qubit_is_plus(q), "|-⟩");
+    sim.s(q);
+    assert!(!sim.qubit_is_plus(q), "|-i⟩");
+}
+
+/// The eigenstate checks must give the right answer and must not change the state.
+#[test]
+fn test_qubit_is_plus_i() {
+    let mut sim = SparseStateSim::default();
+    let q = sim.allocate();
+    assert!(!sim.qubit_is_plus_i(q), "|0⟩");
+    sim.h(q);
+    sim.s(q);
+    assert!(sim.qubit_is_plus_i(q), "|+i⟩");
+    sim.z(q);
+    assert!(!sim.qubit_is_plus_i(q), "|-i⟩");
+    sim.sadj(q);
+    assert!(!sim.qubit_is_plus_i(q), "|-⟩");
 }
 
 // Verify that out of order release of non-zero qubits behaves as expected, namely qubits that
@@ -367,6 +441,40 @@ fn test_ry_pi_flushed() {
         sim.joint_probability(&[q])
     ));
     assert!(!sim.joint_probability(&[q]).is_nearly_zero());
+}
+
+/// Verifies that a queued Rx(+-PI), which is flushed as an X gate, is applied before an Ry queued
+/// after it. Applying X after Ry(theta) flips the sign on Ry, leaving Ry(-theta) which has the same
+/// Z probabilities but is distinguishable in a different basis.
+#[test]
+fn test_rx_pi_then_ry_flushed() {
+    let mut sim = SparseStateSim::new(None);
+    let q = sim.allocate();
+    // Ry(PI/2)X|0⟩ = -|-⟩ so H maps it to |1⟩, whereas the wrong order Ry(-PI/2)X|0⟩ = |+⟩ maps to |0⟩.
+    sim.rx(PI, q);
+    sim.ry(FRAC_PI_2, q);
+    sim.h(q);
+    assert!(almost_equal(sim.joint_probability(&[q]), 1.0));
+}
+
+/// Verifies Rx(+-PI) followed by Ry(theta) on entangled and lazily queued states for both signs of theta.
+#[test]
+fn test_rx_then_ry_flushed() {
+    for rx_theta in [PI, -PI] {
+        for ry_theta in [FRAC_PI_2, -FRAC_PI_2, FRAC_PI_3, -FRAC_PI_3, PI] {
+            assert_operation_equal_referenced(
+                |sim, qs| {
+                    sim.rx(rx_theta, qs[0]);
+                    sim.ry(ry_theta, qs[0]);
+                },
+                |sim, qs| {
+                    sim.ry(-ry_theta, qs[0]);
+                    sim.rx(-rx_theta, qs[0]);
+                },
+                1,
+            );
+        }
+    }
 }
 
 /// Verifies that when a controlled Ry(PI) is recognized as equivalent to a

@@ -46,7 +46,7 @@
 //!   reads the pre-`E` values and may take the wrong arm. The rule
 //!   therefore refuses to fire when `E` contains any assignment whose
 //!   LHS root resolves to either slot — see
-//!   [`init_writes_to_merge_slots`].
+//!   [`expr_writes_to_merge_slots`].
 //! * Otherwise, `E`'s value is the merge result on the
 //!   `__has_returned == false` path in both shapes, and on the
 //!   `__has_returned == true` path the pre-fold evaluation of `E` was
@@ -80,7 +80,7 @@ use qsc_fir::{
 
 use crate::fir_builder::{alloc_block, alloc_block_expr, alloc_expr_stmt};
 
-use super::{extract_root_local, local_use_count, push_children};
+use super::{expr_writes_to_merge_slots, extract_root_local, local_use_count};
 use crate::return_unify::lower::SynthSlots;
 
 /// Apply the let-folding rule to `block_id`.
@@ -165,7 +165,7 @@ fn try_apply_once(
     }
 
     // Refuse when the init expression writes either merge slot.
-    if init_writes_to_merge_slots(package, init_expr_id, has_returned_local, ret_val_local) {
+    if expr_writes_to_merge_slots(package, init_expr_id, has_returned_local, ret_val_local) {
         return false;
     }
 
@@ -225,37 +225,4 @@ fn extract_var_local(package: &Package, expr_id: ExprId) -> Option<LocalVarId> {
     } else {
         None
     }
-}
-
-/// Returns `true` when `root` contains any assignment whose LHS root
-/// local matches `has_returned` or `ret_val`.
-///
-/// Walks the expression tree exhaustively. Calls within `root` are
-/// assumed safe: Q# locals are not aliasable across calls, so a callee
-/// cannot mutate the caller's slot locals.
-fn init_writes_to_merge_slots(
-    package: &Package,
-    root: ExprId,
-    has_returned: LocalVarId,
-    ret_val: LocalVarId,
-) -> bool {
-    let mut stack = vec![root];
-    while let Some(id) = stack.pop() {
-        let expr = package.get_expr(id);
-        let lhs = match &expr.kind {
-            ExprKind::Assign(lhs, _)
-            | ExprKind::AssignOp(_, lhs, _)
-            | ExprKind::AssignField(lhs, _, _)
-            | ExprKind::AssignIndex(lhs, _, _) => Some(*lhs),
-            _ => None,
-        };
-        if let Some(lhs_id) = lhs
-            && let Some(root_local) = extract_root_local(package, lhs_id)
-            && (root_local == has_returned || root_local == ret_val)
-        {
-            return true;
-        }
-        push_children(package, id, &mut stack);
-    }
-    false
 }

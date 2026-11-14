@@ -344,6 +344,7 @@ export function getConfig() {
   // These defaults should match those in `package.json`
   const defaultConfig = {
     maxOperations: 10001,
+    maxLoopIterations: 100,
     groupByScope: true,
     generationMethod: "static" as const,
     sourceLocations: true,
@@ -358,6 +359,11 @@ export function getConfig() {
       "maxOperations" in config && typeof config.maxOperations === "number"
         ? config.maxOperations
         : defaultConfig.maxOperations,
+    maxLoopIterations:
+      "maxLoopIterations" in config &&
+      typeof config.maxLoopIterations === "number"
+        ? config.maxLoopIterations
+        : defaultConfig.maxLoopIterations,
     groupByScope:
       "groupByScope" in config && typeof config.groupByScope === "boolean"
         ? config.groupByScope

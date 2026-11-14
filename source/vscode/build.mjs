@@ -175,16 +175,6 @@ export function copyKatex(destDir) {
     join(katexDest, "github-markdown-dark.css"),
   );
 
-  // highlight.js css
-  copyFileSync(
-    join(libsDir, "highlight.js/styles/default.css"),
-    join(katexDest, "hljs-light.css"),
-  );
-  copyFileSync(
-    join(libsDir, "highlight.js/styles/dark.css"),
-    join(katexDest, "hljs-dark.css"),
-  );
-
   // vscode codicons
   copyFileSync(
     join(libsDir, "@vscode", "codicons", "dist", "codicon.css"),

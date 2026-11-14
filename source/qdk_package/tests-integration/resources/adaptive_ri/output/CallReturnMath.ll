@@ -8,27 +8,27 @@ block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-  %var_2 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+  %var_2 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
   br i1 %var_2, label %block_1, label %block_2
 block_1:
   br label %block_3
 block_2:
   br label %block_3
 block_3:
-  %var_14 = phi i64 [7, %block_1], [3, %block_2]
+  %var_16 = phi i64 [7, %block_1], [3, %block_2]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-  %var_6 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+  %var_6 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
   br i1 %var_6, label %block_4, label %block_5
 block_4:
   br label %block_6
 block_5:
   br label %block_6
 block_6:
-  %var_15 = phi i64 [5, %block_4], [2, %block_5]
-  %var_10 = mul i64 %var_15, %var_14
-  %var_11 = add i64 %var_10, 1
-  call void @__quantum__rt__int_record_output(i64 %var_11, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  %var_17 = phi i64 [5, %block_4], [2, %block_5]
+  %var_11 = mul i64 %var_17, %var_16
+  %var_13 = add i64 %var_11, 1
+  call void @__quantum__rt__int_record_output(i64 %var_13, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -38,7 +38,7 @@ declare void @__quantum__qis__x__body(%Qubit*)
 
 declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-declare i1 @__quantum__rt__read_result(%Result*)
+declare zeroext i1 @__quantum__rt__read_result(%Result*)
 
 declare void @__quantum__rt__int_record_output(i64, i8*)
 

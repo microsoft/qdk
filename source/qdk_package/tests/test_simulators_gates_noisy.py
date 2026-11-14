@@ -48,7 +48,7 @@ def gpu_param():
     )
 
 
-SIM_TYPES = ["cpu", "clifford", gpu_param()]
+SIM_TYPES = ["cpu", "stabilizer", gpu_param()]
 NON_CLIFFORD_SIM_TYPES = ["cpu", gpu_param()]
 
 
@@ -57,7 +57,7 @@ NON_CLIFFORD_SIM_TYPES = ["cpu", gpu_param()]
 # ---------------------------------------------------------------------------
 
 
-SimType: TypeAlias = Literal["clifford", "cpu", "gpu"]
+SimType: TypeAlias = Literal["stabilizer", "cpu", "gpu"]
 
 
 def result_to_str(r: Result) -> str:
@@ -819,6 +819,7 @@ def test_noise_intrinsic_combined_with_gate_noise(sim_type):
     )
     check_histogram(results, {"0": 0.18, "1": 0.82})
 
+
 # ===========================================================================
 # Readout noise tests
 # ========================
@@ -866,6 +867,7 @@ PROBABILISTIC_READOUT_NOISE_QIR = READOUT_NOISE_QIR.replace(
     "readout_noise(double 0.0, double 1.0",
     "readout_noise(double 0.0, double 0.3",
 )
+
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_readout_noise_flips_measurement_results(sim_type):

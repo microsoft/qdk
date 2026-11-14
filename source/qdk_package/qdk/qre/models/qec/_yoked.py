@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from dataclasses import dataclass
-from math import ceil
+from math import ceil, isqrt
 from typing import Generator
 
 from ..._instruction import ISATransform, constraint, LOGICAL
@@ -236,8 +236,8 @@ class TwoDimensionalYokedSurfaceCode(ISATransform):
         such that a * b >= num_qubits and a and b are as close as possible.
         """
 
-        a = int(num_qubits**0.5)
-        while num_qubits % a != 0:
-            a -= 1
-        b = num_qubits // a
+        a = isqrt(num_qubits)
+        if a * a < num_qubits:
+            a += 1
+        b = (num_qubits + a - 1) // a
         return a + 2, b + 2

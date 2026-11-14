@@ -25,6 +25,8 @@ export enum GateType {
   ControlledUnitary,
   /** Group of nested gates */
   Group,
+  /** Placeholder for loop iterations omitted from the rendered circuit. */
+  Ellipsis,
   /** Invalid gate. */
   Invalid,
 }

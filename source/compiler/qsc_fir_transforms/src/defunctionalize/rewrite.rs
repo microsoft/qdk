@@ -3,7 +3,7 @@
 
 //! Rewrite phase of the defunctionalization pass.
 //!
-//! For each call site where a higher-order function is invoked with a concrete
+//! For eligible call sites where a higher-order function is invoked with a concrete
 //! callable argument, this module rewrites the call to invoke the specialized
 //! callable directly, removes the callable argument from the call's argument
 //! tuple, and threads closure captures as extra arguments when applicable.
@@ -21,44 +21,45 @@
 //! - **Direct-call dispatch** — rewrites callee expressions, callee types,
 //!   and argument tuples so a HOF invocation becomes a direct call to the
 //!   specialized target (see [`rewrite_direct_call`],
-//!   [`rewrite_direct_callee`], [`rewrite_direct_closure_args`], and
+//!   [`rewrite_direct_callee`], [`build_closure_call_args`], and
 //!   `build_direct_global_callee_ty`).
-//! - **Dead-local cleanup** — removes callable-typed locals whose only
-//!   remaining uses were direct-call rewrites, keeping `PostDefunc` clean
-//!   of arrow-typed residues (see the `prune_*` and
+//! - **Dead-local cleanup** — removes eligible unused callable-typed locals
+//!   after direct-call rewrites. Other arrow-typed residues may remain
+//!   (see the `prune_*` and
 //!   `remove_dead_callable_local_*` helpers).
 //!
 //! # Notes
 //!
-//! - A copy of the `apply_target_input_at_control_path` helper also lives
-//!   in `super::specialize`. The copy is retained so that specialize and
-//!   rewrite can evolve their controlled-layer handling independently
-//!   without forcing a shared abstraction boundary; update both copies in
-//!   lockstep when controlled-layer semantics change.
+//! - Controlled input substitution is shared with specialization through
+//!   [`super::apply_target_input_at_control_path`].
 
+use super::captures::{allocate_capture_exprs, captures_belong_to_destination};
 use super::types::{
-    AnalysisResult, CallSite, CallableParam, CapturedVar, ConcreteCallable, DirectCallSite,
-    SpecKey, peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, CaptureScope, CapturedVar, ConcreteCallable,
+    DirectCallSite, InputRemoval, ScopedLocal, SpecKey, UdtMetadata, guards_form_complete_tree,
+    peel_body_functors,
 };
 use super::{
-    build_combined_spec_key, build_combined_spec_key_for_group, build_spec_key,
-    is_combined_eligible, partition_mixed_branch_split, ty_contains_arrow,
+    apply_target_input_at_control_path, build_combined_spec_key, build_combined_spec_key_for_group,
+    build_spec_key, dispatched_precedes_detached_static, is_combined_eligible,
+    partition_mixed_branch_split,
 };
 use crate::fir_builder::{
-    alloc_bin_op_expr, alloc_call_expr, alloc_expr, alloc_functor_wrapped_expr, alloc_int_lit,
-    alloc_local_var_expr,
+    alloc_bin_op_expr, alloc_block, alloc_block_expr, alloc_call_expr, alloc_expr, alloc_expr_stmt,
+    alloc_functor_wrapped_expr, alloc_int_lit, alloc_semi_stmt, alloc_unit_expr,
 };
 use crate::walk_utils::{
     DirectChild, UseClass, classify_block_use, expr_is_safe_to_discard,
-    expr_is_safe_to_discard_with_total_foreign, expr_is_side_effect_free, for_each_direct_child,
+    expr_is_safe_to_discard_with_total_foreign, expr_is_side_effect_free, expressions_in_postorder,
+    for_each_direct_child,
 };
 use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::PackageSpan;
 use qsc_fir::fir::{
-    BinOp, Block, BlockId, CallableImpl, CallableKind, Expr, ExprId, ExprKind, Field, FieldAssign,
-    FieldPath, ItemId, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId,
-    PackageLookup, Pat, PatId, PatKind, Res, Stmt, StmtId, StmtKind, StoreItemId,
+    BinOp, Block, BlockId, CallableImpl, Expr, ExprId, ExprKind, Field, FieldAssign, FieldPath,
+    ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+    Pat, PatId, PatKind, Res, Stmt, StmtId, StmtKind, StoreItemId,
 };
 use qsc_fir::ty::{Arrow, Prim, Ty};
 use qsc_fir::visit::{self, Visitor};
@@ -70,55 +71,457 @@ type HofDispatchTarget<'a> = (&'a CallSite, StoreItemId, &'a CallableParam);
 
 /// A HOF dispatch target paired with its guard list (empty list = default branch).
 ///
-/// Guards are stored outermost-first; they are folded into a left-associated
-/// `AndL` conjunction at rewrite time.
+/// Guards are stored outermost-first; shared leading guards are factored into
+/// nested `if` expressions by [`build_branch_tree`].
 type ConditionedHofTarget<'a> = (HofDispatchTarget<'a>, Vec<ExprId>);
+struct IndexDispatchPlan {
+    conditioned: Vec<(usize, ExprId)>,
+    default_index: usize,
+    bounds_check: ExprId,
+}
+
+fn direct_target_input(
+    package: &Package,
+    site: &DirectCallSite,
+    captures: &[CapturedVar],
+    context: &ExprOwnerLookup,
+) -> Option<Ty> {
+    let target = match &site.callable {
+        ConcreteCallable::Closure { target, .. } => StoreItemId::from((site.call_pkg_id, *target)),
+        ConcreteCallable::Global { item_id, .. } => {
+            if captures.is_empty() {
+                return (item_id.package == package.id)
+                    .then(|| direct_lambda_packaged_input(package, item_id.item))
+                    .flatten();
+            }
+            (item_id.package, item_id.item).into()
+        }
+        ConcreteCallable::Dynamic => return None,
+    };
+    if target.package == package.id
+        && let ItemKind::Callable(decl) = &package.get_item(target.item).kind
+    {
+        return Some(package.get_pat(decl.input).ty.clone());
+    }
+    context.declared_inputs.get(&target).cloned()
+}
+
+struct RewriteOnePlan {
+    callee_id: ExprId,
+    original_args_id: ExprId,
+    input_path: Vec<usize>,
+    controlled_layers: usize,
+    captures: Vec<CapturedVar>,
+    destination: CaptureScope,
+}
+
+#[derive(Clone, Copy)]
+struct CaptureWriterContext {
+    destination: CaptureScope,
+}
+
+/// Item calls supply the lifted input; closure values supply their public input
+/// and the evaluator supplies the environment wrapper.
+#[derive(Clone, Copy)]
+pub(super) enum CallConvention {
+    DirectItem,
+    ClosureValue,
+}
+
+pub(super) struct RewrittenArgs {
+    pub(super) value: ExprId,
+    pub(super) prefix: Vec<StmtId>,
+}
+
+fn map_controlled_input(
+    package: &mut Package,
+    args_id: ExprId,
+    layers: usize,
+    assigner: &mut Assigner,
+    rewrite_base: &mut impl FnMut(&mut Package, ExprId, &mut Assigner) -> Option<RewrittenArgs>,
+) -> Option<RewrittenArgs> {
+    if layers == 0 {
+        return rewrite_base(package, args_id, assigner);
+    }
+    let args = package.get_expr(args_id).clone();
+    let Ty::Tuple(types) = &args.ty else {
+        return None;
+    };
+    let [control_ty, input_ty] = types.as_slice() else {
+        return None;
+    };
+    let mut prefix = Vec::new();
+    let (mut controls, input) = if let ExprKind::Tuple(elements) = &args.kind {
+        let [controls, input] = elements.as_slice() else {
+            return None;
+        };
+        (*controls, *input)
+    } else {
+        let value = alloc_expr(package, assigner, args.ty.clone(), args.kind, args.span);
+        let (local, binding) = crate::fir_builder::alloc_local_var(
+            package,
+            assigner,
+            "_.controlled_args",
+            &args.ty,
+            value,
+            Mutability::Immutable,
+        );
+        prefix.push(binding);
+        let mut project = |index, ty: &Ty| {
+            let read = crate::fir_builder::alloc_local_var_expr(
+                package,
+                assigner,
+                local,
+                args.ty.clone(),
+                args.span,
+            );
+            crate::fir_builder::alloc_field_expr(
+                package,
+                assigner,
+                read,
+                index,
+                ty.clone(),
+                args.span,
+            )
+        };
+        (project(0, control_ty), project(1, input_ty))
+    };
+    let inner = map_controlled_input(package, input, layers - 1, assigner, rewrite_base)?;
+    if prefix.is_empty() && !inner.prefix.is_empty() {
+        let control = package.get_expr(controls).clone();
+        let (local, binding) = crate::fir_builder::alloc_local_var(
+            package,
+            assigner,
+            "_.controls",
+            &control.ty,
+            controls,
+            Mutability::Immutable,
+        );
+        prefix.push(binding);
+        controls = crate::fir_builder::alloc_local_var_expr(
+            package,
+            assigner,
+            local,
+            control.ty,
+            control.span,
+        );
+    }
+    prefix.extend(inner.prefix);
+    let ty = Ty::Tuple(vec![
+        package.get_expr(controls).ty.clone(),
+        package.get_expr(inner.value).ty.clone(),
+    ]);
+    Some(RewrittenArgs {
+        value: alloc_expr(
+            package,
+            assigner,
+            ty,
+            ExprKind::Tuple(vec![controls, inner.value]),
+            args.span,
+        ),
+        prefix,
+    })
+}
+
+fn pack_declared_input(
+    package: &mut Package,
+    elements: Vec<ExprId>,
+    input: &Ty,
+    span: PackageSpan,
+    assigner: &mut Assigner,
+) -> Option<ExprId> {
+    if let [single] = elements.as_slice()
+        && super::specialize::dispatch_layout_types_compatible(&package.get_expr(*single).ty, input)
+    {
+        return Some(*single);
+    }
+    let ty = Ty::Tuple(
+        elements
+            .iter()
+            .map(|id| package.get_expr(*id).ty.clone())
+            .collect(),
+    );
+    super::specialize::dispatch_layout_types_compatible(&ty, input)
+        .then(|| alloc_expr(package, assigner, ty, ExprKind::Tuple(elements), span))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn build_closure_call_args(
+    package: &mut Package,
+    args_id: ExprId,
+    destination: CaptureScope,
+    captures: &[CapturedVar],
+    target_input: &Ty,
+    controlled_layers: usize,
+    convention: CallConvention,
+    assigner: &mut Assigner,
+) -> Option<RewrittenArgs> {
+    if !captures_belong_to_destination(destination, captures) {
+        return None;
+    }
+    let input = match convention {
+        CallConvention::DirectItem => target_input,
+        CallConvention::ClosureValue => {
+            let Ty::Tuple(fields) = target_input else {
+                return None;
+            };
+            let [input] = fields.as_slice() else {
+                return None;
+            };
+            input
+        }
+    };
+    map_controlled_input(
+        package,
+        args_id,
+        controlled_layers,
+        assigner,
+        &mut |package, args, assigner| {
+            let original = package.get_expr(args).clone();
+            if super::specialize::dispatch_layout_types_compatible(&original.ty, input) {
+                return Some(RewrittenArgs {
+                    value: args,
+                    prefix: Vec::new(),
+                });
+            }
+            let capture_ids =
+                allocate_capture_exprs(package, original.span, destination, captures, assigner);
+            let mut grouped = capture_ids.clone();
+            grouped.push(args);
+            if let Some(value) =
+                pack_declared_input(package, grouped, input, original.span, assigner)
+            {
+                return Some(RewrittenArgs {
+                    value,
+                    prefix: Vec::new(),
+                });
+            }
+            let Ty::Tuple(types) = &original.ty else {
+                return None;
+            };
+            let expected = Ty::Tuple(
+                captures
+                    .iter()
+                    .map(|c| c.ty.clone())
+                    .chain(types.iter().cloned())
+                    .collect(),
+            );
+            if !super::specialize::dispatch_layout_types_compatible(&expected, input) {
+                return None;
+            }
+            let mut prefix = Vec::new();
+            let elements = if let ExprKind::Tuple(elements) = original.kind {
+                elements
+            } else {
+                let (local, binding) = crate::fir_builder::alloc_local_var(
+                    package,
+                    assigner,
+                    "_.closure_args",
+                    &original.ty,
+                    args,
+                    Mutability::Immutable,
+                );
+                prefix.push(binding);
+                types
+                    .iter()
+                    .enumerate()
+                    .map(|(index, ty)| {
+                        let read = crate::fir_builder::alloc_local_var_expr(
+                            package,
+                            assigner,
+                            local,
+                            original.ty.clone(),
+                            original.span,
+                        );
+                        crate::fir_builder::alloc_field_expr(
+                            package,
+                            assigner,
+                            read,
+                            index,
+                            ty.clone(),
+                            original.span,
+                        )
+                    })
+                    .collect()
+            };
+            Some(RewrittenArgs {
+                value: pack_declared_input(
+                    package,
+                    capture_ids.into_iter().chain(elements).collect(),
+                    input,
+                    original.span,
+                    assigner,
+                )?,
+                prefix,
+            })
+        },
+    )
+}
+
+/// Reduces all original positions together, then selects the layout declared by
+/// the specialization. Only consumed placeholders, never original Unit data,
+/// may be omitted. Earlier retained reads precede omitted payload effects.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub(super) fn build_specialized_call_args(
+    udts: &UdtMetadata,
+    package: &mut Package,
+    args_id: ExprId,
+    input: &Ty,
+    params: &[&CallableParam],
+    captures: &[CapturedVar],
+    destination: CaptureScope,
+    controlled_layers: usize,
+    assigner: &mut Assigner,
+) -> Option<RewrittenArgs> {
+    if !captures_belong_to_destination(destination, captures) {
+        return None;
+    }
+    let uses_tuple_input = params.first()?.hof_input_is_tuple;
+    map_controlled_input(
+        package,
+        args_id,
+        controlled_layers,
+        assigner,
+        &mut |package, args, assigner| {
+            let args = if let ExprKind::Var(Res::Local(local), _) = package.get_expr(args).kind
+                && let CaptureScope::Callable(owner) | CaptureScope::CloneScope(owner) = destination
+            {
+                projectable_local_initializer(package, owner, local, &package.get_expr(args).ty)
+                    .unwrap_or(args)
+            } else {
+                args
+            };
+            let original = package.get_expr(args).clone();
+            let (mut prefix, slots) = if uses_tuple_input {
+                materialize_tuple_argument_elements(udts, package, &original, assigner)?
+            } else {
+                (Vec::new(), vec![args])
+            };
+            let mut retained = Vec::new();
+            for (index, slot) in slots.into_iter().enumerate() {
+                let paths: Vec<_> = params
+                    .iter()
+                    .filter(|param| !uses_tuple_input || param.top_level_param == index)
+                    .map(|param| param.field_path.as_slice())
+                    .collect();
+                let removal = InputRemoval::new(udts, &package.get_expr(slot).ty, &paths)?;
+                if removal.is_removed() {
+                    continue;
+                }
+                if matches!(removal, InputRemoval::Keep) {
+                    retained.push((slot, false));
+                    continue;
+                }
+                let (kind, ty) = reduce_argument(udts, package, slot, &removal, assigner)?;
+                let value = alloc_expr(package, assigner, ty, kind, original.span);
+                retained.push((value, removal.consumes_original()));
+            }
+            let capture_ids =
+                allocate_capture_exprs(package, original.span, destination, captures, assigner);
+            let with_empty = retained
+                .iter()
+                .map(|(id, _)| *id)
+                .chain(capture_ids.iter().copied())
+                .collect();
+            if let Some(value) =
+                pack_declared_input(package, with_empty, input, original.span, assigner)
+            {
+                return Some(RewrittenArgs { value, prefix });
+            }
+            if let Some(last_effect) = retained.iter().rposition(|(value, consumed)| {
+                *consumed && !expr_is_safe_to_discard(package, package.id, *value)
+            }) {
+                for (value, consumed) in &mut retained[..=last_effect] {
+                    let expression = package.get_expr(*value).clone();
+                    if *consumed {
+                        if !expr_is_safe_to_discard(package, package.id, *value) {
+                            prefix.push(alloc_semi_stmt(
+                                package,
+                                assigner,
+                                *value,
+                                expression.span,
+                            ));
+                        }
+                    } else {
+                        let (local, binding) = crate::fir_builder::alloc_local_var(
+                            package,
+                            assigner,
+                            "_.retained_argument",
+                            &expression.ty,
+                            *value,
+                            Mutability::Immutable,
+                        );
+                        prefix.push(binding);
+                        *value = crate::fir_builder::alloc_local_var_expr(
+                            package,
+                            assigner,
+                            local,
+                            expression.ty,
+                            expression.span,
+                        );
+                    }
+                }
+            }
+            let without_empty = retained
+                .iter()
+                .filter(|(_, consumed)| !consumed)
+                .map(|(id, _)| *id)
+                .chain(capture_ids)
+                .collect();
+            Some(RewrittenArgs {
+                value: pack_declared_input(package, without_empty, input, original.span, assigner)?,
+                prefix,
+            })
+        },
+    )
+}
 
 /// Rewrites call sites in the target package so that higher-order calls are
 /// replaced with direct calls to their specialized counterparts.
 ///
-/// For each call site with a matching specialization in `spec_map`:
+/// For eligible call sites with a matching specialization in `spec_map`:
 /// - The callee expression is replaced with a reference to the specialized
 ///   callable.
 /// - The callable argument is removed from the argument tuple.
-/// - If the callable argument was a closure, its captured variables are
+/// - If the callable argument was a closure, its runtime captures are
 ///   appended as extra arguments.
 /// - The callee expression's type is updated to reflect the new signature.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 pub(super) fn rewrite(
     package: &mut Package,
     package_id: PackageId,
     analysis: &AnalysisResult,
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
+    specialized_items: &FxHashSet<StoreItemId>,
     assigner: &mut Assigner,
     total_foreign: &FxHashSet<ItemId>,
+    declared_inputs: &FxHashMap<StoreItemId, Ty>,
 ) {
-    let expr_owner_lookup = build_expr_owner_lookup(package);
+    let udts = &analysis.udt_metadata;
+    let call_dependencies = call_expression_dependencies(package, package_id, analysis);
+    let analyzed_expressions: FxHashMap<_, _> = call_dependencies
+        .values()
+        .flatten()
+        .map(|&id| (id, package.get_expr(id).clone()))
+        .collect();
+    let mut expr_owner_lookup = build_expr_owner_lookup(package, package_id, specialized_items);
+    expr_owner_lookup
+        .declared_inputs
+        .clone_from(declared_inputs);
     let mut rewritten_callable_arg_locals = FxHashSet::default();
 
     // Source-array locals for closure callable-arrays that a higher-order call
     // forwards (directly, through a struct-literal field, or through `let`
-    // aliases) and fully consumes. The bare-`Var` recorder above cannot see the
+    // aliases) and fully consumes. The bare-`Var` recorder cannot see the
     // underlying array when it is wrapped in a struct field or aliased, and the
     // array element type keeps `remove_dead_callable_local_from_callable` from
     // pruning it. Tracing the forwarded value back to its source-array local
     // lets the closure-bearing cleanup remove the now-dead binding instead of
-    // leaving an array of blanked (unit) closure elements — an arrow-typed
-    // block with a unit tail — stranded in a reachable caller.
+    // leaving an array of neutralized closure elements stranded in a reachable
+    // caller.
     let mut hof_consumed_source_arrays = FxHashSet::default();
 
-    // Lowest-index lookup serves the per-row and branch-split paths, where
-    // every row of a group resolves the same parameter; it cannot distinguish
-    // between separate arrow parameters.
-    let param_lookup: FxHashMap<StoreItemId, &CallableParam> = {
-        let mut map = FxHashMap::default();
-        for p in &analysis.callable_params {
-            map.entry(p.callable_id).or_insert(p);
-        }
-        map
-    };
-
-    // Precise lookup keyed by parameter position recovers the exact parameter
-    // for each distinct slot of a combined multi-argument call.
+    // Every rewrite must resolve the exact parameter slot and nested field path.
     let param_by_position: FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam> = {
         let mut map = FxHashMap::default();
         for p in &analysis.callable_params {
@@ -150,75 +553,176 @@ pub(super) fn rewrite(
             .push(call_site);
     }
 
-    for (call_expr_id, group) in &grouped {
-        // Combined multi-argument rewrite: specialize and rewrite consult the
-        // same predicate so they agree on which call sites are combined.
-        if is_combined_eligible(package, group) {
-            rewrite_combined_group(
-                package,
-                *call_expr_id,
-                group,
-                spec_map,
-                &param_by_position,
-                &expr_owner_lookup,
-                &mut rewritten_callable_arg_locals,
-                &mut hof_consumed_source_arrays,
-                assigner,
-            );
-            continue;
+    let mut grouped_direct: FxHashMap<ExprId, Vec<&DirectCallSite>> = FxHashMap::default();
+    for site in &analysis.direct_call_sites {
+        if site.call_pkg_id == package_id {
+            grouped_direct
+                .entry(site.call_expr_id)
+                .or_default()
+                .push(site);
         }
-
-        // Per-leaf producer-closure inline. The specialize side built one
-        // combined spec per dispatch candidate, formed as `[candidate] +
-        // single-valued siblings`, for this mixed branch-split group. Route the
-        // synthesized dispatch leaves through those combined specs so each leaf
-        // inlines the single-valued producer closure, consumed in the same pass
-        // before any later-iteration producer-body clearing.
-        if rewrite_mixed_branch_split_group(
-            package,
-            package_id,
-            *call_expr_id,
-            group,
-            spec_map,
-            &param_by_position,
-            &expr_owner_lookup,
-            &mut rewritten_callable_arg_locals,
-            &mut hof_consumed_source_arrays,
-            assigner,
-        ) {
-            continue;
-        }
-
-        rewrite_per_row_group(
-            package,
-            package_id,
-            *call_expr_id,
-            group,
-            spec_map,
-            &param_lookup,
-            &param_by_position,
-            &expr_owner_lookup,
-            &mut rewritten_callable_arg_locals,
-            assigner,
-        );
     }
 
-    rewrite_direct_call_sites(
-        package,
-        package_id,
-        analysis,
-        &expr_owner_lookup,
-        &mut rewritten_callable_arg_locals,
-        assigner,
-    );
+    // Rewriting an outer call can copy its argument tree. Finish every inner
+    // HOF or direct closure invocation before any enclosing call copies it.
+    for call_expr_id in expressions_in_postorder(package) {
+        if call_dependencies
+            .get(&call_expr_id)
+            .is_some_and(|dependencies| {
+                dependencies.iter().any(|id| {
+                    let before = &analyzed_expressions[id];
+                    let after = package.get_expr(*id);
+                    before != after
+                        && !matches!(
+                            (&before.kind, &after.kind),
+                            (ExprKind::Lit(Lit::Double(left)), ExprKind::Lit(Lit::Double(right)))
+                                if before.ty == after.ty && left.to_bits() == right.to_bits()
+                        )
+                })
+            })
+        {
+            // Inner rewrites can change captures or guards in place and introduce
+            // block-local temporaries. Reanalyze before using those stale facts.
+            continue;
+        }
+        if let Some(group) = grouped.get(&call_expr_id) {
+            // Combined multi-argument rewrite: specialize and rewrite consult the
+            // same predicate so they agree on which call sites are combined.
+            if is_combined_eligible(udts, package, group) {
+                rewrite_combined_group(
+                    udts,
+                    package,
+                    call_expr_id,
+                    group,
+                    spec_map,
+                    &param_by_position,
+                    &expr_owner_lookup,
+                    &mut rewritten_callable_arg_locals,
+                    &mut hof_consumed_source_arrays,
+                    assigner,
+                );
+            } else {
+                // Per-leaf producer-closure inline. The specialize side built one
+                // combined spec per dispatch candidate, formed as `[candidate] +
+                // single-valued siblings`, for this mixed branch-split group. Route the
+                // synthesized dispatch leaves through those combined specs so each leaf
+                // inlines the single-valued producer closure, consumed in the same pass
+                // before any later-iteration producer-body clearing.
+                let rewritten = rewrite_mixed_branch_split_group(
+                    udts,
+                    package,
+                    package_id,
+                    call_expr_id,
+                    group,
+                    spec_map,
+                    &param_by_position,
+                    &expr_owner_lookup,
+                    &mut rewritten_callable_arg_locals,
+                    &mut hof_consumed_source_arrays,
+                    assigner,
+                );
+
+                // Specialize declined to build a spec for this shape, so there is
+                // nothing to rewrite to; leave the callable first-class.
+                if !rewritten && !dispatched_precedes_detached_static(group) {
+                    rewrite_per_row_group(
+                        udts,
+                        package,
+                        package_id,
+                        call_expr_id,
+                        group,
+                        spec_map,
+                        &param_by_position,
+                        &expr_owner_lookup,
+                        &mut rewritten_callable_arg_locals,
+                        assigner,
+                    );
+                }
+            }
+        }
+        if let Some(entries) = grouped_direct.get(&call_expr_id) {
+            rewrite_direct_call_group(
+                package,
+                package_id,
+                entries,
+                &expr_owner_lookup,
+                &mut rewritten_callable_arg_locals,
+                assigner,
+            );
+        }
+    }
 
     prune_dead_callable_arg_locals(
+        udts,
         package,
         package_id,
         &rewritten_callable_arg_locals,
         &hof_consumed_source_arrays,
         total_foreign,
+        assigner,
     );
+}
+
+/// Records the expression dependencies of analyzed captures and guards per call.
+/// Rewriting an earlier operand can change these nodes in place, invalidating
+/// facts for a later direct or higher-order call. Include nested
+/// producer-to-caller substitutions, not only the outer capture expression.
+fn call_expression_dependencies(
+    package: &Package,
+    package_id: PackageId,
+    analysis: &AnalysisResult,
+) -> FxHashMap<ExprId, Vec<ExprId>> {
+    fn add(
+        package: &Package,
+        captures: &[CapturedVar],
+        guards: &[ExprId],
+        reads: &mut FxHashSet<ExprId>,
+    ) {
+        let mut roots = guards.to_vec();
+        for capture in captures {
+            roots.extend(capture.expr);
+            let mut pending: Vec<_> = capture.caller_substitutions.iter().collect();
+            while let Some(substitution) = pending.pop() {
+                roots.push(substitution.expr);
+                pending.extend(&substitution.substitutions);
+            }
+        }
+        for root in roots {
+            crate::walk_utils::for_each_expr(package, root, &mut |id, _| {
+                reads.insert(id);
+            });
+        }
+    }
+
+    let mut reads: FxHashMap<ExprId, FxHashSet<ExprId>> = FxHashMap::default();
+    for site in &analysis.call_sites {
+        if site.call_pkg_id == package_id {
+            let captures = match &site.callable_arg {
+                ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
+                _ => &[],
+            };
+            add(
+                package,
+                captures,
+                &site.condition,
+                reads.entry(site.call_expr_id).or_default(),
+            );
+        }
+    }
+    for site in &analysis.direct_call_sites {
+        if site.call_pkg_id != package_id {
+            continue;
+        }
+        let target = reads.entry(site.call_expr_id).or_default();
+        add(package, &site.captures, &site.condition, target);
+        if let ConcreteCallable::Closure { captures, .. } = &site.callable {
+            add(package, captures, &[], target);
+        }
+    }
+    reads
+        .into_iter()
+        .map(|(id, expressions)| (id, expressions.into_iter().collect()))
+        .collect()
 }
 
 /// Rewrites a combined multi-argument HOF call whose arrow parameters all
@@ -233,12 +737,13 @@ pub(super) fn rewrite(
 /// resolved.
 #[allow(clippy::too_many_arguments)]
 fn rewrite_combined_group(
+    udts: &UdtMetadata,
     package: &mut Package,
     call_expr_id: ExprId,
     group: &[&CallSite],
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
     param_by_position: &FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam>,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     rewritten_callable_arg_locals: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     hof_consumed_source_arrays: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     assigner: &mut Assigner,
@@ -284,6 +789,22 @@ fn rewrite_combined_group(
             .then_with(|| a.1.field_path.cmp(&b.1.field_path))
     });
 
+    if members.iter().any(|(call_site, _)| {
+        dispatch_source_is_indexed(
+            package,
+            expr_owner_lookup,
+            call_expr_id,
+            call_site.dispatch_expr_id(),
+        ) && !dispatch_source_index_is_statically_in_bounds(
+            package,
+            expr_owner_lookup,
+            call_expr_id,
+            call_site.dispatch_expr_id(),
+        )
+    }) {
+        return;
+    }
+
     // Before we change the call, note the callable arguments that are about to
     // be baked into the specialization. Recording them (and any backing arrays
     // that get fully consumed) lets a later cleanup pass delete the now-unused
@@ -297,6 +818,7 @@ fn rewrite_combined_group(
             rewritten_callable_arg_locals,
         );
         collect_hof_consumed_source_array(
+            udts,
             package,
             expr_owner_lookup,
             call_site.call_expr_id,
@@ -304,31 +826,15 @@ fn rewrite_combined_group(
             hof_consumed_source_arrays,
         );
     }
-    // Finally, actually rewrite the call. If one of the arguments is an array of
-    // callables that itself needs to be rebuilt element-by-element, take the
-    // specialized array path; otherwise do the plain multi-argument rewrite that
-    // just drops the callable args and calls the specialization directly.
-    if callable_array_member_position(&members).is_some()
-        && callable_array_member_needs_nested_rewrite(&members)
-    {
-        rewrite_callable_array_multi(
-            package,
-            call_expr_id,
-            &members,
-            spec_store_id,
-            expr_owner_lookup,
-            assigner,
-        );
-    } else {
-        rewrite_multi(
-            package,
-            call_expr_id,
-            &members,
-            spec_store_id,
-            expr_owner_lookup,
-            assigner,
-        );
-    }
+    rewrite_multi(
+        udts,
+        package,
+        call_expr_id,
+        &members,
+        spec_store_id,
+        expr_owner_lookup,
+        assigner,
+    );
 }
 
 /// Attempts the per-leaf producer-closure inline for a mixed branch-split
@@ -336,19 +842,20 @@ fn rewrite_combined_group(
 /// combined spec (`[candidate] + single-valued siblings`) so each leaf inlines
 /// the single-valued producer closure in the same pass.
 ///
-/// Returns `true` when the group was rewritten. Returns `false` when the group
-/// is not a mixed branch-split, or when a required combined spec or parameter
-/// cannot be resolved, so the caller falls through to the per-row path, which
-/// surfaces an honest `DynamicCallable` diagnostic instead of wrong QIR.
+/// Returns `true` when the resolved group is handed to [`branch_split_rewrite`],
+/// which may still decline the rewrite. Returns `false` when the group is not
+/// a mixed branch-split or a required combined spec or parameter cannot be
+/// resolved, allowing the caller to try the per-row path.
 #[allow(clippy::too_many_arguments)]
 fn rewrite_mixed_branch_split_group(
+    udts: &UdtMetadata,
     package: &mut Package,
     package_id: PackageId,
     call_expr_id: ExprId,
     group: &[&CallSite],
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
     param_by_position: &FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam>,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     rewritten_callable_arg_locals: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     hof_consumed_source_arrays: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     assigner: &mut Assigner,
@@ -408,6 +915,7 @@ fn rewrite_mixed_branch_split_group(
                 rewritten_callable_arg_locals,
             );
             collect_hof_consumed_source_array(
+                udts,
                 package,
                 expr_owner_lookup,
                 call_site.call_expr_id,
@@ -416,6 +924,7 @@ fn rewrite_mixed_branch_split_group(
             );
         }
         branch_split_rewrite(
+            udts,
             package,
             package_id,
             call_expr_id,
@@ -436,24 +945,39 @@ fn rewrite_mixed_branch_split_group(
 ///
 /// A single resolved entry uses the direct [`rewrite_one`] rewrite; multiple
 /// entries synthesize a condition-indexed dispatch via [`branch_split_rewrite`].
-/// Rows whose spec or parameter cannot be resolved are skipped.
-#[allow(clippy::too_many_arguments)]
+/// A dispatched parameter requires every candidate's specialization and parameter
+/// to resolve. Missing single-valued siblings may be left unspecialized.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn rewrite_per_row_group(
+    udts: &UdtMetadata,
     package: &mut Package,
     package_id: PackageId,
     call_expr_id: ExprId,
     group: &[&CallSite],
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
-    param_lookup: &FxHashMap<StoreItemId, &CallableParam>,
     param_by_position: &FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam>,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     rewritten_callable_arg_locals: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     assigner: &mut Assigner,
 ) {
     let mut entries: Vec<HofDispatchTarget> = Vec::with_capacity(group.len());
+    let is_dispatch_candidate = |site: &CallSite| {
+        group
+            .iter()
+            .filter(|candidate| {
+                candidate.top_level_param == site.top_level_param
+                    && candidate.field_path == site.field_path
+            })
+            .take(2)
+            .count()
+            > 1
+    };
     for call_site in group {
         let spec_key = build_spec_key(call_site);
         let Some(&spec_store_id) = spec_map.get(&spec_key) else {
+            if is_dispatch_candidate(call_site) {
+                return;
+            }
             continue;
         };
         let hof_store_id =
@@ -465,10 +989,10 @@ fn rewrite_per_row_group(
             call_site.top_level_param,
             call_site.field_path.clone(),
         );
-        let Some(&param) = param_by_position
-            .get(&position_key)
-            .or_else(|| param_lookup.get(&hof_store_id))
-        else {
+        let Some(&param) = param_by_position.get(&position_key) else {
+            if is_dispatch_candidate(call_site) {
+                return;
+            }
             continue;
         };
         entries.push((call_site, spec_store_id, param));
@@ -480,22 +1004,76 @@ fn rewrite_per_row_group(
 
     if entries.len() == 1 {
         let (call_site, spec_store_id, param) = entries[0];
+        let Some(rewrite_plan) =
+            plan_rewrite_one(udts, package, call_site, param, expr_owner_lookup)
+        else {
+            return;
+        };
+        let indexed_source = dispatch_source_is_indexed(
+            package,
+            expr_owner_lookup,
+            call_expr_id,
+            call_site.dispatch_expr_id(),
+        );
+        let statically_in_bounds = dispatch_source_index_is_statically_in_bounds(
+            package,
+            expr_owner_lookup,
+            call_expr_id,
+            call_site.dispatch_expr_id(),
+        );
+        let bounds_check = if statically_in_bounds {
+            None
+        } else {
+            synthesize_callsite_index_dispatch(
+                package,
+                package_id,
+                expr_owner_lookup,
+                call_expr_id,
+                &entries,
+                assigner,
+            )
+            .map(|plan| {
+                let ExprKind::Call(callee, args) = package.get_expr(call_expr_id).kind else {
+                    unreachable!("dispatch owner must remain a call");
+                };
+                let path = callable_param_input_path(package, callee, entries[0].2);
+                let prefix = materialize_argument_prefix(package, args, &path, &[], assigner);
+                prepend_evaluations(package, plan.bounds_check, prefix, assigner);
+                plan.bounds_check
+            })
+        };
+        if indexed_source && !statically_in_bounds && bounds_check.is_none() {
+            return;
+        }
+        let mut pending_rewritten_locals = FxHashSet::default();
         collect_rewritten_callable_arg_local(
             package,
             expr_owner_lookup,
             call_site.call_expr_id,
             call_site.arg_expr_id,
-            rewritten_callable_arg_locals,
+            &mut pending_rewritten_locals,
         );
-        rewrite_one(
+        if rewrite_one(
+            udts,
             package,
             package_id,
             call_site,
             param,
             spec_store_id,
+            rewrite_plan,
             expr_owner_lookup,
             assigner,
-        );
+        ) {
+            rewritten_callable_arg_locals.extend(pending_rewritten_locals);
+            if let Some(bounds_check) = bounds_check {
+                prepend_bounds_check_to_rewritten_call(
+                    package,
+                    assigner,
+                    call_expr_id,
+                    bounds_check,
+                );
+            }
+        }
     } else {
         for (call_site, _, _) in &entries {
             collect_rewritten_callable_arg_local(
@@ -507,6 +1085,7 @@ fn rewrite_per_row_group(
             );
         }
         branch_split_rewrite(
+            udts,
             package,
             package_id,
             call_expr_id,
@@ -518,71 +1097,156 @@ fn rewrite_per_row_group(
     }
 }
 
-/// Rewrites every direct call site in this package's body, grouping them by
-/// call expression.
+/// Rewrites a group of direct call sites whose captures belong to the destination scope.
 ///
 /// A lone unconditional site is rewritten in place by [`rewrite_direct_call`];
 /// a group with multiple sites (or a conditional lone site) is lowered to a
 /// condition-indexed dispatch via [`branch_split_direct_call_rewrite`].
-fn rewrite_direct_call_sites(
+fn rewrite_direct_call_group(
     package: &mut Package,
     package_id: PackageId,
-    analysis: &AnalysisResult,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    entries: &[&DirectCallSite],
+    expr_owner_lookup: &ExprOwnerLookup,
     rewritten_callable_arg_locals: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     assigner: &mut Assigner,
 ) {
-    let mut grouped_direct: FxHashMap<ExprId, Vec<&DirectCallSite>> = FxHashMap::default();
-    for direct_call_site in &analysis.direct_call_sites {
-        // Rewrite only the direct call sites that live in this package's body.
-        if direct_call_site.call_pkg_id != package_id {
-            continue;
-        }
-        grouped_direct
-            .entry(direct_call_site.call_expr_id)
-            .or_default()
-            .push(direct_call_site);
+    let ExprKind::Call(callee, _) = package.get_expr(entries[0].call_expr_id).kind else {
+        return;
+    };
+    let (base, _) = peel_body_functors(package, callee);
+    if matches!(
+        package.get_expr(base).kind,
+        ExprKind::Block(_) | ExprKind::If(..)
+    ) {
+        // An inner rewrite introduced bindings after analysis. Reanalyze after
+        // normalizing this callee's control flow; stale capture expressions may
+        // now refer to locals owned by that block.
+        return;
     }
-
-    for entries in grouped_direct.values() {
-        if entries.len() == 1 && entries[0].condition.is_empty() {
-            rewrite_direct_call(
+    if entries.len() == 1 && entries[0].condition.is_empty() {
+        if !direct_call_rewrite_is_valid(package, entries[0], expr_owner_lookup) {
+            return;
+        }
+        let ExprKind::Call(callee_id, _) = package.get_expr(entries[0].call_expr_id).kind else {
+            return;
+        };
+        let dispatch_source = entries[0].dispatch_source.unwrap_or(callee_id);
+        let indexed_source = dispatch_source_is_indexed(
+            package,
+            expr_owner_lookup,
+            entries[0].call_expr_id,
+            dispatch_source,
+        );
+        let original_package = indexed_source.then(|| package.clone());
+        let bounds_check = synthesize_direct_index_dispatch(
+            package,
+            package_id,
+            expr_owner_lookup,
+            entries[0].call_expr_id,
+            entries,
+            assigner,
+        )
+        .map(|plan| plan.bounds_check);
+        if indexed_source && bounds_check.is_none() {
+            return;
+        }
+        if !rewrite_direct_call(
+            package,
+            package_id,
+            entries[0],
+            expr_owner_lookup,
+            rewritten_callable_arg_locals,
+            assigner,
+        ) {
+            if let Some(original) = original_package {
+                *package = original;
+            }
+            return;
+        }
+        if let Some(bounds_check) = bounds_check {
+            prepend_bounds_check_to_rewritten_call(
                 package,
-                package_id,
-                entries[0],
-                expr_owner_lookup,
-                rewritten_callable_arg_locals,
                 assigner,
-            );
-        } else {
-            let call_expr_id = entries[0].call_expr_id;
-            let call_expr = package.get_expr(call_expr_id).clone();
-            let ExprKind::Call(callee_id, _) = call_expr.kind else {
-                continue;
-            };
-
-            collect_rewritten_callable_arg_local(
-                package,
-                expr_owner_lookup,
-                call_expr_id,
-                callee_id,
-                rewritten_callable_arg_locals,
-            );
-            branch_split_direct_call_rewrite(
-                package,
-                package_id,
-                call_expr_id,
-                entries,
-                expr_owner_lookup,
-                assigner,
+                entries[0].call_expr_id,
+                bounds_check,
             );
         }
+    } else {
+        let call_expr_id = entries[0].call_expr_id;
+        let call_expr = package.get_expr(call_expr_id).clone();
+        let ExprKind::Call(callee_id, _) = call_expr.kind else {
+            return;
+        };
+
+        collect_rewritten_callable_arg_local(
+            package,
+            expr_owner_lookup,
+            call_expr_id,
+            callee_id,
+            rewritten_callable_arg_locals,
+        );
+        branch_split_direct_call_rewrite(
+            package,
+            package_id,
+            call_expr_id,
+            entries,
+            expr_owner_lookup,
+            assigner,
+        );
     }
 }
 
+fn dispatch_source_is_indexed(
+    package: &Package,
+    expr_owner_lookup: &ExprOwnerLookup,
+    owner_expr_id: ExprId,
+    dispatch_expr_id: ExprId,
+) -> bool {
+    resolve_dispatch_source_expr(package, expr_owner_lookup, owner_expr_id, dispatch_expr_id)
+        .is_some_and(|source| matches!(package.get_expr(source).kind, ExprKind::Index(..)))
+}
+
+fn dispatch_source_index_is_statically_in_bounds(
+    package: &Package,
+    expr_owner_lookup: &ExprOwnerLookup,
+    owner_expr_id: ExprId,
+    dispatch_expr_id: ExprId,
+) -> bool {
+    resolve_index_dispatch_source(package, expr_owner_lookup, owner_expr_id, dispatch_expr_id)
+        .is_some_and(|(_, index_expr_id, callables)| {
+            matches!(
+                package.get_expr(strip_transparent_block_expr(package, index_expr_id)).kind,
+                ExprKind::Lit(Lit::Int(index))
+                    if usize::try_from(index).is_ok_and(|index| index < callables.len())
+            )
+        })
+}
+
+fn direct_call_rewrite_is_valid(
+    package: &Package,
+    direct_call_site: &DirectCallSite,
+    expr_owner_lookup: &ExprOwnerLookup,
+) -> bool {
+    let ExprKind::Call(callee_id, _) = package.get_expr(direct_call_site.call_expr_id).kind else {
+        return false;
+    };
+    let captures = match &direct_call_site.callable {
+        ConcreteCallable::Closure { captures, .. } => {
+            resolve_rewrite_captures(package, callee_id, captures)
+        }
+        ConcreteCallable::Global { .. } => {
+            resolve_rewrite_captures(package, callee_id, direct_call_site.captures.as_slice())
+        }
+        ConcreteCallable::Dynamic => Vec::new(),
+    };
+    expr_owner_lookup
+        .scope(&direct_call_site.call_expr_id)
+        .is_some_and(|destination| captures_belong_to_destination(destination, &captures))
+}
+
 /// Rewrites a `DirectCallSite` whose callee was resolved to a specific
-/// concrete callable into a direct invocation of that callable, pruning
-/// the now-unused callee expression.
+/// concrete callable into a direct invocation of that callable, overwriting
+/// the callee expression and recording its local for later cleanup.
 ///
 /// When the call site carries a `def_span` (recorded for a collapsed
 /// identity closure), the call expression's span is re-stamped to it so
@@ -591,24 +1255,31 @@ fn rewrite_direct_call(
     package: &mut Package,
     package_id: PackageId,
     direct_call_site: &DirectCallSite,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     rewritten_callable_arg_locals: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     assigner: &mut Assigner,
-) {
+) -> bool {
     let call_expr = package.get_expr(direct_call_site.call_expr_id).clone();
     let ExprKind::Call(callee_id, args_id) = call_expr.kind else {
-        return;
+        return false;
     };
-    if let Some(span) = direct_call_site.def_span {
-        let span = package.span(span);
-        package
-            .exprs
-            .get_mut(direct_call_site.call_expr_id)
-            .expect("expression should exist")
-            .span = span;
+    let controlled_layers = match &direct_call_site.callable {
+        ConcreteCallable::Global { functor, .. } | ConcreteCallable::Closure { functor, .. } => {
+            usize::from(functor.controlled)
+        }
+        ConcreteCallable::Dynamic => return false,
+    };
+    let capture_source = match &direct_call_site.callable {
+        ConcreteCallable::Closure { captures, .. } => captures,
+        _ => &direct_call_site.captures,
+    };
+    let captures = resolve_rewrite_captures(package, callee_id, capture_source);
+    let Some(destination) = expr_owner_lookup.scope(&direct_call_site.call_expr_id) else {
+        return false;
+    };
+    if !captures_belong_to_destination(destination, &captures) {
+        return false;
     }
-    let (_, outer_functor) = peel_body_functors(package, callee_id);
-    let controlled_layers = usize::from(outer_functor.controlled);
     let package_direct_lambda = match &direct_call_site.callable {
         ConcreteCallable::Global { item_id, .. } if item_id.package == package_id => {
             direct_lambda_packaged_input(package, item_id.item).is_some_and(|target_input| {
@@ -622,6 +1293,51 @@ fn rewrite_direct_call(
         _ => false,
     };
 
+    // The target callable's declared input, used to shape the call arguments.
+    // For a closure this is the (already capture-flattened) target signature;
+    // for a directly-called lambda whose parameters live in a one-element tuple
+    // it is the packaged one-tuple input.
+    let target_input = direct_target_input(package, direct_call_site, &captures, expr_owner_lookup);
+    if target_input.is_none()
+        && (!captures.is_empty()
+            || matches!(direct_call_site.callable, ConcreteCallable::Closure { .. }))
+    {
+        return false;
+    }
+    let mut prefix = Vec::new();
+    if let Some(target_input) = target_input.as_ref()
+        && (matches!(direct_call_site.callable, ConcreteCallable::Closure { .. })
+            || package_direct_lambda
+            || !captures.is_empty())
+    {
+        let original = package.get_expr(args_id).clone();
+        let copied_args = alloc_expr(package, assigner, original.ty, original.kind, original.span);
+        let Some(args) = build_closure_call_args(
+            package,
+            copied_args,
+            destination,
+            &captures,
+            target_input,
+            controlled_layers,
+            CallConvention::DirectItem,
+            assigner,
+        ) else {
+            return false;
+        };
+        let value = package.get_expr(args.value).clone();
+        let original = package.exprs.get_mut(args_id).expect("args exist");
+        original.kind = value.kind;
+        original.ty = value.ty;
+        prefix = args.prefix;
+    }
+    if let Some(span) = direct_call_site.def_span {
+        let span = package.span(span);
+        package
+            .exprs
+            .get_mut(direct_call_site.call_expr_id)
+            .expect("call exists")
+            .span = span;
+    }
     collect_rewritten_callable_arg_local(
         package,
         expr_owner_lookup,
@@ -629,69 +1345,175 @@ fn rewrite_direct_call(
         callee_id,
         rewritten_callable_arg_locals,
     );
-
-    let captures = match &direct_call_site.callable {
-        ConcreteCallable::Closure { captures, .. } => {
-            resolve_rewrite_captures(package, callee_id, captures)
-        }
-        _ => Vec::new(),
-    };
-
     rewrite_direct_callee(
         package,
         package_id,
         callee_id,
         &direct_call_site.callable,
-        &captures,
+        target_input.as_ref(),
         controlled_layers,
         assigner,
     );
-    // The target callable's declared input, used to shape the call arguments.
-    // For a closure this is the (already capture-flattened) target signature;
-    // for a directly-called lambda whose parameters live in a one-element tuple
-    // it is the packaged one-tuple input.
-    let target_input = match &direct_call_site.callable {
-        ConcreteCallable::Closure { target, .. } => match &package.get_item(*target).kind {
-            ItemKind::Callable(decl) => Some(package.get_pat(decl.input).ty.clone()),
-            ItemKind::Ty(..) => None,
-        },
-        ConcreteCallable::Global { item_id, .. } if item_id.package == package_id => {
-            direct_lambda_packaged_input(package, item_id.item)
+    prepend_argument_prefix(
+        package,
+        direct_call_site.call_expr_id,
+        callee_id,
+        prefix,
+        assigner,
+    );
+    true
+}
+
+/// Any retained callee work precedes the control/argument prefix.
+fn prepend_argument_prefix(
+    package: &mut Package,
+    call: ExprId,
+    callee_id: ExprId,
+    mut prefix: Vec<StmtId>,
+    assigner: &mut Assigner,
+) {
+    if !prefix.is_empty() {
+        let callee = package.get_expr(callee_id).clone();
+        if !expr_is_safe_to_discard(package, package.id, callee_id) {
+            let value = alloc_expr(
+                package,
+                assigner,
+                callee.ty.clone(),
+                callee.kind,
+                callee.span,
+            );
+            let (local, statement) = crate::fir_builder::alloc_local_var(
+                package,
+                assigner,
+                "_.callee",
+                &callee.ty,
+                value,
+                Mutability::Immutable,
+            );
+            package
+                .exprs
+                .get_mut(callee_id)
+                .expect("callee exists")
+                .kind = ExprKind::Var(Res::Local(local), Vec::new());
+            prefix.insert(0, statement);
         }
-        _ => None,
-    };
-    if let Some(target_input) = target_input
-        && (matches!(direct_call_site.callable, ConcreteCallable::Closure { .. })
-            || package_direct_lambda)
-    {
-        rewrite_direct_closure_args(
-            package,
-            args_id,
-            &captures,
-            &target_input,
-            controlled_layers,
-            assigner,
-        );
+        prepend_evaluations(package, call, prefix, assigner);
     }
+}
+
+/// Move invocation inside callee control flow before collecting callable facts.
+/// Blocks retain their effects and capture bindings; branches select once before
+/// arguments run. Each step consumes a block or conditional on the callee spine.
+/// Each invocation receives a deep argument copy so later normalization cannot
+/// share branch-local temporaries across alternatives. Returns whether new calls
+/// were created and need capture normalization.
+pub(super) fn normalize_direct_callee_control_flow(
+    package: &mut Package,
+    mut pending: Vec<ExprId>,
+    assigner: &mut Assigner,
+) -> bool {
+    let mut changed = false;
+    while let Some(id) = pending.pop() {
+        let call = package.get_expr(id).clone();
+        let ExprKind::Call(callee, args) = call.kind else {
+            continue;
+        };
+        let callee_ty = package.get_expr(callee).ty.clone();
+        let (base, functor) = peel_body_functors(package, callee);
+        let (branches, prefix, condition) = match package.get_expr(base).kind {
+            ExprKind::Block(block) => {
+                let Some((&tail, prefix)) = package.get_block(block).stmts.split_last() else {
+                    continue;
+                };
+                let StmtKind::Expr(value) = package.get_stmt(tail).kind else {
+                    continue;
+                };
+                (vec![value], prefix.to_vec(), None)
+            }
+            ExprKind::If(condition, then, Some(otherwise)) => {
+                (vec![then, otherwise], Vec::new(), Some(condition))
+            }
+            _ => continue,
+        };
+
+        let mut calls = Vec::new();
+        for branch in branches {
+            let value = package.get_expr(branch).clone();
+            let callee = alloc_functor_wrapped_expr(
+                package, assigner, value.kind, functor, &callee_ty, value.span,
+            );
+            let args = crate::cloner::clone_expr_within_package(package, args, assigner);
+            let invocation =
+                alloc_call_expr(package, assigner, callee, args, call.ty.clone(), call.span);
+            pending.push(invocation);
+            calls.push(invocation);
+        }
+        let kind = if let Some(condition) = condition {
+            ExprKind::If(condition, calls[0], Some(calls[1]))
+        } else {
+            let mut statements = prefix;
+            statements.push(alloc_expr_stmt(package, assigner, calls[0], call.span));
+            ExprKind::Block(alloc_block(
+                package, assigner, statements, call.ty, call.span,
+            ))
+        };
+        package.exprs.get_mut(id).expect("call exists").kind = kind;
+        changed = true;
+    }
+    changed
 }
 
 /// Rewrites a direct call whose callee has multiple possible concrete
 /// values by synthesizing a condition-indexed dispatch that selects the
 /// specialized callee matching the observed branch.
+#[allow(clippy::too_many_lines)]
 fn branch_split_direct_call_rewrite(
     package: &mut Package,
     package_id: PackageId,
     call_expr_id: ExprId,
     entries: &[&DirectCallSite],
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     assigner: &mut Assigner,
 ) {
+    if entries.iter().any(|entry| !entry.condition.is_empty())
+        && !guards_form_complete_tree(entries.iter().map(|entry| entry.condition.as_slice()))
+    {
+        return;
+    }
     let orig_call = package.get_expr(call_expr_id).clone();
     let ExprKind::Call(orig_callee_id, orig_args_id) = orig_call.kind else {
         return;
     };
     let span = orig_call.span;
     let result_ty = orig_call.ty.clone();
+    if !dispatch_source_has_discriminator(
+        package,
+        expr_owner_lookup,
+        call_expr_id,
+        entries
+            .first()
+            .and_then(|entry| entry.dispatch_source)
+            .unwrap_or(orig_callee_id),
+        entries
+            .iter()
+            .map(|entry| (&entry.callable, !entry.condition.is_empty())),
+    ) {
+        return;
+    }
+    let Some(destination) = expr_owner_lookup.scope(&call_expr_id) else {
+        return;
+    };
+    for entry in entries {
+        let capture_source = match &entry.callable {
+            ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
+            ConcreteCallable::Global { .. } => entry.captures.as_slice(),
+            ConcreteCallable::Dynamic => &[],
+        };
+        let captures = resolve_rewrite_captures(package, orig_callee_id, capture_source);
+        if !captures_belong_to_destination(destination, &captures) {
+            return;
+        }
+    }
 
     let mut conditioned: Vec<(&DirectCallSite, Vec<ExprId>)> = Vec::new();
     let mut default = None;
@@ -705,9 +1527,11 @@ fn branch_split_direct_call_rewrite(
         }
     }
 
+    let original_package = package.clone();
+    let mut bounds_check = None;
     if conditioned.is_empty()
-        && entries.len() > 1
-        && let Some((synthetic_conditioned, default_idx)) = synthesize_direct_index_dispatch(
+        && !entries.is_empty()
+        && let Some(plan) = synthesize_direct_index_dispatch(
             package,
             package_id,
             expr_owner_lookup,
@@ -716,32 +1540,38 @@ fn branch_split_direct_call_rewrite(
             assigner,
         )
     {
-        conditioned = synthetic_conditioned
+        conditioned = plan
+            .conditioned
             .into_iter()
             .map(|(entry_idx, condition)| (entries[entry_idx], vec![condition]))
             .collect();
-        default = Some(entries[default_idx]);
+        default = Some(entries[plan.default_index]);
+        bounds_check = Some(plan.bounds_check);
+    }
+    if conditioned.is_empty() && entries.len() > 1 {
+        return;
     }
 
-    let default_entry = if let Some(entry) = default {
-        entry
-    } else {
-        if conditioned.is_empty() {
-            return;
-        }
-        conditioned.pop().expect("non-empty conditioned").0
+    let Some(default_entry) = default else {
+        return;
     };
 
     if conditioned.is_empty() {
         let mut rewritten_callable_arg_locals = FxHashSet::default();
-        rewrite_direct_call(
+        if !rewrite_direct_call(
             package,
             package_id,
             default_entry,
             expr_owner_lookup,
             &mut rewritten_callable_arg_locals,
             assigner,
-        );
+        ) {
+            *package = original_package;
+            return;
+        }
+        if let Some(bounds_check) = bounds_check {
+            prepend_bounds_check_to_rewritten_call(package, assigner, call_expr_id, bounds_check);
+        }
         return;
     }
 
@@ -756,11 +1586,12 @@ fn branch_split_direct_call_rewrite(
             &orig_args,
             span,
             &result_ty,
+            destination,
             entry,
             assigner,
         )
     };
-    let dispatch_id = build_branch_tree(
+    let Some(mut dispatch_id) = build_branch_tree(
         package,
         span,
         &result_ty,
@@ -768,7 +1599,20 @@ fn branch_split_direct_call_rewrite(
         default_entry,
         assigner,
         &mut build_call,
-    );
+    ) else {
+        *package = original_package;
+        return;
+    };
+    if let Some(bounds_check) = bounds_check {
+        dispatch_id = prepend_bounds_check(
+            package,
+            assigner,
+            bounds_check,
+            dispatch_id,
+            result_ty.clone(),
+            span,
+        );
+    }
 
     let dispatch = package
         .exprs
@@ -788,7 +1632,7 @@ fn branch_split_direct_call_rewrite(
 /// subsystem.
 fn collect_rewritten_callable_arg_local(
     package: &Package,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     call_expr_id: ExprId,
     expr_id: ExprId,
     rewritten_callable_arg_locals: &mut FxHashSet<(LocalItemId, LocalVarId)>,
@@ -809,11 +1653,12 @@ fn collect_rewritten_callable_arg_local(
 /// chain of `let` aliases (`let a = ops; f(a)`). In every case the underlying
 /// value is the same `Var(Res::Local)` source-array local. Recording it lets
 /// the closure-bearing cleanup remove the now-dead binding after the call is
-/// rewritten, instead of leaving an array of blanked (unit) closure elements —
-/// an arrow-typed block with a unit tail — in a reachable caller.
+/// rewritten, instead of leaving an array of neutralized closure elements in a
+/// reachable caller.
 fn collect_hof_consumed_source_array(
+    udts: &UdtMetadata,
     package: &Package,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     call_expr_id: ExprId,
     arg_expr_id: ExprId,
     hof_consumed_source_arrays: &mut FxHashSet<(LocalItemId, LocalVarId)>,
@@ -821,9 +1666,15 @@ fn collect_hof_consumed_source_array(
     let Some(&callable_id) = expr_owner_lookup.get(&call_expr_id) else {
         return;
     };
-    trace_forwarded_callable_array_source_locals(package, callable_id, arg_expr_id, &mut |src| {
-        hof_consumed_source_arrays.insert((callable_id, src));
-    });
+    trace_forwarded_callable_array_source_locals(
+        udts,
+        package,
+        callable_id,
+        arg_expr_id,
+        &mut |src| {
+            hof_consumed_source_arrays.insert((callable_id, src));
+        },
+    );
 }
 
 /// Traces a forwarded argument expression to the callable-array source locals
@@ -833,9 +1684,10 @@ fn collect_hof_consumed_source_array(
 /// descends into struct-literal fields (`new Config { Ops = ops }`) so a
 /// callable array wrapped in a struct is still reached. Only locals whose type
 /// is a callable array are recorded; the closure-bearing gate in
-/// [`prune_dead_callable_arg_locals`] still decides whether removal is safe, so
+/// [`prune_dead_callable_arg_locals`] still decides whether removal is allowed, so
 /// plain callable-reference arrays are left in place.
 fn trace_forwarded_callable_array_source_locals(
+    udts: &UdtMetadata,
     package: &Package,
     owner: LocalItemId,
     expr_id: ExprId,
@@ -844,7 +1696,7 @@ fn trace_forwarded_callable_array_source_locals(
     match &package.get_expr(expr_id).kind {
         ExprKind::Var(Res::Local(var), _) => {
             let var = *var;
-            if !ty_is_callable_array(package, &package.get_expr(expr_id).ty) {
+            if !ty_is_callable_array(udts, &package.get_expr(expr_id).ty) {
                 return;
             }
             // Follow a `let` alias to the original source array; a genuine
@@ -852,65 +1704,208 @@ fn trace_forwarded_callable_array_source_locals(
             if let Some(init) = find_local_init_expr_in_callable(package, owner, var)
                 && matches!(package.get_expr(init).kind, ExprKind::Var(Res::Local(_), _))
             {
-                trace_forwarded_callable_array_source_locals(package, owner, init, record);
+                trace_forwarded_callable_array_source_locals(udts, package, owner, init, record);
             } else {
                 record(var);
             }
         }
         ExprKind::Struct(_, copy, fields) => {
             if let Some(copy) = copy {
-                trace_forwarded_callable_array_source_locals(package, owner, *copy, record);
+                trace_forwarded_callable_array_source_locals(udts, package, owner, *copy, record);
             }
             for field in fields {
-                trace_forwarded_callable_array_source_locals(package, owner, field.value, record);
+                trace_forwarded_callable_array_source_locals(
+                    udts,
+                    package,
+                    owner,
+                    field.value,
+                    record,
+                );
             }
         }
         _ => {}
     }
 }
 
-/// Returns `true` when `ty` is an array whose element type contains an arrow.
-fn ty_is_callable_array(package: &Package, ty: &Ty) -> bool {
-    matches!(resolve_udt_ty(package, ty), Ty::Array(elem) if ty_contains_arrow(&elem))
+/// Reports whether an array may contain callable values through nested
+/// aggregates and UDT wrappers. Unknown UDTs remain conservative.
+fn ty_is_callable_array(udts: &UdtMetadata, ty: &Ty) -> bool {
+    matches!(udts.underlying_ty(ty), Ty::Array(elem) if udts.contains_arrow(elem))
 }
 
-/// Synthesizes an index-dispatch `if`/`else` chain for a HOF call site that
-/// resolves to multiple callables via branch-split analysis.
+/// Plans index-dispatch guards and a default candidate for a HOF call site
+/// that resolves to multiple callables via branch-split analysis.
 fn synthesize_callsite_index_dispatch(
     package: &mut Package,
     package_id: PackageId,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     call_expr_id: ExprId,
     entries: &[HofDispatchTarget],
     assigner: &mut Assigner,
-) -> Option<(Vec<(usize, ExprId)>, usize)> {
+) -> Option<IndexDispatchPlan> {
     let callables = entries
         .iter()
         .map(|entry| entry.0.callable_arg.clone())
         .collect::<Vec<_>>();
-    synthesize_index_dispatch_plan(
+    let plan = synthesize_index_dispatch_plan(
         package,
         package_id,
         expr_owner_lookup,
-        (call_expr_id, entries.first()?.0.arg_expr_id),
+        (call_expr_id, entries.first()?.0.dispatch_expr_id()),
         &callables,
         assigner,
-    )
+    )?;
+    Some(plan)
 }
 
-/// Synthesizes an index-dispatch `if`/`else` chain for a direct-call site
+/// Saves operands preceding a callable in source evaluation order before
+/// dispatch. Discard safety does not permit moving a read across a later write.
+fn materialize_argument_prefix(
+    package: &mut Package,
+    args: ExprId,
+    input_path: &[usize],
+    consumed: &[ExprId],
+    assigner: &mut Assigner,
+) -> Vec<StmtId> {
+    let mut prefix = Vec::new();
+    let mut operand = args;
+    for &position in input_path {
+        while let Some(args) = type_constructor_args(package, package.get_expr(operand)) {
+            operand = args;
+        }
+        match &package.get_expr(operand).kind {
+            ExprKind::Tuple(elements) => {
+                prefix.extend(elements.iter().take(position).copied());
+                operand = elements[position];
+            }
+            ExprKind::Struct(_, copy, fields) => {
+                let Some(field_position) = fields.iter().position(
+                    |field| matches!(&field.field, Field::Path(path) if path.indices == [position]),
+                ) else {
+                    break;
+                };
+                prefix.extend(copy);
+                prefix.extend(fields[..field_position].iter().map(|field| field.value));
+                operand = fields[field_position].value;
+            }
+            _ => break,
+        }
+    }
+    let mut statements = Vec::new();
+    for operand in prefix {
+        if consumed.contains(&operand) {
+            continue;
+        }
+        let expression = package.get_expr(operand).clone();
+        if matches!(
+            expression.kind,
+            ExprKind::Lit(_) | ExprKind::Var(Res::Item(_), _)
+        ) {
+            continue;
+        }
+        let initializer = alloc_expr(
+            package,
+            assigner,
+            expression.ty.clone(),
+            expression.kind,
+            expression.span,
+        );
+        let (local, statement) = crate::fir_builder::alloc_local_var(
+            package,
+            assigner,
+            "argument",
+            &expression.ty,
+            initializer,
+            Mutability::Immutable,
+        );
+        package
+            .exprs
+            .get_mut(operand)
+            .expect("operand must exist")
+            .kind = ExprKind::Var(Res::Local(local), Vec::new());
+        statements.push(statement);
+    }
+    statements
+}
+
+pub(super) fn prepend_evaluations(
+    package: &mut Package,
+    call: ExprId,
+    mut statements: Vec<StmtId>,
+    assigner: &mut Assigner,
+) {
+    if statements.is_empty() {
+        return;
+    }
+    let expr = package.get_expr(call).clone();
+    let value = alloc_expr(package, assigner, expr.ty.clone(), expr.kind, expr.span);
+    statements.push(alloc_expr_stmt(package, assigner, value, expr.span));
+    let block = alloc_block(package, assigner, statements, expr.ty, expr.span);
+    package.exprs.get_mut(call).expect("call exists").kind = ExprKind::Block(block);
+}
+
+fn materialize_capture_operands(
+    package: &mut Package,
+    destination: CaptureScope,
+    captures: &mut [CapturedVar],
+    statements: &mut Vec<StmtId>,
+    assigner: &mut Assigner,
+) {
+    for capture in captures {
+        let Some(expression) = capture.expr else {
+            continue;
+        };
+        if matches!(
+            package.get_expr(expression).kind,
+            ExprKind::Lit(_) | ExprKind::Var(Res::Item(_), _)
+        ) {
+            continue;
+        }
+        let span = package.get_expr(expression).span;
+        let operand = allocate_capture_exprs(
+            package,
+            span,
+            destination,
+            std::slice::from_ref(capture),
+            assigner,
+        )[0];
+        let (local, statement) = crate::fir_builder::alloc_local_var(
+            package,
+            assigner,
+            "_.capture",
+            &capture.ty,
+            operand,
+            Mutability::Immutable,
+        );
+        statements.push(statement);
+        capture.expr = Some(crate::fir_builder::alloc_local_var_expr(
+            package,
+            assigner,
+            local,
+            capture.ty.clone(),
+            span,
+        ));
+        capture.caller_substitutions.clear();
+    }
+}
+
+/// Plans index-dispatch guards and a default candidate for a direct-call site
 /// whose callee expression resolves to multiple concrete callables.
 fn synthesize_direct_index_dispatch(
     package: &mut Package,
     package_id: PackageId,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     call_expr_id: ExprId,
     entries: &[&DirectCallSite],
     assigner: &mut Assigner,
-) -> Option<(Vec<(usize, ExprId)>, usize)> {
+) -> Option<IndexDispatchPlan> {
     let ExprKind::Call(callee_id, _) = package.get_expr(call_expr_id).kind else {
         return None;
     };
+    let dispatch_expr_id = entries
+        .first()
+        .and_then(|entry| entry.dispatch_source)
+        .unwrap_or(callee_id);
     let callables = entries
         .iter()
         .map(|entry| entry.callable.clone())
@@ -919,10 +1914,35 @@ fn synthesize_direct_index_dispatch(
         package,
         package_id,
         expr_owner_lookup,
-        (call_expr_id, callee_id),
+        (call_expr_id, dispatch_expr_id),
         &callables,
         assigner,
     )
+}
+
+/// Unguarded alternatives need a recoverable index, even when their source
+/// is hidden behind an alias or a conditional rather than an `Index` node.
+fn dispatch_source_has_discriminator<'a>(
+    package: &Package,
+    owners: &ExprOwnerLookup,
+    owner: ExprId,
+    source: ExprId,
+    candidates: impl Iterator<Item = (&'a ConcreteCallable, bool)>,
+) -> bool {
+    let mut first = None;
+    let mut distinct = false;
+    for (callable, guarded) in candidates {
+        if guarded {
+            return true;
+        }
+        if let Some(first) = first {
+            distinct |= callable != first;
+        } else {
+            first = Some(callable);
+        }
+    }
+    (!distinct && !dispatch_source_is_indexed(package, owners, owner, source))
+        || resolve_index_dispatch_source(package, owners, owner, source).is_some()
 }
 
 /// Plans the branches of an index-dispatch rewrite by pairing each
@@ -930,25 +1950,34 @@ fn synthesize_direct_index_dispatch(
 fn synthesize_index_dispatch_plan(
     package: &mut Package,
     package_id: PackageId,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     dispatch_source: (ExprId, ExprId),
     callables: &[ConcreteCallable],
     assigner: &mut Assigner,
-) -> Option<(Vec<(usize, ExprId)>, usize)> {
-    if callables.len() < 2 {
+) -> Option<IndexDispatchPlan> {
+    let (owner_expr_id, dispatch_expr_id) = dispatch_source;
+    let (source_index_expr_id, index_expr_id, indexed_callables) =
+        resolve_index_dispatch_source(package, expr_owner_lookup, owner_expr_id, dispatch_expr_id)?;
+    let span = package.get_expr(owner_expr_id).span;
+    let block_lookup = build_expr_block_lookup(package);
+    if expr_owner_lookup.scope(&source_index_expr_id)? != expr_owner_lookup.scope(&owner_expr_id)?
+        || block_lookup.get(&source_index_expr_id)?.0 != block_lookup.get(&owner_expr_id)?.0
+    {
+        // Peeling a stored block can expose a selector whose locals have gone
+        // out of scope. Keep the original selection instead of rebuilding it.
         return None;
     }
 
-    let (owner_expr_id, dispatch_expr_id) = dispatch_source;
-    let (index_expr_id, indexed_callables) =
-        resolve_index_dispatch_source(package, expr_owner_lookup, owner_expr_id, dispatch_expr_id)?;
-    let span = package.get_expr(owner_expr_id).span;
-
     let mut entry_positions = Vec::with_capacity(callables.len());
+    let mut used_positions = vec![false; indexed_callables.len()];
     for callable in callables {
         let position = indexed_callables
             .iter()
-            .position(|candidate| candidate == callable)?;
+            .enumerate()
+            .position(|(position, candidate)| {
+                !used_positions[position] && indexed_callable_matches(candidate, callable)
+            })?;
+        used_positions[position] = true;
         entry_positions.push(position);
     }
 
@@ -958,40 +1987,232 @@ fn synthesize_index_dispatch_plan(
         .enumerate()
         .max_by_key(|(_, position)| *position)?;
 
-    // Index expressions that may have side effects or traps are hoisted into a
-    // single shared `let`; each `index == k` comparison then reads the temp.
-    // Provably side-effect-free indices can be referenced directly.
+    // Try to hoist indices that fail the side-effect check into a shared `let`
+    // when block context is available. Accepted indices are reused directly;
+    // the check does not prove they cannot trap.
     let hoist_index = !expr_is_side_effect_free(package, package_id, index_expr_id);
-    let hoisted = if hoist_index {
+    let hoist_plan = if hoist_index {
+        let ExprKind::Index(array_expr_id, current_index_expr_id) =
+            package.get_expr(source_index_expr_id).kind
+        else {
+            return None;
+        };
+        if current_index_expr_id != index_expr_id {
+            return None;
+        }
         let index_ty = package.get_expr(index_expr_id).ty.clone();
         let index_span = package.get_expr(index_expr_id).span;
-        let block_lookup = build_expr_block_lookup(package);
-        hoist_expr_into_let(package, assigner, &block_lookup, index_expr_id, "index")
-            .map(|(local_var, _)| (local_var, index_ty, index_span))
+        if !index_can_move_before_statement(
+            package,
+            package_id,
+            source_index_expr_id,
+            *block_lookup.get(&index_expr_id)?,
+        ) {
+            return None;
+        }
+        Some((array_expr_id, index_ty, index_span))
     } else {
         None
     };
+
+    // Every operation above this point is fallible and leaves the package
+    // unchanged. Once the hoist starts, the remaining allocations and source
+    // edge replacement are guaranteed to complete.
+    let hoisted = hoist_plan.map(|(array_expr_id, index_ty, index_span)| {
+        let (local_var, replacement_expr_id) =
+            hoist_expr_into_let(package, assigner, &block_lookup, index_expr_id, "index")
+                .expect("validated index expression should have block context");
+        package
+            .exprs
+            .get_mut(source_index_expr_id)
+            .expect("validated indexed dispatch source should exist")
+            .kind = ExprKind::Index(array_expr_id, replacement_expr_id);
+        (local_var, index_ty, index_span)
+    });
 
     let mut conditioned = Vec::with_capacity(callables.len().saturating_sub(1));
     for (entry_idx, position) in entry_positions.into_iter().enumerate() {
         if entry_idx == default_idx {
             continue;
         }
-        let operand = match &hoisted {
-            Some((local_var, ty, index_span)) => crate::fir_builder::alloc_local_var_expr(
-                package,
-                assigner,
-                *local_var,
-                ty.clone(),
-                *index_span,
-            ),
-            None => strip_transparent_block_expr(package, index_expr_id),
-        };
-        let condition = alloc_index_eq_expr(package, operand, position, span, assigner);
+        let condition = alloc_index_dispatch_guard(
+            package,
+            assigner,
+            hoisted.as_ref(),
+            index_expr_id,
+            position,
+            indexed_callables.len(),
+            span,
+        );
         conditioned.push((entry_idx, condition));
     }
 
-    Some((conditioned, default_idx))
+    let bounds_operand = match &hoisted {
+        Some((local_var, ty, index_span)) => crate::fir_builder::alloc_local_var_expr(
+            package,
+            assigner,
+            *local_var,
+            ty.clone(),
+            *index_span,
+        ),
+        None => index_expr_id,
+    };
+    let bounds_check = alloc_index_bounds_check(
+        package,
+        assigner,
+        bounds_operand,
+        indexed_callables.len(),
+        span,
+    );
+
+    Some(IndexDispatchPlan {
+        conditioned,
+        default_index: default_idx,
+        bounds_check,
+    })
+}
+
+/// Statement-wide staging must not cross earlier eager operands or lazy guards.
+fn index_can_move_before_statement(
+    package: &Package,
+    package_id: PackageId,
+    source: ExprId,
+    (block, statement): (BlockId, usize),
+) -> bool {
+    let stmt = package.get_stmt(package.get_block(block).stmts[statement]);
+    let root = match stmt.kind {
+        StmtKind::Local(_, _, root) | StmtKind::Expr(root) | StmtKind::Semi(root) => root,
+        StmtKind::Item(_) => return false,
+    };
+    let first_evaluated = root == source
+        || matches!(package.get_expr(root).kind, ExprKind::Call(callee, _) if callee == source);
+    first_evaluated
+        && matches!(package.get_expr(source).kind, ExprKind::Index(array, _)
+            if expr_is_side_effect_free(package, package_id, array))
+}
+
+fn alloc_index_dispatch_guard(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    hoisted: Option<&(LocalVarId, Ty, PackageSpan)>,
+    index_expr_id: ExprId,
+    position: usize,
+    length: usize,
+    span: PackageSpan,
+) -> ExprId {
+    let operand = match hoisted {
+        Some((local_var, ty, index_span)) => crate::fir_builder::alloc_local_var_expr(
+            package,
+            assigner,
+            *local_var,
+            ty.clone(),
+            *index_span,
+        ),
+        None => strip_transparent_block_expr(package, index_expr_id),
+    };
+    alloc_index_match_expr(package, operand, position, length, span, assigner)
+}
+
+fn alloc_index_bounds_check(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    index_expr_id: ExprId,
+    length: usize,
+    span: PackageSpan,
+) -> ExprId {
+    let units = (0..length)
+        .map(|_| alloc_unit_expr(package, assigner, span))
+        .collect();
+    let array = alloc_expr(
+        package,
+        assigner,
+        Ty::Array(Box::new(Ty::UNIT)),
+        ExprKind::Array(units),
+        span,
+    );
+    alloc_expr(
+        package,
+        assigner,
+        Ty::UNIT,
+        ExprKind::Index(array, index_expr_id),
+        span,
+    )
+}
+
+fn prepend_bounds_check(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    bounds_check: ExprId,
+    dispatch: ExprId,
+    result_ty: Ty,
+    span: PackageSpan,
+) -> ExprId {
+    let mut statements = if let ExprKind::Block(block) = package.get_expr(bounds_check).kind {
+        package.get_block(block).stmts.clone()
+    } else {
+        vec![alloc_semi_stmt(package, assigner, bounds_check, span)]
+    };
+    let dispatch_stmt = alloc_expr_stmt(package, assigner, dispatch, span);
+    statements.push(dispatch_stmt);
+    let block = alloc_block(package, assigner, statements, result_ty.clone(), span);
+    alloc_block_expr(package, assigner, block, result_ty, span)
+}
+
+fn prepend_bounds_check_to_rewritten_call(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    call_expr_id: ExprId,
+    bounds_check: ExprId,
+) {
+    let rewritten = package.get_expr(call_expr_id).clone();
+    let result_ty = rewritten.ty.clone();
+    let span = rewritten.span;
+    let rewritten_id = alloc_expr(package, assigner, rewritten.ty, rewritten.kind, span);
+    let dispatch_id = prepend_bounds_check(
+        package,
+        assigner,
+        bounds_check,
+        rewritten_id,
+        result_ty,
+        span,
+    );
+    let dispatch = package.get_expr(dispatch_id).clone();
+    let call = package
+        .exprs
+        .get_mut(call_expr_id)
+        .expect("call expr should exist");
+    call.kind = dispatch.kind;
+    call.ty = dispatch.ty;
+}
+
+fn indexed_callable_matches(reconstructed: &ConcreteCallable, analyzed: &ConcreteCallable) -> bool {
+    match (reconstructed, analyzed) {
+        (
+            ConcreteCallable::Closure {
+                target: reconstructed_target,
+                captures: reconstructed_captures,
+                functor: reconstructed_functor,
+            },
+            ConcreteCallable::Closure {
+                target: analyzed_target,
+                captures: analyzed_captures,
+                functor: analyzed_functor,
+            },
+        ) => {
+            reconstructed_target == analyzed_target
+                && reconstructed_functor == analyzed_functor
+                && reconstructed_captures.len() == analyzed_captures.len()
+                && reconstructed_captures.iter().zip(analyzed_captures).all(
+                    |(reconstructed, analyzed)| {
+                        reconstructed.local == analyzed.local
+                            && reconstructed.ty == analyzed.ty
+                            && (analyzed.expr.is_none() || reconstructed.expr == analyzed.expr)
+                            && reconstructed.caller_substitutions == analyzed.caller_substitutions
+                    },
+                )
+        }
+        _ => reconstructed == analyzed,
+    }
 }
 
 /// Removes nested `Block([Expr(tail)])` wrappers from an index expression used
@@ -1019,10 +2240,10 @@ fn strip_transparent_block_expr(package: &Package, expr_id: ExprId) -> ExprId {
 /// `synthesize_*_index_dispatch` will compare against per-branch values.
 fn resolve_index_dispatch_source(
     package: &Package,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     owner_expr_id: ExprId,
     dispatch_expr_id: ExprId,
-) -> Option<(ExprId, Vec<ConcreteCallable>)> {
+) -> Option<(ExprId, ExprId, Vec<ConcreteCallable>)> {
     let direct_callables = resolve_array_expr_to_callables(
         package,
         expr_owner_lookup,
@@ -1040,15 +2261,15 @@ fn resolve_index_dispatch_source(
     // Try direct resolution: array elements are callables.
     if let Some(indexed_callables) =
         resolve_array_expr_to_callables(package, expr_owner_lookup, owner_expr_id, array_expr_id)
-        && indexed_callables.len() >= 2
+        && !indexed_callables.is_empty()
     {
-        return Some((index_expr_id, indexed_callables));
+        return Some((source_expr_id, index_expr_id, indexed_callables));
     }
 
     if let Some(indexed_callables) = direct_callables
-        && indexed_callables.len() >= 2
+        && !indexed_callables.is_empty()
     {
-        return Some((index_expr_id, indexed_callables));
+        return Some((source_expr_id, index_expr_id, indexed_callables));
     }
 
     // Direct resolution failed: array elements may be tuples.
@@ -1064,17 +2285,17 @@ fn resolve_index_dispatch_source(
         array_expr_id,
         &field_path,
     )?;
-    if indexed_callables.len() < 2 {
+    if indexed_callables.is_empty() {
         return None;
     }
-    Some((index_expr_id, indexed_callables))
+    Some((source_expr_id, index_expr_id, indexed_callables))
 }
 
 /// For a dispatch expression that is a local variable bound from a tuple
 /// pattern, returns the field position path within the tuple.
 fn resolve_dispatch_field_path(
     package: &Package,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     owner_expr_id: ExprId,
     dispatch_expr_id: ExprId,
 ) -> Option<Vec<usize>> {
@@ -1087,12 +2308,12 @@ fn resolve_dispatch_field_path(
     }
 }
 
-/// Resolves the expression feeding an index dispatch back to its defining
-/// source (literal, local, or field access) so per-branch conditions can
-/// compare directly against it.
+/// Follows local initializers, block tails, and returns to the expression
+/// feeding an index dispatch. Other expressions, including field accesses,
+/// are returned unchanged.
 fn resolve_dispatch_source_expr(
     package: &Package,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     owner_expr_id: ExprId,
     expr_id: ExprId,
 ) -> Option<ExprId> {
@@ -1127,15 +2348,56 @@ fn resolve_dispatch_source_expr(
         ExprKind::Return(inner_expr_id) => {
             resolve_dispatch_source_expr(package, expr_owner_lookup, owner_expr_id, inner_expr_id)
         }
+        ExprKind::Field(record_expr_id, Field::Path(ref field_path)) => {
+            resolve_dispatch_struct_field_expr(
+                package,
+                expr_owner_lookup,
+                owner_expr_id,
+                record_expr_id,
+                field_path,
+            )
+        }
         _ => Some(expr_id),
     }
 }
 
-/// Resolves an array-literal expression to the ordered list of concrete
+fn resolve_dispatch_struct_field_expr(
+    package: &Package,
+    expr_owner_lookup: &ExprOwnerLookup,
+    owner_expr_id: ExprId,
+    record_expr_id: ExprId,
+    field_path: &FieldPath,
+) -> Option<ExprId> {
+    let record_source =
+        resolve_dispatch_source_expr(package, expr_owner_lookup, owner_expr_id, record_expr_id)?;
+    match &package.get_expr(record_source).kind {
+        ExprKind::Struct(_, copy, fields) => fields
+            .iter()
+            .find_map(|field| {
+                matches!(&field.field, Field::Path(path) if path == field_path)
+                    .then_some(field.value)
+            })
+            .or_else(|| {
+                copy.and_then(|copy| {
+                    resolve_dispatch_struct_field_expr(
+                        package,
+                        expr_owner_lookup,
+                        owner_expr_id,
+                        copy,
+                        field_path,
+                    )
+                })
+            }),
+        ExprKind::Tuple(_) => extract_tuple_field(package, record_source, &field_path.indices),
+        _ => None,
+    }
+}
+
+/// Resolves an array or tuple literal to the ordered list of concrete
 /// callables it contains, used by index-dispatch synthesis.
 fn resolve_array_expr_to_callables(
     package: &Package,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     owner_expr_id: ExprId,
     expr_id: ExprId,
 ) -> Option<Vec<ConcreteCallable>> {
@@ -1157,9 +2419,7 @@ fn resolve_array_expr_to_callables(
             owner_expr_id,
             elem_expr_id,
         )?;
-        if !callables.contains(&callable) {
-            callables.push(callable);
-        }
+        callables.push(callable);
     }
 
     Some(callables)
@@ -1184,7 +2444,7 @@ fn extract_tuple_field(package: &Package, expr_id: ExprId, path: &[usize]) -> Op
 /// at `field_path` from each array element before resolving to a callable.
 fn resolve_array_expr_to_callables_with_field(
     package: &Package,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     owner_expr_id: ExprId,
     array_expr_id: ExprId,
     field_path: &[usize],
@@ -1208,9 +2468,7 @@ fn resolve_array_expr_to_callables_with_field(
             owner_expr_id,
             field_expr_id,
         )?;
-        if !callables.contains(&callable) {
-            callables.push(callable);
-        }
+        callables.push(callable);
     }
 
     Some(callables)
@@ -1221,7 +2479,7 @@ fn resolve_array_expr_to_callables_with_field(
 /// rewritten package.
 fn resolve_expr_to_concrete_callable(
     package: &Package,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     owner_expr_id: ExprId,
     expr_id: ExprId,
 ) -> Option<ConcreteCallable> {
@@ -1252,11 +2510,12 @@ fn resolve_expr_to_concrete_callable(
 /// found.
 fn resolve_concrete_closure_captures(
     package: &Package,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     owner_expr_id: ExprId,
     captured_vars: &[LocalVarId],
 ) -> Option<Vec<CapturedVar>> {
     let owner_callable = *expr_owner_lookup.get(&owner_expr_id)?;
+    let owner_scope = expr_owner_lookup.scope(&owner_expr_id)?;
     captured_vars
         .iter()
         .map(|&var| {
@@ -1265,8 +2524,9 @@ fn resolve_concrete_closure_captures(
                 .map(|expr_id| package.get_expr(expr_id).ty.clone())
                 .or_else(|| find_var_type_in_callable(package, owner_callable, var))?;
             Some(CapturedVar {
-                var,
+                local: ScopedLocal::new(var, owner_scope),
                 ty,
+                static_callable: None,
                 expr,
                 caller_substitutions: Vec::new(),
             })
@@ -1389,6 +2649,38 @@ fn alloc_index_eq_expr(
     )
 }
 
+pub(super) fn alloc_index_match_expr(
+    package: &mut Package,
+    index_expr_id: ExprId,
+    position: usize,
+    length: usize,
+    span: PackageSpan,
+    assigner: &mut Assigner,
+) -> ExprId {
+    let positive = alloc_index_eq_expr(package, index_expr_id, position, span, assigner);
+    let position = i64::try_from(position).expect("dispatch position should fit in i64");
+    let length = i64::try_from(length).expect("dispatch length should fit in i64");
+    let negative = alloc_int_lit(package, assigner, position - length, span);
+    let negative = alloc_bin_op_expr(
+        package,
+        assigner,
+        BinOp::Eq,
+        index_expr_id,
+        negative,
+        Ty::Prim(Prim::Bool),
+        span,
+    );
+    alloc_bin_op_expr(
+        package,
+        assigner,
+        BinOp::OrL,
+        positive,
+        negative,
+        Ty::Prim(Prim::Bool),
+        span,
+    )
+}
+
 /// FIR [`Visitor`] that records the initializer expression of the `Local`
 /// binding for a target local the first time it is reached. Recursion stops
 /// once the initializer is found.
@@ -1435,7 +2727,7 @@ impl<'a> Visitor<'a> for LocalInitFinder<'a> {
 
 /// Locates the initializer expression for a given local variable inside a
 /// reachable callable body.
-fn find_local_init_expr_in_callable(
+pub(crate) fn find_local_init_expr_in_callable(
     package: &Package,
     callable_id: LocalItemId,
     local_var: LocalVarId,
@@ -1453,25 +2745,100 @@ fn find_local_init_expr_in_callable(
     finder.result
 }
 
-/// Removes callable-typed argument locals whose only remaining uses were
-/// rewritten into direct dispatch calls, leaving no arrow-typed residue.
+/// Discard safety alone cannot justify replay: a pure read of a mutable local
+/// may produce a different value now than when the aggregate was stored.
+/// Keep the initializer shortcut only for immutable bindings whose initializer
+/// is unobservable and refers exclusively to stable locals.
+fn replayable_local_initializer(
+    package: &Package,
+    callable_id: LocalItemId,
+    local_var: LocalVarId,
+) -> Option<ExprId> {
+    let init = find_local_init_expr_in_callable(package, callable_id, local_var)?;
+    if !expr_is_safe_to_discard(package, package.id, init) {
+        return None;
+    }
+    let ItemKind::Callable(decl) = &package.get_item(callable_id).kind else {
+        return None;
+    };
+    let mut mutable_locals = FxHashSet::default();
+    crate::walk_utils::for_each_node_in_callable(package, decl, &mut |node| {
+        if let crate::walk_utils::CallableNode::Stmt(id) = node
+            && let StmtKind::Local(Mutability::Mutable, pat, _) = package.get_stmt(id).kind
+        {
+            let mut bindings = Vec::new();
+            collect_bound_pat_vars(package, pat, &mut bindings);
+            mutable_locals.extend(bindings);
+        }
+    });
+    if mutable_locals.contains(&local_var) {
+        return None;
+    }
+    let mut reads_mutable = false;
+    crate::walk_utils::for_each_expr(package, init, &mut |_, expr| {
+        reads_mutable |= match &expr.kind {
+            ExprKind::Var(Res::Local(var), _) => mutable_locals.contains(var),
+            ExprKind::Closure(captures, _) => {
+                captures.iter().any(|var| mutable_locals.contains(var))
+            }
+            _ => false,
+        };
+    });
+    (!reads_mutable).then_some(init)
+}
+
+/// Requires replay safety, a matching argument type, and a projectable shape.
+/// The type check excludes whole destructuring initializers for a single binding.
 ///
-/// Removes `Local` binding statements and `Var` references for dead locals
-/// via [`remove_dead_callable_local_from_callable`] and
-/// [`prune_dead_top_level_callable_locals`].
-fn prune_dead_callable_arg_locals(
+/// Tuple and struct literals expose their children directly. Local reads and
+/// field accesses preserve a stored value that argument reduction can project.
+/// UDT constructor calls are structural wrappers around their argument aggregate,
+/// so reduction can unwrap them. Ordinary factory calls expose no such structure
+/// and stay stored: safe replay alone does not make their result fields available.
+fn projectable_local_initializer(
+    package: &Package,
+    callable_id: LocalItemId,
+    local_var: LocalVarId,
+    argument_ty: &Ty,
+) -> Option<ExprId> {
+    replayable_local_initializer(package, callable_id, local_var).filter(|&initializer| {
+        let expr = package.get_expr(initializer);
+        &expr.ty == argument_ty
+            && (matches!(
+                expr.kind,
+                ExprKind::Tuple(_)
+                    | ExprKind::Struct(..)
+                    | ExprKind::Var(Res::Local(_), _)
+                    | ExprKind::Field(..)
+            ) || type_constructor_args(package, expr).is_some())
+    })
+}
+
+/// Prunes eligible callable-argument locals and closure-bearing source arrays
+/// after their reads have been consumed by call-site rewrites.
+///
+/// Removes dead immutable aliases before selected write-only bindings and
+/// assignments, then runs general dead-callable-local cleanup again. This does
+/// not eliminate every arrow-typed residue.
+pub(crate) fn prune_dead_callable_arg_locals(
+    udts: &UdtMetadata,
     package: &mut Package,
     package_id: PackageId,
     rewritten_callable_arg_locals: &FxHashSet<(LocalItemId, LocalVarId)>,
     hof_consumed_source_arrays: &FxHashSet<(LocalItemId, LocalVarId)>,
     total_foreign: &FxHashSet<ItemId>,
+    assigner: &mut Assigner,
 ) {
+    // Consumed closures can leave immutable snapshot aliases that still appear
+    // to read a mutable callable. Remove those aliases before testing stores.
+    prune_dead_top_level_callable_locals(udts, package, package_id);
+
     let mut source_arrays: FxHashSet<(LocalItemId, LocalVarId)> = FxHashSet::default();
 
     // Closure callable-arrays forwarded and fully consumed by a higher-order
     // call are dead source arrays that the direct-path index-read tracer never
     // sees. Seed them here so the same closure-bearing removal below prunes the
-    // now-dead binding rather than leaving blanked closure elements behind.
+    // now-dead binding rather than leaving neutralized closure elements behind.
     source_arrays.extend(hof_consumed_source_arrays.iter().copied());
 
     for &(callable_id, local_var) in rewritten_callable_arg_locals {
@@ -1479,13 +2846,15 @@ fn prune_dead_callable_arg_locals(
             // Every use was consumed by the call-site rewrite, so only the
             // initializer's own evaluation is still observable. Deleting the
             // binding is allowed only when that evaluation is not observable.
-            if !rewritten_arg_local_is_removable(
+            if !consumed_callable_local_disposition(
                 package,
                 package_id,
                 callable_id,
                 local_var,
                 total_foreign,
-            ) {
+            )
+            .allows_removal()
+            {
                 continue;
             }
             // A direct-dispatch callee bound from an indexed read
@@ -1495,62 +2864,108 @@ fn prune_dead_callable_arg_locals(
             if let Some(src) = local_index_source_array_local(package, callable_id, local_var) {
                 source_arrays.insert((callable_id, src));
             }
-            remove_dead_callable_local_from_callable(package, callable_id, local_var);
+            remove_dead_callable_local_from_callable(udts, package, callable_id, local_var);
         } else if !local_var_is_read_in_callable(package, callable_id, local_var)
-            && local_var_has_closure_valued_binding(package, callable_id, local_var)
+            && (local_var_has_closure_valued_binding(package, callable_id, local_var)
+                || find_local_init_expr_in_callable(package, callable_id, local_var)
+                    .is_some_and(|init| is_replayed_callable_selection(package, init)))
         {
-            // The local is still mentioned, but only as an assignment target:
-            // every read was consumed when the call site was rewritten into a
-            // direct dispatch. When such a write-only local is initialized from
-            // a partial application (`mutable op = Rx(0.0, _)`), its binding
-            // holds a closure-tailed block. Left in place, closure cleanup
-            // blanks that tail and strands an arrow-typed block with no
-            // producing value. Removing the dead binding and its assignments
-            // avoids that. Locals bound only to plain callable references
-            // (`op = H`) carry no closure tail, so they are left untouched to
-            // preserve existing dead-code behavior.
-            remove_write_only_callable_local_from_callable(package, callable_id, local_var);
+            // All reads became direct dispatch. Remove the write-only storage,
+            // but keep observable RHS evaluation in its original lazy scope.
+            remove_write_only_callable_local_from_callable(
+                package,
+                package_id,
+                callable_id,
+                local_var,
+                total_foreign,
+                assigner,
+            );
         }
     }
 
     // Prune callable-array locals that only fed removed direct-dispatch index
     // reads. Restricting removal to a closure-bearing array (`[X, Rx(0.0, _)]`)
-    // avoids stranding a blanked closure element as an arrow-typed block with
-    // no producing tail, while plain callable-reference arrays are left in
-    // place.
+    // avoids stranding a neutralized closure element in a dead binding, while
+    // plain callable-reference arrays are left in place.
     for (callable_id, src_var) in source_arrays {
         if !local_var_is_read_in_callable(package, callable_id, src_var)
             && local_var_has_closure_valued_binding(package, callable_id, src_var)
         {
-            remove_write_only_callable_local_from_callable(package, callable_id, src_var);
+            remove_write_only_callable_local_from_callable(
+                package,
+                package_id,
+                callable_id,
+                src_var,
+                total_foreign,
+                assigner,
+            );
         }
     }
 
-    prune_dead_top_level_callable_locals(package, package_id);
+    prune_dead_top_level_callable_locals(udts, package, package_id);
 }
 
-/// Builds a map from each expression id to the local callable that owns it, so
-/// a rewrite can find the scope an expression belongs to.
-fn build_expr_owner_lookup(package: &Package) -> FxHashMap<ExprId, LocalItemId> {
-    let mut expr_owner_lookup = FxHashMap::default();
+struct ExprOwnerLookup {
+    declared_inputs: FxHashMap<StoreItemId, Ty>,
+    callable: FxHashMap<ExprId, LocalItemId>,
+    scope: FxHashMap<ExprId, CaptureScope>,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+impl ExprOwnerLookup {
+    fn get(&self, expr_id: &ExprId) -> Option<&LocalItemId> {
+        self.callable.get(expr_id)
+    }
+
+    fn scope(&self, expr_id: &ExprId) -> Option<CaptureScope> {
+        self.scope.get(expr_id).copied()
+    }
+}
+
+/// Builds maps from each expression id to its callable owner and exact capture
+/// scope. Entry expressions have no callable owner but belong to `Entry`.
+fn build_expr_owner_lookup(
+    package: &Package,
+    package_id: PackageId,
+    specialized_items: &FxHashSet<StoreItemId>,
+) -> ExprOwnerLookup {
+    let mut lookup = ExprOwnerLookup {
+        declared_inputs: FxHashMap::default(),
+        callable: FxHashMap::default(),
+        scope: FxHashMap::default(),
+    };
 
     for (item_id, item) in &package.items {
         if let ItemKind::Callable(decl) = &item.kind {
+            let store_id = StoreItemId::from((package_id, item_id));
+            let scope = if specialized_items.contains(&store_id) {
+                CaptureScope::CloneScope(item_id)
+            } else {
+                CaptureScope::Callable(item_id)
+            };
             crate::walk_utils::for_each_expr_in_callable_impl(
                 package,
                 &decl.implementation,
                 &mut |expr_id, _expr| {
-                    expr_owner_lookup.insert(expr_id, item_id);
+                    lookup.callable.insert(expr_id, item_id);
+                    lookup.scope.insert(expr_id, scope);
                 },
             );
         }
     }
 
-    expr_owner_lookup
+    if let Some(entry_expr_id) = package.entry {
+        crate::walk_utils::for_each_expr(package, entry_expr_id, &mut |expr_id, _expr| {
+            lookup.scope.insert(expr_id, CaptureScope::Entry);
+        });
+    }
+
+    lookup
 }
 
-/// Builds a map from every `ExprId` to its innermost enclosing block and the
-/// index of the top-level statement (within that block) containing it.
+/// Maps block-resident expressions in callable implementations to their
+/// innermost enclosing block and the index of the statement containing them.
+/// The package entry expression is not traversed separately.
 ///
 /// The block-context companion to [`build_expr_owner_lookup`], and a
 /// prerequisite for [`hoist_expr_into_let`], which splices a `let` binding
@@ -1618,7 +3033,7 @@ fn record_expr_context(
 /// The caller must rewrite the original occurrence(s) to read the returned
 /// `var_expr`. `hoist_expr` is moved into the initializer (not cloned), so its
 /// side effect runs exactly once at the binding site. Synthesized statements
-/// carry [`EMPTY_EXEC_RANGE`]; `exec_graph_rebuild` repairs ranges later.
+/// carry [`crate::EMPTY_EXEC_RANGE`]; `exec_graph_rebuild` repairs ranges later.
 ///
 /// Returns `None` when `hoist_expr` has no recorded block context (not a
 /// block-resident expression), leaving the package unchanged.
@@ -1654,8 +3069,8 @@ pub(crate) fn hoist_expr_into_let(
     Some((local_var, var_expr))
 }
 
-/// Reports whether `local_var` is referenced anywhere in the callable's body.
-fn local_var_is_used_in_callable(
+/// Reports whether `local_var` is referenced or captured in the callable's body.
+pub(crate) fn local_var_is_used_in_callable(
     package: &Package,
     callable_id: LocalItemId,
     local_var: LocalVarId,
@@ -1670,7 +3085,9 @@ fn local_var_is_used_in_callable(
         package,
         &decl.implementation,
         &mut |_expr_id, expr| {
-            if matches!(expr.kind, ExprKind::Var(Res::Local(var), _) if var == local_var) {
+            if matches!(expr.kind, ExprKind::Var(Res::Local(var), _) if var == local_var)
+                || matches!(&expr.kind, ExprKind::Closure(captures, _) if captures.contains(&local_var))
+            {
                 used = true;
             }
         },
@@ -1680,11 +3097,11 @@ fn local_var_is_used_in_callable(
 
 /// Returns `true` when `local_var` is read anywhere in the callable body.
 ///
-/// A read is any `Var(Res::Local(local_var))` reference other than the direct
-/// left-hand side of an assignment (`local_var = ...`). This distinguishes a
-/// still-referenced-but-write-only local, whose only remaining mentions are
-/// assignment targets, from one that is genuinely observed.
-fn local_var_is_read_in_callable(
+/// A read is a closure capture or any `Var(Res::Local(local_var))` reference
+/// other than the direct left-hand side of an assignment (`local_var = ...`).
+/// This distinguishes a still-referenced-but-write-only local, whose only
+/// remaining mentions are assignment targets, from one genuinely observed.
+pub(crate) fn local_var_is_read_in_callable(
     package: &Package,
     callable_id: LocalItemId,
     local_var: LocalVarId,
@@ -1714,6 +3131,7 @@ fn local_var_is_read_in_callable(
         &mut |expr_id, expr| {
             if matches!(expr.kind, ExprKind::Var(Res::Local(var), _) if var == local_var)
                 && !assign_lhs.contains(&expr_id)
+                || matches!(&expr.kind, ExprKind::Closure(captures, _) if captures.contains(&local_var))
             {
                 read = true;
             }
@@ -1727,8 +3145,8 @@ fn local_var_is_read_in_callable(
 ///
 /// Partial applications lower to a block whose tail is a `Closure`, so this
 /// distinguishes a callable local initialized from a partial application from
-/// one bound only to plain callable references (`op = H`), which carry no
-/// closure and need no dead-binding removal.
+/// one bound only to plain callable references (`op = H`). Plain reference
+/// selections have a separate eligibility check for dead-store removal.
 fn local_var_has_closure_valued_binding(
     package: &Package,
     callable_id: LocalItemId,
@@ -1801,21 +3219,73 @@ fn local_index_source_array_local(
 /// blocks via [`remove_write_only_callable_local_from_block`].
 ///
 /// Unlike [`remove_dead_callable_local_from_callable`], this handles `mutable`
-/// bindings and assignment statements, which arise when a callable local is
+/// bindings and assignment expressions, which arise when a callable local is
 /// initialized (and possibly reassigned) from partial applications but is only
 /// ever consumed through a call site that direct-dispatch rewriting has already
-/// replaced.
-fn remove_write_only_callable_local_from_callable(
+/// replaced. Removal requires a discard-safe initializer and whole-local
+/// assignments. Observable right-hand sides remain at their original evaluation
+/// sites; partial updates and locals with surviving reads are not eligible.
+pub(crate) fn remove_write_only_callable_local_from_callable(
     package: &mut Package,
+    package_id: PackageId,
     callable_id: LocalItemId,
     local_var: LocalVarId,
+    total_foreign: &FxHashSet<ItemId>,
+    assigner: &mut Assigner,
 ) {
     let Some(ItemKind::Callable(decl)) = package.items.get(callable_id).map(|item| &item.kind)
     else {
         return;
     };
 
+    let Some(initializer) = find_local_init_expr_in_callable(package, callable_id, local_var)
+    else {
+        return;
+    };
+    if !expr_is_safe_to_discard_with_total_foreign(package, package_id, initializer, total_foreign)
+    {
+        return;
+    }
+    let mut whole_local_writes = true;
+    let mut observable_writes = Vec::new();
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &decl.implementation,
+        &mut |id, expr| {
+            if super::analysis::assignment_written_locals(package, expr).contains(&local_var) {
+                match expr.kind {
+                    ExprKind::Assign(_, rhs) if expr_is_assign_to_local(package, id, local_var) => {
+                        if !expr_is_safe_to_discard_with_total_foreign(
+                            package,
+                            package_id,
+                            rhs,
+                            total_foreign,
+                        ) {
+                            observable_writes.push((id, rhs));
+                        }
+                    }
+                    _ => whole_local_writes = false,
+                }
+            }
+        },
+    );
+    if !whole_local_writes {
+        return;
+    }
+
     let implementation = decl.implementation.clone();
+    for (assignment, rhs) in observable_writes {
+        // Keep the RHS intact: a returned callable may still contain effects,
+        // failures or capture bindings. Only the now-unobserved store is gone.
+        let span = package.get_expr(assignment).span;
+        let effect = alloc_semi_stmt(package, assigner, rhs, span);
+        let block = alloc_block(package, assigner, vec![effect], Ty::UNIT, span);
+        package
+            .exprs
+            .get_mut(assignment)
+            .expect("assignment should exist")
+            .kind = ExprKind::Block(block);
+    }
     match implementation {
         qsc_fir::fir::CallableImpl::Intrinsic
         | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => {}
@@ -1835,9 +3305,9 @@ fn remove_write_only_callable_local_from_callable(
 /// within a block, recursing into nested blocks.
 ///
 /// Drops `Local` bindings (of any mutability) whose pattern is a simple bind
-/// of `local_var`, and drops `local_var = ...` assignment statements. Other
-/// statements are retained and their nested blocks are walked so assignments in
-/// conditional branches or loop bodies are removed as well.
+/// of `local_var`, and drops remaining discard-safe assignment statements.
+/// Observable assignments have already become RHS-evaluation blocks. Those and
+/// other statements stay in place while nested blocks are walked.
 fn remove_write_only_callable_local_from_block(
     package: &mut Package,
     block_id: qsc_fir::fir::BlockId,
@@ -1878,13 +3348,23 @@ fn remove_write_only_callable_local_from_block(
     }
 }
 
-/// Recurses through an expression subtree removing write-only local assignments
-/// found inside nested `Block` and `While` bodies.
+/// Removes remaining discard-safe stores, preserving their Unit result when
+/// used as expressions, and recurses into nested blocks to remove bindings.
+/// Observable stores have already been replaced with RHS-evaluation blocks.
 fn remove_write_only_callable_local_from_expr(
     package: &mut Package,
     expr_id: ExprId,
     local_var: LocalVarId,
 ) {
+    if expr_is_assign_to_local(package, expr_id, local_var) {
+        package
+            .exprs
+            .get_mut(expr_id)
+            .expect("assignment should exist")
+            .kind = ExprKind::Tuple(Vec::new());
+        return;
+    }
+
     let expr_kind = package.get_expr(expr_id).kind.clone();
     match expr_kind {
         ExprKind::Block(block_id) => {
@@ -1968,49 +3448,197 @@ fn expr_is_assign_to_local(package: &Package, expr_id: ExprId, local_var: LocalV
     }
 }
 
-/// Returns whether a callable argument local consumed by a call-site rewrite
-/// may be deleted along with its initializer.
+/// Where a consumed callable expression's evaluation lives once rewriting has
+/// finished.
 ///
-/// The local itself is already unused, so the only remaining question is
-/// whether evaluating its initializer is observable. Three things make it
-/// unobservable: the evaluation is safe to discard outright, it is a static
-/// callable selection whose conditions the generated dispatch already replays,
-/// or it is an indexed read of a closure-bearing callable array, whose
-/// selection that dispatch likewise replays.
+/// Defunctionalization asks this for bindings, higher-order arguments, and
+/// direct callees consumed by call-site rewrites: whether *deleting the
+/// expression* also *drops its evaluation*.
+/// Those are different questions. A binding whose captures have already been
+/// relocated into the specialized call can still look observable; retaining it
+/// would evaluate the capture initializer twice and apply a gate twice.
+///
+/// Naming the four outcomes keeps that distinction visible. Only
+/// [`Self::Retained`] forbids removal; the other three each describe a
+/// *different reason* removal is sound, and each is separately testable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum EvaluationDisposition {
+    /// The evaluation is genuinely dropped, and dropping it is provably
+    /// unobservable: the expression is side-effect free and total, so no
+    /// effect, failure, or state change disappears with it.
+    ///
+    /// The vacuous case lands here too — when there is no binding at all there
+    /// is no evaluation to drop.
+    Discarded,
+
+    /// The evaluation moved into the rewritten call rather than disappearing.
+    ///
+    /// Partial application lowers to bindings followed by a closure. Rewriting
+    /// must evaluate the captured operands at the original callable operand
+    /// position, before later arguments, even when the specialized signature
+    /// appends captures after those arguments. Materialized temporaries preserve
+    /// that order; retaining the consumed capture initializer would duplicate it.
+    Relocated,
+
+    /// The evaluation is reproduced by the dispatch the rewrite generated.
+    ///
+    /// Dispatch preserves the selected path and any required index bounds
+    /// check. Rewriting must also preserve the original operand timing.
+    Replayed,
+
+    /// The evaluation is observable and nothing above reproduces it, so the
+    /// expression must survive.
+    Retained,
+}
+
+impl EvaluationDisposition {
+    /// Returns whether the expression may be deleted.
+    ///
+    /// Every disposition except [`Self::Retained`] carries a reason the
+    /// evaluation still happens (or provably never mattered).
+    fn allows_removal(self) -> bool {
+        !matches!(self, Self::Retained)
+    }
+}
+
+/// Which consumption site is asking for a disposition.
+///
+/// Each site deletes an expression, but the rewrite gives them different
+/// guarantees, and one rule depends on which is asking. See
+/// [`consumed_callable_expr_disposition`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ConsumptionSite {
+    /// A `let` binding whose callable value every use consumed.
+    Binding,
+
+    /// The callable argument expression that the rewrite removes from the call
+    /// it is specializing.
+    Argument,
+
+    /// The callee expression replaced by direct invocation or dispatch.
+    Callee,
+}
+
+/// Classifies where a consumed callable *expression's* evaluation lives after
+/// rewriting.
+///
+/// This is the single decision that consumption sites share. It replaces
+/// the four predicates that used to be OR'd together at the binding gate, and
+/// it is applied to the argument expression itself by
+/// [`super::analysis`] before a call site is accepted for specialization, so
+/// shared argument builder and branch-dispatch builders never have to
+/// re-derive it. Those sites delete the callable expression
+/// outright with no purity guard of their own; the guarantee they rely on is
+/// established here.
+///
+/// One rule is positional. At [`ConsumptionSite::Argument`] or
+/// [`ConsumptionSite::Callee`] the expression being deleted *is* the selection
+/// the analysis statically resolved, and the
+/// specialized call re-expresses that selection directly, so a statically
+/// resolved indexed read is [`EvaluationDisposition::Replayed`]. Rewriting must
+/// preserve its bounds check or prove the index statically in bounds. At
+/// [`ConsumptionSite::Binding`] the array may still be read elsewhere, so that
+/// rule does not apply and the narrower closure-bearing test governs instead.
 ///
 /// `total_foreign` lets the discard proof see through calls into other
-/// packages, such as the `Length` intrinsic that a producer function commonly
-/// uses to compute a captured value.
-fn rewritten_arg_local_is_removable(
+/// packages, both the named total intrinsics and the factories
+/// [`crate::walk_utils::extend_with_discardable_foreign_callables`] proved pure
+/// on their home ground.
+pub(super) fn consumed_callable_expr_disposition(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+    site: ConsumptionSite,
+    total_foreign: &FxHashSet<ItemId>,
+) -> EvaluationDisposition {
+    if expr_is_safe_to_discard_with_total_foreign(package, package_id, expr_id, total_foreign) {
+        EvaluationDisposition::Discarded
+    } else if is_replayed_callable_selection(package, expr_id)
+        || (site != ConsumptionSite::Binding
+            && is_replayed_index_selection(package, package_id, expr_id, total_foreign))
+    {
+        EvaluationDisposition::Replayed
+    } else if captures_relocated_into_call(package, expr_id) {
+        EvaluationDisposition::Relocated
+    } else {
+        EvaluationDisposition::Retained
+    }
+}
+
+/// Returns whether the expression is an indexed read whose operands are
+/// themselves safe to discard.
+///
+/// The rewrite replaces the selection with direct dispatch, retaining a bounds
+/// check unless the index is statically in bounds. Discard-safe operands ensure
+/// deleting the original selection does not lose their effects or failures.
+///
+/// Evidence for [`EvaluationDisposition::Replayed`]; see
+/// [`consumed_callable_expr_disposition`].
+fn is_replayed_index_selection(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+    total_foreign: &FxHashSet<ItemId>,
+) -> bool {
+    let ExprKind::Index(array_id, index_id) = package.get_expr(expr_id).kind else {
+        return false;
+    };
+    expr_is_safe_to_discard_with_total_foreign(package, package_id, array_id, total_foreign)
+        && expr_is_safe_to_discard_with_total_foreign(package, package_id, index_id, total_foreign)
+}
+
+/// Classifies where a consumed callable *local's* initializer evaluation lives
+/// after rewriting.
+///
+/// The local itself is already unused, so the only remaining question is what
+/// happened to its initializer's evaluation. That is
+/// [`consumed_callable_expr_disposition`], plus one binding-shaped case the
+/// expression alone cannot see: a local bound from an indexed read of a
+/// closure-bearing callable array, whose selection the generated index dispatch
+/// replays. That case mirrors the closure-bearing gate in
+/// [`prune_dead_callable_arg_locals`] — an array of plain callable references
+/// carries no closure to strand, so it stays protected by discard safety.
+fn consumed_callable_local_disposition(
     package: &Package,
     package_id: PackageId,
     callable_id: LocalItemId,
     local_var: LocalVarId,
     total_foreign: &FxHashSet<ItemId>,
-) -> bool {
+) -> EvaluationDisposition {
     let Some(init_expr_id) = find_local_init_expr_in_callable(package, callable_id, local_var)
     else {
-        // No `let` binding to delete, so there is no initializer to preserve.
-        return true;
+        // No `let` binding to delete, so there is no evaluation to preserve.
+        return EvaluationDisposition::Discarded;
     };
-    expr_is_safe_to_discard_with_total_foreign(package, package_id, init_expr_id, total_foreign)
-        || is_replayed_callable_selection(package, init_expr_id)
-        || captures_relocated_into_call(package, init_expr_id)
-        || reads_closure_bearing_callable_array(package, callable_id, local_var)
+
+    let disposition = consumed_callable_expr_disposition(
+        package,
+        package_id,
+        init_expr_id,
+        ConsumptionSite::Binding,
+        total_foreign,
+    );
+    if disposition.allows_removal() {
+        return disposition;
+    }
+
+    if reads_closure_bearing_callable_array(package, callable_id, local_var) {
+        return EvaluationDisposition::Replayed;
+    }
+
+    EvaluationDisposition::Retained
 }
 
 /// Returns whether the local is bound from an indexed read of a callable array
 /// that still holds a partial-application closure.
 ///
 /// The index dispatch that replaced this local's use enumerates the array's
-/// elements, so the selection is replayed and only the bounds check is dropped —
-/// a check the generated dispatch already elides. Retaining the binding instead
-/// keeps the array live, and closure cleanup then blanks its consumed element,
-/// stranding an arrow-typed block with a unit tail.
+/// elements and preserves its bounds behavior. Once no use remains, this permits
+/// removal of the redundant initializer instead of retaining a dead binding
+/// over closure elements whose payloads have moved into specialized calls.
 ///
-/// This mirrors the closure-bearing gate in [`prune_dead_callable_arg_locals`]:
-/// an array of plain callable references carries no closure to strand, so it
-/// stays protected by discard safety.
+/// Evidence for [`EvaluationDisposition::Replayed`]; see
+/// [`consumed_callable_local_disposition`].
 fn reads_closure_bearing_callable_array(
     package: &Package,
     callable_id: LocalItemId,
@@ -2021,12 +3649,13 @@ fn reads_closure_bearing_callable_array(
 }
 
 /// Removes a specific dead callable local from the given callable's body by
-/// deleting its `Local` binding and any references that remain, recursing
+/// deleting eligible unused immutable `Local` bindings, recursing
 /// into nested blocks via [`remove_dead_callable_local_from_block`].
 ///
 /// The caller decides whether removal is allowed; see
-/// [`rewritten_arg_local_is_removable`].
+/// [`consumed_callable_local_disposition`].
 fn remove_dead_callable_local_from_callable(
+    udts: &UdtMetadata,
     package: &mut Package,
     callable_id: LocalItemId,
     local_var: LocalVarId,
@@ -2041,54 +3670,96 @@ fn remove_dead_callable_local_from_callable(
         qsc_fir::fir::CallableImpl::Intrinsic
         | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => {}
         qsc_fir::fir::CallableImpl::Spec(spec_impl) => {
-            remove_dead_callable_local_from_block(package, spec_impl.body.block, local_var);
+            remove_dead_callable_local_from_block(udts, package, spec_impl.body.block, local_var);
             for spec in [spec_impl.adj, spec_impl.ctl, spec_impl.ctl_adj]
                 .into_iter()
                 .flatten()
             {
-                remove_dead_callable_local_from_block(package, spec.block, local_var);
+                remove_dead_callable_local_from_block(udts, package, spec.block, local_var);
             }
         }
     }
 }
 
-/// Returns whether a binding is a partial application whose captures the
-/// rewrite already relocated into the specialized call.
+/// Recognizes a closure or a chain of blocks whose final expression yields one.
 ///
-/// Partial application lowers to a block that binds each capture and yields a
-/// closure. When that closure is consumed, `allocate_capture_exprs` splices the
-/// capture initializers into the rewritten call's arguments, so deleting the
-/// binding *moves* their evaluation rather than discarding it, and they still
-/// run exactly once. Keeping the binding is what would be wrong: the spliced
-/// initializer would then be evaluated both there and at the call.
+/// This recognizes the capture-producing shape, not permission to move its
+/// evaluation across other operands. Argument rewrites materialize captures
+/// before later arguments; cleanup must not evaluate those initializers again.
 ///
-/// Only the closure-yielding shape qualifies. A binding whose initializer
-/// merely produces a callable some other way, such as a call to an effectful
-/// producer, relocates nothing and stays protected by discard safety.
-fn captures_relocated_into_call(package: &Package, expr_id: ExprId) -> bool {
-    match package.get_expr(expr_id).kind {
-        ExprKind::Closure(_, _) => true,
-        ExprKind::Block(block_id) => {
-            package
-                .get_block(block_id)
-                .stmts
-                .last()
-                .is_some_and(|&tail_stmt_id| {
-                    matches!(
-                        package.get_stmt(tail_stmt_id).kind,
-                        StmtKind::Expr(tail_expr_id)
-                            if captures_relocated_into_call(package, tail_expr_id)
-                    )
-                })
+/// Only independent capture bindings, in capture order, can be relocated.
+/// Unrelated prefix effects and dependent/aliased bindings cannot be reproduced
+/// by independently evaluating the capture expressions at the rewritten call.
+///
+/// Evidence for [`EvaluationDisposition::Relocated`]; see
+/// [`consumed_callable_expr_disposition`].
+fn captures_relocated_into_call(package: &Package, mut expr_id: ExprId) -> bool {
+    let mut bindings = Vec::new();
+    loop {
+        match &package.get_expr(expr_id).kind {
+            ExprKind::Closure(captures, _) => {
+                let locals: FxHashSet<_> = bindings.iter().map(|(local, _)| *local).collect();
+                if captures
+                    .iter()
+                    .copied()
+                    .filter(|local| locals.contains(local))
+                    .ne(bindings.iter().map(|(local, _)| *local))
+                {
+                    return false;
+                }
+                let mut independent = true;
+                for (_, initializer) in bindings {
+                    crate::walk_utils::for_each_expr(package, initializer, &mut |_, expr| {
+                        independent &= match &expr.kind {
+                            ExprKind::Var(Res::Local(local), _) => !locals.contains(local),
+                            ExprKind::Closure(captures, _) => {
+                                captures.iter().all(|local| !locals.contains(local))
+                            }
+                            _ => true,
+                        };
+                    });
+                }
+                return independent;
+            }
+            ExprKind::Block(block) => {
+                let Some((&tail, prefix)) = package.get_block(*block).stmts.split_last() else {
+                    return false;
+                };
+                let StmtKind::Expr(value) = package.get_stmt(tail).kind else {
+                    return false;
+                };
+                for &statement in prefix {
+                    let StmtKind::Local(Mutability::Immutable, pattern, initializer) =
+                        package.get_stmt(statement).kind
+                    else {
+                        return false;
+                    };
+                    let PatKind::Bind(ident) = &package.get_pat(pattern).kind else {
+                        return false;
+                    };
+                    bindings.push((ident.id, initializer));
+                }
+                expr_id = value;
+            }
+            _ => return false,
         }
-        _ => false,
     }
 }
 
-/// Removes top-level callable-typed locals whose only uses were direct
-/// dispatch rewrites, scoped to the package-level entry expression. Filters
-/// `Block.stmts` across all callable bodies in the package.
-fn prune_dead_top_level_callable_locals(package: &mut Package, package_id: PackageId) {
+/// Prunes unused, discard-safe immutable callable-typed bindings across callable
+/// bodies and the package-level entry expression, including nested blocks.
+///
+/// The entry expression needs the same treatment as a callable body, and for a
+/// stronger reason: it is the reachability root, so a dead callable binding
+/// left there can never be removed by item DCE. The synthetic entry that
+/// `qsc::codegen` builds for callable-argument code generation binds each
+/// concrete callable argument to a `let` before the target call, and those
+/// bindings are exactly what direct-dispatch rewriting makes dead.
+fn prune_dead_top_level_callable_locals(
+    udts: &UdtMetadata,
+    package: &mut Package,
+    package_id: PackageId,
+) {
     let callable_items: Vec<(LocalItemId, qsc_fir::fir::CallableImpl)> = package
         .items
         .iter()
@@ -2103,27 +3774,35 @@ fn prune_dead_top_level_callable_locals(package: &mut Package, package_id: Packa
             qsc_fir::fir::CallableImpl::Intrinsic
             | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => {}
             qsc_fir::fir::CallableImpl::Spec(spec_impl) => {
-                prune_dead_callable_locals_in_block(package, package_id, spec_impl.body.block);
+                prune_dead_callable_locals_in_block(
+                    udts,
+                    package,
+                    package_id,
+                    spec_impl.body.block,
+                );
                 for spec in [spec_impl.adj, spec_impl.ctl, spec_impl.ctl_adj]
                     .into_iter()
                     .flatten()
                 {
-                    prune_dead_callable_locals_in_block(package, package_id, spec.block);
+                    prune_dead_callable_locals_in_block(udts, package, package_id, spec.block);
                 }
             }
         }
     }
+
+    if let Some(entry_id) = package.entry {
+        prune_dead_callable_locals_in_expr(udts, package, package_id, entry_id);
+    }
 }
 
-/// Walks a block looking for dead callable-typed locals introduced by
-/// direct-call rewrites and removes them in place.
+/// Removes unused immutable callable-typed bindings with discard-safe
+/// initializers from a block.
 ///
-/// Iterates until no more removals occur so that cascading dead-local chains
-/// (e.g. `let a = closure; let b = a;`) are fully pruned in a single call
-/// rather than requiring multiple outer fixpoint iterations. Rewrites
-/// `Block.stmts` to drop unused `Local` bindings, then recurses into nested
-/// blocks.
+/// Repeats removal within this block to prune cascading dead-local chains,
+/// then recurses into nested blocks. Removals in nested blocks can expose
+/// further opportunities for a later outer fixpoint iteration.
 fn prune_dead_callable_locals_in_block(
+    udts: &UdtMetadata,
     package: &mut Package,
     package_id: PackageId,
     block_id: qsc_fir::fir::BlockId,
@@ -2138,7 +3817,7 @@ fn prune_dead_callable_locals_in_block(
             let remove_stmt = match stmt.kind {
                 StmtKind::Local(Mutability::Immutable, pat_id, init_expr_id) => {
                     let pat = package.get_pat(pat_id);
-                    if local_ty_contains_arrow_through_udts(package, &pat.ty) {
+                    if local_ty_contains_arrow_through_udts(udts, &pat.ty) {
                         let mut bound_vars = Vec::new();
                         collect_bound_pat_vars(package, pat_id, &mut bound_vars);
                         !bound_vars.is_empty()
@@ -2168,17 +3847,18 @@ fn prune_dead_callable_locals_in_block(
         if retained.len() == initial_count {
             // No removals this pass — walk nested blocks and stop.
             for stmt_id in retained {
-                prune_dead_callable_locals_in_stmt(package, package_id, stmt_id);
+                prune_dead_callable_locals_in_stmt(udts, package, package_id, stmt_id);
             }
             break;
         }
     }
 }
 
-/// Removes a dead callable local scoped to a specific block, including its
-/// `Local` binding and any remaining references, recursing into nested
-/// blocks via [`remove_dead_callable_local_from_stmt`].
+/// Removes an immutable callable-typed binding containing `local_var` when all
+/// variables it binds are unused in the block, then recurses into nested blocks
+/// via [`remove_dead_callable_local_from_stmt`]. Does not rewrite `Var` nodes.
 fn remove_dead_callable_local_from_block(
+    udts: &UdtMetadata,
     package: &mut Package,
     block_id: qsc_fir::fir::BlockId,
     local_var: LocalVarId,
@@ -2189,7 +3869,7 @@ fn remove_dead_callable_local_from_block(
     for stmt_id in stmt_ids {
         let stmt = package.get_stmt(stmt_id);
         let remove_stmt = if let StmtKind::Local(Mutability::Immutable, pat_id, _) = stmt.kind
-            && local_ty_contains_arrow_through_udts(package, &package.get_pat(pat_id).ty)
+            && local_ty_contains_arrow_through_udts(udts, &package.get_pat(pat_id).ty)
             && pat_binds_local_var(package, pat_id, local_var)
         {
             // Only remove when all bound variables in the pattern are
@@ -2216,19 +3896,20 @@ fn remove_dead_callable_local_from_block(
         .stmts = retained;
 
     for stmt_id in retained_for_walk {
-        remove_dead_callable_local_from_stmt(package, stmt_id, local_var);
+        remove_dead_callable_local_from_stmt(udts, package, stmt_id, local_var);
     }
 }
 
-/// Returns whether a direct-rewrite cleanup candidate is a static callable
-/// selection whose conditions have already been replayed by branch dispatch.
+/// Recognizes a static callable-selection tree eligible for cleanup after
+/// branch dispatch. Leaves must be item references and block wrappers must
+/// contain only their tail expression.
 ///
-/// Removing the source binding does not drop its condition evaluation:
-/// `branch_split_direct_call_rewrite` emits the same `if` tree at the replaced
-/// call site. Leaves are restricted to item references, while branch blocks
-/// must be transparent value wrappers, so arbitrary producers remain protected
-/// by discard safety.
-fn is_replayed_callable_selection(package: &Package, expr_id: ExprId) -> bool {
+/// This checks the initializer's shape, not whether the generated dispatch
+/// retained every condition or its original evaluation point.
+///
+/// Evidence for [`EvaluationDisposition::Replayed`]; see
+/// [`consumed_callable_expr_disposition`].
+pub(crate) fn is_replayed_callable_selection(package: &Package, expr_id: ExprId) -> bool {
     match package.get_expr(expr_id).kind {
         ExprKind::If(_, then_expr_id, Some(else_expr_id)) => {
             is_replayed_callable_selection(package, then_expr_id)
@@ -2243,10 +3924,11 @@ fn is_replayed_callable_selection(package: &Package, expr_id: ExprId) -> bool {
     }
 }
 
-/// Inspects a single statement for dead callable-local bindings and deletes
-/// them when safe, delegating to [`prune_dead_callable_locals_in_expr`] for
-/// the statement's inner expression.
+/// Visits a statement's expression to prune eligible bindings in nested
+/// blocks via [`prune_dead_callable_locals_in_expr`]. The statement itself
+/// is not removed here.
 fn prune_dead_callable_locals_in_stmt(
+    udts: &UdtMetadata,
     package: &mut Package,
     package_id: PackageId,
     stmt_id: qsc_fir::fir::StmtId,
@@ -2254,7 +3936,7 @@ fn prune_dead_callable_locals_in_stmt(
     let stmt = package.get_stmt(stmt_id).clone();
     match stmt.kind {
         StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
-            prune_dead_callable_locals_in_expr(package, package_id, expr_id);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, expr_id);
         }
         StmtKind::Item(_) => {}
     }
@@ -2263,8 +3945,9 @@ fn prune_dead_callable_locals_in_stmt(
 /// Descends into an expression subtree looking for dead callable-local
 /// bindings introduced by direct-call rewrites, delegating to
 /// [`prune_dead_callable_locals_in_block`] for nested `Block` and `While`
-/// bodies until all dead bindings are removed.
+/// bodies.
 fn prune_dead_callable_locals_in_expr(
+    udts: &UdtMetadata,
     package: &mut Package,
     package_id: PackageId,
     expr_id: ExprId,
@@ -2273,7 +3956,7 @@ fn prune_dead_callable_locals_in_expr(
     match expr.kind {
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
             for expr_id in exprs {
-                prune_dead_callable_locals_in_expr(package, package_id, expr_id);
+                prune_dead_callable_locals_in_expr(udts, package, package_id, expr_id);
             }
         }
         ExprKind::ArrayRepeat(lhs, rhs)
@@ -2284,59 +3967,59 @@ fn prune_dead_callable_locals_in_expr(
         | ExprKind::Index(lhs, rhs)
         | ExprKind::AssignField(lhs, _, rhs)
         | ExprKind::UpdateField(lhs, _, rhs) => {
-            prune_dead_callable_locals_in_expr(package, package_id, lhs);
-            prune_dead_callable_locals_in_expr(package, package_id, rhs);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, lhs);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, rhs);
         }
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            prune_dead_callable_locals_in_expr(package, package_id, a);
-            prune_dead_callable_locals_in_expr(package, package_id, b);
-            prune_dead_callable_locals_in_expr(package, package_id, c);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, a);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, b);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, c);
         }
         ExprKind::Block(block_id) => {
-            prune_dead_callable_locals_in_block(package, package_id, block_id);
+            prune_dead_callable_locals_in_block(udts, package, package_id, block_id);
         }
         ExprKind::Fail(inner)
         | ExprKind::Field(inner, _)
         | ExprKind::Return(inner)
         | ExprKind::UnOp(_, inner) => {
-            prune_dead_callable_locals_in_expr(package, package_id, inner);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, inner);
         }
         ExprKind::If(cond, body, otherwise) => {
-            prune_dead_callable_locals_in_expr(package, package_id, cond);
-            prune_dead_callable_locals_in_expr(package, package_id, body);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, cond);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, body);
             if let Some(otherwise) = otherwise {
-                prune_dead_callable_locals_in_expr(package, package_id, otherwise);
+                prune_dead_callable_locals_in_expr(udts, package, package_id, otherwise);
             }
         }
         ExprKind::Range(start, step, end) => {
             for expr_id in [start, step, end].into_iter().flatten() {
-                prune_dead_callable_locals_in_expr(package, package_id, expr_id);
+                prune_dead_callable_locals_in_expr(udts, package, package_id, expr_id);
             }
         }
         ExprKind::String(components) => {
             for component in components {
                 if let qsc_fir::fir::StringComponent::Expr(expr_id) = component {
-                    prune_dead_callable_locals_in_expr(package, package_id, expr_id);
+                    prune_dead_callable_locals_in_expr(udts, package, package_id, expr_id);
                 }
             }
         }
         ExprKind::Struct(_, copy, fields) => {
             if let Some(copy) = copy {
-                prune_dead_callable_locals_in_expr(package, package_id, copy);
+                prune_dead_callable_locals_in_expr(udts, package, package_id, copy);
             }
             for field in fields {
-                prune_dead_callable_locals_in_expr(package, package_id, field.value);
+                prune_dead_callable_locals_in_expr(udts, package, package_id, field.value);
             }
         }
         ExprKind::While(cond, block_id) => {
-            prune_dead_callable_locals_in_expr(package, package_id, cond);
-            prune_dead_callable_locals_in_block(package, package_id, block_id);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, cond);
+            prune_dead_callable_locals_in_block(udts, package, package_id, block_id);
         }
         ExprKind::Parallel(limit, expr) => {
             if let Some(l) = limit {
-                prune_dead_callable_locals_in_expr(package, package_id, l);
+                prune_dead_callable_locals_in_expr(udts, package, package_id, l);
             }
-            prune_dead_callable_locals_in_expr(package, package_id, expr);
+            prune_dead_callable_locals_in_expr(udts, package, package_id, expr);
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
@@ -2346,6 +4029,7 @@ fn prune_dead_callable_locals_in_expr(
 /// delegating to [`remove_dead_callable_local_from_expr`] for the
 /// statement's inner expression.
 fn remove_dead_callable_local_from_stmt(
+    udts: &UdtMetadata,
     package: &mut Package,
     stmt_id: qsc_fir::fir::StmtId,
     local_var: LocalVarId,
@@ -2353,17 +4037,18 @@ fn remove_dead_callable_local_from_stmt(
     let stmt = package.get_stmt(stmt_id).clone();
     match stmt.kind {
         StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
-            remove_dead_callable_local_from_expr(package, expr_id, local_var);
+            remove_dead_callable_local_from_expr(udts, package, expr_id, local_var);
         }
         StmtKind::Item(_) => {}
     }
 }
 
-/// Removes references to a dead callable local inside a given expression
+/// Removes eligible bindings of a dead callable local inside a given expression
 /// subtree, recursing through `Block`, `If`, `While`, and compound
 /// expressions to reach every nested block via
 /// [`remove_dead_callable_local_from_block`].
 fn remove_dead_callable_local_from_expr(
+    udts: &UdtMetadata,
     package: &mut Package,
     expr_id: ExprId,
     local_var: LocalVarId,
@@ -2372,7 +4057,7 @@ fn remove_dead_callable_local_from_expr(
     match expr.kind {
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
             for expr_id in exprs {
-                remove_dead_callable_local_from_expr(package, expr_id, local_var);
+                remove_dead_callable_local_from_expr(udts, package, expr_id, local_var);
             }
         }
         ExprKind::ArrayRepeat(lhs, rhs)
@@ -2383,59 +4068,59 @@ fn remove_dead_callable_local_from_expr(
         | ExprKind::Index(lhs, rhs)
         | ExprKind::AssignField(lhs, _, rhs)
         | ExprKind::UpdateField(lhs, _, rhs) => {
-            remove_dead_callable_local_from_expr(package, lhs, local_var);
-            remove_dead_callable_local_from_expr(package, rhs, local_var);
+            remove_dead_callable_local_from_expr(udts, package, lhs, local_var);
+            remove_dead_callable_local_from_expr(udts, package, rhs, local_var);
         }
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            remove_dead_callable_local_from_expr(package, a, local_var);
-            remove_dead_callable_local_from_expr(package, b, local_var);
-            remove_dead_callable_local_from_expr(package, c, local_var);
+            remove_dead_callable_local_from_expr(udts, package, a, local_var);
+            remove_dead_callable_local_from_expr(udts, package, b, local_var);
+            remove_dead_callable_local_from_expr(udts, package, c, local_var);
         }
         ExprKind::Block(block_id) => {
-            remove_dead_callable_local_from_block(package, block_id, local_var);
+            remove_dead_callable_local_from_block(udts, package, block_id, local_var);
         }
         ExprKind::Fail(inner)
         | ExprKind::Field(inner, _)
         | ExprKind::Return(inner)
         | ExprKind::UnOp(_, inner) => {
-            remove_dead_callable_local_from_expr(package, inner, local_var);
+            remove_dead_callable_local_from_expr(udts, package, inner, local_var);
         }
         ExprKind::If(cond, body, otherwise) => {
-            remove_dead_callable_local_from_expr(package, cond, local_var);
-            remove_dead_callable_local_from_expr(package, body, local_var);
+            remove_dead_callable_local_from_expr(udts, package, cond, local_var);
+            remove_dead_callable_local_from_expr(udts, package, body, local_var);
             if let Some(otherwise) = otherwise {
-                remove_dead_callable_local_from_expr(package, otherwise, local_var);
+                remove_dead_callable_local_from_expr(udts, package, otherwise, local_var);
             }
         }
         ExprKind::Range(start, step, end) => {
             for expr_id in [start, step, end].into_iter().flatten() {
-                remove_dead_callable_local_from_expr(package, expr_id, local_var);
+                remove_dead_callable_local_from_expr(udts, package, expr_id, local_var);
             }
         }
         ExprKind::String(components) => {
             for component in components {
                 if let qsc_fir::fir::StringComponent::Expr(expr_id) = component {
-                    remove_dead_callable_local_from_expr(package, expr_id, local_var);
+                    remove_dead_callable_local_from_expr(udts, package, expr_id, local_var);
                 }
             }
         }
         ExprKind::Struct(_, copy, fields) => {
             if let Some(copy) = copy {
-                remove_dead_callable_local_from_expr(package, copy, local_var);
+                remove_dead_callable_local_from_expr(udts, package, copy, local_var);
             }
             for field in fields {
-                remove_dead_callable_local_from_expr(package, field.value, local_var);
+                remove_dead_callable_local_from_expr(udts, package, field.value, local_var);
             }
         }
         ExprKind::While(cond, block_id) => {
-            remove_dead_callable_local_from_expr(package, cond, local_var);
-            remove_dead_callable_local_from_block(package, block_id, local_var);
+            remove_dead_callable_local_from_expr(udts, package, cond, local_var);
+            remove_dead_callable_local_from_block(udts, package, block_id, local_var);
         }
         ExprKind::Parallel(limit, expr) => {
             if let Some(l) = limit {
-                remove_dead_callable_local_from_expr(package, l, local_var);
+                remove_dead_callable_local_from_expr(udts, package, l, local_var);
             }
-            remove_dead_callable_local_from_expr(package, expr, local_var);
+            remove_dead_callable_local_from_expr(udts, package, expr, local_var);
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
@@ -2576,23 +4261,23 @@ fn rewrite_direct_callee(
     package_id: PackageId,
     callee_id: ExprId,
     callable: &ConcreteCallable,
-    _captures: &[CapturedVar],
+    target_input: Option<&Ty>,
     controlled_layers: usize,
     assigner: &mut Assigner,
 ) {
     let callee_expr = package.get_expr(callee_id).clone();
-    let (item_id, functor, callee_ty) = match callable {
-        ConcreteCallable::Global { item_id, functor } => {
-            let callee_ty = if item_id.package == package_id
-                && direct_lambda_packaged_input(package, item_id.item).is_some()
-            {
-                build_direct_global_callee_ty(package, *item_id, &callee_expr.ty, controlled_layers)
-                    .unwrap_or_else(|| callee_expr.ty.clone())
-            } else {
-                callee_expr.ty.clone()
-            };
-            (*item_id, *functor, callee_ty)
-        }
+    let retain_evaluation = consumed_callable_expr_disposition(
+        package,
+        package_id,
+        callee_id,
+        ConsumptionSite::Argument,
+        &FxHashSet::default(),
+    ) == EvaluationDisposition::Retained;
+    let callee_ty = target_input
+        .and_then(|input| build_callee_ty_with_input(&callee_expr.ty, input, controlled_layers))
+        .unwrap_or_else(|| callee_expr.ty.clone());
+    let (item_id, functor) = match callable {
+        ConcreteCallable::Global { item_id, functor } => (*item_id, *functor),
         ConcreteCallable::Closure {
             target, functor, ..
         } => {
@@ -2600,105 +4285,23 @@ fn rewrite_direct_callee(
                 package: package_id,
                 item: *target,
             };
-            (
-                item_id,
-                *functor,
-                build_direct_global_callee_ty(package, item_id, &callee_expr.ty, controlled_layers)
-                    .unwrap_or_else(|| callee_expr.ty.clone()),
-            )
+            (item_id, *functor)
         }
         ConcreteCallable::Dynamic => return,
     };
 
     rewrite_item_callee_with_functor(package, callee_id, item_id, callee_ty, functor, assigner);
-}
-
-/// Rewrites the argument tuple of a direct call whose callable argument
-/// was a closure, splicing captured values into the argument layout.
-///
-/// # Before
-/// ```text
-/// original_args : OriginalInputTy
-/// ```
-/// # After
-/// ```text
-/// (capture_0, ..., capture_n, original_args) : (CaptureTys..., OriginalInputTy)
-/// ```
-///
-/// When the current arguments already match the target callable's declared
-/// input (`target_input`) they are left unchanged. This guards the degenerate
-/// case where the closure has no runtime captures the target's
-/// input was flattened to the bare parameter tuple, so grouping the arguments
-/// into a one-element tuple would produce an over-wrapped `((a, b),)` that no
-/// longer matches the callee.
-///
-/// # Mutations
-/// - Rewrites `args_id`'s `ExprKind` and `Ty` in place to a `Tuple`
-///   containing capture expressions followed by the original args.
-/// - Allocates capture `Expr` nodes through `assigner`.
-/// - For controlled operations, recurses through control-qubit layers,
-///   threading the full `target_input` so the base-input match is checked at
-///   the innermost, uncontrolled layer.
-fn rewrite_direct_closure_args(
-    package: &mut Package,
-    args_id: ExprId,
-    captures: &[CapturedVar],
-    target_input: &Ty,
-    controlled_layers: usize,
-    assigner: &mut Assigner,
-) {
-    if controlled_layers > 0 {
-        let inner_id = match package.get_expr(args_id).kind {
-            ExprKind::Tuple(ref elements) if elements.len() > 1 => elements[1],
-            _ => return,
-        };
-        rewrite_direct_closure_args(
+    if retain_evaluation {
+        let original = alloc_expr(
             package,
-            inner_id,
-            captures,
-            target_input,
-            controlled_layers - 1,
             assigner,
+            callee_expr.ty,
+            callee_expr.kind,
+            callee_expr.span,
         );
-        let inner_ty = package.get_expr(inner_id).ty.clone();
-        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-        if let Ty::Tuple(ref mut tys) = args_mut.ty
-            && tys.len() > 1
-        {
-            tys[1] = inner_ty;
-        }
-        return;
+        let statement = alloc_semi_stmt(package, assigner, original, callee_expr.span);
+        prepend_evaluations(package, callee_id, vec![statement], assigner);
     }
-
-    let args_expr = package.get_expr(args_id).clone();
-
-    // The arguments already match the target's declared input, so there is
-    // nothing to splice. This covers the no-capture case where wrapping the
-    // arguments in a one-element tuple would over-wrap a shape the callee
-    // already expects flat.
-    if args_expr.ty == *target_input {
-        return;
-    }
-
-    let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
-    let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
-
-    let preserved_args_id = alloc_expr(
-        package,
-        assigner,
-        args_expr.ty.clone(),
-        args_expr.kind,
-        args_expr.span,
-    );
-
-    let mut new_elements = capture_ids;
-    new_elements.push(preserved_args_id);
-    let mut new_tys = capture_tys;
-    new_tys.push(args_expr.ty);
-
-    let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-    args_mut.kind = ExprKind::Tuple(new_elements);
-    args_mut.ty = Ty::Tuple(new_tys);
 }
 
 /// Builds the arrow type for a direct call to a global specialized target,
@@ -2727,43 +4330,25 @@ fn build_direct_global_callee_ty(
     })))
 }
 
-/// Replaces the innermost input slot beneath `controlled_layers` nested
-/// controlled-operation tuples with `target_input`, returning the rewritten
-/// outer type.
-///
-/// A copy of this helper also lives in
-/// `super::specialize::apply_target_input_at_control_path`; keep the two
-/// in sync when changing controlled-layer handling (see the module-level
-/// note for why both copies exist).
-fn apply_target_input_at_control_path(
-    current_input: &Ty,
+/// Replaces the base input while preserving the caller's control shells.
+fn build_callee_ty_with_input(
+    callee_ty: &Ty,
     target_input: &Ty,
     controlled_layers: usize,
-) -> Ty {
-    if controlled_layers == 0 {
-        return target_input.clone();
-    }
-
-    match current_input {
-        Ty::Tuple(items) if items.len() > 1 => {
-            let mut new_items = items.clone();
-            new_items[1] = apply_target_input_at_control_path(
-                &new_items[1],
-                target_input,
-                controlled_layers - 1,
-            );
-            Ty::Tuple(new_items)
-        }
-        _ => target_input.clone(),
-    }
+) -> Option<Ty> {
+    let Ty::Arrow(arrow) = callee_ty else {
+        return None;
+    };
+    let mut arrow = arrow.clone();
+    arrow.input = Box::new(apply_target_input_at_control_path(
+        &arrow.input,
+        target_input,
+        controlled_layers,
+    ));
+    Some(Ty::Arrow(arrow))
 }
 
-/// Returns the packaged input tuple type for a direct call to a lambda
-/// target whose parameters live in a one-element tuple.
-///
-/// Relies on the naming contract with the producer pass: lifted lambdas
-/// that take a single tuple parameter are named with a leading `".lambda"`
-/// prefix. Do not rename lambda items without updating this predicate.
+/// Returns a lifted lambda's declared singleton input wrapper, if present.
 fn direct_lambda_packaged_input(package: &Package, item_id: LocalItemId) -> Option<Ty> {
     let ItemKind::Callable(decl) = &package.get_item(item_id).kind else {
         return None;
@@ -2802,25 +4387,36 @@ fn create_direct_branch_call(
     orig_args: &Expr,
     span: PackageSpan,
     result_ty: &Ty,
+    destination: CaptureScope,
     direct_call_site: &DirectCallSite,
     assigner: &mut Assigner,
-) -> ExprId {
-    let captures = match &direct_call_site.callable {
-        ConcreteCallable::Closure { captures, .. } => {
-            resolve_rewrite_captures(package, orig_callee.id, captures)
-        }
-        _ => Vec::new(),
+) -> Option<ExprId> {
+    let capture_source = match &direct_call_site.callable {
+        ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
+        ConcreteCallable::Global { .. } => direct_call_site.captures.as_slice(),
+        ConcreteCallable::Dynamic => &[],
     };
-    let (_, outer_functor) = peel_body_functors(package, orig_callee.id);
-    let controlled_layers = usize::from(outer_functor.controlled);
-    let package_direct_lambda_input = match &direct_call_site.callable {
+    let captures = resolve_rewrite_captures(package, orig_callee.id, capture_source);
+    // Stored functor applications are part of the resolved value, not the
+    // syntactic callee spine.
+    let controlled_layers = match &direct_call_site.callable {
+        ConcreteCallable::Global { functor, .. } | ConcreteCallable::Closure { functor, .. } => {
+            usize::from(functor.controlled)
+        }
+        ConcreteCallable::Dynamic => return None,
+    };
+    let target_input = match &direct_call_site.callable {
+        ConcreteCallable::Closure { target, .. } => match &package.get_item(*target).kind {
+            ItemKind::Callable(decl) => Some(package.get_pat(decl.input).ty.clone()),
+            ItemKind::Ty(..) => None,
+        },
         ConcreteCallable::Global { item_id, .. } if item_id.package == package_id => {
             direct_lambda_packaged_input(package, item_id.item)
         }
         _ => None,
     };
-    let package_direct_lambda = matches!(
-        package_direct_lambda_input.as_ref(),
+    let pack_args = matches!(
+        target_input.as_ref(),
         Some(target_input)
             if apply_target_input_at_control_path(&orig_args.ty, target_input, controlled_layers)
                 != orig_args.ty
@@ -2828,9 +4424,7 @@ fn create_direct_branch_call(
 
     let (item_id, functor, callee_ty) = match &direct_call_site.callable {
         ConcreteCallable::Global { item_id, functor } => {
-            let callee_ty = if item_id.package == package_id
-                && package_direct_lambda_input.is_some()
-            {
+            let callee_ty = if item_id.package == package_id && target_input.is_some() {
                 build_direct_global_callee_ty(package, *item_id, &orig_callee.ty, controlled_layers)
                     .unwrap_or_else(|| orig_callee.ty.clone())
             } else {
@@ -2852,161 +4446,59 @@ fn create_direct_branch_call(
                     .unwrap_or_else(|| orig_callee.ty.clone()),
             )
         }
-        ConcreteCallable::Dynamic => return orig_callee.id,
+        ConcreteCallable::Dynamic => return None,
     };
 
     let callee_id =
         alloc_item_callee_expr_with_functor(package, span, item_id, &callee_ty, functor, assigner);
-    let (args_kind, args_ty) = build_direct_branch_args_data(
-        package,
-        orig_args,
-        &captures,
-        controlled_layers,
-        package_direct_lambda,
-        assigner,
-    );
-    let args_id = alloc_expr(package, assigner, args_ty, args_kind, span);
-
-    alloc_call_expr(
+    // Later passes materialize inline aggregate captures in place. A branch
+    // must own its entire argument tree, including block-local bindings.
+    let args_id = crate::cloner::clone_expr_within_package(package, orig_args.id, assigner);
+    let args = if let Some(input) = &target_input {
+        build_closure_call_args(
+            package,
+            args_id,
+            destination,
+            &captures,
+            input,
+            controlled_layers,
+            CallConvention::DirectItem,
+            assigner,
+        )?
+    } else if captures.is_empty() && !pack_args {
+        RewrittenArgs {
+            value: args_id,
+            prefix: Vec::new(),
+        }
+    } else {
+        return None;
+    };
+    let call = alloc_call_expr(
         package,
         assigner,
         callee_id,
-        args_id,
+        args.value,
         result_ty.clone(),
         span,
-    )
-}
-
-/// Assembles the argument-tuple expressions for a direct-call branch,
-/// including any capture values that must accompany a closure branch.
-fn build_direct_branch_args_data(
-    package: &mut Package,
-    orig_args: &Expr,
-    captures: &[CapturedVar],
-    controlled_layers: usize,
-    package_direct_lambda: bool,
-    assigner: &mut Assigner,
-) -> (ExprKind, Ty) {
-    if controlled_layers > 0 {
-        let ExprKind::Tuple(elements) = &orig_args.kind else {
-            return build_direct_branch_args_data(
-                package,
-                orig_args,
-                captures,
-                0,
-                package_direct_lambda,
-                assigner,
-            );
-        };
-        let Ty::Tuple(tys) = &orig_args.ty else {
-            return build_direct_branch_args_data(
-                package,
-                orig_args,
-                captures,
-                0,
-                package_direct_lambda,
-                assigner,
-            );
-        };
-        if elements.len() < 2 || tys.len() < 2 {
-            return build_direct_branch_args_data(
-                package,
-                orig_args,
-                captures,
-                0,
-                package_direct_lambda,
-                assigner,
-            );
-        }
-
-        let inner_orig = package.get_expr(elements[1]).clone();
-        let (inner_kind, inner_ty) = build_direct_branch_args_data(
-            package,
-            &inner_orig,
-            captures,
-            controlled_layers - 1,
-            package_direct_lambda,
-            assigner,
-        );
-
-        let inner_id = alloc_expr(
-            package,
-            assigner,
-            inner_ty.clone(),
-            inner_kind,
-            inner_orig.span,
-        );
-
-        return (
-            ExprKind::Tuple(vec![elements[0], inner_id]),
-            Ty::Tuple(vec![tys[0].clone(), inner_ty]),
-        );
-    }
-
-    if captures.is_empty() && !package_direct_lambda {
-        return (orig_args.kind.clone(), orig_args.ty.clone());
-    }
-
-    let capture_ids = allocate_capture_exprs(package, orig_args.span, captures, assigner);
-    let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
-
-    let preserved_args_id = alloc_expr(
-        package,
-        assigner,
-        orig_args.ty.clone(),
-        orig_args.kind.clone(),
-        orig_args.span,
     );
-
-    let mut tuple_items = capture_ids;
-    tuple_items.push(preserved_args_id);
-    let mut tuple_tys = capture_tys;
-    tuple_tys.push(orig_args.ty.clone());
-
-    (ExprKind::Tuple(tuple_items), Ty::Tuple(tuple_tys))
+    prepend_evaluations(package, call, args.prefix, assigner);
+    Some(call)
 }
 
-/// Rewrites a single call site to use the specialized callable.
-///
-/// # Before
-/// ```text
-/// Call(Var(hof_item), (callable_arg, other_args))
-/// ```
-/// # After
-/// ```text
-/// Call(Var(specialized_item), (other_args, captures...))
-/// ```
-///
-/// # Mutations
-/// - Rewrites the callee via [`rewrite_specialized_callee`].
-/// - Rewrites args via [`rewrite_args`], removing the callable parameter
-///   and appending closure captures.
-fn rewrite_one(
-    package: &mut Package,
-    _package_id: PackageId,
+/// Validates the input path and capture ownership for a single-site rewrite.
+/// The call is unchanged until [`rewrite_one`] can pack the declared input.
+fn plan_rewrite_one(
+    udts: &UdtMetadata,
+    package: &Package,
     call_site: &CallSite,
     param: &CallableParam,
-    spec_store_id: StoreItemId,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
-    assigner: &mut Assigner,
-) {
-    let call_expr = package.get_expr(call_site.call_expr_id).clone();
-
-    let ExprKind::Call(callee_id, args_id) = call_expr.kind else {
-        return;
+    expr_owner_lookup: &ExprOwnerLookup,
+) -> Option<RewriteOnePlan> {
+    let ExprKind::Call(callee_id, original_args_id) = package.get_expr(call_site.call_expr_id).kind
+    else {
+        return None;
     };
-
-    // Replace callee with the specialized callable reference
-    let spec_item_id = ItemId {
-        package: spec_store_id.package,
-        item: spec_store_id.item,
-    };
-
-    // Build the new callee type: remove the callable param from the arrow input.
     let input_path = callable_param_input_path(package, callee_id, param);
-    // Count the outer controlled functor layers wrapping this call so the arg
-    // rewrite can nest closure captures INSIDE the control-level input tuple
-    // instead of appending them as top-level siblings of the control qubits.
     let (_, outer_functor) = peel_body_functors(package, callee_id);
     let controlled_layers = usize::from(outer_functor.controlled);
     let captures = match &call_site.callable_arg {
@@ -3016,47 +4508,123 @@ fn rewrite_one(
         ),
         _ => Vec::new(),
     };
-    let new_callee_ty = if !param.hof_input_is_tuple && !param.field_path.is_empty() {
-        build_specialized_nested_payload_callee_ty(package, callee_id, &input_path, &captures)
-    } else {
-        build_specialized_callee_ty(package, callee_id, &input_path, &call_site.callable_arg)
-    };
-    rewrite_specialized_callee(package, callee_id, spec_item_id, new_callee_ty, assigner);
-
-    // Remove the callable argument from the args tuple
-    // Insert closure captures as extra arguments.
-    //
-    // Only the shallow (single field) case short-circuits here: it removes the
-    // callable directly from the top-level payload. Deeper paths (len >= 2) must
-    // fall through to `rewrite_args`, which routes to the nested deep-removal
-    // path (`rewrite_single_arg_nested`) that can strip a callable buried inside
-    // a nested aggregate and inline a `Var`-bound local initializer.
-    if !param.hof_input_is_tuple && param.field_path.len() == 1 {
-        let mut remove_indices = FxHashSet::default();
-        if let Some(&field_index) = param.field_path.first() {
-            remove_indices.insert(field_index);
-        }
-        if rewrite_nested_arg_expr_remove_fields_as_payload(
-            package,
-            expr_owner_lookup.get(&call_site.call_expr_id).copied(),
-            args_id,
-            &remove_indices,
-            &captures,
-            assigner,
-        ) {
-            return;
-        }
+    let destination = expr_owner_lookup.scope(&call_site.call_expr_id)?;
+    if !captures_belong_to_destination(destination, &captures) {
+        return None;
     }
-    rewrite_args(
-        package,
-        call_site.call_expr_id,
-        args_id,
-        &input_path,
+    InputRemoval::new(udts, &package.get_expr(original_args_id).ty, &[&input_path])?;
+    Some(RewriteOnePlan {
+        callee_id,
+        original_args_id,
+        input_path,
         controlled_layers,
-        &captures,
+        captures,
+        destination,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rewrite_one(
+    udts: &UdtMetadata,
+    package: &mut Package,
+    package_id: PackageId,
+    call_site: &CallSite,
+    param: &CallableParam,
+    spec_store_id: StoreItemId,
+    mut plan: RewriteOnePlan,
+    expr_owner_lookup: &ExprOwnerLookup,
+    assigner: &mut Assigner,
+) -> bool {
+    plan.original_args_id = copy_branch_argument(
+        package,
+        plan.original_args_id,
+        &mut FxHashMap::default(),
+        assigner,
+    );
+    let mut statements = if plan.captures.iter().any(|capture| capture.expr.is_some()) {
+        materialize_argument_prefix(
+            package,
+            plan.original_args_id,
+            &plan.input_path,
+            &[],
+            assigner,
+        )
+    } else {
+        Vec::new()
+    };
+    materialize_capture_operands(
+        package,
+        plan.destination,
+        &mut plan.captures,
+        &mut statements,
+        assigner,
+    );
+    let rewritten = rewrite_one_with_captures(
+        udts,
+        package,
+        package_id,
+        call_site,
+        param,
+        spec_store_id,
+        &plan,
         expr_owner_lookup,
         assigner,
     );
+    if rewritten {
+        prepend_evaluations(package, call_site.call_expr_id, statements, assigner);
+    }
+    rewritten
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rewrite_one_with_captures(
+    udts: &UdtMetadata,
+    package: &mut Package,
+    _package_id: PackageId,
+    call_site: &CallSite,
+    param: &CallableParam,
+    spec_store_id: StoreItemId,
+    plan: &RewriteOnePlan,
+    expr_owner_lookup: &ExprOwnerLookup,
+    assigner: &mut Assigner,
+) -> bool {
+    let Some(input) = expr_owner_lookup.declared_inputs.get(&spec_store_id) else {
+        return false;
+    };
+    let Some(args) = build_specialized_call_args(
+        udts,
+        package,
+        plan.original_args_id,
+        input,
+        &[param],
+        &plan.captures,
+        plan.destination,
+        plan.controlled_layers,
+        assigner,
+    ) else {
+        return false;
+    };
+    let spec_item_id = ItemId {
+        package: spec_store_id.package,
+        item: spec_store_id.item,
+    };
+    let callee_ty = build_callee_ty_with_input(
+        &package.get_expr(plan.callee_id).ty,
+        input,
+        plan.controlled_layers,
+    );
+    rewrite_specialized_callee(package, plan.callee_id, spec_item_id, callee_ty, assigner);
+    let ExprKind::Call(_, call_args) = &mut package
+        .exprs
+        .get_mut(call_site.call_expr_id)
+        .expect("call exists")
+        .kind
+    else {
+        unreachable!("rewritten expression remains a call")
+    };
+    *call_args = args.value;
+    prepend_evaluations(package, call_site.call_expr_id, args.prefix, assigner);
+    true
 }
 
 /// Rewrites a single multi-argument higher-order call so it invokes the
@@ -3073,1259 +4641,144 @@ fn rewrite_one(
 /// `members` must be ordered ascending by parameter position so the appended
 /// captures line up with the specialized input pattern.
 fn rewrite_multi(
+    udts: &UdtMetadata,
     package: &mut Package,
     call_expr_id: ExprId,
     members: &[(&CallSite, &CallableParam)],
     spec_store_id: StoreItemId,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     assigner: &mut Assigner,
 ) {
     let call_expr = package.get_expr(call_expr_id).clone();
     let ExprKind::Call(callee_id, args_id) = call_expr.kind else {
         return;
     };
+    let mut argument_copies = FxHashMap::default();
+    let args_id = copy_branch_argument(package, args_id, &mut argument_copies, assigner);
 
     let spec_item_id = ItemId {
         package: spec_store_id.package,
         item: spec_store_id.item,
     };
 
-    // Collect the slots to remove and resolve every closure's captures in
-    // ascending parameter order.
-    //
-    // For a multi-parameter HOF the call argument is a tuple of parameters, so
-    // each member's top-level parameter index selects the slot to drop. For a
-    // single tuple-valued parameter the whole call argument is that tuple, so
-    // each member's immediate field index selects the element to drop instead;
-    // the gate guarantees a single-level field path that covers the tuple.
-    let uses_tuple_input = members
-        .first()
-        .is_none_or(|(call_site, _)| call_site.hof_input_is_tuple);
-    let mut remove_indices: Vec<usize> = Vec::with_capacity(members.len());
     let mut captures: Vec<CapturedVar> = Vec::new();
-    for (call_site, _param) in members {
-        let remove_idx = if uses_tuple_input {
-            call_site.top_level_param
-        } else {
-            *call_site
-                .field_path
-                .first()
-                .unwrap_or(&call_site.top_level_param)
-        };
-        remove_indices.push(remove_idx);
+    let mut capture_ranges = Vec::new();
+    for (call_site, param) in members {
         if let ConcreteCallable::Closure {
             captures: member_captures,
             ..
         } = &call_site.callable_arg
         {
-            captures.extend(member_captures.iter().map(|capture| {
-                let mut resolved = capture.clone();
-                if resolved.expr.is_none() {
-                    resolved.expr =
-                        resolve_capture_expr_from_arg(package, call_site.arg_expr_id, capture.var);
-                }
-                resolved
-            }));
-        }
-    }
-
-    // Retarget the callee to the combined specialization with the rebuilt type.
-    let new_callee_ty =
-        build_specialized_multi_callee_ty(package, callee_id, &remove_indices, &captures);
-    rewrite_specialized_callee(package, callee_id, spec_item_id, new_callee_ty, assigner);
-
-    // Rebuild the argument tuple to match the combined input pattern. The
-    // owner callable lets a non-inline tuple argument be projected through its
-    // local initializer.
-    let owner_callable = expr_owner_lookup.get(&call_expr_id).copied();
-    rewrite_args_remove_tuple_elements(
-        package,
-        args_id,
-        owner_callable,
-        &remove_indices,
-        &captures,
-        assigner,
-    );
-}
-
-/// Finds the single parameter position shared by the members of a forwarded
-/// callable array, if there is exactly one repeated, array-typed position.
-///
-/// Returns `None` when no position repeats, more than one does, or the repeated
-/// position is not array-typed.
-fn callable_array_member_position(
-    members: &[(&CallSite, &CallableParam)],
-) -> Option<(usize, Vec<usize>)> {
-    let mut positions: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
-    for (_, param) in members {
-        *positions
-            .entry((param.top_level_param, param.field_path.clone()))
-            .or_default() += 1;
-    }
-    let repeated = positions
-        .into_iter()
-        .filter(|(_, count)| *count >= 2)
-        .map(|(position, _)| position)
-        .collect::<Vec<_>>();
-    let [position] = repeated.as_slice() else {
-        return None;
-    };
-    members
-        .iter()
-        .find(|(_, param)| (param.top_level_param, param.field_path.clone()) == *position)
-        .and_then(|(_, param)| matches!(param.param_ty, Ty::Array(_)).then(|| position.clone()))
-}
-
-/// Reports whether the forwarded callable array is nested inside a tuple
-/// parameter, in which case the nested-field rewrite path is needed instead of
-/// the simpler top-level path.
-fn callable_array_member_needs_nested_rewrite(members: &[(&CallSite, &CallableParam)]) -> bool {
-    let Some(position) = callable_array_member_position(members) else {
-        return false;
-    };
-    members
-        .iter()
-        .find(|(_, param)| (param.top_level_param, param.field_path.clone()) == position)
-        .is_some_and(|(call_site, param)| {
-            !call_site.hof_input_is_tuple || !param.field_path.is_empty()
-        })
-}
-
-/// Rewrites a call that forwards an array of callables so it targets the
-/// specialized clone and no longer passes the callable array.
-///
-/// Handles the case where several call sites (`members`) share one forwarded
-/// callable-array parameter. The callee expression is repointed at
-/// `spec_store_id`, the callable-array argument is removed, and any captured
-/// values are threaded through as extra arguments.
-fn rewrite_callable_array_multi(
-    package: &mut Package,
-    call_expr_id: ExprId,
-    members: &[(&CallSite, &CallableParam)],
-    spec_store_id: StoreItemId,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
-    assigner: &mut Assigner,
-) {
-    let call_expr = package.get_expr(call_expr_id).clone();
-    let ExprKind::Call(callee_id, args_id) = call_expr.kind else {
-        return;
-    };
-
-    let spec_item_id = ItemId {
-        package: spec_store_id.package,
-        item: spec_store_id.item,
-    };
-
-    let Some(array_position) = callable_array_member_position(members) else {
-        return;
-    };
-    let Some((first_call_site, param)) = members
-        .iter()
-        .find(|(_, param)| (param.top_level_param, param.field_path.clone()) == array_position)
-        .copied()
-    else {
-        return;
-    };
-    let mut captures = Vec::new();
-    let mut remove_indices = FxHashSet::default();
-    let mut remove_expr_ids = FxHashSet::default();
-    for (call_site, _) in members {
-        if let Some(&field_index) = call_site.field_path.first() {
-            remove_indices.insert(field_index);
-        }
-        remove_expr_ids.insert(call_site.arg_expr_id);
-        if let ConcreteCallable::Closure {
-            captures: member_captures,
-            ..
-        } = &call_site.callable_arg
-        {
-            captures.extend(resolve_rewrite_captures(
+            let start = captures.len();
+            captures.extend(filter_threaded_rewrite_captures(
                 package,
-                call_site.arg_expr_id,
-                member_captures,
+                member_captures
+                    .iter()
+                    .map(|capture| {
+                        let mut resolved = capture.clone();
+                        if resolved.expr.is_none() {
+                            resolved.expr = resolve_capture_expr_from_arg(
+                                package,
+                                call_site.arg_expr_id,
+                                capture.local.var,
+                            );
+                        }
+                        resolved
+                    })
+                    .collect(),
             ));
+            capture_ranges.push((param, start..captures.len()));
         }
     }
 
-    let new_callee_ty = build_nested_callable_array_callee_ty(
-        package,
-        callee_id,
-        first_call_site.hof_input_is_tuple,
-        param.top_level_param,
-        &remove_indices,
-        &captures,
-    );
-    rewrite_specialized_callee(package, callee_id, spec_item_id, new_callee_ty, assigner);
-
-    rewrite_args_remove_nested_callable_fields(
-        package,
-        call_expr_id,
-        args_id,
-        first_call_site.hof_input_is_tuple,
-        param.top_level_param,
-        &remove_indices,
-        &remove_expr_ids,
-        &captures,
-        expr_owner_lookup,
-        assigner,
-    );
-}
-
-/// Computes the callee arrow type for a combined multi-argument rewrite by
-/// removing every arrow input slot in `remove_indices` and appending all
-/// capture types in parameter order.
-fn build_specialized_multi_callee_ty(
-    package: &Package,
-    callee_id: ExprId,
-    remove_indices: &[usize],
-    captures: &[CapturedVar],
-) -> Option<Ty> {
-    let callee_expr = package.get_expr(callee_id);
-    let Ty::Arrow(ref arrow) = callee_expr.ty else {
-        return None;
+    let Some(destination) = expr_owner_lookup.scope(&call_expr_id) else {
+        return;
     };
-    let new_input = remove_tys_at_indices(package, &arrow.input, remove_indices, captures);
-    Some(Ty::Arrow(Box::new(Arrow {
-        kind: arrow.kind,
-        input: Box::new(new_input),
-        output: arrow.output.clone(),
-        functors: arrow.functors,
-    })))
-}
-
-/// Builds the arrow type of the specialized callee after a forwarded callable
-/// array nested inside a tuple parameter is removed and capture types are
-/// appended.
-///
-/// Returns `None` when the callee is not arrow-typed.
-fn build_nested_callable_array_callee_ty(
-    package: &Package,
-    callee_id: ExprId,
-    uses_tuple_input: bool,
-    top_level_param: usize,
-    remove_indices: &FxHashSet<usize>,
-    captures: &[CapturedVar],
-) -> Option<Ty> {
-    let callee_expr = package.get_expr(callee_id);
-    let Ty::Arrow(ref arrow) = callee_expr.ty else {
-        return None;
-    };
-
-    let input_ty = resolve_udt_ty(package, &arrow.input);
-    let new_input = if uses_tuple_input {
-        let Ty::Tuple(mut top_level_tys) = input_ty else {
-            return None;
-        };
-        top_level_tys[top_level_param] = remove_nested_top_level_fields_from_ty(
-            package,
-            &top_level_tys[top_level_param],
-            remove_indices,
-        );
-        top_level_tys.extend(captures.iter().map(|capture| capture.ty.clone()));
-        Ty::Tuple(top_level_tys)
-    } else {
-        let mut ty = remove_nested_top_level_fields_from_ty(package, &input_ty, remove_indices);
-        if !captures.is_empty() {
-            let mut tys = vec![ty];
-            tys.extend(captures.iter().map(|capture| capture.ty.clone()));
-            ty = Ty::Tuple(tys);
-        }
-        ty
-    };
-
-    Some(Ty::Arrow(Box::new(Arrow {
-        kind: arrow.kind,
-        input: Box::new(new_input),
-        output: arrow.output.clone(),
-        functors: arrow.functors,
-    })))
-}
-
-/// Removes the tuple element types at `remove_indices` from `ty`, resolving
-/// through any UDT wrappers first.
-///
-/// Collapses the result to `Unit` when nothing remains, and to the sole element
-/// when exactly one remains, rather than leaving a one-tuple.
-fn remove_nested_top_level_fields_from_ty(
-    package: &Package,
-    ty: &Ty,
-    remove_indices: &FxHashSet<usize>,
-) -> Ty {
-    let ty = resolve_udt_ty(package, ty);
-    let Ty::Tuple(tys) = ty else {
-        return ty;
-    };
-    let remaining: Vec<Ty> = tys
-        .into_iter()
-        .enumerate()
-        .filter(|(idx, _)| !remove_indices.contains(idx))
-        .map(|(_, ty)| ty)
-        .collect();
-    match remaining.as_slice() {
-        [] => Ty::UNIT,
-        [single] => single.clone(),
-        _ => Ty::Tuple(remaining),
+    if !captures_belong_to_destination(destination, &captures) {
+        return;
     }
-}
 
-/// Removes the tuple element types at `remove_indices` and appends the capture
-/// types, flattening to a scalar only when a single element survives and no
-/// captures are appended, matching the specialize-side input pattern flatten
-/// rule in `remove_callable_params`.
-fn remove_tys_at_indices(
-    package: &Package,
-    ty: &Ty,
-    remove_indices: &[usize],
-    captures: &[CapturedVar],
-) -> Ty {
-    let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
-    let ty = resolve_udt_ty(package, ty);
-    let Ty::Tuple(tys) = &ty else {
-        // A multi-argument HOF always has a tuple input.
-        return ty.clone();
-    };
-    let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
-    let mut remaining: Vec<Ty> = tys
+    let mut statements = Vec::new();
+    let consumed: Vec<_> = members
         .iter()
-        .enumerate()
-        .filter(|(i, _)| !remove.contains(i))
-        .map(|(_, t)| t.clone())
+        .filter_map(|(site, _)| argument_copies.get(&site.arg_expr_id).copied())
         .collect();
-    remaining.extend(capture_tys);
-    if remaining.len() == 1 && captures.is_empty() {
-        remaining
-            .into_iter()
-            .next()
-            .expect("single element should exist")
-    } else {
-        Ty::Tuple(remaining)
-    }
-}
-
-/// Removes the top-level tuple elements at `remove_indices` from a call's
-/// argument expression and appends closure captures.
-///
-/// The rebuilt tuple matches the combined specialization's input pattern:
-/// surviving arguments keep their order, captures follow in ascending parameter
-/// order, and the tuple flattens to a scalar only when a single argument
-/// survives and no captures are appended.
-fn rewrite_args_remove_tuple_elements(
-    package: &mut Package,
-    args_id: ExprId,
-    owner_callable: Option<LocalItemId>,
-    remove_indices: &[usize],
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) {
-    let args_expr = package
-        .exprs
-        .get(args_id)
-        .expect("args expr not found")
-        .clone();
-
-    let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
-
-    if let ExprKind::Tuple(elements) = &args_expr.kind {
-        let mut new_elements: Vec<ExprId> = elements
+    for (param, range) in capture_ranges {
+        if captures[range.clone()]
             .iter()
-            .enumerate()
-            .filter(|(i, _)| !remove.contains(i))
-            .map(|(_, &id)| id)
-            .collect();
-
-        let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
-        new_elements.extend(capture_ids);
-
-        let new_ty = remove_tys_at_indices(package, &args_expr.ty, remove_indices, captures);
-
-        if new_elements.len() == 1 && captures.is_empty() {
-            let single_id = new_elements[0];
-            let single_expr = package
-                .exprs
-                .get(single_id)
-                .expect("expr not found")
-                .clone();
-            let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-            args_mut.kind = single_expr.kind;
-            args_mut.ty = single_expr.ty;
-        } else {
-            let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-            args_mut.kind = ExprKind::Tuple(new_elements);
-            args_mut.ty = new_ty;
-        }
-        return;
-    }
-
-    // Non-inline argument: a local bound to a tuple or struct literal of
-    // callables. The callee was already retargeted to the reduced combined
-    // spec, so the arguments must be reduced to match. Resolve the local's
-    // initializer and project the surviving slots through the same removal
-    // helper the per-row nested path uses, then overwrite the argument
-    // expression in place with the rebuilt aggregate. The now-dead initializer
-    // binding is pruned later by the dead-callable-local cleanup.
-    if let ExprKind::Var(Res::Local(local_var), _) = args_expr.kind
-        && let Some(owner_callable) = owner_callable
-        && let Some(init_expr_id) =
-            find_local_init_expr_in_callable(package, owner_callable, local_var)
-        && let Some((kind, ty)) = remove_top_level_field_from_expr_data(
-            package,
-            init_expr_id,
-            &remove,
-            captures,
-            assigner,
-        )
-    {
-        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-        args_mut.kind = kind;
-        args_mut.ty = ty;
-    }
-
-    // Any other shape, for example a function-returning-tuple result, is
-    // outside the combined rewrite's scope and is left untouched; the
-    // defunctionalization fixpoint surfaces an honest dynamic-callable
-    // diagnostic for shapes the analysis cannot project.
-}
-
-/// Removes the callable argument selected by `param` from the call arguments
-/// and appends closure captures when needed.
-///
-/// # Before
-/// ```text
-/// (callable_arg, arg1, arg2)
-/// ```
-/// # After
-/// ```text
-/// (arg1, arg2, capture0, ..., captureN)   // callable_arg removed, captures appended
-/// ```
-///
-/// # Mutations
-/// - Rewrites `args_id`'s `ExprKind` and `Ty` in place.
-/// - Allocates capture `Expr` nodes through `assigner`.
-#[allow(clippy::too_many_arguments)]
-fn rewrite_args(
-    package: &mut Package,
-    call_expr_id: ExprId,
-    args_id: ExprId,
-    input_path: &[usize],
-    controlled_layers: usize,
-    captures: &[CapturedVar],
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
-    assigner: &mut Assigner,
-) {
-    let args_expr = package
-        .exprs
-        .get(args_id)
-        .expect("args expr not found")
-        .clone();
-
-    if input_path.is_empty() {
-        rewrite_single_arg_root(package, args_id, captures, assigner);
-    } else if matches!(args_expr.kind, ExprKind::Tuple(_)) {
-        let owner_callable = expr_owner_lookup.get(&call_expr_id).copied();
-        if input_path.len() == 1 {
-            rewrite_args_remove_tuple_element(package, args_id, input_path[0], captures, assigner);
-        } else {
-            rewrite_args_nested_tuple_input(
+            .any(|capture| capture.expr.is_some())
+        {
+            let path = callable_param_input_path(package, callee_id, param);
+            statements.extend(materialize_argument_prefix(
+                package, args_id, &path, &consumed, assigner,
+            ));
+            materialize_capture_operands(
                 package,
-                owner_callable,
-                args_id,
-                input_path[0],
-                &input_path[1..],
-                controlled_layers,
-                captures,
+                destination,
+                &mut captures[range],
+                &mut statements,
                 assigner,
             );
         }
-    } else {
-        rewrite_single_arg_nested(
-            package,
-            call_expr_id,
-            args_id,
-            input_path,
-            captures,
-            expr_owner_lookup,
-            assigner,
-        );
     }
-}
 
-/// Removes a top-level element from a tuple-structured args expression and
-/// appends any closure captures.
-///
-/// # Before
-/// ```text
-/// (arg0, callable_arg, arg2)   // param_index = 1
-/// ```
-/// # After
-/// ```text
-/// (arg0, arg2, capture0, ...)   // element removed, captures appended
-/// ```
-///
-/// # Mutations
-/// - Rewrites `args_id`'s `ExprKind` and `Ty` in place.
-/// - Flattens single-element tuples to scalars.
-/// - Allocates capture `Expr` nodes through `assigner`.
-fn rewrite_args_remove_tuple_element(
-    package: &mut Package,
-    args_id: ExprId,
-    param_index: usize,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) {
-    let args_expr = package
-        .exprs
-        .get(args_id)
-        .expect("args expr not found")
-        .clone();
-
-    match &args_expr.kind {
-        ExprKind::Tuple(elements) => {
-            let mut new_elements: Vec<ExprId> = elements
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| *i != param_index)
-                .map(|(_, &id)| id)
-                .collect();
-
-            // Append capture expressions.
-            let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
-            new_elements.extend(capture_ids);
-
-            // Rebuild the type.
-            let new_ty =
-                build_tuple_ty_without_path(package, &args_expr.ty, &[param_index], captures);
-
-            if new_elements.len() == 1 && captures.is_empty() {
-                // Flatten single-element tuple to match remove_callable_param
-                // which flattens the declaration's input pattern.
-                let single_id = new_elements[0];
-                let single_expr = package
-                    .exprs
-                    .get(single_id)
-                    .expect("expr not found")
-                    .clone();
-                let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-                args_mut.kind = single_expr.kind;
-                args_mut.ty = single_expr.ty;
-            } else {
-                let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-                args_mut.kind = ExprKind::Tuple(new_elements);
-                args_mut.ty = new_ty;
-            }
-        }
-        _ => {
-            rewrite_single_arg_root(package, args_id, captures, assigner);
-        }
-    }
-}
-
-/// Rewrites args for a nested callable inside a top-level tuple input slot.
-///
-/// For an uncontrolled call (`controlled_layers == 0`) any closure captures are
-/// appended to the top-level args tuple as siblings of the surviving elements.
-///
-/// # Before
-/// ```text
-/// (ctrl_qubits, (callable_arg, inner_arg))   // field_path = [0]
-/// ```
-/// # After
-/// ```text
-/// (ctrl_qubits, (inner_arg), capture0, ...)   // nested element removed
-/// ```
-///
-/// For a controlled call (`controlled_layers > 0`) each `Controlled` functor
-/// wraps the whole input as `([ctls], base_input)` without splitting the base
-/// input tuple. Appending captures at the top level would produce a malformed
-/// tuple such as `([ctls], (inner_arg), capture0)` whose control-level element
-/// is no longer a 2-tuple, which `split_controls_and_input` in `qsc_rca`
-/// rejects. Instead the captures are nested INSIDE the deepest input tuple via
-/// [`append_captures_beneath_control_layers`], yielding
-/// `([ctls], (inner_arg, capture0, ...))`. This lockstep with
-/// `rewrite_closure_dispatch_branch_args` in [`super::specialize`] keeps the
-/// caller arg shape aligned with the specialized callee's uncontrolled input
-/// pattern.
-///
-/// # Mutations
-/// - Rewrites the inner element via [`rewrite_local_single_arg_nested`] or
-///   [`remove_element_at_path`], then updates the outer tuple's type.
-/// - Allocates capture `Expr` nodes through `assigner`.
-#[allow(clippy::too_many_arguments)]
-fn rewrite_args_nested_tuple_input(
-    package: &mut Package,
-    owner_callable: Option<LocalItemId>,
-    args_id: ExprId,
-    top_level_param: usize,
-    field_path: &[usize],
-    controlled_layers: usize,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) {
-    let args_expr = package
-        .exprs
-        .get(args_id)
-        .expect("args expr not found")
-        .clone();
-
-    if let ExprKind::Tuple(elements) = &args_expr.kind {
-        let inner_id = elements[top_level_param];
-        if !rewrite_local_single_arg_nested(
-            package,
-            owner_callable,
-            inner_id,
-            field_path,
-            &[],
-            assigner,
-        ) {
-            // Remove the nested element from the inner tuple.
-            remove_element_at_path(package, inner_id, field_path);
-        }
-
-        // Under one or more control layers, nest the captures inside the base
-        // input tuple beneath the control qubits rather than appending them as
-        // top-level siblings, refreshing each control tuple's input-slot type on
-        // the way out.
-        if !captures.is_empty() && controlled_layers > 0 {
-            append_captures_beneath_control_layers(
-                package,
-                args_id,
-                controlled_layers,
-                captures,
-                assigner,
-            );
-            return;
-        }
-
-        // Read the updated inner type before mutably borrowing the outer.
-        let inner_ty = package
-            .exprs
-            .get(inner_id)
-            .expect("expr not found")
-            .ty
-            .clone();
-
-        // Append captures to the top-level tuple if any.
-        if captures.is_empty() {
-            // Update the outer tuple's type for the modified inner element.
-            let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-            if let Ty::Tuple(ref mut tys) = args_mut.ty {
-                tys[top_level_param] = inner_ty;
-            }
-        } else {
-            let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
-            let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
-            let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-            if let ExprKind::Tuple(ref mut elems) = args_mut.kind {
-                elems.extend(capture_ids);
-            }
-            if let Ty::Tuple(ref mut tys) = args_mut.ty {
-                tys[top_level_param] = inner_ty;
-                tys.extend(capture_tys);
-            }
-        }
-    }
-}
-
-/// Appends closure capture expressions and types into the input tuple nested
-/// beneath `controlled_layers` control functor layers.
-///
-/// Each `Controlled` functor wraps the whole input as `([ctls], base_input)`
-/// (it never splits the base input tuple), so descending into `elements[1]`
-/// once per layer reaches the callable's uncontrolled input tuple. The captures
-/// are appended LAST inside that base tuple, and each enclosing control tuple's
-/// input-slot type (`tys[1]`) is refreshed on the way out so the control-level
-/// argument stays a valid 2-tuple.
-///
-/// # Before (single control layer)
-/// ```text
-/// ([ctls], (inner_arg))
-/// ```
-/// # After (single control layer)
-/// ```text
-/// ([ctls], (inner_arg, capture0, ...))
-/// ```
-///
-/// # Mutations
-/// - Rewrites the deepest input tuple's `ExprKind` and `Ty` in place.
-/// - Refreshes each enclosing control tuple's input-slot `Ty`.
-/// - Allocates capture `Expr` nodes through `assigner`.
-fn append_captures_beneath_control_layers(
-    package: &mut Package,
-    tuple_id: ExprId,
-    controlled_layers: usize,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) {
-    if controlled_layers == 0 {
-        let span = package.get_expr(tuple_id).span;
-        let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-        let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
-        let tuple_mut = package
-            .exprs
-            .get_mut(tuple_id)
-            .expect("args expr not found");
-        if let ExprKind::Tuple(ref mut elems) = tuple_mut.kind {
-            elems.extend(capture_ids);
-        }
-        if let Ty::Tuple(ref mut tys) = tuple_mut.ty {
-            tys.extend(capture_tys);
-        }
+    let Some(input) = expr_owner_lookup.declared_inputs.get(&spec_store_id) else {
         return;
-    }
-
-    let inner_id = match package.get_expr(tuple_id).kind {
-        ExprKind::Tuple(ref elements) if elements.len() > 1 => elements[1],
-        _ => return,
     };
-    append_captures_beneath_control_layers(
+    let params: Vec<_> = members.iter().map(|(_, param)| *param).collect();
+    let (_, functor) = peel_body_functors(package, callee_id);
+    let layers = usize::from(functor.controlled);
+    let Some(args) = build_specialized_call_args(
+        udts,
         package,
-        inner_id,
-        controlled_layers - 1,
-        captures,
-        assigner,
-    );
-    let inner_ty = package.get_expr(inner_id).ty.clone();
-    let tuple_mut = package
-        .exprs
-        .get_mut(tuple_id)
-        .expect("args expr not found");
-    if let Ty::Tuple(ref mut tys) = tuple_mut.ty
-        && tys.len() > 1
-    {
-        tys[1] = inner_ty;
-    }
-}
-
-/// Rewrites args when the callable is nested inside the single argument value.
-///
-/// # Before
-/// ```text
-/// args = local_udt   // UDT/tuple containing callable at field_path
-/// ```
-/// # After
-/// ```text
-/// args = (remaining_fields, captures...)   // callable field removed
-/// ```
-///
-/// # Mutations
-/// - Delegates to [`rewrite_local_single_arg_nested`] when the arg is a
-///   local whose initializer can be decomposed, otherwise falls back to
-///   [`remove_element_at_path`].
-/// - Allocates capture `Expr` nodes through `assigner`.
-fn rewrite_single_arg_nested(
-    package: &mut Package,
-    call_expr_id: ExprId,
-    args_id: ExprId,
-    field_path: &[usize],
-    captures: &[CapturedVar],
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
-    assigner: &mut Assigner,
-) {
-    if rewrite_local_single_arg_nested(
-        package,
-        expr_owner_lookup.get(&call_expr_id).copied(),
         args_id,
-        field_path,
-        captures,
-        assigner,
-    ) {
-        return;
-    }
-
-    if field_path.len() == 1 {
-        let mut remove_indices = FxHashSet::default();
-        remove_indices.insert(field_path[0]);
-        // A top-level callable field can sit inside a struct or tuple literal.
-        // Rebuild that aggregate so the remaining fields keep the same order as
-        // the specialized callee's reduced input pattern.
-        if rewrite_nested_arg_expr_remove_fields_as_payload(
-            package,
-            expr_owner_lookup.get(&call_expr_id).copied(),
-            args_id,
-            &remove_indices,
-            captures,
-            assigner,
-        ) {
-            return;
-        }
-        if let Some((kind, ty)) = remove_top_level_field_from_expr_data(
-            package,
-            args_id,
-            &remove_indices,
-            captures,
-            assigner,
-        ) {
-            let args_expr = package.exprs.get_mut(args_id).expect("args expr not found");
-            args_expr.kind = kind;
-            args_expr.ty = ty;
-            return;
-        }
-    }
-
-    remove_element_at_path(package, args_id, field_path);
-    if !captures.is_empty() {
-        let span = package.get_expr(args_id).span;
-        let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-        let modified_expr = package.exprs.get(args_id).expect("expr not found").clone();
-        let mut new_elements = if let ExprKind::Tuple(elems) = &modified_expr.kind {
-            elems.clone()
-        } else {
-            // Non-`Tuple` arg (e.g. an unresolved `Var`): copy the current
-            // payload into a FRESH expr and reference that instead of
-            // `args_id`. Referencing `args_id` here would make the rewritten
-            // `Tuple([args_id, ...])` contain itself, producing a
-            // self-referential expr cycle that overflows any later
-            // expression-tree walk.
-            let payload_id = alloc_expr(
-                package,
-                assigner,
-                modified_expr.ty.clone(),
-                modified_expr.kind.clone(),
-                span,
-            );
-            vec![payload_id]
-        };
-        new_elements.extend(capture_ids);
-        let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
-        let mut new_tys = match &modified_expr.ty {
-            Ty::Tuple(tys) => tys.clone(),
-            ty => vec![ty.clone()],
-        };
-        new_tys.extend(capture_tys);
-        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-        args_mut.kind = ExprKind::Tuple(new_elements);
-        args_mut.ty = Ty::Tuple(new_tys);
-    }
-}
-
-/// Removes the forwarded callable-array fields from a call's argument tuple and
-/// threads any closure captures through, for a call routed to a combined
-/// callable-array specialization by [`rewrite_callable_array_multi`].
-///
-/// The callable array sits in one of two argument shapes, selected by
-/// `uses_tuple_input`:
-/// - A multi-parameter HOF whose input is a tuple of parameters, where the
-///   array lives in the `top_level_param` slot of that tuple.
-/// - A single tuple-valued parameter whose whole argument *is* that tuple.
-///
-/// Fields to drop are identified positionally by `remove_indices` and by the
-/// exact forwarded element expression via `remove_expr_ids`, matching the
-/// callee-type reduction already applied by
-/// [`build_nested_callable_array_callee_ty`].
-///
-/// # Before (`uses_tuple_input`, `top_level_param = 1`)
-/// ```text
-/// (other_arg, (callable0, callable1, keep), more_args)
-/// ```
-/// # After
-/// ```text
-/// (other_arg, (keep), more_args, capture0, ...)   // array fields removed, captures appended
-/// ```
-///
-/// # Mutations
-/// - Rewrites the inner tuple slot (or `args_id` itself) in place via
-///   [`rewrite_nested_arg_expr_remove_fields`].
-/// - Refreshes the outer tuple's slot type and appends closure captures.
-/// - Allocates capture `Expr` nodes through `assigner`.
-#[allow(clippy::too_many_arguments)]
-fn rewrite_args_remove_nested_callable_fields(
-    package: &mut Package,
-    call_expr_id: ExprId,
-    args_id: ExprId,
-    uses_tuple_input: bool,
-    top_level_param: usize,
-    remove_indices: &FxHashSet<usize>,
-    remove_expr_ids: &FxHashSet<ExprId>,
-    captures: &[CapturedVar],
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
-    assigner: &mut Assigner,
-) {
-    let args_expr = package.get_expr(args_id).clone();
-    let owner_callable = expr_owner_lookup.get(&call_expr_id).copied();
-
-    if uses_tuple_input {
-        // Multi-parameter HOF: the callable array occupies one slot of the
-        // top-level argument tuple. Descend into `elements[top_level_param]`,
-        // strip the callable fields there, then refresh that slot's type and
-        // append any captures as top-level siblings of the surviving arguments.
-        if let ExprKind::Tuple(elements) = args_expr.kind {
-            let inner_id = elements[top_level_param];
-            if rewrite_nested_arg_expr_remove_fields(
-                package,
-                owner_callable,
-                inner_id,
-                remove_indices,
-                remove_expr_ids,
-                // No captures here: they belong at the top level (siblings of the
-                // other parameters), not inside this one parameter's slot, so they
-                // are appended to the outer `args_id` tuple below instead.
-                &[],
-                assigner,
-            ) {
-                // Refresh the outer tuple's type for the now-reduced inner slot.
-                let inner_ty = package.get_expr(inner_id).ty.clone();
-                let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-                if let Ty::Tuple(ref mut tys) = args_mut.ty {
-                    tys[top_level_param] = inner_ty;
-                }
-                if !captures.is_empty() {
-                    // Append closure captures (and their types) as top-level
-                    // siblings, matching the combined callee's input pattern.
-                    let capture_ids =
-                        allocate_capture_exprs(package, args_expr.span, captures, assigner);
-                    let capture_tys: Vec<Ty> =
-                        captures.iter().map(|capture| capture.ty.clone()).collect();
-                    let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-                    if let ExprKind::Tuple(ref mut elems) = args_mut.kind {
-                        elems.extend(capture_ids);
-                    }
-                    if let Ty::Tuple(ref mut tys) = args_mut.ty {
-                        tys.extend(capture_tys);
-                    }
-                }
-            }
-        }
-        return;
-    }
-
-    // Single tuple-valued parameter: the whole argument is the tuple holding the
-    // callable array, so strip the fields directly from `args_id` and thread the
-    // captures in the same pass. The returned success flag is unused because
-    // there is no enclosing slot type to refresh afterward.
-    let _ = rewrite_nested_arg_expr_remove_fields(
-        package,
-        owner_callable,
-        args_id,
-        remove_indices,
-        remove_expr_ids,
-        captures,
-        assigner,
-    );
-}
-
-/// Rewrites a call's argument expression to drop the removed callable field and
-/// thread captured values through, keeping the surviving fields as a single
-/// payload element.
-///
-/// Returns `true` when the argument was rewritten. When removing the field
-/// empties the payload, only the captures are emitted so the argument arity
-/// matches the specialized callee's input pattern.
-fn rewrite_nested_arg_expr_remove_fields_as_payload(
-    package: &mut Package,
-    owner_callable: Option<LocalItemId>,
-    args_id: ExprId,
-    remove_indices: &FxHashSet<usize>,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) -> bool {
-    let args_expr = package.get_expr(args_id).clone();
-    let source_id = if let ExprKind::Var(Res::Local(local_var), _) = args_expr.kind
-        && let Some(owner_callable) = owner_callable
-        && let Some(init_expr_id) =
-            find_local_init_expr_in_callable(package, owner_callable, local_var)
-    {
-        init_expr_id
-    } else {
-        args_id
-    };
-
-    let Some((payload_kind, payload_ty)) = remove_top_level_field_from_expr_data_with_exprs(
-        package,
-        owner_callable,
-        source_id,
-        remove_indices,
-        &FxHashSet::default(),
-        &[],
+        input,
+        &params,
+        &captures,
+        destination,
+        layers,
         assigner,
     ) else {
-        return false;
+        return;
     };
-
-    if captures.is_empty() {
-        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-        args_mut.kind = payload_kind;
-        args_mut.ty = payload_ty;
-        return true;
-    }
-
-    // Removing the sole tuple field leaves an empty payload. The specialized
-    // callee drops that emptied slot and keeps only the threaded captures, so
-    // prepending the empty payload here would produce a longer argument tuple
-    // than the callee's input pattern. Emit only the captures in that case so
-    // both sides agree on arity; otherwise keep the surviving payload ahead of
-    // the captures.
-    let payload_is_empty = matches!(&payload_kind, ExprKind::Tuple(fields) if fields.is_empty());
-
-    let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
-    let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
-
-    let (mut elements, mut tys) = if payload_is_empty {
-        (Vec::new(), Vec::new())
-    } else {
-        let payload_id = alloc_expr(
-            package,
-            assigner,
-            payload_ty.clone(),
-            payload_kind,
-            args_expr.span,
-        );
-        (vec![payload_id], vec![payload_ty])
-    };
-    elements.extend(capture_ids);
-    tys.extend(capture_tys);
-
-    let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-    args_mut.kind = ExprKind::Tuple(elements);
-    args_mut.ty = Ty::Tuple(tys);
-    true
-}
-
-/// Rewrites a call's argument expression to drop the removed callable fields,
-/// identified by index or by expression id, and thread captured values through
-/// as sibling elements.
-///
-/// Returns `true` when the argument was rewritten.
-fn rewrite_nested_arg_expr_remove_fields(
-    package: &mut Package,
-    owner_callable: Option<LocalItemId>,
-    args_id: ExprId,
-    remove_indices: &FxHashSet<usize>,
-    remove_expr_ids: &FxHashSet<ExprId>,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) -> bool {
-    let source_id = if let ExprKind::Var(Res::Local(local_var), _) = package.get_expr(args_id).kind
-        && let Some(owner_callable) = owner_callable
-        && let Some(init_expr_id) =
-            find_local_init_expr_in_callable(package, owner_callable, local_var)
-    {
-        init_expr_id
-    } else {
-        args_id
-    };
-
-    let Some((kind, ty)) = remove_top_level_field_from_expr_data_with_exprs(
-        package,
-        owner_callable,
-        source_id,
-        remove_indices,
-        remove_expr_ids,
-        captures,
-        assigner,
-    ) else {
-        return false;
-    };
-
-    let args_expr = package.exprs.get_mut(args_id).expect("args expr not found");
-    args_expr.kind = kind;
-    args_expr.ty = ty;
-    true
-}
-
-/// Rewrites a single local UDT/tuple argument by replacing the argument use with
-/// the local initializer after removing the specialized callable field.
-///
-/// # Before
-/// ```text
-/// args = Var(local_udt)   // bound to (field0, callable, field2)
-/// ```
-/// # After
-/// ```text
-/// args = (field0, field2, captures...)   // callable field removed
-/// ```
-///
-/// # Mutations
-/// - Overwrites `args_id`'s `ExprKind` and `Ty` in place.
-/// - Allocates capture `Expr` nodes through `assigner`.
-fn rewrite_local_single_arg_nested(
-    package: &mut Package,
-    owner_callable: Option<LocalItemId>,
-    args_id: ExprId,
-    field_path: &[usize],
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) -> bool {
-    if field_path.len() == 1 {
-        let mut remove_indices = FxHashSet::default();
-        remove_indices.insert(field_path[0]);
-        return rewrite_nested_arg_expr_remove_fields_as_payload(
-            package,
-            owner_callable,
-            args_id,
-            &remove_indices,
-            captures,
-            assigner,
-        );
-    }
-
-    // Deep path (`field_path.len() >= 2`): the callable lives inside a nested
-    // aggregate reached through a `Var`-bound local. Resolve the local's
-    // initializer and deep-strip the callable field, then inline the
-    // deep-stripped value at the call site. The original local binding becomes
-    // dead and is removed by later cleanup, so it no longer retains an
-    // arrow-typed field.
-    let args_expr = package.get_expr(args_id).clone();
-    let source_id = if let ExprKind::Var(Res::Local(local_var), _) = args_expr.kind
-        && let Some(owner_callable) = owner_callable
-        && let Some(init_expr_id) =
-            find_local_init_expr_in_callable(package, owner_callable, local_var)
-    {
-        init_expr_id
-    } else {
-        // Non-`Var` / unresolved args fall back to the caller's existing
-        // behavior (the inline-literal deep path is handled there).
-        return false;
-    };
-
-    let Some((kind, ty)) = build_removed_nested_expr_data(package, source_id, field_path, assigner)
+    let callee_ty = build_callee_ty_with_input(&package.get_expr(callee_id).ty, input, layers);
+    rewrite_specialized_callee(package, callee_id, spec_item_id, callee_ty, assigner);
+    let ExprKind::Call(_, call_args) = &mut package
+        .exprs
+        .get_mut(call_expr_id)
+        .expect("call exists")
+        .kind
     else {
-        return false;
+        unreachable!("rewritten expression remains a call")
     };
-
-    if captures.is_empty() {
-        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-        args_mut.kind = kind;
-        args_mut.ty = ty;
-        return true;
-    }
-
-    // Capture-carrying deep local: wrap the deep-stripped payload and append the
-    // closure captures (capture-LAST flatten), mirroring the len == 1 handling in
-    // `rewrite_nested_arg_expr_remove_fields_as_payload`. The payload is a FRESH
-    // expr id, so the rewritten arg never references itself; that avoids the
-    // self-referential `Tuple([args_id, ...])` cycle the plain fallback in
-    // `rewrite_single_arg_nested` would otherwise build for a non-`Tuple` `Var`
-    // arg carrying captures.
-    let payload_id = alloc_expr(package, assigner, ty.clone(), kind, args_expr.span);
-    let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
-    let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
-    let mut elements = vec![payload_id];
-    elements.extend(capture_ids);
-    let mut tys = vec![ty];
-    tys.extend(capture_tys);
-    let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-    args_mut.kind = ExprKind::Tuple(elements);
-    args_mut.ty = Ty::Tuple(tys);
-    true
+    *call_args = args.value;
+    statements.extend(args.prefix);
+    prepend_evaluations(package, call_expr_id, statements, assigner);
 }
 
-/// Builds replacement expression data for a call-argument aggregate after the
-/// top-level callable fields have been removed.
-///
-/// Before, the tuple or struct represented by `expr_id` still contains the
-/// callable-valued fields selected by `remove_indices`. After, the returned
-/// `ExprKind`/`Ty` pair describes the same aggregate with those fields removed,
-/// collapsed when only one element remains, and widened with any closure
-/// captures that must become explicit call arguments.
-fn remove_top_level_field_from_expr_data(
-    package: &mut Package,
-    expr_id: ExprId,
-    remove_indices: &FxHashSet<usize>,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) -> Option<(ExprKind, Ty)> {
-    remove_top_level_field_from_expr_data_with_exprs(
-        package,
-        None,
-        expr_id,
-        remove_indices,
-        &FxHashSet::default(),
-        captures,
-        assigner,
-    )
-}
-
-/// Builds replacement expression data for a call-argument aggregate after
-/// removing the callable fields at `remove_indices` or `remove_expr_ids` and
-/// appending capture expressions.
-///
-/// Recurses through a `Call` to its argument tuple, and handles both tuple and
-/// struct aggregates. Returns `None` for a shape it does not rewrite.
-fn remove_top_level_field_from_expr_data_with_exprs(
-    package: &mut Package,
-    owner_callable: Option<LocalItemId>,
-    expr_id: ExprId,
-    remove_indices: &FxHashSet<usize>,
-    remove_expr_ids: &FxHashSet<ExprId>,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) -> Option<(ExprKind, Ty)> {
-    let expr = package.get_expr(expr_id).clone();
-    let mut remaining = match &expr.kind {
-        ExprKind::Call(_, args_id) => {
-            return remove_top_level_field_from_expr_data_with_exprs(
-                package,
-                owner_callable,
-                *args_id,
-                remove_indices,
-                remove_expr_ids,
-                captures,
-                assigner,
-            );
-        }
-        ExprKind::Tuple(elements) => elements
-            .iter()
-            .enumerate()
-            .filter(|(idx, expr_id)| {
-                !remove_indices.contains(idx) && !remove_expr_ids.contains(expr_id)
-            })
-            .map(|(_, &expr_id)| expr_id)
-            .collect::<Vec<_>>(),
-        ExprKind::Struct(_, Some(copy_id), fields) => collect_struct_fields_after_removal(
-            package,
-            owner_callable,
-            &expr,
-            *copy_id,
-            fields,
-            remove_indices,
-            remove_expr_ids,
-            assigner,
-        )?,
-        ExprKind::Struct(_, None, fields) => fields
-            .iter()
-            .filter_map(|field| match &field.field {
-                Field::Path(path)
-                    if path
-                        .indices
-                        .first()
-                        .is_none_or(|idx| !remove_indices.contains(idx))
-                        && !remove_expr_ids.contains(&field.value) =>
-                {
-                    Some(field.value)
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>(),
-        _ => return None,
-    };
-
-    remaining.extend(allocate_capture_exprs(
-        package, expr.span, captures, assigner,
-    ));
-
-    Some(build_expr_data_from_elements(package, remaining))
-}
-
-/// Rebuilds the surviving field values of a `Struct` (with-copy) expression
+/// Rebuilds the surviving field values of a `Struct` expression
 /// after removing selected fields, so a callable field spliced out of a struct
 /// literal leaves a well-formed argument aggregate.
 ///
 /// Explicitly-assigned fields are taken from `fields`; every other field is
-/// materialized from the base copy expression via
+/// materialized from the optional base copy expression via
 /// [`materialize_struct_copy_field`]. Fields at `remove_indices`, and any value
-/// in `remove_expr_ids`, are dropped. Returns `None` for a shape it cannot
-/// decompose.
+/// in `remove_expr_ids`, are dropped. Results follow declaration order, not
+/// field-initializer order. Returns `None` for a missing field without a copy
+/// source or a shape it cannot decompose.
 #[allow(clippy::too_many_arguments)]
 fn collect_struct_fields_after_removal(
+    udts: &UdtMetadata,
     package: &mut Package,
     owner_callable: Option<LocalItemId>,
     expr: &Expr,
-    copy_id: ExprId,
+    copy_id: Option<ExprId>,
     fields: &[FieldAssign],
     remove_indices: &FxHashSet<usize>,
     remove_expr_ids: &FxHashSet<ExprId>,
     assigner: &mut Assigner,
 ) -> Option<Vec<ExprId>> {
-    let field_tys = struct_top_level_field_tys(package, &expr.ty)?;
+    let field_tys = struct_top_level_field_tys(udts, &expr.ty)?;
     let mut explicit_fields: FxHashMap<usize, ExprId> = FxHashMap::default();
     for field in fields {
         let Field::Path(path) = &field.field else {
@@ -4354,7 +4807,7 @@ fn collect_struct_fields_after_removal(
         let field_id = materialize_struct_copy_field(
             package,
             owner_callable,
-            copy_id,
+            copy_id?,
             index,
             ty,
             expr.span,
@@ -4369,19 +4822,20 @@ fn collect_struct_fields_after_removal(
 
 /// Returns the top-level field types of a struct/UDT type, resolving UDT
 /// wrappers to their underlying tuple; `None` when the type is not a tuple.
-fn struct_top_level_field_tys(package: &Package, ty: &Ty) -> Option<Vec<Ty>> {
-    match resolve_udt_ty(package, ty) {
-        Ty::Tuple(tys) => Some(tys),
+fn struct_top_level_field_tys(udts: &UdtMetadata, ty: &Ty) -> Option<Vec<Ty>> {
+    match udts.underlying_ty(ty) {
+        Ty::Tuple(tys) => Some(tys.clone()),
         _ => None,
     }
 }
 
 /// Produces an expression for field `field_index` of a struct copy source.
 ///
-/// Follows the copy expression to its underlying value — a local's initializer
-/// (within `owner_callable`), a tuple element, a call's argument tuple, or a
+/// Follows the copy expression to its underlying value — a proven replayable
+/// local initializer, a tuple element, a type constructor's arguments, or a
 /// nested struct field — returning the concrete sub-expression when one is
-/// found, and otherwise synthesizing a `Field` projection of the copy source.
+/// found. Ordinary calls and other opaque values get a synthesized `Field`
+/// projection of their result; missing tuple/struct fields return `None`.
 fn materialize_struct_copy_field(
     package: &mut Package,
     owner_callable: Option<LocalItemId>,
@@ -4392,11 +4846,22 @@ fn materialize_struct_copy_field(
     assigner: &mut Assigner,
 ) -> Option<ExprId> {
     let copy_expr = package.get_expr(copy_id).clone();
+    if let Some(args_id) = type_constructor_args(package, &copy_expr) {
+        return materialize_struct_copy_field(
+            package,
+            owner_callable,
+            args_id,
+            field_index,
+            field_ty,
+            span,
+            assigner,
+        );
+    }
     match copy_expr.kind {
         ExprKind::Var(Res::Local(local_var), _)
             if let Some(owner_callable) = owner_callable
                 && let Some(init_expr_id) =
-                    find_local_init_expr_in_callable(package, owner_callable, local_var) =>
+                    replayable_local_initializer(package, owner_callable, local_var) =>
         {
             materialize_struct_copy_field(
                 package,
@@ -4409,15 +4874,6 @@ fn materialize_struct_copy_field(
             )
         }
         ExprKind::Tuple(elements) => elements.get(field_index).copied(),
-        ExprKind::Call(_, args_id) => materialize_struct_copy_field(
-            package,
-            owner_callable,
-            args_id,
-            field_index,
-            field_ty,
-            span,
-            assigner,
-        ),
         ExprKind::Struct(_, nested_copy, fields) => {
             for field in fields {
                 let Field::Path(path) = &field.field else {
@@ -4456,6 +4912,22 @@ fn materialize_struct_copy_field(
     }
 }
 
+/// Constructor callees name their result type's item, including foreign types.
+/// An ordinary function returning that type must retain its computed result.
+fn type_constructor_args(package: &Package, expr: &Expr) -> Option<ExprId> {
+    let ExprKind::Call(callee, args) = expr.kind else {
+        return None;
+    };
+    match (&package.get_expr(callee).kind, &expr.ty) {
+        (ExprKind::Var(Res::Item(callee_item), _), Ty::Udt(Res::Item(type_item)))
+            if callee_item == type_item =>
+        {
+            Some(args)
+        }
+        _ => None,
+    }
+}
+
 /// Builds the `ExprKind` and `Ty` for a tuple of the given elements, collapsing
 /// an empty list to `Unit` and a single element to itself rather than a
 /// one-tuple.
@@ -4476,615 +4948,255 @@ fn build_expr_data_from_elements(package: &Package, elements: Vec<ExprId>) -> (E
     }
 }
 
-/// Builds replacement expression data for a call-argument aggregate after
-/// removing the callable-valued field reachable at `field_path`, without
-/// mutating any existing expression node.
-///
-/// This is the deep (`field_path.len() >= 1`) analogue of
-/// [`remove_top_level_field_from_expr_data`]. For each path segment it unwraps a
-/// UDT-constructor `Call(ctor, args)` to its argument aggregate, descends into
-/// the selected tuple element, and rebuilds each intermediate tuple with a
-/// freshly allocated `Expr` for the stripped child while sharing the untouched
-/// sibling expression ids unchanged.
-///
-/// # Before (`field_path = [0, 0]`, `expr = Config(OpBox(callable, 1), 5)`)
-/// ```text
-/// Config(OpBox(callable, 1), 5)
-/// ```
-/// # After
-/// ```text
-/// ((1), 5)   // the callable at Inner[0] removed, OpBox collapsed to its Id
-/// ```
-///
-/// Returns `None` for a `Struct` literal or an out-of-range index. A
-/// `Struct`-literal-bound deep local is intentionally left to decline: analysis
-/// cannot resolve a concrete callable through a `Struct` literal, so such a call
-/// site is already reported as `Qdk.Qsc.Defunctionalize.DynamicCallable` upstream of
-/// this rewrite and never reaches here. Extending this helper to recurse through
-/// `Struct` fields would therefore be dead code unless analysis is separately
-/// taught to resolve concrete callables through struct literals.
-fn build_removed_nested_expr_data(
+fn reduce_argument(
+    udts: &UdtMetadata,
     package: &mut Package,
     expr_id: ExprId,
-    field_path: &[usize],
+    removal: &InputRemoval,
     assigner: &mut Assigner,
 ) -> Option<(ExprKind, Ty)> {
     let expr = package.get_expr(expr_id).clone();
+    let InputRemoval::Tuple { children, collapse } = removal else {
+        return Some(if removal.is_removed() {
+            (ExprKind::Tuple(Vec::new()), Ty::UNIT)
+        } else {
+            (expr.kind, expr.ty)
+        });
+    };
+    if struct_argument_needs_materialization(package, &expr) {
+        return build_ordered_struct_argument(udts, package, &expr, removal, assigner);
+    }
 
     // Unwrap a UDT-constructor `Call(ctor, args)` to its argument aggregate.
-    if let ExprKind::Call(_, inner_args_id) = &expr.kind {
-        return build_removed_nested_expr_data(package, *inner_args_id, field_path, assigner);
+    if let Some(inner_args_id) = type_constructor_args(package, &expr) {
+        return reduce_argument(udts, package, inner_args_id, removal, assigner);
     }
-
-    let (&index, rest) = field_path.split_first()?;
-
-    let ExprKind::Tuple(elements) = &expr.kind else {
-        // `Struct` literals (and any other aggregate form) decline here; see the
-        // doc comment above for why this is a correct, bounded decline.
-        return None;
-    };
-    if index >= elements.len() {
+    let (statements, elements) =
+        materialize_tuple_argument_elements(udts, package, &expr, assigner)?;
+    if children.len() != elements.len() {
         return None;
     }
-    let elements = elements.clone();
-
-    if rest.is_empty() {
-        // Terminal segment: drop the selected element, collapsing/retyping via
-        // the shared element builder.
-        let remaining: Vec<ExprId> = elements
-            .iter()
-            .enumerate()
-            .filter(|(idx, _)| *idx != index)
-            .map(|(_, &id)| id)
-            .collect();
-        return Some(build_expr_data_from_elements(package, remaining));
+    let mut remaining = Vec::new();
+    for (element, removal) in elements.into_iter().zip(children) {
+        if matches!(removal, InputRemoval::Keep) {
+            remaining.push(element);
+        } else if !removal.is_removed() {
+            let (kind, ty) = reduce_argument(udts, package, element, removal, assigner)?;
+            let span = package.get_expr(element).span;
+            remaining.push(alloc_expr(package, assigner, ty, kind, span));
+        }
     }
-
-    // Deeper segment: recursively strip the nested aggregate at `index`, then
-    // splice a FRESH `Expr` for it back into a rebuilt tuple so the original
-    // nested nodes are left untouched.
-    let (child_kind, child_ty) =
-        build_removed_nested_expr_data(package, elements[index], rest, assigner)?;
-    let child_span = package.get_expr(elements[index]).span;
-    let child_id = alloc_expr(package, assigner, child_ty, child_kind, child_span);
-    let mut new_elements = elements;
-    new_elements[index] = child_id;
-    let new_tys: Vec<Ty> = new_elements
-        .iter()
-        .map(|&id| package.get_expr(id).ty.clone())
-        .collect();
-    Some((ExprKind::Tuple(new_elements), Ty::Tuple(new_tys)))
-}
-
-/// Rewrites a single-parameter call's args expression after the callable
-/// argument has been removed.
-///
-/// Before, `args_id` evaluates to the callable argument itself. After, it
-/// evaluates to `()` for a plain global callee or to `(captures...)` when the
-/// rewritten direct call must thread closure captures explicitly.
-fn rewrite_single_arg_root(
-    package: &mut Package,
-    args_id: ExprId,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) {
-    let args_expr = package
-        .exprs
-        .get(args_id)
-        .expect("args expr not found")
-        .clone();
-
-    if captures.is_empty() {
-        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-        args_mut.kind = ExprKind::Tuple(Vec::new());
-        args_mut.ty = Ty::UNIT;
-    } else if captures.len() == 1 {
-        // A single capture flattens to a scalar arg expression, matching the
-        // single-element-flatten convention in `remove_callable_param`.
-        let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
-        let single = package
-            .exprs
-            .get(capture_ids[0])
-            .expect("capture expr not found")
-            .clone();
-        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-        args_mut.kind = single.kind;
-        args_mut.ty = single.ty;
+    let (kind, ty) = if *collapse {
+        build_expr_data_from_elements(package, remaining)
     } else {
-        let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
-        let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
-        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
-        args_mut.kind = ExprKind::Tuple(capture_ids);
-        args_mut.ty = Ty::Tuple(capture_tys);
-    }
-}
-
-/// Removes the callable argument at `path` from a tuple-valued args expression
-/// in place.
-///
-/// Before, the tuple nesting rooted at `expr_id` still matches the original
-/// higher-order callable input. After, the selected element is removed, empty
-/// tuples become unit, and one-element tuples collapse so the remaining shape
-/// matches the specialized callee's input.
-fn remove_element_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
-    if path.is_empty() {
-        return;
-    }
-    let expr = package.exprs.get(expr_id).expect("expr not found").clone();
-
-    if path.len() == 1 {
-        if let ExprKind::Tuple(elements) = &expr.kind {
-            let new_elements: Vec<ExprId> = elements
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| *i != path[0])
-                .map(|(_, &id)| id)
-                .collect();
-            let new_tys: Vec<Ty> = if let Ty::Tuple(tys) = &expr.ty {
-                tys.iter()
-                    .enumerate()
-                    .filter(|(i, _)| *i != path[0])
-                    .map(|(_, t)| t.clone())
-                    .collect()
-            } else {
-                Vec::new()
-            };
-
-            if new_elements.len() == 1 {
-                // Flatten single-element tuple.
-                let single = package
-                    .exprs
-                    .get(new_elements[0])
-                    .expect("expr not found")
-                    .clone();
-                let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
-                expr_mut.kind = single.kind;
-                expr_mut.ty = single.ty;
-            } else if new_elements.is_empty() {
-                let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
-                expr_mut.kind = ExprKind::Tuple(Vec::new());
-                expr_mut.ty = Ty::UNIT;
-            } else {
-                let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
-                expr_mut.kind = ExprKind::Tuple(new_elements);
-                expr_mut.ty = Ty::Tuple(new_tys);
-            }
-        }
-    } else if let ExprKind::Tuple(elements) = &expr.kind {
-        let inner_id = elements[path[0]];
-        remove_element_at_path(package, inner_id, &path[1..]);
-        // Update the outer tuple's type for the modified inner element.
-        let inner_expr = package.exprs.get(inner_id).expect("expr not found");
-        let inner_ty = inner_expr.ty.clone();
-        let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
-        if let Ty::Tuple(ref mut tys) = expr_mut.ty {
-            tys[path[0]] = inner_ty;
-        }
-    }
-}
-
-/// Materializes the capture operands that must be appended to rewritten call
-/// arguments.
-///
-/// Before, each capture is represented only by analysis metadata: an optional
-/// existing `ExprId` and the local it denotes. After, every capture has a
-/// concrete `ExprId` that can be spliced into a tuple, reusing the recorded
-/// expression when possible and otherwise synthesizing `Var(Local(_))` nodes.
-fn allocate_capture_exprs(
-    package: &mut Package,
-    span: PackageSpan,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) -> Vec<ExprId> {
-    if captures.is_empty() {
-        return Vec::new();
-    }
-
-    let mut ids = Vec::with_capacity(captures.len());
-
-    for capture in captures {
-        if let Some(expr_id) = capture.expr {
-            if capture.caller_substitutions.is_empty() {
-                ids.push(expr_id);
-            } else {
-                // The capture's initializer is a producer-scope compound
-                // literal whose inner leaves reference the producing function's
-                // parameters. Deep-clone it into caller scope, rebinding each
-                // recorded producer leaf to its caller-scope argument, so no
-                // unbound producer local is spliced into the caller.
-                let substitutions: FxHashMap<LocalVarId, ExprId> =
-                    capture.caller_substitutions.iter().copied().collect();
-                let rebound = clone_capture_literal_with_substitutions(
-                    package,
-                    expr_id,
-                    &substitutions,
-                    assigner,
-                );
-                ids.push(rebound);
-            }
-            continue;
-        }
-
-        let new_id = alloc_local_var_expr(package, assigner, capture.var, capture.ty.clone(), span);
-        ids.push(new_id);
-    }
-
-    ids
-}
-
-/// Deep-clones a producer-scope compound-literal capture into caller scope,
-/// rebinding its inner producer-parameter leaves to caller-scope arguments.
-///
-/// Before, the literal's inner `Var(Res::Local(_))` leaves reference the
-/// producing function's parameters, which are unbound in the caller. After,
-/// every safe, referentially-transparent node (struct/tuple/array constructors,
-/// pure `function` calls, binary/unary operators, field and index accessors,
-/// index/field updates, and ranges) is re-allocated with a fresh `ExprId`, each
-/// producer leaf recorded in `substitutions` is replaced by the caller-scope
-/// argument expression bound to that parameter at the call site (reused as-is,
-/// not re-cloned), and every other leaf is cloned verbatim, so the
-/// reconstructed literal is rooted entirely in caller-scope values. The set of
-/// kinds recursed here must stay harmonized with
-/// `collect_compound_capture_substitutions` and the residual-leak decline guard
-/// in analysis; a non-pure `Call` (operation callee) is intentionally excluded
-/// so its call is not relocated.
-#[allow(clippy::too_many_lines)]
-fn clone_capture_literal_with_substitutions(
-    package: &mut Package,
-    expr_id: ExprId,
-    substitutions: &FxHashMap<LocalVarId, ExprId>,
-    assigner: &mut Assigner,
-) -> ExprId {
-    let expr = package.get_expr(expr_id).clone();
-
-    // A substituted producer-parameter leaf resolves directly to its already
-    // caller-scope argument expression, which is reused unchanged.
-    if let ExprKind::Var(Res::Local(var), _) = &expr.kind
-        && let Some(&caller_expr) = substitutions.get(var)
-    {
-        return caller_expr;
-    }
-
-    let new_kind = match &expr.kind {
-        ExprKind::Tuple(elements) => {
-            let mut cloned = Vec::with_capacity(elements.len());
-            for &elem in elements {
-                cloned.push(clone_capture_literal_with_substitutions(
-                    package,
-                    elem,
-                    substitutions,
-                    assigner,
-                ));
-            }
-            ExprKind::Tuple(cloned)
-        }
-        ExprKind::Array(elements) => {
-            let mut cloned = Vec::with_capacity(elements.len());
-            for &elem in elements {
-                cloned.push(clone_capture_literal_with_substitutions(
-                    package,
-                    elem,
-                    substitutions,
-                    assigner,
-                ));
-            }
-            ExprKind::Array(cloned)
-        }
-        ExprKind::ArrayLit(elements) => {
-            let mut cloned = Vec::with_capacity(elements.len());
-            for &elem in elements {
-                cloned.push(clone_capture_literal_with_substitutions(
-                    package,
-                    elem,
-                    substitutions,
-                    assigner,
-                ));
-            }
-            ExprKind::ArrayLit(cloned)
-        }
-        ExprKind::ArrayRepeat(value, size) => {
-            let value =
-                clone_capture_literal_with_substitutions(package, *value, substitutions, assigner);
-            let size =
-                clone_capture_literal_with_substitutions(package, *size, substitutions, assigner);
-            ExprKind::ArrayRepeat(value, size)
-        }
-        ExprKind::Struct(name, copy, fields) => {
-            let copy = (*copy).map(|copy_id| {
-                clone_capture_literal_with_substitutions(package, copy_id, substitutions, assigner)
-            });
-            let mut cloned_fields = Vec::with_capacity(fields.len());
-            for field in fields {
-                let value = clone_capture_literal_with_substitutions(
-                    package,
-                    field.value,
-                    substitutions,
-                    assigner,
-                );
-                cloned_fields.push(FieldAssign {
-                    span: field.span,
-                    field: field.field.clone(),
-                    value,
-                });
-            }
-            ExprKind::Struct(*name, copy, cloned_fields)
-        }
-        // A `Call` is rebuilt only when its callee is a pure `function`; a
-        // non-pure operation call falls to the verbatim `other => other` arm so
-        // its call is never relocated (analysis declines such a capture to a
-        // dynamic call site before rewrite runs, so this arm is effectively
-        // unreached for operation callees).
-        ExprKind::Call(callee, arg) if callee_is_pure_function(package, *callee) => {
-            let callee =
-                clone_capture_literal_with_substitutions(package, *callee, substitutions, assigner);
-            let arg =
-                clone_capture_literal_with_substitutions(package, *arg, substitutions, assigner);
-            ExprKind::Call(callee, arg)
-        }
-        ExprKind::BinOp(op, lhs, rhs) => {
-            let lhs =
-                clone_capture_literal_with_substitutions(package, *lhs, substitutions, assigner);
-            let rhs =
-                clone_capture_literal_with_substitutions(package, *rhs, substitutions, assigner);
-            ExprKind::BinOp(*op, lhs, rhs)
-        }
-        ExprKind::UnOp(op, operand) => {
-            let operand = clone_capture_literal_with_substitutions(
-                package,
-                *operand,
-                substitutions,
-                assigner,
-            );
-            ExprKind::UnOp(*op, operand)
-        }
-        ExprKind::Field(base, field) => {
-            let base =
-                clone_capture_literal_with_substitutions(package, *base, substitutions, assigner);
-            ExprKind::Field(base, field.clone())
-        }
-        ExprKind::Index(base, index) => {
-            let base =
-                clone_capture_literal_with_substitutions(package, *base, substitutions, assigner);
-            let index =
-                clone_capture_literal_with_substitutions(package, *index, substitutions, assigner);
-            ExprKind::Index(base, index)
-        }
-        ExprKind::UpdateIndex(container, index, value) => {
-            let container = clone_capture_literal_with_substitutions(
-                package,
-                *container,
-                substitutions,
-                assigner,
-            );
-            let index =
-                clone_capture_literal_with_substitutions(package, *index, substitutions, assigner);
-            let value =
-                clone_capture_literal_with_substitutions(package, *value, substitutions, assigner);
-            ExprKind::UpdateIndex(container, index, value)
-        }
-        ExprKind::UpdateField(record, field, value) => {
-            let record =
-                clone_capture_literal_with_substitutions(package, *record, substitutions, assigner);
-            let value =
-                clone_capture_literal_with_substitutions(package, *value, substitutions, assigner);
-            ExprKind::UpdateField(record, field.clone(), value)
-        }
-        ExprKind::Range(start, step, end) => {
-            let clone_opt = |package: &mut Package,
-                             part: Option<ExprId>,
-                             assigner: &mut Assigner| {
-                part.map(|part| {
-                    clone_capture_literal_with_substitutions(package, part, substitutions, assigner)
-                })
-            };
-            let start = clone_opt(package, *start, assigner);
-            let step = clone_opt(package, *step, assigner);
-            let end = clone_opt(package, *end, assigner);
-            ExprKind::Range(start, step, end)
-        }
-        _ => expr.kind.clone(),
+        let tys = remaining
+            .iter()
+            .map(|id| package.get_expr(*id).ty.clone())
+            .collect();
+        (ExprKind::Tuple(remaining), Ty::Tuple(tys))
     };
-
-    alloc_expr(package, assigner, expr.ty.clone(), new_kind, expr.span)
+    Some(wrap_argument_statements(
+        package, statements, kind, ty, expr.span, assigner,
+    ))
 }
 
-/// Reports whether a `Call`'s callee resolves to a pure `function`.
-///
-/// A Q# `function` is guaranteed side-effect free and its arrow type cannot
-/// bear functors, so it is referentially transparent and its call may be
-/// relocated or duplicated into caller-scope argument construction. An
-/// `operation` may have observable side effects and ordering, so its call must
-/// not be relocated. This mirrors the identical gate applied in analysis so the
-/// collect / clone / decline-guard sites recurse the same set of `Call` nodes.
-fn callee_is_pure_function(package: &Package, callee: ExprId) -> bool {
-    matches!(
-        &package.get_expr(callee).ty,
-        Ty::Arrow(arrow) if arrow.kind == CallableKind::Function
+/// Opaque aggregates need one stored result shared by all surviving projections.
+fn materialize_tuple_argument_elements(
+    udts: &UdtMetadata,
+    package: &mut Package,
+    expr: &Expr,
+    assigner: &mut Assigner,
+) -> Option<(Vec<StmtId>, Vec<ExprId>)> {
+    if let Some(elements) = tuple_argument_elements(udts, package, expr, assigner) {
+        return Some((Vec::new(), elements));
+    }
+    let Ty::Tuple(_) = udts.underlying_ty(&expr.ty) else {
+        return None;
+    };
+    let (local, binding) = crate::fir_builder::alloc_local_var(
+        package,
+        assigner,
+        "_.aggregate_argument",
+        &expr.ty,
+        expr.id,
+        Mutability::Immutable,
+    );
+    let read = crate::fir_builder::alloc_local_var_expr(
+        package,
+        assigner,
+        local,
+        expr.ty.clone(),
+        expr.span,
+    );
+    let stored = package.get_expr(read).clone();
+    Some((
+        vec![binding],
+        tuple_argument_elements(udts, package, &stored, assigner)?,
+    ))
+}
+
+/// Reuses literal aggregate children or projects a stored tuple value. Following
+/// a local's initializer instead could duplicate effects or reconstruct a value
+/// from operands that have since changed. Struct fields are returned in
+/// declaration order so tuple paths remain valid for reordered initializers.
+fn tuple_argument_elements(
+    udts: &UdtMetadata,
+    package: &mut Package,
+    expr: &Expr,
+    assigner: &mut Assigner,
+) -> Option<Vec<ExprId>> {
+    if let ExprKind::Tuple(elements) = &expr.kind {
+        return Some(elements.clone());
+    }
+    if let ExprKind::Struct(_, copy, fields) = &expr.kind {
+        return collect_struct_fields_after_removal(
+            udts,
+            package,
+            None,
+            expr,
+            *copy,
+            fields,
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+            assigner,
+        );
+    }
+    let mut root = expr.id;
+    while let ExprKind::Field(base, _) = package.get_expr(root).kind {
+        root = base;
+    }
+    if !matches!(package.get_expr(root).kind, ExprKind::Var(Res::Local(_), _)) {
+        return None;
+    }
+    let Ty::Tuple(types) = udts.underlying_ty(&expr.ty) else {
+        return None;
+    };
+    // Callers may overwrite the argument root with the rebuilt payload. Keep
+    // projections rooted in a separate read to avoid a self-referential graph.
+    let stored = alloc_expr(
+        package,
+        assigner,
+        expr.ty.clone(),
+        expr.kind.clone(),
+        expr.span,
+    );
+    Some(
+        types
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, ty)| {
+                crate::fir_builder::alloc_field_expr(
+                    package, assigner, stored, index, ty, expr.span,
+                )
+            })
+            .collect(),
     )
 }
 
-/// Computes the callee arrow type that corresponds to a rewritten direct call.
-///
-/// Before, the callee type still includes the callable-valued parameter from
-/// the original higher-order signature. After, the returned arrow removes that
-/// input slot and appends any closure capture types so the callee type matches
-/// the rewritten args expression.
-fn build_specialized_callee_ty(
-    package: &Package,
-    callee_id: ExprId,
-    input_path: &[usize],
-    concrete: &ConcreteCallable,
-) -> Option<Ty> {
-    let callee_expr = package.get_expr(callee_id);
-    let Ty::Arrow(ref arrow) = callee_expr.ty else {
-        return None;
+fn struct_argument_needs_materialization(package: &Package, expr: &Expr) -> bool {
+    let ExprKind::Struct(_, copy, _) = expr.kind else {
+        return false;
     };
-
-    let captures = match concrete {
-        ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
-        _ => &[],
-    };
-
-    let new_input = remove_ty_at_path(package, &arrow.input, input_path, captures);
-    Some(Ty::Arrow(Box::new(Arrow {
-        kind: arrow.kind,
-        input: Box::new(new_input),
-        output: arrow.output.clone(),
-        functors: arrow.functors,
-    })))
+    copy.is_some_and(|id| {
+        let value = package.get_expr(id);
+        matches!(value.kind, ExprKind::Call(..)) && type_constructor_args(package, value).is_none()
+    }) || !expr_is_safe_to_discard(package, package.id, expr.id)
 }
 
-/// Builds the arrow type of the specialized callee after the callable value at
-/// `input_path` is removed from the input and capture types are appended.
-///
-/// Returns `None` when the callee is not arrow-typed.
-fn build_specialized_nested_payload_callee_ty(
-    package: &Package,
-    callee_id: ExprId,
-    input_path: &[usize],
-    captures: &[CapturedVar],
-) -> Option<Ty> {
-    let callee_expr = package.get_expr(callee_id);
-    let Ty::Arrow(ref arrow) = callee_expr.ty else {
-        return None;
+/// Field layout follows declaration order, but evaluation follows source order.
+/// Capture the copy value and initializers once before reducing their layout;
+/// otherwise projections can duplicate a factory call and reordered fields can
+/// reorder effects or change which failure occurs.
+fn materialize_struct_argument(
+    package: &mut Package,
+    expr: &Expr,
+    assigner: &mut Assigner,
+) -> (Vec<StmtId>, Expr) {
+    let ExprKind::Struct(name, copy, fields) = &expr.kind else {
+        unreachable!("ordered struct arguments require a Struct expression");
     };
-
-    let payload = remove_ty_at_path(package, &arrow.input, input_path, &[]);
-    let new_input = if captures.is_empty() {
-        payload
-    } else {
-        let mut tys = vec![payload];
-        tys.extend(captures.iter().map(|capture| capture.ty.clone()));
-        Ty::Tuple(tys)
+    let mut statements = Vec::new();
+    let mut bind_value = |package: &mut Package, id: ExprId| {
+        let value = package.get_expr(id);
+        let ty = value.ty.clone();
+        let span = value.span;
+        let (local, statement) = crate::fir_builder::alloc_local_var(
+            package,
+            assigner,
+            "_.branch_field",
+            &ty,
+            id,
+            Mutability::Immutable,
+        );
+        statements.push(statement);
+        crate::fir_builder::alloc_local_var_expr(package, assigner, local, ty, span)
     };
-
-    Some(Ty::Arrow(Box::new(Arrow {
-        kind: arrow.kind,
-        input: Box::new(new_input),
-        output: arrow.output.clone(),
-        functors: arrow.functors,
-    })))
+    let copy = copy.map(|id| bind_value(package, id));
+    let fields = fields
+        .iter()
+        .map(|field| FieldAssign {
+            value: bind_value(package, field.value),
+            ..field.clone()
+        })
+        .collect();
+    let stored = Expr {
+        kind: ExprKind::Struct(*name, copy, fields),
+        ..expr.clone()
+    };
+    (statements, stored)
 }
 
-/// Removes the type at a given path from a tuple type and appends capture types.
-/// For single-element paths, removes the element at that index from the tuple.
-/// For multi-element paths, navigates into nested tuples to remove the element.
-/// An empty path removes the entire root value. If the type is not a tuple,
-/// it represents the single callable-param case, so the result is either Unit
-/// or a tuple of capture types.
-fn remove_ty_at_path(package: &Package, ty: &Ty, path: &[usize], captures: &[CapturedVar]) -> Ty {
-    let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
+fn build_ordered_struct_argument(
+    udts: &UdtMetadata,
+    package: &mut Package,
+    expr: &Expr,
+    removal: &InputRemoval,
+    assigner: &mut Assigner,
+) -> Option<(ExprKind, Ty)> {
+    let (statements, stored) = materialize_struct_argument(package, expr, assigner);
+    let elements = tuple_argument_elements(udts, package, &stored, assigner)?;
+    let ty = Ty::Tuple(
+        elements
+            .iter()
+            .map(|id| package.get_expr(*id).ty.clone())
+            .collect(),
+    );
+    let tuple = alloc_expr(package, assigner, ty, ExprKind::Tuple(elements), expr.span);
+    let (kind, ty) = reduce_argument(udts, package, tuple, removal, assigner)?;
+    Some(wrap_argument_statements(
+        package, statements, kind, ty, expr.span, assigner,
+    ))
+}
 
-    if path.is_empty() {
-        return match capture_tys.len() {
-            0 => Ty::UNIT,
-            // A single capture flattens to a scalar arrow input, matching the
-            // single-element-flatten convention in `remove_callable_param`.
-            1 => capture_tys.into_iter().next().expect("one capture type"),
-            _ => Ty::Tuple(capture_tys),
-        };
+fn wrap_argument_statements(
+    package: &mut Package,
+    mut statements: Vec<StmtId>,
+    kind: ExprKind,
+    ty: Ty,
+    span: PackageSpan,
+    assigner: &mut Assigner,
+) -> (ExprKind, Ty) {
+    if statements.is_empty() {
+        return (kind, ty);
     }
-
-    let ty = resolve_udt_ty(package, ty);
-
-    if path.len() == 1 {
-        if let Ty::Tuple(tys) = &ty {
-            let mut remaining: Vec<Ty> = tys
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| *i != path[0])
-                .map(|(_, t)| t.clone())
-                .collect();
-            remaining.extend(capture_tys);
-            if remaining.is_empty() {
-                Ty::UNIT
-            } else if remaining.len() == 1 && captures.is_empty() {
-                // Flatten single-element tuple to match pattern flattening.
-                remaining
-                    .into_iter()
-                    .next()
-                    .expect("single element should exist")
-            } else {
-                Ty::Tuple(remaining)
-            }
-        } else {
-            // Single param is the callable — result is captures or unit.
-            if capture_tys.is_empty() {
-                Ty::UNIT
-            } else {
-                Ty::Tuple(capture_tys)
-            }
-        }
-    } else {
-        // Navigate deeper: modify the sub-type at path[0], then rebuild.
-        if let Ty::Tuple(tys) = &ty {
-            let mut new_tys = tys.clone();
-            // Remove nested element without captures at inner level.
-            new_tys[path[0]] = remove_ty_at_path(package, &tys[path[0]], &path[1..], &[]);
-            // Append captures at the top level.
-            new_tys.extend(capture_tys);
-            Ty::Tuple(new_tys)
-        } else {
-            // Single param that is a tuple type — remove from within.
-            let modified = remove_ty_at_path(package, &ty, &path[1..], &[]);
-            if capture_tys.is_empty() {
-                modified
-            } else {
-                let mut all = vec![modified];
-                all.extend(capture_tys);
-                Ty::Tuple(all)
-            }
-        }
-    }
+    let value = alloc_expr(package, assigner, ty.clone(), kind, span);
+    statements.push(crate::fir_builder::alloc_expr_stmt(
+        package, assigner, value, span,
+    ));
+    let block = crate::fir_builder::alloc_block(package, assigner, statements, ty.clone(), span);
+    (ExprKind::Block(block), ty)
 }
 
-/// Builds the tuple type for the args expression after removing the element at
-/// `param_path` and appending capture types.
-fn build_tuple_ty_without_path(
-    package: &Package,
-    ty: &Ty,
-    param_path: &[usize],
-    captures: &[CapturedVar],
-) -> Ty {
-    remove_ty_at_path(package, ty, param_path, captures)
-}
-
-/// Reports whether `ty` contains an arrow type after resolving through any UDT
-/// wrappers.
-fn local_ty_contains_arrow_through_udts(package: &Package, ty: &Ty) -> bool {
-    ty_contains_arrow(&resolve_udt_ty(package, ty))
-}
-
-/// Resolves a type through user-defined-type wrappers to its underlying
-/// structural type, recursing into tuples, arrays, and arrow inputs and
-/// outputs.
-///
-/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
-fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
-    match ty {
-        Ty::Udt(Res::Item(item_id)) => {
-            let Some(item) = package.items.get(item_id.item) else {
-                return ty.clone();
-            };
-            let ItemKind::Ty(_, udt) = &item.kind else {
-                return ty.clone();
-            };
-            resolve_udt_ty(package, &udt.get_pure_ty())
-        }
-        Ty::Tuple(elems) => Ty::Tuple(
-            elems
-                .iter()
-                .map(|elem| resolve_udt_ty(package, elem))
-                .collect(),
-        ),
-        Ty::Array(elem) => Ty::Array(Box::new(resolve_udt_ty(package, elem))),
-        Ty::Arrow(arrow) => Ty::Arrow(Box::new(Arrow {
-            kind: arrow.kind,
-            input: Box::new(resolve_udt_ty(package, &arrow.input)),
-            output: Box::new(resolve_udt_ty(package, &arrow.output)),
-            functors: arrow.functors,
-        })),
-        _ => ty.clone(),
+/// Reports whether `ty` has an arrow at its root or under tuple fields after
+/// UDT expansion. Arrays remain opaque to this cleanup predicate.
+fn local_ty_contains_arrow_through_udts(udts: &UdtMetadata, ty: &Ty) -> bool {
+    match udts.underlying_ty(ty) {
+        Ty::Arrow(_) | Ty::Udt(_) => true,
+        Ty::Tuple(fields) => fields
+            .iter()
+            .any(|ty| local_ty_contains_arrow_through_udts(udts, ty)),
+        _ => false,
     }
 }
 
@@ -5243,13 +5355,15 @@ fn restrict_to_dispatched_parameter<'a>(
 /// - Replaces `call_expr_id`'s `ExprKind` with the dispatch chain.
 /// - Allocates per-branch `Call`, callee, args, and `If` `Expr` nodes
 ///   through `assigner`.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn branch_split_rewrite(
+    udts: &UdtMetadata,
     package: &mut Package,
     package_id: PackageId,
     call_expr_id: ExprId,
     entries: &[HofDispatchTarget],
     constants: &[(&CallSite, &CallableParam)],
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     assigner: &mut Assigner,
 ) {
     let orig_call = package.get_expr(call_expr_id).clone();
@@ -5259,25 +5373,54 @@ fn branch_split_rewrite(
     let span = orig_call.span;
     let result_ty = orig_call.ty.clone();
 
-    // A per-row mixed group, built when defunctionalization cannot prove a
-    // combined specialization, can mix a dispatched parameter, the same
-    // position carrying two or more empty-condition candidates such as `[H, X]`
-    // at slot 0, with a sibling at a different position such as a global `Y` at
-    // slot 1. The sibling is not selected by the loop index, so it must not
-    // enter the index-dispatch candidate set; if it does,
-    // `synthesize_callsite_index_dispatch` cannot locate it among the indexed
-    // callables, aborts, and the call collapses to a single default, dropping
-    // the real candidates.
-    //
-    // Restrict the candidate set to the single dispatched parameter. The
-    // sibling at the other position stays in the original arguments, so each
-    // specialized leaf threads it as a runtime argument in its original
-    // position through `create_branch_call`, which removes only the dispatch
-    // slot, preserving call order.
+    // Dispatch chooses among alternatives for one parameter. Static siblings
+    // are threaded or consumed by each leaf's specialization; they must not
+    // enter the index-dispatch candidate set.
     let restricted = restrict_to_dispatched_parameter(entries);
     let entries: &[HofDispatchTarget] = &restricted;
+    if entries.first().is_some_and(|first| {
+        !dispatch_source_has_discriminator(
+            package,
+            expr_owner_lookup,
+            call_expr_id,
+            first.0.dispatch_expr_id(),
+            entries
+                .iter()
+                .map(|entry| (&entry.0.callable_arg, !entry.0.condition.is_empty())),
+        )
+    }) {
+        return;
+    }
+    let Some(destination) = expr_owner_lookup.scope(&call_expr_id) else {
+        return;
+    };
+    for (call_site, _, _) in entries {
+        let captures = match &call_site.callable_arg {
+            ConcreteCallable::Closure { captures, .. } => {
+                resolve_rewrite_captures(package, call_site.arg_expr_id, captures)
+            }
+            _ => Vec::new(),
+        };
+        if !captures_belong_to_destination(destination, &captures) {
+            return;
+        }
+    }
+    for (call_site, _) in constants {
+        let captures = match &call_site.callable_arg {
+            ConcreteCallable::Closure { captures, .. } => {
+                resolve_rewrite_captures(package, call_site.arg_expr_id, captures)
+            }
+            _ => Vec::new(),
+        };
+        if !captures_belong_to_destination(destination, &captures) {
+            return;
+        }
+    }
 
-    let Some((conditioned, default_entry)) = partition_branch_split_targets(
+    // Guard hoisting and prefix materialization mutate existing nodes. Keep
+    // rejection atomic when a later declaration-directed branch cannot pack.
+    let original_package = package.clone();
+    let Some((conditioned, default_entry, bounds_check)) = partition_branch_split_targets(
         package,
         package_id,
         expr_owner_lookup,
@@ -5292,25 +5435,82 @@ fn branch_split_rewrite(
         // Single effective entry. For a combined group the entry's spec id is a
         // per-candidate combined spec whose input pattern removes every member
         // slot, so the single-slot `create_branch_call` would mis-shape the
-        // call. Bail instead so the fixpoint surfaces an honest diagnostic
-        // rather than emitting wrong QIR.
+        // call. Leave the call unchanged rather than apply a single-slot rewrite.
         if !constants.is_empty() {
+            *package = original_package;
             return;
         }
         // Single effective entry — use normal rewrite.
-        rewrite_one(
+        let Some(rewrite_plan) = plan_rewrite_one(
+            udts,
+            package,
+            default_entry.0,
+            default_entry.2,
+            expr_owner_lookup,
+        ) else {
+            *package = original_package;
+            return;
+        };
+        let prefix = if bounds_check.is_some() {
+            let path = callable_param_input_path(package, orig_callee_id, default_entry.2);
+            materialize_argument_prefix(package, orig_args_id, &path, &[], assigner)
+        } else {
+            Vec::new()
+        };
+        if !rewrite_one(
+            udts,
             package,
             package_id,
             default_entry.0,
             default_entry.2,
             default_entry.1,
+            rewrite_plan,
             expr_owner_lookup,
             assigner,
-        );
+        ) {
+            *package = original_package;
+            return;
+        }
+        if let Some(bounds_check) = bounds_check {
+            prepend_evaluations(package, bounds_check, prefix, assigner);
+            prepend_bounds_check_to_rewritten_call(package, assigner, call_expr_id, bounds_check);
+        }
         return;
     }
 
-    install_branch_split_dispatch(
+    let input_path = callable_param_input_path(package, orig_callee_id, entries[0].2);
+    let consumed: Vec<_> = constants
+        .iter()
+        .map(|(site, _)| site.arg_expr_id)
+        .chain(entries.iter().map(|(site, _, _)| site.arg_expr_id))
+        .collect();
+    let mut owned_constants: Vec<_> = constants
+        .iter()
+        .map(|(site, param)| ((*site).clone(), *param))
+        .collect();
+    let mut statements = materialize_early_mixed_captures(
+        package,
+        orig_callee_id,
+        orig_args_id,
+        &input_path,
+        &consumed,
+        &mut owned_constants,
+        destination,
+        assigner,
+    );
+    statements.extend(materialize_argument_prefix(
+        package,
+        orig_args_id,
+        &input_path,
+        &consumed,
+        assigner,
+    ));
+    let constants: Vec<_> = owned_constants
+        .iter()
+        .map(|(site, param)| (site, *param))
+        .collect();
+    if !install_branch_split_dispatch(
+        udts,
         package,
         package_id,
         call_expr_id,
@@ -5318,11 +5518,46 @@ fn branch_split_rewrite(
         orig_args_id,
         span,
         &result_ty,
+        CaptureWriterContext { destination },
         conditioned,
         default_entry,
-        constants,
+        bounds_check,
+        &constants,
         assigner,
-    );
+    ) {
+        *package = original_package;
+        return;
+    }
+    prepend_evaluations(package, call_expr_id, statements, assigner);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn materialize_early_mixed_captures(
+    package: &mut Package,
+    callee: ExprId,
+    args: ExprId,
+    dispatch_path: &[usize],
+    consumed: &[ExprId],
+    constants: &mut [(CallSite, &CallableParam)],
+    destination: CaptureScope,
+    assigner: &mut Assigner,
+) -> Vec<StmtId> {
+    constants.sort_by_key(|(_, param)| callable_param_input_path(package, callee, param));
+    let mut statements = Vec::new();
+    for (site, param) in constants {
+        let path = callable_param_input_path(package, callee, param);
+        if path.as_slice() >= dispatch_path {
+            continue;
+        }
+        if let ConcreteCallable::Closure { captures, .. } = &mut site.callable_arg {
+            *captures = resolve_rewrite_captures(package, site.arg_expr_id, captures);
+            statements.extend(materialize_argument_prefix(
+                package, args, &path, consumed, assigner,
+            ));
+            materialize_capture_operands(package, destination, captures, &mut statements, assigner);
+        }
+    }
+    statements
 }
 
 /// Partitions branch-split dispatch entries into conditioned targets and a
@@ -5332,17 +5567,26 @@ fn branch_split_rewrite(
 /// empty-condition entry becomes the default. When no entry carries a condition
 /// but more than one candidate exists, a synthetic index dispatch is derived
 /// from the callee's runtime-selected index via
-/// [`synthesize_callsite_index_dispatch`]. If no default is found, the last
-/// conditioned target is promoted to serve as the `else` arm. Returns `None`
-/// when there is no entry to dispatch at all.
+/// [`synthesize_callsite_index_dispatch`]. Guarded entries must form a complete
+/// decision tree with one explicit final default. Incomplete trees are left
+/// unresolved rather than guessing a default or dropping a guard.
 fn partition_branch_split_targets<'a>(
     package: &mut Package,
     package_id: PackageId,
-    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    expr_owner_lookup: &ExprOwnerLookup,
     call_expr_id: ExprId,
     entries: &[HofDispatchTarget<'a>],
     assigner: &mut Assigner,
-) -> Option<(Vec<ConditionedHofTarget<'a>>, HofDispatchTarget<'a>)> {
+) -> Option<(
+    Vec<ConditionedHofTarget<'a>>,
+    HofDispatchTarget<'a>,
+    Option<ExprId>,
+)> {
+    if entries.iter().any(|entry| !entry.0.condition.is_empty())
+        && !guards_form_complete_tree(entries.iter().map(|entry| entry.0.condition.as_slice()))
+    {
+        return None;
+    }
     let mut conditioned: Vec<ConditionedHofTarget> = Vec::new();
     let mut default: Option<HofDispatchTarget> = None;
     for &entry in entries {
@@ -5355,9 +5599,10 @@ fn partition_branch_split_targets<'a>(
         }
     }
 
+    let mut bounds_check = None;
     if conditioned.is_empty()
         && entries.len() > 1
-        && let Some((synthetic_conditioned, default_idx)) = synthesize_callsite_index_dispatch(
+        && let Some(plan) = synthesize_callsite_index_dispatch(
             package,
             package_id,
             expr_owner_lookup,
@@ -5366,20 +5611,20 @@ fn partition_branch_split_targets<'a>(
             assigner,
         )
     {
-        conditioned = synthetic_conditioned
+        conditioned = plan
+            .conditioned
             .into_iter()
             .map(|(entry_idx, condition)| (entries[entry_idx], vec![condition]))
             .collect();
-        default = Some(entries[default_idx]);
+        default = Some(entries[plan.default_index]);
+        bounds_check = Some(plan.bounds_check);
+    }
+    if conditioned.is_empty() && entries.len() > 1 {
+        return None;
     }
 
-    // Must have a default for the else branch; steal last conditioned if needed.
-    let default_entry = if let Some(d) = default {
-        d
-    } else {
-        conditioned.pop()?.0
-    };
-    Some((conditioned, default_entry))
+    let default_entry = default?;
+    Some((conditioned, default_entry, bounds_check))
 }
 
 /// Builds the if/elif/else dispatch chain for a branch-split rewrite and
@@ -5392,6 +5637,7 @@ fn partition_branch_split_targets<'a>(
 /// resulting dispatch expression's kind and type overwrite `call_expr_id`.
 #[allow(clippy::too_many_arguments)]
 fn install_branch_split_dispatch<'a>(
+    udts: &UdtMetadata,
     package: &mut Package,
     package_id: PackageId,
     call_expr_id: ExprId,
@@ -5399,11 +5645,13 @@ fn install_branch_split_dispatch<'a>(
     orig_args_id: ExprId,
     span: PackageSpan,
     result_ty: &Ty,
+    writer: CaptureWriterContext,
     conditioned: Vec<ConditionedHofTarget<'a>>,
     default_entry: HofDispatchTarget<'a>,
+    bounds_check: Option<ExprId>,
     constants: &[(&CallSite, &CallableParam)],
     assigner: &mut Assigner,
-) {
+) -> bool {
     // Clone original callee and args expressions before modifications.
     let orig_callee = package.get_expr(orig_callee_id).clone();
     let orig_args = package.get_expr(orig_args_id).clone();
@@ -5411,12 +5659,14 @@ fn install_branch_split_dispatch<'a>(
     let mut build_call = |package: &mut Package, assigner: &mut Assigner, (cs, spec_id, param)| {
         if constants.is_empty() {
             create_branch_call(
+                udts,
                 package,
                 package_id,
                 &orig_callee,
                 &orig_args,
                 span,
                 result_ty,
+                writer.destination,
                 cs,
                 param,
                 spec_id,
@@ -5424,11 +5674,13 @@ fn install_branch_split_dispatch<'a>(
             )
         } else {
             create_combined_branch_call(
+                udts,
                 package,
                 &orig_callee,
                 &orig_args,
                 span,
                 result_ty,
+                writer,
                 cs,
                 param,
                 constants,
@@ -5437,7 +5689,7 @@ fn install_branch_split_dispatch<'a>(
             )
         }
     };
-    let dispatch_id = build_branch_tree(
+    let Some(mut dispatch_id) = build_branch_tree(
         package,
         span,
         result_ty,
@@ -5445,7 +5697,19 @@ fn install_branch_split_dispatch<'a>(
         default_entry,
         assigner,
         &mut build_call,
-    );
+    ) else {
+        return false;
+    };
+    if let Some(bounds_check) = bounds_check {
+        dispatch_id = prepend_bounds_check(
+            package,
+            assigner,
+            bounds_check,
+            dispatch_id,
+            result_ty.clone(),
+            span,
+        );
+    }
 
     // Replace the original call expression with the dispatch chain.
     let dispatch = package
@@ -5459,6 +5723,7 @@ fn install_branch_split_dispatch<'a>(
         .expect("call expr should exist");
     orig.kind = dispatch.kind;
     orig.ty = dispatch.ty;
+    true
 }
 
 /// Creates a single branch's specialised call expression, returning its
@@ -5478,59 +5743,83 @@ fn install_branch_split_dispatch<'a>(
 /// - Allocates callee, args, and call `Expr` nodes through `assigner`.
 #[allow(clippy::too_many_arguments)]
 fn create_branch_call(
+    udts: &UdtMetadata,
     package: &mut Package,
-    _package_id: PackageId,
+    package_id: PackageId,
     orig_callee: &Expr,
     orig_args: &Expr,
     span: PackageSpan,
     result_ty: &Ty,
+    destination: CaptureScope,
     call_site: &CallSite,
     param: &CallableParam,
     spec_store_id: StoreItemId,
     assigner: &mut Assigner,
-) -> ExprId {
+) -> Option<ExprId> {
     let spec_item_id = ItemId {
         package: spec_store_id.package,
         item: spec_store_id.item,
     };
 
-    // Specialised callee type.
-    let input_path = callable_param_input_path(package, orig_callee.id, param);
-    let new_callee_ty = build_specialized_callee_ty_from_expr(
-        package,
-        orig_callee,
-        &input_path,
-        &call_site.callable_arg,
-    );
-    let callee_id = alloc_specialized_callee_expr(
-        package,
-        orig_callee,
-        spec_item_id,
-        &new_callee_ty.unwrap_or_else(|| orig_callee.ty.clone()),
-        assigner,
-    );
+    let (_, functor) = peel_body_functors(package, orig_callee.id);
+    let controlled_layers = usize::from(functor.controlled);
+    if spec_store_id.package != package_id {
+        return None;
+    }
+    let ItemKind::Callable(decl) = &package.get_item(spec_store_id.item).kind else {
+        return None;
+    };
+    let input = package.get_pat(decl.input).ty.clone();
+    let new_callee_ty =
+        build_direct_global_callee_ty(package, spec_item_id, &orig_callee.ty, controlled_layers)?;
+    let callee_id =
+        alloc_specialized_callee_expr(package, orig_callee, spec_item_id, &new_callee_ty, assigner);
 
     // Build args: remove callable param + append captures.
-    let captures = match &call_site.callable_arg {
-        ConcreteCallable::Closure { captures, .. } => {
-            resolve_rewrite_captures(package, call_site.arg_expr_id, captures)
-        }
+    let mut captures = match &call_site.callable_arg {
+        ConcreteCallable::Closure { captures, .. } => filter_threaded_rewrite_captures(
+            package,
+            resolve_rewrite_captures(package, call_site.arg_expr_id, captures),
+        ),
         _ => Vec::new(),
     };
-    let (args_kind, args_ty) =
-        build_branch_args_data(package, orig_args, &input_path, &captures, span, assigner);
-
-    let args_id = alloc_expr(package, assigner, args_ty, args_kind, span);
+    let mut statements = Vec::new();
+    materialize_capture_operands(
+        package,
+        destination,
+        &mut captures,
+        &mut statements,
+        assigner,
+    );
+    // Prefix materialization and later passes mutate nested argument nodes.
+    // Each leaf owns its complete argument tree, including block-local
+    // bindings, so a later iteration's in-place mutation cannot leak into
+    // sibling branches of the dispatch.
+    let args_id = crate::cloner::clone_expr_within_package(package, orig_args.id, assigner);
+    let args = build_specialized_call_args(
+        udts,
+        package,
+        args_id,
+        &input,
+        &[param],
+        &captures,
+        destination,
+        controlled_layers,
+        assigner,
+    )?;
+    statements.extend(args.prefix);
 
     // Call expression.
-    alloc_call_expr(
+    let call = alloc_call_expr(
         package,
         assigner,
         callee_id,
-        args_id,
+        args.value,
         result_ty.clone(),
         span,
-    )
+    );
+    prepend_evaluations(package, call, statements, assigner);
+    Some(call)
 }
 
 /// Creates a single dispatch leaf for the combined branch-split path, returning
@@ -5559,17 +5848,19 @@ fn create_branch_call(
 /// - Allocates callee, args, and call `Expr` nodes through `assigner`.
 #[allow(clippy::too_many_arguments)]
 fn create_combined_branch_call(
+    udts: &UdtMetadata,
     package: &mut Package,
     orig_callee: &Expr,
     orig_args: &Expr,
     span: PackageSpan,
     result_ty: &Ty,
+    writer: CaptureWriterContext,
     candidate: &CallSite,
     candidate_param: &CallableParam,
     constants: &[(&CallSite, &CallableParam)],
     spec_store_id: StoreItemId,
     assigner: &mut Assigner,
-) -> ExprId {
+) -> Option<ExprId> {
     let spec_item_id = ItemId {
         package: spec_store_id.package,
         item: spec_store_id.item,
@@ -5587,171 +5878,95 @@ fn create_combined_branch_call(
             .cmp(&b.1.top_level_param)
             .then_with(|| a.1.field_path.cmp(&b.1.field_path))
     });
+    // Prefix materialization and later passes mutate nested argument nodes.
+    // Each leaf owns its complete tree, including aggregate fields and bindings.
+    let mut argument_copies = FxHashMap::default();
+    let args_id = copy_branch_argument(package, orig_args.id, &mut argument_copies, assigner);
+    let consumed: Vec<_> = members
+        .iter()
+        .filter_map(|(site, _)| argument_copies.get(&site.arg_expr_id).copied())
+        .collect();
 
-    // Walk the members to record which argument-tuple slots to drop and, for
-    // each closure member, resolve the capture expressions to append (in the
-    // same ascending order), mirroring `rewrite_multi`.
-    let uses_tuple_input = members.first().is_none_or(|(cs, _)| cs.hof_input_is_tuple);
-    let mut remove_indices: Vec<usize> = Vec::with_capacity(members.len());
+    // Resolve captures in declaration order, mirroring `rewrite_multi`.
     let mut captures: Vec<CapturedVar> = Vec::new();
-    for (cs, _param) in &members {
-        // A tuple-input HOF removes the whole top-level slot; a single
-        // tuple-valued parameter removes the immediate field instead.
-        let remove_idx = if uses_tuple_input {
-            cs.top_level_param
-        } else {
-            *cs.field_path.first().unwrap_or(&cs.top_level_param)
-        };
-        remove_indices.push(remove_idx);
+    let mut statements = Vec::new();
+    for (cs, param) in &members {
         if let ConcreteCallable::Closure {
             captures: member_captures,
             ..
         } = &cs.callable_arg
         {
-            captures.extend(resolve_rewrite_captures(
+            let mut member_captures = filter_threaded_rewrite_captures(
                 package,
-                cs.arg_expr_id,
-                member_captures,
-            ));
+                resolve_rewrite_captures(package, cs.arg_expr_id, member_captures),
+            );
+            if member_captures.iter().any(|capture| capture.expr.is_some()) {
+                let path = callable_param_input_path(package, orig_callee.id, param);
+                statements.extend(materialize_argument_prefix(
+                    package, args_id, &path, &consumed, assigner,
+                ));
+                materialize_capture_operands(
+                    package,
+                    writer.destination,
+                    &mut member_captures,
+                    &mut statements,
+                    assigner,
+                );
+            }
+            captures.extend(member_captures);
         }
     }
 
-    // Build the specialized callee: its arrow type drops the removed slots and
-    // appends the capture types, and the callee expression names the combined
-    // spec item. Fall back to the original callee type if the new one cannot be
-    // computed.
-    let new_callee_ty =
-        build_specialized_multi_callee_ty(package, orig_callee.id, &remove_indices, &captures);
-    let callee_id = alloc_specialized_callee_expr(
-        package,
-        orig_callee,
-        spec_item_id,
-        &new_callee_ty.unwrap_or_else(|| orig_callee.ty.clone()),
-        assigner,
-    );
-
-    // Build the leaf argument tuple: drop every member slot and append captures.
-    // The tuple-input and single-tuple-parameter shapes are handled separately.
-    let (args_kind, args_ty) = if uses_tuple_input {
-        build_combined_branch_args_data(
-            package,
-            orig_args,
-            &remove_indices,
-            &captures,
-            span,
-            assigner,
-        )
-    } else {
-        build_combined_nested_branch_args_data(
-            package,
-            orig_args,
-            &remove_indices,
-            &captures,
-            span,
-            assigner,
-        )
+    if spec_store_id.package != package.id {
+        return None;
+    }
+    let ItemKind::Callable(decl) = &package.get_item(spec_store_id.item).kind else {
+        return None;
     };
-    // Allocate the new args expression node.
-    let args_id = alloc_expr(package, assigner, args_ty, args_kind, span);
+    let input = package.get_pat(decl.input).ty.clone();
+    let (_, functor) = peel_body_functors(package, orig_callee.id);
+    let layers = usize::from(functor.controlled);
+    let new_callee_ty = build_callee_ty_with_input(&orig_callee.ty, &input, layers)?;
+    let callee_id =
+        alloc_specialized_callee_expr(package, orig_callee, spec_item_id, &new_callee_ty, assigner);
+
+    let params: Vec<_> = members.iter().map(|(_, param)| *param).collect();
+    let args = build_specialized_call_args(
+        udts,
+        package,
+        args_id,
+        &input,
+        &params,
+        &captures,
+        writer.destination,
+        layers,
+        assigner,
+    )?;
+    statements.extend(args.prefix);
 
     // Allocate the call expression that invokes the combined spec with the
     // rewritten args, and hand back its id as this dispatch leaf.
-    alloc_call_expr(
+    let call = alloc_call_expr(
         package,
         assigner,
         callee_id,
-        args_id,
+        args.value,
         result_ty.clone(),
         span,
-    )
+    );
+    prepend_evaluations(package, call, statements, assigner);
+    Some(call)
 }
 
-/// Builds the `(ExprKind, Ty)` for a combined dispatch leaf's argument tuple:
-/// every element at `remove_indices` is dropped and the resolved capture
-/// expressions are appended, flattening to a scalar only when a single element
-/// survives and no captures are appended, matching the combined spec's input
-/// pattern in [`remove_tys_at_indices`]. Surviving element expressions are
-/// reused, mirroring the single-slot [`build_branch_args_data`] branch-split
-/// behavior.
-fn build_combined_branch_args_data(
+fn copy_branch_argument(
     package: &mut Package,
-    orig_args: &Expr,
-    remove_indices: &[usize],
-    captures: &[CapturedVar],
-    span: PackageSpan,
+    id: ExprId,
+    copies: &mut FxHashMap<ExprId, ExprId>,
     assigner: &mut Assigner,
-) -> (ExprKind, Ty) {
-    let new_ty = remove_tys_at_indices(package, &orig_args.ty, remove_indices, captures);
-    match &orig_args.kind {
-        ExprKind::Tuple(elements) => {
-            let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
-            let mut new_elements: Vec<ExprId> = elements
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| !remove.contains(i))
-                .map(|(_, &id)| id)
-                .collect();
-            let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-            new_elements.extend(capture_ids);
-            if new_elements.len() == 1 && captures.is_empty() {
-                let single_id = new_elements[0];
-                let single_expr = package.exprs.get(single_id).expect("expr not found");
-                (single_expr.kind.clone(), single_expr.ty.clone())
-            } else {
-                (ExprKind::Tuple(new_elements), new_ty)
-            }
-        }
-        // A combined multi-argument HOF always has a tuple argument; fall back
-        // to the original kind defensively.
-        _ => (orig_args.kind.clone(), new_ty),
-    }
-}
-
-/// Builds the argument expression data for one branch of a combined
-/// multi-argument dispatch, removing the callable fields at `remove_indices` and
-/// appending capture expressions as a trailing group.
-fn build_combined_nested_branch_args_data(
-    package: &mut Package,
-    orig_args: &Expr,
-    remove_indices: &[usize],
-    captures: &[CapturedVar],
-    span: PackageSpan,
-    assigner: &mut Assigner,
-) -> (ExprKind, Ty) {
-    let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
-    if let Some((payload_kind, payload_ty)) =
-        remove_top_level_field_from_expr_data(package, orig_args.id, &remove, &[], assigner)
-    {
-        if captures.is_empty() {
-            return (payload_kind, payload_ty);
-        }
-
-        let payload_id = alloc_expr(package, assigner, payload_ty.clone(), payload_kind, span);
-
-        let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-        let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
-        let mut elements = vec![payload_id];
-        elements.extend(capture_ids);
-        let mut tys = vec![payload_ty];
-        tys.extend(capture_tys);
-        return (ExprKind::Tuple(elements), Ty::Tuple(tys));
-    }
-
-    let new_ty = remove_nested_top_level_fields_from_ty(package, &orig_args.ty, &remove);
-    if captures.is_empty() {
-        (orig_args.kind.clone(), new_ty)
-    } else {
-        let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-        let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
-        let mut elements = match &orig_args.kind {
-            ExprKind::Tuple(elements) => elements.clone(),
-            _ => vec![orig_args.id],
-        };
-        elements.extend(capture_ids);
-        let mut tys = vec![new_ty];
-        tys.extend(capture_tys);
-        (ExprKind::Tuple(elements), Ty::Tuple(tys))
-    }
+) -> ExprId {
+    let (copy, mapping) = crate::cloner::clone_expr_within_package_with_map(package, id, assigner);
+    copies.extend(mapping);
+    copy
 }
 
 /// Resolves the defining expressions for the captures referenced in a
@@ -5767,7 +5982,8 @@ fn resolve_rewrite_captures(
         .map(|capture| {
             let mut resolved = capture.clone();
             if resolved.expr.is_none() {
-                resolved.expr = resolve_capture_expr_from_arg(package, arg_expr_id, capture.var);
+                resolved.expr =
+                    resolve_capture_expr_from_arg(package, arg_expr_id, capture.local.var);
             }
             resolved
         })
@@ -5782,7 +5998,7 @@ fn resolve_rewrite_captures(
 /// be threaded as a call argument. Multi-capture closures are returned
 /// unchanged.
 fn filter_threaded_rewrite_captures(
-    package: &Package,
+    _package: &Package,
     captures: Vec<CapturedVar>,
 ) -> Vec<CapturedVar> {
     if captures.len() != 1 {
@@ -5790,42 +6006,13 @@ fn filter_threaded_rewrite_captures(
     }
     captures
         .into_iter()
-        .filter(|capture| {
-            !capture
-                .expr
-                .is_some_and(|expr_id| is_known_callable_capture_expr(package, expr_id))
-        })
+        .filter(|capture| capture.static_callable.is_none())
         .collect()
 }
 
-/// Tests whether a capture initializer is a statically-known callable value: a
-/// non-generic item reference or a capture-free closure whose own input does
-/// not still contain an arrow (see [`callable_input_contains_arrow`]).
-fn is_known_callable_capture_expr(package: &Package, expr_id: ExprId) -> bool {
-    let (base_id, _) = peel_body_functors(package, expr_id);
-    match &package.get_expr(base_id).kind {
-        ExprKind::Var(Res::Item(item_id), generic_args) => {
-            generic_args.is_empty() && !callable_input_contains_arrow(package, item_id.item)
-        }
-        ExprKind::Closure(captures, target) => {
-            captures.is_empty() && !callable_input_contains_arrow(package, *target)
-        }
-        _ => false,
-    }
-}
-
-/// Returns whether the callable's declared input type still contains an arrow
-/// (a callable-typed parameter), resolving UDT wrappers first. A missing or
-/// non-callable item conservatively reports `true`.
-fn callable_input_contains_arrow(package: &Package, callable: LocalItemId) -> bool {
-    let Some(ItemKind::Callable(decl)) = package.items.get(callable).map(|item| &item.kind) else {
-        return true;
-    };
-    ty_contains_arrow(&resolve_udt_ty(package, &package.get_pat(decl.input).ty))
-}
-
-/// Resolves a capture expression by inspecting the call's argument tuple,
-/// used when the capture was passed in directly at the call site.
+/// Looks for a capture initializer in the supplied argument or callee
+/// expression, following blocks, conditional arms, and unary wrappers.
+/// Tuple elements are not traversed.
 fn resolve_capture_expr_from_arg(
     package: &Package,
     arg_expr_id: ExprId,
@@ -5882,8 +6069,9 @@ fn resolve_capture_expr_from_block(
     None
 }
 
-/// Builds a `LocalVarId => ExprId` map from a block's statements, capturing
-/// the initializer expressions for every immutable local binding.
+/// Maps every local bound by `pat_id` to `init_expr_id`.
+/// Tuple sub-patterns share the whole initializer id; no projection is created,
+/// and the caller supplies bindings of either mutability.
 fn collect_block_local_exprs(
     package: &Package,
     pat_id: qsc_fir::fir::PatId,
@@ -5901,121 +6089,6 @@ fn collect_block_local_exprs(
                 collect_block_local_exprs(package, sub_pat_id, init_expr_id, bindings);
             }
         }
-    }
-}
-
-/// Builds the args `ExprKind` and `Ty` for a branch call by removing the
-/// callable parameter and appending closure captures.
-fn build_branch_args_data(
-    package: &mut Package,
-    orig_args: &Expr,
-    input_path: &[usize],
-    captures: &[CapturedVar],
-    span: PackageSpan,
-    assigner: &mut Assigner,
-) -> (ExprKind, Ty) {
-    if input_path.is_empty() {
-        // Single-param HOF: the argument IS the callable param.
-        if captures.is_empty() {
-            (ExprKind::Tuple(Vec::new()), Ty::UNIT)
-        } else {
-            let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-            let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
-            (ExprKind::Tuple(capture_ids), Ty::Tuple(capture_tys))
-        }
-    } else if matches!(orig_args.kind, ExprKind::Tuple(_)) {
-        match &orig_args.kind {
-            ExprKind::Tuple(elements) => {
-                if input_path.len() == 1 {
-                    let mut new_elements: Vec<ExprId> = elements
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| *i != input_path[0])
-                        .map(|(_, &id)| id)
-                        .collect();
-                    let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-                    new_elements.extend(capture_ids);
-                    let new_ty =
-                        build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures);
-                    // Flatten single-element tuple to match the flattening in
-                    // rewrite_args_remove_tuple_element so the partial evaluator
-                    // receives a scalar expression rather than a malformed 1-tuple.
-                    if new_elements.len() == 1 && captures.is_empty() {
-                        let single_id = new_elements[0];
-                        let single_expr = package.exprs.get(single_id).expect("expr not found");
-                        (single_expr.kind.clone(), single_expr.ty.clone())
-                    } else {
-                        (ExprKind::Tuple(new_elements), new_ty)
-                    }
-                } else {
-                    let new_ty =
-                        build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures);
-                    let mut new_kind = orig_args.kind.clone();
-                    if let ExprKind::Tuple(ref mut elems) = new_kind {
-                        if let Some(outer_elem_id) = elems.get(input_path[0]).copied() {
-                            remove_element_at_path(package, outer_elem_id, &input_path[1..]);
-                        }
-                        let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-                        elems.extend(capture_ids);
-                    }
-                    (new_kind, new_ty)
-                }
-            }
-            _ => (
-                orig_args.kind.clone(),
-                build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures),
-            ),
-        }
-    } else if input_path.len() == 1 {
-        let param_index = input_path[0];
-        match &orig_args.kind {
-            ExprKind::Tuple(elements) => {
-                let mut new_elements: Vec<ExprId> = elements
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| *i != param_index)
-                    .map(|(_, &id)| id)
-                    .collect();
-                let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-                new_elements.extend(capture_ids);
-                let new_ty =
-                    build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures);
-                // Flatten single-element tuple to match the flattening in
-                // rewrite_args_remove_tuple_element so the partial evaluator
-                // receives a scalar expression rather than a malformed 1-tuple.
-                if new_elements.len() == 1 && captures.is_empty() {
-                    let single_id = new_elements[0];
-                    let single_expr = package.exprs.get(single_id).expect("expr not found");
-                    (single_expr.kind.clone(), single_expr.ty.clone())
-                } else {
-                    (ExprKind::Tuple(new_elements), new_ty)
-                }
-            }
-            _ => (
-                orig_args.kind.clone(),
-                build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures),
-            ),
-        }
-    } else {
-        // Nested path: rebuild both the args type and expression with the
-        // nested element removed.
-        remove_element_at_path(package, orig_args.id, input_path);
-        let new_ty = build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures);
-        let modified_args = package.get_expr(orig_args.id).clone();
-        let new_kind = if captures.is_empty() {
-            modified_args.kind
-        } else {
-            let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
-            if let ExprKind::Tuple(mut elems) = modified_args.kind {
-                elems.extend(capture_ids);
-                ExprKind::Tuple(elems)
-            } else {
-                let mut elems = vec![orig_args.id];
-                elems.extend(capture_ids);
-                ExprKind::Tuple(elems)
-            }
-        };
-        (new_kind, new_ty)
     }
 }
 
@@ -6087,18 +6160,26 @@ fn alloc_if_expr(
 
 /// Builds a nested `if`/`else` tree selecting one of several specialized calls,
 /// reconstructed from the flat outermost-first guard lists by contiguous
-/// leading-guard factoring. Each condition `ExprId` is referenced exactly once,
-/// so a side-effecting condition runs at most once per dynamic path.
+/// leading-guard factoring. Each group ends at its first entry guarded only by
+/// the leading guard, preserving later branches even when their guards alias.
+/// A group's shared leading guard is emitted once rather than repeated for each leaf.
 ///
 /// `conditioned` holds the guarded entries in front-to-back (outermost-first)
 /// order, each paired with its guard list; `default_entry` supplies the
-/// outermost `else` call. The `build_call` closure materializes the
+/// outermost `else` call. Callers validate full guarded candidate lists with
+/// [`guards_form_complete_tree`] before rewriting operands; synthetic index
+/// dispatch supplies single-guard groups. The `build_call` closure materializes the
 /// specialized `Call` expression for a given entry, receiving the package and
 /// assigner so it can allocate nodes without `&mut` aliasing; it is passed by
 /// `&mut` so the same closure threads through the recursion.
 ///
 /// Returns the `ExprId` of the root dispatch expression; callers write its
 /// `kind`/`ty` back into the original call expression.
+///
+/// Each completed leaf is deep-copied as a unit so its captures, argument
+/// subtrees, and prefix-local bindings remain owned by that branch.
+/// Guards are copied too: a returned callable can bring a condition whose
+/// expression nodes still belong to its producer.
 fn build_branch_tree<E: Copy>(
     package: &mut Package,
     span: PackageSpan,
@@ -6106,59 +6187,32 @@ fn build_branch_tree<E: Copy>(
     conditioned: Vec<(E, Vec<ExprId>)>,
     default_entry: E,
     assigner: &mut Assigner,
-    build_call: &mut impl FnMut(&mut Package, &mut Assigner, E) -> ExprId,
-) -> ExprId {
+    build_call: &mut impl FnMut(&mut Package, &mut Assigner, E) -> Option<ExprId>,
+) -> Option<ExprId> {
     // Base case: nothing left to guard -> emit the (outer) default call.
     if conditioned.is_empty() {
         return build_call(package, assigner, default_entry);
     }
 
-    // The leading guard `g` of the first entry is this level's `if` condition
-    // (the first entry is non-empty; the default arm is split out by the
-    // caller). Take the maximal contiguous leading run whose first guard == `g`.
+    // A terminal entry closes this `then` subtree. Later entries belong to the
+    // `else` continuation, even if substitution gave them the same guard ID.
     let g = conditioned[0].1[0];
     let run_len = conditioned
         .iter()
         .take_while(|(_, guards)| guards.first().copied() == Some(g))
-        .count();
+        .position(|(_, guards)| guards.len() == 1)
+        .expect("build_branch_tree: leading-guard group has no terminal entry")
+        + 1;
 
     let mut iter = conditioned.into_iter();
-    let run: Vec<(E, Vec<ExprId>)> = (&mut iter).take(run_len).collect();
+    let mut run: Vec<(E, Vec<ExprId>)> = (&mut iter).take(run_len).collect();
     let rest: Vec<(E, Vec<ExprId>)> = iter.collect();
-
-    // Contiguity invariant: the leading guard `g` must not reappear in a later
-    // run. Holds for every lattice the current joins produce; assert in debug
-    // builds to catch a future join that violates it.
-    debug_assert!(
-        !rest
-            .iter()
-            .any(|(_, guards)| guards.first().copied() == Some(g)),
-        "build_branch_tree: leading guard reappears in a non-contiguous run"
-    );
-
-    // Strip the shared leading `g` from every run entry; the entry that strips
-    // to empty is the group's inner default (exactly one is guaranteed by the
-    // one-default-per-group invariant below).
-    let mut inner_default: Option<E> = None;
-    let mut inner_conditioned: Vec<(E, Vec<ExprId>)> = Vec::with_capacity(run.len());
+    let (inner_default, _) = run.pop().expect("leading-guard group must be nonempty");
+    let mut inner_conditioned = Vec::with_capacity(run.len());
     for (entry, mut guards) in run {
         guards.remove(0);
-        if guards.is_empty() {
-            inner_default = Some(entry);
-        } else {
-            inner_conditioned.push((entry, guards));
-        }
+        inner_conditioned.push((entry, guards));
     }
-
-    // One-default-per-group invariant: a leading-guard run must contain exactly
-    // one entry that strips to empty. Holds for every lattice the current joins
-    // produce; assert in debug builds, and in release fall through to the outer
-    // default rather than crashing on user code.
-    debug_assert!(
-        inner_default.is_some(),
-        "build_branch_tree: leading-guard run has no inner default"
-    );
-    let inner_default = inner_default.unwrap_or(default_entry);
 
     // Then subtree: recurse on the stripped run, defaulting to the group else.
     let then_id = build_branch_tree(
@@ -6169,7 +6223,7 @@ fn build_branch_tree<E: Copy>(
         inner_default,
         assigner,
         build_call,
-    );
+    )?;
 
     // Else subtree: recurse on the rest, keeping the outer default.
     let else_id = build_branch_tree(
@@ -6180,31 +6234,10 @@ fn build_branch_tree<E: Copy>(
         default_entry,
         assigner,
         build_call,
-    );
+    )?;
 
-    // `g` is referenced once here -- no AndL, no re-evaluation.
-    alloc_if_expr(package, span, result_ty, g, then_id, else_id, assigner)
-}
-
-/// Builds the specialised callee type from a saved callee expression snapshot.
-fn build_specialized_callee_ty_from_expr(
-    package: &Package,
-    callee_expr: &Expr,
-    input_path: &[usize],
-    concrete: &ConcreteCallable,
-) -> Option<Ty> {
-    let Ty::Arrow(ref arrow) = callee_expr.ty else {
-        return None;
-    };
-    let captures = match concrete {
-        ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
-        _ => &[],
-    };
-    let new_input = remove_ty_at_path(package, &arrow.input, input_path, captures);
-    Some(Ty::Arrow(Box::new(Arrow {
-        kind: arrow.kind,
-        input: Box::new(new_input),
-        output: arrow.output.clone(),
-        functors: arrow.functors,
-    })))
+    let g = crate::cloner::clone_expr_within_package(package, g, assigner);
+    Some(alloc_if_expr(
+        package, span, result_ty, g, then_id, else_id, assigner,
+    ))
 }

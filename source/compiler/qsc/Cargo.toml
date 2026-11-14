@@ -4,13 +4,11 @@ description = "Q# compiler"
 
 version.workspace = true
 authors.workspace = true
-homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-env_logger = { workspace = true }
 log = { workspace = true }
 miette = { workspace = true }
 num-bigint = { workspace = true }
@@ -38,12 +36,14 @@ qsc_rca = { path = "../qsc_rca" }
 qsc_circuit = { path = "../qsc_circuit" }
 rustc-hash = { workspace = true }
 thiserror = { workspace = true }
-allocator = { path = "../../allocator" }
 
 [dev-dependencies]
+allocator = { path = "../../allocator" }
+miette = { workspace = true, features = ["fancy-no-syscall"] }
 criterion = { workspace = true, features = ["cargo_bench_support"] }
 expect-test = { workspace = true }
 indoc = { workspace = true }
+qsc_fir_transforms = { path = "../qsc_fir_transforms", features = ["testutil"] }
 
 [lints]
 workspace = true
@@ -75,4 +75,8 @@ harness = false
 
 [[bench]]
 name = "typeck"
+harness = false
+
+[[bench]]
+name = "qir_allocation"
 harness = false

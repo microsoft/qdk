@@ -26,7 +26,7 @@ from simulator_test_utils import check_histogram
 # ---------------------------------------------------------------------------
 
 SHOTS = 100
-SIM_TYPES = ["cpu", "clifford"]
+SIM_TYPES = ["cpu", "stabilizer"]
 
 
 def map_result_list_to_str(results: List[Result]):
@@ -51,7 +51,7 @@ def get_histogram(
     noise: Optional[NoiseConfig] = None,
     record: Optional[List[int]] = None,
     shots=SHOTS,
-    sim_type: Literal["clifford", "cpu"] = "cpu",
+    sim_type: Literal["stabilizer", "cpu"] = "cpu",
 ):
     qir = format_qir(
         qir_fragment,
@@ -75,7 +75,7 @@ def check_result(
     num_results: int = 1,
     noise: Optional[NoiseConfig] = None,
     record: Optional[List[int]] = None,
-    sim_type: Literal["clifford", "cpu"] = "cpu",
+    sim_type: Literal["stabilizer", "cpu"] = "cpu",
 ):
     """Assert every shot produces *expected*."""
     counts = get_histogram(
@@ -442,6 +442,7 @@ def test_noise_intrinsic_5q_xxxxx_flip(sim_type):
     output = run_qir(QIR_NOISE_5Q, shots=1, noise=noise, type=sim_type)
     assert output == [[Result.One, Result.Zero, Result.One, Result.Zero, Result.One]]
 
+
 READOUT_NOISE_QIR = """
 entry:
     call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
@@ -458,6 +459,7 @@ PROBABILISTIC_READOUT_NOISE_QIR = READOUT_NOISE_QIR.replace(
     "readout_noise(double 0.0, double 1.0",
     "readout_noise(double 0.0, double 0.3",
 )
+
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_readout_noise_flips_measurement_results(sim_type):

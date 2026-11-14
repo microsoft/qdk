@@ -37,7 +37,7 @@ fn measurement_decl_works() {
 #[test]
 fn read_result_decl_works() {
     let decl = builder::read_result_decl();
-    expect!["declare i1 @__quantum__rt__read_result(ptr) #2"]
+    expect!["declare zeroext i1 @__quantum__rt__read_result(ptr) #2"]
         .assert_eq(&decl.to_qir(&rir::Program::default()));
 }
 
@@ -160,7 +160,7 @@ fn bell_program() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -171,6 +171,7 @@ fn bell_program() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&program.to_qir(&program));
 }
 
@@ -190,7 +191,7 @@ fn teleport_program() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__result_record_output(ptr, ptr)
 
@@ -202,14 +203,14 @@ fn teleport_program() {
           call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_0, label %block_1, label %block_2
         block_1:
           call void @__quantum__qis__z__body(ptr inttoptr (i64 1 to ptr))
           br label %block_2
         block_2:
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-          %var_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
           br i1 %var_1, label %block_3, label %block_4
         block_3:
           call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
@@ -226,7 +227,7 @@ fn teleport_program() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -237,6 +238,7 @@ fn teleport_program() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&program.to_qir(&program));
 }
 
@@ -320,7 +322,7 @@ fn ir_function_program() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -331,6 +333,7 @@ fn ir_function_program() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&program.to_qir(&program));
 }
 
@@ -609,7 +612,7 @@ fn scalar_ir_function_program() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -620,5 +623,6 @@ fn scalar_ir_function_program() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&program.to_qir(&program));
 }

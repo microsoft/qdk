@@ -3,7 +3,6 @@
 
 pub mod error;
 
-use core::f64;
 use std::{rc::Rc, str::FromStr, sync::Arc};
 
 use error::CompilerErrorKind;
@@ -429,7 +428,7 @@ impl QasmCompiler {
         name: S,
         whole_span: Span,
     ) -> (qsast::Item, OperationSignature) {
-        let stmts = self.stmts.drain(..).collect::<Vec<_>>();
+        let stmts = std::mem::take(&mut self.stmts);
         let mut input = self.symbols.get_input();
 
         if self.config.program_ty == ProgramType::Operation {

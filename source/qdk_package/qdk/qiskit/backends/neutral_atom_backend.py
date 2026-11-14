@@ -105,7 +105,7 @@ class NeutralAtomBackend(BackendBase):
             - ``shots`` (int): Number of shots. Defaults to ``1024``.
             - ``seed`` (int): Random seed for reproducibility. Defaults to ``None``.
             - ``noise`` (NoiseConfig): Optional per-gate noise model. Defaults to ``None`` (noiseless).
-            - ``simulator_type`` (str): Simulator to use — ``"clifford"`` (Clifford only),
+            - ``simulator_type`` (str): Simulator to use — ``"stabilizer"`` (Clifford gates and limited number of T gates),
               ``"cpu"`` (CPU full-state), ``"gpu"`` (GPU full-state), or ``None`` to
               auto-select (GPU if available, CPU otherwise).
             - ``output_semantics`` (OutputSemantics): QIR output encoding. Defaults to ``OutputSemantics.Qiskit``.

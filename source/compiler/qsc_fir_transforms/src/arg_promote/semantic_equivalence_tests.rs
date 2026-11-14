@@ -8,6 +8,51 @@ use indoc::indoc;
 use proptest::prelude::*;
 
 #[test]
+fn single_leaf_block_argument_is_projected_not_wrapped() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        struct Only { N : Int }
+        function Read(p : Only) : Int { p.N }
+        @EntryPoint() operation Main() : Int {
+            Read({ Message("arg"); new Only { N=4 } })
+        }
+        "#,
+        qsc_eval::val::Value::Int(4),
+    );
+}
+
+#[test]
+fn controlled_single_leaf_block_argument_preserves_qubit() {
+    for functor in ["Controlled", "Controlled Controlled", "Adjoint Controlled"] {
+        for enabled in [false, true] {
+            let args = if functor == "Controlled Controlled" {
+                "[control], ([inner], { Message(\"arg\"); new Only { Q=target } })"
+            } else {
+                "[control], { Message(\"arg\"); new Only { Q=target } }"
+            };
+            let source = indoc::formatdoc! {r#"
+                struct Only {{ Q : Qubit }}
+                operation Apply(p : Only) : Unit is Adj + Ctl {{ X(p.Q); }}
+                @EntryPoint() operation Main() : Int {{
+                    use control=Qubit();
+                    use inner=Qubit();
+                    use target=Qubit();
+                    if {enabled} {{ X(control); X(inner); }}
+                    {functor} Apply({args});
+                    Reset(control);
+                    Reset(inner);
+                    if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+                }}
+            "#};
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(i64::from(enabled)),
+            );
+        }
+    }
+}
+
+#[test]
 fn tuple_param_flattened_preserves_semantics() {
     crate::test_utils::check_semantic_equivalence(indoc! {r#"
         namespace Test {

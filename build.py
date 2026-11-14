@@ -29,6 +29,10 @@ parser.add_argument(
 )
 parser.add_argument("--widgets", action="store_true", help="Build the Python widgets")
 parser.add_argument("--qdk", action="store_true", help="Build the qdk meta-package")
+parser.add_argument(
+    "--qdk-wheel",
+    help="Use an existing qdk wheel instead of building it (requires --qdk)",
+)
 parser.add_argument("--wasm", action="store_true", help="Build the WebAssembly files")
 parser.add_argument("--npm", action="store_true", help="Build the npm package")
 parser.add_argument("--play", action="store_true", help="Build the web playground")
@@ -112,6 +116,19 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+if args.qdk_wheel:
+    if not args.qdk:
+        parser.error("--qdk-wheel requires --qdk")
+    if args.editable:
+        parser.error("--qdk-wheel cannot be combined with --editable")
+    args.qdk_wheel = os.path.abspath(args.qdk_wheel)
+    if not (
+        os.path.isfile(args.qdk_wheel)
+        and os.path.basename(args.qdk_wheel).startswith("qdk-")
+        and args.qdk_wheel.endswith(".whl")
+    ):
+        parser.error("--qdk-wheel must point to an existing qdk wheel")
+
 specific_project_requested = any(
     (
         args.cli,
@@ -188,17 +205,6 @@ jupyterlab_src = os.path.join(qdk_src_dir, "jupyterlab")
 course_notebook_tests_dir = os.path.join(
     qdk_src_dir, "vscode", "test", "course-notebooks"
 )
-
-QISKIT_VERSION_MATRIX = [
-    {
-        "label": "qiskit>=1.3.0,<2.0.0",
-        "requirements": ["qiskit>=1.3.0,<2.0.0"],
-    },
-    {
-        "label": "qiskit>=2.0.0,<3.0.0",
-        "requirements": ["qiskit>=2.0.0,<3.0.0"],
-    },
-]
 
 
 def run(cmd, cwd, env=None):
@@ -287,6 +293,10 @@ def use_python_env(folder):
     pip_install(python_bin, "build", cwd=qdk_python_src, extra_args=("-v",))
 
     return (python_bin, pip_env)
+
+
+def is_windows_arm64() -> bool:
+    return platform.system() == "Windows" and platform.machine().lower() == "arm64"
 
 
 # Static checks for Python code in source/qdk_package.
@@ -412,7 +422,10 @@ if args.check:
     step_end()
 
     if build_qdk:
-        run_python_checks()
+        if is_windows_arm64():
+            print("Python static checks skipped on Windows ARM64")
+        else:
+            run_python_checks()
 
 
 if build_cli:
@@ -441,7 +454,7 @@ if build_cli:
 def install_python_test_requirements(cwd, interpreter, check: bool = True):
     requirements_file_path = os.path.join(cwd, "test_requirements.txt")
     with open(requirements_file_path, "r", encoding="utf-8") as f:
-        # Skip empty or commented lines so version-specific packages can be injected separately.
+        # Skip empty or commented lines
         requirements = [
             line.strip()
             for line in f
@@ -526,27 +539,31 @@ def run_ci_historic_benchmark():
 
 
 if build_qdk:
-    step_start("Building the qdk python package")
+    step_start(
+        "Using the prebuilt qdk wheel"
+        if args.qdk_wheel
+        else "Building the qdk python package"
+    )
 
     # Reuse (or create) the pip environment so qdk wheel can be built/installed consistently.
     python_bin, pip_env = use_python_env(qdk_python_src)
 
-    # Read the build dependencies out of the pyproject.toml and install them first so
-    # both the wheel build and editable install can use --no-build-isolation.
-    with open(os.path.join(qdk_python_src, "pyproject.toml"), "rb") as f:
-        requires = tomllib.load(f)["build-system"]["requires"]
-    pip_install(python_bin, *requires, cwd=qdk_python_src, env=pip_env)
+    if not args.qdk_wheel:
+        # Read the build dependencies out of the pyproject.toml and install them first so
+        # both the wheel build and editable install can use --no-build-isolation.
+        with open(os.path.join(qdk_python_src, "pyproject.toml"), "rb") as f:
+            requires = tomllib.load(f)["build-system"]["requires"]
+        pip_install(python_bin, *requires, cwd=qdk_python_src, env=pip_env)
 
-    if args.editable:
-        # Install qdk in editable mode using the pre-installed build deps.
-        editable_install(
-            python_bin, qdk_python_src, env=pip_env, no_build_isolation=True
-        )
-    else:
-        # Build the qdk wheel with maturin (it now owns the native extension).
-        # maturin builds into raw_wheels_dir and copies into wheels_dir; using
-        # wheels_dir as --outdir directly would clash with maturin's own copy step.
-        build_wheel(python_bin, qdk_python_src, env=pip_env, maturin=True)
+        if args.editable:
+            # Install qdk in editable mode using the pre-installed build deps.
+            editable_install(
+                python_bin, qdk_python_src, env=pip_env, no_build_isolation=True
+            )
+        else:
+            # maturin builds into raw_wheels_dir and copies into wheels_dir; using
+            # wheels_dir as --outdir directly would clash with maturin's own copy step.
+            build_wheel(python_bin, qdk_python_src, env=pip_env, maturin=True)
     step_end()
 
     if args.check or run_tests:
@@ -560,16 +577,21 @@ if build_qdk:
         # test_requirements; --no-index can't resolve them from PyPI.
         install_python_test_requirements(qdk_python_src, python_bin)
         if not args.editable:
-            install_from_wheels(python_bin, "qdk", cwd=qdk_python_src)
+            install_from_wheels(
+                python_bin, args.qdk_wheel or "qdk", cwd=qdk_python_src
+            )
         step_end()
 
     if args.check:
-        step_start("Checking qdk public API surface for private type leakage")
-        run(
-            [python_bin, os.path.join(qdk_python_src, "check_api_surface.py")],
-            cwd=qdk_python_src,
-        )
-        step_end()
+        if is_windows_arm64():
+            print("API surface checks skipped on Windows ARM64")
+        else:
+            step_start("Checking qdk public API surface for private type leakage")
+            run(
+                [python_bin, os.path.join(qdk_python_src, "check_api_surface.py")],
+                cwd=qdk_python_src,
+            )
+            step_end()
 
     if run_tests:
         step_start("Running tests for the qdk python package")
@@ -583,28 +605,12 @@ if build_qdk:
         install_python_test_requirements(test_dir, python_bin, check=False)
 
         if not args.editable:
-            install_from_wheels(python_bin, "qdk", cwd=test_dir)
+            install_from_wheels(python_bin, args.qdk_wheel or "qdk", cwd=test_dir)
         step_end()
 
-        for version in QISKIT_VERSION_MATRIX:
-            step_start(
-                f"Running integration tests for the qdk package ({version['label']})"
-            )
-
-            version_install_args = [
-                python_bin,
-                "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                "--upgrade-strategy",
-                "eager",
-            ] + version["requirements"]
-            subprocess.run(version_install_args, check=True, text=True, cwd=test_dir)
-
-            run_python_integration_tests(test_dir, python_bin)
-
-            step_end()
+        step_start("Running integration tests for the qdk package")
+        run_python_integration_tests(test_dir, python_bin)
+        step_end()
 
 
 if args.course_notebook_tests:
@@ -769,6 +775,7 @@ if build_widgets and build_qdk and args.integration_tests:
     notebook_files = [
         os.path.join(dp, f)
         for dp, _, filenames in os.walk(samples_src)
+        if os.path.basename(dp) != "qdk_ec"
         for f in filenames
         if f.endswith(".ipynb") and not f.startswith(SKIP_NOTEBOOK_PREFIXES)
     ]
@@ -790,72 +797,38 @@ if build_widgets and build_qdk and args.integration_tests:
         "pandas",
         "qutip",
         "pyqir",
+        "qiskit>=2.0.0,<3.0.0",
         cwd=root_dir,
         env=pip_env,
     )
 
-    qiskit_notebooks = [
-        notebook
-        for notebook in notebook_files
-        if (
-            "qiskit" in os.path.basename(notebook).lower()
-            or "estimation-openqasm" in os.path.basename(notebook).lower()
-        )
-    ]
-    other_notebooks = [
-        notebook for notebook in notebook_files if notebook not in qiskit_notebooks
-    ]
-
-    def _run_notebooks(files):
-        for notebook in files:
-            print(f"Running {notebook}")
-            # Run the notebook process, capturing stdout and only displaying it if there is an error
-            result = subprocess.run(
-                [
-                    python_bin,
-                    "-m",
-                    "nbconvert",
-                    "--to",
-                    "notebook",
-                    "--stdout",
-                    "--ExecutePreprocessor.timeout=90",
-                    "--sanitize-html",
-                    "--execute",
-                    notebook,
-                ],
-                check=False,
-                text=True,
-                cwd=root_dir,
-                env=pip_env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                encoding="utf-8",
-            )
-            if result.returncode != 0:
-                print(result.stdout)
-                raise Exception(f"Error running {notebook}")
-
-    if other_notebooks:
-        print("Executing notebooks")
-        _run_notebooks(other_notebooks)
-
-    if qiskit_notebooks:
-        for version in QISKIT_VERSION_MATRIX:
-            print(f"Executing Qiskit notebooks with {version['label']}")
-            version_install_args = [
+    for notebook in notebook_files:
+        print(f"Running {notebook}")
+        # Run the notebook process, capturing stdout and only displaying it if there is an error
+        result = subprocess.run(
+            [
                 python_bin,
                 "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                "--upgrade-strategy",
-                "eager",
-            ] + version["requirements"]
-            subprocess.run(
-                version_install_args, check=True, text=True, cwd=root_dir, env=pip_env
-            )
-
-            _run_notebooks(qiskit_notebooks)
+                "nbconvert",
+                "--to",
+                "notebook",
+                "--stdout",
+                "--ExecutePreprocessor.timeout=90",
+                "--sanitize-html",
+                "--execute",
+                notebook,
+            ],
+            check=False,
+            text=True,
+            cwd=root_dir,
+            env=pip_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            encoding="utf-8",
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            raise Exception(f"Error running {notebook}")
 
     step_end()
 

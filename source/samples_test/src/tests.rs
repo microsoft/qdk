@@ -66,6 +66,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
                 group_by_scope: false,
                 source_locations: false,
                 max_operations: 0,
+                max_loop_iterations: None,
                 prune_classical_qubits: false,
             },
             Default::default(),
@@ -296,6 +297,7 @@ fn circuit(sources: SourceMap) -> String {
         CircuitGenerationMethod::Static,
         TracerConfig {
             max_operations: 1000,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -379,6 +381,7 @@ fn circuit_qasm(source: &str) -> String {
         CircuitGenerationMethod::Static,
         TracerConfig {
             max_operations: 1000,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -423,7 +426,7 @@ fn qirgen(sources: SourceMap, profile: Profile) -> String {
 
     let entry_expr = format!("{namespace}.Main()");
     match interpreter.qirgen(&entry_expr) {
-        Ok(qir) => format!("generated QIR of length {}", qir.len()),
+        Ok(result) => format!("generated QIR of length {}", result.qir.len()),
         Err(errors) => format!("QIR generation error for `{entry_expr}`: {}", errors[0]),
     }
 }
@@ -492,7 +495,7 @@ fn qirgen_qasm(source: &str, profile: Profile) -> String {
     };
 
     match interpreter.qirgen("qasm_import.program()") {
-        Ok(qir) => format!("generated QIR of length {}", qir.len()),
+        Ok(result) => format!("generated QIR of length {}", result.qir.len()),
         Err(errors) => format!(
             "QIR generation error for `qasm_import.program()`: {}",
             errors[0]

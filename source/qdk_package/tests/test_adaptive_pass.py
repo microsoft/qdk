@@ -12,8 +12,9 @@ from dataclasses import astuple, asdict
 import pyqir
 import pytest
 
-from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode
+from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode, GATE_MAP
 from qdk._adaptive_bytecode import *
+from qdk.simulation._simulation import DecomposeMxMyPass
 
 _HAS_GLOBAL_VARIABLES = hasattr(
     pyqir.Module(pyqir.Context(), "probe"), "global_variables"
@@ -1116,7 +1117,7 @@ def test_gep_instruction_emitted():
 
 
 # ---------------------------------------------------------------------------
-# Test: Aggregate alloca rejected
+# Test: Aggregate alloca supported for arrays, not structs
 # ---------------------------------------------------------------------------
 
 ARRAY_ALLOCA_QIR = """\
@@ -1143,10 +1144,11 @@ attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_
 """
 
 
-def test_array_alloca_rejected():
-    """Alloca of an array type is rejected to prevent silent undersizing."""
-    with pytest.raises(NotImplementedError, match="Aggregate stack allocations"):
-        _run_pass(ARRAY_ALLOCA_QIR)
+def test_array_alloca_supported():
+    """Alloca of an array type is supported."""
+    r = _run_pass(ARRAY_ALLOCA_QIR)
+    primaries = [_primary(inst.opcode) for inst in r.instructions]
+    assert OP_ALLOCA in primaries, "Missing OP_ALLOCA"
 
 
 def test_struct_alloca_rejected():
@@ -1471,6 +1473,98 @@ def test_byte_string_global_used_as_data_raises():
 
 
 # ---------------------------------------------------------------------------
+# Test: all-zero global arrays (folded by LLVM to `zeroinitializer`)
+# ---------------------------------------------------------------------------
+
+ZERO_INITIALIZER_ARRAY_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@zeros = internal constant [3 x i64] [i64 0, i64 0, i64 0]
+@after = internal constant [2 x i64] [i64 7, i64 8]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr_z = getelementptr inbounds [3 x i64], [3 x i64]* @zeros, i64 0, i64 1
+  %ptr_a = getelementptr inbounds [2 x i64], [2 x i64]* @after, i64 0, i64 1
+  %vz = load i64, i64* %ptr_z, align 8
+  %va = load i64, i64* %ptr_a, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_zero_initializer_array_constant_data():
+    """All-zero arrays (parsed as `zeroinitializer`) are encoded as zeros.
+
+    Subsequent globals must still be placed after the zero-filled region.
+    """
+    r = _run_pass(ZERO_INITIALIZER_ARRAY_QIR)
+    assert r.constant_data == [0, 0, 0, 7, 8]
+
+
+NESTED_ZERO_INITIALIZER_ARRAY_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@matrix = internal constant [2 x [2 x i64]] [
+  [2 x i64] [i64 0, i64 0],
+  [2 x i64] [i64 3, i64 4]
+]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [2 x [2 x i64]], [2 x [2 x i64]]* @matrix, i64 0, i64 1, i64 0
+  %val = load i64, i64* %ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_nested_zero_initializer_array_constant_data():
+    """A zero sub-array inside a nested array is flattened as zeros."""
+    r = _run_pass(NESTED_ZERO_INITIALIZER_ARRAY_QIR)
+    assert r.constant_data == [0, 0, 3, 4]
+
+
+EMPTY_LABEL_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@empty = internal constant [1 x i8] c"\\00"
+@data = internal constant [2 x i64] [i64 42, i64 99]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [2 x i64], [2 x i64]* @data, i64 0, i64 0
+  %val = load i64, i64* %ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_empty_label_zero_initializer_skipped():
+    """An empty `[1 x i8]` label (also `zeroinitializer`) is still skipped."""
+    r = _run_pass(EMPTY_LABEL_QIR)
+    assert r.constant_data == [42, 99]
+
+
+# ---------------------------------------------------------------------------
 # Test: mutable global array still works
 # ---------------------------------------------------------------------------
 
@@ -1539,3 +1633,51 @@ def test_forward_global_ref_constant_data():
     # @row0 at offset 2: [10, 20, 30]
     # @row1 at offset 5: [40, 50, 60]
     assert r.constant_data == [2, 5, 10, 20, 30, 40, 50, 60]
+
+
+# ---------------------------------------------------------------------------
+# Test: MX/MY are native ops; DecomposeMxMyPass lowers them to basis change + M
+# ---------------------------------------------------------------------------
+
+MX_MY_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  call void @__quantum__qis__mx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__my__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  ret void
+}
+
+declare void @__quantum__qis__mx__body(%Qubit*, %Result*)
+declare void @__quantum__qis__my__body(%Qubit*, %Result*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
+"""
+
+
+def _mx_my_op_ids(decompose: bool):
+    mod = pyqir.Module.from_ir(pyqir.Context(), MX_MY_QIR, "test.ll")
+    if decompose:
+        DecomposeMxMyPass().run(mod)
+    program = AdaptiveProfilePass(Bytecode.Bit32).run(mod)
+    return [op.op_id for op in program.quantum_ops]
+
+
+def test_mx_my_are_native_by_default():
+    assert _mx_my_op_ids(decompose=False) == [GATE_MAP["mx"], GATE_MAP["my"]]
+
+
+def test_decompose_mx_my_to_basis_change_and_m():
+    expected = ["h", "m", "h", "s__adj", "h", "m", "h", "s"]
+    assert _mx_my_op_ids(decompose=True) == [GATE_MAP[g] for g in expected]
+
+
+def test_decompose_mx_my_keeps_result_ids_and_valid_ir():
+    mod = pyqir.Module.from_ir(pyqir.Context(), MX_MY_QIR, "test.ll")
+    DecomposeMxMyPass().run(mod)
+    assert mod.verify() is None
+    program = AdaptiveProfilePass(Bytecode.Bit32).run(mod)
+    measures = [i for i in program.instructions if _primary(i.opcode) == OP_MEASURE]
+    assert [m.aux2 for m in measures] == [0, 1]

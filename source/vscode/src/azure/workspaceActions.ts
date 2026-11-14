@@ -288,6 +288,12 @@ export function parseConnectionString(
     return undefined;
   }
 
+  // The endpoint may be prefixed with the workspace name. Remove it if so.
+  const fixedEndpoint = stripWorkspaceFromEndpoint(
+    partsMap.get("quantumendpoint")!,
+    partsMap.get("workspacename")!,
+  );
+
   const workspaceId =
     `/subscriptions/${partsMap.get("subscriptionid")}` +
     `/resourceGroups/${partsMap.get("resourcegroupname")}` +
@@ -296,7 +302,7 @@ export function parseConnectionString(
   return {
     id: workspaceId,
     name: partsMap.get("workspacename")!,
-    endpointUri: partsMap.get("quantumendpoint")!,
+    endpointUri: fixedEndpoint,
     tenantId: partsMap.get("tenantid") || "", // Blank when only an ApiKey is supplied; derived from the subscription id when a portal link is built
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
@@ -466,11 +472,10 @@ async function getWorkspaceWithAzureAD(
   if (!workspace) return;
 
   // Need to remove the first part of the endpoint
-  const fixedEndpoint =
-    workspace.properties.endpointUri?.replace(
-      `https://${workspace.name}.`,
-      "https://",
-    ) || "";
+  const fixedEndpoint = stripWorkspaceFromEndpoint(
+    workspace.properties.endpointUri,
+    workspace.name,
+  );
 
   const result: WorkspaceConnection = {
     id: workspace.id,
@@ -485,6 +490,15 @@ async function getWorkspaceWithAzureAD(
   }
 
   return result;
+}
+
+function stripWorkspaceFromEndpoint(
+  endpointUri: string,
+  workspaceName: string,
+): string {
+  // Sometimes the endpoint URI includes the workspace name as a subdomain, e.g. https://ws-devtools-prod.westus-v2.quantum.azure.com
+  // whereas we want to remove it to get the base endpoint for the workspace.
+  return endpointUri.replace(`https://${workspaceName}.`, "https://");
 }
 
 // Reference for existing queries in Python SDK and Azure schema:

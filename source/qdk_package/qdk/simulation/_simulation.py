@@ -44,8 +44,11 @@ from .._adaptive_pass import (
     OP_RECORD_OUTPUT,
 )
 
-if TYPE_CHECKING:  # This is in the pyi file only
-    from .._native import GpuShotResults
+if TYPE_CHECKING:
+    from qodec import Qodec
+
+    from .._native import GpuShotResults  # This is in the pyi file only
+    from .decoders import PrepareDecoder
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -218,6 +221,22 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                     pyqir.ptr_id(call.args[1]),
                 )
             )
+        elif callee_name == "__quantum__qis__mx__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MX,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                )
+            )
+        elif callee_name == "__quantum__qis__my__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MY,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                )
+            )
         elif callee_name == "__quantum__qis__mz__body":
             self.gates.append(
                 (
@@ -356,15 +375,17 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
 
 
 class OutputRecordingPass(pyqir.QirModuleVisitor):
-    _output_str = ""
-    _closers: List[str] = []
-    _counters: List[int] = []
-    _process_fn: Optional[Callable[[List[object]], object]] = None
-    # Running index into the per-shot ordered output record values (`v`)
-    # supplied to `process_output`. Incremented for each leaf record output
-    # (result / bool / int / double) so measurement results and classical
-    # records are addressed uniformly.
-    _record_index = 0
+    def __init__(self) -> None:
+        super().__init__()
+        self._output_str = ""
+        self._closers: List[str] = []
+        self._counters: List[int] = []
+        self._process_fn: Optional[Callable[[List[object]], object]] = None
+        # Running index into the per-shot ordered output record values (`v`)
+        # supplied to `process_output`. Incremented for each leaf record output
+        # (result / bool / int / double) so measurement results and classical
+        # records are addressed uniformly.
+        self._record_index = 0
 
     def process_output(self, records: List[object]) -> object:
         if self._process_fn:
@@ -537,6 +558,86 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
         call.erase()
 
 
+class DecomposeMxMyPass(pyqir.QirModuleVisitor):
+    h_func: Function
+    s_func: Function
+    sadj_func: Function
+    mz_func: Function
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def _on_module(self, module: Module) -> None:
+        void = Type.void(module.context)
+        qubit_ty = PointerType(Type.void(module.context))
+
+        # Find or create all the needed functions.
+        for func in module.functions:
+            match func.name:
+                case "__quantum__qis__h__body":
+                    self.h_func = func
+                case "__quantum__qis__s__body":
+                    self.s_func = func
+                case "__quantum__qis__s__adj":
+                    self.sadj_func = func
+                case "__quantum__qis__m__body":
+                    self.mz_func = func
+        if not hasattr(self, "h_func"):
+            self.h_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__h__body",
+                module,
+            )
+        if not hasattr(self, "s_func"):
+            self.s_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__s__body",
+                module,
+            )
+        if not hasattr(self, "sadj_func"):
+            self.sadj_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__s__adj",
+                module,
+            )
+        if not hasattr(self, "mz_func"):
+            self.mz_func = Function(
+                FunctionType(void, [qubit_ty, qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__m__body",
+                module,
+            )
+        super()._on_module(module)
+
+    def _on_call_instr(self, call: Call) -> None:
+        name = call.callee.name
+        if name == "__quantum__qis__mx__body":
+            self._on_qis_mx(call, call.args[0], call.args[1])
+        elif name == "__quantum__qis__my__body":
+            self._on_qis_my(call, call.args[0], call.args[1])
+        else:
+            super()._on_call_instr(call)
+
+    def _on_qis_mx(self, call: Call, target: Value, result: Value) -> None:
+        self.builder.insert_before(call)
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.mz_func, [target, result])
+        self.builder.call(self.h_func, [target])
+        call.erase()
+
+    def _on_qis_my(self, call: Call, target: Value, result: Value) -> None:
+        self.builder.insert_before(call)
+        self.builder.call(self.sadj_func, [target])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.mz_func, [target, result])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.s_func, [target])
+        call.erase()
+
+
 Simulator: TypeAlias = Callable[
     [List[QirInstruction], int, int, int, NoiseConfig, int], str
 ]
@@ -673,6 +774,8 @@ def run_qir_gpu(
     mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
+    # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
+    DecomposeMxMyPass().run(mod)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit32).run(mod, noise)
         return run_adaptive(
@@ -794,14 +897,19 @@ def run_qir(
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-    type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+    type: Optional[Literal["stabilizer", "cpu", "gpu", "clifford"]] = None,
+    *,
+    qodec: Optional["Qodec"] = None,
+    decoder: Optional["PrepareDecoder"] = None,
+    on_shot_failure: Literal["discard", "raise", "retry"] = "discard",
+    max_retries: int = 3,
 ) -> List:
     """
     Simulate the given QIR source.
 
     :param input: The QIR source to simulate.
     :param type: The type of simulator to use.
-        Use ``"clifford"`` if your QIR only contains Clifford gates and measurements.
+        Use ``"stabilizer"`` if your QIR only contains Clifford gates, a limited number of T gates, and measurements.
         Use ``"gpu"`` if you have a GPU available in your system.
         Use ``"cpu"`` as a fallback option if you don't have a GPU in your system.
         If ``None`` (default), the GPU simulator will be tried first, falling back to
@@ -809,9 +917,76 @@ def run_qir(
     :param shots: The number of shots to run.
     :param noise: A noise model to use in the simulation.
     :param seed: A seed for reproducibility.
+    :param qodec: EXPERIMENTAL
+        The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
+        Gadget equations are trusted as supplied. Use :func:`qdk.ec.audit` to
+        check the declarations before execution; invalid equations may produce
+        incorrect results or decoding failures.
+        With a Qodec, ``None`` and ``"clifford"`` select the stabilizer backend,
+        ``"cpu"`` selects the state-vector backend, and ``"gpu"`` is unsupported.
+        A QIR call runs the instruction of the Qodec's top instruction set whose
+        mnemonic is exactly the callee's name, so ``__quantum__qis__h__body``
+        needs an instruction named ``__quantum__qis__h__body``, and a Q#
+        ``body intrinsic`` operation ``foo`` runs ``foo``. A quantum
+        ``__quantum__qis__`` call without such an instruction is an error.
+        The last pointer arguments are results, which receive the instruction's
+        outcomes and, when the call passes one per flag, its flags; the
+        pointers before them bind its block operands, and other arguments bind
+        its parameters in order.
+        Each program qubit gets its own block; when a block encodes several
+        logical qubits, the unused ones may be prepared and measured alongside it.
+        A program qubit is prepared before its first use unless that use
+        creates its block. Qubit preparation and restoring a destructively
+        measured qubit use the instructions whose declared actions match. A
+        raised flag the program does not receive fails the shot (see
+        ``on_shot_failure``). Single-qubit Pauli decoder corrections, and
+        gadget frame updates, are tracked in a noiseless Pauli frame rather
+        than run as gates.
+    :param decoder: EXPERIMENTAL
+        A ``PrepareDecoder`` callable that prepares a decoder factory for
+        each Qodec layer. ``None`` selects the built-in syndrome decoder.
+        See :mod:`qdk.simulation.decoders` for built-in preparation functions and
+        the optional :func:`~qdk.simulation.decoders.prepare_deq_decoder` adapter.
+        The deq adapter derives connected gadget fault models
+        from ``noise`` and uses bounded compositions with the selected deq
+        coordinator (window by default) for supported non-adaptive Clifford
+        programs, without changing the default QDK decoder. Its optional
+        ``max_readout_score`` threshold uses this run's shot-failure policy
+        for confidence-based selection without changing the output shape.
+    :param on_shot_failure: EXPERIMENTAL
+        Qodec shot policy: ``"discard"`` (default) returns only successes,
+        ``"raise"`` stops on the first failure, and ``"retry"`` restarts failed shots.
+        Discard and retry select accepted shots and can change the result distribution.
+    :param max_retries: EXPERIMENTAL
+        Additional attempts per Qodec shot under ``"retry"`` (default 3).
+        Exhaustion re-raises the last failure without returning partial results.
     :return: A list of measurement results, in the order they happened during the simulation.
     :rtype: List
+    :raises RuntimeError: If any GPU shot fails, including exceeding the eight-frame
+        call-stack limit or the allocation limit. The error identifies the zero-based
+        shot index and GPU error code. No partial results are returned.
     """
+    if qodec is not None:
+        from ._qodec._run import run_qir_with_qodec
+
+        return run_qir_with_qodec(
+            input,
+            qodec,
+            noise,
+            shots,
+            seed,
+            decoder=decoder,
+            type=type,
+            on_shot_failure=on_shot_failure,
+            max_retries=max_retries,
+        )
+
+    if decoder is not None:
+        raise ValueError("A decoder requires a Qodec")
+
+    if on_shot_failure != "discard" or max_retries != 3:
+        raise ValueError("Shot failure options require a Qodec")
+
     if type is None:
         try:
             try_create_gpu_adapter()
@@ -820,7 +995,7 @@ def run_qir(
             type = "cpu"
 
     match type:
-        case "clifford":
+        case "clifford" | "stabilizer":
             return run_qir_clifford(input, shots, noise, seed)
         case "cpu":
             return run_qir_cpu(input, shots, noise, seed)

@@ -420,7 +420,7 @@ fn make_2q_pauli_noise(q1: u32, q2: u32, p: Vec<(&str, f32)>) -> Op {
             "ZZ" => {
                 op.r33 = prob;
             }
-            _ => panic!("Invalid pauli string: {}", pauli_str),
+            _ => panic!("Invalid pauli string: {pauli_str}"),
         }
         total_prob += prob;
     }

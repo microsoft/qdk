@@ -6,12 +6,15 @@
 #![allow(clippy::too_many_lines)]
 
 use crate::package_assigners::PackageAssigners;
+use crate::test_utils::{
+    assert_panics_with, callable_id_by_name, compile_and_run_pipeline_to, find_callable_body_block,
+};
 
 use super::*;
 use expect_test::expect;
 
 // A partial application whose captured argument is computed by an effectful
-// call. The binding cannot be deleted, because `GetAngle` measures its qubit,
+// call. The binding cannot be deleted, because `GetAngle` applies `X` to its qubit,
 // but its callable value is consumed by the rewrite. Cleanup must drop that
 // dead value instead of blanking a closure that is still the result of an
 // arrow-typed block.
@@ -239,10 +242,7 @@ fn guarded_reassignment_callable_resolves_with_fallthrough_to_initial() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -282,7 +282,7 @@ fn error_returned_not_panicked() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     assert!(
         !errors.is_empty(),
         "expected errors to be returned, not a panic"
@@ -307,7 +307,7 @@ fn error_multiple_dynamic_sites_collected() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     assert_eq!(
         errors.len(),
         2,
@@ -885,18 +885,7 @@ fn five_branch_conditional_callable_resolves_successfully() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 2;
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if n == 0 {
-                    op = X;
-                } else if n == 1 {
-                    op = Y;
-                } else if n == 2 {
-                    op = Z;
-                } else if n == 3 {
-                    op = S;
-                } else {
-                    op = T;
-                }
+                if n == 0 {} else if n == 1 {} else if n == 2 {} else if n == 3 {} else {}
 
                 if n == 0 {
                     Apply_AdjCtl__X_(q)
@@ -1158,16 +1147,13 @@ fn controlled_functor_count_saturates_without_overflow() {
 }
 
 #[test]
-fn newtype_ctor_callable_field_cleanup() {
-    // Pins the cleanup behavior for closures inside legacy-`newtype` UDT
-    // constructor argument subtrees. The UDT-ctor guard in
-    // `cleanup_consumed_closures` lets these closures be replaced after
-    // their specialized callable is produced, ensuring convergence.
-    //
-    // Uses both `Choose(true)` and `Choose(false)` so each conditional
-    // branch is specialized at least once; otherwise a literal-conditioned
-    // projection leaves the unused branch's closure as dead-code and
-    // convergence cannot succeed independently of the UDT-ctor guard.
+fn consumed_newtype_callable_fields_keep_typed_replacements_and_live_data() {
+    // Specialize both Choose branches. Offset reads keep the constructed values
+    // live after callable reads become direct calls. The snapshot stops after
+    // defunctionalization, before UDT erasure removes the constructor calls.
+    // The unused F field still needs an Int -> Int value, so cleanup uses a
+    // stand-in rather than the lifted target with its incompatible (Int,) input.
+    // Direct calls must supply the lifted target's outer tuple.
     let source = r#"
         namespace Test {
           newtype Choice = (F : Int -> Int, Offset : Int);
@@ -1191,6 +1177,10 @@ fn newtype_ctor_callable_field_cleanup() {
         }
         "#;
     check_invariants(source);
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(138),
+    );
     check_rewrite(
         source,
         &expect![[r#"
@@ -1224,9 +1214,9 @@ fn newtype_ctor_callable_field_cleanup() {
             newtype Choice = ((Int -> Int), Int);
             function Choose(flag : Bool) : __UDT_Item_1__Package_2_ {
                 if flag {
-                    Choice((), 100)
+                    Choice(__defunc_consumed_closure_6, 100)
                 } else {
-                    Choice((), 7)
+                    Choice(__defunc_consumed_closure_6, 7)
                 }
 
             }
@@ -1234,13 +1224,13 @@ fn newtype_ctor_callable_field_cleanup() {
                 let selectedT : __UDT_Item_1__Package_2_ = Choose(true);
                 let selectedF : __UDT_Item_1__Package_2_ = Choose(false);
                 ((if true {
-                    _lambda_4(10)
+                    _lambda_4(10, )
                 } else {
-                    _lambda_5(10)
+                    _lambda_5(10, )
                 } + if false {
-                    _lambda_4(10)
+                    _lambda_4(10, )
                 } else {
-                    _lambda_5(10)
+                    _lambda_5(10, )
                 }) + selectedT::Offset) + selectedF::Offset
             }
             function _lambda_4(x : Int, ) : Int {
@@ -1248,6 +1238,9 @@ fn newtype_ctor_callable_field_cleanup() {
             }
             function _lambda_5(x : Int, ) : Int {
                 x * 2
+            }
+            function __defunc_consumed_closure_6(_ : Int) : Int {
+                fail $"consumed closure stand-in invoked"
             }
             // entry
             Main()
@@ -1506,7 +1499,10 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                     qubitIndices = [0],
                     signs = [1]
                 };
-                MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__ApplyPrepare__closure_(1, 1, params);
+                {
+                    let __capture : __UDT_Item_1__Package_2_ = params;
+                    MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__ApplyPrepare__closure_(1, 1, __capture)
+                };
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
@@ -1544,7 +1540,7 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                 }
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
-                ()
+                / * closure item = 10 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
@@ -1582,9 +1578,9 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                 __quantum__rt__qubit_release(control);
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl__ApplyPrepare__closure_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : ((Qubit, Qubit[]) => Unit) {
-                / * closure item = 14 captures = [numSystemQubits, power] * / _lambda_7
+                / * closure item = 14 captures = [__capture_0, numSystemQubits, power] * / _lambda_7
             }
-            operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            operation _lambda_7(__capture_0 : __UDT_Item_1__Package_2_, numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
                     let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
@@ -1596,7 +1592,7 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                         while ((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359)) {
                             let _ : Int = _index_id_349;
                             Controlled ApplyPrepare([control], systems);
-                            Controlled _lambda_8([control], (systems, ancilla));
+                            Controlled _lambda_8([control], (__capture_0, (systems, ancilla)));
                             _index_id_349 += _step_id_354;
                         }
 
@@ -1762,5 +1758,404 @@ fn pure_partial_app_direct_dispatch_passes_invariants() {
             op(q);
         }
         "#;
+    check_invariants(source);
+}
+
+#[test]
+fn overwritten_effectful_callable_producer_is_retained_as_residue() {
+    use qsc_fir::fir::StoreItemId;
+
+    for setup in [
+        r#"
+            mutable op = Initial;
+            for _ in 0..2 {
+                op = MakeOp(q);
+            }
+        "#,
+        r#"
+            mutable op = MakeOp(q);
+            op = Initial;
+            for _ in 0..2 {
+                op = LoopValue;
+            }
+        "#,
+    ] {
+        let source = format!(
+            r#"
+            operation MakeOp(q : Qubit) : Qubit => Unit {{
+                X(q);
+                Rx(0.0, _)
+            }}
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {{
+                op(target);
+            }}
+            operation Initial(q : Qubit) : Unit {{ H(q); }}
+            operation LoopValue(q : Qubit) : Unit {{ X(q); }}
+            operation Main() : Unit {{
+                use q = Qubit();
+                {setup}
+                ApplyOp(op, q);
+            }}
+            "#
+        );
+        let (mut store, package_id) = compile_to_monomorphized_fir(&source);
+        let producer = StoreItemId::from((
+            package_id,
+            callable_id_by_name(store.get(package_id), "MakeOp"),
+        ));
+        let mut assigners = PackageAssigners::new(&store, package_id);
+        let outcome = defunctionalize(&mut store, package_id, &mut assigners);
+        assert!(
+            outcome
+                .diagnostics
+                .iter()
+                .all(super::super::Error::is_deferrable),
+            "expected deferred loop residue: {setup}"
+        );
+        assert!(
+            outcome.residue_items.contains(&producer),
+            "effectful producer must retain residue even if its result is overwritten: {setup}"
+        );
+        check_pipeline(&source);
+    }
+}
+
+#[test]
+fn deferrable_residue_preserves_local_binding_type_checks() {
+    use qsc_fir::fir::{ExprKind, StmtKind, StoreItemId};
+    use qsc_fir::ty::{Prim, Ty};
+
+    let (mut store, package_id) = compile_and_run_pipeline_to(
+        r#"
+        function Identity(value : Int) : Int { value }
+        operation Unrelated() : Unit {
+            let decoy = Identity;
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Unrelated();
+            mutable op = H;
+            for _ in 0..3 { set op = X; }
+            ApplyOp(op, q);
+        }
+        "#,
+        crate::PipelineStage::ReturnUnify,
+    );
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    crate::cond_normalize::normalize_conditions(&mut store, package_id, &mut assigners);
+    let package = store.get_mut(package_id);
+    let identity = callable_id_by_name(package, "Identity");
+    let unrelated = StoreItemId::from((package_id, callable_id_by_name(package, "Unrelated")));
+    let body = find_callable_body_block(package, "Unrelated");
+    let StmtKind::Local(_, pat, initializer) =
+        package.get_stmt(package.get_block(body).stmts[0]).kind
+    else {
+        panic!("Unrelated should start with a local binding");
+    };
+    // Preserve a closure as residue, but give its binding an incompatible type.
+    package.pats.get_mut(pat).expect("binding should exist").ty = Ty::Prim(Prim::Int);
+    package
+        .exprs
+        .get_mut(initializer)
+        .expect("initializer should exist")
+        .kind = ExprKind::Closure(Vec::new(), identity);
+
+    let outcome = defunctionalize(&mut store, package_id, &mut assigners);
+    assert!(
+        outcome
+            .diagnostics
+            .iter()
+            .all(super::super::Error::is_deferrable),
+        "the dynamic call should produce a deferrable diagnostic"
+    );
+    assert!(
+        outcome.residue_items.contains(&unrelated),
+        "residue discovery must include the unrelated closure"
+    );
+    let mut exemptions = fir_invariants::InvariantExemptions {
+        defunc_residual_items: outcome.residue_items,
+        entry_has_defunc_residue: outcome.entry_has_residue,
+        ..Default::default()
+    };
+    fir_invariants::check_with_exemptions(
+        &store,
+        package_id,
+        InvariantLevel::PostDefunc,
+        &exemptions,
+    );
+    assert_panics_with("has type Prim(Int) but initializer Expr", || {
+        fir_invariants::check_with_exemptions(
+            &store,
+            package_id,
+            InvariantLevel::PostAll,
+            &exemptions,
+        );
+    });
+
+    let mut result = crate::PipelineResult::default();
+    assert!(!crate::run_defunc_and_lowering_stages(
+        &mut store,
+        package_id,
+        crate::PipelineStage::Full,
+        &mut result,
+        &mut assigners,
+        &mut exemptions,
+        &[],
+    ));
+    assert!(result.errors.is_empty());
+    assert!(!crate::run_arg_promote_stages(
+        &mut store,
+        package_id,
+        crate::PipelineStage::Full,
+        &mut result,
+        &mut assigners,
+        &exemptions,
+        &[],
+    ));
+    assert_panics_with("has type Prim(Int) but initializer Expr", || {
+        crate::finalize_pipeline(
+            &mut store,
+            package_id,
+            crate::PipelineStage::Full,
+            &[],
+            &exemptions,
+        );
+    });
+}
+
+#[test]
+fn dynamic_entry_residue_remains_authorized() {
+    let (mut entry_store, entry_package_id) =
+        crate::test_utils::compile_to_monomorphized_fir_with_entry(
+            r#"
+            namespace Test {
+                operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                    op(q);
+                }
+            }
+            "#,
+            r#"{
+                use q = Qubit();
+                mutable op = H;
+                for _ in 0..3 { set op = X; }
+                Test.ApplyOp(op, q);
+            }"#,
+        );
+    let apply_item = collect_reachable_from_entry(&entry_store, entry_package_id)
+        .into_iter()
+        .find(|store_id| {
+            matches!(
+                &entry_store
+                    .get(store_id.package)
+                    .get_item(store_id.item)
+                    .kind,
+                ItemKind::Callable(decl) if decl.name.name.starts_with("ApplyOp")
+            )
+        })
+        .expect("reachable ApplyOp should exist");
+    let mut entry_assigners = PackageAssigners::new(&entry_store, entry_package_id);
+    let entry_outcome = defunctionalize(&mut entry_store, entry_package_id, &mut entry_assigners);
+    assert!(
+        entry_outcome.entry_has_residue,
+        "a dynamic call in the entry should authorize entry residue"
+    );
+    assert!(
+        entry_outcome.residue_items.contains(&apply_item),
+        "a dynamic HOF call in the entry should authorize the reachable HOF residue"
+    );
+}
+
+#[test]
+fn fixpoint_residue_remains_authorized() {
+    use qsc_fir::fir::StoreItemId;
+
+    let (mut store, package_id) = compile_to_monomorphized_fir(
+        r#"
+        function Main() : Int -> Int { x -> x }
+        "#,
+    );
+    let main = StoreItemId::from((
+        package_id,
+        callable_id_by_name(store.get(package_id), "Main"),
+    ));
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    let outcome = defunctionalize(&mut store, package_id, &mut assigners);
+    assert!(
+        matches!(
+            outcome.diagnostics.as_slice(),
+            [super::super::Error::FixpointNotReached(..)]
+        ),
+        "an unconsumed closure should produce FixpointNotReached"
+    );
+    assert!(
+        outcome.residue_items.contains(&main),
+        "FixpointNotReached should authorize every terminal remaining owner"
+    );
+}
+
+#[test]
+fn branch_local_capture_applied_outside_scope_declines_to_dynamic() {
+    let source = r#"
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let flag = MResetZ(q) == One;
+            mutable op = H;
+            if flag {
+                let angle = 0.5;
+                op = Rx(angle, _);
+            }
+            ApplyOp(op, q);
+        }
+        "#;
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+
+    let direct_source = r#"
+        operation Main() : Unit {
+            use q = Qubit();
+            let flag = MResetZ(q) == One;
+            mutable op = H;
+            if flag {
+                let angle = 0.5;
+                set op = Rx(angle, _);
+            }
+            op(q);
+        }
+        "#;
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(direct_source);
+    let result = super::run_prepass_and_analysis(&mut fir_store, fir_pkg_id);
+    let package = fir_store.get(fir_pkg_id);
+    let direct_sites = result
+        .direct_call_sites
+        .iter()
+        .filter(|site| {
+            let span = package.get_expr(site.call_expr_id).span;
+            &direct_source[span.lo as usize..span.hi as usize] == "op(q)"
+        })
+        .count();
+    let unresolved_sites = result
+        .unresolved_direct_call_sites
+        .iter()
+        .filter(|site| {
+            let span = package.get_expr(site.expr).span;
+            &direct_source[span.lo as usize..span.hi as usize] == "op(q)"
+        })
+        .count();
+    assert_eq!(
+        direct_sites, 0,
+        "an inadmissible candidate should prevent every direct-site record"
+    );
+    assert_eq!(
+        unresolved_sites, 1,
+        "the rejected direct Multi should have one unresolved route"
+    );
+    check_errors(
+        direct_source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+}
+
+#[test]
+fn effectful_producer_returning_consumed_closure_declines_to_dynamic() {
+    let source = r#"
+        operation MakeOp(q : Qubit) : Qubit => Unit {
+            X(q);
+            Rx(0.0, _)
+        }
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let op = MakeOp(q);
+            ApplyOp(op, q);
+        }
+        "#;
+    // An actionable diagnostic, not an internal assert. The diagnostic must
+    // survive the fixpoint loop's per-iteration `DynamicCallable` retain; a
+    // decline raised on one iteration and not re-derived on the last would be
+    // dropped silently.
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+    check_pipeline(source);
+}
+
+#[test]
+fn negative_index_callable_dispatch_preserves_semantics() {
+    for source in [
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [I, X];
+            ops[-2](q);
+            MResetZ(q)
+        }
+        "#,
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [I, X];
+            ops[-1](q);
+            MResetZ(q)
+        }
+        "#,
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [X, size = 2];
+            ops[-1](q);
+            MResetZ(q)
+        }
+        "#,
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [I, X];
+            let index = if MResetZ(q) == Zero { -2 } else { -2 };
+            ops[index](q);
+            MResetZ(q)
+        }
+        "#,
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [I, X];
+            ops[-3](q);
+            MResetZ(q)
+        }
+        "#,
+    ] {
+        crate::test_utils::check_semantic_equivalence(source);
+    }
+}
+
+/// A factory that only constructs a partial application remains eligible for
+/// specialization: expect no diagnostics and valid post-defunctionalization FIR.
+#[test]
+fn pure_partial_application_factory_specializes_without_residual_errors() {
+    let source = r#"
+        function MakeOp() : Qubit => Unit is Adj + Ctl {
+            Rx(0.0, _)
+        }
+        operation ApplyOp(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit {
+            op(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let op = MakeOp();
+            ApplyOp(op, q);
+        }
+        "#;
+    check_errors(source, &expect!["(no error)"]);
     check_invariants(source);
 }

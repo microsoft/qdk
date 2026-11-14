@@ -62,10 +62,10 @@ class Trace(QirModuleVisitor):
             f"move({row_const.value}, {col_const.value}) {q}"
         )
 
-    def _on_qis_sx(self, call: Call, qubit: Value) -> None:
+    def _on_qis_sx(self, call: Call, target: Value) -> None:
         if not self.in_parallel:
             self._next_step()
-        q = ptr_id(qubit)
+        q = ptr_id(target)
         self.trace["steps"][-1]["ops"].append(f"sx {q}")
 
     def _on_qis_rz(self, call: Call, angle: Value, target: Value) -> None:

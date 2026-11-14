@@ -10,6 +10,198 @@ use indoc::indoc;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
+fn unit_equality_preserves_quantum_operand_effects() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Bool {
+            use q = Qubit();
+            X(q) == Reset(q)
+        }
+    "#});
+    assert_eq!(
+        program.get_callable(CallableId(2)).name,
+        "__quantum__qis__x__body"
+    );
+    assert_eq!(
+        program.get_callable(CallableId(3)).name,
+        "__quantum__qis__reset__body"
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), )
+                Call id(4), args( Bool(true), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn unit_inequality_preserves_quantum_operand_effects() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Bool {
+            use q = Qubit();
+            X(q) != Reset(q)
+        }
+    "#});
+    assert_eq!(
+        program.get_callable(CallableId(2)).name,
+        "__quantum__qis__x__body"
+    );
+    assert_eq!(
+        program.get_callable(CallableId(3)).name,
+        "__quantum__qis__reset__body"
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), )
+                Call id(4), args( Bool(false), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn unwrapped_unit_equality_preserves_quantum_effects() {
+    for expression in ["({ X(q); wrapped! }) == ()", "() == ({ X(q); wrapped! })"] {
+        let program = get_rir_program(&format!(
+            "newtype UnitBox = Unit;
+             @EntryPoint()
+             operation Main() : Bool {{
+                 use q = Qubit();
+                 let wrapped = UnitBox();
+                 {expression}
+             }}"
+        ));
+        assert_eq!(
+            program.get_callable(CallableId(2)).name,
+            "__quantum__qis__x__body"
+        );
+        assert_blocks(
+            &program,
+            &expect![[r#"
+                Blocks:
+                Block 0:Block:
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), )
+                    Call id(3), args( Bool(true), Tag(0, 3), )
+                    Return Integer(0)"#]],
+        );
+    }
+}
+
+#[test]
+fn unwrapped_unit_inequality_preserves_quantum_effects() {
+    for expression in ["({ X(q); wrapped! }) != ()", "() != ({ X(q); wrapped! })"] {
+        let program = get_rir_program(&format!(
+            "newtype UnitBox = Unit;
+             @EntryPoint()
+             operation Main() : Bool {{
+                 use q = Qubit();
+                 let wrapped = UnitBox();
+                 {expression}
+             }}"
+        ));
+        assert_eq!(
+            program.get_callable(CallableId(2)).name,
+            "__quantum__qis__x__body"
+        );
+        assert_blocks(
+            &program,
+            &expect![[r#"
+                Blocks:
+                Block 0:Block:
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), )
+                    Call id(3), args( Bool(false), Tag(0, 3), )
+                    Return Integer(0)"#]],
+        );
+    }
+}
+
+#[test]
+fn unit_comparison_preserves_rhs_failure() {
+    for operator in ["==", "!="] {
+        let error = get_partial_evaluation_error(&format!(
+            r#"
+            @EntryPoint()
+            operation Main() : Bool {{
+                use q = Qubit();
+                X(q) {operator} {{ fail "RHS failure"; () }}
+            }}
+            "#
+        ));
+        let crate::Error::EvaluationFailed(message, _) = error else {
+            panic!("{operator}: expected the RHS failure, got {error:?}");
+        };
+        assert_eq!(message, "program failed: RHS failure");
+    }
+}
+
+#[test]
+fn nonempty_tuple_comparison_remains_unsupported() {
+    let error = get_partial_evaluation_error(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Bool {
+            use q = Qubit();
+            let result = MResetZ(q);
+            (result, 1) == (result, 1)
+        }
+    "#});
+    let crate::Error::Unexpected(message, _) = error else {
+        panic!("expected unsupported tuple comparison, got {error:?}");
+    };
+    assert!(message.starts_with("unsupported LHS value: ("), "{message}");
+}
+
+#[test]
+fn evaluation_order_short_circuit_assignment_then_arithmetic() {
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                mutable v = 4;
+                let _ = (MResetZ(q) == One) and { set v = 0; false };
+                v + 1
+            }
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(4)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(false)
+                Branch Variable(3, Boolean), 2, 1
+            Block 1:Block:
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Variable(6, Integer) = Add Variable(5, Integer), Integer(1)
+                Variable(7, Integer) = Store Variable(6, Integer)
+                Call id(4), args( Variable(7, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(0, Integer) = Store Integer(0)
+                Variable(4, Boolean) = Store Bool(false)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
 fn leading_positive_unary_operator_on_integer_does_not_generate_rir_instruction() {
     let program = get_rir_program(indoc! {r#"
         namespace Test {
@@ -733,12 +925,13 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_equality() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false)
-                Variable(4, Boolean) = Icmp Eq, Variable(1, Boolean), Variable(3, Boolean)
-                Variable(5, Boolean) = Store Variable(4, Boolean)
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Variable(3, Boolean) = Call id(3), args( Result(1), )
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
+                Variable(5, Boolean) = Icmp Eq, Variable(2, Boolean), Variable(4, Boolean)
+                Variable(6, Boolean) = Store Variable(5, Boolean)
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
                 Return Integer(0)"#]],
     );
 }
@@ -876,12 +1069,13 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_inequality() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false)
-                Variable(4, Boolean) = Icmp Ne, Variable(1, Boolean), Variable(3, Boolean)
-                Variable(5, Boolean) = Store Variable(4, Boolean)
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Variable(3, Boolean) = Call id(3), args( Result(1), )
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
+                Variable(5, Boolean) = Icmp Ne, Variable(2, Boolean), Variable(4, Boolean)
+                Variable(6, Boolean) = Store Variable(5, Boolean)
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
                 Return Integer(0)"#]],
     );
 }
@@ -1087,17 +1281,18 @@ fn logical_and_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_lhs_is_false
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Variable(2, Boolean) = Store Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(false)
+                Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
-                Variable(5, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Variable(6, Boolean) = Store Variable(3, Boolean)
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
-                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
+                Variable(3, Boolean) = Store Variable(5, Boolean)
                 Jump(1)"#]],
     );
 }
@@ -1303,17 +1498,18 @@ fn logical_or_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_is_true()
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Bool(true)
-                Branch Variable(1, Boolean), 1, 2
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(true)
+                Branch Variable(2, Boolean), 1, 2
             Block 1:Block:
-                Variable(5, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Variable(6, Boolean) = Store Variable(3, Boolean)
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true)
+                Variable(3, Boolean) = Store Variable(5, Boolean)
                 Jump(1)"#]],
     );
 }
@@ -1380,26 +1576,28 @@ fn logical_and_and_sequence_with_dynamic_operands() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(false)
+                Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
-                Variable(5, Boolean) = Store Bool(false)
-                Branch Variable(2, Boolean), 4, 3
+                Variable(6, Boolean) = Store Variable(3, Boolean)
+                Variable(7, Boolean) = Store Bool(false)
+                Branch Variable(6, Boolean), 4, 3
             Block 2:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true)
+                Variable(3, Boolean) = Store Variable(5, Boolean)
                 Jump(1)
             Block 3:Block:
-                Variable(8, Boolean) = Store Variable(5, Boolean)
-                Call id(4), args( Variable(8, Boolean), Tag(0, 3), )
+                Variable(10, Boolean) = Store Variable(7, Boolean)
+                Call id(4), args( Variable(10, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 4:Block:
                 Call id(2), args( Qubit(2), Result(2), )
-                Variable(6, Boolean) = Call id(3), args( Result(2), )
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true)
-                Variable(5, Boolean) = Store Variable(7, Boolean)
+                Variable(8, Boolean) = Call id(3), args( Result(2), )
+                Variable(9, Boolean) = Icmp Ne, Variable(8, Boolean), Bool(true)
+                Variable(7, Boolean) = Store Variable(9, Boolean)
                 Jump(3)"#]],
     );
 }
@@ -1466,26 +1664,28 @@ fn logical_and_or_sequence_with_dynamic_operands() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(false)
+                Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
-                Variable(5, Boolean) = Store Bool(true)
-                Branch Variable(2, Boolean), 3, 4
+                Variable(6, Boolean) = Store Variable(3, Boolean)
+                Variable(7, Boolean) = Store Bool(true)
+                Branch Variable(6, Boolean), 3, 4
             Block 2:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true)
+                Variable(3, Boolean) = Store Variable(5, Boolean)
                 Jump(1)
             Block 3:Block:
-                Variable(8, Boolean) = Store Variable(5, Boolean)
-                Call id(4), args( Variable(8, Boolean), Tag(0, 3), )
+                Variable(10, Boolean) = Store Variable(7, Boolean)
+                Call id(4), args( Variable(10, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 4:Block:
                 Call id(2), args( Qubit(2), Result(2), )
-                Variable(6, Boolean) = Call id(3), args( Result(2), )
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true)
-                Variable(5, Boolean) = Store Variable(7, Boolean)
+                Variable(8, Boolean) = Call id(3), args( Result(2), )
+                Variable(9, Boolean) = Icmp Ne, Variable(8, Boolean), Bool(true)
+                Variable(7, Boolean) = Store Variable(9, Boolean)
                 Jump(3)"#]],
     );
 }
@@ -1552,26 +1752,28 @@ fn logical_or_and_sequence_with_dynamic_operands() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Bool(true)
-                Branch Variable(1, Boolean), 1, 2
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(true)
+                Branch Variable(2, Boolean), 1, 2
             Block 1:Block:
-                Variable(8, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(8, Boolean), Tag(0, 3), )
+                Variable(10, Boolean) = Store Variable(3, Boolean)
+                Call id(4), args( Variable(10, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true)
-                Variable(5, Boolean) = Store Bool(false)
-                Branch Variable(4, Boolean), 4, 3
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true)
+                Variable(6, Boolean) = Store Variable(5, Boolean)
+                Variable(7, Boolean) = Store Bool(false)
+                Branch Variable(6, Boolean), 4, 3
             Block 3:Block:
-                Variable(2, Boolean) = Store Variable(5, Boolean)
+                Variable(3, Boolean) = Store Variable(7, Boolean)
                 Jump(1)
             Block 4:Block:
                 Call id(2), args( Qubit(2), Result(2), )
-                Variable(6, Boolean) = Call id(3), args( Result(2), )
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true)
-                Variable(5, Boolean) = Store Variable(7, Boolean)
+                Variable(8, Boolean) = Call id(3), args( Result(2), )
+                Variable(9, Boolean) = Icmp Ne, Variable(8, Boolean), Bool(true)
+                Variable(7, Boolean) = Store Variable(9, Boolean)
                 Jump(3)"#]],
     );
 }
@@ -1638,26 +1840,28 @@ fn logical_or_or_sequence_with_dynamic_operands() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Bool(true)
-                Branch Variable(1, Boolean), 1, 2
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(true)
+                Branch Variable(2, Boolean), 1, 2
             Block 1:Block:
-                Variable(5, Boolean) = Store Bool(true)
-                Branch Variable(2, Boolean), 3, 4
+                Variable(6, Boolean) = Store Variable(3, Boolean)
+                Variable(7, Boolean) = Store Bool(true)
+                Branch Variable(6, Boolean), 3, 4
             Block 2:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true)
+                Variable(3, Boolean) = Store Variable(5, Boolean)
                 Jump(1)
             Block 3:Block:
-                Variable(8, Boolean) = Store Variable(5, Boolean)
-                Call id(4), args( Variable(8, Boolean), Tag(0, 3), )
+                Variable(10, Boolean) = Store Variable(7, Boolean)
+                Call id(4), args( Variable(10, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 4:Block:
                 Call id(2), args( Qubit(2), Result(2), )
-                Variable(6, Boolean) = Call id(3), args( Result(2), )
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true)
-                Variable(5, Boolean) = Store Variable(7, Boolean)
+                Variable(8, Boolean) = Call id(3), args( Result(2), )
+                Variable(9, Boolean) = Icmp Ne, Variable(8, Boolean), Bool(true)
+                Variable(7, Boolean) = Store Variable(9, Boolean)
                 Jump(3)"#]],
     );
 }
@@ -1807,9 +2011,10 @@ fn integer_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Sub Variable(3, Integer), Integer(1)
-                Variable(5, Integer) = Store Variable(4, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Sub Variable(4, Integer), Integer(1)
+                Variable(6, Integer) = Store Variable(5, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -1899,9 +2104,10 @@ fn integer_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
                 Jump(1)
             Block 4:Block:
                 Variable(7, Integer) = Store Variable(6, Integer)
-                Variable(8, Integer) = Mul Variable(3, Integer), Variable(7, Integer)
-                Variable(9, Integer) = Store Variable(8, Integer)
-                Call id(4), args( Variable(9, Integer), Tag(0, 3), )
+                Variable(8, Integer) = Store Variable(3, Integer)
+                Variable(9, Integer) = Mul Variable(8, Integer), Variable(7, Integer)
+                Variable(10, Integer) = Store Variable(9, Integer)
+                Call id(4), args( Variable(10, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
@@ -2079,9 +2285,10 @@ fn integer_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Srem Variable(3, Integer), Integer(1)
-                Variable(5, Integer) = Store Variable(4, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Srem Variable(4, Integer), Integer(1)
+                Variable(6, Integer) = Store Variable(5, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2225,9 +2432,10 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_zero_intege
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Store Integer(1)
-                Variable(5, Integer) = Store Variable(4, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Store Integer(1)
+                Variable(6, Integer) = Store Variable(5, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2304,12 +2512,13 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_positive_in
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Store Integer(1)
-                Variable(5, Integer) = Mul Variable(4, Integer), Variable(3, Integer)
-                Variable(6, Integer) = Mul Variable(5, Integer), Variable(3, Integer)
-                Variable(7, Integer) = Mul Variable(6, Integer), Variable(3, Integer)
-                Variable(8, Integer) = Store Variable(7, Integer)
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Store Integer(1)
+                Variable(6, Integer) = Mul Variable(5, Integer), Variable(4, Integer)
+                Variable(7, Integer) = Mul Variable(6, Integer), Variable(4, Integer)
+                Variable(8, Integer) = Mul Variable(7, Integer), Variable(4, Integer)
+                Variable(9, Integer) = Store Variable(8, Integer)
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2422,9 +2631,10 @@ fn integer_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
                 Jump(1)
             Block 4:Block:
                 Variable(7, Integer) = Store Variable(6, Integer)
-                Variable(8, Integer) = BitwiseAnd Variable(3, Integer), Variable(7, Integer)
-                Variable(9, Integer) = Store Variable(8, Integer)
-                Call id(4), args( Variable(9, Integer), Tag(0, 3), )
+                Variable(8, Integer) = Store Variable(3, Integer)
+                Variable(9, Integer) = BitwiseAnd Variable(8, Integer), Variable(7, Integer)
+                Variable(10, Integer) = Store Variable(9, Integer)
+                Call id(4), args( Variable(10, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
@@ -2580,9 +2790,10 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = BitwiseXor Variable(3, Integer), Integer(1)
-                Variable(5, Integer) = Store Variable(4, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = BitwiseXor Variable(4, Integer), Integer(1)
+                Variable(6, Integer) = Store Variable(5, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2672,9 +2883,17 @@ fn integer_bitwise_left_shif_with_lhs_dynamic_integer_and_rhs_dynamic_integer() 
                 Jump(1)
             Block 4:Block:
                 Variable(7, Integer) = Store Variable(6, Integer)
-                Variable(8, Integer) = Shl Variable(3, Integer), Variable(7, Integer)
-                Variable(9, Integer) = Store Variable(8, Integer)
-                Call id(4), args( Variable(9, Integer), Tag(0, 3), )
+                Variable(8, Integer) = Store Variable(3, Integer)
+                Variable(9, Integer) = Ashr Variable(7, Integer), Integer(63)
+                Variable(10, Integer) = BitwiseXor Variable(7, Integer), Variable(9, Integer)
+                Variable(11, Integer) = Sub Variable(10, Integer), Variable(9, Integer)
+                Variable(12, Integer) = Shl Variable(8, Integer), Variable(11, Integer)
+                Variable(13, Integer) = Ashr Variable(8, Integer), Variable(11, Integer)
+                Variable(14, Integer) = BitwiseXor Variable(12, Integer), Variable(13, Integer)
+                Variable(15, Integer) = BitwiseAnd Variable(14, Integer), Variable(9, Integer)
+                Variable(16, Integer) = BitwiseXor Variable(12, Integer), Variable(15, Integer)
+                Variable(17, Integer) = Store Variable(16, Integer)
+                Call id(4), args( Variable(17, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
@@ -2751,9 +2970,16 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Ashr Integer(1), Variable(3, Integer)
-                Variable(5, Integer) = Store Variable(4, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Ashr Variable(3, Integer), Integer(63)
+                Variable(5, Integer) = BitwiseXor Variable(3, Integer), Variable(4, Integer)
+                Variable(6, Integer) = Sub Variable(5, Integer), Variable(4, Integer)
+                Variable(7, Integer) = Ashr Integer(1), Variable(6, Integer)
+                Variable(8, Integer) = Shl Integer(1), Variable(6, Integer)
+                Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
+                Variable(10, Integer) = BitwiseAnd Variable(9, Integer), Variable(4, Integer)
+                Variable(11, Integer) = BitwiseXor Variable(7, Integer), Variable(10, Integer)
+                Variable(12, Integer) = Store Variable(11, Integer)
+                Call id(4), args( Variable(12, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2761,6 +2987,141 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
             Block 3:Block:
                 Variable(2, Integer) = Store Integer(1)
                 Jump(1)"#]],
+    );
+}
+
+#[test]
+fn integer_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_negative_classical_integer() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0 | 1;
+                i <<< -1
+            }
+        }
+        "#,
+    });
+    assert_block_instructions(
+        &program,
+        BlockId(1),
+        &expect![[r#"
+            Block:
+                Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Ashr Variable(4, Integer), Integer(1)
+                Variable(6, Integer) = Store Variable(5, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn integer_bitwise_right_shift_with_lhs_dynamic_integer_and_rhs_negative_classical_integer() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0 | 1;
+                i >>> -1
+            }
+        }
+        "#,
+    });
+    assert_block_instructions(
+        &program,
+        BlockId(1),
+        &expect![[r#"
+            Block:
+                Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Shl Variable(4, Integer), Integer(1)
+                Variable(6, Integer) = Store Variable(5, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn integer_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_too_large_raises_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0 | 1;
+                i <<< 64
+            }
+        }
+        "#,
+    });
+    assert_error(
+        &error,
+        &expect![[
+            r#"EvaluationFailed("integer too large for operation", PackageSpan { package: PackageId(2), span: Span { lo: 142, hi: 150 } })"#
+        ]],
+    );
+}
+
+#[test]
+fn integer_bitwise_right_shift_with_lhs_dynamic_integer_and_rhs_too_negative_raises_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0 | 1;
+                i >>> -64
+            }
+        }
+        "#,
+    });
+    assert_error(
+        &error,
+        &expect![[
+            r#"EvaluationFailed("integer too large for operation", PackageSpan { package: PackageId(2), span: Span { lo: 142, hi: 151 } })"#
+        ]],
+    );
+}
+
+#[test]
+fn integer_bitwise_left_shift_with_negative_dynamic_amount() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                X(q);
+                let k = MResetZ(q) == One ? -1 | 1;
+                1024 <<< k
+            }
+        }
+        "#,
+    });
+    assert_block_instructions(
+        &program,
+        BlockId(1),
+        &expect![[r#"
+        Block:
+            Variable(3, Integer) = Store Variable(2, Integer)
+            Variable(4, Integer) = Ashr Variable(3, Integer), Integer(63)
+            Variable(5, Integer) = BitwiseXor Variable(3, Integer), Variable(4, Integer)
+            Variable(6, Integer) = Sub Variable(5, Integer), Variable(4, Integer)
+            Variable(7, Integer) = Shl Integer(1024), Variable(6, Integer)
+            Variable(8, Integer) = Ashr Integer(1024), Variable(6, Integer)
+            Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
+            Variable(10, Integer) = BitwiseAnd Variable(9, Integer), Variable(4, Integer)
+            Variable(11, Integer) = BitwiseXor Variable(7, Integer), Variable(10, Integer)
+            Variable(12, Integer) = Store Variable(11, Integer)
+            Call id(5), args( Variable(12, Integer), Tag(0, 3), )
+            Return Integer(0)"#]],
     );
 }
 
@@ -2830,9 +3191,10 @@ fn integer_equality_comparison_with_lhs_dynamic_integer_and_rhs_classical_intege
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Integer), Integer(1)
-                Variable(5, Boolean) = Store Variable(4, Boolean)
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Integer), Integer(1)
+                Variable(6, Boolean) = Store Variable(5, Boolean)
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2912,9 +3274,10 @@ fn integer_equality_comparison_after_dynamic_mutation_is_not_constant_folded() {
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
-                Variable(3, Boolean) = Icmp Eq, Variable(0, Integer), Integer(1)
-                Variable(4, Boolean) = Store Variable(3, Boolean)
-                Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
+                Variable(3, Integer) = Store Variable(0, Integer)
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Integer), Integer(1)
+                Variable(5, Boolean) = Store Variable(4, Boolean)
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(1)
@@ -3001,9 +3364,10 @@ fn integer_inequality_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_intege
                 Jump(1)
             Block 4:Block:
                 Variable(7, Integer) = Store Variable(6, Integer)
-                Variable(8, Boolean) = Icmp Ne, Variable(3, Integer), Variable(7, Integer)
-                Variable(9, Boolean) = Store Variable(8, Boolean)
-                Call id(4), args( Variable(9, Boolean), Tag(0, 3), )
+                Variable(8, Integer) = Store Variable(3, Integer)
+                Variable(9, Boolean) = Icmp Ne, Variable(8, Integer), Variable(7, Integer)
+                Variable(10, Boolean) = Store Variable(9, Boolean)
+                Call id(4), args( Variable(10, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
@@ -3159,9 +3523,10 @@ fn integer_greater_or_equal_than_comparison_with_lhs_dynamic_integer_and_rhs_cla
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Boolean) = Icmp Sge, Variable(3, Integer), Integer(1)
-                Variable(5, Boolean) = Store Variable(4, Boolean)
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Boolean) = Icmp Sge, Variable(4, Integer), Integer(1)
+                Variable(6, Boolean) = Store Variable(5, Boolean)
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -3251,9 +3616,10 @@ fn integer_less_than_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_integer
                 Jump(1)
             Block 4:Block:
                 Variable(7, Integer) = Store Variable(6, Integer)
-                Variable(8, Boolean) = Icmp Slt, Variable(3, Integer), Variable(7, Integer)
-                Variable(9, Boolean) = Store Variable(8, Boolean)
-                Call id(4), args( Variable(9, Boolean), Tag(0, 3), )
+                Variable(8, Integer) = Store Variable(3, Integer)
+                Variable(9, Boolean) = Icmp Slt, Variable(8, Integer), Variable(7, Integer)
+                Variable(10, Boolean) = Store Variable(9, Boolean)
+                Call id(4), args( Variable(10, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
@@ -3641,9 +4007,10 @@ fn double_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Variable(4, Double) = Fsub Variable(3, Double), Double(1)
-                Variable(5, Double) = Store Variable(4, Double)
-                Call id(4), args( Variable(5, Double), Tag(0, 3), )
+                Variable(4, Double) = Store Variable(3, Double)
+                Variable(5, Double) = Fsub Variable(4, Double), Double(1)
+                Variable(6, Double) = Store Variable(5, Double)
+                Call id(4), args( Variable(6, Double), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
@@ -3733,9 +4100,10 @@ fn double_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
                 Jump(1)
             Block 4:Block:
                 Variable(7, Double) = Store Variable(6, Double)
-                Variable(8, Double) = Fmul Variable(3, Double), Variable(7, Double)
-                Variable(9, Double) = Store Variable(8, Double)
-                Call id(4), args( Variable(9, Double), Tag(0, 3), )
+                Variable(8, Double) = Store Variable(3, Double)
+                Variable(9, Double) = Fmul Variable(8, Double), Variable(7, Double)
+                Variable(10, Double) = Store Variable(9, Double)
+                Call id(4), args( Variable(10, Double), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
                 Variable(6, Double) = Store Double(1.1)
@@ -3913,9 +4281,10 @@ fn double_equality_comparison_with_lhs_dynamic_double_and_rhs_classical_double()
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Variable(4, Boolean) = Fcmp Oeq, Variable(3, Double), Double(1)
-                Variable(5, Boolean) = Store Variable(4, Boolean)
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Variable(4, Double) = Store Variable(3, Double)
+                Variable(5, Boolean) = Fcmp Oeq, Variable(4, Double), Double(1)
+                Variable(6, Boolean) = Store Variable(5, Boolean)
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
@@ -4005,9 +4374,10 @@ fn double_inequality_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double()
                 Jump(1)
             Block 4:Block:
                 Variable(7, Double) = Store Variable(6, Double)
-                Variable(8, Boolean) = Fcmp One, Variable(3, Double), Variable(7, Double)
-                Variable(9, Boolean) = Store Variable(8, Boolean)
-                Call id(4), args( Variable(9, Boolean), Tag(0, 3), )
+                Variable(8, Double) = Store Variable(3, Double)
+                Variable(9, Boolean) = Fcmp One, Variable(8, Double), Variable(7, Double)
+                Variable(10, Boolean) = Store Variable(9, Boolean)
+                Call id(4), args( Variable(10, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
                 Variable(6, Double) = Store Double(1.1)
@@ -4163,9 +4533,10 @@ fn double_greater_or_equal_than_comparison_with_lhs_dynamic_double_and_rhs_class
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Variable(4, Boolean) = Fcmp Oge, Variable(3, Double), Double(1)
-                Variable(5, Boolean) = Store Variable(4, Boolean)
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Variable(4, Double) = Store Variable(3, Double)
+                Variable(5, Boolean) = Fcmp Oge, Variable(4, Double), Double(1)
+                Variable(6, Boolean) = Store Variable(5, Boolean)
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
@@ -4255,9 +4626,10 @@ fn double_less_than_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double() 
                 Jump(1)
             Block 4:Block:
                 Variable(7, Double) = Store Variable(6, Double)
-                Variable(8, Boolean) = Fcmp Olt, Variable(3, Double), Variable(7, Double)
-                Variable(9, Boolean) = Store Variable(8, Boolean)
-                Call id(4), args( Variable(9, Boolean), Tag(0, 3), )
+                Variable(8, Double) = Store Variable(3, Double)
+                Variable(9, Boolean) = Fcmp Olt, Variable(8, Double), Variable(7, Double)
+                Variable(10, Boolean) = Store Variable(9, Boolean)
+                Call id(4), args( Variable(10, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
                 Variable(6, Double) = Store Double(1.1)
@@ -4413,9 +4785,10 @@ fn double_mod_with_lhs_dynamic_double_and_rhs_classical_double() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Variable(4, Double) = Frem Variable(3, Double), Double(2)
-                Variable(5, Double) = Store Variable(4, Double)
-                Call id(4), args( Variable(5, Double), Tag(0, 3), )
+                Variable(4, Double) = Store Variable(3, Double)
+                Variable(5, Double) = Frem Variable(4, Double), Double(2)
+                Variable(6, Double) = Store Variable(5, Double)
+                Call id(4), args( Variable(6, Double), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)

@@ -583,17 +583,6 @@ fn call_to_dynamic_function_yields_errors() {
                         },
                     },
                 ),
-                UseOfDynamicArrowFunction(
-                    PackageSpan {
-                        package: PackageId(
-                            3,
-                        ),
-                        span: Span {
-                            lo: 170,
-                            hi: 178,
-                        },
-                    },
-                ),
                 CallToDynamicCallee(
                     PackageSpan {
                         package: PackageId(
@@ -628,17 +617,6 @@ fn call_to_dynamic_operation_yields_errors() {
                     },
                 ),
                 UseOfDynamicBool(
-                    PackageSpan {
-                        package: PackageId(
-                            3,
-                        ),
-                        span: Span {
-                            lo: 166,
-                            hi: 171,
-                        },
-                    },
-                ),
-                UseOfDynamicArrowOperation(
                     PackageSpan {
                         package: PackageId(
                             3,

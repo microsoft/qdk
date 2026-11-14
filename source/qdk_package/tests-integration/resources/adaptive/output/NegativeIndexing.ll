@@ -11,18 +11,19 @@ block_0:
   store i64 -2, ptr %var_1
   br label %block_1
 block_1:
-  %var_7 = load i64, ptr %var_1
-  %var_2 = icmp sge i64 %var_7, -3
-  br i1 %var_2, label %block_2, label %block_3
+  %var_2 = load i64, ptr %var_1
+  %var_3 = icmp sge i64 %var_2, -3
+  br i1 %var_3, label %block_2, label %block_3
 block_2:
-  %var_8 = load i64, ptr %var_1
-  %var_3_offset_chk = icmp slt i64 %var_8, 0
-  %var_3_offset = select i1 %var_3_offset_chk, i64 1, i64 0
-  %var_3 = getelementptr [3 x ptr], ptr @array0, i64 %var_3_offset, i64 %var_8
-  %var_9 = load ptr, ptr %var_3
-  call void @X(ptr %var_9)
-  %var_5 = add i64 %var_8, -1
-  store i64 %var_5, ptr %var_1
+  %var_4 = load i64, ptr %var_1
+  %var_10_offset_chk = icmp slt i64 %var_4, 0
+  %var_10_offset = select i1 %var_10_offset_chk, i64 1, i64 0
+  %var_10 = getelementptr [3 x ptr], ptr @array0, i64 %var_10_offset, i64 %var_4
+  %var_5 = load ptr, ptr %var_10
+  call void @X(ptr %var_5)
+  %var_7 = load i64, ptr %var_1
+  %var_8 = add i64 %var_7, -1
+  store i64 %var_8, ptr %var_1
   br label %block_1
 block_3:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -37,9 +38,9 @@ block_3:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define internal void @X(ptr %var_4) {
+define internal void @X(ptr %var_6) {
 block_4:
-  call void @__quantum__qis__x__body(ptr %var_4)
+  call void @__quantum__qis__x__body(ptr %var_6)
   ret void
 }
 
@@ -57,7 +58,7 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -68,3 +69,4 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

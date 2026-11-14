@@ -22,7 +22,7 @@ def run(
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-    type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+    type: Optional[Literal["stabilizer", "cpu", "gpu", "clifford"]] = None,
 ) -> List:
     """
     EXPERIMENTAL:

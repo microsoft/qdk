@@ -6,7 +6,7 @@ mod builder;
 mod circuit;
 pub mod operations;
 
-pub use builder::{CircuitTracer, TracerConfig};
+pub use builder::{CircuitTracer, OMITTED_LOOP_ITERATIONS_GATE, TracerConfig};
 pub use circuit::{
     CURRENT_VERSION, Circuit, CircuitGroup, ComponentColumn, Operation, operation_list_to_grid,
 };

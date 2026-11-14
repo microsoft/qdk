@@ -446,7 +446,7 @@ impl<'a> Globals<'a> {
                             "import {}.{};{}",
                             self.global_scope().format_namespace_name(*namespace),
                             item.name,
-                            &text_edits.indent
+                            text_edits.indent
                         ),
                         range: *range,
                     }]

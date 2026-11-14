@@ -125,6 +125,160 @@ mod given_interpreter {
         }
 
         #[test]
+        fn saved_generic_closure_preserves_body_only_type_context() {
+            use qsc_eval::callable::TypeArgs;
+            use qsc_fir::ty::{GenericArg, Prim, Ty};
+
+            let mut interpreter = get_interpreter();
+            let (result, _) = line(
+                &mut interpreter,
+                "function Bounce(read : Unit -> Int) : Int { read() }
+                function Save<'T>(unused : 'T) : Unit -> Int {
+                    let _ = Bounce(() -> 0);
+                    () -> { let values : 'T[] = []; 42 }
+                }
+                Save(1)",
+            );
+            let Value::Closure(closure) = result.expect("factory should evaluate") else {
+                panic!("expected closure");
+            };
+            assert!(closure.fixed_args.is_empty());
+            let TypeArgs::Bound(binding) = &closure.type_args else {
+                panic!("expected retained factory bindings");
+            };
+            assert_eq!(
+                binding.args.as_ref(),
+                &[GenericArg::Ty(Ty::Prim(Prim::Int))]
+            );
+            assert_ne!(binding.owner, closure.id);
+            assert_eq!(
+                closure.type_args.resolve_argument(
+                    qsc_fir::ty::ParamId::from(0),
+                    &mut qsc_eval::callable::TypeBudget::default(),
+                ),
+                Ok(GenericArg::Ty(Ty::Prim(Prim::Int))),
+            );
+        }
+
+        #[test]
+        fn nested_escaping_closure_retains_creator_type_context() {
+            use qsc_eval::callable::TypeArgs;
+            use qsc_fir::ty::{GenericArg, Prim, Ty};
+
+            let mut interpreter = get_interpreter();
+            let (result, _) = line(
+                &mut interpreter,
+                "function Save<'T>(unused : 'T) : Unit -> (Unit -> Int) {
+                    () -> { () -> { let values : 'T[] = []; 42 } }
+                }
+                Save(true)()",
+            );
+            let Value::Closure(closure) = result.expect("nested factory should evaluate") else {
+                panic!("expected closure");
+            };
+            let TypeArgs::Bound(binding) = &closure.type_args else {
+                panic!("expected retained lexical bindings");
+            };
+            assert_eq!(
+                binding.args.as_ref(),
+                &[GenericArg::Ty(Ty::Prim(Prim::Bool))]
+            );
+            let mut out = Cursor::new(Vec::new());
+            assert_eq!(
+                interpreter
+                    .invoke(
+                        &mut CursorReceiver::new(&mut out),
+                        Value::Closure(closure),
+                        Value::unit(),
+                    )
+                    .expect("escaped closure should execute"),
+                Value::Int(42),
+            );
+        }
+
+        #[test]
+        fn forwarding_generic_factory_preserves_scoped_templates() {
+            use qsc_eval::callable::TypeArgs;
+            use qsc_fir::ty::{GenericArg, ParamId, Prim, Ty};
+
+            let mut interpreter = get_interpreter();
+            let (result, _) = line(
+                &mut interpreter,
+                "function Save<'T>(unused : 'T) : Unit -> Int {
+                    () -> { let values : 'T[] = []; 42 }
+                }
+                function Forward<'U>(value : 'U) : Unit -> Int { Save(value) }
+                Forward(true)",
+            );
+            let Value::Closure(closure) = result.expect("forwarded factory should evaluate") else {
+                panic!("expected closure");
+            };
+            let TypeArgs::Bound(binding) = &closure.type_args else {
+                panic!("expected inner bindings");
+            };
+            let TypeArgs::Bound(parent) = &binding.context else {
+                panic!("expected caller bindings");
+            };
+            assert_ne!(binding.owner, parent.owner);
+            assert_eq!(
+                binding.args.as_ref(),
+                &[GenericArg::Ty(Ty::Param(ParamId::from(0)))],
+            );
+            assert_eq!(
+                parent.args.as_ref(),
+                &[GenericArg::Ty(Ty::Prim(Prim::Bool))]
+            );
+            assert_eq!(
+                closure.type_args.resolve_argument(
+                    ParamId::from(0),
+                    &mut qsc_eval::callable::TypeBudget::default(),
+                ),
+                Ok(GenericArg::Ty(Ty::Prim(Prim::Bool))),
+            );
+        }
+
+        #[test]
+        fn type_growing_simulation_retains_linear_metadata() {
+            use qsc_eval::callable::TypeArgs;
+            use qsc_fir::ty::{GenericArg, ParamId, Prim, Ty};
+
+            let mut interpreter = get_interpreter();
+            let (result, _) = line(
+                &mut interpreter,
+                "function Grow<'T>(x : 'T, n : Int) : Unit -> Int {
+                    if n == 0 {
+                        () -> { let values : 'T[] = []; 30 }
+                    } else {
+                        Grow((x, x), n - 1)
+                    }
+                }
+                Grow(1, 30)",
+            );
+            let Value::Closure(closure) = result.expect("finite recursion should simulate") else {
+                panic!("expected closure");
+            };
+            let mut context = &closure.type_args;
+            for _ in 0..30 {
+                let TypeArgs::Bound(binding) = context else {
+                    panic!("expected one compact binding per call");
+                };
+                assert_eq!(
+                    binding.args.as_ref(),
+                    &[GenericArg::Ty(Ty::Tuple(vec![
+                        Ty::Param(ParamId::from(0)),
+                        Ty::Param(ParamId::from(0)),
+                    ]))],
+                );
+                context = &binding.context;
+            }
+            let TypeArgs::Bound(root) = context else {
+                panic!("expected root instantiation");
+            };
+            assert_eq!(root.args.as_ref(), &[GenericArg::Ty(Ty::Prim(Prim::Int))]);
+            assert_eq!(root.context, TypeArgs::Empty);
+        }
+
+        #[test]
         fn config_value_works() {
             let mut interpreter = get_interpreter_with_config(
                 [
@@ -894,13 +1048,13 @@ mod given_interpreter {
             let items = interpreter.user_globals();
             assert_eq!(items.len(), 2);
             // No namespace for top-level items
-            assert!(items[0].namespace.is_empty());
+            assert_eq!(items[0].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Foo"
             "#]]
             .assert_debug_eq(&items[0].name);
             // No namespace for top-level items
-            assert!(items[1].namespace.is_empty());
+            assert_eq!(items[1].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Bar"
             "#]]
@@ -957,25 +1111,25 @@ mod given_interpreter {
             let items = interpreter.user_globals();
             assert_eq!(items.len(), 4);
             // No namespace for top-level items
-            assert!(items[0].namespace.is_empty());
+            assert_eq!(items[0].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Foo"
             "#]]
             .assert_debug_eq(&items[0].name);
             // No namespace for top-level items
-            assert!(items[1].namespace.is_empty());
+            assert_eq!(items[1].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Bar"
             "#]]
             .assert_debug_eq(&items[1].name);
             // No namespace for top-level items
-            assert!(items[2].namespace.is_empty());
+            assert_eq!(items[2].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Baz"
             "#]]
             .assert_debug_eq(&items[2].name);
             // No namespace for top-level items
-            assert!(items[3].namespace.is_empty());
+            assert_eq!(items[3].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Qux"
             "#]]
@@ -1077,7 +1231,7 @@ mod given_interpreter {
                    [line_0] [x]
             "#]],
             );
-            let res = interpreter.qirgen("{Foo();}");
+            let res = interpreter.qirgen("{Foo();}").map(|result| result.qir);
             expect![[r#"
                 Err(
                     [
@@ -1267,7 +1421,10 @@ mod given_interpreter {
                 indoc! {"operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; } "},
             );
             is_only_value(&result, &output, &Value::unit());
-            let res = interpreter.qirgen("Foo()").expect("expected success");
+            let res = interpreter
+                .qirgen("Foo()")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -1277,7 +1434,6 @@ mod given_interpreter {
                 define i64 @ENTRYPOINT__main() #0 {
                 block_0:
                   call void @__quantum__rt__initialize(i8* null)
-                  call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
                   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
                   ret i64 0
@@ -1289,9 +1445,7 @@ mod given_interpreter {
 
                 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-                declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
-
-                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="1" }
+                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
                 attributes #1 = { "irreversible" }
 
                 ; module flags
@@ -1344,7 +1498,10 @@ mod given_interpreter {
             );
             is_only_value(&result, &output, &Value::unit());
 
-            interpreter.qirgen("Foo()").expect("expected success");
+            interpreter
+                .qirgen("Foo()")
+                .map(|result| result.qir)
+                .expect("expected success");
 
             let (result, output) = line(&mut interpreter, "Foo()");
             is_only_value(
@@ -1414,6 +1571,57 @@ mod given_interpreter {
         }
 
         #[test]
+        fn runtime_callable_arrow_preserves_public_signature() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                r#"
+                    operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+                    function Save(n : Int) : Qubit => Unit is Adj + Ctl {
+                        q => { for _ in 1..n { Strong(q); } }
+                    }
+                    operation ReadAdjoint(op : Qubit => Unit is Adj) : Unit {
+                        use q = Qubit(); Adjoint op(q); Reset(q);
+                    }
+                "#,
+            );
+            is_only_value(&result, &output, &Value::unit());
+            for (expression, expected) in [
+                ("Strong", "(Qubit => Unit is Adj + Ctl)"),
+                ("Adjoint Strong", "(Qubit => Unit is Adj + Ctl)"),
+                (
+                    "Controlled Strong",
+                    "((Qubit[], Qubit) => Unit is Adj + Ctl)",
+                ),
+                (
+                    "Controlled Controlled (Save(2))",
+                    "((Qubit[], (Qubit[], Qubit)) => Unit is Adj + Ctl)",
+                ),
+                ("Save(2)", "(Qubit => Unit is Adj + Ctl)"),
+                ("Strong", "(Qubit => Unit is Adj + Ctl)"),
+            ] {
+                let (value, _) = line(&mut interpreter, expression);
+                let arrow = interpreter
+                    .callable_arrow(&value.expect("runtime callable"))
+                    .expect("checked callable types")
+                    .expect("callable metadata");
+                assert_eq!(arrow.to_string(), expected, "{expression}");
+            }
+            let (value, _) = line(&mut interpreter, "ReadAdjoint");
+            let arrow = interpreter
+                .callable_arrow(&value.expect("reader"))
+                .expect("checked reader types")
+                .expect("reader metadata");
+            let qsc_hir::ty::Ty::Arrow(input) = arrow.input.into_inner() else {
+                panic!("reader input should remain an arrow");
+            };
+            assert_eq!(
+                input.functors.borrow().expect_value("declared bound"),
+                qsc_hir::ty::FunctorSetValue::Adj,
+            );
+        }
+
+        #[test]
         fn qirgen_twice_on_shared_interpreter_store_is_byte_identical() {
             // The FIR transform pipeline mutates every reachable package in
             // place, including std, so codegen must run on a throwaway clone of
@@ -1442,9 +1650,11 @@ mod given_interpreter {
 
             let first = interpreter
                 .qirgen("Foo()")
+                .map(|result| result.qir)
                 .expect("first qirgen should succeed");
             let second = interpreter
                 .qirgen("Foo()")
+                .map(|result| result.qir)
                 .expect("second qirgen should succeed");
             assert_eq!(
                 first, second,
@@ -1467,6 +1677,7 @@ mod given_interpreter {
 
             let res = interpreter
                 .qirgen_from_callable(&callable, Value::unit())
+                .map(|result| result.qir)
                 .expect("expected success");
 
             expect![[r#"
@@ -1478,7 +1689,6 @@ mod given_interpreter {
                 define i64 @ENTRYPOINT__main() #0 {
                 block_0:
                   call void @__quantum__rt__initialize(i8* null)
-                  call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
                   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
                   ret i64 0
@@ -1490,9 +1700,7 @@ mod given_interpreter {
 
                 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-                declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
-
-                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="1" }
+                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
                 attributes #1 = { "irreversible" }
 
                 ; module flags
@@ -1546,6 +1754,7 @@ mod given_interpreter {
                     &invoke_with_qubits,
                     Value::Tuple(vec![Value::Int(3), all_h].into(), None),
                 )
+                .map(|result| result.qir)
                 .expect("expected success");
 
             assert_qir_has_three_h_gates(&qir);
@@ -1581,6 +1790,7 @@ mod given_interpreter {
                     &invoke_with_qubits,
                     Value::Tuple(vec![Value::Int(3), apply_h].into(), None),
                 )
+                .map(|result| result.qir)
                 .expect("expected success");
 
             assert_qir_has_three_h_gates(&qir);
@@ -1622,6 +1832,7 @@ mod given_interpreter {
 
             let qir = interpreter
                 .qirgen_from_callable(&invoke_one, outer)
+                .map(|result| result.qir)
                 .expect("expected success");
 
             assert_eq!(
@@ -1660,6 +1871,7 @@ mod given_interpreter {
 
             let errors = interpreter
                 .qirgen_from_callable(&invoke_with_measured_int, rotate_by_int)
+                .map(|result| result.qir)
                 .expect_err("expected runtime capability error");
 
             assert!(
@@ -1673,6 +1885,130 @@ mod given_interpreter {
                     .iter()
                     .any(|error| format!("{error:?}").contains("UseOfDynamicDouble")),
                 "expected a dynamic double capability diagnostic, got {errors:?}"
+            );
+        }
+
+        #[test]
+        fn qirgen_from_callable_chosen_by_dynamic_if_expr_succeeds_when_unused_after_fir_transforms()
+         {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation Main() : Result {
+                        use (q, c) = (Qubit(), Qubit());
+                        X(c);
+                        let r = MResetZ(c);
+                        let f = if r == One { q => X(q) } else { q => Z(q) };
+                        let g = { X(q); f };
+                        g(q);
+                        MResetZ(q)
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let main = user_global(&interpreter, "Main");
+
+            let qir = interpreter
+                .qirgen_from_callable(&main, Value::unit())
+                .map(|result| result.qir)
+                .expect("expected success");
+
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__z__body(").count(),
+                1,
+                "expected one inner captured rotation in QIR:\n{qir}"
+            );
+        }
+
+        #[test]
+        fn qirgen_from_callable_dynamically_chosen_by_if_expr_and_invoked_through_struct_closure_errors()
+         {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive
+                    | TargetCapabilityFlags::IntegerComputations
+                    | TargetCapabilityFlags::FloatingPointComputations
+                    | TargetCapabilityFlags::BackwardsBranching
+                    | TargetCapabilityFlags::StaticSizedArrays,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                struct Box { F : (Qubit => Unit) }
+                operation ApplyAll(ops : (Qubit => Unit)[], q : Qubit) : Unit { for op in ops { op(q); } }
+                operation Main() : Result {
+                    use (q, c) = (Qubit(), Qubit());
+                    X(c);
+                    let r = MResetZ(c);
+                    let arr : (Qubit => Unit)[] = [q => X(q), q => Z(q)];
+                    let f = if r == One { arr[1] } else { arr[0] };
+                    let ops : (Qubit => Unit)[] = [f, q => H(q)];
+                    let b = new Box { F = ApplyAll(ops, _) };
+                    b.F(q);
+                    MResetZ(q)
+                }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let main = user_global(&interpreter, "Main");
+
+            let errors = interpreter
+                .qirgen_from_callable(&main, Value::unit())
+                .map(|result| result.qir)
+                .expect_err("expected partial eval error");
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| format!("{error:?}").contains("call to dynamic callee")),
+                "expected a partial eval error, got {errors:?}"
+            );
+        }
+
+        #[test]
+        fn qirgen_from_callable_dynamically_chosen_by_dynamic_index_expr_and_invoked_through_struct_closure_errors()
+         {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive
+                    | TargetCapabilityFlags::IntegerComputations
+                    | TargetCapabilityFlags::FloatingPointComputations
+                    | TargetCapabilityFlags::BackwardsBranching
+                    | TargetCapabilityFlags::StaticSizedArrays,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                struct Box { F : (Qubit => Unit) }
+                operation ApplyAll(ops : (Qubit => Unit)[], q : Qubit) : Unit { for op in ops { op(q); } }
+                operation Main() : Result {
+                    use (q, c) = (Qubit(), Qubit());
+                    X(c);
+                    let r = MResetZ(c);
+                    let arr : (Qubit => Unit)[] = [q => X(q), q => Z(q)];
+                    let f = arr[if r == One { 1 } else { 0 }];
+                    let ops : (Qubit => Unit)[] = [f, q => H(q)];
+                    let b = new Box { F = ApplyAll(ops, _) };
+                    b.F(q);
+                    MResetZ(q)
+                }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let main = user_global(&interpreter, "Main");
+
+            let errors = interpreter
+                .qirgen_from_callable(&main, Value::unit())
+                .map(|result| result.qir)
+                .expect_err("expected partial eval error");
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| format!("{error:?}").contains("call to dynamic callee")),
+                "expected a partial eval error, got {errors:?}"
             );
         }
 
@@ -1703,6 +2039,7 @@ mod given_interpreter {
 
             let int_errors = interpreter
                 .qirgen_from_callable(&user_global(&interpreter, "ReturnInt"), Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected integer output rejection");
             is_error(
                 &int_errors,
@@ -1714,6 +2051,7 @@ mod given_interpreter {
 
             let double_errors = interpreter
                 .qirgen_from_callable(&user_global(&interpreter, "ReturnDouble"), Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected double output rejection");
             is_error(
                 &double_errors,
@@ -1725,6 +2063,7 @@ mod given_interpreter {
 
             let bool_errors = interpreter
                 .qirgen_from_callable(&user_global(&interpreter, "ReturnBool"), Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected bool output rejection");
             is_error(
                 &bool_errors,
@@ -1736,6 +2075,7 @@ mod given_interpreter {
 
             let advanced_errors = interpreter
                 .qirgen_from_callable(&user_global(&interpreter, "ReturnString"), Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected advanced output rejection");
             is_error(
                 &advanced_errors,
@@ -1759,6 +2099,7 @@ mod given_interpreter {
 
             interpreter
                 .qirgen_from_callable(&callable, Value::unit())
+                .map(|result| result.qir)
                 .expect("expected success");
 
             let mut cursor = Cursor::new(Vec::<u8>::new());
@@ -1806,7 +2147,10 @@ mod given_interpreter {
             );
             _ = line(&mut interpreter, source);
 
-            let qir = interpreter.qirgen("Main()").expect("expected success");
+            let qir = interpreter
+                .qirgen("Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -1876,7 +2220,10 @@ mod given_interpreter {
                 },
             );
             is_only_value(&result, &output, &Value::unit());
-            let res = interpreter.qirgen("Test.Main()").expect("expected success");
+            let res = interpreter
+                .qirgen("Test.Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -2044,7 +2391,10 @@ mod given_interpreter {
             );
             is_only_value(&result, &output, &Value::unit());
 
-            let qir = interpreter.qirgen("Test.Main()").expect("expected success");
+            let qir = interpreter
+                .qirgen("Test.Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
 
             assert!(
                 qir.contains("call void @__quantum__rt__int_record_output(i64 %var_"),
@@ -2082,16 +2432,19 @@ mod given_interpreter {
             );
             is_only_value(&result, &output, &Value::unit());
 
-            let qir = interpreter.qirgen("Test.Main()").expect("expected success");
+            let qir = interpreter
+                .qirgen("Test.Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
 
             assert!(
                 qir.contains(
-                    "call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))"
+                    "call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))"
                 ),
                 "expected measurement comparisons to lower through read_result, got:\n{qir}"
             );
             assert!(
-                qir.contains("icmp eq i1 %var_5, %var_6"),
+                qir.contains("icmp eq i1 %var_7, %var_8"),
                 "expected result-to-result equality to lower to an i1 comparison, got:\n{qir}"
             );
         }
@@ -2115,7 +2468,10 @@ mod given_interpreter {
                 },
             );
             is_only_value(&result, &output, &Value::unit());
-            let res = interpreter.qirgen("Test.Main()").expect("expected success");
+            let res = interpreter
+                .qirgen("Test.Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -2130,14 +2486,14 @@ mod given_interpreter {
                 block_0:
                   call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-                  %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-                  %var_2 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-                  %var_3 = icmp eq i1 %var_2, false
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  %var_3 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  %var_4 = icmp eq i1 %var_3, false
                   call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
                   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
                   call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
-                  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
-                  call void @__quantum__rt__bool_record_output(i1 %var_3, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @4, i64 0, i64 0))
+                  call void @__quantum__rt__bool_record_output(i1 zeroext %var_0, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
+                  call void @__quantum__rt__bool_record_output(i1 zeroext %var_4, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @4, i64 0, i64 0))
                   ret i64 0
                 }
 
@@ -2145,13 +2501,13 @@ mod given_interpreter {
 
                 declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-                declare i1 @__quantum__rt__read_result(%Result*)
+                declare zeroext i1 @__quantum__rt__read_result(%Result*)
 
                 declare void @__quantum__rt__tuple_record_output(i64, i8*)
 
                 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-                declare void @__quantum__rt__bool_record_output(i1, i8*)
+                declare void @__quantum__rt__bool_record_output(i1 zeroext, i8*)
 
                 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
                 attributes #1 = { "irreversible" }
@@ -2183,6 +2539,7 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             let res = interpreter
                 .qirgen("if M(q) == One { set x = 2; }")
+                .map(|result| result.qir)
                 .expect_err("expected error");
             is_error(
                 &res,
@@ -2201,7 +2558,10 @@ mod given_interpreter {
                 indoc! {"operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; } "},
             );
             is_only_value(&result, &output, &Value::unit());
-            let res = interpreter.qirgen("{Foo()}").expect("expected success");
+            let res = interpreter
+                .qirgen("{Foo()}")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -2211,7 +2571,6 @@ mod given_interpreter {
                 define i64 @ENTRYPOINT__main() #0 {
                 block_0:
                   call void @__quantum__rt__initialize(i8* null)
-                  call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
                   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
                   ret i64 0
@@ -2223,9 +2582,7 @@ mod given_interpreter {
 
                 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-                declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
-
-                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="1" }
+                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
                 attributes #1 = { "irreversible" }
 
                 ; module flags
@@ -2251,6 +2608,7 @@ mod given_interpreter {
 
             let res = interpreter
                 .qirgen("{ use qs = Qubit[4]; ApplyToEach(SX, qs); }")
+                .map(|result| result.qir)
                 .expect("expected success");
 
             assert!(
@@ -2270,6 +2628,7 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             let res = interpreter
                 .qirgen("{operation Bar() : Unit {}; Foo()}")
+                .map(|result| result.qir)
                 .expect("expected success");
             expect![[r#"
                 %Result = type opaque
@@ -2280,7 +2639,6 @@ mod given_interpreter {
                 define i64 @ENTRYPOINT__main() #0 {
                 block_0:
                   call void @__quantum__rt__initialize(i8* null)
-                  call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
                   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
                   ret i64 0
@@ -2292,9 +2650,7 @@ mod given_interpreter {
 
                 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-                declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
-
-                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="1" }
+                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
                 attributes #1 = { "irreversible" }
 
                 ; module flags
@@ -2329,6 +2685,7 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             let res = interpreter
                 .qirgen("Foo(); operation Bar() : Unit {}; Foo()")
+                .map(|result| result.qir)
                 .expect_err("expected error");
             is_error(
                 &res,
@@ -2349,6 +2706,7 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             let res = interpreter
                 .qirgen("{operation Bar() : Unit {}; Foo()}")
+                .map(|result| result.qir)
                 .expect("expected success");
             expect![[r#"
                 %Result = type opaque
@@ -2359,7 +2717,6 @@ mod given_interpreter {
                 define i64 @ENTRYPOINT__main() #0 {
                 block_0:
                   call void @__quantum__rt__initialize(i8* null)
-                  call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
                   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
                   ret i64 0
@@ -2371,9 +2728,7 @@ mod given_interpreter {
 
                 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-                declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
-
-                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="1" }
+                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
                 attributes #1 = { "irreversible" }
 
                 ; module flags
@@ -2407,7 +2762,7 @@ mod given_interpreter {
         fn qirgen_define_operation_use_it() {
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
             let res = interpreter
-                .qirgen("{ operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; }; Foo() }")
+                .qirgen("{ operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; }; Foo() }").map(|result| result.qir)
                 .expect("expected success");
             expect![[r#"
                 %Result = type opaque
@@ -2418,7 +2773,6 @@ mod given_interpreter {
                 define i64 @ENTRYPOINT__main() #0 {
                 block_0:
                   call void @__quantum__rt__initialize(i8* null)
-                  call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
                   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
                   ret i64 0
@@ -2430,9 +2784,7 @@ mod given_interpreter {
 
                 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-                declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
-
-                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="1" }
+                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
                 attributes #1 = { "irreversible" }
 
                 ; module flags
@@ -2451,6 +2803,7 @@ mod given_interpreter {
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
             let res = interpreter
                 .qirgen("1")
+                .map(|result| result.qir)
                 .expect_err("expected qirgen to fail");
             is_error(
                 &res,
@@ -2466,7 +2819,7 @@ mod given_interpreter {
             let mut interpreter =
                 get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
             let res = interpreter
-                .qirgen("{ operation check_result(r : Result) : Bool { body intrinsic; }; operation Foo() : Bool { use q = Qubit(); let r = MResetZ(q); check_result(r) } Foo() }")
+                .qirgen("{ operation check_result(r : Result) : Bool { body intrinsic; }; operation Foo() : Bool { use q = Qubit(); let r = MResetZ(q); check_result(r) } Foo() }").map(|result| result.qir)
                 .expect("expected success");
             expect![[r#"
                 %Result = type opaque
@@ -2478,8 +2831,8 @@ mod given_interpreter {
                 block_0:
                   call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-                  %var_0 = call i1 @check_result(%Result* inttoptr (i64 0 to %Result*))
-                  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  %var_0 = call zeroext i1 @check_result(%Result* inttoptr (i64 0 to %Result*))
+                  call void @__quantum__rt__bool_record_output(i1 zeroext %var_0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
                   ret i64 0
                 }
 
@@ -2487,9 +2840,9 @@ mod given_interpreter {
 
                 declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-                declare i1 @check_result(%Result*)
+                declare zeroext i1 @check_result(%Result*)
 
-                declare void @__quantum__rt__bool_record_output(i1, i8*)
+                declare void @__quantum__rt__bool_record_output(i1 zeroext, i8*)
 
                 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
                 attributes #1 = { "irreversible" }
@@ -2545,6 +2898,30 @@ mod given_interpreter {
         }
 
         #[test]
+        fn generated_adjoint_preserves_empty_range_loops() {
+            for range in ["0..2..-1", "0..-2..1"] {
+                let mut interpreter = get_interpreter();
+                let (result, output) = line(
+                    &mut interpreter,
+                    &format!(
+                        "operation Foo(q : Qubit) : Unit is Adj {{ for _ in {range} {{ X(q); }} }}"
+                    ),
+                );
+                is_only_value(&result, &output, &Value::unit());
+
+                let (result, output) = run(
+                    &mut interpreter,
+                    "{ use q = Qubit(); Adjoint Foo(q); MResetZ(q) }",
+                );
+                is_only_value(
+                    &result,
+                    &output,
+                    &Value::Result(qsc_eval::val::Result::Val(false)),
+                );
+            }
+        }
+
+        #[test]
         fn run_runtime_failure() {
             let mut interpreter = get_interpreter();
             let (result, output) = line(
@@ -2584,6 +2961,28 @@ mod given_interpreter {
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
             let (result, output) = line(&mut interpreter, "123");
             is_only_value(&result, &output, &Value::Int(123));
+        }
+
+        #[test]
+        fn assignment_discard_loads_and_runs_in_all_profiles() {
+            for profile in qsc_data_structures::target::Profile::all() {
+                let mut interpreter = get_interpreter_with_capabilities(profile.into());
+                let (result, output) = line(
+                    &mut interpreter,
+                    "operation Main() : Int {
+                        mutable a = 0;
+                        set (_, a) = (1, 2);
+                        a
+                    }",
+                );
+                is_only_value(&result, &output, &Value::unit());
+
+                let (result, output) = line(&mut interpreter, "Main()");
+                is_only_value(&result, &output, &Value::Int(2));
+
+                let (result, output) = run(&mut interpreter, "{ Main(); }");
+                is_only_value(&result, &output, &Value::unit());
+            }
         }
     }
 
@@ -2741,6 +3140,79 @@ mod given_interpreter {
         }
 
         #[test]
+        fn generated_generic_entry_reports_missing_type_arguments() {
+            let source = "@EntryPoint() operation Main<'T>() : 'T { fail \"unreachable\" }";
+            for profile in [Profile::Base, Profile::Unrestricted] {
+                for package_type in [PackageType::Lib, PackageType::Exe] {
+                    let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
+                    let errors = Interpreter::new(
+                        SourceMap::new([("test".into(), source.into())], None),
+                        package_type,
+                        profile.into(),
+                        LanguageFeatures::default(),
+                        store,
+                        &[(std_id, None)],
+                        Default::default(),
+                    )
+                    .err()
+                    .expect("generated generic entry must be rejected before evaluation");
+                    assert_eq!(errors.len(), 1, "{profile:?}: {errors:?}");
+                    assert_eq!(
+                        errors[0].code().expect("diagnostic code").to_string(),
+                        "Qdk.Qsc.EntryPoint.MissingTypeArguments"
+                    );
+                    let labels: Vec<_> = errors[0].labels().expect("entry source").collect();
+                    assert_eq!(labels.len(), 1);
+                    let span = labels[0].inner();
+                    assert_eq!(&source[span.offset()..span.offset() + span.len()], "Main");
+                    assert!(errors[0].source_code().is_some());
+                }
+            }
+        }
+
+        #[test]
+        fn generated_nongeneric_entry_reports_source_located_user_failure() {
+            let source = "@EntryPoint() operation Main() : Result { fail \"unreachable\"; }";
+            for profile in [Profile::Base, Profile::Unrestricted] {
+                for package_type in [PackageType::Lib, PackageType::Exe] {
+                    let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
+                    let mut interpreter = Interpreter::new(
+                        SourceMap::new([("test".into(), source.into())], None),
+                        package_type,
+                        profile.into(),
+                        LanguageFeatures::default(),
+                        store,
+                        &[(std_id, None)],
+                        Default::default(),
+                    )
+                    .unwrap_or_else(|errors| panic!("{profile:?}: {errors:?}"));
+                    let (result, _) = entry(&mut interpreter);
+                    let errors = result.expect_err("valid entry must reach its user failure");
+                    assert!(
+                        matches!(errors.as_slice(), [crate::interpret::Error::Eval(_)]),
+                        "{profile:?}: {errors:?}"
+                    );
+                    assert_eq!(
+                        errors[0].code().expect("diagnostic code").to_string(),
+                        "Qdk.Qsc.Eval.UserFail"
+                    );
+                    let labels: Vec<_> = errors[0].labels().expect("failure source").collect();
+                    assert_eq!(labels.len(), 1);
+                    let contents = errors[0]
+                        .source_code()
+                        .expect("source-located failure")
+                        .read_span(labels[0].inner(), 0, 0)
+                        .expect("failure span");
+                    assert!(
+                        std::str::from_utf8(contents.data())
+                            .expect("source text")
+                            .contains("fail \"unreachable\"")
+                    );
+                }
+            }
+        }
+
+        #[test]
         fn invalid_partial_application_should_fail_not_panic() {
             // Found via fuzzing, see #2363
             let source = "operation e(oracle:(w=>)){oracle=i(_)";
@@ -2891,12 +3363,10 @@ mod given_interpreter {
         }
 
         #[test]
-        fn restricted_profile_fatal_transform_error_reported_as_fir_transform() {
-            // A local callable forced to `Dynamic` by a loop reassignment cannot be
-            // resolved statically, so the defunctionalize stage of the FIR transform
-            // pipeline emits a fatal diagnostic. The construction-time gate must
-            // surface this as `Error::FirTransform` (mirroring codegen), not as a
-            // capability `Error::Pass`.
+        fn restricted_profile_resolvable_dynamic_callable_constructs_successfully() {
+            // Construction runs transforms and capability analysis, not partial
+            // evaluation. A loop-reassigned callable can remain unresolved at this
+            // stage without rejecting the restricted AdaptiveRI program.
             let source = indoc! { r#"
             namespace Test {
                 operation Foo(q : Qubit) : Unit {}
@@ -2926,23 +3396,11 @@ mod given_interpreter {
                 Default::default(),
             );
 
-            match result {
-                Ok(_) => panic!("expected a fatal FIR transform error for a dynamic callable"),
-                Err(errors) => {
-                    assert!(
-                        errors
-                            .iter()
-                            .all(|error| matches!(error, crate::interpret::Error::FirTransform(_))),
-                        "expected FIR transform errors, got {errors:?}"
-                    );
-                    assert!(
-                        errors
-                            .iter()
-                            .any(|error| format!("{error:?}").contains("DynamicCallable")),
-                        "expected a dynamic-callable transform diagnostic, got {errors:?}"
-                    );
-                }
-            }
+            assert!(
+                result.is_ok(),
+                "expected the deferred, resolvable dynamic callable to construct cleanly, got {:?}",
+                result.err()
+            );
         }
 
         #[test]
@@ -2980,6 +3438,74 @@ mod given_interpreter {
                 "entry-less library construction should not panic and should pass RCA, got {:?}",
                 interpreter.err()
             );
+        }
+
+        #[test]
+        fn false_measured_guard_preserves_callable_and_skips_side_effects() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                qsc_data_structures::target::Profile::AdaptiveRI.into(),
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                r#"
+                function Inc(n : Int) : Int { n + 1 }
+                function Twice(n : Int) : Int { 2 * n }
+                operation Main() : Int {
+                    use q = Qubit();
+                    mutable f = Inc;
+                    let unused = (MResetZ(q) == One) and {
+                        Message("must not execute"); set f = Twice; true
+                    };
+                    f(3)
+                }
+            "#,
+            );
+            is_only_value(&result, &output, &Value::unit());
+            interpreter
+                .qirgen("Main()")
+                .map(|result| result.qir)
+                .expect("inactive source QIR");
+            interpreter.get_rir("Main()").expect("inactive RIR");
+            let (result, output) = line(&mut interpreter, "Main()");
+            is_only_value(&result, &output, &Value::Int(4));
+        }
+
+        #[test]
+        fn entryless_library_accepts_measured_short_circuit_callable_reassignment() {
+            let source = r#"
+                namespace Test {
+                    function Inc(n : Int) : Int { n + 1 }
+                    function Twice(n : Int) : Int { 2 * n }
+                    operation Select() : Int {
+                        use q = Qubit();
+                        X(q);
+                        mutable f = Inc;
+                        let unused = (MResetZ(q) == One) and {
+                            Message("selected"); set f = Twice; true
+                        };
+                        f(3)
+                    }
+                }
+            "#;
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let mut interpreter = Interpreter::new(
+                SourceMap::new([("test".into(), source.into())], None),
+                PackageType::Lib,
+                Profile::AdaptiveRI.into(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+                Default::default(),
+            )
+            .unwrap_or_else(|errors| panic!("closed library callable: {errors:?}"));
+            interpreter
+                .qirgen("Test.Select()")
+                .map(|result| result.qir)
+                .expect("library QIR");
+            let (result, output) = line(&mut interpreter, "Test.Select()");
+            assert_eq!(result.expect("library simulation"), Value::Int(6));
+            assert_eq!(output, "selected");
         }
 
         #[test]

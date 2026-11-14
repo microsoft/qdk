@@ -166,7 +166,7 @@ fn check_rca_for_parallel_with_short_circuit_bool_in_body() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -463,7 +463,7 @@ fn check_rca_for_callable_with_parallel_loop_invoking_stdlib_callable_with_inner
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
                                 value_kind: Constant
                             dynamic_size: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicPauli | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicPauli | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation | UseOfDynamicBranchingInParallelExpr | UseOfDynamicFail)
                                 value_kind: Constant
                 adj: <none>
                 ctl: <none>

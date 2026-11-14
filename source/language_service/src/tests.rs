@@ -7,7 +7,6 @@ use crate::{
     push_update,
 };
 use expect_test::{Expect, expect};
-use miette::Diagnostic;
 use qsc::{compile, line_column::Position, project};
 use std::{
     cell::{Cell, RefCell},
@@ -16,6 +15,89 @@ use std::{
 use test_fs::{FsNode, TestProjectHost, dir, file};
 
 pub(crate) mod test_fs;
+
+async fn adaptive_fallback_diagnostics(source: &str) -> Vec<compile::ErrorKind> {
+    let errors = RefCell::new(Vec::new());
+    let cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut handler = create_update_handler(&mut ls, &errors, &cases);
+    ls.update_configuration(WorkspaceConfigurationUpdate {
+        target_profile: Some(qsc::target::Profile::Adaptive),
+        ..Default::default()
+    });
+    ls.update_document("fallback.qs", 1, source, "qsharp");
+    handler.apply_pending().await;
+    errors
+        .borrow()
+        .iter()
+        .flat_map(|(_, _, errors, _)| errors.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn adaptive_fallback_live_positive_has_no_capability_error() {
+    let errors = adaptive_fallback_diagnostics(
+        r#"
+operation Count(q : Qubit) : Int {
+    mutable n = 0; for _ in 1..3 { X(q); set n += 1; } n
+}
+@EntryPoint() operation Main() : (Int, Result[]) {
+    use q = Qubit(); let n = Count(q); use qs = Qubit[n];
+    let rs = MResetEachZ(qs);
+    (n + (MResetZ(q) == One ? 10 | 0), rs)
+}"#,
+    )
+    .await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[tokio::test]
+async fn adaptive_fallback_live_mixed_array_and_exponent_errors_have_no_diagnostics() {
+    let errors = adaptive_fallback_diagnostics(
+        r#"
+operation Count(q : Qubit) : Int {
+    mutable n = 0; for _ in 1..3 { X(q); set n += 1; } n
+}
+@EntryPoint() operation Main() : (Int, Result[]) {
+    use q = Qubit(); let n = Count(q); use qs = Qubit[n];
+    let rs = MResetEachZ(qs);
+    (2 ^ n + (MResetZ(q) == One ? 10 | 0), rs)
+}"#,
+    )
+    .await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[tokio::test]
+async fn adaptive_library_reports_no_diagnostics_for_rif_supported_struct_return() {
+    let errors = adaptive_fallback_diagnostics(
+        r#"
+struct Counted { Count : Int }
+operation Tally(q : Qubit) : Counted {
+    mutable n = 0;
+    for _ in 1..3 { X(q); set n += 1; }
+    new Counted { Count = n }
+}
+"#,
+    )
+    .await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[tokio::test]
+async fn adaptive_fallback_live_genuine_dynamic_stays_error() {
+    let errors = adaptive_fallback_diagnostics("@EntryPoint() operation Main() : Result[] { use q = Qubit(); let n = MResetZ(q) == One ? 3 | 2; use qs = Qubit[n]; MResetEachZ(qs) }").await;
+    assert!(
+        errors
+            .iter()
+            .any(|error| matches!(error, compile::ErrorKind::Pass(pass)
+                if pass.capability_error().is_some_and(|error|
+                    miette::Diagnostic::code(error).is_some_and(|code|
+                        code.to_string() == "Qdk.Qsc.CapabilitiesCk.UseOfDynamicallySizedArray")
+                    && error.span().span.hi > error.span().span.lo))),
+        "{errors:?}"
+    );
+}
 
 #[tokio::test]
 async fn single_document() {
@@ -191,7 +273,7 @@ async fn completions_requested_before_document_load() {
     // a document hasn't fully loaded
 
     // this should be empty, because the doc hasn't loaded
-    assert!(
+    assert_eq!(
         ls.get_completions(
             "foo.qs",
             Position {
@@ -200,7 +282,8 @@ async fn completions_requested_before_document_load() {
             }
         )
         .items
-        .is_empty()
+        .len(),
+        0
     );
 }
 
@@ -237,7 +320,13 @@ async fn completions_requested_after_document_load() {
 }
 
 #[tokio::test]
-async fn package_aware_foreign_fir_transform_diagnostic() {
+async fn package_aware_foreign_projected_dynamic_call_reports_no_diagnostics() {
+    // A foreign library operation stores a loop-reassigned local (`op`, provably
+    // `X` after the loop) in a struct field and calls it through a field
+    // projection. Defunctionalization over-approximates the projected callee to
+    // dynamic and defers the convergence failure instead of reporting a fatal
+    // diagnostic, so the language service surfaces no compile errors for the
+    // multi-project workspace.
     let foreign_source = r#"
         namespace ForeignLib {
             struct Config {
@@ -316,26 +405,10 @@ async fn package_aware_foreign_fir_transform_diagnostic() {
     update_handler.apply_pending().await;
 
     let diagnostics = diagnostics.borrow();
-    let [(uri, error)] = diagnostics.as_slice() else {
-        panic!("expected one compile diagnostic, got {diagnostics:?}");
-    };
-    let code = error.code().expect("diagnostic should have a code");
-    assert_eq!(code.to_string(), "Qdk.Qsc.Defunctionalize.DynamicCallable");
-
-    let label = error
-        .labels()
-        .into_iter()
-        .flatten()
-        .next()
-        .expect("diagnostic should have a source label");
-    let (source, relative_span) = error.resolve_span(label.inner());
-    let span_start = relative_span.offset();
-    let span_end = span_start + relative_span.len();
-
-    assert_eq!(uri, "foreign/src/lib.qs");
-    assert_eq!(source.name.as_ref(), "foreign/src/lib.qs");
-    assert_eq!(&source.contents[span_start..span_end], "config.Apply(q)");
-    assert_ne!(source.name.as_ref(), "OutOfBounds");
+    assert!(
+        diagnostics.is_empty(),
+        "expected no compile diagnostics for the deferred, resolvable dynamic call, got {diagnostics:?}"
+    );
 }
 
 fn check_errors_and_compilation(

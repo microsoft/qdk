@@ -8,6 +8,8 @@
 //! cloned node. All internal references (sub-expression IDs, block IDs, pattern
 //! IDs, etc.) are remapped so the cloned subtree is self-consistent and does
 //! not collide with existing IDs in the target package.
+//! Same-package expression copying can preserve item identities and free locals
+//! while freshening only the structural nodes and bindings inside the expression.
 
 #[cfg(test)]
 mod tests;
@@ -23,6 +25,56 @@ use qsc_fir::{
 };
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
+
+/// Copies an expression within its package, preserving free local references
+/// and callable identities while freshening structural nodes and inner bindings.
+/// Branch-specific rewrites can then mutate the copy without affecting a
+/// sibling branch or leaving it dependent on branch-local temporaries.
+/// The assigner must be above all destination locals, including any allocated
+/// by preceding callable clones through [`FirCloner::into_assigner`].
+pub(crate) fn clone_expr_within_package(
+    package: &mut Package,
+    expr: ExprId,
+    assigner: &mut Assigner,
+) -> ExprId {
+    clone_expr_within_package_with_map(package, expr, assigner).0
+}
+
+/// Like [`clone_expr_within_package`], also returns the old-to-new mapping for
+/// every copied expression, including the root. Only the expression's structural
+/// subtree is snapshotted; unrelated package nodes are not copied.
+pub(crate) fn clone_expr_within_package_with_map(
+    package: &mut Package,
+    expr: ExprId,
+    assigner: &mut Assigner,
+) -> (ExprId, FxHashMap<ExprId, ExprId>) {
+    use crate::walk_utils::{CallableNode, for_each_node_from_expr_root};
+    use qsc_fir::fir::PackageLookup;
+
+    let mut source = Package {
+        id: package.id,
+        ..Package::default()
+    };
+    for_each_node_from_expr_root(package, expr, &mut |node| match node {
+        CallableNode::Expr(id) => {
+            source.exprs.insert(id, package.get_expr(id).clone());
+        }
+        CallableNode::Block(id) => {
+            source.blocks.insert(id, package.get_block(id).clone());
+        }
+        CallableNode::Stmt(id) => {
+            source.stmts.insert(id, package.get_stmt(id).clone());
+        }
+        CallableNode::Pat(id) => {
+            source.pats.insert(id, package.get_pat(id).clone());
+        }
+    });
+    let mut cloner = FirCloner::from_assigner_for_expr(std::mem::take(assigner));
+    let result = cloner.clone_expr(&source, expr, package);
+    let copies = std::mem::take(&mut cloner.expr_map);
+    *assigner = cloner.into_assigner();
+    (result, copies)
+}
 
 /// Deep-clones FIR subtrees with full ID remapping.
 ///
@@ -47,6 +99,9 @@ pub struct FirCloner {
     /// When set, `Res::Item(old)` matching the first element is remapped to
     /// `Res::Item(new)` with the second element.
     self_item_remap: Option<(ItemId, ItemId)>,
+    /// Expression copies stay in the same package/callable: preserve item
+    /// identities and allocate fresh bound locals from the package assigner.
+    inline_expr: bool,
 }
 
 impl FirCloner {
@@ -70,6 +125,7 @@ impl FirCloner {
             item_map: FxHashMap::default(),
             next_local: 0,
             self_item_remap: None,
+            inline_expr: false,
         }
     }
 
@@ -89,6 +145,19 @@ impl FirCloner {
             item_map: FxHashMap::default(),
             next_local: 0,
             self_item_remap: None,
+            inline_expr: false,
+        }
+    }
+
+    /// Copies an expression into an existing scope in the same package.
+    /// Free local references and callable identities are preserved; bindings
+    /// declared inside the copied expression receive fresh local IDs.
+    /// `assigner` must be seeded above the destination's existing local IDs.
+    #[must_use]
+    pub(crate) fn from_assigner_for_expr(assigner: Assigner) -> Self {
+        Self {
+            inline_expr: true,
+            ..Self::from_assigner(assigner)
         }
     }
 
@@ -111,12 +180,15 @@ impl FirCloner {
             item_map: FxHashMap::default(),
             next_local: local_offset.into(),
             self_item_remap: None,
+            inline_expr: false,
         }
     }
 
     /// Sets the self-item remap so that `Res::Item(old)` references are
     /// rewritten to `Res::Item(new)`. Used when cloning a recursive callable
     /// to point self-calls at the newly created specialization.
+    /// This remap is type-blind: monomorphization must leave it unset and
+    /// resolve recursive references by their substituted generic arguments.
     pub fn set_self_item_remap(&mut self, old: ItemId, new: ItemId) {
         self.self_item_remap = Some((old, new));
     }
@@ -262,7 +334,11 @@ impl FirCloner {
                 self.clone_expr(source, *expr_id, target),
             ),
             StmtKind::Item(item_id) => {
-                let new_item_id = self.clone_nested_item(source, *item_id, target);
+                let new_item_id = if self.inline_expr {
+                    *item_id
+                } else {
+                    self.clone_nested_item(source, *item_id, target)
+                };
                 StmtKind::Item(new_item_id)
             }
         };
@@ -431,7 +507,7 @@ impl FirCloner {
 
     /// Remaps a `Res` reference.
     ///
-    /// - `Res::Local(var)` → remapped local
+    /// - `Res::Local(var)` → remapped bound local; unmapped free locals are retained
     /// - `Res::Item(id)` → remapped only when matching `self_item_remap`
     /// - `Res::Err` → unchanged
     ///
@@ -446,6 +522,8 @@ impl FirCloner {
     /// referenced item lives in the source package, and finally consulting
     /// `self_item_remap` for the recursive self-item case. Both paths must
     /// agree on the resulting `LocalItemId`.
+    /// Expression-copy mode instead preserves referenced item IDs because both
+    /// the source and destination expression belong to the same package.
     #[must_use]
     pub fn remap_res(&self, res: &Res) -> Res {
         match res {
@@ -509,11 +587,6 @@ impl FirCloner {
         &self.item_map
     }
 
-    /// Allocates a fresh `ExprId`.
-    pub fn alloc_expr(&mut self) -> ExprId {
-        self.assigner.next_expr()
-    }
-
     /// Allocates a fresh `PatId`.
     pub fn alloc_pat(&mut self) -> PatId {
         self.assigner.next_pat()
@@ -525,7 +598,8 @@ impl FirCloner {
     }
 
     /// Consumes the cloner and returns the internal `Assigner` with its
-    /// counters advanced past all IDs allocated during cloning.
+    /// counters advanced past all IDs allocated during cloning, including
+    /// callable-local IDs from nested targets and before map resets.
     #[must_use]
     pub fn into_assigner(self) -> Assigner {
         self.assigner
@@ -535,8 +609,14 @@ impl FirCloner {
     /// mapping so later references to `old` in the cloned subtree are remapped
     /// to the new id.
     pub(crate) fn alloc_local(&mut self, old: LocalVarId) -> LocalVarId {
-        let new = LocalVarId::from(self.next_local);
-        self.next_local += 1;
+        let new = if self.inline_expr {
+            self.assigner.next_local()
+        } else {
+            let new = LocalVarId::from(self.next_local);
+            self.next_local += 1;
+            self.assigner.advance_local_past(new);
+            new
+        };
         self.local_map.insert(old, new);
         new
     }
@@ -604,7 +684,9 @@ impl FirCloner {
                     .iter()
                     .map(|v| *self.local_map.get(v).unwrap_or(v))
                     .collect();
-                let new_item_id = if let Some(&mapped) = self.item_map.get(local_item_id) {
+                let new_item_id = if self.inline_expr {
+                    *local_item_id
+                } else if let Some(&mapped) = self.item_map.get(local_item_id) {
                     mapped
                 } else if source.items.contains_key(*local_item_id) {
                     self.clone_nested_item(source, *local_item_id, target)
@@ -718,6 +800,9 @@ impl FirCloner {
                     } => {
                         *expr_id = *self.expr_map.get(expr_id).unwrap_or(expr_id);
                     }
+                    qsc_fir::fir::ExecGraphExpr::Var(res) => {
+                        *res = self.remap_res(res);
+                    }
                     qsc_fir::fir::ExecGraphExpr::Array(_)
                     | qsc_fir::fir::ExecGraphExpr::ArrayRepeat
                     | qsc_fir::fir::ExecGraphExpr::BinOp {
@@ -738,8 +823,7 @@ impl FirCloner {
                     }
                     | qsc_fir::fir::ExecGraphExpr::UpdateIndex { mid_span: _ }
                     | qsc_fir::fir::ExecGraphExpr::Tuple(_)
-                    | qsc_fir::fir::ExecGraphExpr::UnOp(_)
-                    | qsc_fir::fir::ExecGraphExpr::Var(_) => {}
+                    | qsc_fir::fir::ExecGraphExpr::UnOp(_) => {}
                 }
                 ExecGraphNode::Expr(expr, span)
             }

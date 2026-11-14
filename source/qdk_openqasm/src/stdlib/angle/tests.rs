@@ -5,7 +5,6 @@
 #![allow(clippy::unreadable_literal)]
 
 use std::convert::TryInto;
-use std::f64;
 use std::f64::consts::{PI, TAU};
 
 use super::Angle;
@@ -293,5 +292,5 @@ fn test_angle_off_by_less_than_epsilon_from_tau_maintains_invariants() {
     // we need to ensure that the angle is still in the range [0, TAU)
     let angle = Angle::from_f64_maybe_sized(-f64::EPSILON / 2.0, None);
     assert_eq!(angle.value, 0);
-    assert!(angle.size == 53);
+    assert_eq!(angle.size, 53);
 }

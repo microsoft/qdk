@@ -7,7 +7,7 @@ mod tests;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    rir::{CallableId, Instruction, Program, VariableId},
+    rir::{BlockId, CallableId, Instruction, Program, VariableId},
     utils::{get_block_successors, map_variable_use_in_block},
 };
 
@@ -33,20 +33,23 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
     while let Some(block_id) = blocks_to_visit.pop() {
         visited_blocks.insert(block_id);
         let mut used_vars_in_block = FxHashSet::default();
-        let mut index_vars_in_block = FxHashSet::default();
+        let mut must_keep_vars_in_block = FxHashSet::default();
         let stored_vars_before_block = stored_vars.clone();
         check_var_usage(
             program,
             block_id,
             &mut stored_vars,
             &mut used_vars_in_block,
-            &mut index_vars_in_block,
+            &mut must_keep_vars_in_block,
         );
 
-        for var in used_vars_in_block {
+        for &var in used_vars_in_block
+            .iter()
+            .filter(|var| !callable.input_vars.contains(var))
+        {
             if !used_vars.insert(var)
                 || stored_vars_before_block.contains(&var)
-                || index_vars_in_block.contains(&var)
+                || must_keep_vars_in_block.contains(&var)
             {
                 // This variable was already marked as used, which means it is used cross-block.
                 // Alternatively, the variable was stored before this block and is used here.
@@ -67,10 +70,16 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
     visited_blocks.clear();
     blocks_to_visit.push(entry_block_id);
     while let Some(block_id) = blocks_to_visit.pop() {
-        visited_blocks.insert(block_id);
+        if !visited_blocks.insert(block_id) {
+            continue;
+        }
         let block = program.get_block_mut(block_id);
-        let mut last_store_map = FxHashMap::default();
-        map_variable_use_in_block(block, &mut last_store_map, &cross_block_used_vars);
+        map_variable_use_in_block(
+            block,
+            &mut FxHashMap::default(),
+            &cross_block_used_vars,
+            Some(&used_vars),
+        );
 
         for successor_id in get_block_successors(program.get_block(block_id)) {
             if !visited_blocks.contains(&successor_id) {
@@ -101,11 +110,11 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
 
 #[allow(clippy::too_many_lines)]
 fn check_var_usage(
-    program: &mut Program,
-    block_id: crate::rir::BlockId,
+    program: &Program,
+    block_id: BlockId,
     stored_vars: &mut FxHashSet<VariableId>,
     used_vars: &mut FxHashSet<VariableId>,
-    index_vars: &mut FxHashSet<VariableId>,
+    must_keep_vars: &mut FxHashSet<VariableId>,
 ) {
     let block = program.get_block(block_id);
     for instr in &block.0 {
@@ -188,7 +197,7 @@ fn check_var_usage(
                 }
                 if let crate::rir::Operand::Variable(var) = index_operand {
                     used_vars.insert(var.variable_id);
-                    index_vars.insert(var.variable_id);
+                    must_keep_vars.insert(var.variable_id);
                 }
                 assert!(
                     !stored_vars.contains(&variable2.variable_id),

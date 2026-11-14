@@ -5,6 +5,135 @@ use std::any::Any;
 
 use super::*;
 
+// smoke test to ensure that semantic equivalence checks the expected original value
+#[test]
+fn semantic_equivalence_checks_the_expected_original_value() {
+    let source = "@EntryPoint() operation Main() : Int { 42 }";
+    check_semantic_equivalence_with_expected(source, qsc_eval::val::Value::Int(42));
+    assert_panics_with("unexpected original value", || {
+        check_semantic_equivalence_with_expected(source, qsc_eval::val::Value::Int(41));
+    });
+}
+
+#[test]
+fn observable_evaluation_records_messages_in_order() {
+    let source = r#"
+        @EntryPoint() operation Main() : Int {
+            Message("first");
+            Message("second");
+            42
+        }
+    "#;
+    let (store, package) = compile_to_fir(source);
+    let (result, trace, output) = eval_fir_entry_with_observables(&store, package);
+    assert_eq!(result, Ok(qsc_eval::val::Value::Int(42)));
+    assert_eq!(trace.len(), 0);
+    assert_eq!(output, b"first\nsecond\n");
+    check_semantic_equivalence_with_expected_output(
+        source,
+        qsc_eval::val::Value::Int(42),
+        "first\nsecond\n",
+    );
+    assert_panics_with("unexpected original output", || {
+        check_semantic_equivalence_with_expected_output(
+            source,
+            qsc_eval::val::Value::Int(42),
+            "second\nfirst\n",
+        );
+    });
+}
+
+#[test]
+fn observable_equivalence_accepts_matching_local_and_library_executions() {
+    let library = r#"
+        namespace TestLib {
+            operation Observe() : Int {
+                Message("first");
+                use q = Qubit();
+                X(q);
+                X(q);
+                Message("second");
+                42
+            }
+            export Observe;
+        }
+    "#;
+    let entry = "namespace Test { @EntryPoint() operation Main() : Int { TestLib.Observe() } }";
+    check_semantic_equivalence(&format!("{library}\n{entry}"));
+    check_semantic_equivalence_with_library(library, entry);
+}
+
+#[test]
+fn observable_equivalence_rejects_changed_trace_with_equal_returns() {
+    let source = "@EntryPoint() operation Main() : Int { use q = Qubit(); X(q); X(q); 42 }";
+    check_semantic_equivalence(source);
+    let (store, package) = compile_to_fir(source);
+    let expected = eval_fir_entry_with_observables(&store, package);
+    let mut actual = expected.clone();
+    assert!(
+        !actual.1.is_empty(),
+        "negative control needs a quantum trace"
+    );
+    actual.1.pop();
+    assert_panics_with("effect-trace equivalence violated", || {
+        assert_observable_equivalence(expected, actual);
+    });
+}
+
+#[test]
+fn observable_equivalence_rejects_changed_output_with_equal_returns() {
+    let library = r#"
+        namespace TestLib {
+            function Observe() : Int { Message("first"); Message("second"); 42 }
+            export Observe;
+        }
+    "#;
+    let entry = "namespace Test { @EntryPoint() operation Main() : Int { TestLib.Observe() } }";
+    check_semantic_equivalence_with_library(library, entry);
+    let (store, package) = compile_to_fir_with_library(library, entry);
+    let expected = eval_fir_entry_with_observables(&store, package);
+    assert_eq!(expected.2, b"first\nsecond\n");
+    let mut actual = expected.clone();
+    actual.2 = b"second\nfirst\n".to_vec();
+    assert_panics_with("output equivalence violated", || {
+        assert_observable_equivalence(expected, actual);
+    });
+}
+
+#[test]
+fn observable_equivalence_rejects_changed_prefix_with_equal_failures() {
+    let library = r#"
+        namespace TestLib {
+            operation Observe() : Int {
+                Message("before failure");
+                use q = Qubit();
+                X(q);
+                X(q);
+                fail "same failure";
+            }
+            export Observe;
+        }
+    "#;
+    let entry = "namespace Test { @EntryPoint() operation Main() : Int { TestLib.Observe() } }";
+    check_semantic_equivalence(&format!("{library}\n{entry}"));
+    check_semantic_equivalence_with_library(library, entry);
+    let (store, package) = compile_to_fir_with_library(library, entry);
+    let expected = eval_fir_entry_with_observables(&store, package);
+    assert!(expected.0.is_err());
+    assert_ne!(expected.1.len(), 0);
+    assert_eq!(expected.2, b"before failure\n");
+    let mut changed_trace = expected.clone();
+    changed_trace.1.clear();
+    assert_panics_with("effect-trace equivalence violated", || {
+        assert_observable_equivalence(expected.clone(), changed_trace);
+    });
+    let mut changed_output = expected.clone();
+    changed_output.2.clear();
+    assert_panics_with("output equivalence violated", || {
+        assert_observable_equivalence(expected, changed_output);
+    });
+}
+
 fn panic_message(panic: Box<dyn Any + Send>) -> String {
     match panic.downcast::<String>() {
         Ok(message) => *message,
@@ -15,19 +144,30 @@ fn panic_message(panic: Box<dyn Any + Send>) -> String {
     }
 }
 
+/// The error-returning runner must still surface fatal backstops after
+/// convergence failures are deferred.
 #[test]
 fn staged_runner_with_errors_returns_defunctionalization_diagnostics() {
     let source = r#"
-        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+        operation ApplyTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            for op in firstOps { op(q); }
+            for op in secondOps { op(q); }
+        }
+        operation ForwardTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            ApplyTwoArrays(firstOps, secondOps, q);
+        }
+        @EntryPoint()
         operation Main() : Unit {
             use q = Qubit();
-            mutable op = H;
-            mutable n = 3;
-            while n > 0 {
-                op = X;
-                n -= 1;
-            }
-            ApplyOp(op, q);
+            ForwardTwoArrays([X, Y], [Z, H], q);
         }
     "#;
 
@@ -45,24 +185,37 @@ fn staged_runner_with_errors_returns_defunctionalization_diagnostics() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        messages.contains("callable argument could not be resolved statically"),
+        messages.contains(
+            "higher-order function forwards more than one callable array, which is not supported"
+        ),
         "unexpected diagnostics: {messages}"
     );
 }
 
+/// The checked runner must still panic for fatal backstops after convergence
+/// failures are deferred.
 #[test]
 fn checked_staged_runner_panics_on_unexpected_defunctionalization_diagnostics() {
     let source = r#"
-        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+        operation ApplyTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            for op in firstOps { op(q); }
+            for op in secondOps { op(q); }
+        }
+        operation ForwardTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            ApplyTwoArrays(firstOps, secondOps, q);
+        }
+        @EntryPoint()
         operation Main() : Unit {
             use q = Qubit();
-            mutable op = H;
-            mutable n = 3;
-            while n > 0 {
-                op = X;
-                n -= 1;
-            }
-            ApplyOp(op, q);
+            ForwardTwoArrays([X, Y], [Z, H], q);
         }
     "#;
 
@@ -76,7 +229,9 @@ fn checked_staged_runner_panics_on_unexpected_defunctionalization_diagnostics() 
         "unexpected panic: {message}"
     );
     assert!(
-        message.contains("callable argument could not be resolved statically"),
+        message.contains(
+            "higher-order function forwards more than one callable array, which is not supported"
+        ),
         "unexpected panic: {message}"
     );
 }

@@ -208,9 +208,7 @@ def test_teleported_t_echo():
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_teleported_t_distribution():
     shots = 256
-    results = run_shots(
-        compile_teleported_t("TeleportedTDistribution"), shots=shots
-    )
+    results = run_shots(compile_teleported_t("TeleportedTDistribution"), shots=shots)
 
     assert results["shot_result_codes"] == [0] * shots
     shot_results = [
@@ -235,7 +233,7 @@ def test_teleported_t_forced_z_fault():
     noise.t.z = 1.0
     expected = "".join("1" if i in (2, 6, 17) else "0" for i in range(20))
 
-    for sim_type in ("gpu", "clifford"):
+    for sim_type in ("gpu", "stabilizer"):
         results = run_qir(qir, shots=8, noise=noise, seed=42, type=sim_type)
         assert [map_result_list_to_str(result) for result in results] == [expected] * 8
 
@@ -246,7 +244,7 @@ def test_teleported_t_forced_loss():
     noise = NoiseConfig()
     noise.t.loss = 1.0
 
-    for sim_type in ("gpu", "clifford"):
+    for sim_type in ("gpu", "stabilizer"):
         results = run_qir(qir, shots=16, noise=noise, seed=42, type=sim_type)
         result_strings = [map_result_list_to_str(result) for result in results]
         assert all(len(result) == 23 for result in result_strings)
@@ -262,7 +260,7 @@ def test_teleported_t_probabilistic_loss_matches_clifford():
     noise.t.loss = loss_probability
     loss_histograms = {}
 
-    for sim_type in ("gpu", "clifford"):
+    for sim_type in ("gpu", "stabilizer"):
         results = run_qir(qir, shots=shots, noise=noise, seed=42, type=sim_type)
         result_strings = [map_result_list_to_str(result) for result in results]
         assert all(len(result) == 23 for result in result_strings)
@@ -279,15 +277,14 @@ def test_teleported_t_probabilistic_loss_matches_clifford():
 
         no_loss_probability = sum(mask == "000" for mask in loss_masks) / shots
         assert abs(no_loss_probability - (1.0 - loss_probability) ** 3) < 0.05
-        assert all(result[3:] == "0" * 20 for result in result_strings if "L" not in result[:3])
+        assert all(
+            result[3:] == "0" * 20 for result in result_strings if "L" not in result[:3]
+        )
 
-    support = set(loss_histograms["gpu"]) | set(loss_histograms["clifford"])
+    support = set(loss_histograms["gpu"]) | set(loss_histograms["stabilizer"])
     total_variation_distance = (
         sum(
-            abs(
-                loss_histograms["gpu"][mask]
-                - loss_histograms["clifford"][mask]
-            )
+            abs(loss_histograms["gpu"][mask] - loss_histograms["stabilizer"][mask])
             for mask in support
         )
         / shots
@@ -750,3 +747,23 @@ def test_dynamic_rotation_angle():
     assert count_1 > 1400, f"Expected ~15% '1' results, got {count_1}"
     assert count_0 > 8400, f"Expected ~85% '0' results, got {count_0}"
     assert count_0 + count_1 == 10_000, "All shots should produce a result"
+
+
+# X maps |-i> to |i> (up to phase), so after correcting on the first MY result
+# the second MY is always Zero. MX/MY are lowered to basis change + MZ on the GPU.
+MY_CORRECTION_QSHARP = """{
+    use q = Qubit();
+    H(q);
+    if MY(q) == One { X(q); }
+    let r = MY(q);
+    Reset(q);
+    r
+}"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_branch_on_my_result():
+    qsharp.init(target_profile=TargetProfile.Adaptive_RIF)
+    qir = str(qsharp.compile(MY_CORRECTION_QSHARP))
+    results = run_shots(qir, shots=100)
+    assert {map_result_list_to_str(r) for r in results["shot_results"]} == {"0"}

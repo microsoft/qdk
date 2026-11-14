@@ -346,14 +346,11 @@ impl NamespaceTreeNode {
     ) -> Option<NamespaceId> {
         let mut rover: Option<NamespaceTreeCell> = None;
         for component in ns {
-            if let Some(next_ns) = match rover {
+            let next_ns = match rover {
                 None => self.get(&Rc::from(component)),
                 Some(buf) => buf.borrow().get(&Rc::from(component)),
-            } {
-                rover = Some(next_ns);
-            } else {
-                return None;
-            }
+            }?;
+            rover = Some(next_ns);
         }
         Some(rover.map_or_else(|| self.id, |x| x.borrow().id))
     }

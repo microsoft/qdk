@@ -93,7 +93,7 @@ pub(crate) fn run_qasm_program(
     let user_profile = get_target_profile(&kwargs)?;
     let operation_name = get_operation_name(&kwargs)?;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::OpenQasm)?;
-    let seed = get_seed(&kwargs);
+    let seed = get_seed(&kwargs)?;
     let shots = get_shots(&kwargs)?;
     let search_path = get_search_path(&kwargs)?;
     let sim_type = get_sim_type(&kwargs)?;
@@ -152,9 +152,10 @@ pub(crate) fn run_qasm_program(
     );
     match result {
         Ok(result) => {
+            let callable_owner = std::rc::Rc::new(());
             let list: Result<Vec<_>, _> = result
                 .iter()
-                .map(|v| value_to_pyobj(&interpreter, py, v))
+                .map(|v| value_to_pyobj(&interpreter, py, v, &callable_owner))
                 .collect();
             Ok(PyList::new(py, list?)?.into())
         }
@@ -337,6 +338,68 @@ pub(crate) fn compile_qasm_program_to_qir(
     fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
 ) -> PyResult<String> {
+    let result = compile_qasm_program_to_qir_with_diagnostics(
+        py,
+        source,
+        read_file,
+        list_directory,
+        resolve_path,
+        fetch_github,
+        kwargs,
+    )?;
+    crate::interpreter::report_qir_warnings(py, result)
+}
+
+/// Compiles OpenQASM source code to QIR (Quantum Intermediate Representation)
+/// and returns its nonfatal diagnostics without presenting warnings.
+///
+/// Note:
+///     This call, while exported, is intended for the Python wrapper rather
+///     than direct user calls. The wrapper supplies filesystem callbacks and
+///     decides how to present the returned diagnostics. This function does not
+///     emit Python warnings or apply warning filters.
+///
+/// Args:
+///     source (str): The OpenQASM source code to compile to QIR.
+///     read_file (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its path and contents.
+///     list_directory (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
+///     resolve_path (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
+///     fetch_github (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
+///     **kwargs: Common options:
+///       - name (str): The name used for the generated entry point. Defaults to
+///         "program" and is sanitized to a valid identifier.
+///       - target_profile (TargetProfile): The requested profile. If omitted,
+///         uses the source's profile pragma, or Adaptive_RIF if there is none.
+///       - search_path (str): The base path for resolving source files and
+///         includes. Required by this native function; the Python wrapper supplies
+///         "." when omitted by the user.
+///       - output_semantics (OutputSemantics): The output semantics for the
+///         compilation. Defaults to OutputSemantics.OpenQasm.
+///
+/// Returns:
+///     Tuple[str, List[Tuple[str, str]]]: A tuple containing the QIR string and
+///     a list of nonfatal (code, message) diagnostic pairs. The list is empty
+///     when generation produces no warnings. A diagnostic without a code uses
+///     an empty string. Fatal failures raise an exception instead of returning
+///     partial QIR.
+///
+/// Raises:
+///     QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+///     QSharpError: If compilation or QIR generation fails, including unbound input parameters.
+///     TypeError: If a keyword option has an incompatible type.
+///     Exception: If the required search_path option is missing.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (source, read_file, list_directory, resolve_path, fetch_github, **kwargs))]
+pub(crate) fn compile_qasm_program_to_qir_with_diagnostics(
+    py: Python,
+    source: &str,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
+    kwargs: Option<Bound<'_, PyDict>>,
+) -> PyResult<crate::interpreter::QirOutput> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
 
     let user_profile = get_target_profile(&kwargs)?;
@@ -368,7 +431,10 @@ pub(crate) fn compile_qasm_program_to_qir(
             .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
     let entry_expr = signature.create_entry_expr_from_params(String::new());
 
-    generate_qir_from_ast(entry_expr, &mut interpreter)
+    interpreter
+        .qirgen_with_diagnostics(&entry_expr)
+        .map(crate::interpreter::qir_output)
+        .map_err(map_qirgen_errors)
 }
 
 pub(crate) fn compile_qasm_enriching_errors<S: AsRef<str>>(
@@ -410,15 +476,6 @@ pub(crate) fn compile_qasm_enriching_errors<S: AsRef<str>>(
     }
 
     Ok((package, source_map, signature, pragma_profile))
-}
-
-fn generate_qir_from_ast<S: AsRef<str>>(
-    entry_expr: S,
-    interpreter: &mut Interpreter,
-) -> PyResult<String> {
-    interpreter
-        .qirgen(entry_expr.as_ref())
-        .map_err(map_qirgen_errors)
 }
 
 /// This call while exported is not intended to be used directly by the user.
@@ -675,6 +732,7 @@ pub(crate) fn circuit_qasm_program(
         max_operations: config
             .max_operations
             .unwrap_or(TracerConfig::DEFAULT_MAX_OPERATIONS),
+        max_loop_iterations: config.max_loop_iterations,
         source_locations: config.source_locations,
         group_by_scope: config.group_by_scope,
         prune_classical_qubits: config.prune_classical_qubits,
@@ -902,10 +960,10 @@ pub(crate) fn get_shots(kwargs: &Bound<'_, PyDict>) -> PyResult<usize> {
 }
 
 /// Extracts the seed from the kwargs dictionary.
-/// If the seed is not present, or is not a valid u64, returns None.
-pub(crate) fn get_seed(kwargs: &Bound<'_, PyDict>) -> Option<u64> {
+/// If the seed is not present or is None, returns None.
+/// Otherwise, returns an error if it is not a valid u64.
+pub(crate) fn get_seed(kwargs: &Bound<'_, PyDict>) -> PyResult<Option<u64>> {
     kwargs
-        .get_item("seed")
-        .ok()?
-        .map_or_else(|| None::<u64>, |x| x.extract::<u64>().ok())
+        .get_item("seed")?
+        .map_or(Ok(None), |x| x.extract::<Option<u64>>())
 }

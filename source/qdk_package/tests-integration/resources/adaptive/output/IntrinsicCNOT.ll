@@ -10,48 +10,50 @@
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  %var_5 = alloca i64
-  %var_14 = alloca i64
+  %var_7 = alloca i64
+  %var_18 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-  store i64 0, ptr %var_5
+  store i64 0, ptr %var_7
   br label %block_1
 block_1:
-  %var_20 = load i64, ptr %var_5
-  %var_6 = icmp slt i64 %var_20, 2
-  br i1 %var_6, label %block_2, label %block_3
+  %var_8 = load i64, ptr %var_7
+  %var_9 = icmp slt i64 %var_8, 2
+  br i1 %var_9, label %block_2, label %block_3
 block_2:
-  %var_26 = load i64, ptr %var_5
-  %var_7_offset_chk = icmp slt i64 %var_26, 0
-  %var_7_offset = select i1 %var_7_offset_chk, i64 1, i64 0
-  %var_7 = getelementptr [2 x ptr], ptr @array0, i64 %var_7_offset, i64 %var_26
-  %var_27 = load ptr, ptr %var_7
-  call void @Reset(ptr %var_27)
-  %var_10 = add i64 %var_26, 1
-  store i64 %var_10, ptr %var_5
+  %var_30 = load i64, ptr %var_7
+  %var_31_offset_chk = icmp slt i64 %var_30, 0
+  %var_31_offset = select i1 %var_31_offset_chk, i64 1, i64 0
+  %var_31 = getelementptr [2 x ptr], ptr @array0, i64 %var_31_offset, i64 %var_30
+  %var_10 = load ptr, ptr %var_31
+  call void @Reset(ptr %var_10)
+  %var_13 = load i64, ptr %var_7
+  %var_14 = add i64 %var_13, 1
+  store i64 %var_14, ptr %var_7
   br label %block_1
 block_3:
   call void @X(ptr inttoptr (i64 2 to ptr))
   call void @CNOT(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
-  store i64 0, ptr %var_14
+  store i64 0, ptr %var_18
   br label %block_4
 block_4:
-  %var_22 = load i64, ptr %var_14
-  %var_15 = icmp slt i64 %var_22, 2
-  br i1 %var_15, label %block_5, label %block_6
+  %var_19 = load i64, ptr %var_18
+  %var_20 = icmp slt i64 %var_19, 2
+  br i1 %var_20, label %block_5, label %block_6
 block_5:
-  %var_23 = load i64, ptr %var_14
-  %var_16_offset_chk = icmp slt i64 %var_23, 0
-  %var_16_offset = select i1 %var_16_offset_chk, i64 1, i64 0
-  %var_16 = getelementptr [2 x ptr], ptr @array1, i64 %var_16_offset, i64 %var_23
-  %var_24 = load ptr, ptr %var_16
-  call void @Reset(ptr %var_24)
-  %var_18 = add i64 %var_23, 1
-  store i64 %var_18, ptr %var_14
+  %var_27 = load i64, ptr %var_18
+  %var_28_offset_chk = icmp slt i64 %var_27, 0
+  %var_28_offset = select i1 %var_28_offset_chk, i64 1, i64 0
+  %var_28 = getelementptr [2 x ptr], ptr @array1, i64 %var_28_offset, i64 %var_27
+  %var_21 = load ptr, ptr %var_28
+  call void @Reset(ptr %var_21)
+  %var_23 = load i64, ptr %var_18
+  %var_24 = add i64 %var_23, 1
+  store i64 %var_24, ptr %var_18
   br label %block_4
 block_6:
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
@@ -76,17 +78,17 @@ declare void @__quantum__qis__cx__body(ptr, ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-define internal void @Reset(ptr %var_9) {
+define internal void @Reset(ptr %var_12) {
 block_8:
-  call void @__quantum__qis__reset__body(ptr %var_9)
+  call void @__quantum__qis__reset__body(ptr %var_12)
   ret void
 }
 
 declare void @__quantum__qis__reset__body(ptr) #1
 
-define internal void @X(ptr %var_12) {
+define internal void @X(ptr %var_16) {
 block_9:
-  call void @__quantum__qis__x__body(ptr %var_12)
+  call void @__quantum__qis__x__body(ptr %var_16)
   ret void
 }
 
@@ -104,7 +106,7 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -115,3 +117,4 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

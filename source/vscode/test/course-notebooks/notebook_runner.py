@@ -65,24 +65,29 @@ def clear_notebook_outputs(notebook: NotebookNode) -> None:
         cell.metadata.pop("execution", None)
 
 
-def collect_cell_failures(notebook: NotebookNode) -> list[CellFailure]:
+def collect_cell_failures(
+    notebook: NotebookNode,
+    execution_errors: dict[int, NotebookNode],
+) -> list[CellFailure]:
     failures: list[CellFailure] = []
-    for cell_number, cell in enumerate(notebook.cells, start=1):
+    for cell_index, cell in enumerate(notebook.cells):
         if cell.cell_type != "code":
             continue
 
+        cell_number = cell_index + 1
         tags = set(cell.metadata.get("tags", []))
         source_line = _first_source_line(cell.source)
         if SKIP_TEST_TAG in tags:
             continue
 
-        errors = [
+        error = execution_errors.get(cell_index)
+        visible_errors = [
             output
             for output in cell.get("outputs", [])
             if output.get("output_type") == "error"
         ]
         if EXERCISE_TAG in tags:
-            if not errors:
+            if error is None:
                 failures.append(
                     CellFailure(
                         cell_number,
@@ -90,24 +95,32 @@ def collect_cell_failures(notebook: NotebookNode) -> list[CellFailure]:
                         "exercise cell did not raise ExerciseError",
                     )
                 )
-            elif errors[0].get("ename") != "ExerciseError":
+            elif error.get("ename") != "ExerciseError":
                 failures.append(
                     CellFailure(
                         cell_number,
                         source_line,
-                        "exercise cell raised " + _format_error(errors[0]),
+                        "exercise cell raised " + _format_error(error),
+                    )
+                )
+            elif visible_errors:
+                failures.append(
+                    CellFailure(
+                        cell_number,
+                        source_line,
+                        "exercise cell displayed duplicate error output",
                     )
                 )
             continue
 
-        failures.extend(
-            CellFailure(
-                cell_number,
-                source_line,
-                "unexpected error: " + _format_error(error),
+        if error is not None:
+            failures.append(
+                CellFailure(
+                    cell_number,
+                    source_line,
+                    "unexpected error: " + _format_error(error),
+                )
             )
-            for error in errors
-        )
     return failures
 
 
@@ -118,6 +131,12 @@ def run_notebook(
 ) -> NotebookRunReport:
     notebook = nbformat.read(notebook_path, as_version=4)
     clear_notebook_outputs(notebook)
+    execution_errors: dict[int, NotebookNode] = {}
+
+    def record_cell_error(
+        *, cell: NotebookNode, cell_index: int, execute_reply: NotebookNode
+    ) -> None:
+        execution_errors[cell_index] = execute_reply["content"]
 
     started = perf_counter()
     kernel_manager = AsyncKernelManager(
@@ -135,6 +154,7 @@ def run_notebook(
         resources={"metadata": {"path": str(notebook_path.parent)}},
         skip_cells_with_tag=SKIP_TEST_TAG,
         store_widget_state=False,
+        on_cell_error=record_cell_error,
     ).execute(cleanup_kc=True)
     elapsed_seconds = perf_counter() - started
 
@@ -162,7 +182,7 @@ def run_notebook(
         executed_cells,
         skipped_cells,
         slow_cells,
-        tuple(collect_cell_failures(notebook)),
+        tuple(collect_cell_failures(notebook, execution_errors)),
     )
     print_notebook_report(report)
     return report

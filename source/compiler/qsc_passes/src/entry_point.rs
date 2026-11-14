@@ -4,6 +4,8 @@
 #[cfg(test)]
 mod tests;
 
+use std::rc::Rc;
+
 use crate::PackageType;
 
 use super::Error as PassErr;
@@ -33,6 +35,13 @@ pub enum Error {
     #[diagnostic(code("Qdk.Qsc.EntryPoint.Args"))]
     Args(#[label] Span),
 
+    #[error("entry point type arguments cannot be inferred")]
+    #[diagnostic(help(
+        "provide an entry expression with concrete type evidence, or use a nongeneric wrapper"
+    ))]
+    #[diagnostic(code("Qdk.Qsc.EntryPoint.MissingTypeArguments"))]
+    MissingTypeArguments(#[label("entry point needs concrete type arguments")] Span),
+
     #[error("entry point must have body implementation only")]
     #[diagnostic(code("Qdk.Qsc.EntryPoint.BodyMissing"))]
     BodyMissing(#[label("cannot have specialization implementation")] Span),
@@ -47,6 +56,7 @@ pub enum Error {
 
 // If no entry expression is provided, generate one from the entry point callable.
 // Only one callable should be annotated with the entry point attribute.
+// Generated calls supply no type evidence; explicit entry expressions retain source inference.
 pub(super) fn generate_entry_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -87,7 +97,17 @@ fn create_entry_from_callables(
                     qsc_hir::hir::SpecBody::Gen(_) => {
                         Err(vec![PassErr::EntryPoint(Error::BodyMissing(ep.span))])
                     }
-                    qsc_hir::hir::SpecBody::Impl(_, block) => {
+                    qsc_hir::hir::SpecBody::Impl(_, _) => {
+                        if !ep.generics.is_empty() {
+                            return Err(vec![PassErr::EntryPoint(Error::MissingTypeArguments(
+                                ep.name.span,
+                            ))]);
+                        }
+                        let callee_ty = Ty::Arrow(Rc::new(
+                            ep.scheme()
+                                .instantiate(&[])
+                                .expect("nongeneric entry scheme accepts no type arguments"),
+                        ));
                         let arg = Expr {
                             id: assigner.next_node(),
                             span: ep.input.span,
@@ -102,13 +122,13 @@ fn create_entry_from_callables(
                         let callee = Expr {
                             id: assigner.next_node(),
                             span: ep.name.span,
-                            ty: block.ty.clone(),
+                            ty: callee_ty,
                             kind: ExprKind::Var(Res::Item(item_id), Vec::new()),
                         };
                         let call = Expr {
                             id: assigner.next_node(),
                             span: Span::default(),
-                            ty: block.ty.clone(),
+                            ty: ep.output.clone(),
                             kind: ExprKind::Call(Box::new(callee), Box::new(arg)),
                         };
                         Ok(call)

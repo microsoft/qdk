@@ -263,7 +263,7 @@ fn pragma_command_is_authoritative_and_lossless() {
     let input = "#pragma qdk.box.open target/*opaque*/  ";
     let mut context = ParserContext::new(input);
     let statement = parse(&mut context).expect("pragma should parse");
-    assert!(context.into_errors().is_empty());
+    assert_eq!(context.into_errors().len(), 0);
     let StmtKind::Pragma(pragma) = statement.kind.as_ref() else {
         panic!("expected pragma statement");
     };
