@@ -947,7 +947,8 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         };
 
-        vec![self.conditional_pauli_stmt(pauli, result_id, target, span)]
+        let record = build_record_expr(result_id, control.span);
+        vec![self.conditional_pauli_stmt(pauli, record, target, span)]
     }
 
     fn compile_noise(&mut self, noise: &semantic::Noise, span: Span) -> Vec<ast::Stmt> {
@@ -1200,7 +1201,12 @@ impl<'noise> Compiler<'noise> {
         };
 
         // loss = IsLossResult(r_a) or IsLossResult(r_b) or …
-        let loss_expr = build_any_loss_expr(&result_ids, span);
+        let loss_terms = result_ids
+            .iter()
+            .zip(records)
+            .map(|(&r, record)| build_record_expr(r, record.record.span))
+            .collect();
+        let loss_expr = build_any_loss_expr(loss_terms, span);
 
         // parity = (r_a == One) != (r_b == One) != …, with `Zero` for `!rec[..]`
         let parity_terms: Vec<ast::Expr> = result_ids
@@ -1212,7 +1218,11 @@ impl<'noise> Compiler<'noise> {
                 } else {
                     ast::Result::One
                 };
-                let term = build_record_equals_expr(r, expected, span);
+                let term = build_record_equals_expr(
+                    build_record_expr(r, record.record.span),
+                    expected,
+                    span,
+                );
                 // `==` and `!=` are non-associative in Q#, so chained terms need parentheses.
                 if result_ids.len() > 1 {
                     wrap_expr_in_parens(term, span)
@@ -1261,7 +1271,12 @@ impl<'noise> Compiler<'noise> {
         }
 
         // loss = IsLossResult(r_a) or IsLossResult(r_b) or …
-        let loss_expr = build_any_loss_expr(&result_ids, span);
+        let loss_terms = result_ids
+            .iter()
+            .zip(records)
+            .map(|(&r, record)| build_record_expr(r, record.span))
+            .collect();
+        let loss_expr = build_any_loss_expr(loss_terms, span);
 
         let (loss, loss_stmt) = self.bind_local("loss", loss_expr);
         vec![loss_stmt, build_continue_if_stmt(loss, span)]
@@ -1457,7 +1472,7 @@ impl<'noise> Compiler<'noise> {
     fn conditional_pauli_stmt(
         &mut self,
         pauli: Pauli,
-        result_id: ResultId,
+        record: ast::Expr,
         target: StimQubitId,
         span: Span,
     ) -> ast::Stmt {
@@ -1466,7 +1481,7 @@ impl<'noise> Compiler<'noise> {
             Y => QSharpOp::Y,
             Z => QSharpOp::Z,
         };
-        let condition = build_record_equals_expr(result_id, ast::Result::One, span);
+        let condition = build_record_equals_expr(record, ast::Result::One, span);
         let then_block = build_block(vec![self.op_call_stmt(op, &[target], span)], span);
         build_stmt_semi_from_expr(build_if_expr_then_block(condition, then_block, span))
     }
