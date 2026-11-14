@@ -23,6 +23,7 @@ from qdk.qre import (
     TemporalProfilerConfig,
     TemporalProfiles,
     TotalCounts,
+    Trace,
 )
 from qdk.qre.application import (
     OpenQASMApplication,
@@ -31,6 +32,7 @@ from qdk.qre.application import (
     QspApplication,
 )
 from qdk.qre.profiler import QREProfiler
+from qdk.qre.instruction_ids import CCX, CX, MEAS_RESET_Z, MEAS_Z, PAULI_X
 
 
 @pytest.fixture
@@ -83,6 +85,37 @@ def test_profile_qsp_application(qsp_toolchain: None) -> None:
     assert result.totals.physical_qubits == 40
     assert result.totals.total_runtime_sec == 42.0
     assert result.infos == []
+
+
+def test_qsp_get_trace(qsp_toolchain: None) -> None:
+    """Collect native C++ gates and preserve stored measurement results across batches."""
+    application = QspApplication.for_cpp_code("""
+    #include "qep_interop.h"
+    #include <iostream>
+
+    // Exercise loops, multi-qubit gates, and persistent measurement slots.
+    int main() {
+        std::cout << "Building trace" << std::endl;
+        for (size_t i = 0; i < 3; ++i) {
+            qdk_x(0);
+        }
+        qdk_cx(0, 1);
+        qdk_ccx(0, 1, 2);
+        qdk_mz_store(0, 7);
+        const size_t stored = qdk_read_result(7);
+        if (stored > 1 || qdk_read_result(7) != stored) return 1;
+        return qdk_mz_reset(1) > 1;
+    }
+    """)
+    trace = application.get_trace()
+
+    assert isinstance(trace, Trace)
+    assert trace.compute_qubits == trace.total_qubits == 3
+    assert trace.num_gates == 7
+    assert trace.depth == 6
+    assert {instruction.id for instruction in trace.required_isa} == {
+        PAULI_X, CX, CCX, MEAS_Z, MEAS_RESET_Z
+    }
 
 
 @pytest.mark.parametrize("as_bitcode", [False, True], ids=["text", "bitcode"])

@@ -11,6 +11,9 @@ import pandas as pd
 
 from .._native import Closure, GlobalCallable, Interpreter
 
+# Collects a trace from dedicated Unix pipes until instruction EOF.
+def trace_fds(instruction_fd: int, result_fd: int) -> Trace: ...
+
 class TotalCounts:
     def __repr__(self) -> str: ...
     @property

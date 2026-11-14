@@ -1,9 +1,6 @@
 # API entry point for Quantum Execution Profiler.
 # TODO: finish this class.
 from collections.abc import Callable
-from contextlib import ExitStack
-import os
-import subprocess
 
 import pyqir
 
@@ -89,47 +86,7 @@ class QREProfiler:
 
     def _profile_qsp_application(self, app: QspApplication) -> ProfilerResult:
         """Compile and profile a QSP program over dedicated inherited pipes."""
-        if os.name != "posix":
-            raise NotImplementedError("QSP profiling requires POSIX file descriptors.")
-        compiled_exe = app.compile()
-        with ExitStack() as pipes:
-            instruction_read, instruction_write = os.pipe()
-            instructions = pipes.enter_context(
-                os.fdopen(instruction_read, "rb", buffering=0)
-            )
-            child_instructions = pipes.enter_context(
-                os.fdopen(instruction_write, "wb", buffering=0)
-            )
-            result_read, result_write = os.pipe()
-            child_results = pipes.enter_context(os.fdopen(result_read, "rb", buffering=0))
-            results = pipes.enter_context(os.fdopen(result_write, "wb", buffering=0))
-            with subprocess.Popen(
-                [str(compiled_exe)],
-                pass_fds=(child_instructions.fileno(), child_results.fileno()),
-                env={
-                    **os.environ,
-                    "QDK_INSTRUCTION_FD": str(child_instructions.fileno()),
-                    "QDK_RESULT_FD": str(child_results.fileno()),
-                },
-            ) as program:
-                child_instructions.close()
-                child_results.close()
-                try:
-                    result = self.profiler.profile_fds(
-                        instructions.fileno(), results.fileno()
-                    )
-                    returncode = program.wait()
-                    if returncode != 0:
-                        raise subprocess.CalledProcessError(returncode, program.args)
-                    return result
-                finally:
-                    if program.poll() is None:
-                        program.terminate()
-                        try:
-                            program.wait(timeout=5)
-                        except subprocess.TimeoutExpired:
-                            program.kill()
-                            program.wait()
+        return app._run_qsp_application(self.profiler.profile_fds)
 
     def profile(self, app: Application, use_qir: bool = True) -> ProfilerResult:
         """Profile Q#, OpenQASM, QIR, or a compiled QSP application."""

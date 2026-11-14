@@ -61,6 +61,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(instruction_name, m)?)?;
     m.add_function(wrap_pyfunction!(property_name_to_key, m)?)?;
     m.add_function(wrap_pyfunction!(property_name, m)?)?;
+    m.add_function(wrap_pyfunction!(trace_fds, m)?)?;
 
     m.add("EstimationError", m.py().get_type::<EstimationError>())?;
 
@@ -71,6 +72,51 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 pyo3::create_exception!(qsharp.qre, EstimationError, PyException);
+
+/// Serves a backend on duplicated Unix pipe descriptors with the GIL released.
+fn run_backend_fds(
+    py: Python<'_>,
+    backend: &mut (impl qep::QuantumBackend + Send),
+    instruction_fd: i32,
+    result_fd: i32,
+) -> PyResult<()> {
+    #[cfg(unix)]
+    {
+        use std::{fs::File, os::fd::FromRawFd};
+
+        let duplicate = |descriptor| -> PyResult<File> {
+            // SAFETY: fcntl checks the integer descriptor and duplicates it on success.
+            let duplicated = unsafe { libc::fcntl(descriptor, libc::F_DUPFD_CLOEXEC, 0) };
+            if duplicated < 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+            // SAFETY: fcntl returned a new descriptor owned exclusively by this File.
+            Ok(unsafe { File::from_raw_fd(duplicated) })
+        };
+        let instructions = duplicate(instruction_fd)?;
+        let results = duplicate(result_fd)?;
+        py.detach(|| {
+            qep::StdioDriver::new(backend, instructions, results)
+                .run()
+                .map_err(PyRuntimeError::new_err)
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (py, backend, instruction_fd, result_fd);
+        Err(pyo3::exceptions::PyNotImplementedError::new_err(
+            "Dedicated protocol pipes require Unix",
+        ))
+    }
+}
+
+/// Collects a trace until instruction EOF, preserving ownership of both descriptors.
+#[pyfunction]
+fn trace_fds(py: Python<'_>, instruction_fd: i32, result_fd: i32) -> PyResult<Trace> {
+    let mut backend = qep::QsBackendShim::new(qre::TraceBuilder::default());
+    run_backend_fds(py, &mut backend, instruction_fd, result_fd)?;
+    Ok(Trace::from_qre_trace(backend.into_backend().into_trace()))
+}
 
 /// Python representation of total operation and resource counts.
 #[pyclass(module = "qdk.qre", frozen)]
@@ -358,35 +404,8 @@ impl Profiler {
         instruction_fd: i32,
         result_fd: i32,
     ) -> PyResult<ProfilerResult> {
-        #[cfg(unix)]
-        {
-            use std::{fs::File, os::fd::FromRawFd};
-
-            let duplicate = |descriptor| -> PyResult<File> {
-                // SAFETY: fcntl checks the integer descriptor and duplicates it on success.
-                let duplicated = unsafe { libc::fcntl(descriptor, libc::F_DUPFD_CLOEXEC, 0) };
-                if duplicated < 0 {
-                    return Err(std::io::Error::last_os_error().into());
-                }
-                // SAFETY: fcntl returned a new descriptor owned exclusively by this File.
-                Ok(unsafe { File::from_raw_fd(duplicated) })
-            };
-            let instructions = duplicate(instruction_fd)?;
-            let results = duplicate(result_fd)?;
-            py.detach(|| {
-                qep::StdioDriver::new(self.backend_mut(), instructions, results)
-                    .run()
-                    .map_err(PyRuntimeError::new_err)?;
-                Ok(self.backend_mut().get_result().into())
-            })
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = (py, instruction_fd, result_fd);
-            Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                "Dedicated protocol pipes require Unix",
-            ))
-        }
+        run_backend_fds(py, self.backend_mut(), instruction_fd, result_fd)?;
+        Ok(self.backend_mut().get_result().into())
     }
 }
 

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
@@ -10,9 +12,13 @@ import shlex
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from typing import TypeVar
 
 from qdk.qre._application import Application
-from qdk.qre._qre import Trace
+from qdk.qre._qre import Trace, trace_fds
+
+
+_Result = TypeVar("_Result")
 
 
 @dataclass
@@ -79,6 +85,64 @@ class QspApplication(Application[None]):
         )
         return executable
 
+    def _run_qsp_application(self, serve: Callable[[int, int], _Result]) -> _Result:
+        """Compile and run the program, serving dedicated pipes and checking its exit.
+
+        Args:
+            serve: Synchronous callback receiving the instruction-read descriptor
+                and result-write descriptor, in that order. It must read QSP
+                batches and write and flush their replies until instruction EOF.
+                Descriptors are borrowed and must not be closed by the callback.
+
+        Returns:
+            The callback's result after the program exits successfully.
+
+        Callback errors propagate after the child process is stopped.
+        """
+        if os.name != "posix":
+            raise NotImplementedError("QSP execution requires POSIX file descriptors.")
+        compiled_exe = self.compile()
+        with ExitStack() as pipes:
+            instruction_read, instruction_write = os.pipe()
+            instructions = pipes.enter_context(
+                os.fdopen(instruction_read, "rb", buffering=0)
+            )
+            child_instructions = pipes.enter_context(
+                os.fdopen(instruction_write, "wb", buffering=0)
+            )
+            result_read, result_write = os.pipe()
+            child_results = pipes.enter_context(os.fdopen(result_read, "rb", buffering=0))
+            results = pipes.enter_context(os.fdopen(result_write, "wb", buffering=0))
+            with subprocess.Popen(
+                [str(compiled_exe)],
+                pass_fds=(child_instructions.fileno(), child_results.fileno()),
+                env={
+                    **os.environ,
+                    "QDK_INSTRUCTION_FD": str(child_instructions.fileno()),
+                    "QDK_RESULT_FD": str(child_results.fileno()),
+                },
+            ) as program:
+                child_instructions.close()
+                child_results.close()
+                try:
+                    result = serve(instructions.fileno(), results.fileno())
+                    returncode = program.wait()
+                    if returncode != 0:
+                        raise subprocess.CalledProcessError(returncode, program.args)
+                    return result
+                finally:
+                    if program.poll() is None:
+                        program.terminate()
+                        try:
+                            program.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            program.kill()
+                            program.wait()
+
     def get_trace(self, parameters: None = None) -> Trace:
-        """Reject trace generation; compiled QSP applications use live profiling."""
-        raise NotImplementedError("Use QREProfiler.profile() for QSP applications.")
+        """Run the program and collect its gates in a fresh trace.
+
+        Measurements return random outcomes; only the executed path is traced.
+        Compilation, protocol, and subprocess failures propagate to the caller.
+        """
+        return self._run_qsp_application(trace_fds)

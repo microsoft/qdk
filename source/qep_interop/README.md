@@ -71,6 +71,13 @@ The program should call `qdk_` instructions directly, without `qdk_init()` or
 gates. Running the executable outside the profiler, with neither environment
 variable set, still uses stdin/stdout for the protocol.
 
+`QspApplication.get_trace()` compiles and runs the same application through a
+trace-building backend instead. It returns a fresh `Trace` containing the gates
+executed by that run, suitable for resource-estimation transformations. Measurement
+outcomes are random, not simulated quantum-state outcomes; conditional programs
+record only the path taken. Tracing and profiling share the same dedicated-pipe
+transport, subprocess cleanup, and error handling.
+
 ### Profiling an external program from Python
 
 On Unix, `Profiler.profile_fds(instruction_fd, result_fd)` reads instruction

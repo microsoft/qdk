@@ -39,6 +39,7 @@ from .._native import (
     SequentialCountingProfiler,
     TemporalProfiler,
     Trace,
+    trace_fds,
     property_name_to_key,
     property_name,
     _float_to_bits,
