@@ -111,18 +111,20 @@ impl InstructionSet {
     }
 
     /// Checks `instruction` against this set, and, given `blocks_of`, its
-    /// blocks against the shot's; the first fault.
+    /// blocks against the shot's: its readout slots (its outcomes, then its
+    /// flags), or the first fault.
     pub(crate) fn check(
         &self,
         instruction: &Instruction,
         blocks_of: Option<&[u32]>,
-    ) -> Result<(), InstructionFault> {
+    ) -> Result<u32, InstructionFault> {
         let index = instruction.opcode.index();
         let (Some(def), Some(layout)) = (self.instructions.get(index), self.layouts.get(index))
         else {
             return Err(InstructionFault::UnknownOpcode(instruction.opcode));
         };
-        layout.check(def, instruction, blocks_of)
+        layout.check(def, instruction, blocks_of)?;
+        Ok(def.outcomes.saturating_add(layout.flags()))
     }
 }
 

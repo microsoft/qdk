@@ -65,6 +65,11 @@ impl Slot {
 const MAX_FLAGS: usize = 64;
 
 impl Layout {
+    /// How many flags it declares.
+    pub(crate) const fn flags(&self) -> u32 {
+        self.flags
+    }
+
     /// The layout of `def`, whose set declares `block_types`; or every
     /// fault of its operands and flags: a block type the set does not
     /// declare, a variadic operand out of place, more than 64 flags.

@@ -95,7 +95,7 @@ fn literal(set: &InstructionSet, mnemonic: &str, blocks: &[u32]) -> Instruction 
     }
 }
 
-fn fault_at(at: usize, fault: InstructionFault) -> Result<(), BatchFault> {
+fn fault_at(at: usize, fault: InstructionFault) -> Result<u32, BatchFault> {
     Err(BatchFault::Instruction { at, fault })
 }
 
@@ -531,4 +531,18 @@ fn repeated_block_named_is_the_earliest_repeat_in_position_order() {
             blocks.len()
         );
     }
+}
+
+/// The answer to a batch has a value per readout slot of its instructions:
+/// each instruction's outcomes, then its flags.
+#[test]
+fn batch_s_readout_slots_are_its_instructions_outcomes_and_flags() {
+    let set = device();
+    let limits = limits(&set, None, 2, 0);
+    let batch = [
+        literal(&set, "h", &[0]),
+        literal(&set, "m", &[0]),
+        literal(&set, "mpp", &[0, 1]),
+    ];
+    assert_eq!(check_batch(&set, &batch, &limits), Ok(4));
 }

@@ -14,10 +14,16 @@
 //! out. So every row has exactly R values, R being the width its maker
 //! gave [`with_capacity`](BatchReadouts::with_capacity), and
 //! [`push_row`](BatchReadouts::push_row) refuses any other width
-//! ([`ShapeFault`]). That R is the batch's number of readout slots is not
-//! checked here: it is for the composed executor to check, since it holds
-//! both the batch and its readouts, and only that check makes sure no value
-//! is missing, repeated or unexpected.
+//! ([`ShapeFault::RowWidth`]). That the readouts match their batch is not
+//! checked here, since it needs the batch: the protocol checks every answer
+//! that crosses a boundary of a chain, and makes a failure of the batch
+//! ([`ExecuteError::Failed`](crate::ExecuteError::Failed), named by its
+//! first shot) of readouts not one per batch sent ([`ShapeFault::Batches`],
+//! named by the first batch's), of rows not one per shot of the batch
+//! ([`ShapeFault::Rows`]), or of an R that is not the batch's readout slots,
+//! the sum of its instructions' outcomes and flags ([`ShapeFault::Width`]).
+//! So the part above finds every slot it asked for, on every shot, at its
+//! index.
 //!
 //! The rows are dense: every value of the batch in one buffer, a byte or
 //! two each, so a shot's row is a slice, and a batch's readouts, made with
@@ -38,8 +44,9 @@ pub use shot_conditions::ShotConditions;
 ///
 /// Every row has exactly R values, R being the width given to
 /// [`with_capacity`](Self::with_capacity) (`push_row` refuses others);
-/// that R is the batch's number of readout slots is for the composed
-/// executor to check; slot k is the same readout on every shot; and a lost
+/// the protocol checks, on every answer crossing a boundary of a chain,
+/// that it has a row per shot of its batch and that R is the batch's
+/// readout slots; slot k is the same readout on every shot; and a lost
 /// value is [`ReadoutValue::Missing`]. A shot is read by its position in
 /// the batch's shot set, as `row(i)`.
 #[derive(Clone, PartialEq, Eq)]
@@ -235,7 +242,9 @@ where
 
 /// A readout slot's position in a batch's rows, k: slot k is the same
 /// readout on every shot of the batch. It must be below R, the rows' width,
-/// which [`BatchReadouts::value`] checks.
+/// which [`BatchReadouts::value`] checks; R is the batch's readout slots
+/// on every answer that crossed a boundary of a chain, since the protocol
+/// checks it there.
 ///
 /// A `u32`, at no cost over one, so that a slot is not mistaken for a
 /// shot's position or a count.
@@ -257,8 +266,12 @@ impl ReadoutIndex {
     }
 }
 
-/// Why a row does not have the readouts' width, the one given to
-/// [`BatchReadouts::with_capacity`].
+/// Why readouts do not have their expected shape: a row pushed with
+/// another width than the one given to [`BatchReadouts::with_capacity`]
+/// (`RowWidth`, from [`BatchReadouts::push_row`]); or, found by the
+/// protocol's check of an answer crossing a boundary of a chain, readouts
+/// that do not match the batches sent (`Batches`, `Rows`, `Width`), each
+/// carried as the batch's [`Failure::Part`](crate::Failure::Part).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ShapeFault {
@@ -269,6 +282,34 @@ pub enum ShapeFault {
         /// The number of values the row held.
         got: usize,
     },
+    /// An `execute` answered `got` batches' readouts, where it was sent
+    /// `expected` batches.
+    Batches {
+        /// The batches sent.
+        expected: usize,
+        /// The readouts answered.
+        got: usize,
+    },
+    /// The readouts of `batches[batch]` hold `got` rows, where the batch
+    /// has `expected` shots.
+    Rows {
+        /// The batch's position in the `execute`.
+        batch: usize,
+        /// The batch's shots.
+        expected: usize,
+        /// The rows answered.
+        got: usize,
+    },
+    /// The readouts of `batches[batch]` have rows of `got` values, where
+    /// the batch's instructions have `expected` readout slots.
+    Width {
+        /// The batch's position in the `execute`.
+        batch: usize,
+        /// The readout slots of the batch's instructions.
+        expected: u32,
+        /// The width of the rows answered.
+        got: u32,
+    },
 }
 
 impl fmt::Display for ShapeFault {
@@ -277,6 +318,25 @@ impl fmt::Display for ShapeFault {
             Self::RowWidth { expected, got } => write!(
                 f,
                 "a row of {got} readout values, where each row has {expected}"
+            ),
+            Self::Batches { expected, got } => {
+                write!(f, "readouts for {got} batches, where {expected} were sent")
+            }
+            Self::Rows {
+                batch,
+                expected,
+                got,
+            } => write!(
+                f,
+                "{got} rows for batch {batch}, which has {expected} shots"
+            ),
+            Self::Width {
+                batch,
+                expected,
+                got,
+            } => write!(
+                f,
+                "rows of {got} readout values for batch {batch}, whose instructions have {expected} readout slots"
             ),
         }
     }

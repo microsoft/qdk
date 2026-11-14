@@ -79,10 +79,6 @@ impl Seed {
 
     /// The seed of a run with seed `seed`, as the runner gives it to the
     /// driver.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the runner makes it, and it is not written yet")
-    )]
     pub(crate) const fn new(seed: u64) -> Self {
         Self(splitmix(seed))
     }

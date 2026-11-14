@@ -9,8 +9,12 @@
 //! [`allocations`] counts those made on its own thread, so tests running
 //! in parallel do not disturb its count.
 
+mod admission;
 mod batch_readouts;
+mod composition;
+mod fake_parts;
 mod instruction_set;
+mod runner;
 mod seed;
 mod shot_set;
 

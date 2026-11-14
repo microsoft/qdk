@@ -25,10 +25,6 @@ pub(crate) struct BatchLimits {
     blocks_of: Vec<u32>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "called by the protocol's check of each `execute`")
-)]
 impl BatchLimits {
     /// The limits of a receiver of `set` that runs at most
     /// `max_instructions` per batch, on shots whose blocks of each type
@@ -57,16 +53,14 @@ pub(crate) enum BatchFault {
 /// `set` and `limits`: their count, then each instruction as
 /// [`InstructionSet::instruction`] checks one, plus the arguments past its
 /// parameters, the flags its `select` patterns name, and each block below
-/// the shot's of its type. The first fault.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "called by the protocol's check of each `execute`")
-)]
+/// the shot's of its type. The batch's readout slots, the sum of its
+/// instructions', so that its answer's width can be checked; or the first
+/// fault.
 pub(crate) fn check_batch(
     set: &InstructionSet,
     instructions: &[Instruction],
     limits: &BatchLimits,
-) -> Result<(), BatchFault> {
+) -> Result<u32, BatchFault> {
     if let Some(max) = limits.max_instructions
         && instructions.len() > max as usize
     {
@@ -75,9 +69,12 @@ pub(crate) fn check_batch(
             got: instructions.len(),
         });
     }
+    let mut readouts: u32 = 0;
     for (at, instruction) in instructions.iter().enumerate() {
-        set.check(instruction, Some(&limits.blocks_of))
+        let slots = set
+            .check(instruction, Some(&limits.blocks_of))
             .map_err(|fault| BatchFault::Instruction { at, fault })?;
+        readouts = readouts.saturating_add(slots);
     }
-    Ok(())
+    Ok(readouts)
 }
