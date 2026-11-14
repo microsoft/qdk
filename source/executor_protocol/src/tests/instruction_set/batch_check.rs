@@ -514,7 +514,7 @@ fn many_new_blocks_with_one_given_twice_are_refused() {
 fn repeated_block_named_is_the_earliest_repeat_in_position_order() {
     let set = device();
     let limits = limits(&set, None, 40, 0);
-    let few = vec![3, 5, 5, 3];
+    let few = vec![5, 3, 5, 3];
     let mut many = few.clone();
     many.extend(10..30);
     for blocks in [few, many] {
