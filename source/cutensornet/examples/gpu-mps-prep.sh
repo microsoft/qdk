@@ -13,7 +13,7 @@
 # The cases are not in the repository (tens of MB of circuits): copy the
 # tarball made by the study's generator to the VM first, then
 #
-#   tar xzf mps-prep-cases.tar.gz -C $HOME
+#   tar xzf mps-prep-cases.tar.gz -C /data/domingom/runs/inputs
 #   bash source/cutensornet/examples/gpu-mps-prep.sh
 #
 # Run it alone on the GPU: it refuses to start while another process uses
@@ -24,7 +24,7 @@
 #                /data/domingom/runs/gpu-mps-prep-<date>); a shell's OUT
 #                is ignored
 #   CASES        the folder holding the case folders (default
-#                $HOME/mps-prep-cases)
+#                /data/domingom/runs/inputs/mps-prep-cases)
 #   RUNS         space-separated case:placement pairs, in order (default
 #                below: the χ ladder at N = 8, 16 and 20 with the register
 #                following the active orbital, the cases named -ladder with
@@ -48,7 +48,7 @@ set -u
 
 REPO=$(readlink -f "$(dirname "$(readlink -f "$0")")/../../..")
 OUT=${MPS_PREP_OUT:-/data/domingom/runs/gpu-mps-prep-$(date +%Y%m%d-%H%M)}
-CASES=${CASES:-$HOME/mps-prep-cases}
+CASES=${CASES:-/data/domingom/runs/inputs/mps-prep-cases}
 RUNS=${RUNS:-"n8-chi64:following n16-chi16:following n16-chi32:following \
 n16-chi64-ladder:following n20-chi32:following n20-chi64-ladder:following \
 n16-chi16:interleaved n12-chi4:blocked n20-chi64:following"}
@@ -70,7 +70,7 @@ if [ -n "$busy" ] || pgrep -f 'h2_dev|gpu-h2-threads|gpu-h2-qualify|gate_split_b
 fi
 
 if [ ! -d "$CASES" ]; then
-  echo "No case folder $CASES: copy mps-prep-cases.tar.gz and run tar xzf mps-prep-cases.tar.gz -C \$HOME" >&2
+  echo "No case folder $CASES: copy mps-prep-cases.tar.gz and run tar xzf mps-prep-cases.tar.gz -C /data/domingom/runs/inputs" >&2
   exit 2
 fi
 
