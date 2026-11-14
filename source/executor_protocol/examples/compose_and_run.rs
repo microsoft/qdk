@@ -8,7 +8,9 @@
 //! It prints each shot's two values, runs two of the shots again to show
 //! that a shot's values, noise included, are the same each time the chain
 //! runs it with the same seed, whatever shots run beside it, and shows a
-//! run the chain refuses. Run it with `cargo run --example compose_and_run`.
+//! run the chain refuses. The run comes first, in `coin_runner` and
+//! `main`; the three parts follow, each in its own section. Run it with
+//! `cargo run --example compose_and_run`.
 
 use std::collections::BTreeMap;
 
@@ -25,6 +27,62 @@ instruction_set! {
 
 /// The seed of the runs: the same seed gives the same values.
 const SEED: u64 = 1;
+
+// ------------------------------------------------------------------ the run
+
+/// The three parts, composed: the coin, under 20% bit-flip noise, on bits.
+///
+/// After each run, the runner ends every shot of the run on every part, so
+/// the parts free its state and a rerun with the same seed starts it
+/// afresh; the driver need not end them.
+fn coin_runner() -> Runner<Composed<CoinCopy, BitFlip>, Bits> {
+    // Each part is wrapped in the role it plays (`Driver`, `Adapter`,
+    // `Executor`), which `>>` needs to pick the join. `>>` joins the driver
+    // and the adapter into one driver, a `Composed`. Each `>>` checks that
+    // what is sent across it fits what is accepted; the last one, onto the
+    // executor, also checks that the executor offers what the driver
+    // needs, and gives the runner or every fault of the chain.
+    let runner = Driver::new(CoinCopy::new())
+        >> Adapter::new(BitFlip::new(200))
+        >> Executor::new(Bits::new());
+    runner.expect("the parts compose: they all send and accept CoinGates")
+}
+
+fn main() {
+    let mut runner = coin_runner();
+
+    let shots = ShotSet::ids(0..12);
+    let values = runner.run(&shots, SEED).expect("the chain runs 12 shots");
+    println!("shot  coin  copy");
+    for (id, shot) in shots.iter().zip(&values) {
+        println!("{id:>4}  {:>4}  {:>4}", text(shot[0]), text(shot[1]));
+    }
+    println!("A copy unlike its coin: the noise flipped it.");
+
+    // The runner ended every shot of the first run, so shots 4 and 5 start
+    // afresh, and the seed gives them the same values.
+    let again = runner
+        .run(&ShotSet::ids([4, 5]), SEED)
+        .expect("the chain runs 2 shots");
+    let same = again == [values[4].clone(), values[5].clone()];
+    println!("\nShots 4 and 5, run again alone: the same values, noise included? {same}");
+
+    let refused = runner
+        .run(&ShotSet::ids(0..2000), SEED)
+        .expect_err("Bits runs at most 1000 shots");
+    println!("\n2000 shots: {refused}");
+}
+
+/// A value as the table prints it.
+fn text(value: ReadoutValue) -> String {
+    match value {
+        ReadoutValue::Zero => "0".to_owned(),
+        ReadoutValue::One => "1".to_owned(),
+        ReadoutValue::Missing(_) => "missing".to_owned(),
+        // `ReadoutValue` may gain variants: shown as they are.
+        other => format!("{other:?}"),
+    }
+}
 
 // ---------------------------------------------------------------- the driver
 
@@ -329,61 +387,6 @@ impl Stream {
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         (z ^ (z >> 31)) % 1000 < per_mille
-    }
-}
-
-// ------------------------------------------------------------------ the run
-
-/// The three parts, composed: the coin, under 20% bit-flip noise, on bits.
-///
-/// After each run, the runner ends every shot of the run on every part, so
-/// the parts free its state and a rerun with the same seed starts it
-/// afresh; the driver need not end them.
-fn coin_runner() -> Runner<Composed<CoinCopy, BitFlip>, Bits> {
-    // Each part is wrapped in the role it plays (`Driver`, `Adapter`,
-    // `Executor`), which `>>` needs to pick the join. `>>` joins the driver
-    // and the adapter into one driver, a `Composed`; the last `>>`, onto
-    // the executor, checks that the parts fit and gives the runner, or
-    // every fault.
-    let runner = Driver::new(CoinCopy::new())
-        >> Adapter::new(BitFlip::new(200))
-        >> Executor::new(Bits::new());
-    runner.expect("the parts compose: they all send and accept CoinGates")
-}
-
-fn main() {
-    let mut runner = coin_runner();
-
-    let shots = ShotSet::ids(0..12);
-    let values = runner.run(&shots, SEED).expect("the chain runs 12 shots");
-    println!("shot  coin  copy");
-    for (id, shot) in shots.iter().zip(&values) {
-        println!("{id:>4}  {:>4}  {:>4}", text(shot[0]), text(shot[1]));
-    }
-    println!("A copy unlike its coin: the noise flipped it.");
-
-    // The runner ended every shot of the first run, so shots 4 and 5 start
-    // afresh, and the seed gives them the same values.
-    let again = runner
-        .run(&ShotSet::ids([4, 5]), SEED)
-        .expect("the chain runs 2 shots");
-    let same = again == [values[4].clone(), values[5].clone()];
-    println!("\nShots 4 and 5, run again alone: the same values, noise included? {same}");
-
-    let refused = runner
-        .run(&ShotSet::ids(0..2000), SEED)
-        .expect_err("Bits runs at most 1000 shots");
-    println!("\n2000 shots: {refused}");
-}
-
-/// A value as the table prints it.
-fn text(value: ReadoutValue) -> String {
-    match value {
-        ReadoutValue::Zero => "0".to_owned(),
-        ReadoutValue::One => "1".to_owned(),
-        ReadoutValue::Missing(_) => "missing".to_owned(),
-        // `ReadoutValue` may gain variants: shown as they are.
-        other => format!("{other:?}"),
     }
 }
 
