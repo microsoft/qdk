@@ -119,6 +119,7 @@ pub(crate) struct Profiler {
     set: InstructionSet,
     below: Option<OpcodeMap>,
     instructions: Rc<Cell<usize>>,
+    busy: Option<&'static str>,
     log: Log,
 }
 
@@ -134,8 +135,15 @@ impl Profiler {
             set,
             below: None,
             instructions: Rc::clone(instructions),
+            busy: None,
             log: log.clone(),
         }
+    }
+
+    /// This profiler, refusing every run in `ready`, for `why`.
+    pub(crate) fn busy(mut self, why: &'static str) -> Self {
+        self.busy = Some(why);
+        self
     }
 }
 
@@ -154,7 +162,10 @@ impl Adapt for Profiler {
 
     async fn ready(&mut self) -> Result<(), RunRefusal> {
         self.log.push("Profiler ready");
-        Ok(())
+        match self.busy {
+            Some(why) => Err(RunRefusal::Unavailable(why.into())),
+            None => Ok(()),
+        }
     }
 
     async fn adapt(

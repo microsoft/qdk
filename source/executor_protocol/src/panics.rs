@@ -12,6 +12,11 @@
 //! escapes where the protocol promises a failure, nor aborts the process
 //! by a second panic. Only where a panic unwinds: on wasm32, it aborts,
 //! and nothing is caught.
+//!
+//! It guards the futures of parts it drops, not the values parts return,
+//! as std's containers do not: an output or refusal held while a panic
+//! unwinds, such as one of its future's destructor, is dropped unguarded,
+//! and a panic of its own destructor then aborts the process.
 
 use std::any::Any;
 use std::future::poll_fn;

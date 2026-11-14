@@ -29,7 +29,8 @@ impl InstructionSet {
     ///
     /// Each is matched, with the same blocks, parameters and readouts: by
     /// meaning where it declares one, to the receiver's instruction of its
-    /// mnemonic if that one does the same, else to any that does; by
+    /// mnemonic if that one does the same, else to any that does, unless
+    /// that one declares it does something else, which is refused; by
     /// mnemonic where neither declares one and the sets' names agree,
     /// listed in [`OpcodeMap::by_mnemonic`] of the map the sender
     /// receives.

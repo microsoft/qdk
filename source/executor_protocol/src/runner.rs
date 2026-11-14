@@ -95,14 +95,15 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// [`Drive::drive`]'s rule makes one per shot, in the order of `shots`;
     /// the runner does not check their count or order.
     ///
-    /// A `Some` seed gives the same outputs each time; a run with one is
-    /// refused when the chain is not seedable. `None` draws a seed that is
-    /// not reported, so the run cannot be repeated. A run is refused, and
-    /// nothing of it runs, when it has more shots than a run may have (the
-    /// fewest any part offers), or when a part's `ready` refuses it; each
-    /// part is asked, the executor first. Then the driver runs the
-    /// shots, and a failure ends the run with the shot it names, a part's
-    /// panic included, as the Panics section says.
+    /// A `Some` seed gives the same outputs each time. `None` draws a seed
+    /// that is not reported, so the run cannot be repeated. A run is
+    /// refused, and nothing of it runs, when it has more shots than a run
+    /// may have (the fewest any part offers), or a seed while the chain is
+    /// not seedable, before any part is asked; or when a part's `ready`
+    /// refuses it: the parts are asked in turn, the executor first, up to
+    /// the first that refuses. Then the driver runs the shots, and a
+    /// failure ends the run with the shot it names, a part's panic
+    /// included, as the Panics section says.
     ///
     /// Once `drive` returns, fails or panics, or the future is dropped
     /// before it ends, the run's shots are ended on every part, every
@@ -139,6 +140,13 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// The last two are not raised again while the thread is already
     /// unwinding, such as when a caller's panic drops the run's future: a
     /// second panic would abort the process, so its payload is dropped.
+    ///
+    /// The protocol guards the futures it drops, not the values parts
+    /// return, as std's containers do not: when a part's future panics as
+    /// it is dropped once ready, or the runner's end of the shots panics,
+    /// the output or refusal then held is dropped as that panic unwinds,
+    /// and if its own destructor panics too, the process aborts, as a
+    /// second panic does anywhere in Rust.
     ///
     /// So a part's panic in `end_shots` leaves the run in one of two ways,
     /// by who ended the shots: in an end a part above calls (the driver in

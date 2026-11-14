@@ -846,6 +846,46 @@ fn a_part_that_cannot_take_a_run_refuses_it() {
     assert_eq!(counted.get(), 0, "nothing ran");
 }
 
+/// A profiler that cannot take a run, between bits and another profiler,
+/// in each of the five bracketings: the run is refused with its reason;
+/// the bits below it are asked, and the profiler above it is not.
+#[test]
+fn a_part_refusing_a_run_stops_the_asking_wherever_the_brackets_go() {
+    let counted = Rc::new(Cell::new(0));
+    let shots = ShotSet::ids(0..2);
+    for brackets in 0..5 {
+        let log = Log::default();
+        let refusing_log = Log::default();
+        let d = || Driver::new(CoinCopy::new());
+        let above = || Adapter::new(Profiler::new(&counted, &log));
+        let refusing = || Adapter::new(Profiler::new(&counted, &refusing_log).busy("calibrating"));
+        let bits = || Executor::new(Bits::new(&log));
+        let refusal = match brackets {
+            0 => refused(runner(((d() >> above()) >> refusing()) >> bits()).run(&shots, SEED)),
+            1 => refused(runner((d() >> (above() >> refusing())) >> bits()).run(&shots, SEED)),
+            2 => refused(runner((d() >> above()) >> (refusing() >> bits())).run(&shots, SEED)),
+            3 => refused(runner(d() >> ((above() >> refusing()) >> bits())).run(&shots, SEED)),
+            _ => refused(runner(d() >> (above() >> (refusing() >> bits()))).run(&shots, SEED)),
+        };
+        assert!(
+            matches!(&refusal, RunRefusal::Unavailable(why) if why.to_string() == "calibrating"),
+            "{brackets}: {refusal:?}"
+        );
+        assert_eq!(log.count("Bits ready"), 1, "{brackets}: the bits asked");
+        assert_eq!(
+            refusing_log.count("Profiler ready"),
+            1,
+            "{brackets}: the refusing profiler asked"
+        );
+        assert_eq!(
+            log.count("Profiler ready"),
+            0,
+            "{brackets}: the profiler above not asked"
+        );
+    }
+    assert_eq!(counted.get(), 0, "nothing ran");
+}
+
 /// Each part is asked whether it can take a run, the lowest first,
 /// wherever the brackets go.
 #[test]

@@ -89,8 +89,12 @@ pub trait Execute {
     // Run time.
 
     /// Says whether this part can take a run now, and refuses it if not,
-    /// before anything runs. The runner asks every part once per run, the
-    /// part below first, before the driver starts; by default `Ok`. A part
+    /// before anything runs. The runner asks the parts in turn, each at
+    /// most once per run, the part below first, before the driver starts,
+    /// and stops at the first that refuses: no part above it is asked, nor
+    /// any part when the run is refused for its shots or its seed, nor a
+    /// part the run has not reached when its future is dropped, or is never
+    /// polled. By default `Ok`. A part
     /// that cannot take a run now, such as a busy device, refuses with
     /// [`RunRefusal::Unavailable`].
     fn ready(&mut self) -> impl Future<Output = Result<(), RunRefusal>> {
