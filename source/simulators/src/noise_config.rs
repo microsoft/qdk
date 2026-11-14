@@ -185,6 +185,7 @@ impl<T, Q> NoiseConfig<T, Q> {
         swap: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::ApplyAnyway),
         ccx: NoiseTable::<T>::noiseless(3),
         mov: NoiseTable::<T>::noiseless(1),
+        // todo!("Add support for MX,MY measurements")
         mz: NoiseTable::<T>::noiseless(1),
         mresetz: NoiseTable::<T>::noiseless(1),
         idle: IdleNoiseParams::NOISELESS,

@@ -4,6 +4,10 @@
 @Measurement()
 @SimulatableIntrinsic()
 operation __quantum__qis__custom__mx__body(q : Qubit) : Result {
+    // TODO(pranavjain): this is the right fix for now, but when we get to joint measurements
+    // later we might consider reworking this whole example file. It serves two purposes right
+    // now: introducing @Measurement() for defining custom measurements and introducing Measurement-Based-Quantum-Computing.
+    // I think we can port it over to the full set of new intrinsics when it is ready and still use it to explain MBQC, just ditch the first purpose.
     H(q);
     M(q)
 }

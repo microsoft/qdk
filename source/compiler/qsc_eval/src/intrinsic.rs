@@ -278,46 +278,42 @@ pub(crate) fn call<B: Backend>(
         "__quantum__qis__reset__body" => {
             one_qubit_gate(|q| sim.reset(q, call_stack), arg, name_span, arg_span)
         }
-        "__quantum__qis__m__body" => Ok(Value::Result(
-            sim.m(
-                arg.unwrap_qubit()
-                    .try_deref()
-                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                    .0,
-                call_stack,
-            )
-            .map_err(|e| Error::SimulationError(e, name_span))?,
-        )),
-        "__quantum__qis__mx__body" => Ok(Value::Result(
-            sim.mx(
-                arg.unwrap_qubit()
-                    .try_deref()
-                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                    .0,
-                call_stack,
-            )
-            .map_err(|e| Error::SimulationError(e, name_span))?,
-        )),
-        "__quantum__qis__my__body" => Ok(Value::Result(
-            sim.my(
-                arg.unwrap_qubit()
-                    .try_deref()
-                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                    .0,
-                call_stack,
-            )
-            .map_err(|e| Error::SimulationError(e, name_span))?,
-        )),
-        "__quantum__qis__mresetz__body" => Ok(Value::Result(
-            sim.mresetz(
-                arg.unwrap_qubit()
-                    .try_deref()
-                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                    .0,
-                call_stack,
-            )
-            .map_err(|e| Error::SimulationError(e, name_span))?,
-        )),
+        "__quantum__qis__m__body" => {
+            one_qubit_measurement(|q| sim.m(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__mx__body" => {
+            one_qubit_measurement(|q| sim.mx(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__my__body" => {
+            one_qubit_measurement(|q| sim.my(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__mresetz__body" => {
+            one_qubit_measurement(|q| sim.mresetz(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__mxx__body" => two_qubit_measurement(
+            |q0, q1| sim.mxx(q0, q1, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
+        "__quantum__qis__myy__body" => two_qubit_measurement(
+            |q0, q1| sim.myy(q0, q1, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
+        "__quantum__qis__mzz__body" => two_qubit_measurement(
+            |q0, q1| sim.mzz(q0, q1, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
+        "__quantum__qis__mzy__body" => two_qubit_measurement(
+            |q0, q1| sim.mzy(q0, q1, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
         "__quantum__rt__read_loss" => Ok(Value::Bool(arg == Value::Result(val::Result::Loss))),
         _ => {
             let qubits = arg.qubits();
@@ -460,6 +456,47 @@ fn two_qubit_rotation(
         )
         .map_err(|e| Error::SimulationError(e, name_span))?;
         Ok(Value::unit())
+    }
+}
+
+fn one_qubit_measurement(
+    mut gate: impl FnMut(usize) -> Result<val::Result, String>,
+    arg: Value,
+    name_span: PackageSpan,
+    arg_span: PackageSpan,
+) -> Result<Value, Error> {
+    gate(
+        arg.unwrap_qubit()
+            .try_deref()
+            .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+            .0,
+    )
+    .map(Value::Result)
+    .map_err(|e| Error::SimulationError(e, name_span))
+}
+
+fn two_qubit_measurement(
+    mut gate: impl FnMut(usize, usize) -> Result<val::Result, String>,
+    arg: Value,
+    name_span: PackageSpan,
+    arg_span: PackageSpan,
+) -> Result<Value, Error> {
+    let [q0, q1] = unwrap_tuple(arg);
+    if q0 == q1 {
+        Err(Error::QubitUniqueness(arg_span))
+    } else {
+        gate(
+            q0.unwrap_qubit()
+                .try_deref()
+                .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+                .0,
+            q1.unwrap_qubit()
+                .try_deref()
+                .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+                .0,
+        )
+        .map(Value::Result)
+        .map_err(|e| Error::SimulationError(e, name_span))
     }
 }
 

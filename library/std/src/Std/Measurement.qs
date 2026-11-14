@@ -229,4 +229,100 @@ operation IsLossResult(res : Result) : Bool {
     __quantum__rt__read_loss(res)
 }
 
-export MeasureAllZ, MeasureEachZ, MResetEachZ, MResetX, MResetY, MResetZ, MeasureInteger, MeasureBigInt, MResetZChecked, IsLossResult;
+/// # Summary
+/// Jointly measures two qubits in the Pauli X basis.
+///
+/// # Description
+/// Measures two qubits in the `X ⊗ X` basis.
+/// This operation does not reset the measured qubits to the |0⟩ state,
+/// leaving them in the state that corresponds to the measurement result.
+///
+/// # Input
+/// ## register
+/// The register of two qubits to be jointly measured.
+///
+/// # Output
+/// The result of measuring in the `X ⊗ X` basis.
+operation MXX(target : Qubit[]) : Result {
+    if (Length(target) != 2) {
+        fail "MXX operation requires exactly 2 qubits.";
+    }
+    if (target[0] == target[1]) {
+        fail "MXX operation requires two distinct qubits.";
+    }
+    __quantum__qis__mxx__body(target)
+}
+
+/// # Summary
+/// Jointly measures two qubits in the Pauli Y basis.
+///
+/// # Description
+/// Measures two qubits in the `Y ⊗ Y` basis.
+/// This operation does not reset the measured qubits to the |0⟩ state,
+/// leaving them in the state that corresponds to the measurement result.
+///
+/// # Input
+/// ## register
+/// The register of two qubits to be jointly measured.
+///
+/// # Output
+/// The result of measuring in the `Y ⊗ Y` basis.
+operation MYY(target : Qubit[]) : Result {
+    if (Length(target) != 2) {
+        fail "MYY operation requires exactly 2 qubits.";
+    }
+    if (target[0] == target[1]) {
+        fail "MYY operation requires two distinct qubits.";
+    }
+    __quantum__qis__myy__body(target)
+}
+
+/// # Summary
+/// Jointly measures two qubits in the Pauli Z basis.
+///
+/// # Description
+/// Measures two qubits in the `Z ⊗ Z` basis.
+/// This operation does not reset the measured qubits to the |0⟩ state,
+/// leaving them in the state that corresponds to the measurement result.
+///
+/// # Input
+/// ## register
+/// The register of two qubits to be jointly measured.
+///
+/// # Output
+/// The result of measuring in the `Z ⊗ Z` basis.
+operation MZZ(target : Qubit[]) : Result {
+    if (Length(target) != 2) {
+        fail "MZZ operation requires exactly 2 qubits.";
+    }
+    if (target[0] == target[1]) {
+        fail "MZZ operation requires two distinct qubits.";
+    }
+    __quantum__qis__mzz__body(target)
+}
+
+/// # Summary
+/// Jointly measures two qubits in the Pauli Z ⊗ Y basis.
+///
+/// # Description
+/// Measures two qubits in the `Z ⊗ Y` basis.
+/// This operation does not reset the measured qubits to the |0⟩ state,
+/// leaving them in the state that corresponds to the measurement result.
+///
+/// # Input
+/// ## register
+/// The register of two qubits to be jointly measured.
+///
+/// # Output
+/// The result of measuring in the `Z ⊗ Y` basis.
+operation MZY(target : Qubit[]) : Result {
+    if (Length(target) != 2) {
+        fail "MZY operation requires exactly 2 qubits.";
+    }
+    if (target[0] == target[1]) {
+        fail "MZY operation requires two distinct qubits.";
+    }
+    __quantum__qis__mzy__body(target)
+}
+
+export MeasureAllZ, MeasureEachZ, MResetEachZ, MResetX, MResetY, MResetZ, MeasureInteger, MeasureBigInt, MResetZChecked, IsLossResult, MXX, MYY, MZZ, MZY;

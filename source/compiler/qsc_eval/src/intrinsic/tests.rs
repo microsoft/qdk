@@ -65,6 +65,22 @@ impl Backend for CustomSim {
         self.sim.mresetz(q)
     }
 
+    fn mxx(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        self.sim.mxx(_q0, _q1)
+    }
+
+    fn myy(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        self.sim.myy(_q0, _q1)
+    }
+
+    fn mzz(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        self.sim.mzz(_q0, _q1)
+    }
+
+    fn mzy(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        self.sim.mzy(_q0, _q1)
+    }
+
     fn reset(&mut self, q: usize) -> Result<(), String> {
         self.sim.reset(q)
     }

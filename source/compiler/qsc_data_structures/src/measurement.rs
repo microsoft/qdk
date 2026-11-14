@@ -11,3 +11,11 @@ pub enum MeasurementBasis {
     Y,
     Z,
 }
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum JointMeasurementBasis {
+    XX,
+    YY,
+    ZZ,
+    ZY,
+}

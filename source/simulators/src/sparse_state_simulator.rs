@@ -20,7 +20,7 @@ use nearly_zero::NearlyZero;
 use num_bigint::BigUint;
 use num_complex::Complex64;
 use num_traits::{One, ToPrimitive, Zero};
-use qsc_data_structures::measurement::MeasurementBasis;
+use qsc_data_structures::measurement::{JointMeasurementBasis, MeasurementBasis};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{cell::RefCell, f64::consts::FRAC_1_SQRT_2, f64::consts::FRAC_PI_2, fmt::Write};
@@ -349,7 +349,7 @@ impl SparseStateSim {
     ///
     /// This function will panic if the given identifier does not correspond to an allocated qubit.
     #[must_use]
-    pub fn measure_single_pauli(&mut self, id: usize, pauli: MeasurementBasis) -> bool {
+    pub fn measure_single_qubit(&mut self, id: usize, pauli: MeasurementBasis) -> bool {
         let mut flip_res = false;
         let mut change_basis = true;
 
@@ -415,6 +415,10 @@ impl SparseStateSim {
                 res
             }
         }
+    }
+
+    pub fn measure_two_qubits(&mut self, q0: usize, q1: usize, paulis: JointMeasurementBasis) -> bool {
+        todo!("Pending")
     }
 
     /// Forces the collapse of the qubit with the given id to the specified value,

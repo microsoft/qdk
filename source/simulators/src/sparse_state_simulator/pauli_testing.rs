@@ -72,14 +72,14 @@ pub(super) fn check_measure_pauli(paulis: [MeasurementBasis; 2], gates: &[Pendin
         apply_pending(&mut sim, q, gates, false);
     }
 
-    let res = sim.measure_single_pauli(qs[0], paulis[0]);
+    let res = sim.measure_single_qubit(qs[0], paulis[0]);
 
     // For Bell state, both qubits should have the same measurement result.
-    assert_eq!(sim.measure_single_pauli(qs[1], paulis[1]), res);
+    assert_eq!(sim.measure_single_qubit(qs[1], paulis[1]), res);
 
     // The qubits from Bell state are left is the same eigenstates post-measurement.
     for (q, pauli) in qs.into_iter().zip(paulis) {
-        assert_eq!(sim.measure_single_pauli(q, pauli), res);
+        assert_eq!(sim.measure_single_qubit(q, pauli), res);
         from_basis(&mut sim, q, pauli);
         let expected = if res { 1.0 } else { 0.0 };
         assert!((sim.joint_probability(&[q]) - expected).abs() <= 1e-10,);
