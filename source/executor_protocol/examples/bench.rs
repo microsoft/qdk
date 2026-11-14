@@ -10,10 +10,11 @@
 //! - W: an executor that answers from a worker thread: the time of a call.
 //!
 //! The executors only count what they get, so the time is the protocol's
-//! and the parts' own. Each variant runs once untimed, and must count what
-//! the program holds (or, in F, answer what the direct call answers),
-//! before it is timed: the best of 7. W instead checks the count of each
-//! timed run, and keeps the best of 5. Run it with
+//! and the parts' own. Each variant is checked on every run: it must count
+//! what the program holds (or, in F, answer what the direct call answers,
+//! and its composing must compose). It runs once untimed before it is
+//! timed, and keeps the best of 7. W has no untimed run, and keeps the best
+//! of up to 5 runs' median call. Run it with
 //! `cargo run --release --example bench [D|C|F|W]`.
 
 use std::fmt::Debug;
