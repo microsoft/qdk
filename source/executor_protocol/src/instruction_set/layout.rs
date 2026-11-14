@@ -31,6 +31,8 @@ pub(crate) struct Layout {
     parameters: Vec<ParameterKind>,
     /// Its flags, at most 64, so a flag pattern is a `u64` mask.
     flags: u32,
+    /// Its readout slots, its outcomes and then its flags.
+    readout_slots: u32,
 }
 
 /// The block types of one position, as indices among the set's block
@@ -65,14 +67,16 @@ impl Slot {
 const MAX_FLAGS: usize = 64;
 
 impl Layout {
-    /// How many flags it declares.
-    pub(crate) const fn flags(&self) -> u32 {
-        self.flags
+    /// How many readout slots each of its instructions reads: its outcomes,
+    /// then its flags.
+    pub(crate) const fn readout_slots(&self) -> u32 {
+        self.readout_slots
     }
 
     /// The layout of `def`, whose set declares `block_types`; or every
     /// fault of its operands and flags: a block type the set does not
-    /// declare, a variadic operand out of place, more than 64 flags.
+    /// declare, a variadic operand out of place, more than 64 flags, or
+    /// more readout slots than a `u32` counts.
     pub(crate) fn derive(
         def: &InstructionDef,
         block_types: &[(BlockType, u32)],
@@ -101,12 +105,26 @@ impl Layout {
             });
             false
         });
-        if def.flags.len() > MAX_FLAGS {
+        let flags = u32::try_from(def.flags.len())
+            .ok()
+            .filter(|&flags| flags as usize <= MAX_FLAGS);
+        if flags.is_none() {
             faults.push(DeclarationFault::TooManyFlags {
                 mnemonic: mnemonic(),
                 flags: def.flags.len(),
             });
         }
+        let readout_slots = flags.and_then(|flags| def.outcomes.checked_add(flags));
+        if flags.is_some() && readout_slots.is_none() {
+            faults.push(DeclarationFault::TooManyReadoutSlots {
+                mnemonic: mnemonic(),
+                outcomes: def.outcomes,
+                flags: def.flags.len(),
+            });
+        }
+        let (Some(flags), Some(readout_slots)) = (flags, readout_slots) else {
+            return Err(faults);
+        };
         if !faults.is_empty() {
             return Err(faults);
         }
@@ -114,7 +132,8 @@ impl Layout {
             slots,
             variadic,
             parameters: def.parameters.iter().map(|p| p.kind).collect(),
-            flags: u32::try_from(def.flags.len()).expect("at most 64 flags"),
+            flags,
+            readout_slots,
         })
     }
 

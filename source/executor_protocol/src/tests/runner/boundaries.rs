@@ -19,9 +19,10 @@ use crate::tests::fake_parts::{
     PanicsWhen, ParityGates, Profiler, Program, Renamed,
 };
 use crate::{
-    Adapt, Adapter, Argument, Capabilities, ChainPart, CompositionFaults, Drive, DriveError,
-    Driver, Execute, ExecuteRefusal, Executor, Failure, Instruction, InstructionFault, Needs,
-    ReadoutValue, RunError, Runner, ShapeFault, ShotConditions, ShotId, ShotSet,
+    Adapt, Adapter, Argument, BlockType, Capabilities, ChainPart, CompositionFaults, Drive,
+    DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure, Instruction, InstructionDef,
+    InstructionFault, InstructionSet, Needs, ReadoutValue, RunError, Runner, ShapeFault,
+    ShotConditions, ShotId, ShotSet,
 };
 
 /// A run of a chain in one bracketing: how it failed, what its parts
@@ -182,6 +183,61 @@ fn a_drivers_batch_longer_than_the_offer_below_an_adapter_is_refused_above_it() 
             0,
             "{brackets}: the profiler counted none"
         );
+    }
+}
+
+/// A driver reading qubit 0 twice with an `mz` of 2^31 outcomes, through a
+/// profiler, over bits: the batch reads more readout slots than a `u32`
+/// counts, so it is refused at the driver's boundary, naming its second
+/// instruction, before the profiler counts any or the bits run it.
+#[test]
+fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused_before_it_runs() {
+    let wide = InstructionSet::new(
+        "Wide",
+        [(BlockType::qubit(), 1)],
+        [InstructionDef::new("mz")
+            .acts_on([BlockType::qubit()])
+            .outcomes(1 << 31)],
+    )
+    .expect("a set");
+    let mz = Instruction {
+        opcode: wide.opcode("mz").expect("its `mz`"),
+        blocks: smallvec![0],
+        arguments: smallvec![],
+        select: None,
+    };
+    for run in failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
+        (
+            Driver::new(Program::sending(
+                wide.clone(),
+                vec![mz.clone(), mz.clone()],
+                Needs::qubits(1),
+            )),
+            Adapter::new(Profiler::on(wide.clone(), counted, log)),
+            Executor::new(Bits::accepting(wide.clone(), log)),
+        )
+    }) {
+        let Failed {
+            brackets, error, ..
+        } = &run;
+        assert_eq!(error.shot, ShotId::new(5), "{brackets}");
+        assert!(
+            matches!(
+                error.failure,
+                Failure::Refused(ExecuteRefusal::TooManyReadoutSlots {
+                    batch: 0,
+                    at: 1,
+                    ..
+                })
+            ),
+            "{brackets}: {error:?}"
+        );
+        assert_eq!(
+            run.counted.get(),
+            0,
+            "{brackets}: the profiler counted none"
+        );
+        assert_eq!(run.log.count("Bits execute"), 0, "{brackets}");
     }
 }
 

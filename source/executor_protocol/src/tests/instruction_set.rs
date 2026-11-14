@@ -436,6 +436,30 @@ fn more_than_64_flags_are_refused() {
     );
 }
 
+/// An answer's width is a `u32`: an instruction whose outcomes and flags
+/// together a `u32` counts is accepted, up to `u32::MAX`, and one with
+/// one more readout slot refused.
+#[test]
+fn more_readout_slots_than_a_u32_counts_are_refused() {
+    for (outcomes, flags) in [(u32::MAX, vec![]), (u32::MAX - 1, vec!["leak"])] {
+        InstructionSet::new(
+            "Gates",
+            [(BlockType::qubit(), 1)],
+            [InstructionDef::new("m").outcomes(outcomes).flags(flags)],
+        )
+        .expect("u32::MAX readout slots");
+    }
+    let faults = faults_of([InstructionDef::new("m").outcomes(u32::MAX).flags(["leak"])]);
+    assert_eq!(
+        faults,
+        [DeclarationFault::TooManyReadoutSlots {
+            mnemonic: "m".into(),
+            outcomes: u32::MAX,
+            flags: 1,
+        }]
+    );
+}
+
 /// Whoever writes a set fixes it in one pass: faults of the set and of
 /// several instructions come together, in declaration order.
 #[test]

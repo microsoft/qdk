@@ -152,6 +152,11 @@ fn refusal(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteRefusal
             at,
             fault,
         },
+        BatchFault::TooManyReadoutSlots { at } => ExecuteRefusal::TooManyReadoutSlots {
+            shot,
+            batch: index,
+            at,
+        },
     }
 }
 

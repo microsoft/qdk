@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A part's panics, caught by the protocol: in a part's future
-//! ([`catch_panic`]), which makes a failure of it, and in its `end_shots`
+//! A part's panics, caught by the protocol: in a part's future, made,
+//! polled or dropped ([`catch_panic`]), which makes a failure of it, and
+//! in its `end_shots`
 //! ([`end_both`]), which ends every other part before raising it again.
 //!
 //! So that one part's panic neither leaves another part's shots held nor
@@ -12,11 +13,22 @@
 use std::any::Any;
 use std::future::poll_fn;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::pin::pin;
-use std::task::Poll;
+use std::pin::{Pin, pin};
+use std::task::{Context, Poll, ready};
 
 /// Makes a part's future with `make`, and awaits it: its output, or the
-/// message of the part's panic, when the message is text.
+/// message of the part's panic, when the message is text. A panic in the
+/// future's destructor is the part's too: the future is dropped inside the
+/// catch, as soon as it is ready or has panicked, so the part's panic is
+/// caught in every phase of its future, made, polled or dropped, by the
+/// boundary that names the part.
+///
+/// If this future is itself dropped before the part's is ready, such as
+/// when a run's future is dropped, no one is left to return a failure to:
+/// a panic in the part's future's destructor is then raised again from
+/// the drop, as [`end_both`] raises a panic of `end_shots`, unless the
+/// thread is already unwinding, where a second panic would abort the
+/// process and it is dropped with its payload.
 ///
 /// `AssertUnwindSafe`, because a part may be left half-updated by its
 /// panic, and the protocol calls it again: the panic reaches the part
@@ -30,15 +42,59 @@ pub(crate) async fn catch_panic<F: Future>(
     make: impl FnOnce() -> F,
 ) -> Result<F::Output, Option<String>> {
     let future = catch_unwind(AssertUnwindSafe(make)).map_err(panic_message)?;
-    let mut future = pin!(future);
+    let mut held = HeldFuture(pin!(Some(future)));
     poll_fn(
-        |context| match catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(context))) {
+        |context| match catch_unwind(AssertUnwindSafe(|| held.poll_then_drop(context))) {
             Ok(Poll::Ready(output)) => Poll::Ready(Ok(output)),
             Ok(Poll::Pending) => Poll::Pending,
-            Err(payload) => Poll::Ready(Err(panic_message(payload))),
+            Err(payload) => {
+                // The poll's panic is the part's first, so its message is
+                // the one the failure gives.
+                drop(held.drop_caught());
+                Poll::Ready(Err(panic_message(payload)))
+            }
         },
     )
     .await
+}
+
+/// A part's future, pinned in place until it is dropped, which happens
+/// inside a catch: [`catch_panic`]'s, [`drop_caught`](Self::drop_caught)'s
+/// or its own drop's.
+struct HeldFuture<'a, F>(Pin<&'a mut Option<F>>);
+
+impl<F: Future> HeldFuture<'_, F> {
+    /// Polls the future, and drops it once it is ready, so that a panic in
+    /// its destructor unwinds through the caller's catch.
+    fn poll_then_drop(&mut self, context: &mut Context<'_>) -> Poll<F::Output> {
+        let future = self
+            .0
+            .as_mut()
+            .as_pin_mut()
+            .expect("a future is not polled once it is ready or has panicked");
+        let output = ready!(future.poll(context));
+        self.0.set(None);
+        Poll::Ready(output)
+    }
+}
+
+impl<F> HeldFuture<'_, F> {
+    /// Drops the future, if it is still held, in a catch of its own: the
+    /// payload of a panic there, if any. An assignment whose drop panics
+    /// still stores the new value, so the future is not held after.
+    fn drop_caught(&mut self) -> Option<Box<dyn Any + Send>> {
+        catch_unwind(AssertUnwindSafe(|| self.0.set(None))).err()
+    }
+}
+
+impl<F> Drop for HeldFuture<'_, F> {
+    fn drop(&mut self) {
+        if let Some(payload) = self.drop_caught()
+            && !std::thread::panicking()
+        {
+            resume_unwind(payload);
+        }
+    }
 }
 
 /// Calls `first`, then `second`, each a part's `end_shots`, each in a

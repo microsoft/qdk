@@ -117,6 +117,37 @@ fn batch_of_more_than_the_receiver_s_most_instructions_is_refused() {
     );
 }
 
+/// An answer's width is a `u32`: a batch whose instructions' readout slots
+/// sum to `u32::MAX` is accepted, and one with more refused, naming the
+/// instruction from which they no longer fit.
+#[test]
+fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
+    let set = InstructionSet::new(
+        "Wide",
+        [(BlockType::qubit(), 1)],
+        [
+            InstructionDef::new("half").outcomes(1 << 31),
+            InstructionDef::new("rest").outcomes((1 << 31) - 1),
+            InstructionDef::new("one").outcomes(1),
+        ],
+    )
+    .expect("a set");
+    let limits = limits(&set, None, 1, 0);
+    let [half, rest, one] = ["half", "rest", "one"].map(|mnemonic| literal(&set, mnemonic, &[]));
+    assert_eq!(
+        check_batch(&[half.clone(), rest.clone()], &limits),
+        Ok(u32::MAX)
+    );
+    assert_eq!(
+        check_batch(&[half.clone(), half.clone()], &limits),
+        Err(BatchFault::TooManyReadoutSlots { at: 1 })
+    );
+    assert_eq!(
+        check_batch(&[one, half, rest], &limits),
+        Err(BatchFault::TooManyReadoutSlots { at: 2 })
+    );
+}
+
 #[test]
 fn receiver_with_no_most_accepts_any_count() {
     let set = device();

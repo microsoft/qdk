@@ -96,6 +96,8 @@ pub enum Failure {
     Panicked {
         /// The part whose call panicked: the driver, for a panic in its
         /// `drive`; else the part whose `execute` or `adapt` panicked. A
+        /// panic in the destructor of the future such a call returned is
+        /// that part's too. A
         /// panic in an `end_shots` that a part above calls on the chain
         /// below unwinds through that part's call, so it names that part:
         /// the driver, for an end it calls as each shot ends; an adapter,

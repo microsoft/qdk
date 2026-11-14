@@ -103,7 +103,11 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// it; each part is asked, the executor first. Then the driver runs the
     /// shots, and a failure ends the run with the shot it names, including
     /// a part's panic in `drive`, `execute` or an `end_shots` a part above
-    /// calls, where a panic unwinds (on wasm32, it aborts).
+    /// calls, or in the destructor of the future its `drive`, `adapt` or
+    /// `execute` returned, where a panic unwinds (on wasm32, it aborts).
+    /// When the run's future is dropped before such a future is ready, a
+    /// panic in that future's destructor is raised again from the drop,
+    /// unless the thread is already unwinding, as for `end_shots` below.
     ///
     /// Once `drive` returns, fails or panics, or the future is dropped
     /// before it ends, the run's shots are ended on every part, every

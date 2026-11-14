@@ -77,8 +77,9 @@ impl InstructionSet {
     /// Every fault of the declaration, in its order: a block type or a
     /// mnemonic declared twice; and for each instruction, an operand of a
     /// block type the set does not declare, a variadic operand out of
-    /// place, a parameter or a flag named twice, more than 64 flags, and
-    /// its meaning's faults ([`MeaningFault`]).
+    /// place, a parameter or a flag named twice, more than 64 flags, more
+    /// readout slots than a `u32` counts, and its meaning's faults
+    /// ([`MeaningFault`]).
     pub fn new(
         name: impl Into<String>,
         block_types: impl IntoIterator<Item = (BlockType, u32)>,
@@ -369,6 +370,16 @@ pub enum DeclarationFault {
         /// Its flags.
         flags: usize,
     },
+    /// More readout slots, outcomes and flags together, than a `u32`
+    /// counts: no answer's width could hold them.
+    TooManyReadoutSlots {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// Its outcomes.
+        outcomes: u32,
+        /// Its flags.
+        flags: usize,
+    },
     /// What its meaning refers to that it lacks.
     Meaning {
         /// The instruction's mnemonic.
@@ -407,6 +418,15 @@ impl fmt::Display for DeclarationFault {
             DeclarationFault::TooManyFlags { mnemonic, flags } => {
                 write!(f, "`{mnemonic}` declares {flags} flags, at most 64")
             }
+            DeclarationFault::TooManyReadoutSlots {
+                mnemonic,
+                outcomes,
+                flags,
+            } => write!(
+                f,
+                "`{mnemonic}` declares {outcomes} outcomes and {flags} flags, more readout \
+                 slots than a `u32` counts"
+            ),
             DeclarationFault::Meaning { mnemonic, fault } => {
                 write!(f, "`{mnemonic}`'s action: {fault}")
             }

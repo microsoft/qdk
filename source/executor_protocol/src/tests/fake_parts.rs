@@ -26,7 +26,8 @@
 //!   [`Shifting`], whose offer changes once provisioned; [`Misbehaving`],
 //!   which breaks the protocol's rules; [`ForwardsParity`], which passes
 //!   readout parities down while its needs below use none.
-//! - Any role: [`Renamed`], a part with a name other than its type's.
+//! - Any role: [`Renamed`], a part with a name other than its type's;
+//!   [`PanicsInDrop`], a part whose futures may panic once dropped.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads
 //! once the parts are composed.
@@ -48,11 +49,13 @@ use crate::{
 mod adapters;
 mod drivers;
 mod executors;
+mod panics_in_drop;
 mod renamed;
 
 pub(crate) use adapters::*;
 pub(crate) use drivers::*;
 pub(crate) use executors::*;
+pub(crate) use panics_in_drop::PanicsInDrop;
 pub(crate) use renamed::Renamed;
 
 instruction_set! {

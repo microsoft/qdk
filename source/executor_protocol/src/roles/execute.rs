@@ -247,6 +247,18 @@ pub enum ExecuteRefusal {
         /// The batch's instructions.
         got: usize,
     },
+    /// `batches[batch]` reads more readout slots than a `u32` counts, its
+    /// instructions' together, from the instruction at `at` on, so no
+    /// answer's width could hold them; `shot` is its first.
+    TooManyReadoutSlots {
+        /// The batch's first shot.
+        shot: ShotId,
+        /// The batch's position in the `execute`.
+        batch: usize,
+        /// The position, in its batch, of the instruction whose slots no
+        /// longer fit.
+        at: usize,
+    },
     /// The shot ended, or never started, at the part that refuses: a bug of
     /// the part that sent it.
     ShotNotHeld(ShotId),
@@ -263,6 +275,7 @@ impl ExecuteRefusal {
         match self {
             ExecuteRefusal::Instruction { shot, .. }
             | ExecuteRefusal::TooManyInstructions { shot, .. }
+            | ExecuteRefusal::TooManyReadoutSlots { shot, .. }
             | ExecuteRefusal::ShotNotHeld(shot)
             | ExecuteRefusal::EarlierFailure(shot) => *shot,
         }
@@ -289,6 +302,11 @@ impl fmt::Display for ExecuteRefusal {
             } => write!(
                 f,
                 "batch {batch} (first shot {shot}) holds {got} instructions, and at most {max} are accepted"
+            ),
+            ExecuteRefusal::TooManyReadoutSlots { shot, batch, at } => write!(
+                f,
+                "batch {batch} (first shot {shot}) reads more readout slots than a `u32` \
+                 counts, from instruction {at} on"
             ),
             ExecuteRefusal::ShotNotHeld(shot) => write!(f, "shot {shot} is not held"),
             ExecuteRefusal::EarlierFailure(shot) => {

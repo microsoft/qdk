@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, EndsBelow, FailsOnce, FromThread, Later, Log, Misshape, Misshapen,
-    Panics, PanicsEnding, PanicsWhen, Profiler, Program, Queue, Renamed, Splitter, Spread, Trap,
-    Values, YieldNow,
+    Panics, PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Queue, Renamed, Splitter,
+    Spread, Trap, Values, YieldNow,
 };
 use crate::{
     Adapter, Capabilities, ChainPart, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor,
@@ -1533,4 +1533,136 @@ fn a_run_failed_by_a_drivers_panic_ends_its_shots() {
             &log,
         );
     }
+}
+
+/// A program, over a profiler, over a noise, over bits, each a part whose
+/// futures may panic once dropped.
+type DropChain = (
+    Driver<PanicsInDrop<Program>>,
+    Adapter<PanicsInDrop<Profiler>>,
+    Adapter<PanicsInDrop<BitFlip>>,
+    Executor<PanicsInDrop<Bits>>,
+);
+
+/// The parts of a [`DropChain`], whose part at position `armed` panics in
+/// its futures' destructor.
+fn drop_chain(armed: usize, log: &Log) -> DropChain {
+    let counted = Rc::new(Cell::new(0));
+    (
+        Driver::new(PanicsInDrop::new(Program::new(&[("mz", 0)]), armed == 0)),
+        Adapter::new(PanicsInDrop::new(Profiler::new(&counted, log), armed == 1)),
+        Adapter::new(PanicsInDrop::new(BitFlip::new(0, log), armed == 2)),
+        Executor::new(PanicsInDrop::new(Bits::new(log), armed == 3)),
+    )
+}
+
+/// A program, over a profiler, over a noise, over bits, in each
+/// bracketing, one of them panicking in the destructor of each future it
+/// returns, once its answer is given: the run fails naming that part, at
+/// its position, with its message, as for a panic while it is polled, and
+/// its shots are ended on the bits.
+#[test]
+fn a_panic_dropping_a_parts_future_is_a_failure_naming_that_part() {
+    /// Runs `runner` on 2 shots, and checks it as above.
+    fn names<D: Drive, E: Execute>(mut runner: Runner<D, E>, named: &ChainPart, log: &Log) {
+        let error = failed(
+            runner
+                .run(&ShotSet::ids([9, 1]), SEED)
+                .map(|records| records.len()),
+        );
+        assert_eq!(error.shot, ShotId::new(9));
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(message) }
+                    if part == named && message == "the part's future broke when dropped"
+            ),
+            "{named}: {error:?}"
+        );
+        assert!(log.count("Bits end_shots, holding 0") >= 1, "{named}");
+    }
+    let bracketings: [fn(usize, &ChainPart); 5] = [
+        |armed, named| {
+            let log = Log::default();
+            let (d, a, b, e) = drop_chain(armed, &log);
+            names(runner(((d >> a) >> b) >> e), named, &log);
+        },
+        |armed, named| {
+            let log = Log::default();
+            let (d, a, b, e) = drop_chain(armed, &log);
+            names(runner((d >> a) >> (b >> e)), named, &log);
+        },
+        |armed, named| {
+            let log = Log::default();
+            let (d, a, b, e) = drop_chain(armed, &log);
+            names(runner(d >> (a >> (b >> e))), named, &log);
+        },
+        |armed, named| {
+            let log = Log::default();
+            let (d, a, b, e) = drop_chain(armed, &log);
+            names(runner(d >> ((a >> b) >> e)), named, &log);
+        },
+        |armed, named| {
+            let log = Log::default();
+            let (d, a, b, e) = drop_chain(armed, &log);
+            names(runner((d >> (a >> b)) >> e), named, &log);
+        },
+    ];
+    let parts = [
+        type_name::<Program>(),
+        type_name::<Profiler>(),
+        type_name::<BitFlip>(),
+        type_name::<Bits>(),
+    ];
+    for (armed, name) in parts.into_iter().enumerate() {
+        for chain in bracketings {
+            chain(armed, &ChainPart::new(armed, name));
+        }
+    }
+}
+
+/// A program over an executor that panics while polled, and again when
+/// its future is dropped: the run fails naming the executor, with the
+/// message of its first panic, and the second is dropped.
+#[test]
+fn a_part_panicking_polled_then_dropped_is_named_with_its_first_panic() {
+    let mut runner = runner(
+        Driver::new(Program::new(&[("mz", 0)]))
+            >> Executor::new(PanicsInDrop::new(Panics(PanicsWhen::Polled), true)),
+    );
+    let error = failed(runner.run(&ShotSet::ids([3, 1]), SEED));
+    assert!(
+        matches!(
+            &error.failure,
+            Failure::Panicked { part, message: Some(message) }
+                if *part == ChainPart::new(1, type_name::<Panics>())
+                    && message == "the part broke while it was polled"
+        ),
+        "{error:?}"
+    );
+}
+
+/// Coin copies over bits that answer later, and whose futures panic once
+/// dropped: a run whose future is dropped while the bits' future is
+/// pending raises that panic again from the drop, and its shots are ended
+/// on the bits.
+#[test]
+fn a_panic_dropping_a_parts_future_with_the_run_is_raised_from_the_drop() {
+    let log = Log::default();
+    let mut runner = runner(
+        Driver::new(CoinCopy::new())
+            >> Executor::new(PanicsInDrop::new(Later(Bits::new(&log)), true)),
+    );
+    let shots = ShotSet::ids(0..4);
+    let dropped = catch_unwind(AssertUnwindSafe(|| {
+        let mut run = std::pin::pin!(runner.run_async(&shots, SEED));
+        let poll = run.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+        assert!(poll.is_pending(), "the bits answer later");
+    }));
+    let panic = dropped.expect_err("the drop raises the panic");
+    assert_eq!(
+        panic.downcast_ref::<&str>(),
+        Some(&"the part's future broke when dropped")
+    );
+    assert_eq!(log.count("Bits end_shots, holding 0"), 1);
 }

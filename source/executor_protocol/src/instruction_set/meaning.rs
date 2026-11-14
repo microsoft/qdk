@@ -189,7 +189,8 @@ impl Meaning {
         let Some(steps) = &self.steps else {
             return faults;
         };
-        let mut observed: u32 = 0;
+        // A `u64`, so the count is exact: no sum of lengths reaches it.
+        let mut observed: u64 = 0;
         let refer = |step: usize, parameter: usize, expected: ParameterKind| match parameters
             .get(parameter)
         {
@@ -211,7 +212,7 @@ impl Meaning {
                     Guard::Parameter(parameter) => {
                         faults.extend(refer(step, parameter, ParameterKind::Bit));
                     }
-                    Guard::Outcome(outcome) if outcome >= observed => {
+                    Guard::Outcome(outcome) if u64::from(outcome) >= observed => {
                         faults.push(MeaningFault::OutcomeNotYet { step, outcome });
                     }
                     Guard::Outcome(_) => {}
@@ -228,16 +229,15 @@ impl Meaning {
                             faults.extend(refer(step, parameter, ParameterKind::Pauli));
                         }
                     }
-                    let count = u32::try_from(observables.len()).unwrap_or(u32::MAX);
-                    observed = observed.saturating_add(count);
+                    observed += observables.len() as u64;
                 }
                 _ => {}
             }
         }
-        if observed != outcomes {
+        if observed != u64::from(outcomes) {
             faults.push(MeaningFault::OutcomeCount {
                 declared: outcomes,
-                observed,
+                observed: u32::try_from(observed).unwrap_or(u32::MAX),
             });
         }
         faults
@@ -401,7 +401,7 @@ pub enum MeaningFault {
     OutcomeCount {
         /// The instruction's outcomes.
         declared: u32,
-        /// Its observations' outcomes.
+        /// Its observations' outcomes, or `u32::MAX` if more.
         observed: u32,
     },
 }

@@ -127,7 +127,7 @@ impl InstructionSet {
             return Err(InstructionFault::UnknownOpcode(instruction.opcode));
         };
         layout.check(def, instruction, provisioned)?;
-        Ok(def.outcomes.saturating_add(layout.flags()))
+        Ok(layout.readout_slots())
     }
 }
 
