@@ -226,7 +226,9 @@ fn run_chain(program: &[Instruction], batch: usize, chain: Chain) -> Profile {
 
 /// C: what the checks of each `execute` cost, by difference, since they run
 /// inside the protocol; and building an instruction by name, which checks
-/// it too.
+/// it too. The difference also holds the rest of a boundary's cost per
+/// call (the answer's shape check, the catch of a panic, one `Checked`
+/// call), negligible at batch 10 000.
 fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
     println!("\nC. the checks, ns/instr (per call, where given)");
     let expected = Profile::of(program);
