@@ -20,7 +20,9 @@
 # the GPU, and stops any MPS daemon.
 #
 # Environment (all optional):
-#   OUT          the output directory (default $HOME/gpu-mps-prep-<date>)
+#   MPS_PREP_OUT the output directory (default
+#                /data/domingom/runs/gpu-mps-prep-<date>); a shell's OUT
+#                is ignored
 #   CASES        the folder holding the case folders (default
 #                $HOME/mps-prep-cases)
 #   RUNS         space-separated case:placement pairs, in order (default
@@ -31,22 +33,27 @@
 #                N = 20 χ = 64 with the CZ layer as emitted)
 #   RUN_SECONDS  the harness's own time limit per run (default 5400); a
 #                run past it prints what it reached and exits with 3
+#   MPS_PREP_CHI_CAP
+#                the engine's bond cap (default 1024); a split that needs
+#                a larger bond truncates to it, which the run's 1 - W
+#                reports
 #   CARGO_FLAGS  extra flags for cargo build (for instance --offline)
 #   QDK_CUTENSORNET_LIBRARY, QDK_CUDART_LIBRARY
 #
-# It takes about 2–5 h with the default runs (estimated from the CPU runs'
-# split counts at 3–6 ms per split); each run is also killed at
+# It takes about 2 h with the default runs (measured: 1 h 48 min on an
+# A100, about 2 ms per gate split); each run is also killed at
 # RUN_SECONDS + 15 min.
 
 set -u
 
 REPO=$(readlink -f "$(dirname "$(readlink -f "$0")")/../../..")
-OUT=${OUT:-$HOME/gpu-mps-prep-$(date +%Y%m%d-%H%M)}
+OUT=${MPS_PREP_OUT:-/data/domingom/runs/gpu-mps-prep-$(date +%Y%m%d-%H%M)}
 CASES=${CASES:-$HOME/mps-prep-cases}
 RUNS=${RUNS:-"n8-chi64:following n16-chi16:following n16-chi32:following \
 n16-chi64-ladder:following n20-chi32:following n20-chi64-ladder:following \
 n16-chi16:interleaved n12-chi4:blocked n20-chi64:following"}
 RUN_SECONDS=${RUN_SECONDS:-5400}
+CHI_CAP=${MPS_PREP_CHI_CAP:-1024}
 CARGO_FLAGS=${CARGO_FLAGS:-}
 TN_VENV=/data/domingom/tn-venv
 BIN=${CARGO_TARGET_DIR:-$REPO/target}/release/examples
@@ -111,14 +118,14 @@ field() {
 
 {
   date
-  echo "repo=$REPO out=$OUT cases=$CASES run_seconds=$RUN_SECONDS"
+  echo "repo=$REPO out=$OUT cases=$CASES run_seconds=$RUN_SECONDS chi_cap=$CHI_CAP"
   echo "runs=$RUNS"
   git -C "$REPO" log --oneline -1
   nvidia-smi
   free -g
   rustc --version
   cargo --version
-  env | grep -E '^(QDK_|CUDA|CARGO)'
+  env | grep -E '^(QDK_|CUDA|CARGO|MPS_PREP_)'
   ls -la "$CASES"
 } > "$OUT/environment.txt" 2>&1
 
@@ -152,7 +159,7 @@ for run in $RUNS; do
     continue
   fi
   run_part $((RUN_SECONDS + 900)) "$log" "$BIN/mps_prep_check" --engine cuda-mps \
-    --case "$CASES/$case_name" --placement "$placement" --chi-cap 1024 \
+    --case "$CASES/$case_name" --placement "$placement" --chi-cap "$CHI_CAP" \
     --stop-after-seconds "$RUN_SECONDS"
   prepared=$(grep '^MPSPREP prepared' "$log" | tail -1)
   check=$(grep '^MPSPREP check' "$log" | tail -1)
