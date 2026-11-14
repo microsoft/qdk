@@ -53,9 +53,11 @@ def test_profile_qsp_application(qsp_toolchain: None) -> None:
     )
     application = QspApplication.for_cpp_code("""
     #include "qep_interop.h"
+    #include <iostream>
 
     // Exercises instruction batching and measurement replies without initialization.
     int main() {
+        std::cout << "Starting quantum workload" << std::endl;
         for (size_t repetition = 0; repetition < 3; ++repetition) {
             for (size_t qubit = 0; qubit < 4; ++qubit) {
                 qdk_h(qubit);
@@ -68,6 +70,7 @@ def test_profile_qsp_application(qsp_toolchain: None) -> None:
                 if (qdk_mz(qubit) > 1) return 1;
             }
         }
+        std::cout << "Quantum workload complete" << std::endl;
         return 0;
     }
     """)

@@ -101,9 +101,9 @@ transmitted unchanged and are distinct from an `execute_batch` failure.
 `Profiler::profile_stdio()` serves this protocol on stdin/stdout until instruction
 EOF and returns the accumulated `ProfilerResult`. It propagates stream and backend
 errors without rolling back collected data. Python exposes the same method on
-`qdk.qre.Profiler`, releasing the GIL while serving. Use a separate process or
-redirect OS-level file descriptors to connect it to an external application;
-changing Python's `sys.stdin` or `sys.stdout` alone does not redirect Rust I/O.
+`qdk.qre.Profiler`, releasing the GIL while serving. For external applications on
+Unix, Python's `Profiler.profile_fds(instruction_fd, result_fd)` serves dedicated
+pipe descriptors instead, without redirecting process stdin/stdout.
 See the [interop connection example](../qep_interop/README.md#profiling-an-external-program-from-python).
 
 `QuantumBackends::sparse_sim()` creates a sparse simulator wrapped in

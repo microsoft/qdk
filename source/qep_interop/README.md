@@ -27,7 +27,9 @@ See [qep_interop.h](include/qep_interop.h) for the full list of exposed function
 The following backends can be selected by name:
 
 - "stdio" - streams instructions to stdout and reads results from stdin. This is
-  also the default when `qdk_init()` has not been called.
+  also the default when `qdk_init()` has not been called. On Unix, setting both
+  `QDK_INSTRUCTION_FD` and `QDK_RESULT_FD` selects dedicated protocol descriptors
+  instead. Setting just one, or an invalid descriptor, is an error.
 - "sparse_sim" - a sparse simulator.
 - "counting_profiler" - CountingProfiler with default parameters.
 - "temporal_profiler" - TemporalProfiler with default parameters, result-register support,
@@ -35,8 +37,9 @@ The following backends can be selected by name:
   measurement and reset operations.
 
 The stdio backend uses the [QEP stream protocol](../qep/README.md#stream-transport)
-and can connect to a `StdioDriver` wrapping a simulator or profiler. Reserve stdout
-for instructions and stdin for results; print application diagnostics to stderr.
+and can connect to a `StdioDriver` wrapping a simulator or profiler. Without
+dedicated descriptors, reserve stdout for instructions and stdin for results;
+print application diagnostics to stderr.
 Instructions are buffered until a measurement/result read or the batch capacity
 is reached. `qdk_save_profile()` in stdio mode only prints an informational message
 to stderr: it does not flush, inspect the path, or write a file. Profiling and
@@ -57,72 +60,40 @@ print(result.totals.calls_per_operation)
 
 `QspApplication.compile()` invokes `c++` (or the command in `CXX`), links the
 release archive, and returns the absolute path of an executable named
-`<source-stem>_qsp` beside the source. `profile_qsp_application()` compiles and
-runs it, automatically connecting both protocol streams and restoring the
-parent's stdin/stdout afterward. Compiler failures, nonzero program exits, and
-protocol errors raise exceptions.
+`<source-stem>_qsp` beside the source. Profiling compiles and runs it, connecting
+two dedicated inherited pipes through the environment variables above. Neither
+process's stdin/stdout is redirected, so the C++ program can print normal logs
+to stdout. Compiler failures, nonzero program exits, and protocol errors raise
+exceptions.
 
 The program should call `qdk_` instructions directly, without `qdk_init()` or
 `qdk_save_profile()`. Finish with a measurement/result read to submit buffered
-gates. This convenience API redirects process-wide descriptors, so use it only
-when no other threads or notebook infrastructure are using stdin/stdout.
+gates. Running the executable outside the profiler, with neither environment
+variable set, still uses stdin/stdout for the protocol.
 
 ### Profiling an external program from Python
 
-`Profiler.profile_stdio()` reads instruction batches from the current process's
-stdin and writes results to stdout until the program closes its instruction
-stream. Connect the compiled program's stdout to the profiler's stdin, and the
-profiler's stdout to the program's stdin.
+On Unix, `Profiler.profile_fds(instruction_fd, result_fd)` reads instruction
+batches from one descriptor and writes replies to the other, until instruction
+EOF. It duplicates the descriptors, leaves ownership of the originals with the
+caller, and releases the GIL while serving.
 
-On POSIX, the following runs the program as a subprocess and the profiler in
-the current Python process. Redirection must use OS file descriptors, not
-`contextlib.redirect_stdout` or assignments to `sys.stdin`/`sys.stdout`, because
-the profiler performs I/O in Rust.
+For manual subprocess wiring, create two `os.pipe()` pairs and pass these ends
+with `subprocess.Popen(pass_fds=..., env=...)`:
 
-```python
-import os
-import subprocess
-import sys
+| Pipe | Child environment | Profiler argument |
+| --- | --- | --- |
+| Instructions | `QDK_INSTRUCTION_FD`: write end | `instruction_fd`: read end |
+| Results | `QDK_RESULT_FD`: read end | `result_fd`: write end |
 
-from qdk.qre.profiler import QREProfiler
-
-profiler = QREProfiler.counting().profiler
-sys.stdout.flush()
-saved_stdin, saved_stdout = os.dup(0), os.dup(1)
-try:
-    with subprocess.Popen(
-        ["./my_program"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
-    ) as program:
-        assert program.stdout is not None and program.stdin is not None
-        completed = False
-        try:
-            os.dup2(program.stdout.fileno(), 0)
-            os.dup2(program.stdin.fileno(), 1)
-            result = profiler.profile_stdio()
-            returncode = program.wait()
-            completed = True
-        finally:
-            if not completed and program.poll() is None:
-                program.terminate()
-        if returncode != 0:
-            raise subprocess.CalledProcessError(returncode, program.args)
-finally:
-    os.dup2(saved_stdin, 0)
-    os.dup2(saved_stdout, 1)
-    os.close(saved_stdin)
-    os.close(saved_stdout)
-
-result.to_json("profile.json")
-```
-
-The descriptor changes are process-wide: do not use this pattern in a notebook,
-server, or process with other stdin/stdout users. A dedicated profiler worker
-process with crossed pipes is safer there. Leave stderr separate for diagnostics;
-neither side may print non-protocol output to stdout. Do not call `communicate()`
-on the program while the profiler is consuming its pipes.
+Close the parent's copies of the child ends after spawning, and close the
+remaining ends on completion or failure so EOF can be observed. The C++ program
+may use normal stdin/stdout/stderr independently of these pipes.
+`Profiler.profile_stdio()` remains available for explicitly serving the protocol
+on the profiler process's stdin/stdout instead.
 
 End the workload with a measurement/result read so buffered instructions are
-submitted, then let the program exit (or close stdout) to signal EOF. Trailing
+submitted, then let the program exit (or close its instruction pipe) to signal EOF. Trailing
 instructions that never reach a batch boundary are discarded;
 `qdk_save_profile()` does not flush them in stdio mode.
 

@@ -10,6 +10,7 @@ extern "C" {
 
 /* Initializes backend (see README for possible values).
    Optional: defaults to stdio (instructions on stdout, results on stdin).
+   On Unix, QDK_INSTRUCTION_FD and QDK_RESULT_FD select dedicated protocol pipes.
    If called again, old backend and pending instructions will be discarded. */
 void qdk_init(const char *backend);
 

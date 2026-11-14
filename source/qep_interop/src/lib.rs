@@ -7,14 +7,13 @@ use qep::{
 use smallvec::{SmallVec, smallvec};
 use std::{
     ffi::{CStr, c_char},
-    io::{Stdin, Stdout},
     sync::{LazyLock, Mutex, MutexGuard},
 };
 
 enum BackendKind {
     Profiler(Box<dyn Profiler + Send>),
     Other(Box<dyn QuantumBackend + Send>),
-    Stdio(StdioBackend<Stdout, Stdin>),
+    Stdio(Box<dyn QuantumBackend + Send>),
 }
 impl QuantumBackend for BackendKind {
     /// Executes instructions through the selected backend's retained trait object.
@@ -24,8 +23,7 @@ impl QuantumBackend for BackendKind {
     ) -> Result<qep::BatchResult, String> {
         match self {
             Self::Profiler(profiler) => profiler.execute_batch(instructions),
-            Self::Other(backend) => backend.execute_batch(instructions),
-            Self::Stdio(backend) => backend.execute_batch(instructions),
+            Self::Other(backend) | Self::Stdio(backend) => backend.execute_batch(instructions),
         }
     }
 }
@@ -35,9 +33,32 @@ struct BackendWrapper {
 }
 
 impl BackendWrapper {
-    /// Connects the instruction stream to stdout and the result stream to stdin.
+    /// Uses inherited protocol pipes when configured, otherwise stdout and stdin.
     fn stdio() -> Self {
-        Self::from_kind(BackendKind::Stdio(StdioBackend::stdio()))
+        let backend: Box<dyn QuantumBackend + Send> = match (
+            std::env::var_os("QDK_INSTRUCTION_FD"),
+            std::env::var_os("QDK_RESULT_FD"),
+        ) {
+            (None, None) => Box::new(StdioBackend::stdio()),
+            (Some(instructions), Some(results)) => {
+                #[cfg(unix)]
+                {
+                    Box::new(StdioBackend::new(
+                        duplicate_pipe(&instructions, "QDK_INSTRUCTION_FD"),
+                        duplicate_pipe(&results, "QDK_RESULT_FD"),
+                    ))
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = (instructions, results);
+                    abort_with_error("dedicated protocol pipes require Unix");
+                }
+            }
+            _ => abort_with_error(
+                "QDK_INSTRUCTION_FD and QDK_RESULT_FD must either both be set or both be absent",
+            ),
+        };
+        Self::from_kind(BackendKind::Stdio(backend))
     }
 
     /// Wraps an owned backend without exposing profiling support.
@@ -60,6 +81,27 @@ impl BackendWrapper {
 
 static BACKEND: LazyLock<Mutex<BackendWrapper>> =
     LazyLock::new(|| Mutex::new(BackendWrapper::stdio()));
+
+/// Duplicates a configured pipe descriptor, rejecting invalid environment values.
+#[cfg(unix)]
+fn duplicate_pipe(value: &std::ffi::OsStr, name: &str) -> std::fs::File {
+    use std::os::fd::FromRawFd;
+
+    let descriptor = value
+        .to_str()
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or_else(|| abort_with_error(&format!("{name} must be a file descriptor")));
+    // SAFETY: fcntl checks the supplied integer descriptor and duplicates it on success.
+    let duplicated = unsafe { libc::fcntl(descriptor, libc::F_DUPFD_CLOEXEC, 0) };
+    if duplicated < 0 {
+        abort_with_error(&format!(
+            "cannot duplicate {name}: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: fcntl returned a new, valid descriptor owned exclusively by this File.
+    unsafe { std::fs::File::from_raw_fd(duplicated) }
+}
 
 /// Reports an unrecoverable C API error without unwinding across the FFI boundary.
 fn abort_with_error(message: &str) -> ! {

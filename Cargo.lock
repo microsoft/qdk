@@ -2081,6 +2081,7 @@ version = "0.0.0"
 dependencies = [
  "allocator",
  "expect-test",
+ "libc",
  "memchr",
  "miette",
  "noisy_simulator",
@@ -2169,6 +2170,7 @@ dependencies = [
 name = "qep_interop"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "qep",
  "smallvec",
 ]

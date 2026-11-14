@@ -4,7 +4,6 @@ from collections.abc import Callable
 from contextlib import ExitStack
 import os
 import subprocess
-import sys
 
 import pyqir
 
@@ -89,39 +88,48 @@ class QREProfiler:
         return self._profile_qsharp_entry(program, app.args, use_qir)
 
     def _profile_qsp_application(self, app: QspApplication) -> ProfilerResult:
-        """Compile and profile a QSP program, reserving process stdin/stdout.
-
-        Redirection is process-wide; other threads must not use these streams.
-        Compiler, protocol, and subprocess failures propagate to the caller.
-        """
+        """Compile and profile a QSP program over dedicated inherited pipes."""
         if os.name != "posix":
             raise NotImplementedError("QSP profiling requires POSIX file descriptors.")
         compiled_exe = app.compile()
-        sys.stdout.flush()
-        with subprocess.Popen(
-            [str(compiled_exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE
-        ) as program:
-            try:
-                assert program.stdout is not None and program.stdin is not None
-                with ExitStack() as restore:
-                    for descriptor, stream in ((0, program.stdout), (1, program.stdin)):
-                        saved = os.dup(descriptor)
-                        restore.callback(os.close, saved)
-                        restore.callback(os.dup2, saved, descriptor)
-                        os.dup2(stream.fileno(), descriptor)
-                    result = self.profiler.profile_stdio()
-                returncode = program.wait()
-                if returncode != 0:
-                    raise subprocess.CalledProcessError(returncode, program.args)
-                return result
-            finally:
-                if program.poll() is None:
-                    program.terminate()
-                    try:
-                        program.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        program.kill()
-                        program.wait()
+        with ExitStack() as pipes:
+            instruction_read, instruction_write = os.pipe()
+            instructions = pipes.enter_context(
+                os.fdopen(instruction_read, "rb", buffering=0)
+            )
+            child_instructions = pipes.enter_context(
+                os.fdopen(instruction_write, "wb", buffering=0)
+            )
+            result_read, result_write = os.pipe()
+            child_results = pipes.enter_context(os.fdopen(result_read, "rb", buffering=0))
+            results = pipes.enter_context(os.fdopen(result_write, "wb", buffering=0))
+            with subprocess.Popen(
+                [str(compiled_exe)],
+                pass_fds=(child_instructions.fileno(), child_results.fileno()),
+                env={
+                    **os.environ,
+                    "QDK_INSTRUCTION_FD": str(child_instructions.fileno()),
+                    "QDK_RESULT_FD": str(child_results.fileno()),
+                },
+            ) as program:
+                child_instructions.close()
+                child_results.close()
+                try:
+                    result = self.profiler.profile_fds(
+                        instructions.fileno(), results.fileno()
+                    )
+                    returncode = program.wait()
+                    if returncode != 0:
+                        raise subprocess.CalledProcessError(returncode, program.args)
+                    return result
+                finally:
+                    if program.poll() is None:
+                        program.terminate()
+                        try:
+                            program.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            program.kill()
+                            program.wait()
 
     def profile(self, app: Application, use_qir: bool = True) -> ProfilerResult:
         """Profile Q#, OpenQASM, QIR, or a compiled QSP application."""

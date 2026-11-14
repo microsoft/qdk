@@ -2,6 +2,7 @@
 interface
     ! Replaces the backend with fresh state selected by a NUL-terminated name.
     ! Optional: defaults to stdio (instructions on stdout, results on stdin).
+    ! On Unix, QDK_INSTRUCTION_FD and QDK_RESULT_FD select dedicated protocol pipes.
     subroutine qdk_init(backend) bind(C, name="qdk_init")
         use, intrinsic :: iso_c_binding, only: c_char
         character(kind=c_char), intent(in) :: backend(*)

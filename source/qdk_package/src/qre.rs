@@ -346,6 +346,48 @@ impl Profiler {
                 .map_err(PyRuntimeError::new_err)
         })
     }
+
+    /// Profiles dedicated Unix pipe descriptors without changing process stdio.
+    ///
+    /// Duplicates both descriptors, preserving the caller's ownership, and
+    /// releases the GIL while serving. Invalid descriptors raise `OSError`;
+    /// protocol and backend failures raise `RuntimeError`.
+    fn profile_fds(
+        &mut self,
+        py: Python<'_>,
+        instruction_fd: i32,
+        result_fd: i32,
+    ) -> PyResult<ProfilerResult> {
+        #[cfg(unix)]
+        {
+            use std::{fs::File, os::fd::FromRawFd};
+
+            let duplicate = |descriptor| -> PyResult<File> {
+                // SAFETY: fcntl checks the integer descriptor and duplicates it on success.
+                let duplicated = unsafe { libc::fcntl(descriptor, libc::F_DUPFD_CLOEXEC, 0) };
+                if duplicated < 0 {
+                    return Err(std::io::Error::last_os_error().into());
+                }
+                // SAFETY: fcntl returned a new descriptor owned exclusively by this File.
+                Ok(unsafe { File::from_raw_fd(duplicated) })
+            };
+            let instructions = duplicate(instruction_fd)?;
+            let results = duplicate(result_fd)?;
+            py.detach(|| {
+                qep::StdioDriver::new(self.backend_mut(), instructions, results)
+                    .run()
+                    .map_err(PyRuntimeError::new_err)?;
+                Ok(self.backend_mut().get_result().into())
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (py, instruction_fd, result_fd);
+            Err(pyo3::exceptions::PyNotImplementedError::new_err(
+                "Dedicated protocol pipes require Unix",
+            ))
+        }
+    }
 }
 
 /// Sequential instruction-counting profiler exposed to Python.
