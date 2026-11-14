@@ -1979,7 +1979,7 @@ fn require_lowers() {
         &expect![[r#"
             Circuit [0-35]:
                 items:
-                    SelectBlock:
+                    SelectBlock [0-34]:
                         body:
                             [11-14] SingleQubitMeasurement {
                                 reset: false,
@@ -2018,7 +2018,7 @@ fn require_with_negated_record_targets_lowers() {
         &expect![[r#"
             Circuit [0-36]:
                 items:
-                    SelectBlock:
+                    SelectBlock [0-35]:
                         body:
                             [11-14] SingleQubitMeasurement {
                                 reset: false,
@@ -2057,7 +2057,7 @@ fn notleaked_lowers() {
         &expect![[r#"
             Circuit [0-37]:
                 items:
-                    SelectBlock:
+                    SelectBlock [0-36]:
                         body:
                             [11-14] SingleQubitMeasurement {
                                 reset: false,

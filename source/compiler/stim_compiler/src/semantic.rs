@@ -9,7 +9,7 @@ use crate::parser::{ArgValue, PauliTarget, args_span, targets_span};
 use miette::Diagnostic;
 use parser::Pauli;
 use qsc_data_structures::{
-    display::{write_list_field, writeln_field, writeln_header, writeln_header_with_span},
+    display::{write_list_field, writeln_field, writeln_header_with_span},
     span::Span,
 };
 use std::{
@@ -51,8 +51,15 @@ pub enum Item {
 
 #[derive(Debug, PartialEq)]
 pub enum Block {
-    RepeatBlock { count: u32, body: Vec<Item> },
-    SelectBlock { body: Vec<Item> },
+    RepeatBlock {
+        span: Span,
+        count: u32,
+        body: Vec<Item>,
+    },
+    SelectBlock {
+        span: Span,
+        body: Vec<Item>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -163,13 +170,13 @@ impl Display for Item {
 impl Display for Block {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::RepeatBlock { count, body } => {
-                writeln_header(f, "RepeatBlock")?;
+            Self::RepeatBlock { span, count, body } => {
+                writeln_header_with_span(f, "RepeatBlock", *span)?;
                 writeln_field(f, "count", count)?;
                 write_list_field(f, "body", body)
             }
-            Self::SelectBlock { body } => {
-                writeln_header(f, "SelectBlock")?;
+            Self::SelectBlock { span, body } => {
+                writeln_header_with_span(f, "SelectBlock", *span)?;
                 write_list_field(f, "body", body)
             }
         }
@@ -830,9 +837,9 @@ impl Lowerer {
 
     fn lower_repeat_block(&mut self, block: &parser::Block) -> Option<Block> {
         let parser::Block {
+            span,
             block_instruction: instruction,
             items,
-            ..
         } = block;
 
         self.validate_no_args(instruction);
@@ -883,6 +890,7 @@ impl Lowerer {
         self.update_record_count_after_repeat(record_count_before_repeat, num_repeats)?;
 
         Some(Block::RepeatBlock {
+            span: *span,
             count: num_repeats,
             body,
         })
@@ -890,9 +898,9 @@ impl Lowerer {
 
     fn lower_select_block(&mut self, block: &parser::Block) -> Option<Block> {
         let parser::Block {
+            span,
             block_instruction: instruction,
             items,
-            ..
         } = block;
 
         self.validate_no_args(instruction);
@@ -911,7 +919,7 @@ impl Lowerer {
         let body = self.lower_items(items);
         self.record_tracker.exit_select_scope();
 
-        Some(Block::SelectBlock { body })
+        Some(Block::SelectBlock { span: *span, body })
     }
 
     fn lower_instruction(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {

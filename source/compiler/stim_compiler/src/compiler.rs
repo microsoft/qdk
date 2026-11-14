@@ -50,7 +50,7 @@ fn select_block_can_restart(body: &[semantic::Item]) -> bool {
             instruction.kind,
             semantic::InstructionKind::Require { .. } | semantic::InstructionKind::NotLeaked { .. }
         ),
-        semantic::Item::Block(semantic::Block::RepeatBlock { count, body }) => {
+        semantic::Item::Block(semantic::Block::RepeatBlock { count, body, .. }) => {
             *count > 0 && select_block_can_restart(body)
         }
         semantic::Item::Block(semantic::Block::SelectBlock { .. }) => false,
@@ -498,10 +498,10 @@ impl<'noise> Compiler<'noise> {
         // Chains can't enter a block either.
         stmts.extend(self.finish_correlated_noise());
         stmts.extend(match block {
-            semantic::Block::RepeatBlock { count, body } => self.compile_repeat_block(*count, body),
-            semantic::Block::SelectBlock { body } => {
-                self.compile_select_block(body, Span::default())
+            semantic::Block::RepeatBlock { count, body, .. } => {
+                self.compile_repeat_block(*count, body)
             }
+            semantic::Block::SelectBlock { span, body } => self.compile_select_block(body, *span),
         });
         stmts
     }
