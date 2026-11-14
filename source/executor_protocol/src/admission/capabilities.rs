@@ -8,7 +8,9 @@
 //! any shot runs, and the protocol keeps its limits for each run and each
 //! `execute`, so that no part checks them itself. An adapter adapts the
 //! offer for the part above it, as it adapts the needs for the part below,
-//! and the `>>` compares its offer with the needs that reach it too.
+//! and the `>>` compares its offer with the needs that reach it too. A
+//! run's most shots and whether it may fix its seed are those every part's
+//! offer meets: an adapter can lower them, never raise them.
 
 use std::collections::BTreeMap;
 
@@ -23,20 +25,23 @@ use crate::BlockType;
 /// builders below, since a struct literal is refused outside the crate.
 /// Where each limit is checked: the blocks and the readout parities by the
 /// `>>` that makes a runner, against the needs that reach each part; the
-/// shots and the seed by the runner, at each run; the instructions at each
-/// `execute`.
+/// shots and the seed by the runner, at each run, against every part's
+/// offer; the instructions at each `execute`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Capabilities {
     /// The most blocks of each type a shot may hold at once: a type absent
     /// is not offered, and `None` has no limit.
     pub max_blocks: BTreeMap<BlockType, Option<u32>>,
-    /// The most shots a run may have; `None`: no limit.
+    /// The most shots a run may have; `None`: no limit. A run's limit is
+    /// the fewest any part of the chain offers, so an adapter can lower the
+    /// executor's, never raise it.
     pub max_shots: Option<u32>,
     /// The most instructions one batch may hold; `None`: no limit.
     pub max_instructions: Option<u32>,
     /// Whether a run may fix its seed, so that it gives the same records
-    /// each time; a quantum computer's measurements cannot be seeded.
+    /// each time; a quantum computer's measurements cannot be seeded. A
+    /// chain is seedable only when every part's offer is.
     pub seedable: bool,
     /// Whether it resolves each readout parity
     /// ([`Bit::Parity`](crate::Bit::Parity)) per shot, as the shot runs.

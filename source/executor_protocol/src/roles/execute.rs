@@ -53,7 +53,8 @@ pub trait Execute {
     /// once the executor is composed, not even by its own `provision`: the
     /// `>>` that makes a runner reads it once, before any part is
     /// provisioned, and the admission and every check of a run use that
-    /// answer.
+    /// answer. Its most shots and whether it is seedable bound every run of
+    /// the chain: no adapter above can raise them.
     fn offers(&self) -> Capabilities;
 
     /// Provisions this executor for `needs`, the driver's needs as adapted

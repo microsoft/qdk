@@ -8,12 +8,12 @@
 //! A runner holds a chain that composed: its boundaries fit, its executor
 //! serves its driver's needs, and every part is provisioned. Each run
 //! checks what only a run can: its shots against the most shots a run may
-//! have (by the offer that reaches the driver), its seed against whether
-//! the chain is seedable, and whether each part can take a run now. Then
-//! the driver runs the shots, calling the chain below it as one executor,
-//! whose every `execute` the protocol checks. Once the run ends, whether it
-//! gave outputs, failed, or its future was dropped, the runner ends its
-//! shots on every part, so that none keeps them.
+//! have, and its seed against whether the chain is seedable, both by every
+//! part's offer ([`RunLimits`]), and whether each part can take a run now.
+//! Then the driver runs the shots, calling the chain below it as one
+//! executor, whose every `execute` the protocol checks. Once the run ends,
+//! whether it gave outputs, failed, or its future was dropped, the runner
+//! ends its shots on every part, so that none keeps them.
 
 mod run_error;
 #[cfg(not(target_arch = "wasm32"))]
@@ -44,9 +44,9 @@ pub struct Runner<D: Drive, E: Execute> {
     /// The executor's top part, as the admission listed it: what its panic
     /// in an `execute` names.
     executor_part: ChainPart,
-    /// The offer that reaches the driver, the executor's as each adapter
-    /// adapts it: its most shots and whether it is seedable, for each run.
-    offer: Capabilities,
+    /// The most shots and whether a seed may be fixed, by every part's
+    /// offer, for each run.
+    limits: RunLimits,
     /// The executor's offer, which the driver's `below.offers()` answers.
     executor_offer: Capabilities,
     /// The limits of the batches the driver sends the executor.
@@ -56,12 +56,12 @@ pub struct Runner<D: Drive, E: Execute> {
 impl<D: Drive, E: Execute> Runner<D, E> {
     /// The runner of `driver` and `executor`, composed, admitted and
     /// provisioned, each with its top part as the admission listed it, with
-    /// `offer`, the offer that reaches the driver, and `executor_offer`,
-    /// both read before any part was provisioned.
+    /// the run `limits` of every part's offer, and `executor_offer`, both
+    /// read before any part was provisioned.
     pub(crate) fn new(
         (driver, driver_part): (D, ChainPart),
         (executor, executor_part): (E, ChainPart),
-        offer: Capabilities,
+        limits: RunLimits,
         executor_offer: Capabilities,
         batch_limits: BatchLimits,
     ) -> Self {
@@ -70,7 +70,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             executor,
             driver_part,
             executor_part,
-            offer,
+            limits,
             executor_offer,
             batch_limits,
         }
@@ -98,9 +98,9 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// A `Some` seed gives the same outputs each time; a run with one is
     /// refused when the chain is not seedable. `None` draws a seed that is
     /// not reported, so the run cannot be repeated. A run is refused, and
-    /// nothing of it runs, when it has more shots than a run may have (by
-    /// the offer that reaches the driver), or when a part's `ready` refuses
-    /// it; each part is asked, the executor first. Then the driver runs the
+    /// nothing of it runs, when it has more shots than a run may have (the
+    /// fewest any part offers), or when a part's `ready` refuses it; each
+    /// part is asked, the executor first. Then the driver runs the
     /// shots, and a failure ends the run with the shot it names, including
     /// a part's panic in `drive`, `execute` or an `end_shots` a part above
     /// calls, or in the destructor of the future its `drive`, `adapt` or
@@ -138,7 +138,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     ) -> impl Future<Output = Result<Vec<D::Output>, RunError>> {
         let seed = seed.into();
         async move {
-            if let Some(most) = self.offer.max_shots
+            if let Some(most) = self.limits.max_shots
                 && shots.len() > most as usize
             {
                 return Err(RunError::Refused(RunRefusal::TooManyShots {
@@ -146,7 +146,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
                     most,
                 }));
             }
-            if seed.is_some() && !self.offer.seedable {
+            if seed.is_some() && !self.limits.seedable {
                 return Err(RunError::Refused(RunRefusal::NotSeedable));
             }
             self.executor.ready().await.map_err(RunError::Refused)?;
@@ -181,6 +181,40 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             drop(unended);
             Err(RunError::Failed(failure))
         }
+    }
+}
+
+/// The limits of each run: the most shots and whether a seed may be fixed,
+/// met by every part's offer, the executor's and each adapter's, so that an
+/// adapter may lower them, such as a job queue, but never raise them above
+/// what a part below offers: an adapter that restates its offer, such as
+/// `Capabilities::unlimited().max_qubits(n)`, keeps the executor's most
+/// shots and seedability.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RunLimits {
+    /// The fewest of the most shots any part offers; `None`: no part has a
+    /// limit.
+    pub(crate) max_shots: Option<u32>,
+    /// Whether every part is seedable.
+    pub(crate) seedable: bool,
+}
+
+impl RunLimits {
+    /// The limits that `offers`, every part's, all meet.
+    pub(crate) fn of<'a>(offers: impl IntoIterator<Item = &'a Capabilities>) -> Self {
+        offers.into_iter().fold(
+            Self {
+                max_shots: None,
+                seedable: true,
+            },
+            |limits, offer| Self {
+                max_shots: match (limits.max_shots, offer.max_shots) {
+                    (Some(most), Some(its)) => Some(most.min(its)),
+                    (most, its) => most.or(its),
+                },
+                seedable: limits.seedable && offer.seedable,
+            },
+        )
     }
 }
 

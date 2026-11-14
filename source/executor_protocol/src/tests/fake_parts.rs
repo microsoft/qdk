@@ -17,6 +17,7 @@
 //!   [`Spread`], which changes the needs and the offer; [`Capped`], a
 //!   `Spread` with a most of its own; [`Pool`], which draws two block
 //!   types from one pool below; [`Queue`], which lowers the most shots;
+//!   [`Restating`], which states its offer afresh, with no shot limit;
 //!   [`LoweringWithoutParity`], which offers no readout parities;
 //!   [`Contrary`], whose offer shrinks as the offer below grows;
 //!   [`Workspace`], which takes qubits below it does not ask for; [`Trap`],

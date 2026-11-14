@@ -63,12 +63,19 @@ pub trait Adapt {
     }
 
     /// What it offers above, given what is offered `below`; by default the
-    /// same. The admission checks the needs of the part above against it;
-    /// the part above also counts on its most shots and instructions, and
-    /// on whether a run may fix its seed. Where an offer cannot be exact,
-    /// such as for two block types drawn from one pool below, the admission
-    /// still checks what [`needs_below`](Self::needs_below) passes down
-    /// against the executor's own offer.
+    /// same. The admission checks the needs of the part above against it,
+    /// and each batch the part above sends it is checked against its most
+    /// instructions. Where an offer cannot be exact, such as for two block
+    /// types drawn from one pool below, the admission still checks what
+    /// [`needs_below`](Self::needs_below) passes down against the
+    /// executor's own offer.
+    ///
+    /// Its most shots and whether a run may fix its seed can lower the
+    /// run's limits, such as for a job queue, but never raise them: each
+    /// run is checked against the fewest shots any part offers, and may fix
+    /// its seed only when every part is seedable. So an offer restated from
+    /// `Capabilities::unlimited()` keeps the shots and seedability of the
+    /// parts below.
     ///
     /// A refusal names this adapter when it is short on its own: when its
     /// answer for an offer below that meets exactly what `needs_below`

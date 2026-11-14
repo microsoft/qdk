@@ -580,6 +580,65 @@ impl Adapt for Queue {
     }
 }
 
+/// A toy decoder that states its offer afresh, as
+/// `Capabilities::unlimited().max_qubits(qubits)`, whatever is offered
+/// below: seedable, and no limit on shots, or `most_shots` when told. At
+/// run time it passes instructions through, as a [`Spread`] of 1.
+pub(crate) struct Restating {
+    qubits: u32,
+    most_shots: Option<u32>,
+    pass_through: Spread,
+}
+
+impl Restating {
+    pub(crate) fn new(qubits: u32, log: &Log) -> Self {
+        Self {
+            qubits,
+            most_shots: None,
+            pass_through: Spread::new(1, log),
+        }
+    }
+
+    /// This decoder, stating at most `most` shots a run.
+    pub(crate) fn most_shots(self, most: u32) -> Self {
+        Self {
+            most_shots: Some(most),
+            ..self
+        }
+    }
+}
+
+impl Adapt for Restating {
+    fn accepts(&self) -> &InstructionSet {
+        self.pass_through.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.pass_through.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.pass_through.bind(below);
+    }
+
+    fn offers_above(&self, _below: Capabilities) -> Capabilities {
+        let offer = Capabilities::unlimited().max_qubits(self.qubits);
+        match self.most_shots {
+            Some(most) => offer.max_shots(most),
+            None => offer,
+        }
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.pass_through.adapt(batches, seed, below).await
+    }
+}
+
 /// An adapter that fails a batch holding `shot`, as a program's trap, and
 /// passes the others through; logging, when told to, that it ends shots.
 pub(crate) struct Trap {

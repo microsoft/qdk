@@ -38,13 +38,12 @@ pub use execute::{Execute, ExecuteError, ExecuteRefusal};
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RunRefusal {
-    /// The run has more shots than the offer that reaches the driver allows
+    /// The run has more shots than a part's offer allows
     /// ([`Capabilities::max_shots`](crate::Capabilities::max_shots)).
     TooManyShots {
         /// The run's shots.
         asked: u32,
-        /// The most shots a run may have, by the offer that reaches the
-        /// driver.
+        /// The most shots a run may have: the fewest any part offers.
         most: u32,
     },
     /// The run fixes its seed, and the chain is not seedable

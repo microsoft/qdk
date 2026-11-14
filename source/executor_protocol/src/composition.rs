@@ -33,6 +33,7 @@ use std::ops::Shr;
 
 use crate::admission::by_part::ByPart;
 use crate::checked::batch_limits;
+use crate::runner::RunLimits;
 use crate::{Adapt, AdmissionFaults, Drive, Execute, FitFaults, InstructionSet, OpcodeMap, Runner};
 
 pub use composed::Composed;
@@ -167,11 +168,12 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
     /// same wherever the brackets go. On any fault, every fault of the
     /// chain, with each part's needs and offer when an offer falls short;
     /// otherwise provisions the driver, then the executor with the driver's
-    /// needs, and the runner keeps the offer that reaches the driver as its
-    /// run limits. Every offer is read once, before any part is
-    /// provisioned, and each boundary keeps the one that crosses it, so
-    /// that every check of a run is against the offer the admission
-    /// checked.
+    /// needs, and the runner keeps as its run limits the most shots and the
+    /// seedability that every part's offer meets, so that an adapter may
+    /// lower them but never raise them. Every offer is read once, before
+    /// any part is provisioned, and each boundary keeps the one that
+    /// crosses it, so that every check of a run is against the offers the
+    /// admission checked.
     fn compose(mut self, mut rhs: Executor<E>) -> Self::Output {
         let boundary = fit(self.part.sends(), rhs.part.accepts());
         let boundary = boundary.map(|below| self.part.bind(below)).err();
@@ -183,8 +185,9 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
         let executor_part = by_part
             .last_offered()
             .expect("a list that keeps every part");
-        let reaching = self.part.offers_by_part(offer.clone(), &mut by_part);
+        self.part.offers_by_part(offer.clone(), &mut by_part);
         let driver_part = by_part.needs[0].0.clone();
+        let run_limits = RunLimits::of(by_part.offers.iter().map(|(_, offer)| offer));
         let admission = AdmissionFaults::of(by_part);
         if !fit.is_empty() || admission.is_some() {
             return Err(CompositionFaults::new(fit, admission));
@@ -195,7 +198,7 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
         Ok(Runner::new(
             (self.part, driver_part),
             (rhs.part, executor_part),
-            reaching,
+            run_limits,
             offer,
             batch_limits,
         ))

@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, EndsBelow, FailsOnce, FromThread, Later, Log, Misshape, Misshapen,
-    Panics, PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Queue, Renamed, Splitter,
-    Spread, Trap, Values, YieldNow,
+    Panics, PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Queue, Renamed, Restating,
+    Splitter, Spread, Trap, Values, YieldNow,
 };
 use crate::{
     Adapter, Capabilities, ChainPart, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor,
@@ -639,6 +639,61 @@ fn where_the_brackets_go_changes_no_run_refusal() {
             "{brackets}: {refusal:?}"
         );
     }
+}
+
+/// Bits running 1 shot at most, under a decoder that restates its offer
+/// with no shot limit, or with a limit of 4, bracketed both ways: the
+/// bits' limit still holds, so a run of 2 is refused before any part is
+/// asked or runs.
+#[test]
+fn an_adapter_cannot_raise_the_most_shots_a_run_may_have() {
+    let log = Log::default();
+    let d = || Driver::new(CoinCopy::new());
+    let offer = Capabilities::unlimited().max_qubits(64).max_shots(1);
+    let bits = || Executor::new(Bits::new(&log).offering(offer.clone()));
+    let shots = ShotSet::ids(0..2);
+    for most in [None, Some(4)] {
+        let decoder = || {
+            let restating = Restating::new(64, &log);
+            Adapter::new(match most {
+                Some(most) => restating.most_shots(most),
+                None => restating,
+            })
+        };
+        let left = refused(runner((d() >> decoder()) >> bits()).run(&shots, SEED));
+        let right = refused(runner(d() >> (decoder() >> bits())).run(&shots, SEED));
+        for (refusal, brackets) in [(left, "left"), (right, "right")] {
+            assert!(
+                matches!(refusal, RunRefusal::TooManyShots { asked: 2, most: 1 }),
+                "{most:?}, {brackets}: {refusal:?}"
+            );
+        }
+    }
+    assert_eq!(log.count("Bits ready"), 0, "no part asked");
+    assert_eq!(log.count("Bits execute"), 0, "nothing ran");
+}
+
+/// Bits that cannot be seeded, under a decoder that restates its offer as
+/// seedable, bracketed both ways: a seeded run of 1 shot is still refused
+/// before any part is asked or runs.
+#[test]
+fn an_adapter_cannot_make_a_chain_seedable() {
+    let log = Log::default();
+    let d = || Driver::new(CoinCopy::new());
+    let decoder = || Adapter::new(Restating::new(64, &log));
+    let offer = Capabilities::unlimited().max_qubits(64).not_seedable();
+    let bits = || Executor::new(Bits::new(&log).offering(offer.clone()));
+    let shots = ShotSet::ids(0..1);
+    let left = refused(runner((d() >> decoder()) >> bits()).run(&shots, SEED));
+    let right = refused(runner(d() >> (decoder() >> bits())).run(&shots, SEED));
+    for (refusal, brackets) in [(left, "left"), (right, "right")] {
+        assert!(
+            matches!(refusal, RunRefusal::NotSeedable),
+            "{brackets}: {refusal:?}"
+        );
+    }
+    assert_eq!(log.count("Bits ready"), 0, "no part asked");
+    assert_eq!(log.count("Bits execute"), 0, "nothing ran");
 }
 
 /// An executor that cannot be seeded: a seeded run is refused before any
