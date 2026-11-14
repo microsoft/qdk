@@ -21,6 +21,8 @@ variables:
   CARGO_TERM_COLOR: always
   QDK_LIB_OVERRIDE_MICROSOFT_QDK: $(Build.SourcesDirectory)
   RUST_TOOLCHAIN_VERSION: "1.99"
+  # Windows/macOS provisioning; Linux uses the interpreter already in qdkBuild.
+  PYTHON_FREETHREADED_VERSION: "3.15.2"
   # CFS requires that we have a .npmrc next to each package.json.  If we set this variable, it will
   # synthesize everything it requires during the pipeline run, leaving our external contributors
   # free to continue using the default npmjs.org registry.
@@ -95,6 +97,9 @@ parameters:
 # - BUILD_TYPE
 # - cratesIoFeedOverride
 # - OwnerPersonalAlias
+# - pythonMacArm64Sha256
+# - pythonMacX64Sha256
+# - pythonNugetFeed
 # - toolchainFeed
 
 extends:
@@ -363,6 +368,11 @@ extends:
                 variables:
                   arch: ${{ target.arch }}
                   additionalRustTargets: ${{ target.additionalRustTargets }}
+                  ${{ if eq(target.os, 'windows') }}:
+                    ${{ if eq(target.arch, 'aarch64') }}:
+                      PYTHON315T_NUGET_PACKAGE: pythonarm64-freethreaded
+                    ${{ else }}:
+                      PYTHON315T_NUGET_PACKAGE: python-freethreaded
                   ${{ if target.envVars }}:
                     ${{ each envVar in target.envVars }}:
                       ${{ envVar.key }}: ${{ envVar.value }}
@@ -398,6 +408,12 @@ extends:
                   - ${{ if eq(target.os, 'linux') }}:
                       - bash: |
                           set -euo pipefail
+                          python3.15t -c 'import sys, sysconfig; print(sys.executable); print(sys.version); gil_disabled = sysconfig.get_config_var("Py_GIL_DISABLED"); print(gil_disabled); assert sys.version_info[:2] == (3, 15); assert gil_disabled == 1'
+                        displayName: Verify Python 3.15 free-threaded in container
+                        target: qdkBuild
+
+                      - bash: |
+                          set -euo pipefail
 
                           python3.11 -m venv .venv-manylinux
                           source .venv-manylinux/bin/activate
@@ -430,13 +446,39 @@ extends:
                             --compatibility manylinux_2_28 \
                             --auditwheel check \
                             --out target/wheels
-                        displayName: Build manylinux_2_28 wheel
+                          maturin build \
+                            --manifest-path source/qdk_package/Cargo.toml \
+                            --release \
+                            --interpreter python3.15t \
+                            --compatibility manylinux_2_28 \
+                            --auditwheel check \
+                            --out target/wheels
+                        displayName: Build manylinux_2_28 ABI3 and ABI3T wheels
                         target: qdkBuild
                         env:
                           PIP_INDEX_URL: $(PIP_INDEX_URL)
                           CARGO_REGISTRIES_MS_CRATES_IO_INDEX: $(cratesIoFeedOverride)
                           CARGO_REGISTRIES_MS_CRATES_IO_TOKEN: Bearer $(System.AccessToken)
                           CARGO_REGISTRIES_MS_CRATES_IO_CREDENTIAL_PROVIDER: cargo:token
+
+                      # Reuse the QDK unit suite; ordinary-wheel jobs retain their existing integration tests.
+                      - bash: |
+                          set -euo pipefail
+                          shopt -s nullglob
+                          wheels=(target/wheels/qdk-*-cp315-abi3.abi3t-*.whl)
+                          if [ "${#wheels[@]}" -ne 1 ]; then
+                            echo "Expected exactly one QDK ABI3T wheel, found ${#wheels[@]}" >&2
+                            exit 1
+                          fi
+                          echo "Built ABI3T wheel: ${wheels[0]}"
+
+                          python3.15t -m venv .venv-abi3t
+                          source .venv-abi3t/bin/activate
+                          python build.py --qdk --qdk-wheel "${wheels[0]}" --no-check --no-check-prereqs --no-integration-tests
+                        displayName: Check and test QDK ABI3T wheel in container
+                        target: qdkBuild
+                        env:
+                          PIP_INDEX_URL: $(PIP_INDEX_URL)
 
                   - ${{ if ne(target.os, 'linux') }}:
                       - task: RustInstaller@1
@@ -489,9 +531,9 @@ extends:
                       - bash: |
                           set -euo pipefail
                           shopt -s nullglob
-                          wheels=(target/wheels/qdk-*.whl)
+                          wheels=(target/wheels/qdk-*-cp310-abi3-*.whl)
                           if [ "${#wheels[@]}" -ne 1 ]; then
-                            echo "Expected exactly one QDK wheel, found ${#wheels[@]}" >&2
+                            echo "Expected exactly one QDK ABI3 wheel, found ${#wheels[@]}" >&2
                             exit 1
                           fi
                           python build.py --qdk --qdk-wheel "${wheels[0]}" --no-check-prereqs --integration-tests
@@ -510,6 +552,152 @@ extends:
                       python build.py --qdk --no-check-prereqs --integration-tests
                     displayName: Build Platform-Dependent Py Packages (Other)
                     condition: and(succeeded(), ne(variables['Agent.OS'], 'Linux'), not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))))
+
+                  - ${{ if ne(target.os, 'linux') }}:
+                      - ${{ if eq(target.os, 'windows') }}:
+                          # Use the CFS feed rather than the python.org MSI downloads blocked by network isolation.
+                          - task: NuGetCommand@2
+                            displayName: Download Python 3.15 free-threaded
+                            inputs:
+                              command: custom
+                              arguments: >-
+                                install $(PYTHON315T_NUGET_PACKAGE)
+                                -Version $(PYTHON_FREETHREADED_VERSION)
+                                -ExcludeVersion
+                                -OutputDirectory "$(Agent.TempDirectory)\python315t"
+                                -Source "$(pythonNugetFeed)"
+
+                          - pwsh: |
+                              $ErrorActionPreference = "Stop"
+                              $tools = (Resolve-Path (Join-Path "$(Agent.TempDirectory)" "python315t\$(PYTHON315T_NUGET_PACKAGE)\tools")).Path
+                              Write-Host "##vso[task.setvariable variable=pythonLocation;isOutput=true]$tools"
+                            name: Python315t
+                            displayName: Locate Python 3.15 free-threaded
+
+                      - ${{ else }}:
+                          # UsePythonVersion@0 rejects free-threaded architectures:
+                          # https://github.com/microsoft/azure-pipelines-tasks/pull/22752
+                          - pwsh: |
+                              $ErrorActionPreference = "Stop"
+                              $version = "$(PYTHON_FREETHREADED_VERSION)"
+                              $arch = if ("${{ target.arch }}" -eq "aarch64") { "arm64-freethreaded" } else { "x64-freethreaded" }
+                              $expectedSha256 = $env:PYTHON_FREETHREADED_SHA256
+                              $manifest = Invoke-RestMethod "https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json"
+                              $files = @(
+                                ($manifest | Where-Object version -eq $version).files |
+                                  Where-Object { $_.platform -eq "darwin" -and $_.arch -eq $arch }
+                              )
+                              if ($files.Count -ne 1) {
+                                throw "Expected one Python $version ($arch) macOS package, found $($files.Count)."
+                              }
+
+                              $installer = Join-Path "$(Agent.TempDirectory)" ("python-freethreaded-" + [guid]::NewGuid().ToString("N"))
+                              New-Item -ItemType Directory -Path $installer | Out-Null
+                              $archive = Join-Path $installer "python.tar.gz"
+                              Invoke-WebRequest $files[0].download_url -OutFile $archive
+                              $actualSha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+                              if ($actualSha256 -ne $expectedSha256) {
+                                throw "SHA-256 mismatch for $($files[0].filename): expected $expectedSha256, got $actualSha256."
+                              }
+                              Write-Host "Verified SHA-256 for $($files[0].filename): $actualSha256"
+                              tar -xzf $archive -C $installer
+                              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $($files[0].filename)." }
+
+                              Push-Location $installer
+                              try {
+                                bash ./setup.sh
+                                if ($LASTEXITCODE -ne 0) { throw "Python installer failed." }
+                              }
+                              finally {
+                                Pop-Location
+                              }
+
+                              $location = Join-Path "$(Agent.ToolsDirectory)" "Python/$version/$arch"
+                              Write-Host "##vso[task.setvariable variable=pythonLocation;isOutput=true]$location"
+                            name: Python315t
+                            displayName: Install Python 3.15 free-threaded
+                            # Expected archive digests; update alongside PYTHON_FREETHREADED_VERSION.
+                            env:
+                              ${{ if eq(target.arch, 'aarch64') }}:
+                                PYTHON_FREETHREADED_SHA256: $(pythonMacArm64Sha256)
+                              ${{ else }}:
+                                PYTHON_FREETHREADED_SHA256: $(pythonMacX64Sha256)
+
+                      - pwsh: |
+                          $ErrorActionPreference = "Stop"
+                          $pythonLocation = "$(Python315t.pythonLocation)"
+                          Write-Host "pythonLocation: $pythonLocation"
+                          $pythonExecutable = if ($IsWindows) {
+                            Join-Path $pythonLocation "python.exe"
+                          }
+                          else {
+                            Join-Path $pythonLocation "bin/python"
+                          }
+
+                          & $pythonExecutable -c 'import sys, sysconfig; print(sys.executable); print(sys.version); gil_disabled = sysconfig.get_config_var("Py_GIL_DISABLED"); print(gil_disabled); assert sys.version_info[:2] == (3, 15); assert gil_disabled == 1'
+                          if ($LASTEXITCODE -ne 0) {
+                            throw "Python 3.15 free-threaded interpreter verification failed."
+                          }
+                        displayName: Verify Python 3.15 free-threaded
+
+                      - pwsh: |
+                          $ErrorActionPreference = "Stop"
+                          $pythonExecutable = if ($IsWindows) {
+                            Join-Path "$(Python315t.pythonLocation)" "python.exe"
+                          }
+                          else {
+                            Join-Path "$(Python315t.pythonLocation)" "bin/python"
+                          }
+
+                          @'
+                          import subprocess
+                          import sys
+                          import tomllib
+
+                          with open("source/qdk_package/pyproject.toml", "rb") as f:
+                              requires = tomllib.load(f)["build-system"]["requires"]
+                          subprocess.run([sys.executable, "-m", "pip", "install", *requires], check=True)
+                          '@ | python -
+                          if ($LASTEXITCODE -ne 0) { throw "Failed to install QDK build dependencies." }
+
+                          python -m maturin build `
+                            --manifest-path source/qdk_package/Cargo.toml `
+                            --release `
+                            --interpreter $pythonExecutable `
+                            --out target/wheels
+                          if ($LASTEXITCODE -ne 0) { throw "Failed to build the QDK ABI3T wheel." }
+                        displayName: Build QDK ABI3T wheel
+
+                      - pwsh: |
+                          $ErrorActionPreference = "Stop"
+                          $abi3Wheels = @(Get-ChildItem -LiteralPath "target/wheels" -Filter "qdk-*-cp310-abi3-*.whl" -File)
+                          if ($abi3Wheels.Count -ne 1) {
+                            throw "Expected exactly one QDK ABI3 wheel, found $($abi3Wheels.Count)."
+                          }
+                          $wheels = @(Get-ChildItem -LiteralPath "target/wheels" -Filter "qdk-*-cp315-abi3.abi3t-*.whl" -File)
+                          if ($wheels.Count -ne 1) {
+                            throw "Expected exactly one QDK ABI3T wheel, found $($wheels.Count)."
+                          }
+                          Write-Host "Built ABI3 wheel: $($abi3Wheels[0].FullName)"
+                          Write-Host "Built ABI3T wheel: $($wheels[0].FullName)"
+
+                          $pythonExecutable = if ($IsWindows) {
+                            Join-Path "$(Python315t.pythonLocation)" "python.exe"
+                          }
+                          else {
+                            Join-Path "$(Python315t.pythonLocation)" "bin/python"
+                          }
+                          $venv = Join-Path "$(Agent.TempDirectory)" "qdk-abi3t"
+                          & $pythonExecutable -m venv $venv
+                          if ($LASTEXITCODE -ne 0) { throw "Failed to create the QDK ABI3T test environment." }
+                          $bin = Join-Path $venv $(if ($IsWindows) { "Scripts" } else { "bin" })
+                          $python = Join-Path $bin $(if ($IsWindows) { "python.exe" } else { "python" })
+                          $env:VIRTUAL_ENV = $venv
+                          $env:PATH = $bin + [IO.Path]::PathSeparator + $env:PATH
+
+                          & $python build.py --qdk --qdk-wheel $wheels[0].FullName --no-check --no-check-prereqs --no-integration-tests
+                          if ($LASTEXITCODE -ne 0) { throw "QDK ABI3T wheel tests failed." }
+                        displayName: Check and test QDK ABI3T wheel
 
                   - script: |
                       dir target\wheels\*
