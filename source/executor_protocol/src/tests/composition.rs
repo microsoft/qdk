@@ -10,7 +10,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Profiler, Program, Spread, Values,
+    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Pool, Profiler, Program, Spread,
+    Values,
 };
 use crate::{
     Adapter, BlockType, Capabilities, CompositionFaults, Drive, Driver, Execute, Executor,
@@ -258,8 +259,8 @@ fn where_the_brackets_go_changes_no_fault() {
 // ---------------------------------------------------------------- the admission
 
 /// A program on 7 qubits, through an encoding of 7 qubits per qubit, over
-/// 30 qubits: the `>>` fails, naming the needs and the offer where they
-/// meet (49 qubits needed above the bits), and each part's.
+/// 30 qubits: the `>>` fails, naming the needs that reach the bits (49
+/// qubits), the bits' offer, and each part's.
 #[test]
 fn an_unmet_need_is_a_fault_naming_each_parts_needs_and_offer() {
     let log = Log::default();
@@ -300,11 +301,10 @@ fn an_unmet_need_is_a_fault_naming_each_parts_needs_and_offer() {
     assert_eq!(log.entries(), Vec::<String>::new(), "nothing provisioned");
 }
 
-/// The same chain, bracketed the other way: the needs and the offer meet
-/// above the encoding, so its numbers are 7 and 4; each part's are the
-/// same.
+/// The same chain, bracketed both ways: the same admission fault, with the
+/// numbers where the needs reach the bits, 49 and 30.
 #[test]
-fn an_unmet_need_is_reported_where_the_last_join_meets() {
+fn where_the_brackets_go_changes_no_admission_fault() {
     let log = Log::default();
     let offer = Capabilities::unlimited().max_qubits(30);
     let program = || Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(7)));
@@ -314,18 +314,51 @@ fn an_unmet_need_is_reported_where_the_last_join_meets() {
     let right = faults(program() >> (spread() >> bits()));
     let left = left.admission().expect("an unmet need");
     let right = right.admission().expect("an unmet need");
-    assert_eq!(right.needed, Needs::qubits(7));
-    assert_eq!(right.offered, Capabilities::unlimited().max_qubits(4));
+    assert_eq!(right.needed, Needs::qubits(49));
+    assert_eq!(right.offered, offer);
     assert_eq!(
         right.unmet,
         [UnmetNeed::Blocks {
             block_type: BlockType::qubit(),
-            needed: 7,
-            offered: 4,
+            needed: 49,
+            offered: 30,
         }]
     );
+    assert_eq!(left.needed, right.needed);
+    assert_eq!(left.offered, right.offered);
+    assert_eq!(left.unmet, right.unmet);
     assert_eq!(left.needs_by_part, right.needs_by_part);
     assert_eq!(left.offers_by_part, right.offers_by_part);
+}
+
+/// 3 qubits and 2 carbon blocks, drawn from one pool of qubits below, over
+/// 5 qubits: 7 qubits are needed, so the chain is refused, bracketed
+/// either way, though the pool's offer above (5 qubits, 2 carbon blocks)
+/// would admit it.
+#[test]
+fn where_the_brackets_go_changes_no_verdict_even_through_a_pool() {
+    let log = Log::default();
+    let needs = Needs::qubits(3).blocks(Pool::carbon(), 2);
+    let program = || Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()));
+    let pool = || Adapter::new(Pool::new(&log));
+    let bits = || Executor::new(Bits::new(&log).offering(Capabilities::unlimited().max_qubits(5)));
+    let unmet = [UnmetNeed::Blocks {
+        block_type: BlockType::qubit(),
+        needed: 7,
+        offered: 5,
+    }];
+    let left = faults((program() >> pool()) >> bits());
+    let right = faults(program() >> (pool() >> bits()));
+    assert_eq!(
+        left.admission().expect("an unmet need").unmet,
+        unmet,
+        "left"
+    );
+    assert_eq!(
+        right.admission().expect("an unmet need").unmet,
+        unmet,
+        "right"
+    );
 }
 
 /// A program using readout parities, on bits that do not resolve them:

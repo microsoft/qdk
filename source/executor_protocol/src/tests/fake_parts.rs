@@ -12,8 +12,9 @@
 //!   or by panicking ([`Panics`], also a driver).
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
-//!   [`Spread`], which changes the needs and the offer; [`Trap`], which
-//!   fails a shot.
+//!   [`Spread`], which changes the needs and the offer; [`Pool`], which
+//!   draws two block types from one pool below; [`Queue`], which lowers
+//!   the most shots; [`Trap`], which fails a shot.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads
 //! once the parts are composed.
@@ -953,6 +954,110 @@ impl Adapt for Spread {
             })
             .collect();
         below.execute(&below_batches, seed).await
+    }
+}
+
+/// A toy layout drawing two block types from one pool: each `carbon` block
+/// above takes two qubits below, from the qubits that also hold the
+/// qubits above, so it needs `qubits + 2 * carbons` qubits below. No offer,
+/// a most per block type, can say what it serves; it offers each type the
+/// whole pool, the most that type alone could hold. At run time it passes
+/// instructions through, as a [`Spread`] of 1: the tests use it for its
+/// needs and offer.
+pub(crate) struct Pool(Spread);
+
+impl Pool {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self(Spread::new(1, log))
+    }
+
+    /// The block type it lowers onto qubits.
+    pub(crate) fn carbon() -> BlockType {
+        BlockType::new("carbon")
+    }
+}
+
+impl Adapt for Pool {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    fn needs_below(&self, above: Needs) -> Needs {
+        let qubits = above.blocks_of(&BlockType::qubit()) + 2 * above.blocks_of(&Self::carbon());
+        let mut below = above;
+        below.blocks.remove(&Self::carbon());
+        below.blocks(BlockType::qubit(), qubits)
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        let mut above = below;
+        let pool = above.max_blocks.get(&BlockType::qubit()).copied().flatten();
+        above
+            .max_blocks
+            .insert(Self::carbon(), pool.map(|qubits| qubits / 2));
+        above
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.0.adapt(batches, seed, below).await
+    }
+}
+
+/// A toy job queue that takes at most `most` shots a run, so it lowers the
+/// offer's most shots to `most`. At run time it passes instructions
+/// through, as a [`Spread`] of 1.
+pub(crate) struct Queue {
+    most: u32,
+    below: Spread,
+}
+
+impl Queue {
+    pub(crate) fn new(most: u32, log: &Log) -> Self {
+        Self {
+            most,
+            below: Spread::new(1, log),
+        }
+    }
+}
+
+impl Adapt for Queue {
+    fn accepts(&self) -> &InstructionSet {
+        self.below.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.below.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.below.bind(below);
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        let most = below.max_shots.map_or(self.most, |m| m.min(self.most));
+        below.max_shots(most)
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.below.adapt(batches, seed, below).await
     }
 }
 

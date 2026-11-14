@@ -31,8 +31,8 @@ pub use run_error::RunError;
 pub struct Runner<D: Drive, E: Execute> {
     driver: D,
     executor: E,
-    /// The executor's offer: its most shots and whether it is seedable,
-    /// for each run.
+    /// The offer that reaches the driver, the executor's as each adapter
+    /// adapts it: its most shots and whether it is seedable, for each run.
     limits: Capabilities,
     /// The limits of the batches the driver sends the executor.
     batch_limits: BatchLimits,
@@ -40,7 +40,7 @@ pub struct Runner<D: Drive, E: Execute> {
 
 impl<D: Drive, E: Execute> Runner<D, E> {
     /// The runner of `driver` and `executor`, composed, admitted and
-    /// provisioned, with the executor's offer `limits`.
+    /// provisioned, with `limits`, the offer that reaches the driver.
     pub(crate) fn new(
         driver: D,
         executor: E,

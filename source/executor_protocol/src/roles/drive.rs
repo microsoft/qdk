@@ -33,8 +33,8 @@ pub trait Drive {
     /// calls it once, after the fit.
     fn bind(&mut self, below: OpcodeMap);
 
-    /// What its shots need of the chain below, such as their qubits, which
-    /// the executor's offer must fit.
+    /// What its shots need of the chain below, such as their qubits, which,
+    /// adapted by each adapter below it, the executor's offer must meet.
     fn needs(&self) -> Needs;
 
     /// Provisions this driver once its chain is admitted; it knows its own

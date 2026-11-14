@@ -20,10 +20,11 @@
 //! the same chain. Each join checks that the instructions sent fit those
 //! accepted, and keeps the faults of each boundary that does not, so that
 //! the join that makes a runner reports every fault of the chain at once:
-//! each boundary's, and the admission's, the driver's needs against the
-//! executor's offer ([`CompositionFaults`]). A chain that composes is then
-//! provisioned, top down, and each of its `execute`s is checked by the
-//! protocol, so a part writes only its own logic.
+//! each boundary's, and the admission's, the driver's needs, adapted down
+//! to the executor, against the executor's offer ([`CompositionFaults`]).
+//! A chain that composes is then provisioned, top down, and each of its
+//! `execute`s is checked by the protocol, so a part writes only its own
+//! logic.
 
 mod composed;
 mod composition_faults;
@@ -160,30 +161,33 @@ impl<A: Adapt, E: Execute> Compose<Executor<E>> for Adapter<A> {
 impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
     type Output = Result<Runner<D, E>, CompositionFaults>;
 
-    /// Also checks the admission: the driver's needs against the
-    /// executor's offer, where they meet. On any fault, every fault of the
-    /// chain, with each part's needs and offer when a need is unmet;
-    /// otherwise provisions the driver, then the executor with the driver's
-    /// needs, and the runner keeps the offer as its run limits.
+    /// Also checks the admission: the driver's needs, adapted down to the
+    /// executor, against the executor's own offer, so that the verdict and
+    /// its numbers are the same wherever the brackets go. On any fault,
+    /// every fault of the chain, with each part's needs and offer when a
+    /// need is unmet; otherwise provisions the driver, then the executor
+    /// with the driver's needs, and the runner keeps the offer that reaches
+    /// the driver as its run limits.
     fn compose(mut self, mut rhs: Executor<E>) -> Self::Output {
         let boundary = fit(self.part.sends(), rhs.part.accepts());
         let boundary = boundary.map(|below| self.part.bind(below)).err();
         let fit = faults(self.fit, boundary, rhs.fit);
-        let needs = self.part.needs();
-        let offer = rhs.part.offers();
-        let admission = needs.fit(&offer).err().map(|unmet| {
-            let mut parts = PartList::new();
-            let needed = self.part.needs_by_part(&mut parts);
-            rhs.part.needs_by_part(needed, &mut parts);
-            let offered = rhs.part.offers_by_part(&mut parts);
-            self.part.offers_by_part(offered, &mut parts);
-            AdmissionFaults {
-                needed: needs.clone(),
-                offered: offer.clone(),
-                unmet,
-                needs_by_part: parts.needs,
-                offers_by_part: parts.offers,
-            }
+        let mut parts = PartList::new();
+        let needs = self.part.needs_by_part(&mut parts);
+        let needed = rhs.part.needs_by_part(needs.clone(), &mut parts);
+        let offer = rhs.part.offers_by_part(&mut parts);
+        let reaching = self.part.offers_by_part(offer.clone(), &mut parts);
+        let offered = parts
+            .offers
+            .first()
+            .map(|(_, executors)| executors.clone())
+            .expect("the executor lists its own offer first");
+        let admission = needed.fit(&offered).err().map(|unmet| AdmissionFaults {
+            needed,
+            offered,
+            unmet,
+            needs_by_part: parts.needs,
+            offers_by_part: parts.offers,
         });
         if !fit.is_empty() || admission.is_some() {
             return Err(CompositionFaults::new(fit, admission));
@@ -191,7 +195,7 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
         self.part.provision();
         let batch_limits = limits(rhs.part.accepts(), &offer, &needs);
         rhs.part.provision(needs);
-        Ok(Runner::new(self.part, rhs.part, offer, batch_limits))
+        Ok(Runner::new(self.part, rhs.part, reaching, batch_limits))
     }
 }
 

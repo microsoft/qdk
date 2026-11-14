@@ -34,7 +34,7 @@ pub use execute::{Execute, ExecuteError, ExecuteRefusal};
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RunRefusal {
-    /// The run has more shots than the executor's offer allows
+    /// The run has more shots than the offer that reaches the driver allows
     /// ([`Capabilities::max_shots`](crate::Capabilities::max_shots)).
     TooManyShots {
         /// The run's shots.

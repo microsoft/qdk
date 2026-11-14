@@ -4,10 +4,10 @@
 //! What an executor can ever serve: its [`Capabilities`].
 //!
 //! An executor states its offer once, so that the `>>` that makes a runner
-//! compares it with the driver's needs before any shot runs, and the
-//! protocol keeps its limits for each run and each `execute`, so that no
-//! part checks them itself. An adapter adapts the offer for the part above
-//! it, as it adapts the needs for the part below.
+//! compares it with the driver's needs, as they reach the executor, before
+//! any shot runs, and the protocol keeps its limits for each run and each
+//! `execute`, so that no part checks them itself. An adapter adapts the
+//! offer for the part above it, as it adapts the needs for the part below.
 
 use std::collections::BTreeMap;
 

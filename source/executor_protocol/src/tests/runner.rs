@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, FromThread, Later, Log, Misshape, Misshapen, Panics, PanicsWhen,
-    Profiler, Program, Splitter, Spread, Trap, Values, YieldNow,
+    Profiler, Program, Queue, Splitter, Spread, Trap, Values, YieldNow,
 };
 use crate::{
     Adapter, Capabilities, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure,
@@ -487,6 +487,25 @@ fn a_run_of_more_shots_than_the_executor_runs_is_refused() {
     runner
         .run(&ShotSet::ids(0..4), SEED)
         .expect("as many shots as the executor runs");
+}
+
+/// Bits under a job queue of 4 shots at most, bracketed both ways: the
+/// queue's limit holds for each, so a run of 5 is refused.
+#[test]
+fn where_the_brackets_go_changes_no_run_refusal() {
+    let log = Log::default();
+    let d = || Driver::new(CoinCopy::new());
+    let queue = || Adapter::new(Queue::new(4, &log));
+    let bits = || Executor::new(Bits::new(&log));
+    let shots = ShotSet::ids(0..5);
+    let left = refused(runner((d() >> queue()) >> bits()).run(&shots, SEED));
+    let right = refused(runner(d() >> (queue() >> bits())).run(&shots, SEED));
+    for (refusal, brackets) in [(left, "left"), (right, "right")] {
+        assert!(
+            matches!(refusal, RunRefusal::TooManyShots { asked: 5, most: 4 }),
+            "{brackets}: {refusal:?}"
+        );
+    }
 }
 
 /// An executor that cannot be seeded: a seeded run is refused before any

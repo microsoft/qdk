@@ -7,10 +7,17 @@
 //! A driver states what its shots [`Needs`], an executor what it
 //! [`Capabilities`] can ever serve, and each adapter between them adapts
 //! both: the needs for the part below it, the offer for the part above. The
-//! `>>` compares the two where the driver meets the executor
-//! ([`Needs::fit`]), and refuses the chain with every [`UnmetNeed`] and each
-//! part's needs and offer ([`AdmissionFaults`]), so a user sees which part
-//! asks too much or offers too little.
+//! `>>` compares the needs that reach the executor, adapted by every
+//! adapter, with the executor's own offer ([`Needs::fit`]), so that the
+//! verdict and its numbers are the same wherever the brackets go. It
+//! refuses the chain with every [`UnmetNeed`] and each part's needs and
+//! offer ([`AdmissionFaults`]), so a user sees which part asks too much or
+//! offers too little.
+//!
+//! The admission uses no adapted offer: an offer is a most per block type,
+//! one type at a time, which cannot state what an adapter that draws two
+//! block types from one pool below can serve, while the needs it adapts
+//! down can.
 
 mod capabilities;
 mod needs;
@@ -87,20 +94,19 @@ impl fmt::Display for UnmetNeed {
 }
 
 /// Why the `>>` that makes a runner refused its chain's admission: the
-/// needs and the offer where the driver meets the executor, every need
+/// needs that reach the executor and the executor's own offer, every need
 /// unmet there, and each part's needs and offer, so that a user sees which
 /// part asks too much or offers too little.
 ///
-/// Each part is named by its type (`std::any::type_name`), the same
-/// whatever the brackets of the `>>`s.
+/// Each part is named by its type (`std::any::type_name`). Every field is
+/// the same whatever the brackets of the `>>`s.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct AdmissionFaults {
-    /// The needs where the driver meets the executor: the driver's,
-    /// adapted by each adapter composed into it.
+    /// The needs that reach the executor: the driver's, adapted by every
+    /// adapter of the chain, top to bottom.
     pub needed: Needs,
-    /// The offer where the driver meets the executor: the executor's,
-    /// adapted by each adapter composed into it.
+    /// The executor's own offer, before any adapter adapts it.
     pub offered: Capabilities,
     /// Every need of `needed` that `offered` does not meet.
     pub unmet: Vec<UnmetNeed>,

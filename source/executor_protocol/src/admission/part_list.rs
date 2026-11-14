@@ -7,8 +7,10 @@
 //! The traits' hidden `needs_by_part` and `offers_by_part` take one, and
 //! code outside the crate cannot name it, because this module is private:
 //! so those methods cannot be overridden outside the crate, and every part
-//! is listed as the crate lists it. A part's needs and offer are listed
-//! only when the admission fails, so a chain that fits builds no list.
+//! is listed as the crate lists it. The `>>` that makes a runner lists
+//! every part, since the admission compares the needs that reach the
+//! executor with the executor's own offer; a part that only asks its parts'
+//! needs or offer lists nothing.
 
 use crate::{Capabilities, Needs};
 

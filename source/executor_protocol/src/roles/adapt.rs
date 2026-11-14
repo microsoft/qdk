@@ -37,9 +37,12 @@ pub trait Adapt {
     }
 
     /// What it offers above, given what is offered `below`; by default the
-    /// same. It agrees with [`needs_below`](Self::needs_below):
-    /// `needs_below(n)` fits `below` exactly when `n` fits
-    /// `offers_above(below)`.
+    /// same. The part above counts on its most shots and instructions, and
+    /// on whether a run may fix its seed; an admission fault lists it. The
+    /// admission itself does not use it: it compares what
+    /// [`needs_below`](Self::needs_below) passes down with the executor's
+    /// own offer, which stays exact where an offer cannot be, such as
+    /// for two block types drawn from one pool below.
     fn offers_above(&self, below: Capabilities) -> Capabilities {
         below
     }
