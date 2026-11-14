@@ -8,10 +8,11 @@
 //! boundary of a chain is crossed through one `Checked`, which refuses a
 //! batch before anything of it runs (an instruction the receiver does not
 //! accept, a block beyond the shot's, a readout parity the shots' needs do
-//! not use, more instructions than the receiver takes), and makes a
-//! failure of an answer of the wrong shape or of a panic (where a panic
-//! unwinds: on wasm32, it aborts), so that the part above gets readouts it
-//! can index without a check of its own.
+//! not use, more instructions than the receiver takes, more readout slots
+//! than a `u32` counts), and makes a failure of an answer of the wrong
+//! shape or of a panic (where a panic unwinds: on wasm32, it aborts), so
+//! that the part above gets readouts it can index without a check of its
+//! own.
 
 use smallvec::SmallVec;
 

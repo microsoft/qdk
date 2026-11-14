@@ -27,11 +27,11 @@ use std::task::{Context, Poll, ready};
 /// future is dropped with it, outside the catch: a panic in its destructor
 /// is raised again from the drop, as [`end_both`] raises a panic of
 /// `end_shots`, unless the thread is already unwinding, where a second
-/// panic would abort the process and it is dropped with its payload. Whose
-/// panic it then is depends on who dropped this future: a part above that
-/// stopped waiting for it, whose own boundary catches the panic in its
-/// call and names that part above; or the drop of a run's future, where
-/// no one is left to return a failure to.
+/// panic would abort the process: then that panic's payload is dropped.
+/// Whose panic it then is depends on who dropped this future: a part above
+/// that stopped waiting for it, whose own boundary catches the panic in its
+/// call and names that part above; or the drop of a run's future, where no
+/// one is left to return a failure to.
 ///
 /// `AssertUnwindSafe`, because a part may be left half-updated by its
 /// panic, and the protocol calls it again: the panic reaches the part

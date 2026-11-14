@@ -10,14 +10,14 @@
 //! Each sent instruction must be accepted with the same blocks (`in` and
 //! `out`, their types and sizes), parameters (their kinds, in order) and
 //! readouts (outcomes, then flags). It is matched by meaning where both
-//! sets declare one, so a set of another name fits when its instructions do
-//! the same (Stim's `H` is a state vector's `h`); by mnemonic only where
-//! neither declares one and the sets' names agree, each such match listed
-//! in the [`OpcodeMap`] that the sender's `bind` receives, since what the
-//! instruction does is then not checked; and refused otherwise. A shared
-//! set name alone proves nothing, since two sets may share one: one
-//! mnemonic both sets declare to do different things is refused, though
-//! another instruction does the same.
+//! instructions declare one, so a set of another name fits when its
+//! instructions do the same (Stim's `H` is a state vector's `h`); by
+//! mnemonic only where neither declares one and the sets' names agree, each
+//! such match listed in the [`OpcodeMap`] that the sender's `bind`
+//! receives, since what the instruction does is then not checked; and
+//! refused otherwise. A shared set name alone proves nothing, since two
+//! sets may share one: one mnemonic both sets declare to do different
+//! things is refused, though another instruction does the same.
 
 use super::{InstructionDef, InstructionSet, Opcode};
 use std::fmt;
@@ -286,7 +286,10 @@ impl fmt::Display for InstructionMismatch {
                 sent.0, sent.1, accepted.0, accepted.1
             ),
             InstructionMismatch::Meaning { mnemonic } => {
-                write!(f, "`{mnemonic}` is accepted as doing something else")
+                write!(
+                    f,
+                    "`{mnemonic}` is accepted as doing something else, or only one side declares what it does"
+                )
             }
         }
     }

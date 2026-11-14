@@ -41,7 +41,7 @@ pub enum RunRefusal {
     /// The run has more shots than a part's offer allows
     /// ([`Capabilities::max_shots`](crate::Capabilities::max_shots)).
     TooManyShots {
-        /// The run's shots.
+        /// The run's shots, or `u32::MAX` when it has more.
         asked: u32,
         /// The most shots a run may have: the fewest any part offers.
         most: u32,

@@ -21,9 +21,9 @@ use super::{Instruction, InstructionFault};
 /// plus the arguments past its parameters, its `select` (some pattern,
 /// over the flags it has), each block below the shot's of its type, and no
 /// readout parity unless the shots were provisioned for them, and that a
-/// `u32` still counts the batch's readout slots up to it. Those slots, the
-/// sum of its instructions', so that its answer's width can be checked; or
-/// the first fault.
+/// `u32` still counts the batch's readout slots up to it. Returns those
+/// slots, the sum of its instructions', so that the answer's width can be
+/// checked, or the first fault.
 pub(crate) fn check_batch(
     instructions: &[Instruction],
     limits: &BatchLimits,

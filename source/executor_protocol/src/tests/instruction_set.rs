@@ -461,16 +461,19 @@ fn more_readout_slots_than_a_u32_counts_are_refused() {
 }
 
 /// Whoever writes a set fixes it in one pass: faults of the set and of
-/// several instructions come together, in declaration order.
+/// several instructions come together, in declaration order, and an
+/// instruction's in the order `InstructionSet::new` lists them.
 #[test]
 fn every_declaration_fault_is_reported_at_once() {
+    let mut flags: Vec<String> = (0..64).map(|k| format!("f{k}")).collect();
+    flags.push("f0".into());
     let faults = InstructionSet::new(
         "Gates",
         [(BlockType::qubit(), 1), (BlockType::qubit(), 1)],
         [
             InstructionDef::new("m").flags(["leak", "leak"]),
             InstructionDef::new("h").acts_on([carbon()]),
-            InstructionDef::new("m"),
+            InstructionDef::new("m").flags(flags),
         ],
     )
     .expect_err("a faulty declaration");
@@ -490,6 +493,14 @@ fn every_declaration_fault_is_reported_at_once() {
             },
             DeclarationFault::RepeatedMnemonic {
                 mnemonic: "m".into()
+            },
+            DeclarationFault::TooManyFlags {
+                mnemonic: "m".into(),
+                flags: 65,
+            },
+            DeclarationFault::RepeatedFlag {
+                mnemonic: "m".into(),
+                flag: "f0".into(),
             },
         ]
     );

@@ -673,6 +673,34 @@ fn an_adapter_cannot_raise_the_most_shots_a_run_may_have() {
     assert_eq!(log.count("Bits execute"), 0, "nothing ran");
 }
 
+/// Bits running 8 shots at most, under a decoder that restates its offer
+/// with a limit of 4, bracketed both ways: the decoder's lower limit holds,
+/// so a run of 5 is refused before any part is asked, and a run of 4 runs.
+#[test]
+fn an_adapter_can_lower_the_most_shots_below_the_executors() {
+    let log = Log::default();
+    let d = || Driver::new(CoinCopy::new());
+    let decoder = || Adapter::new(Restating::new(64, &log).most_shots(4));
+    let offer = Capabilities::unlimited().max_qubits(64).max_shots(8);
+    let bits = || Executor::new(Bits::new(&log).offering(offer.clone()));
+    let mut left = runner((d() >> decoder()) >> bits());
+    let mut right = runner(d() >> (decoder() >> bits()));
+    let five = ShotSet::ids(0..5);
+    for (refusal, brackets) in [
+        (refused(left.run(&five, SEED)), "left"),
+        (refused(right.run(&five, SEED)), "right"),
+    ] {
+        assert!(
+            matches!(refusal, RunRefusal::TooManyShots { asked: 5, most: 4 }),
+            "{brackets}: {refusal:?}"
+        );
+    }
+    assert_eq!(log.count("Bits ready"), 0, "no part asked");
+    let four = ShotSet::ids(0..4);
+    left.run(&four, SEED).expect("left: a run of 4");
+    right.run(&four, SEED).expect("right: a run of 4");
+}
+
 /// Bits that cannot be seeded, under a decoder that restates its offer as
 /// seedable, bracketed both ways: a seeded run of 1 shot is still refused
 /// before any part is asked or runs.
