@@ -112,7 +112,9 @@ pub struct CudaMpsCounters {
     pub largest_bond: usize,
     /// The largest perturbation a `GateSplit`'s SVD added to its singular
     /// values ([`SplitOutcome::svd_perturbation`]): GESVDP's `errSigma`
-    /// (`with_dev_svd_algo`), zero for GESVD and GESVDJ.
+    /// (refused but for the GPU test of its defect,
+    /// `DeviceTensors::set_dev_svd_algo_despite_refusal`), zero for GESVD
+    /// and GESVDJ.
     pub largest_svd_perturbation: f64,
     /// The operators applied as an MPO (`with_dev_mpo_far`).
     pub mpo_operators: u64,
@@ -136,12 +138,12 @@ impl CudaMpsEngine<DeviceTensors> {
     }
 
     /// EXPERIMENTAL, development only (not for review): the same engine,
-    /// whose splits use the SVD `algo` (`gesvd`, the default, `gesvdj` or
-    /// `gesvdp`); see [`DeviceTensors::set_dev_svd_algo`].
+    /// whose splits use the SVD `algo` (`gesvd`, the default, or `gesvdj`);
+    /// see [`DeviceTensors::set_dev_svd_algo`].
     ///
     /// # Errors
     ///
-    /// For an SVD the engine refuses.
+    /// For an SVD the engine refuses: `gesvdp` and `gesvdr`.
     #[doc(hidden)]
     pub fn with_dev_svd_algo(
         self,

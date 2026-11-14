@@ -30,9 +30,33 @@
 # running after the calibration and counts as one of the shots; the others
 # start as slots free up, with at most P running at once.
 #
-# The parts, each with one line in summary.txt, in the order they run,
-# with ESTIMATED durations (CudaMpsEngine's H2 shot took 301 s alone on
-# the A100 of 2026-11-13):
+# PARTS selects what runs, in this order (default "shots", the
+# qualification above):
+#
+#   kit          CudaMpsEngine's GPU tests (tests/cuda_mps_on_the_gpu.rs),
+#                among them the test that cuTensorNet's GESVDP, which the
+#                engine refuses, is still defective (its GESVDP_DEFECT
+#                line). Pass: every test passes, no SELF_CHECK
+#                passed=false. Limit 30 min; about 4 min, after the
+#                test binary's build (kit-build, limit 1 h).
+#   sanitizer    NVIDIA's compute-sanitizer on SANITIZER_TESTS of the same
+#                binary (default: the GateSplit and QR-move self-checks,
+#                the conformance kit, which makes every engine call and
+#                samples, and the operators applied as an MPO): memcheck
+#                with --leak-check full, then synccheck. Pass: each tool's
+#                ERROR SUMMARY counts 0 errors and the tests pass. It
+#                slows CUDA calls 10-100 times: limit 1 h per tool;
+#                ESTIMATED 5-40 min each (the three tests take about a
+#                minute without it). Found as COMPUTE_SANITIZER, then on
+#                PATH, then in /usr/local/cuda*/bin and
+#                /usr/local/cuda*/compute-sanitizer; when it is missing,
+#                its line says verdict=missing with the install command,
+#                and the run goes on.
+#   shots        the qualification, its parts below.
+#
+# The shots' parts, each with one line in summary.txt, in the order they
+# run, with ESTIMATED durations (CudaMpsEngine's H2 shot took 301 s alone
+# on the A100 of 2026-11-13):
 #
 #   h2-bytecode  H2's bytecode is the one every earlier run used (sha256);
 #                on a fail nothing else runs.
@@ -60,16 +84,27 @@
 #                less 10%), it must reach.
 #
 # Expected in all: about 55 min on the warm target dir. The last line
-# printed gives the verdict, P, the shots per hour and the wall time.
+# printed gives the verdict, P, the shots per hour and the wall time. The
+# verdict is PASS when every part run passed, FAIL (exit 1) when one
+# failed, and INCOMPLETE (exit 3) when none failed but compute-sanitizer
+# is missing.
 #
 # Run from anywhere, on the branch's checkout:
 #
 #   bash source/cutensornet/examples/gpu-h2-qualify.sh
 #
+# The kit and the sanitizer, without the shots:
+#
+#   PARTS="kit sanitizer" bash source/cutensornet/examples/gpu-h2-qualify.sh
+#
 # Send back $OUT.tar.gz (its path is printed at the end).
 #
 # Environment (all optional):
 #   OUT            the output directory (default $HOME/gpu-h2-qualify-<date>)
+#   PARTS          the parts to run, among kit, sanitizer and shots
+#                  (default "shots")
+#   SANITIZER_TESTS  the tests the sanitizer runs (above)
+#   COMPUTE_SANITIZER  compute-sanitizer's path, instead of the search
 #   SHOTS          the shots (default 50)
 #   PROCS          the processes at once, instead of the computed P
 #   CALIBRATION_SECONDS  shot 0's time alone (default 60)
@@ -78,12 +113,14 @@
 #   QDK_CUTENSORNET_LIBRARY, QDK_CUDART_LIBRARY, QDK_CUSOLVER_LIBRARY
 #                  the libraries, when neither at the pinned paths below nor
 #                  in /data/domingom/tn-venv
-#   CARGO_FLAGS    extra flags for cargo build (for instance --offline)
+#   CARGO_FLAGS    extra flags for cargo (for instance --offline)
 
 set -u
 
 REPO=$(readlink -f "$(dirname "$(readlink -f "$0")")/../../..")
 OUT=${OUT:-$HOME/gpu-h2-qualify-$(date +%Y%m%d-%H%M)}
+PARTS=${PARTS:-shots}
+SANITIZER_TESTS=${SANITIZER_TESTS:-gate_split_passes_its_self_checks the_engine_on_the_gpu_conforms_to_the_kit operators_as_an_mpo_read_as_on_the_cpu_engine}
 SHOTS=${SHOTS:-50}
 PROCS=${PROCS:-}
 CALIBRATION_SECONDS=${CALIBRATION_SECONDS:-60}
@@ -97,6 +134,10 @@ CARGO_FLAGS=${CARGO_FLAGS:-}
 BIN=${CARGO_TARGET_DIR:-$REPO/target}/release/examples
 SUMMARY=$OUT/summary.txt
 BUILD_BOX=3600
+KIT_BOX=1800
+SANITIZER_BOX=3600
+# compute-sanitizer's package in NVIDIA's CUDA 12.9 apt repository.
+SANITIZER_INSTALL="sudo apt-get install -y cuda-sanitizer-12-9"
 CALIBRATION_INTERVAL=5
 # The budgets of P (header).
 CPU_RESERVE=2
@@ -123,6 +164,15 @@ positive SHOTS "$SHOTS"
 positive CALIBRATION_SECONDS "$CALIBRATION_SECONDS"
 positive SHOT_LIMIT "$SHOT_LIMIT"
 [ -z "$PROCS" ] || positive PROCS "$PROCS"
+for part in $PARTS; do
+  case "$part" in
+  kit | sanitizer | shots) ;;
+  *)
+    echo "PARTS=$PARTS: $part is not kit, sanitizer or shots" >&2
+    exit 2
+    ;;
+  esac
+done
 
 # --- The libraries -----------------------------------------------------------
 # The pinned paths of the acceptance run, then the tn-venv's wheels;
@@ -174,6 +224,76 @@ run_part() {
   STATUS=$?
   SECONDS_TAKEN=$((SECONDS - start))
   echo "== $(date '+%F %T') exit=$STATUS seconds=$SECONDS_TAKEN" | tee -a "$log"
+}
+
+# The value of key=value field $1 in line $2.
+field() {
+  printf '%s\n' "$2" | tr ' ' '\n' | awk -F= -v key="$1" '$1 == key {print $2; exit}'
+}
+
+# The lines of a test's log $2 that hold marker $1, each from the marker
+# on. Not '^MARKER': with --nocapture libtest prints "test <name> ... "
+# without a newline, so a test's first printed line follows it.
+marked() {
+  grep -o "$1 .*" "$2"
+}
+
+# Whether part $1 is in PARTS.
+wanted() {
+  case " $PARTS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# The parts that failed, and those that could not run for a missing tool,
+# comma-separated.
+FAILED_PARTS=
+MISSING_PARTS=
+
+# Builds the GPU tests' binary once (kit-build.log), for the kit and the
+# sanitizer, and sets KIT_BIN to its path; false when the build fails.
+KIT_BUILD=
+KIT_BIN=
+build_kit() {
+  if [ -z "$KIT_BUILD" ]; then
+    local log=$OUT/kit-build.log
+    run_part "$BUILD_BOX" "$log" cargo test --manifest-path "$REPO/Cargo.toml" --release \
+      $CARGO_FLAGS -p qdk_cutensornet --test cuda_mps_on_the_gpu --no-run \
+      --message-format=json-render-diagnostics
+    KIT_BIN=$(grep -o '"executable":"[^"]*/cuda_mps_on_the_gpu-[0-9a-f]*"' "$log" | tail -1 |
+      sed -e 's/^"executable":"//' -e 's/"$//')
+    KIT_BUILD=fail
+    [ "$STATUS" = 0 ] && [ -n "$KIT_BIN" ] && KIT_BUILD=pass
+    summary kit-build "$STATUS" "$SECONDS_TAKEN" "verdict=$KIT_BUILD binary=${KIT_BIN:--} (kit-build.log)"
+  fi
+  [ "$KIT_BUILD" = pass ]
+}
+
+# Sets SANITIZER to compute-sanitizer's path (COMPUTE_SANITIZER, PATH,
+# then the CUDA toolkits' directories), empty when none is found.
+find_sanitizer() {
+  SANITIZER=${COMPUTE_SANITIZER:-}
+  [ -n "$SANITIZER" ] && return
+  SANITIZER=$(command -v compute-sanitizer)
+  [ -n "$SANITIZER" ] && return
+  local candidate
+  for candidate in /usr/local/cuda*/bin/compute-sanitizer \
+    /usr/local/cuda*/compute-sanitizer/compute-sanitizer; do
+    if [ -x "$candidate" ]; then
+      SANITIZER=$candidate
+      return
+    fi
+  done
+}
+
+# The verdict of the parts run so far: FAIL if one failed, INCOMPLETE if
+# one could not run, else $1.
+parts_verdict() {
+  if [ -n "$FAILED_PARTS" ]; then
+    echo FAIL
+  elif [ -n "$MISSING_PARTS" ]; then
+    echo INCOMPLETE
+  else
+    echo "$1"
+  fi
 }
 
 # Sets USED and FREE to the GPU's total memory used and free in MiB (the
@@ -279,7 +399,7 @@ trap 'VERDICT=interrupted; exit 129' HUP
 
 {
   date
-  echo "repo=$REPO out=$OUT shots=$SHOTS procs=${PROCS:-auto} calibration_seconds=$CALIBRATION_SECONDS shot_limit=$SHOT_LIMIT"
+  echo "repo=$REPO out=$OUT parts=$PARTS shots=$SHOTS procs=${PROCS:-auto} calibration_seconds=$CALIBRATION_SECONDS shot_limit=$SHOT_LIMIT"
   echo "flags=${FLAGS[*]}"
   git -C "$REPO" log --oneline -1
   echo "nproc=$(nproc)"
@@ -290,6 +410,82 @@ trap 'VERDICT=interrupted; exit 129' HUP
   sha256sum "$H2"
   env | grep -E '^(QDK_|CUDA|CARGO)'
 } > "$OUT/environment.txt" 2>&1
+
+# --- kit: CudaMpsEngine's GPU tests ----------------------------------------------
+if wanted kit; then
+  if build_kit; then
+    log=$OUT/kit.log
+    run_part "$KIT_BOX" "$log" "$KIT_BIN" --ignored --nocapture --test-threads=1
+    checks=$(marked SELF_CHECK "$log" | grep -c .)
+    failed=$(marked SELF_CHECK "$log" | grep -c '^SELF_CHECK .* passed=false')
+    failed_names=$(marked SELF_CHECK "$log" | grep '^SELF_CHECK .* passed=false' | awk '{printf "%s%s", sep, $2; sep = ","}')
+    # From libtest's closing list: with --nocapture a test's printed lines
+    # may split its "test ... FAILED" line.
+    failed_tests=$(awk '/^failures:$/ {n++; next} n == 2 && /^    [a-z_]/ {printf "%s%s", sep, $1; sep = ","}' "$log")
+    result=$(grep -o 'test result: .*' "$log" | tail -1)
+    tests_passed=$(printf '%s\n' "$result" | sed -nE 's/.* ([0-9]+) passed.*/\1/p')
+    tests_failed=$(printf '%s\n' "$result" | sed -nE 's/.* ([0-9]+) failed.*/\1/p')
+    defect=$(marked GESVDP_DEFECT "$log" | tail -1)
+    perturbation=$(field largest_perturbation "$defect")
+    difference=$(field largest_difference "$defect")
+    verdict=fail
+    if [ "$STATUS" = 0 ] && [ "$checks" -gt 0 ] && [ "$failed" = 0 ]; then
+      verdict=pass
+    fi
+    summary kit "$STATUS" "$SECONDS_TAKEN" \
+      "verdict=$verdict tests_passed=${tests_passed:--} tests_failed=${tests_failed:--}${failed_tests:+ ($failed_tests)} self_checks=$checks self_checks_failed=$failed${failed_names:+ ($failed_names)} gesvdp_defect_largest_perturbation=${perturbation:--} gesvdp_defect_largest_difference=${difference:--} (kit.log)"
+  else
+    verdict=fail
+    summary kit - 0 "verdict=fail the test binary did not build (kit-build.log)"
+  fi
+  [ "$verdict" = pass ] || FAILED_PARTS=$FAILED_PARTS,kit
+fi
+
+# --- sanitizer: memcheck and synccheck on a few GPU tests ---------------------------
+if wanted sanitizer; then
+  find_sanitizer
+  if [ -z "$SANITIZER" ]; then
+    summary sanitizer - 0 \
+      "verdict=missing searched=COMPUTE_SANITIZER,PATH,/usr/local/cuda*/bin,/usr/local/cuda*/compute-sanitizer install=\"$SANITIZER_INSTALL\" (NVIDIA's CUDA apt repository; then run PARTS=sanitizer again)"
+    MISSING_PARTS=$MISSING_PARTS,sanitizer
+  elif ! build_kit; then
+    summary sanitizer - 0 "verdict=fail sanitizer=$SANITIZER the test binary did not build (kit-build.log)"
+    FAILED_PARTS=$FAILED_PARTS,sanitizer
+  else
+    "$SANITIZER" --version > "$OUT/sanitizer-version.txt" 2>&1
+    start=$SECONDS
+    verdict=pass
+    statuses=
+    details=
+    for tool in memcheck synccheck; do
+      log=$OUT/sanitizer-$tool.log
+      options=(--tool "$tool")
+      [ "$tool" = memcheck ] && options+=(--leak-check full)
+      # shellcheck disable=SC2086
+      run_part "$SANITIZER_BOX" "$log" "$SANITIZER" "${options[@]}" "$KIT_BIN" --ignored --exact \
+        $SANITIZER_TESTS --nocapture --test-threads=1
+      errors=$(grep -o 'ERROR SUMMARY: [0-9]* error' "$log" | tail -1 | awk '{print $3}')
+      result=$(grep -o 'test result: [a-zA-Z]*' "$log" | tail -1 | awk '{print $3}')
+      if [ "$STATUS" != 0 ] || [ "${errors:-}" != 0 ]; then
+        verdict=fail
+      fi
+      statuses=$statuses,$STATUS
+      details="$details ${tool}_errors=${errors:--} ${tool}_tests=${result:--}"
+    done
+    summary sanitizer "${statuses#,}" "$((SECONDS - start))" \
+      "verdict=$verdict$details tests=\"$SANITIZER_TESTS\" sanitizer=$SANITIZER (sanitizer-memcheck.log, sanitizer-synccheck.log, sanitizer-version.txt)"
+    [ "$verdict" = pass ] || FAILED_PARTS=$FAILED_PARTS,sanitizer
+  fi
+fi
+
+if ! wanted shots; then
+  VERDICT=$(parts_verdict PASS)
+  case "$VERDICT" in
+  PASS) exit 0 ;;
+  FAIL) exit 1 ;;
+  *) exit 3 ;;
+  esac
+fi
 
 # --- h2-bytecode: the one every earlier run used -------------------------------
 if [ ! -f "$H2" ] || [ "$(sha256sum "$H2" | awk '{print $1}')" != "$H2_SHA256" ]; then
@@ -454,7 +650,13 @@ SHOTS_PER_HOUR=${SHOTS_PER_HOUR:--}
 WHOLE_RUN_PER_HOUR=${WHOLE_RUN_PER_HOUR:--}
 VERDICT=$(grep -o 'ACCEPTANCE: [A-Z]*' "$OUT/h2-summary.txt" | awk '{print $2}')
 VERDICT=${VERDICT:-FAIL}
+ACCEPTANCE=$VERDICT
 g_test=$(grep '^G = ' "$OUT/h2-summary.txt" | sed -E 's/ \(20000 draws\)//')
 summary acceptance "$STATUS" "$((SECONDS - start))" \
-  "verdict=$VERDICT procs=$P first_wave_shots_per_hour=$SHOTS_PER_HOUR whole_run_shots_per_hour=$WHOLE_RUN_PER_HOUR cutensornet_qualified=14.7 cutensornet_floor=13.23 gpu_memory_peak_mib=$peak_used g_test=\"$g_test\" (h2-summary.txt)"
-[ "$VERDICT" = PASS ]
+  "verdict=$ACCEPTANCE procs=$P first_wave_shots_per_hour=$SHOTS_PER_HOUR whole_run_shots_per_hour=$WHOLE_RUN_PER_HOUR cutensornet_qualified=14.7 cutensornet_floor=13.23 gpu_memory_peak_mib=$peak_used g_test=\"$g_test\" (h2-summary.txt)"
+VERDICT=$(parts_verdict "$ACCEPTANCE")
+case "$VERDICT" in
+PASS) exit 0 ;;
+INCOMPLETE) exit 3 ;;
+*) exit 1 ;;
+esac

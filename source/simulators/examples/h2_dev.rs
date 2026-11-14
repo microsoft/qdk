@@ -33,7 +33,7 @@
 //!     [--routing engine|meet-halfway|meet-halfway-after-fusion] \
 //!     [--fusion pairs|unfused|seq|seq3] [--apply engine|mpo] \
 //!     [--reset split|merge] [--variant base|seq3-mpo] \
-//!     [--order resumer|identity] [--no-qr-moves] [--svd-algo gesvd|gesvdj|gesvdp]
+//!     [--order resumer|identity] [--no-qr-moves] [--svd-algo gesvd|gesvdj]
 //! ```
 //!
 //! `--variant` (development only) names a pair of `--fusion` and `--apply`
@@ -1041,7 +1041,7 @@ fn run_on_cuda_mps(options: &Options, program: &QirProgram) -> bool {
     println!("AVAILABILITY {:?}", availability.report());
     let algo = options.svd_algo.as_deref().map(|name| {
         qdk_cutensornet::dev_gate_split::TensorSvdAlgo::from_name(name)
-            .unwrap_or_else(|| panic!("--svd-algo {name}: gesvd, gesvdj or gesvdp"))
+            .unwrap_or_else(|| panic!("--svd-algo {name}: gesvd or gesvdj"))
     });
     let make = || {
         let engine = qdk_cutensornet::CudaMpsEngine::new(&availability)

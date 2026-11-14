@@ -351,6 +351,35 @@ fn without_the_flag_an_operator_on_three_sites_is_refused() {
     assert!(engine.apply(&mut state, sites, matrix).is_err());
 }
 
+/// The SVD of the device's splits: GESVDP is refused, as defective on the
+/// audited cuTensorNet, and its refusal names the GPU test that shows
+/// whether a newer library has fixed it.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn the_polar_svd_is_refused_naming_the_test_of_its_defect() {
+    use crate::cuda_mps_engine::DeviceTensors;
+    use crate::dev_gate_split::TensorSvdAlgo;
+    let why = DeviceTensors::svd_algo_refusal(TensorSvdAlgo::Gesvdp).expect("GESVDP is refused");
+    assert!(
+        why.contains("the_polar_svd_still_perturbs_rank_deficient_splits"),
+        "{why}"
+    );
+}
+
+/// The SVDs the device's splits accept are GESVD and GESVDJ; GESVDR, which
+/// cannot apply the cutoff, is refused.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn only_gesvd_and_gesvdj_are_accepted() {
+    use crate::cuda_mps_engine::DeviceTensors;
+    use crate::dev_gate_split::TensorSvdAlgo;
+    let accepted: Vec<TensorSvdAlgo> = TensorSvdAlgo::ALL
+        .into_iter()
+        .filter(|algo| DeviceTensors::svd_algo_refusal(*algo).is_none())
+        .collect();
+    assert_eq!(accepted, [TensorSvdAlgo::Gesvd, TensorSvdAlgo::Gesvdj]);
+}
+
 /// The tolerance between the QR moves and the `GateSplit` moves: both
 /// exact, so rounding apart.
 const QR_TOLERANCE: f64 = 1e-12;

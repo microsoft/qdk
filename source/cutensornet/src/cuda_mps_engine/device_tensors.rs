@@ -41,10 +41,11 @@ mod policy {
     use super::{TensorSvdAlgo, v2_13};
 
     /// GESVD: cuTensorNet's default and the most accurate of its SVDs.
-    /// EXPERIMENTAL: GESVDJ or GESVDP by `DeviceTensors::set_dev_svd_algo`,
-    /// to measure them in whole runs (the gate-split bench measured GESVDP
-    /// 0.39-0.88 of GESVD's time at bonds 8-512 on the A100, its singular
-    /// values and discarded weight the CPU's, on random full-rank pairs).
+    /// EXPERIMENTAL: GESVDJ by `DeviceTensors::set_dev_svd_algo`, to
+    /// measure it in whole runs. GESVDP is refused
+    /// (`DeviceTensors::svd_algo_refusal`), though the gate-split bench
+    /// measured it at 0.39-0.88 of GESVD's time at bonds 8-512 on the A100,
+    /// with the CPU's singular values on random full-rank pairs.
     pub(super) const SVD_ALGO: TensorSvdAlgo = TensorSvdAlgo::Gesvd;
 
     /// `REDUCED`: QR of each input, then the SVD of the small middle
@@ -195,31 +196,60 @@ impl DeviceTensors {
     }
 
     /// EXPERIMENTAL, development only (not for review): the SVD of every
-    /// later `GateSplit`, GESVD (`policy::SVD_ALGO`), GESVDJ or GESVDP.
-    /// GESVDP (a polar decomposition, then an eigensolver) shifts the
-    /// singular values of a rank-deficient pair by a perturbation it
-    /// reports, read after every split into
-    /// [`SplitOutcome::svd_perturbation`], so a run shows how far it may
-    /// be off. (`CuTensorNetEngine`'s failure of H₂ with GESVDP, status 14
-    /// at its 39th measurement, was in the state API's own splits, not in
-    /// `GateSplit`.)
+    /// later `GateSplit`, GESVD (`policy::SVD_ALGO`) or GESVDJ.
     ///
     /// # Errors
     ///
-    /// For GESVDR: it takes a fixed extent only, so it cannot apply the
-    /// discarded-weight cutoff.
+    /// For an SVD the engine refuses ([`Self::svd_algo_refusal`]): GESVDP
+    /// and GESVDR.
     #[doc(hidden)]
     pub fn set_dev_svd_algo(&self, algo: TensorSvdAlgo) -> Result<(), CudaMpsError> {
+        if let Some(why) = Self::svd_algo_refusal(algo) {
+            return Err(failed(why));
+        }
+        self.svd_algo.set(algo);
+        Ok(())
+    }
+
+    /// Why the engine refuses the SVD `algo`, or `None` if it accepts it.
+    ///
+    /// - GESVDR takes a fixed extent only, so it cannot apply the
+    ///   discarded-weight cutoff.
+    /// - GESVDP (a polar decomposition, then an eigensolver) is defective
+    ///   on cuTensorNet 2.13.0 with the CUDA Runtime 12.9 (on the A100):
+    ///   on the GPU kit's rank-deficient splits it was off by 2.2e-7,
+    ///   against the engine's 1e-10, and it fails with `CUSOLVER_ERROR`
+    ///   (status 25) within 26 s of an H₂ shot and at step 24 of polyene
+    ///   N = 8. The GPU test
+    ///   `the_polar_svd_still_perturbs_rank_deficient_splits`
+    ///   (`tests/cuda_mps_on_the_gpu.rs`) fails once a library shows none of
+    ///   these symptoms on the kit's cases: then revisit this refusal.
+    pub(crate) fn svd_algo_refusal(algo: TensorSvdAlgo) -> Option<String> {
         match algo {
-            TensorSvdAlgo::Gesvd | TensorSvdAlgo::Gesvdj | TensorSvdAlgo::Gesvdp => {
-                self.svd_algo.set(algo);
-                Ok(())
-            }
-            TensorSvdAlgo::Gesvdr => Err(failed(format!(
+            TensorSvdAlgo::Gesvd | TensorSvdAlgo::Gesvdj => None,
+            TensorSvdAlgo::Gesvdp => Some(format!(
+                "the engine refuses the SVD {}: on cuTensorNet 2.13.0 (CUDA Runtime 12.9) it is \
+                 off by 2.2e-7 (against the engine's 1e-10) on rank-deficient splits and fails \
+                 with CUSOLVER_ERROR (status 25) within 26 s of an H2 shot; the GPU test \
+                 the_polar_svd_still_perturbs_rank_deficient_splits \
+                 (tests/cuda_mps_on_the_gpu.rs) checks whether a newer library has fixed it",
+                algo.name()
+            )),
+            TensorSvdAlgo::Gesvdr => Some(format!(
                 "the engine refuses the SVD {}: it cannot apply the discarded-weight cutoff",
                 algo.name()
-            ))),
+            )),
         }
+    }
+
+    /// Development only, for the GPU tests that show a library's defect,
+    /// never for runs: the SVD of every later `GateSplit`, `algo` even if
+    /// the engine refuses it ([`Self::svd_algo_refusal`]). GESVDP's
+    /// perturbation is read after every split into
+    /// [`SplitOutcome::svd_perturbation`].
+    #[doc(hidden)]
+    pub fn set_dev_svd_algo_despite_refusal(&self, algo: TensorSvdAlgo) {
+        self.svd_algo.set(algo);
     }
 
     fn synchronize(&self) -> Result<(), CudaMpsError> {

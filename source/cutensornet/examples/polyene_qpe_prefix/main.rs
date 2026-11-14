@@ -31,7 +31,7 @@
 //!     --engine cutensornet|cuda-mps|cpu --n 8|12|16|20 --chi 128 \
 //!     [--order identity|interleave-centre] [--variant base|seq3-mpo] \
 //!     [--reference ppp8.exact.reference] [--steps 32] \
-//!     [--weight-reads-per-step 1] [--no-qr-moves] [--svd-algo gesvd|gesvdj|gesvdp]
+//!     [--weight-reads-per-step 1] [--no-qr-moves] [--svd-algo gesvd|gesvdj]
 //! ```
 //!
 //! `--order` places the qubits on the chain, as `simulators`'
@@ -278,7 +278,7 @@ fn run_on_cuda_mps(case: &Case, options: &Options) -> Res<Verdict> {
         .with_dev_qr_moves(options.qr_moves);
     if let Some(name) = &options.svd_algo {
         let algo = qdk_cutensornet::dev_gate_split::TensorSvdAlgo::from_name(name)
-            .ok_or_else(|| format!("--svd-algo {name}: gesvd, gesvdj or gesvdp"))?;
+            .ok_or_else(|| format!("--svd-algo {name}: gesvd or gesvdj"))?;
         engine = engine.with_dev_svd_algo(algo)?;
     }
     run(&engine, case, options, &|| print_cuda_mps_counters(&engine))

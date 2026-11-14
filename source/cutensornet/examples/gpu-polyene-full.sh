@@ -7,7 +7,8 @@
 # the engine (its kit, then polyene N = 8 against the exact state and one
 # H2 shot) and running the diagnostic of CuTensorNetEngine's three-site
 # MPOs (a reproducer for NVIDIA, not a fix). cuda-mps runs with its
-# defaults: QR centre moves on, GESVD; GESVDP is checked beside it.
+# defaults: QR centre moves on, GESVD. (GESVDP is refused: the kit's
+# test of cuTensorNet's GESVDP defect stands in for its runs.)
 # The diagnostic alone: PARTS="build diagnostic" (Run, below).
 #
 # Polyene (the PPP model, N carbon sites, 2N + 1 qubits) is a development
@@ -27,9 +28,11 @@
 #                GPU test binaries. Limit 1 h; 1-3 min on the VM's warm
 #                target dir, 20-30 min on a fresh one.
 #   kit          CudaMpsEngine's GPU tests (tests/cuda_mps_on_the_gpu.rs),
-#                GESVDP's among them (GESVDP_PERTURBATION lines). Pass:
-#                every test passes, no SELF_CHECK passed=false. Limit
-#                15 min; about 4 min.
+#                among them the test that cuTensorNet's GESVDP is still
+#                defective (its GESVDP_DEFECT line: the largest
+#                perturbation, in the summary line). Pass: every test
+#                passes, no SELF_CHECK passed=false. Limit 15 min; about
+#                4 min.
 #   diagnostic   CuTensorNetEngine's three-site operators as one MPO
 #                (tests/cutensornet_mpo_on_the_gpu.rs) against the CPU
 #                engine, thirteen cases (adjacent, far, unordered,
@@ -47,12 +50,12 @@
 #                here is the expected evidence, not a stop. Limit 10 min;
 #                1-2 min.
 #   correctness  for each combination of COMBOS (qr-on-gesvd, the
-#                defaults, and qr-on-gesvdp): polyene N = 8 chi 128 in the
+#                defaults): polyene N = 8 chi 128 in the
 #                identity order against ppp8.exact.reference (pass:
 #                verdict=AgreesWithExact) and one H2 shot in the resumer's
 #                order (pass: records=01010, draws=1414, tvd <= 1e-9; run
 #                only if H2's sha256 is a8a2b39c...). Limit 15 min each;
-#                about 5 min each, 20 min in all.
+#                about 5 min each, 10 min for the default combination.
 #   relevant     polyene N = 16 and N = 20 at chi 128, interleave-centre,
 #                the whole prefix (32 controlled steps), with the defaults.
 #                Per run: steps-<run>.txt (p, cumulative and step seconds,
@@ -98,8 +101,9 @@
 #   OUT            the output directory (default $HOME/gpu-polyene-full-<date>)
 #   PARTS          the parts to run (default "build kit diagnostic correctness
 #                  relevant")
-#   COMBOS         correctness's combinations (default "qr-on-gesvd
-#                  qr-on-gesvdp")
+#   COMBOS         correctness's combinations, qr-on-<svd> or
+#                  qr-off-<svd> with <svd> gesvd or gesvdj (default
+#                  "qr-on-gesvd")
 #   RELEVANT_CASES relevant's N/chi cases (default "16/128 20/128")
 #   BUDGET_SECONDS the session's budget (default 18000, 5 h)
 #   LIMIT_PERCENT  the runs' own limits in percent (default 100)
@@ -114,7 +118,7 @@ set -u
 REPO=$(readlink -f "$(dirname "$(readlink -f "$0")")/../../..")
 OUT=${OUT:-$HOME/gpu-polyene-full-$(date +%Y%m%d-%H%M)}
 PARTS=${PARTS:-build kit diagnostic correctness relevant}
-COMBOS=${COMBOS:-qr-on-gesvd qr-on-gesvdp}
+COMBOS=${COMBOS:-qr-on-gesvd}
 RELEVANT_CASES=${RELEVANT_CASES:-16/128 20/128}
 BUDGET_SECONDS=${BUDGET_SECONDS:-18000}
 LIMIT_PERCENT=${LIMIT_PERCENT:-100}
@@ -312,14 +316,17 @@ if wanted kit; then
   result=$(grep '^test result: ' "$log" | tail -1)
   tests_passed=$(printf '%s\n' "$result" | sed -nE 's/.* ([0-9]+) passed.*/\1/p')
   tests_failed=$(printf '%s\n' "$result" | sed -nE 's/.* ([0-9]+) failed.*/\1/p')
-  perturbation=$(marked GESVDP_PERTURBATION "$log" |
-    awk '{for (i = 1; i <= NF; i++) if ($i ~ /^largest=/) {split($i, kv, "="); if (kv[2] + 0 > best) best = kv[2] + 0}} END {printf "%.3e", best + 0}')
+  # The GESVDP defect test's largest perturbation and difference from the
+  # CPU engine, "-" if it printed none.
+  defect=$(marked GESVDP_DEFECT "$log" | tail -1)
+  perturbation=$(field largest_perturbation "$defect")
+  difference=$(field largest_difference "$defect")
   verdict=fail
   if [ "$STATUS" = 0 ] && [ "$checks" -gt 0 ] && [ "$failed" = 0 ]; then
     verdict=pass
   fi
   summary kit "$STATUS" "$SECONDS_TAKEN" \
-    "verdict=$verdict step=kit engine=cuda-mps tests_passed=${tests_passed:--} tests_failed=${tests_failed:--}${failed_tests:+ ($failed_tests)} self_checks=$checks self_checks_failed=$failed${failed_names:+ ($failed_names)} gesvdp_largest_perturbation=$perturbation (see kit.log)"
+    "verdict=$verdict step=kit engine=cuda-mps tests_passed=${tests_passed:--} tests_failed=${tests_failed:--}${failed_tests:+ ($failed_tests)} self_checks=$checks self_checks_failed=$failed${failed_names:+ ($failed_names)} gesvdp_defect_largest_perturbation=${perturbation:--} gesvdp_defect_largest_difference=${difference:--} (see kit.log)"
 fi
 
 # --- b. diagnostic: CuTensorNetEngine's three-site MPOs ----------------------
@@ -346,7 +353,7 @@ if wanted diagnostic; then
 fi
 
 # --- The runs ----------------------------------------------------------------
-# The flags of combination $1 (qr-on-gesvdp: --svd-algo gesvdp); QR moves
+# The flags of combination $1 (qr-on-gesvdj: --svd-algo gesvdj); QR moves
 # are the engine's default.
 combo_flags() {
   local qr=${1%-*} algo=${1##*-}

@@ -8,8 +8,10 @@
 //! a capped bond), to 1e-10; and, with `with_dev_mpo_far`, operators on
 //! three sites applied as an MPO, against the CPU engine's MPO path; and
 //! the `GateSplit` centre moves (`with_dev_qr_moves(false)`; the default
-//! moves are QR moves) and the Jacobi and polar SVDs (`with_dev_svd_algo`)
-//! against the CPU engine.
+//! moves are QR moves) and the Jacobi SVD (`with_dev_svd_algo`) against
+//! the CPU engine. One test shows that cuTensorNet's polar SVD (GESVDP),
+//! which the engine refuses, is still defective: it passes while the
+//! defect is present.
 //!
 //! It needs an NVIDIA GPU, the CUDA Runtime 12.9 and cuTensorNet 2.13, so
 //! every test is ignored by default; run them with `--ignored --nocapture`
@@ -446,7 +448,8 @@ fn gate_split_moves_read_as_on_the_cpu_engine() {
 }
 
 /// With `with_dev_svd_algo(Gesvdj)`, cuSOLVER's Jacobi SVD, the engine
-/// reads as the CPU engine below the capacity; GESVDR is refused.
+/// reads as the CPU engine below the capacity; GESVDP and GESVDR are
+/// refused.
 #[test]
 #[ignore = "requires an NVIDIA GPU with the audited CUDA Runtime 12.9 and cuTensorNet 2.13"]
 fn the_jacobi_svd_reads_as_on_the_cpu_engine() {
@@ -460,52 +463,116 @@ fn the_jacobi_svd_reads_as_on_the_cpu_engine() {
         let cpu = run(&CpuMpsEngine::default(), &capacity, &operations);
         assert_agree(&port, &cpu);
     }
-    assert!(
-        on_the_gpu()
-            .with_dev_svd_algo(TensorSvdAlgo::Gesvdr)
-            .is_err(),
-        "GESVDR is refused"
-    );
+    for refused in [TensorSvdAlgo::Gesvdp, TensorSvdAlgo::Gesvdr] {
+        assert!(
+            on_the_gpu().with_dev_svd_algo(refused).is_err(),
+            "{} is refused",
+            refused.name()
+        );
+    }
 }
 
-/// With `with_dev_svd_algo(Gesvdp)`, cuSOLVER's SVD by a polar
-/// decomposition, which perturbs the singular values of a rank-deficient
-/// pair, routed gates, projections and operators as an MPO read as on the
-/// CPU engine, below the capacity and capped; the largest perturbation is
-/// printed (`GESVDP_PERTURBATION`).
+/// The largest difference between two runs' reads, relative as in
+/// `assert_agree`; infinite when their shapes or projections differ.
+fn disagreement(port: &Reads, cpu: &Reads) -> f64 {
+    if port.shape != cpu.shape || port.projections.len() != cpu.projections.len() {
+        return f64::INFINITY;
+    }
+    let relative = |a: f64, b: f64| (a - b).abs() / b.abs().max(1.0);
+    port.probabilities
+        .iter()
+        .zip(&cpu.probabilities)
+        .chain([
+            (&port.conditional, &cpu.conditional),
+            (&port.retained_weight, &cpu.retained_weight),
+        ])
+        .chain(port.projections.iter().zip(&cpu.projections))
+        .map(|(a, b)| relative(*a, *b))
+        .fold((port.expectation - cpu.expectation).norm(), f64::max)
+}
+
+/// The defect of cuTensorNet's GESVDP that makes the engine refuse it
+/// (`DeviceTensors::svd_algo_refusal`) is still present. With GESVDP,
+/// reached past the refusal (`set_dev_svd_algo_despite_refusal`), the
+/// kit's former GESVDP cases (routed gates with projections, and operators
+/// as an MPO, below the capacity and capped), which cuTensorNet 2.13.0
+/// failed by 2.2e-7, show at least one of its symptoms: a split's singular
+/// values perturbed by more than the engine's 1e-10 (GESVDP's own
+/// `errSigma`), reads that differ from the CPU engine's by more than 1e-10,
+/// or a failed call. It prints the libraries' versions, the largest
+/// perturbation and difference, and the first failure (`GESVDP_DEFECT`).
+///
+/// It passes while the defect is present. When it fails, the loaded
+/// cuTensorNet shows none of the symptoms on these cases: revisit the
+/// refusal in `src/cuda_mps_engine/device_tensors.rs`, and before
+/// accepting GESVDP again, check that an H2 shot on GESVDP (`h2_dev`) no
+/// longer fails with `CUSOLVER_ERROR`, which this test does not reproduce.
 #[test]
 #[ignore = "requires an NVIDIA GPU with the audited CUDA Runtime 12.9 and cuTensorNet 2.13"]
-fn the_polar_svd_reads_as_on_the_cpu_engine() {
-    let gesvdp = || {
-        on_the_gpu()
-            .with_dev_svd_algo(TensorSvdAlgo::Gesvdp)
-            .expect("GESVDP is accepted")
+fn the_polar_svd_still_perturbs_rank_deficient_splits() {
+    let availability = qdk_cutensornet::discover().expect("the audited libraries are installed");
+    let version = |library: &str| {
+        availability
+            .report()
+            .library(library)
+            .and_then(|found| found.version(library))
+            .map_or_else(|| "unread".to_string(), |value| value.to_string())
     };
+    let gesvdp = || {
+        let tensors = DeviceTensors::open(&availability).expect("the tensor API on CUDA device 0");
+        tensors.set_dev_svd_algo_despite_refusal(TensorSvdAlgo::Gesvdp);
+        CudaMpsEngine::with_tensors(tensors)
+    };
+    let (mut perturbation, mut difference) = (0.0_f64, 0.0_f64);
+    let mut failure: Option<String> = None;
     for max_bond in [64, 3] {
         let capacity = MpsShape::qubit_chain(7, max_bond).expect("a qubit chain");
         for seed in [16, 17] {
-            let operations = circuit(7, 60, seed, true);
-            let engine = gesvdp();
-            let port = run(&engine, &capacity, &operations);
-            println!(
-                "GESVDP_PERTURBATION case=routed max_bond={max_bond} seed={seed} largest={:.3e}",
-                engine.counters().largest_svd_perturbation
-            );
-            let cpu = run(&CpuMpsEngine::default(), &capacity, &operations);
-            assert_agree(&port, &cpu);
-            let operations = fused_circuit(7, 40, seed);
-            let engine = gesvdp().with_dev_mpo_far(true);
-            let port = run(&engine, &capacity, &operations);
-            println!(
-                "GESVDP_PERTURBATION case=mpo max_bond={max_bond} seed={seed} largest={:.3e}",
-                engine.counters().largest_svd_perturbation
-            );
-            let cpu = run(
-                &CpuMpsEngine::default().with_dev_mpo_far(true),
-                &capacity,
-                &operations,
-            );
-            assert_agree(&port, &cpu);
+            for (engine, cpu_engine, operations) in [
+                (
+                    gesvdp(),
+                    CpuMpsEngine::default(),
+                    circuit(7, 60, seed, true),
+                ),
+                (
+                    gesvdp().with_dev_mpo_far(true),
+                    CpuMpsEngine::default().with_dev_mpo_far(true),
+                    fused_circuit(7, 40, seed),
+                ),
+            ] {
+                // A failed call panics in `run`; it is one of the symptoms.
+                let port = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run(&engine, &capacity, &operations)
+                }));
+                match port {
+                    Ok(port) => {
+                        let cpu = run(&cpu_engine, &capacity, &operations);
+                        difference = difference.max(disagreement(&port, &cpu));
+                    }
+                    Err(panic) => {
+                        let message = panic
+                            .downcast_ref::<String>()
+                            .cloned()
+                            .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                            .unwrap_or_else(|| "a panic".to_string());
+                        failure.get_or_insert(message.replace(['\n', '"'], " "));
+                    }
+                }
+                perturbation = perturbation.max(engine.counters().largest_svd_perturbation);
+            }
         }
     }
+    println!(
+        "GESVDP_DEFECT cutensornet_version={} cudart_version={} largest_perturbation={perturbation:.3e} \
+         largest_difference={difference:.3e} tolerance={TOLERANCE:.0e} failure=\"{}\"",
+        version("cuTensorNet"),
+        version("CUDA Runtime"),
+        failure.as_deref().unwrap_or("none"),
+    );
+    assert!(
+        perturbation > TOLERANCE || difference > TOLERANCE || failure.is_some(),
+        "GESVDP perturbed no split beyond {TOLERANCE:.0e} (largest {perturbation:.3e}), its reads \
+         differ from the CPU engine's by {difference:.3e} at most, and no call failed: the defect \
+         is gone on this cuTensorNet, so revisit the engine's refusal of GESVDP"
+    );
 }
