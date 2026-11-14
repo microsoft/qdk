@@ -6,6 +6,7 @@ from typing import Any
 from ._qir import QIRApplication
 from ._qsharp import QSharpApplication
 from ._openqasm import OpenQASMApplication
+from ._qsp import QspApplication
 
 try:
     from ._cirq import CirqApplication, CirqApplicationParams
@@ -29,4 +30,5 @@ __all__ = [
     "OpenQASMApplication",
     "QIRApplication",
     "QSharpApplication",
+    "QspApplication",
 ]

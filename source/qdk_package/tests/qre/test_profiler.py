@@ -2,6 +2,11 @@
 # Licensed under the MIT License.
 
 import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,8 +24,62 @@ from qdk.qre import (
     TemporalProfiles,
     TotalCounts,
 )
-from qdk.qre.application import OpenQASMApplication, QIRApplication, QSharpApplication
+from qdk.qre.application import (
+    OpenQASMApplication,
+    QIRApplication,
+    QSharpApplication,
+    QspApplication,
+)
 from qdk.qre.profiler import QREProfiler
+
+
+@pytest.fixture
+def qsp_toolchain() -> None:
+    """Require the C++ compiler and interop archive for QSP integration tests."""
+    if sys.platform not in {"linux", "darwin"}:
+        pytest.skip("QSP profiling requires Linux or macOS")
+    compiler = shlex.split(os.environ.get("CXX", "c++"))
+    if not compiler or shutil.which(compiler[0]) is None:
+        pytest.skip("QSP profiling requires a C++ compiler")
+    repository = Path(__file__).resolve().parents[4]
+    if not (repository / "target" / "release" / "libqep_interop.a").is_file():
+        pytest.skip("Run `cargo build --release -p qep_interop` for QSP tests")
+
+
+def test_profile_qsp_application(qsp_toolchain: None) -> None:
+    """Compile and run C++ loops against the default stdio backend and count gates."""
+    profiler = QREProfiler(
+        SequentialCountingProfiler(10, {"h": 0.25, "x": 0.5, "cx": 1.0, "mz": 2.0})
+    )
+    application = QspApplication.for_cpp_code("""
+    #include "qep_interop.h"
+
+    // Exercises instruction batching and measurement replies without initialization.
+    int main() {
+        for (size_t repetition = 0; repetition < 3; ++repetition) {
+            for (size_t qubit = 0; qubit < 4; ++qubit) {
+                qdk_h(qubit);
+                qdk_x(qubit);
+            }
+            for (size_t qubit = 1; qubit < 4; ++qubit) {
+                qdk_cx(qubit - 1, qubit);
+            }
+            for (size_t qubit = 0; qubit < 4; ++qubit) {
+                if (qdk_mz(qubit) > 1) return 1;
+            }
+        }
+        return 0;
+    }
+    """)
+    result = profiler.profile(application)
+
+    assert isinstance(result, ProfilerResult)
+    assert result.totals.calls_per_operation == {"h": 12, "x": 12, "cx": 9, "mz": 12}
+    assert result.totals.total_operations_count == 45
+    assert result.totals.logical_compute_qubits == 4
+    assert result.totals.physical_qubits == 40
+    assert result.totals.total_runtime_sec == 42.0
+    assert result.infos == []
 
 
 @pytest.mark.parametrize("as_bitcode", [False, True], ids=["text", "bitcode"])

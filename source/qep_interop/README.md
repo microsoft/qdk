@@ -42,6 +42,90 @@ is reached. `qdk_save_profile()` in stdio mode only prints an informational mess
 to stderr: it does not flush, inspect the path, or write a file. Profiling and
 saving must be handled by the profiler receiving the instruction stream.
 
+### Compiling and profiling C++ from Python
+
+In a QDK source checkout on Linux or macOS, build the release interop archive
+once with `cargo build --release -p qep_interop`, then use:
+
+```python
+from qdk.qre.application import QspApplication
+from qdk.qre.profiler import QREProfiler
+
+result = QREProfiler.counting().profile(QspApplication("my_program.cpp"))
+print(result.totals.calls_per_operation)
+```
+
+`QspApplication.compile()` invokes `c++` (or the command in `CXX`), links the
+release archive, and returns the absolute path of an executable named
+`<source-stem>_qsp` beside the source. `profile_qsp_application()` compiles and
+runs it, automatically connecting both protocol streams and restoring the
+parent's stdin/stdout afterward. Compiler failures, nonzero program exits, and
+protocol errors raise exceptions.
+
+The program should call `qdk_` instructions directly, without `qdk_init()` or
+`qdk_save_profile()`. Finish with a measurement/result read to submit buffered
+gates. This convenience API redirects process-wide descriptors, so use it only
+when no other threads or notebook infrastructure are using stdin/stdout.
+
+### Profiling an external program from Python
+
+`Profiler.profile_stdio()` reads instruction batches from the current process's
+stdin and writes results to stdout until the program closes its instruction
+stream. Connect the compiled program's stdout to the profiler's stdin, and the
+profiler's stdout to the program's stdin.
+
+On POSIX, the following runs the program as a subprocess and the profiler in
+the current Python process. Redirection must use OS file descriptors, not
+`contextlib.redirect_stdout` or assignments to `sys.stdin`/`sys.stdout`, because
+the profiler performs I/O in Rust.
+
+```python
+import os
+import subprocess
+import sys
+
+from qdk.qre.profiler import QREProfiler
+
+profiler = QREProfiler.counting().profiler
+sys.stdout.flush()
+saved_stdin, saved_stdout = os.dup(0), os.dup(1)
+try:
+    with subprocess.Popen(
+        ["./my_program"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
+    ) as program:
+        assert program.stdout is not None and program.stdin is not None
+        completed = False
+        try:
+            os.dup2(program.stdout.fileno(), 0)
+            os.dup2(program.stdin.fileno(), 1)
+            result = profiler.profile_stdio()
+            returncode = program.wait()
+            completed = True
+        finally:
+            if not completed and program.poll() is None:
+                program.terminate()
+        if returncode != 0:
+            raise subprocess.CalledProcessError(returncode, program.args)
+finally:
+    os.dup2(saved_stdin, 0)
+    os.dup2(saved_stdout, 1)
+    os.close(saved_stdin)
+    os.close(saved_stdout)
+
+result.to_json("profile.json")
+```
+
+The descriptor changes are process-wide: do not use this pattern in a notebook,
+server, or process with other stdin/stdout users. A dedicated profiler worker
+process with crossed pipes is safer there. Leave stderr separate for diagnostics;
+neither side may print non-protocol output to stdout. Do not call `communicate()`
+on the program while the profiler is consuming its pipes.
+
+End the workload with a measurement/result read so buffered instructions are
+submitted, then let the program exit (or close stdout) to signal EOF. Trailing
+instructions that never reach a batch boundary are discarded;
+`qdk_save_profile()` does not flush them in stdio mode.
+
 Coming soon: profilers will load configuration from a file. Meanwhile, if you need
 to instantiate backend with custom parameters, define custom backend name (e.g.
 "custom_profiler") and add implementation for it in `qdk_init()` in

@@ -1,6 +1,10 @@
 # API entry point for Quantum Execution Profiler.
 # TODO: finish this class.
 from collections.abc import Callable
+from contextlib import ExitStack
+import os
+import subprocess
+import sys
 
 import pyqir
 
@@ -16,6 +20,7 @@ from qdk.qre.application._openqasm import (
 )
 from qdk.qre.application._qir import QIRApplication
 from qdk.qre.application._qsharp import QSharpApplication
+from qdk.qre.application._qsp import QspApplication
 
 
 class QREProfiler:
@@ -83,8 +88,45 @@ class QREProfiler:
             program = getattr(code.qasm_import, name)
         return self._profile_qsharp_entry(program, app.args, use_qir)
 
+    def _profile_qsp_application(self, app: QspApplication) -> ProfilerResult:
+        """Compile and profile a QSP program, reserving process stdin/stdout.
+
+        Redirection is process-wide; other threads must not use these streams.
+        Compiler, protocol, and subprocess failures propagate to the caller.
+        """
+        if os.name != "posix":
+            raise NotImplementedError("QSP profiling requires POSIX file descriptors.")
+        compiled_exe = app.compile()
+        sys.stdout.flush()
+        with subprocess.Popen(
+            [str(compiled_exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE
+        ) as program:
+            try:
+                assert program.stdout is not None and program.stdin is not None
+                with ExitStack() as restore:
+                    for descriptor, stream in ((0, program.stdout), (1, program.stdin)):
+                        saved = os.dup(descriptor)
+                        restore.callback(os.close, saved)
+                        restore.callback(os.dup2, saved, descriptor)
+                        os.dup2(stream.fileno(), descriptor)
+                    result = self.profiler.profile_stdio()
+                returncode = program.wait()
+                if returncode != 0:
+                    raise subprocess.CalledProcessError(returncode, program.args)
+                return result
+            finally:
+                if program.poll() is None:
+                    program.terminate()
+                    try:
+                        program.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        program.kill()
+                        program.wait()
+
     def profile(self, app: Application, use_qir: bool = True) -> ProfilerResult:
-        """Profiles Q# or OpenQASM through QIR or the interpreter; QIR uses bytecode."""
+        """Profile Q#, OpenQASM, QIR, or a compiled QSP application."""
+        if isinstance(app, QspApplication):
+            return self._profile_qsp_application(app)
         if isinstance(app, QSharpApplication):
             return self._profile_qsharp_entry(app.entry_expr, app.args, use_qir)
         if isinstance(app, OpenQASMApplication):

@@ -7,7 +7,7 @@ mod event_recorder;
 mod profile_types;
 mod temporal_profiler;
 
-use crate::{QuantumBackend, run_adaptive_program, run_qsharp_call, run_qsharp_expr};
+use crate::{QuantumBackend, StdioDriver, run_adaptive_program, run_qsharp_call, run_qsharp_expr};
 use qdk_simulators::bytecode::AdaptiveProgram;
 use qsc::interpret::{Interpreter, Value};
 use serde::Serialize;
@@ -133,6 +133,16 @@ pub trait Profiler: QuantumBackend {
         Self: Sized,
     {
         run_adaptive_program(program, self)?;
+        Ok(self.get_result())
+    }
+
+    /// Profiles batches from stdin until EOF, flushing each result to stdout.
+    ///
+    /// Uses the QEP stream protocol and retains previously collected data.
+    /// Stream or backend failures stop execution and propagate without rolling
+    /// back profiling data. Reserve stdout for protocol messages.
+    fn profile_stdio(&mut self) -> Result<ProfilerResult, String> {
+        StdioDriver::stdio(&mut *self).run()?;
         Ok(self.get_result())
     }
 }

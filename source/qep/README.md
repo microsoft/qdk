@@ -98,6 +98,14 @@ on errors; execution failures have no separate wire encoding, so its owner must
 close the connection on failure to unblock the peer. `Error` result values are
 transmitted unchanged and are distinct from an `execute_batch` failure.
 
+`Profiler::profile_stdio()` serves this protocol on stdin/stdout until instruction
+EOF and returns the accumulated `ProfilerResult`. It propagates stream and backend
+errors without rolling back collected data. Python exposes the same method on
+`qdk.qre.Profiler`, releasing the GIL while serving. Use a separate process or
+redirect OS-level file descriptors to connect it to an external application;
+changing Python's `sys.stdin` or `sys.stdout` alone does not redirect Rust I/O.
+See the [interop connection example](../qep_interop/README.md#profiling-an-external-program-from-python).
+
 `QuantumBackends::sparse_sim()` creates a sparse simulator wrapped in
 `QsBackendShim`, supporting all QEP instructions. Qubits are allocated lazily;
 stored QIR result IDs are maintained separately across batches, so immediate

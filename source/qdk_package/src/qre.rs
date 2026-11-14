@@ -331,6 +331,21 @@ impl Profiler {
                 .map_err(PyRuntimeError::new_err)
         })
     }
+
+    /// Profiles stdin batches until EOF, flushing results to stdout with the GIL released.
+    ///
+    /// Prior profiling data is retained. Stream and backend failures raise
+    /// `RuntimeError`; stdout must be reserved for protocol messages.
+    fn profile_stdio(&mut self, py: Python<'_>) -> PyResult<ProfilerResult> {
+        use qep::Profiler as _;
+
+        py.detach(|| {
+            self.backend_mut()
+                .profile_stdio()
+                .map(Into::into)
+                .map_err(PyRuntimeError::new_err)
+        })
+    }
 }
 
 /// Sequential instruction-counting profiler exposed to Python.
