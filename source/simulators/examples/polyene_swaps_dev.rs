@@ -34,8 +34,12 @@
 //! cargo run --release -p qdk_simulators --example polyene_swaps_dev -- \
 //!     --variant base|fuse|seq/swap|seq/mpo|seq3/mpo|... --n 8|12|16|20 \
 //!     --chi 128 [--order identity] [--reference ppp8.exact.reference] \
-//!     [--steps 32] [--print-readings] [--schmidt]
+//!     [--steps 32] [--print-readings] [--schmidt] [--case <prefix>]
 //! ```
+//!
+//! `--case <prefix>` reads `<prefix>.circuit` and `<prefix>.ham` (any
+//! case in the same formats, e.g. a Hubbard lattice) instead of the
+//! harness's `ppp<n>` files.
 //!
 //! Every line starts with `POLYENE`; `step` lines add the split counts, the
 //! capacity-bound splits and the split time by kind
@@ -106,6 +110,9 @@ struct Options {
     pipeline: Pipeline,
     order: String,
     n: usize,
+    /// `--case <prefix>`: read `<prefix>.circuit` and `<prefix>.ham`
+    /// instead of the harness's `ppp<n>` files (`--n` then only labels).
+    case: Option<String>,
     chi: usize,
     reference: Option<String>,
     steps: Option<usize>,
@@ -161,7 +168,11 @@ impl Options {
             variant,
             pipeline,
             order: flag("--order").unwrap_or_else(|| "identity".to_string()),
-            n: number("--n")?.ok_or("--n 8|12|16|20")?,
+            n: match flag("--case") {
+                Some(_) => number("--n")?.unwrap_or(0),
+                None => number("--n")?.ok_or("--n 8|12|16|20 (or --case <prefix>)")?,
+            },
+            case: flag("--case"),
             chi: number("--chi")?.ok_or("--chi <bond>")?,
             reference: flag("--reference"),
             steps: number("--steps")?,
@@ -194,12 +205,16 @@ fn main() {
 
 fn run_case() -> Res<()> {
     let options = Options::parse()?;
-    let mut prefix = QpePrefix::read(&format!("{INPUTS}/ppp{}.circuit", options.n))?;
+    let case_prefix = options
+        .case
+        .clone()
+        .unwrap_or_else(|| format!("{INPUTS}/ppp{}", options.n));
+    let mut prefix = QpePrefix::read(&format!("{case_prefix}.circuit"))?;
     let program_steps = prefix.steps;
     if let Some(steps) = options.steps {
         prefix.steps = steps;
     }
-    let mut hamiltonian = Hamiltonian::read(&format!("{INPUTS}/ppp{}.ham", options.n))?;
+    let mut hamiltonian = Hamiltonian::read(&format!("{case_prefix}.ham"))?;
     let mut reference = match &options.reference {
         Some(name) if prefix.steps == program_steps => {
             Some((name.clone(), Reference::read(&format!("{INPUTS}/{name}"))?))
