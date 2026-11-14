@@ -126,7 +126,7 @@ impl Execute for Bits {
                 .filter(|instruction| Some(instruction.opcode) == mz)
                 .count();
             let width = u32::try_from(reads).expect("a small batch");
-            let rows = readouts.push_batch(batch.shots.len(), width);
+            let rows = readouts.push_with_capacity(batch.shots.len(), width);
             for id in batch.shots.iter() {
                 let qubits = self.qubits;
                 let (bits, stream) = self

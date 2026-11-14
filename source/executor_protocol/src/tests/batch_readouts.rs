@@ -161,7 +161,7 @@ fn a_full_batch_with_conditions_is_at_most_two_allocations() {
 fn cleared_readouts_take_an_answer_of_a_size_they_held_without_allocating() {
     let fill = |readouts: &mut Readouts| {
         for _ in 0..3 {
-            let batch = readouts.push_batch(100, 3);
+            let batch = readouts.push_with_capacity(100, 3);
             for shot in 0..100 {
                 let conditions = if shot % 2 == 0 {
                     ShotConditions::NONE
@@ -190,12 +190,12 @@ fn cleared_readouts_take_an_answer_of_a_size_they_held_without_allocating() {
 fn cleared_readouts_take_a_larger_answer_in_at_most_two_allocations() {
     let mut readouts = Readouts::new();
     readouts
-        .push_batch(1, 3)
+        .push_with_capacity(1, 3)
         .push_row(&[One, Zero, LOST], ShotConditions::NONE)
         .expect("each row has the batch's width");
     readouts.clear();
     let count = allocations(|| {
-        let batch = readouts.push_batch(1000, 3);
+        let batch = readouts.push_with_capacity(1000, 3);
         for shot in 0..1000 {
             let conditions = if shot == 0 {
                 ShotConditions::REJECTED
@@ -217,7 +217,7 @@ fn readouts_lists_are_equal_when_their_batches_are() {
     let fill = |readouts: &mut Readouts, values: [&[ReadoutValue]; 2]| {
         for row in values {
             readouts
-                .push_batch(1, 1)
+                .push_with_capacity(1, 1)
                 .push_row(row, ShotConditions::NONE)
                 .expect("each row has the batch's width");
         }

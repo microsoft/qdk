@@ -8,7 +8,7 @@
 //! `std::io::Read::read_to_end` appends to the caller's `Vec`: so a caller
 //! that sends many small `execute`s, such as a driver sending a round at a
 //! time, reuses one buffer, and an `execute` that fills it with
-//! [`Readouts::push_batch`] allocates nothing once the buffer has held
+//! [`Readouts::push_with_capacity`] allocates nothing once the buffer has held
 //! answers of its size. Clearing it keeps the memory of every batch's
 //! readouts, which the next answer reuses.
 
@@ -67,7 +67,7 @@ impl Readouts {
     /// values each and room for `shots` rows, and returns them to fill
     /// with [`push_row`](BatchReadouts::push_row). They reuse the memory
     /// of readouts cleared earlier, if any.
-    pub fn push_batch(&mut self, shots: usize, readouts: u32) -> &mut BatchReadouts {
+    pub fn push_with_capacity(&mut self, shots: usize, readouts: u32) -> &mut BatchReadouts {
         if self.len == self.batches.len() {
             self.batches
                 .push(BatchReadouts::with_capacity(shots, readouts));

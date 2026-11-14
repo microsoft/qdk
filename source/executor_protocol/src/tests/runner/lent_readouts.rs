@@ -84,7 +84,7 @@ impl Drive for Lender {
     ) -> Result<Vec<()>, DriveError> {
         let mut readouts = Readouts::new();
         readouts
-            .push_batch(1, 2)
+            .push_with_capacity(1, 2)
             .push_row(
                 &[ReadoutValue::Zero, ReadoutValue::One],
                 ShotConditions::NONE,
