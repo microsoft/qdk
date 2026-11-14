@@ -10,6 +10,7 @@ mod batch_readouts;
 mod checked;
 mod composition;
 mod instruction_set;
+mod panics;
 mod roles;
 mod runner;
 mod seed;
@@ -18,7 +19,7 @@ mod shot_set;
 #[cfg(test)]
 mod tests;
 
-pub use admission::{AdmissionFaults, Capabilities, Needs, UnmetNeed};
+pub use admission::{AdmissionFaults, Capabilities, Needs, ShortOffer, UnmetNeed};
 pub use batch::Batch;
 pub use batch_readouts::{
     BatchReadouts, ReadoutFailure, ReadoutIndex, ReadoutValue, ShapeFault, ShotConditions,

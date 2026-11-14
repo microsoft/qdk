@@ -7,7 +7,8 @@
 //! compares it with the driver's needs, as they reach the executor, before
 //! any shot runs, and the protocol keeps its limits for each run and each
 //! `execute`, so that no part checks them itself. An adapter adapts the
-//! offer for the part above it, as it adapts the needs for the part below.
+//! offer for the part above it, as it adapts the needs for the part below,
+//! and the `>>` compares its offer with the needs that reach it too.
 
 use std::collections::BTreeMap;
 

@@ -1,0 +1,714 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! The fake adapters.
+
+use std::cell::Cell;
+use std::collections::BTreeMap;
+use std::rc::Rc;
+
+use super::{CoinGates, Log, Stream, bound, coin_gate, mapped, zeros};
+use crate::{
+    Adapt, Batch, BatchReadouts, BlockType, Capabilities, Execute, ExecuteError, Failure,
+    Instruction, InstructionSet, Needs, OpcodeMap, RunRefusal, Seed, ShotId, ShotSet,
+};
+
+/// A toy bit-flip noise: after each `x`, another `x` with probability
+/// `per_mille` / 1000, drawn from its own stream per shot. Each shot goes
+/// below as a batch of its own, since each may flip differently.
+pub(crate) struct BitFlip {
+    per_mille: u64,
+    below: Option<OpcodeMap>,
+    streams: BTreeMap<ShotId, Stream>,
+    log: Log,
+}
+
+impl BitFlip {
+    pub(crate) fn new(per_mille: u64, log: &Log) -> Self {
+        Self {
+            per_mille,
+            below: None,
+            streams: BTreeMap::new(),
+            log: log.clone(),
+        }
+    }
+}
+
+impl Adapt for BitFlip {
+    fn accepts(&self) -> &InstructionSet {
+        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
+        SET.get_or_init(CoinGates::set)
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.accepts()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.below = Some(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        let map = bound(self.below.as_ref());
+        let own = seed.derive("bit_flip");
+        let mut sent: Vec<(ShotSet, Vec<Instruction>)> = Vec::new();
+        for batch in batches {
+            for (j, id) in batch.shots.iter().enumerate() {
+                let stream = self
+                    .streams
+                    .entry(id)
+                    .or_insert_with(|| Stream(own.shot(id)));
+                let mut instructions = Vec::with_capacity(batch.instructions.len() + 1);
+                for instruction in batch.instructions {
+                    let flips = instruction.opcode == CoinGates::X && stream.chance(self.per_mille);
+                    let mut mapped = instruction.clone();
+                    mapped.opcode = map.map(instruction.opcode);
+                    instructions.push(mapped.clone());
+                    if flips {
+                        instructions.push(mapped);
+                    }
+                }
+                sent.push((
+                    batch.shots.select(&[j]).expect("a position of the batch"),
+                    instructions,
+                ));
+            }
+        }
+        let one_each: Vec<Batch<'_>> = sent
+            .iter()
+            .map(|(shots, instructions)| Batch {
+                shots,
+                instructions,
+            })
+            .collect();
+        let answer = below.execute(&one_each, seed).await?;
+        let mut rows = answer.iter();
+        let mut readouts = Vec::with_capacity(batches.len());
+        for batch in batches {
+            let mine: Vec<&BatchReadouts> = rows.by_ref().take(batch.shots.len()).collect();
+            let mut joined = BatchReadouts::with_capacity(mine.len(), mine[0].readouts());
+            for one in mine {
+                joined
+                    .push_row(one.row(0), one.conditions(0))
+                    .expect("one shot's readouts");
+            }
+            readouts.push(joined);
+        }
+        Ok(readouts)
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        for id in shots.iter() {
+            self.streams.remove(&id);
+        }
+        self.log
+            .push(format!("BitFlip end_shots, holding {}", self.streams.len()));
+    }
+}
+
+/// An adapter that counts the instructions passing through it and changes
+/// nothing: it draws nothing, and sends each batch as it came.
+pub(crate) struct Profiler {
+    set: InstructionSet,
+    below: Option<OpcodeMap>,
+    instructions: Rc<Cell<usize>>,
+    log: Log,
+}
+
+impl Profiler {
+    /// A profiler of [`CoinGates`], counting into `instructions`.
+    pub(crate) fn new(instructions: &Rc<Cell<usize>>, log: &Log) -> Self {
+        Self::on(CoinGates::set(), instructions, log)
+    }
+
+    /// A profiler accepting and sending `set`.
+    pub(crate) fn on(set: InstructionSet, instructions: &Rc<Cell<usize>>, log: &Log) -> Self {
+        Self {
+            set,
+            below: None,
+            instructions: Rc::clone(instructions),
+            log: log.clone(),
+        }
+    }
+}
+
+impl Adapt for Profiler {
+    fn accepts(&self) -> &InstructionSet {
+        &self.set
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        &self.set
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.below = Some(below);
+    }
+
+    async fn ready(&mut self) -> Result<(), RunRefusal> {
+        self.log.push("Profiler ready");
+        Ok(())
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        let map = bound(self.below.as_ref());
+        let sent: Vec<Vec<Instruction>> = batches
+            .iter()
+            .map(|batch| mapped(map, batch.instructions))
+            .collect();
+        let count: usize = sent.iter().map(Vec::len).sum();
+        self.instructions.set(self.instructions.get() + count);
+        let below_batches: Vec<Batch<'_>> = batches
+            .iter()
+            .zip(&sent)
+            .map(|(batch, instructions)| Batch {
+                shots: batch.shots,
+                instructions,
+            })
+            .collect();
+        below.execute(&below_batches, seed).await
+    }
+}
+
+/// An adapter that sends each instruction of a batch as a batch of its
+/// own, one `execute` each, as a stepping debugger does, and joins their
+/// readouts.
+#[derive(Default)]
+pub(crate) struct Splitter {
+    below: Option<OpcodeMap>,
+}
+
+impl Adapt for Splitter {
+    fn accepts(&self) -> &InstructionSet {
+        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
+        SET.get_or_init(CoinGates::set)
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.accepts()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.below = Some(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        let map = bound(self.below.as_ref());
+        let mut answer = Vec::with_capacity(batches.len());
+        for batch in batches {
+            let instructions = mapped(map, batch.instructions);
+            let mut parts = Vec::with_capacity(instructions.len());
+            for instruction in &instructions {
+                let step = Batch {
+                    shots: batch.shots,
+                    instructions: std::slice::from_ref(instruction),
+                };
+                parts.extend(below.execute(&[step], seed).await?);
+            }
+            answer.push(if parts.is_empty() {
+                zeros(batch.shots.len(), 0)
+            } else {
+                BatchReadouts::concat_readouts(&parts)
+            });
+        }
+        Ok(answer)
+    }
+}
+
+/// A toy encoding: each qubit above is `k` qubits below, of which it uses
+/// the first. It needs `k` times the qubits below, and offers a `k`-th of
+/// them above.
+pub(crate) struct Spread {
+    k: u32,
+    below: Option<OpcodeMap>,
+    log: Log,
+}
+
+impl Spread {
+    pub(crate) fn new(k: u32, log: &Log) -> Self {
+        Self {
+            k,
+            below: None,
+            log: log.clone(),
+        }
+    }
+}
+
+impl Adapt for Spread {
+    fn accepts(&self) -> &InstructionSet {
+        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
+        SET.get_or_init(CoinGates::set)
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.accepts()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.below = Some(below);
+    }
+
+    fn needs_below(&self, above: Needs) -> Needs {
+        let qubits = above.blocks_of(&BlockType::qubit()) * self.k;
+        above.blocks(BlockType::qubit(), qubits)
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        let mut above = below;
+        if let Some(Some(qubits)) = above.max_blocks.get_mut(&BlockType::qubit()) {
+            *qubits /= self.k;
+        }
+        above
+    }
+
+    fn provision(&mut self, above: Needs) {
+        let qubits = above.blocks_of(&BlockType::qubit());
+        self.log
+            .push(format!("Spread provisioned for {qubits} qubits"));
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        let map = bound(self.below.as_ref());
+        let sent: Vec<Vec<Instruction>> = batches
+            .iter()
+            .map(|batch| {
+                let mut instructions = mapped(map, batch.instructions);
+                for instruction in &mut instructions {
+                    instruction.blocks[0] *= self.k;
+                }
+                instructions
+            })
+            .collect();
+        let below_batches: Vec<Batch<'_>> = batches
+            .iter()
+            .zip(&sent)
+            .map(|(batch, instructions)| Batch {
+                shots: batch.shots,
+                instructions,
+            })
+            .collect();
+        below.execute(&below_batches, seed).await
+    }
+}
+
+/// A toy layout drawing two block types from one pool: each `carbon` block
+/// above takes two qubits below, from the qubits that also hold the
+/// qubits above, so it needs `qubits + 2 * carbons` qubits below. No offer,
+/// a most per block type, can say what it serves; it offers each type the
+/// whole pool, the most that type alone could hold. At run time it passes
+/// instructions through, as a [`Spread`] of 1: the tests use it for its
+/// needs and offer.
+pub(crate) struct Pool(Spread);
+
+impl Pool {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self(Spread::new(1, log))
+    }
+
+    /// The block type it lowers onto qubits.
+    pub(crate) fn carbon() -> BlockType {
+        BlockType::new("carbon")
+    }
+}
+
+impl Adapt for Pool {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    fn needs_below(&self, above: Needs) -> Needs {
+        let qubits = above.blocks_of(&BlockType::qubit()) + 2 * above.blocks_of(&Self::carbon());
+        let mut below = above;
+        below.blocks.remove(&Self::carbon());
+        below.blocks(BlockType::qubit(), qubits)
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        let mut above = below;
+        let pool = above.max_blocks.get(&BlockType::qubit()).copied().flatten();
+        above
+            .max_blocks
+            .insert(Self::carbon(), pool.map(|qubits| qubits / 2));
+        above
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.0.adapt(batches, seed, below).await
+    }
+}
+
+/// A toy job queue that takes at most `most` shots a run, so it lowers the
+/// offer's most shots to `most`. At run time it passes instructions
+/// through, as a [`Spread`] of 1.
+pub(crate) struct Queue {
+    most: u32,
+    pass_through: Spread,
+}
+
+impl Queue {
+    pub(crate) fn new(most: u32, log: &Log) -> Self {
+        Self {
+            most,
+            pass_through: Spread::new(1, log),
+        }
+    }
+}
+
+impl Adapt for Queue {
+    fn accepts(&self) -> &InstructionSet {
+        self.pass_through.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.pass_through.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.pass_through.bind(below);
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        let most = below.max_shots.map_or(self.most, |m| m.min(self.most));
+        below.max_shots(most)
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.pass_through.adapt(batches, seed, below).await
+    }
+}
+
+/// An adapter that fails a batch holding `shot`, as a program's trap, and
+/// passes the others through; logging, when told to, that it ends shots.
+pub(crate) struct Trap {
+    shot: ShotId,
+    below: Option<OpcodeMap>,
+    log: Option<Log>,
+}
+
+impl Trap {
+    pub(crate) fn on(shot: u32) -> Self {
+        Self {
+            shot: ShotId::new(shot),
+            below: None,
+            log: None,
+        }
+    }
+
+    /// The same trap, logging `"Trap end_shots"` to `log` in each
+    /// `end_shots`.
+    pub(crate) fn logging(self, log: &Log) -> Self {
+        Self {
+            log: Some(log.clone()),
+            ..self
+        }
+    }
+}
+
+impl Adapt for Trap {
+    fn accepts(&self) -> &InstructionSet {
+        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
+        SET.get_or_init(CoinGates::set)
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.accepts()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.below = Some(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        if batches
+            .iter()
+            .any(|batch| batch.shots.iter().any(|id| id == self.shot))
+        {
+            return Err(ExecuteError::Failed {
+                shot: self.shot,
+                failure: Failure::Part("the program trapped".into()),
+            });
+        }
+        let map = bound(self.below.as_ref());
+        let sent: Vec<Vec<Instruction>> = batches
+            .iter()
+            .map(|batch| mapped(map, batch.instructions))
+            .collect();
+        let below_batches: Vec<Batch<'_>> = batches
+            .iter()
+            .zip(&sent)
+            .map(|(batch, instructions)| Batch {
+                shots: batch.shots,
+                instructions,
+            })
+            .collect();
+        below.execute(&below_batches, seed).await
+    }
+
+    fn end_shots(&mut self, _shots: &ShotSet) {
+        if let Some(log) = &self.log {
+            log.push("Trap end_shots");
+        }
+    }
+}
+
+/// An adapter that fails its second `adapt` ever, as a fault that does not
+/// come back, and passes every other through.
+pub(crate) struct FailsOnce {
+    adapts: u32,
+    below: Option<OpcodeMap>,
+}
+
+impl FailsOnce {
+    pub(crate) fn new() -> Self {
+        Self {
+            adapts: 0,
+            below: None,
+        }
+    }
+}
+
+impl Adapt for FailsOnce {
+    fn accepts(&self) -> &InstructionSet {
+        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
+        SET.get_or_init(CoinGates::set)
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.accepts()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.below = Some(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.adapts += 1;
+        if self.adapts == 2 {
+            return Err(ExecuteError::Failed {
+                shot: batches[0].shots.iter().next().expect("a shot"),
+                failure: Failure::Part("the adapter failed once".into()),
+            });
+        }
+        let map = bound(self.below.as_ref());
+        let sent: Vec<Vec<Instruction>> = batches
+            .iter()
+            .map(|batch| mapped(map, batch.instructions))
+            .collect();
+        let below_batches: Vec<Batch<'_>> = batches
+            .iter()
+            .zip(&sent)
+            .map(|(batch, instructions)| Batch {
+                shots: batch.shots,
+                instructions,
+            })
+            .collect();
+        below.execute(&below_batches, seed).await
+    }
+}
+
+/// How a [`Misbehaving`] adapter breaks the protocol's rules.
+#[derive(Clone, Copy)]
+pub(crate) enum Misbehaviour {
+    /// Adds an `x` on qubit 9 to each batch, beyond the needs it passes
+    /// down unchanged.
+    SendsBeyondTheNeeds,
+    /// Sends each batch's instructions three times over.
+    TriplesEachBatch,
+    /// Panics with a formatted message, a `String`.
+    PanicsWithAString,
+    /// Panics with a number, a payload that is not text.
+    PanicsWithANumber,
+}
+
+/// An adapter of [`CoinGates`] that breaks a rule of the protocol, as
+/// `Misbehaviour` says; it passes the batches through otherwise.
+pub(crate) struct Misbehaving {
+    misbehaviour: Misbehaviour,
+    below: Option<OpcodeMap>,
+}
+
+impl Misbehaving {
+    pub(crate) fn new(misbehaviour: Misbehaviour) -> Self {
+        Self {
+            misbehaviour,
+            below: None,
+        }
+    }
+}
+
+impl Adapt for Misbehaving {
+    fn accepts(&self) -> &InstructionSet {
+        static SET: std::sync::OnceLock<InstructionSet> = std::sync::OnceLock::new();
+        SET.get_or_init(CoinGates::set)
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.accepts()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.below = Some(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        match self.misbehaviour {
+            Misbehaviour::PanicsWithAString => {
+                panic!("the adapter broke on {} batches", batches.len())
+            }
+            Misbehaviour::PanicsWithANumber => std::panic::panic_any(42_u32),
+            Misbehaviour::SendsBeyondTheNeeds | Misbehaviour::TriplesEachBatch => {}
+        }
+        let map = bound(self.below.as_ref());
+        let sent: Vec<Vec<Instruction>> = batches
+            .iter()
+            .map(|batch| {
+                let once = batch.instructions;
+                let mut instructions = match self.misbehaviour {
+                    Misbehaviour::TriplesEachBatch => [once, once, once].concat(),
+                    _ => once.to_vec(),
+                };
+                if let Misbehaviour::SendsBeyondTheNeeds = self.misbehaviour {
+                    instructions.push(coin_gate("x", 9));
+                }
+                mapped(map, &instructions)
+            })
+            .collect();
+        let below_batches: Vec<Batch<'_>> = batches
+            .iter()
+            .zip(&sent)
+            .map(|(batch, instructions)| Batch {
+                shots: batch.shots,
+                instructions,
+            })
+            .collect();
+        below.execute(&below_batches, seed).await
+    }
+}
+
+/// A toy lowering that cannot carry readout parities: it offers none
+/// above, whatever the offer below. At run time it passes instructions
+/// through, as a [`Spread`] of 1.
+pub(crate) struct LoweringWithoutParity(Spread);
+
+impl LoweringWithoutParity {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self(Spread::new(1, log))
+    }
+}
+
+impl Adapt for LoweringWithoutParity {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        below.without_readout_parity()
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.0.adapt(batches, seed, below).await
+    }
+}
+
+/// An adapter that panics in each `end_shots`, with `"end_shots broke"`. At
+/// run time it passes instructions through, as a [`Spread`] of 1.
+pub(crate) struct PanicsEnding(Spread);
+
+impl PanicsEnding {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self(Spread::new(1, log))
+    }
+}
+
+impl Adapt for PanicsEnding {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.0.adapt(batches, seed, below).await
+    }
+
+    fn end_shots(&mut self, _shots: &ShotSet) {
+        panic!("end_shots broke");
+    }
+}

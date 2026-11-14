@@ -69,12 +69,12 @@ pub(crate) fn check_batch(
             got: instructions.len(),
         });
     }
-    let mut readouts: u32 = 0;
+    let mut slots: u32 = 0;
     for (at, instruction) in instructions.iter().enumerate() {
-        let slots = set
+        let its_slots = set
             .check(instruction, Some(&limits.blocks_of))
             .map_err(|fault| BatchFault::Instruction { at, fault })?;
-        readouts = readouts.saturating_add(slots);
+        slots = slots.saturating_add(its_slots);
     }
-    Ok(readouts)
+    Ok(slots)
 }

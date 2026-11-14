@@ -8,7 +8,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::admission::part_list::PartList;
+use crate::admission::by_part::ByPart;
 use crate::{
     Batch, BatchReadouts, Capabilities, Failure, InstructionFault, InstructionSet, Needs,
     RunRefusal, Seed, ShotId, ShotSet,
@@ -45,17 +45,17 @@ pub trait Execute {
     /// The needs that reach this executor from `above`, listing those of
     /// each adapter it holds; only the crate overrides it.
     #[doc(hidden)]
-    fn needs_by_part(&self, above: Needs, parts: &mut PartList) -> Needs {
-        let _ = parts;
+    fn needs_by_part(&self, above: Needs, by_part: &mut ByPart) -> Needs {
+        let _ = by_part;
         above
     }
 
     /// Its offer, listed as this part's; only the crate overrides it, to
     /// list each adapter's too.
     #[doc(hidden)]
-    fn offers_by_part(&self, parts: &mut PartList) -> Capabilities {
+    fn offers_by_part(&self, by_part: &mut ByPart) -> Capabilities {
         let offer = self.offers();
-        parts.note_offer::<Self>(&offer);
+        by_part.note_offer::<Self>(&offer);
         offer
     }
 
@@ -76,6 +76,18 @@ pub trait Execute {
     /// at its first batch, from the needs it was provisioned for and
     /// [`seed.shot(id)`](Seed::shot), and kept until
     /// [`end_shots`](Self::end_shots).
+    ///
+    /// Three rules hold between the part that calls it and the executor:
+    ///
+    /// - the caller puts a shot in at most one batch of an `execute`;
+    /// - shots are independent, so the executor may run the batches in any
+    ///   order, or at once;
+    /// - the executor leaves a shot in no batch untouched.
+    ///
+    /// The protocol does not check the first rule, which the caller keeps:
+    /// a check across batches needs a set of their shots per `execute`,
+    /// where the protocol's other checks of an `execute` are per
+    /// instruction and per batch.
     fn execute(
         &mut self,
         batches: &[Batch<'_>],
@@ -106,12 +118,12 @@ impl<E: Execute + ?Sized> Execute for &mut E {
         (**self).provision(needs);
     }
 
-    fn needs_by_part(&self, above: Needs, parts: &mut PartList) -> Needs {
-        (**self).needs_by_part(above, parts)
+    fn needs_by_part(&self, above: Needs, by_part: &mut ByPart) -> Needs {
+        (**self).needs_by_part(above, by_part)
     }
 
-    fn offers_by_part(&self, parts: &mut PartList) -> Capabilities {
-        (**self).offers_by_part(parts)
+    fn offers_by_part(&self, by_part: &mut ByPart) -> Capabilities {
+        (**self).offers_by_part(by_part)
     }
 
     fn ready(&mut self) -> impl Future<Output = Result<(), RunRefusal>> {
@@ -138,9 +150,11 @@ impl<E: Execute + ?Sized> Execute for &mut E {
 pub enum ExecuteError {
     /// Nothing of the `execute` ran.
     Refused(ExecuteRefusal),
-    /// Work started and broke for `shot`.
+    /// Work started and broke; `shot` is the one the failure names.
     Failed {
-        /// The shot whose work broke.
+        /// The shot the failure names: the failing part's own choice, or
+        /// the first shot of the batch or run that failed, for a failure
+        /// the protocol makes ([`Failure`]).
         shot: ShotId,
         /// Why.
         failure: Failure,

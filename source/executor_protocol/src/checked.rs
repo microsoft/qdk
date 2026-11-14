@@ -12,19 +12,13 @@
 //! panic (where a panic unwinds: on wasm32, it aborts), so that the part
 //! above gets readouts it can index without a check of its own.
 
-use std::any::Any;
-use std::future::poll_fn;
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::pin::pin;
-use std::task::Poll;
-
 use smallvec::SmallVec;
 
-use crate::admission::part_list::PartList;
 use crate::instruction_set::instruction::batch_check::{BatchFault, BatchLimits, check_batch};
+use crate::panics::catch_panic;
 use crate::{
     Batch, BatchReadouts, Capabilities, Execute, ExecuteError, ExecuteRefusal, Failure,
-    InstructionSet, Needs, RunRefusal, Seed, ShapeFault, ShotId, ShotSet,
+    InstructionSet, Needs, Seed, ShapeFault, ShotId, ShotSet,
 };
 
 /// `inner`, the receiver of a boundary, with every `execute` it receives
@@ -45,19 +39,6 @@ impl<'a, E: Execute> Checked<'a, E> {
     }
 }
 
-/// The limits of the batches sent to `receiver`, whose offer is `offer`,
-/// by a part whose shots need `needs`: the receiver's most instructions,
-/// and the blocks of each of its block types.
-pub(crate) fn batch_limits(
-    receiver: &InstructionSet,
-    offer: &Capabilities,
-    needs: &Needs,
-) -> BatchLimits {
-    BatchLimits::new(receiver, offer.max_instructions, |block_type| {
-        needs.blocks_of(block_type)
-    })
-}
-
 impl<E: Execute> Execute for Checked<'_, E> {
     fn accepts(&self) -> &InstructionSet {
         self.inner.accepts()
@@ -65,22 +46,6 @@ impl<E: Execute> Execute for Checked<'_, E> {
 
     fn offers(&self) -> Capabilities {
         self.inner.offers()
-    }
-
-    fn provision(&mut self, needs: Needs) {
-        self.inner.provision(needs);
-    }
-
-    fn needs_by_part(&self, above: Needs, parts: &mut PartList) -> Needs {
-        self.inner.needs_by_part(above, parts)
-    }
-
-    fn offers_by_part(&self, parts: &mut PartList) -> Capabilities {
-        self.inner.offers_by_part(parts)
-    }
-
-    fn ready(&mut self) -> impl Future<Output = Result<(), RunRefusal>> {
-        self.inner.ready()
     }
 
     /// Refuses `batches` if any is refused, before any runs; an empty
@@ -119,6 +84,19 @@ impl<E: Execute> Execute for Checked<'_, E> {
     fn end_shots(&mut self, shots: &ShotSet) {
         self.inner.end_shots(shots);
     }
+}
+
+/// The limits of the batches sent to `receiver`, whose offer is `offer`,
+/// by a part whose shots need `needs`: the receiver's most instructions,
+/// and the blocks of each of its block types.
+pub(crate) fn batch_limits(
+    receiver: &InstructionSet,
+    offer: &Capabilities,
+    needs: &Needs,
+) -> BatchLimits {
+    BatchLimits::new(receiver, offer.max_instructions, |block_type| {
+        needs.blocks_of(block_type)
+    })
 }
 
 /// The refusal of `batches[index]`, `batch`, for `fault`, named by its
@@ -192,40 +170,6 @@ fn check_shape(
 /// The first of `shots`, in its order.
 fn first_shot(shots: &ShotSet) -> ShotId {
     shots.iter().next().expect("a shot set is never empty")
-}
-
-/// Makes a part's future with `make`, and awaits it: its output, or the
-/// message of the part's panic, when the message is text.
-///
-/// `AssertUnwindSafe`, because a part may be left half-updated by its
-/// panic, and the protocol calls it again: the run fails, the runner ends
-/// its shots on every part, the part that panicked included, and a later
-/// run calls it as before. So a part must tolerate being called after its
-/// panic, as after an error; the run that panicked gives no output, so
-/// nothing reaches the user from a half-updated part.
-pub(crate) async fn catch_panic<F: Future>(
-    make: impl FnOnce() -> F,
-) -> Result<F::Output, Option<String>> {
-    let future = catch_unwind(AssertUnwindSafe(make)).map_err(panic_message)?;
-    let mut future = pin!(future);
-    poll_fn(
-        |context| match catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(context))) {
-            Ok(Poll::Ready(output)) => Poll::Ready(Ok(output)),
-            Ok(Poll::Pending) => Poll::Pending,
-            Err(payload) => Poll::Ready(Err(panic_message(payload))),
-        },
-    )
-    .await
-}
-
-/// The message of a panic whose payload is `payload`, when it is text.
-fn panic_message(payload: Box<dyn Any + Send>) -> Option<String> {
-    match payload.downcast::<String>() {
-        Ok(message) => Some(*message),
-        Err(payload) => payload
-            .downcast_ref::<&str>()
-            .map(|message| (*message).to_owned()),
-    }
 }
 
 #[cfg(test)]

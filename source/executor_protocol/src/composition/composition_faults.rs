@@ -11,8 +11,8 @@ use crate::{AdmissionFaults, FitFaults};
 
 /// Every fault of a chain, reported at once by the `>>` that makes its
 /// runner, before any shot runs: each boundary whose instructions do not
-/// fit, top to bottom, and the admission's faults, if the executor's offer
-/// does not meet the driver's needs as they reach it.
+/// fit, top to bottom, and the admission's faults, if a part's offer does
+/// not meet the driver's needs as they reach it.
 #[derive(Clone, Debug)]
 pub struct CompositionFaults {
     fit: Vec<FitFaults>,
@@ -31,8 +31,8 @@ impl CompositionFaults {
         &self.fit
     }
 
-    /// The admission's faults, if the executor's offer does not meet the
-    /// driver's needs as they reach it.
+    /// The admission's faults, if a part's offer does not meet the driver's
+    /// needs as they reach it.
     #[must_use]
     pub fn admission(&self) -> Option<&AdmissionFaults> {
         self.admission.as_ref()

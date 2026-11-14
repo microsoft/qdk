@@ -8,9 +8,10 @@
 //! A chain is a driver, any number of adapters, and an executor. The driver
 //! sends batches of instructions down; each adapter answers each batch it
 //! receives by sending batches of its own to the part below; the executor
-//! runs them. Users compose parts with `>>` into a runner, which checks at
-//! each join that the parts fit, and once whole that the executor serves
-//! the driver's needs, so that a part writes only its own logic.
+//! runs them. Users compose parts with `>>`, which checks at each join that
+//! the parts fit and, once the chain is whole, that each part's offer
+//! serves the driver's needs as they reach it, and makes a runner; so a
+//! part writes only its own logic.
 //!
 //! Each error holds only what can happen where it is returned: an `execute`
 //! is refused or fails ([`ExecuteError`](crate::ExecuteError)), a `drive`
@@ -40,7 +41,8 @@ pub enum RunRefusal {
     TooManyShots {
         /// The run's shots.
         asked: u32,
-        /// The most the chain runs at once.
+        /// The most shots a run may have, by the offer that reaches the
+        /// driver.
         most: u32,
     },
     /// The run fixes its seed, and the chain is not seedable
@@ -55,7 +57,7 @@ impl fmt::Display for RunRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RunRefusal::TooManyShots { asked, most } => {
-                write!(f, "{asked} shots asked, and the chain runs at most {most}")
+                write!(f, "{asked} shots asked, and a run may have at most {most}")
             }
             RunRefusal::NotSeedable => f.write_str("a fixed seed, and the chain is not seedable"),
             RunRefusal::Unavailable(why) => write!(f, "a part cannot take a run now: {why}"),

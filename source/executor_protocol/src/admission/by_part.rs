@@ -1,23 +1,23 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The list of each part's needs and offer that the admission reports:
-//! [`PartList`].
+//! Each part's needs and offer, which the admission compares and reports:
+//! [`ByPart`].
 //!
 //! The traits' hidden `needs_by_part` and `offers_by_part` take one, and
 //! code outside the crate cannot name it, because this module is private:
 //! so those methods cannot be overridden outside the crate, and every part
 //! is listed as the crate lists it. The `>>` that makes a runner lists
-//! every part, since the admission compares the needs that reach the
-//! executor with the executor's own offer; a part that only asks its parts'
-//! needs or offer lists nothing.
+//! every part, since the admission compares, at each boundary, the needs
+//! of the part above with the offer of the part below; a part that only
+//! asks its parts' needs or offer lists nothing.
 
 use crate::{Capabilities, Needs};
 
 /// Each part's needs, top to bottom, and offer, bottom to top, each named by
 /// its type; or nothing, when the caller wants only the chain's own needs
 /// and offer.
-pub struct PartList {
+pub struct ByPart {
     keep: bool,
     /// The needs listed, in the order they were.
     pub(crate) needs: Vec<(&'static str, Needs)>,
@@ -25,7 +25,7 @@ pub struct PartList {
     pub(crate) offers: Vec<(&'static str, Capabilities)>,
 }
 
-impl PartList {
+impl ByPart {
     /// A list that keeps what it is told.
     pub(crate) fn new() -> Self {
         Self {

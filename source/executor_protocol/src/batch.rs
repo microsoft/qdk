@@ -11,7 +11,9 @@ use crate::{Instruction, ShotSet};
 /// the work of shots at different points of their programs; it answers with
 /// one [`BatchReadouts`](crate::BatchReadouts) per batch, in the batches'
 /// order, with a row per shot in `shots`' order and a value per readout
-/// slot of `instructions`.
+/// slot of `instructions`. How the batches of one `execute` relate, such
+/// as a shot in at most one of them, is said on
+/// [`Execute::execute`](crate::Execute::execute).
 #[derive(Clone, Copy, Debug)]
 pub struct Batch<'a> {
     /// The shots the instructions run on, in the order of the answer's

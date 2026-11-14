@@ -3,7 +3,7 @@
 
 //! The adapter's role, [`Adapt`]: a part between a driver and an executor.
 
-use crate::admission::part_list::PartList;
+use crate::admission::by_part::ByPart;
 use crate::{
     Batch, BatchReadouts, Capabilities, Execute, ExecuteError, InstructionSet, Needs, OpcodeMap,
     RunRefusal, Seed, ShotSet,
@@ -37,12 +37,14 @@ pub trait Adapt {
     }
 
     /// What it offers above, given what is offered `below`; by default the
-    /// same. The part above counts on its most shots and instructions, and
-    /// on whether a run may fix its seed; an admission fault lists it. The
-    /// admission itself does not use it: it compares what
-    /// [`needs_below`](Self::needs_below) passes down with the executor's
-    /// own offer, which stays exact where an offer cannot be, such as
-    /// for two block types drawn from one pool below.
+    /// same. The admission checks the needs of the part above against it,
+    /// so an adapter refuses there what it cannot carry, such as readout
+    /// parities it cannot lower; the part above also counts on its most
+    /// shots and instructions, and on whether a run may fix its seed. Where
+    /// an offer cannot be exact, such as for two block types drawn from one
+    /// pool below, the admission still checks what
+    /// [`needs_below`](Self::needs_below) passes down against the
+    /// executor's own offer.
     fn offers_above(&self, below: Capabilities) -> Capabilities {
         below
     }
@@ -58,18 +60,18 @@ pub trait Adapt {
     /// Its needs below, listed as this part's; only the crate overrides it,
     /// to list each part it holds.
     #[doc(hidden)]
-    fn needs_by_part(&self, above: Needs, parts: &mut PartList) -> Needs {
+    fn needs_by_part(&self, above: Needs, by_part: &mut ByPart) -> Needs {
         let below = self.needs_below(above);
-        parts.note_needs::<Self>(&below);
+        by_part.note_needs::<Self>(&below);
         below
     }
 
     /// Its offer above, listed as this part's; only the crate overrides it,
     /// to list each part it holds.
     #[doc(hidden)]
-    fn offers_by_part(&self, below: Capabilities, parts: &mut PartList) -> Capabilities {
+    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
         let above = self.offers_above(below);
-        parts.note_offer::<Self>(&above);
+        by_part.note_offer::<Self>(&above);
         above
     }
 
@@ -123,12 +125,12 @@ impl<A: Adapt + ?Sized> Adapt for &mut A {
         (**self).provision(above);
     }
 
-    fn needs_by_part(&self, above: Needs, parts: &mut PartList) -> Needs {
-        (**self).needs_by_part(above, parts)
+    fn needs_by_part(&self, above: Needs, by_part: &mut ByPart) -> Needs {
+        (**self).needs_by_part(above, by_part)
     }
 
-    fn offers_by_part(&self, below: Capabilities, parts: &mut PartList) -> Capabilities {
-        (**self).offers_by_part(below, parts)
+    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
+        (**self).offers_by_part(below, by_part)
     }
 
     fn ready(&mut self) -> impl Future<Output = Result<(), RunRefusal>> {

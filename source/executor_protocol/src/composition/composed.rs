@@ -18,9 +18,10 @@
 //! boundary inside a `Composed` here, and the one where the driver meets the
 //! executor by the runner.
 
-use crate::admission::part_list::PartList;
+use crate::admission::by_part::ByPart;
 use crate::checked::{Checked, batch_limits};
 use crate::instruction_set::instruction::batch_check::BatchLimits;
+use crate::panics::end_both;
 use crate::roles::FailedRun;
 use crate::{
     Adapt, Batch, BatchReadouts, Capabilities, Drive, DriveError, Execute, ExecuteError,
@@ -28,7 +29,8 @@ use crate::{
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
-/// executor, as the four joins of [`Compose`](crate::Compose) give.
+/// executor, as three of the four joins of [`Compose`](crate::Compose)
+/// give.
 ///
 /// It is public because it appears in a chain's type, such as
 /// `Runner<Composed<D, A>, E>`, but only `>>` builds one.
@@ -69,7 +71,7 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
     }
 
     fn needs(&self) -> Needs {
-        self.needs_by_part(&mut PartList::ignored())
+        self.needs_by_part(&mut ByPart::ignored())
     }
 
     /// Top down: the driver, then the adapter with the driver's needs.
@@ -81,20 +83,23 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         self.batch_limits = None;
     }
 
-    fn needs_by_part(&self, parts: &mut PartList) -> Needs {
-        let above = self.upper.needs_by_part(parts);
-        self.lower.needs_by_part(above, parts)
+    fn needs_by_part(&self, by_part: &mut ByPart) -> Needs {
+        let above = self.upper.needs_by_part(by_part);
+        self.lower.needs_by_part(above, by_part)
     }
 
-    fn offers_by_part(&self, below: Capabilities, parts: &mut PartList) -> Capabilities {
-        let above = self.lower.offers_by_part(below, parts);
-        self.upper.offers_by_part(above, parts)
+    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
+        let above = self.lower.offers_by_part(below, by_part);
+        self.upper.offers_by_part(above, by_part)
     }
 
-    /// The driver's adapters, then this one.
+    /// The driver's adapters, then this one, each ended even if one
+    /// before it panics.
     fn end_failed_run(&mut self, run: FailedRun<'_>) {
-        self.upper.end_failed_run(run);
-        self.lower.end_shots(run.shots);
+        end_both(
+            || self.upper.end_failed_run(run),
+            || self.lower.end_shots(run.shots),
+        );
     }
 
     /// The part below first.
@@ -140,11 +145,11 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
     }
 
     fn needs_below(&self, above: Needs) -> Needs {
-        self.needs_by_part(above, &mut PartList::ignored())
+        self.needs_by_part(above, &mut ByPart::ignored())
     }
 
     fn offers_above(&self, below: Capabilities) -> Capabilities {
-        self.offers_by_part(below, &mut PartList::ignored())
+        self.offers_by_part(below, &mut ByPart::ignored())
     }
 
     /// Top down: the upper part with `above`, then the lower one with what
@@ -157,14 +162,14 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
         self.batch_limits = None;
     }
 
-    fn needs_by_part(&self, above: Needs, parts: &mut PartList) -> Needs {
-        let middle = self.upper.needs_by_part(above, parts);
-        self.lower.needs_by_part(middle, parts)
+    fn needs_by_part(&self, above: Needs, by_part: &mut ByPart) -> Needs {
+        let middle = self.upper.needs_by_part(above, by_part);
+        self.lower.needs_by_part(middle, by_part)
     }
 
-    fn offers_by_part(&self, below: Capabilities, parts: &mut PartList) -> Capabilities {
-        let middle = self.lower.offers_by_part(below, parts);
-        self.upper.offers_by_part(middle, parts)
+    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
+        let middle = self.lower.offers_by_part(below, by_part);
+        self.upper.offers_by_part(middle, by_part)
     }
 
     /// The part below first.
@@ -194,10 +199,13 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
             .await
     }
 
-    /// The upper part, then the lower one.
+    /// The upper part, then the lower one, ended even if the upper part
+    /// panics.
     fn end_shots(&mut self, shots: &ShotSet) {
-        self.upper.end_shots(shots);
-        self.lower.end_shots(shots);
+        end_both(
+            || self.upper.end_shots(shots),
+            || self.lower.end_shots(shots),
+        );
     }
 }
 
@@ -208,7 +216,7 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
     }
 
     fn offers(&self) -> Capabilities {
-        self.offers_by_part(&mut PartList::ignored())
+        self.offers_by_part(&mut ByPart::ignored())
     }
 
     /// Top down, as for an adapter.
@@ -220,14 +228,14 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         self.batch_limits = None;
     }
 
-    fn needs_by_part(&self, above: Needs, parts: &mut PartList) -> Needs {
-        let below = self.upper.needs_by_part(above, parts);
-        self.lower.needs_by_part(below, parts)
+    fn needs_by_part(&self, above: Needs, by_part: &mut ByPart) -> Needs {
+        let below = self.upper.needs_by_part(above, by_part);
+        self.lower.needs_by_part(below, by_part)
     }
 
-    fn offers_by_part(&self, parts: &mut PartList) -> Capabilities {
-        let below = self.lower.offers_by_part(parts);
-        self.upper.offers_by_part(below, parts)
+    fn offers_by_part(&self, by_part: &mut ByPart) -> Capabilities {
+        let below = self.lower.offers_by_part(by_part);
+        self.upper.offers_by_part(below, by_part)
     }
 
     /// The part below first.
@@ -256,10 +264,13 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
             .await
     }
 
-    /// The upper part, then the lower one.
+    /// The upper part, then the lower one, ended even if the upper part
+    /// panics.
     fn end_shots(&mut self, shots: &ShotSet) {
-        self.upper.end_shots(shots);
-        self.lower.end_shots(shots);
+        end_both(
+            || self.upper.end_shots(shots),
+            || self.lower.end_shots(shots),
+        );
     }
 }
 
@@ -289,10 +300,13 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
         self.adapter.adapt(batches, seed, &mut *self.below)
     }
 
-    /// The adapter, then the chain below it.
+    /// The adapter, then the chain below it, ended even if the adapter
+    /// panics.
     fn end_shots(&mut self, shots: &ShotSet) {
-        self.adapter.end_shots(shots);
-        self.below.end_shots(shots);
+        end_both(
+            || self.adapter.end_shots(shots),
+            || self.below.end_shots(shots),
+        );
     }
 }
 

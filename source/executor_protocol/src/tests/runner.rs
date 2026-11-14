@@ -9,6 +9,7 @@ mod wait;
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, mpsc};
@@ -18,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Misshape, Misshapen, Panics,
-    PanicsWhen, Profiler, Program, Queue, Splitter, Spread, Trap, Values, YieldNow,
+    PanicsEnding, PanicsWhen, Profiler, Program, Queue, Splitter, Spread, Trap, Values, YieldNow,
 };
 use crate::{
     Adapter, Capabilities, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure,
@@ -469,6 +470,59 @@ fn two_tasks_on_one_thread() {
     );
 }
 
+/// Coin copies under a noise, over bits that answer later, in both
+/// bracketings: a run whose future is dropped after its first `execute`
+/// leaves no shot's state in any part, so the rerun with the same seed
+/// gives the records of a new chain.
+#[test]
+fn a_rerun_after_a_dropped_run_gives_a_new_chains_records() {
+    /// The records of `runner`'s second run of `shots`, its first dropped
+    /// unfinished.
+    fn rerun<D: Drive<Output = Values>, E: Execute>(
+        mut runner: Runner<D, E>,
+        shots: &ShotSet,
+        log: &Log,
+    ) -> Vec<Values> {
+        {
+            let mut run = std::pin::pin!(runner.run_async(shots, SEED));
+            for _ in 0..2 {
+                let poll = run.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+                assert!(poll.is_pending(), "the run is unfinished");
+            }
+        }
+        assert_eq!(log.count("Bits execute"), 1, "one execute before the drop");
+        runner.run(shots, SEED).expect("the rerun succeeds")
+    }
+    let shots = ShotSet::ids(0..16);
+    let new_chain = runner(
+        Driver::new(CoinCopy::new())
+            >> Adapter::new(BitFlip::new(300, &Log::default()))
+            >> Executor::new(Bits::new(&Log::default())),
+    )
+    .run(&shots, SEED)
+    .expect("the run succeeds");
+    let log = Log::default();
+    let left = runner(
+        (Driver::new(CoinCopy::new()) >> Adapter::new(BitFlip::new(300, &log)))
+            >> Executor::new(Later(Bits::new(&log))),
+    );
+    assert_eq!(
+        rerun(left, &shots, &log),
+        new_chain,
+        "the noise with the driver"
+    );
+    let log = Log::default();
+    let right = runner(
+        Driver::new(CoinCopy::new())
+            >> (Adapter::new(BitFlip::new(300, &log)) >> Executor::new(Later(Bits::new(&log)))),
+    );
+    assert_eq!(
+        rerun(right, &shots, &log),
+        new_chain,
+        "the noise with the bits"
+    );
+}
+
 // ---------------------------------------------------------------- refusals
 
 /// An executor running 4 shots at most: a run of 5 is refused before any
@@ -852,6 +906,166 @@ fn shape_fault(misshape: Misshape) -> ShapeFault {
         panic!("the part's error, not {:?}", error.failure);
     };
     *fault.downcast_ref::<ShapeFault>().expect("a shape fault")
+}
+
+/// Coin copies under a noise, above a trap on shot 5, over bits, in each
+/// bracketing: a run's shots are ended on the noise, then the trap, then
+/// the bits, both when the driver ends them and when the run fails.
+#[test]
+fn a_runs_shots_are_ended_top_to_bottom_even_when_it_fails() {
+    /// The ends logged by a run that succeeds, then by one that fails.
+    type Ends = [Vec<String>; 2];
+    /// The shots ended by `runner`'s run of shots 0 to 3, which succeeds,
+    /// then by its run of shots 0 to 7, which fails on shot 5, as logged
+    /// to `log`.
+    fn ends<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) -> Ends {
+        let ended = |log: &Log| -> Vec<String> {
+            log.entries()
+                .into_iter()
+                .filter(|entry| entry.contains("end_shots"))
+                .collect()
+        };
+        runner
+            .run(&ShotSet::ids(0..4), SEED)
+            .expect("a run without shot 5 succeeds");
+        let succeeded = ended(log);
+        failed(
+            runner
+                .run(&ShotSet::ids(0..8), SEED)
+                .map(|records| records.len()),
+        );
+        let failed_run = ended(log)[succeeded.len()..].to_vec();
+        [succeeded, failed_run]
+    }
+    let bracketings: [fn(&Log) -> Ends; 5] = [
+        |log| {
+            let chain = Driver::new(CoinCopy::new())
+                >> Adapter::new(BitFlip::new(300, log))
+                >> Adapter::new(Trap::on(5).logging(log))
+                >> Executor::new(Bits::new(log));
+            ends(runner(chain), log)
+        },
+        |log| {
+            let chain = (Driver::new(CoinCopy::new())
+                >> (Adapter::new(BitFlip::new(300, log))
+                    >> Adapter::new(Trap::on(5).logging(log))))
+                >> Executor::new(Bits::new(log));
+            ends(runner(chain), log)
+        },
+        |log| {
+            let chain = (Driver::new(CoinCopy::new()) >> Adapter::new(BitFlip::new(300, log)))
+                >> (Adapter::new(Trap::on(5).logging(log)) >> Executor::new(Bits::new(log)));
+            ends(runner(chain), log)
+        },
+        |log| {
+            let chain = Driver::new(CoinCopy::new())
+                >> ((Adapter::new(BitFlip::new(300, log))
+                    >> Adapter::new(Trap::on(5).logging(log)))
+                    >> Executor::new(Bits::new(log)));
+            ends(runner(chain), log)
+        },
+        |log| {
+            let chain = Driver::new(CoinCopy::new())
+                >> (Adapter::new(BitFlip::new(300, log))
+                    >> (Adapter::new(Trap::on(5).logging(log)) >> Executor::new(Bits::new(log))));
+            ends(runner(chain), log)
+        },
+    ];
+    let top_to_bottom = [
+        "BitFlip end_shots, holding 0",
+        "Trap end_shots",
+        "Bits end_shots, holding 0",
+    ];
+    for (bracketing, chain) in bracketings.into_iter().enumerate() {
+        let [succeeded, failed_run] = chain(&Log::default());
+        assert_eq!(
+            succeeded, top_to_bottom,
+            "bracketing {bracketing}, ended by the driver"
+        );
+        assert_eq!(failed_run, top_to_bottom, "bracketing {bracketing}, failed");
+    }
+}
+
+/// Coin copies under an adapter that panics in `end_shots`, over a noise,
+/// over bits, in a run with no other fault, in each bracketing: the
+/// driver's end of its shots fails the run, the runner ends them again on
+/// every part, each part beside the one that panics is ended both times,
+/// and `run` then raises the panic.
+#[test]
+fn a_panic_ending_shots_ends_every_other_part_then_leaves_the_run() {
+    /// Runs `runner` on 8 shots, and checks it as above.
+    fn ends_every_other_part<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) {
+        let run = catch_unwind(AssertUnwindSafe(|| {
+            runner
+                .run(&ShotSet::ids(0..8), SEED)
+                .map(|records| records.len())
+        }));
+        let panic = run.expect_err("the run raises the panic");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"end_shots broke"));
+        assert_eq!(log.count("BitFlip end_shots, holding 0"), 2);
+        assert_eq!(log.count("Bits end_shots, holding 0"), 2);
+    }
+    let bracketings: [fn(&Log); 5] = [
+        |log| {
+            let chain = Driver::new(CoinCopy::new())
+                >> Adapter::new(PanicsEnding::new(log))
+                >> Adapter::new(BitFlip::new(300, log))
+                >> Executor::new(Bits::new(log));
+            ends_every_other_part(runner(chain), log);
+        },
+        |log| {
+            let chain = (Driver::new(CoinCopy::new())
+                >> (Adapter::new(PanicsEnding::new(log)) >> Adapter::new(BitFlip::new(300, log))))
+                >> Executor::new(Bits::new(log));
+            ends_every_other_part(runner(chain), log);
+        },
+        |log| {
+            let chain = (Driver::new(CoinCopy::new()) >> Adapter::new(PanicsEnding::new(log)))
+                >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log)));
+            ends_every_other_part(runner(chain), log);
+        },
+        |log| {
+            let chain = Driver::new(CoinCopy::new())
+                >> ((Adapter::new(PanicsEnding::new(log)) >> Adapter::new(BitFlip::new(300, log)))
+                    >> Executor::new(Bits::new(log)));
+            ends_every_other_part(runner(chain), log);
+        },
+        |log| {
+            let chain = Driver::new(CoinCopy::new())
+                >> (Adapter::new(PanicsEnding::new(log))
+                    >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log))));
+            ends_every_other_part(runner(chain), log);
+        },
+    ];
+    for chain in bracketings {
+        chain(&Log::default());
+    }
+}
+
+/// Coin copies under a noise, over an adapter that panics in `end_shots`,
+/// over bits that answer later: a run whose future is dropped by the
+/// caller's own panic still ends its shots on every other part, and drops
+/// the end's panic rather than raising a second one, which would abort.
+#[test]
+fn a_run_dropped_by_a_panic_ends_its_shots_and_keeps_that_panic() {
+    let log = Log::default();
+    let mut runner = runner(
+        Driver::new(CoinCopy::new())
+            >> Adapter::new(BitFlip::new(300, &log))
+            >> Adapter::new(PanicsEnding::new(&log))
+            >> Executor::new(Later(Bits::new(&log))),
+    );
+    let shots = ShotSet::ids(0..8);
+    let caught = catch_unwind(AssertUnwindSafe(|| {
+        let mut run = std::pin::pin!(runner.run_async(&shots, SEED));
+        let poll = run.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+        assert!(poll.is_pending(), "the run is unfinished");
+        panic!("the caller broke");
+    }));
+    let panic = caught.expect_err("the caller's panic leaves the closure");
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"the caller broke"));
+    assert_eq!(log.count("BitFlip end_shots, holding 0"), 1);
+    assert_eq!(log.count("Bits end_shots, holding 0"), 1);
 }
 
 /// An executor that panics, while making its future or while it is

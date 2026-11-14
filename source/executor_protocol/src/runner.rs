@@ -7,19 +7,21 @@
 //!
 //! A runner holds a chain that composed: its boundaries fit, its executor
 //! serves its driver's needs, and every part is provisioned. Each run
-//! checks what only a run can: its shots against the most the chain runs
-//! (the offer that reaches the driver), its seed against whether the chain
-//! is seedable, and whether each part can take a run now. Then the driver
-//! runs the shots, calling the chain below it as one executor, whose every
-//! `execute` the protocol checks. When the run fails, the runner ends its
-//! shots on every part, so that none keeps them.
+//! checks what only a run can: its shots against the most shots a run may
+//! have (by the offer that reaches the driver), its seed against whether
+//! the chain is seedable, and whether each part can take a run now. Then
+//! the driver runs the shots, calling the chain below it as one executor,
+//! whose every `execute` the protocol checks. When the run fails, or its
+//! future is dropped before it ends, the runner ends its shots on every
+//! part, so that none keeps them.
 
 mod run_error;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod wait;
 
-use crate::checked::{Checked, catch_panic};
+use crate::checked::Checked;
 use crate::instruction_set::instruction::batch_check::BatchLimits;
+use crate::panics::{catch_panic, end_both};
 use crate::roles::FailedRun;
 use crate::{Capabilities, Drive, DriveError, Execute, Failure, RunRefusal, Seed, ShotSet};
 
@@ -78,14 +80,21 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// A `Some` seed gives the same outputs each time; a run with one is
     /// refused when the chain is not seedable. `None` draws a seed that is
     /// not reported, so the run cannot be repeated. A run is refused, and
-    /// nothing of it runs, when it has more shots than the most the chain
-    /// runs (the offer that reaches the driver), or when a part's `ready`
-    /// refuses it; each part is asked, the executor first. Then the driver
-    /// runs the shots, and a failure ends the run with the shot it names,
-    /// including a part's panic where a panic unwinds (on wasm32, it
-    /// aborts). A failed run's shots are then ended on every part, the
-    /// driver's adapters top to bottom, then the executor, so that no part
-    /// carries them into the next run.
+    /// nothing of it runs, when it has more shots than a run may have (by
+    /// the offer that reaches the driver), or when a part's `ready` refuses
+    /// it; each part is asked, the executor first. Then the driver runs the
+    /// shots, and a failure ends the run with the shot it names, including
+    /// a part's panic in `drive`, `execute` or an `end_shots` the driver
+    /// calls, where a panic unwinds (on wasm32, it aborts).
+    ///
+    /// A failed run's shots are then ended on every part, the driver's
+    /// adapters top to bottom, then the executor, so that no part carries
+    /// them into the next run; so are those of a run whose future is
+    /// dropped before it ends. Every part is ended even if one panics in
+    /// `end_shots`; that panic is then raised again from the run, unless
+    /// the thread is already unwinding. So a part that panics each time it
+    /// ends shots makes the run panic, once every other part is ended. A
+    /// panic in a part's `ready` is not caught.
     pub fn run_async(
         &mut self,
         shots: &ShotSet,
@@ -107,20 +116,54 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             self.executor.ready().await.map_err(RunError::Refused)?;
             self.driver.ready().await.map_err(RunError::Refused)?;
             let seed = Seed::new(seed.unwrap_or_else(drawn_seed));
-            let mut below = Checked::new(&mut self.executor, &self.batch_limits);
-            let driver = &mut self.driver;
+            let unended = UnendedShots {
+                driver: &mut self.driver,
+                executor: &mut self.executor,
+                shots,
+            };
+            let mut below = Checked::new(&mut *unended.executor, &self.batch_limits);
+            let driver = &mut *unended.driver;
             let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
-                Ok(Ok(outputs)) => return Ok(outputs),
+                Ok(Ok(outputs)) => {
+                    unended.ended_by_the_driver();
+                    return Ok(outputs);
+                }
                 Ok(Err(failure)) => failure,
                 Err(message) => DriveError {
                     shot: shots.iter().next().expect("a shot set is never empty"),
                     failure: Failure::Panicked(message),
                 },
             };
-            self.driver.end_failed_run(FailedRun { shots });
-            self.executor.end_shots(shots);
+            drop(unended);
             Err(RunError::Failed(failure))
         }
+    }
+}
+
+/// The shots of a run whose `drive` started, which any part may hold:
+/// dropped before the driver ended them, when the run failed or its future
+/// was dropped, it ends them on every part, as [`Drive::end_failed_run`]
+/// says, then on the executor.
+struct UnendedShots<'a, D: Drive, E: Execute> {
+    driver: &'a mut D,
+    executor: &'a mut E,
+    shots: &'a ShotSet,
+}
+
+impl<D: Drive, E: Execute> UnendedShots<'_, D, E> {
+    /// The run succeeded, so the driver ended each shot.
+    fn ended_by_the_driver(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl<D: Drive, E: Execute> Drop for UnendedShots<'_, D, E> {
+    fn drop(&mut self) {
+        let shots = self.shots;
+        end_both(
+            || self.driver.end_failed_run(FailedRun { shots }),
+            || self.executor.end_shots(shots),
+        );
     }
 }
 

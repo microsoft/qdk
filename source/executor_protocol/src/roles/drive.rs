@@ -7,7 +7,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::admission::part_list::PartList;
+use crate::admission::by_part::ByPart;
 use crate::{
     Capabilities, Execute, ExecuteError, Failure, InstructionSet, Needs, OpcodeMap, RunRefusal,
     Seed, ShotId, ShotSet,
@@ -33,8 +33,9 @@ pub trait Drive {
     /// calls it once, after the fit.
     fn bind(&mut self, below: OpcodeMap);
 
-    /// What its shots need of the chain below, such as their qubits, which,
-    /// adapted by each adapter below it, the executor's offer must meet.
+    /// What its shots need of the chain below, such as their qubits, which
+    /// the offer below it must meet, and, adapted by each adapter, the
+    /// offer of each part further below.
     fn needs(&self) -> Needs;
 
     /// Provisions this driver once its chain is admitted; it knows its own
@@ -45,17 +46,17 @@ pub trait Drive {
     /// Its needs, listed as this part's; only the crate overrides it, to
     /// list each part it holds.
     #[doc(hidden)]
-    fn needs_by_part(&self, parts: &mut PartList) -> Needs {
+    fn needs_by_part(&self, by_part: &mut ByPart) -> Needs {
         let needs = self.needs();
-        parts.note_needs::<Self>(&needs);
+        by_part.note_needs::<Self>(&needs);
         needs
     }
 
     /// The offer that reaches this driver from `below`, listing those of
     /// each adapter it holds; only the crate overrides it.
     #[doc(hidden)]
-    fn offers_by_part(&self, below: Capabilities, parts: &mut PartList) -> Capabilities {
-        let _ = parts;
+    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
+        let _ = by_part;
         below
     }
 
@@ -99,13 +100,15 @@ pub struct FailedRun<'a> {
 }
 
 /// What a `drive` returns to the runner when it gives no outputs: the shot
-/// whose work broke, and why.
+/// the failure names, and why.
 ///
 /// A driver can only fail, never refuse: once a run started, an `execute`'s
 /// refusal is a failure of the run, [`Failure::Refused`].
 #[derive(Debug)]
 pub struct DriveError {
-    /// The shot whose work broke.
+    /// The shot the failure names: the failing part's own choice, or the
+    /// first shot of the batch or run that failed, for a failure the
+    /// protocol makes ([`Failure`]).
     pub shot: ShotId,
     /// Why.
     pub failure: Failure,

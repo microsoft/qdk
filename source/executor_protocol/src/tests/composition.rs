@@ -10,13 +10,13 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Pool, Profiler, Program, Spread,
-    Values,
+    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, LoweringWithoutParity, Pool,
+    Profiler, Program, Spread, Values,
 };
 use crate::{
     Adapter, BlockType, Capabilities, CompositionFaults, Drive, Driver, Execute, Executor,
     FitFaults, InstructionDef, InstructionMismatch, InstructionSet, Meaning, Needs, Pauli, Runner,
-    ShotSet, UnmetNeed,
+    ShortOffer, ShotSet, UnmetNeed,
 };
 
 const SEED: u64 = 7;
@@ -258,11 +258,31 @@ fn where_the_brackets_go_changes_no_fault() {
 
 // ---------------------------------------------------------------- the admission
 
+/// The qubits `needed` where `offered` allow fewer.
+fn unmet_qubits(needed: u32, offered: u32) -> UnmetNeed {
+    UnmetNeed::Blocks {
+        block_type: BlockType::qubit(),
+        needed,
+        offered,
+    }
+}
+
+/// The offer of `part`, `offered`, falling short of `needed` by `unmet`.
+fn short_offer<P>(needed: Needs, offered: Capabilities, unmet: Vec<UnmetNeed>) -> ShortOffer {
+    ShortOffer {
+        part: type_name::<P>(),
+        needed,
+        offered,
+        unmet,
+    }
+}
+
 /// A program on 7 qubits, through an encoding of 7 qubits per qubit, over
-/// 30 qubits: the `>>` fails, naming the needs that reach the bits (49
-/// qubits), the bits' offer, and each part's.
+/// 30 qubits: the `>>` fails, naming each offer that falls short, bottom
+/// to top (the bits' 30 for 49 qubits, the encoding's 4 for 7), and each
+/// part's needs and offer.
 #[test]
-fn an_unmet_need_is_a_fault_naming_each_parts_needs_and_offer() {
+fn an_unmet_need_is_a_fault_naming_each_short_offer_and_each_parts_needs_and_offer() {
     let log = Log::default();
     let offer = Capabilities::unlimited().max_qubits(30);
     let composed = Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(7)))
@@ -271,15 +291,16 @@ fn an_unmet_need_is_a_fault_naming_each_parts_needs_and_offer() {
     let faults = faults(composed);
     assert_eq!(faults.fit(), []);
     let admission = faults.admission().expect("an unmet need");
-    assert_eq!(admission.needed, Needs::qubits(49));
-    assert_eq!(admission.offered, offer);
     assert_eq!(
-        admission.unmet,
-        [UnmetNeed::Blocks {
-            block_type: BlockType::qubit(),
-            needed: 49,
-            offered: 30,
-        }]
+        admission.short_offers,
+        [
+            short_offer::<Bits>(Needs::qubits(49), offer.clone(), vec![unmet_qubits(49, 30)]),
+            short_offer::<Spread>(
+                Needs::qubits(7),
+                Capabilities::unlimited().max_qubits(4),
+                vec![unmet_qubits(7, 4)]
+            ),
+        ]
     );
     assert_eq!(
         admission.needs_by_part,
@@ -301,8 +322,7 @@ fn an_unmet_need_is_a_fault_naming_each_parts_needs_and_offer() {
     assert_eq!(log.entries(), Vec::<String>::new(), "nothing provisioned");
 }
 
-/// The same chain, bracketed both ways: the same admission fault, with the
-/// numbers where the needs reach the bits, 49 and 30.
+/// The same chain, bracketed both ways: the same admission fault.
 #[test]
 fn where_the_brackets_go_changes_no_admission_fault() {
     let log = Log::default();
@@ -314,47 +334,35 @@ fn where_the_brackets_go_changes_no_admission_fault() {
     let right = faults(program() >> (spread() >> bits()));
     let left = left.admission().expect("an unmet need");
     let right = right.admission().expect("an unmet need");
-    assert_eq!(right.needed, Needs::qubits(49));
-    assert_eq!(right.offered, offer);
-    assert_eq!(
-        right.unmet,
-        [UnmetNeed::Blocks {
-            block_type: BlockType::qubit(),
-            needed: 49,
-            offered: 30,
-        }]
-    );
+    assert_eq!(right.short_offers.len(), 2, "{right}");
     assert_eq!(left, right);
 }
 
 /// 3 qubits and 2 carbon blocks, drawn from one pool of qubits below, over
-/// 5 qubits: 7 qubits are needed, so the chain is refused, bracketed
-/// either way, though the pool's offer above (5 qubits, 2 carbon blocks)
-/// would admit it.
+/// 5 qubits: 7 qubits are needed, so the chain is refused at the bits,
+/// bracketed either way, though the pool's offer above (5 qubits, 2
+/// carbon blocks) admits it.
 #[test]
 fn where_the_brackets_go_changes_no_verdict_even_through_a_pool() {
     let log = Log::default();
     let needs = Needs::qubits(3).blocks(Pool::carbon(), 2);
+    let five = Capabilities::unlimited().max_qubits(5);
     let program = || Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()));
     let pool = || Adapter::new(Pool::new(&log));
-    let bits = || Executor::new(Bits::new(&log).offering(Capabilities::unlimited().max_qubits(5)));
-    let unmet = [UnmetNeed::Blocks {
-        block_type: BlockType::qubit(),
-        needed: 7,
-        offered: 5,
-    }];
+    let bits = || Executor::new(Bits::new(&log).offering(five.clone()));
     let left = faults((program() >> pool()) >> bits());
     let right = faults(program() >> (pool() >> bits()));
+    let left = left.admission().expect("an unmet need");
+    let right = right.admission().expect("an unmet need");
     assert_eq!(
-        left.admission().expect("an unmet need").unmet,
-        unmet,
-        "left"
+        right.short_offers,
+        [short_offer::<Bits>(
+            Needs::qubits(7),
+            five,
+            vec![unmet_qubits(7, 5)]
+        )]
     );
-    assert_eq!(
-        right.admission().expect("an unmet need").unmet,
-        unmet,
-        "right"
-    );
+    assert_eq!(left, right);
 }
 
 /// A program using readout parities, on bits that do not resolve them:
@@ -362,18 +370,117 @@ fn where_the_brackets_go_changes_no_verdict_even_through_a_pool() {
 #[test]
 fn a_need_the_executor_does_not_offer_is_a_fault() {
     let log = Log::default();
-    let composed =
-        Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(1).with_readout_parity()))
-            >> Executor::new(Bits::new(&log));
+    let needs = Needs::qubits(1).with_readout_parity();
+    let composed = Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()))
+        >> Executor::new(Bits::new(&log));
     let faults = faults(composed);
     let admission = faults.admission().expect("an unmet need");
-    assert_eq!(admission.unmet, [UnmetNeed::ReadoutParity]);
+    assert_eq!(
+        admission.short_offers,
+        [short_offer::<Bits>(
+            needs,
+            Bits::new(&log).offers(),
+            vec![UnmetNeed::ReadoutParity]
+        )]
+    );
+}
+
+/// A program using readout parities, through a lowering that cannot carry
+/// them, over bits that resolve them: refused, naming the lowering, since
+/// the bits would serve what reaches them.
+#[test]
+fn an_adapter_that_cannot_carry_a_need_is_named_by_the_fault() {
+    let log = Log::default();
+    let needs = Needs::qubits(1).with_readout_parity();
+    let composed = Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()))
+        >> Adapter::new(LoweringWithoutParity::new(&log))
+        >> Executor::new(Bits::new(&log).offering(Capabilities::unlimited()));
+    let faults = faults(composed);
+    let admission = faults.admission().expect("an unmet need");
+    assert_eq!(
+        admission.short_offers,
+        [short_offer::<LoweringWithoutParity>(
+            needs,
+            Capabilities::unlimited().without_readout_parity(),
+            vec![UnmetNeed::ReadoutParity]
+        )]
+    );
+}
+
+/// The same lowering under a profiler, in each of the five bracketings of
+/// four parts: the same admission fault, naming the lowering, then the
+/// profiler, whose offer is the lowering's.
+#[test]
+fn where_the_brackets_go_changes_no_adapters_short_offer() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let needs = Needs::qubits(1).with_readout_parity();
+    let program = || Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()));
+    let profiler = || Adapter::new(Profiler::new(&counted, &log));
+    let lowering = || Adapter::new(LoweringWithoutParity::new(&log));
+    let bits = || Executor::new(Bits::new(&log).offering(Capabilities::unlimited()));
+    let admission = |faults: CompositionFaults| faults.admission().cloned().expect("an unmet need");
+    let left = admission(faults(((program() >> profiler()) >> lowering()) >> bits()));
+    let bracketed = [
+        admission(faults((program() >> profiler()) >> (lowering() >> bits()))),
+        admission(faults(program() >> (profiler() >> (lowering() >> bits())))),
+        admission(faults(program() >> ((profiler() >> lowering()) >> bits()))),
+        admission(faults((program() >> (profiler() >> lowering())) >> bits())),
+    ];
+    assert_eq!(
+        left.short_offers
+            .iter()
+            .map(|short| short.part)
+            .collect::<Vec<_>>(),
+        [
+            type_name::<LoweringWithoutParity>(),
+            type_name::<Profiler>()
+        ]
+    );
+    for (i, admission) in bracketed.iter().enumerate() {
+        assert_eq!(*admission, left, "bracketing {i}");
+    }
+}
+
+/// A program using readout parities, through a profiler that adapts
+/// neither needs nor offers: refused over bits that do not resolve them,
+/// and admitted over bits that do, bracketed either way.
+#[test]
+fn a_readout_parity_need_passes_through_an_adapter() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let needs = Needs::qubits(1).with_readout_parity();
+    let program = || Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()));
+    let profiler = || Adapter::new(Profiler::new(&counted, &log));
+    let without = || Executor::new(Bits::new(&log));
+    let with = || Executor::new(Bits::new(&log).offering(Capabilities::unlimited()));
+    let refused = [
+        faults((program() >> profiler()) >> without()),
+        faults(program() >> (profiler() >> without())),
+    ];
+    for faults in refused {
+        let unmet: Vec<&[UnmetNeed]> = faults
+            .admission()
+            .expect("an unmet need")
+            .short_offers
+            .iter()
+            .map(|short| &short.unmet[..])
+            .collect();
+        assert!(
+            unmet
+                .iter()
+                .all(|unmet| *unmet == [UnmetNeed::ReadoutParity]),
+            "{faults}"
+        );
+    }
+    assert!(((program() >> profiler()) >> with()).is_ok(), "left");
+    assert!((program() >> (profiler() >> with())).is_ok(), "right");
 }
 
 /// 9 qubits and readout parities, over bits offering 8 qubits and no
 /// parities: the message names the bits and both unmet needs.
 #[test]
-fn an_admission_fault_says_which_executor_and_every_unmet_need() {
+fn an_admission_fault_says_which_part_and_every_unmet_need() {
     let log = Log::default();
     let offer = Capabilities::unlimited()
         .max_qubits(8)
@@ -386,9 +493,9 @@ fn an_admission_fault_says_which_executor_and_every_unmet_need() {
     assert_eq!(
         admission.to_string(),
         format!(
-            "the executor `{}` cannot serve the needs that reach it: needs 9 of block type \
-             `qubit`, where the offer allows at most 8; uses readout parities, and the offer \
-             does not resolve them",
+            "the chain is not admitted: `{}` cannot serve the needs that reach it (needs 9 of \
+             block type `qubit`, where the offer allows at most 8; uses readout parities, and \
+             the offer does not resolve them)",
             type_name::<Bits>()
         )
     );
@@ -421,42 +528,75 @@ fn a_program_within_the_offer_runs_unchanged() {
     assert_eq!(records(exact, &shots), plain(&shots));
 }
 
-/// Two encodings over bits: the driver's 2 qubits come down as 4, then
-/// 12, and each part is provisioned with what reaches it, once, however
-/// many runs follow.
+/// Two encodings over bits, in each bracketing that `>>` makes a runner
+/// of: the driver's 2 qubits come down as 4, then 12, and each part is
+/// provisioned with what reaches it, once, however many runs follow.
 #[test]
 fn needs_come_down_through_adapters_and_provision_each_part_once() {
-    let log = Log::default();
-    let composed = Driver::new(CoinCopy::new())
-        >> Adapter::new(Spread::new(2, &log))
-        >> Adapter::new(Spread::new(3, &log))
-        >> Executor::new(Bits::new(&log));
-    let Ok(mut runner) = composed else {
-        panic!("the chain composes");
-    };
-    for _ in 0..2 {
-        runner
-            .run(&ShotSet::ids(0..4), SEED)
-            .expect("the run succeeds");
+    /// What `composed` provisions over two runs, in order.
+    fn provisioned<D: Drive, E: Execute>(
+        composed: Result<Runner<D, E>, CompositionFaults>,
+        log: &Log,
+    ) -> Vec<String> {
+        let Ok(mut runner) = composed else {
+            panic!("the chain composes");
+        };
+        for _ in 0..2 {
+            runner
+                .run(&ShotSet::ids(0..4), SEED)
+                .expect("the run succeeds");
+        }
+        log.entries()
+            .into_iter()
+            .filter(|entry| entry.contains("provisioned"))
+            .collect()
     }
-    let provisioned: Vec<String> = log
-        .entries()
-        .into_iter()
-        .filter(|entry| entry.contains("provisioned"))
-        .collect();
-    assert_eq!(
-        provisioned,
-        [
-            "Spread provisioned for 2 qubits",
-            "Spread provisioned for 4 qubits",
-            "Bits provisioned for 12 qubits",
-        ]
-    );
+    /// A chain's provisioning, logged to the log it is given.
+    type Chain = fn(&Log) -> Vec<String>;
+    let chains: [(&str, Chain); 3] = [
+        ("left", |log| {
+            provisioned(
+                Driver::new(CoinCopy::new())
+                    >> Adapter::new(Spread::new(2, log))
+                    >> Adapter::new(Spread::new(3, log))
+                    >> Executor::new(Bits::new(log)),
+                log,
+            )
+        }),
+        ("right", |log| {
+            provisioned(
+                Driver::new(CoinCopy::new())
+                    >> (Adapter::new(Spread::new(2, log))
+                        >> (Adapter::new(Spread::new(3, log)) >> Executor::new(Bits::new(log)))),
+                log,
+            )
+        }),
+        ("adapters joined", |log| {
+            provisioned(
+                Driver::new(CoinCopy::new())
+                    >> ((Adapter::new(Spread::new(2, log)) >> Adapter::new(Spread::new(3, log)))
+                        >> Executor::new(Bits::new(log))),
+                log,
+            )
+        }),
+    ];
+    for (bracketing, chain) in chains {
+        assert_eq!(
+            chain(&Log::default()),
+            [
+                "Spread provisioned for 2 qubits",
+                "Spread provisioned for 4 qubits",
+                "Bits provisioned for 12 qubits",
+            ],
+            "{bracketing}"
+        );
+    }
 }
 
 /// The same encodings over 11 qubits: 3 come up through the lower, 1
-/// through the upper, each offer listed bottom to top; the driver's 2
-/// qubits reach the bits as 12, so they are unmet.
+/// through the upper, each offer listed bottom to top. The driver's 2
+/// qubits reach the bits as 12, the lower encoding as 4 and the upper as
+/// 2, so each offer falls short.
 #[test]
 fn offers_go_up_through_adapters() {
     let log = Log::default();
@@ -467,26 +607,22 @@ fn offers_go_up_through_adapters() {
         >> Executor::new(Bits::new(&log).offering(eleven.clone()));
     let faults = faults(composed);
     let admission = faults.admission().expect("an unmet need");
+    let three = Capabilities::unlimited().max_qubits(3);
+    let one = Capabilities::unlimited().max_qubits(1);
     assert_eq!(
         admission.offers_by_part,
         [
-            (type_name::<Bits>(), eleven),
-            (
-                type_name::<Spread>(),
-                Capabilities::unlimited().max_qubits(3)
-            ),
-            (
-                type_name::<Spread>(),
-                Capabilities::unlimited().max_qubits(1)
-            ),
+            (type_name::<Bits>(), eleven.clone()),
+            (type_name::<Spread>(), three.clone()),
+            (type_name::<Spread>(), one.clone()),
         ]
     );
     assert_eq!(
-        admission.unmet,
-        [UnmetNeed::Blocks {
-            block_type: BlockType::qubit(),
-            needed: 12,
-            offered: 11,
-        }]
+        admission.short_offers,
+        [
+            short_offer::<Bits>(Needs::qubits(12), eleven, vec![unmet_qubits(12, 11)]),
+            short_offer::<Spread>(Needs::qubits(4), three, vec![unmet_qubits(4, 3)]),
+            short_offer::<Spread>(Needs::qubits(2), one, vec![unmet_qubits(2, 1)]),
+        ]
     );
 }
