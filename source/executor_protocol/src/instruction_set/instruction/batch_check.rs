@@ -55,8 +55,9 @@ pub(crate) enum BatchFault {
 
 /// Checks `instructions`, in the opcodes of `set`, the receiver's, against
 /// `set` and `limits`: their count, then each instruction as
-/// [`InstructionSet::instruction`] checks one, and each block below the
-/// shot's of its type. The first fault.
+/// [`InstructionSet::instruction`] checks one, plus the arguments past its
+/// parameters, the flags its `select` patterns name, and each block below
+/// the shot's of its type. The first fault.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "called by the protocol's check of each `execute`")

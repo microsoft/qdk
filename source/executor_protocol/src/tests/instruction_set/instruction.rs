@@ -109,6 +109,7 @@ fn block_count_other_than_the_instruction_s_is_refused() {
                 mnemonic: "cx".into(),
                 expected: 2,
                 got,
+                variadic: false,
             })
         );
     }
@@ -127,8 +128,19 @@ fn variadic_operand_takes_any_positive_number_of_blocks() {
             mnemonic: "mpp".into(),
             expected: 1,
             got: 0,
+            variadic: true,
         })
     );
+}
+
+/// A variadic operand's count is its least: the message says so.
+#[test]
+fn variadic_block_count_fault_reads_as_a_least() {
+    let set = gates();
+    let fault = set
+        .instruction("mpp", [], &[("p", pauli("Z_0"))])
+        .expect_err("no block");
+    assert_eq!(fault.to_string(), "`mpp` takes at least 1 block, given 0");
 }
 
 #[test]

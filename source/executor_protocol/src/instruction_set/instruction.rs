@@ -138,12 +138,13 @@ pub enum InstructionFault {
     UnknownMnemonic(String),
     /// At an `execute`: a struct literal's opcode, beyond the set.
     UnknownOpcode(Opcode),
-    /// Both: `expected` is its count, or, with a variadic operand, the
-    /// least.
+    /// Both: `expected` is its count, or, with a variadic operand
+    /// (`variadic`), the least.
     WrongBlockCount {
         mnemonic: String,
         expected: u32,
         got: u32,
+        variadic: bool,
     },
     /// At an `execute`: a block at or past `needs`, the shot's blocks of
     /// its type.
@@ -209,7 +210,15 @@ impl fmt::Display for InstructionFault {
                 mnemonic,
                 expected,
                 got,
-            } => write!(f, "`{mnemonic}` takes {expected} blocks, given {got}"),
+                variadic,
+            } => {
+                let least = if *variadic { "at least " } else { "" };
+                let blocks = if *expected == 1 { "block" } else { "blocks" };
+                write!(
+                    f,
+                    "`{mnemonic}` takes {least}{expected} {blocks}, given {got}"
+                )
+            }
             InstructionFault::BlockBeyondNeeds {
                 mnemonic,
                 block,

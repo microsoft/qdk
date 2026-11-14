@@ -73,7 +73,10 @@ impl PartialEq for Meaning {
 
 impl Meaning {
     /// The meaning of an instruction that declares no action. Its set can
-    /// be matched by mnemonic only, with a set of the same name.
+    /// be matched by mnemonic only, with a set of the same name. A step
+    /// added to it declares it: `undeclared().pauli(x)` is
+    /// `declared().pauli(x)`, so a loader may start here and add the steps
+    /// it reads.
     #[must_use]
     pub fn undeclared() -> Self {
         Self::default()

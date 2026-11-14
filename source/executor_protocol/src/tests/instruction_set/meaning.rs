@@ -81,3 +81,13 @@ fn angles_compare_bit_for_bit() {
     assert_ne!(rotate(0.0), rotate(-0.0));
     assert_eq!(rotate(f64::NAN), rotate(f64::NAN));
 }
+
+/// A loader may start every meaning undeclared and add the steps it reads:
+/// a step declares it.
+#[test]
+fn step_added_to_an_undeclared_meaning_declares_it() {
+    assert_eq!(
+        Meaning::undeclared().pauli(Pauli::x(0)),
+        Meaning::declared().pauli(Pauli::x(0))
+    );
+}

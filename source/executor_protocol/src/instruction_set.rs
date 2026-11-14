@@ -78,7 +78,7 @@ impl InstructionSet {
     /// mnemonic declared twice; and for each instruction, an operand of a
     /// block type the set does not declare, a variadic operand out of
     /// place, a parameter or a flag named twice, more than 64 flags, and
-    /// what its meaning refers to that it lacks.
+    /// its meaning's faults ([`MeaningFault`]).
     pub fn new(
         name: impl Into<String>,
         block_types: impl IntoIterator<Item = (BlockType, u32)>,
@@ -419,11 +419,20 @@ impl std::error::Error for DeclarationFault {}
 /// ([`DeclarationFault`]), such as a block type not listed.
 #[macro_export]
 macro_rules! instruction_set {
-    (@opcodes ($index:expr)) => {};
-    (@opcodes ($index:expr) $constant:ident $mnemonic:ident $($rest:ident)*) => {
+    // Each constant is its place in `$all`, the list of every constant:
+    // an enum's discriminant, so no recursion limits the set's size.
+    (@opcodes $all:tt $($constant:ident $mnemonic:ident)*) => {
+        $($crate::instruction_set!(@opcode $all $constant $mnemonic);)*
+    };
+    (@opcode [$($all:ident)*] $constant:ident $mnemonic:ident) => {
         #[doc = concat!("The opcode of `", stringify!($mnemonic), "`.")]
-        pub const $constant: $crate::Opcode = $crate::Opcode::__from_macro($index);
-        $crate::instruction_set!(@opcodes ($index + 1) $($rest)*);
+        pub const $constant: $crate::Opcode = {
+            #[allow(dead_code, non_camel_case_types, clippy::upper_case_acronyms)]
+            enum Places {
+                $($all),*
+            }
+            $crate::Opcode::__from_macro(Places::$constant as u32)
+        };
     };
     (@blocks) => {
         ::std::vec![($crate::BlockType::qubit(), 1)]
@@ -449,7 +458,7 @@ macro_rules! instruction_set {
         $visibility struct $name;
 
         impl $name {
-            $crate::instruction_set!(@opcodes (0u32) $($constant $mnemonic)*);
+            $crate::instruction_set!(@opcodes [$($constant)*] $($constant $mnemonic)*);
 
             /// The set, built on the first call, then cloned.
             #[must_use]
@@ -462,14 +471,14 @@ macro_rules! instruction_set {
                     $crate::InstructionSet::new(
                         stringify!($name),
                         blocks,
-                        ::std::vec::Vec::<$crate::InstructionDef>::from([$(
+                        ::std::vec![$(
                             $crate::InstructionDef::new(stringify!($mnemonic))
                                 .acts_on(::std::vec::Vec::<$crate::BlockType>::from([
                                     $($crate::BlockType::new(stringify!($operand))),*
                                 ]))
                                 $($(.parameter(stringify!($parameter), $crate::ParameterKind::$kind))*)?
                                 $(.outcomes($crate::instruction_set!(@outcomes $outcomes $unit)))?
-                        ),*]),
+                        ),*],
                     )
                     .unwrap_or_else(|faults| {
                         panic!("`{}` declares a faulty set: {faults:?}", stringify!($name))

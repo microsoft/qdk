@@ -13,6 +13,8 @@
 //! A variadic operand (`[[qubit]]`) is the last position, and takes any
 //! positive number of blocks.
 
+use std::collections::BTreeSet;
+
 use super::{
     BlockType, DeclarationFault, Instruction, InstructionDef, InstructionFault, ParameterKind,
     instruction::{Argument, Bit},
@@ -60,7 +62,7 @@ impl Slot {
 }
 
 /// The most flags an instruction may declare: a flag pattern is a `u64`.
-pub(crate) const MAX_FLAGS: usize = 64;
+const MAX_FLAGS: usize = 64;
 
 impl Layout {
     /// The layout of `def`, whose set declares `block_types`; or every
@@ -132,6 +134,7 @@ impl Layout {
                 mnemonic: mnemonic(),
                 expected: count(least),
                 got: count(blocks.len()),
+                variadic: self.variadic,
             });
         }
         if let Some(blocks_of) = blocks_of {
@@ -204,9 +207,10 @@ impl Layout {
         self.slots[position.min(self.slots.len() - 1)]
     }
 
-    /// A block given twice, if any, the first found: two positions of one
-    /// index that are one block before the instruction or after it
-    /// ([`Slot::shares_a_block_with`]).
+    /// A block given twice, if any: two positions of one index that are one
+    /// block before the instruction or after it
+    /// ([`Slot::shares_a_block_with`]). Of several, the one at the earliest
+    /// position that repeats a block before it.
     fn repeated_block(&self, blocks: &[u32]) -> Option<u32> {
         // Pairwise for the few blocks most instructions take; sorted for a
         // variadic operand's many.
@@ -233,10 +237,22 @@ impl Layout {
             keyed.extend(slot.output.map(|output| (true, output, block)));
         }
         keyed.sort_unstable();
-        keyed
-            .windows(2)
-            .find(|pair| pair[0] == pair[1])
-            .map(|pair| pair[0].2)
+        if keyed.windows(2).all(|pair| pair[0] != pair[1]) {
+            return None;
+        }
+        // A fault: name the block the pairwise scan names, the earliest
+        // position's repeat, not the smallest key.
+        let mut seen = BTreeSet::new();
+        blocks.iter().enumerate().find_map(|(position, &block)| {
+            let slot = self.slot(position);
+            let before = slot.input.map(|input| (false, input, block));
+            let after = slot.output.map(|output| (true, output, block));
+            let repeats = [before, after]
+                .into_iter()
+                .flatten()
+                .any(|key| !seen.insert(key));
+            repeats.then_some(block)
+        })
     }
 }
 

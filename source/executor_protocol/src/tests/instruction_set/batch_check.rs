@@ -20,8 +20,11 @@ fn carbon() -> BlockType {
 /// `MPP`, a flagged measurement, an encoding that turns a qubit into a
 /// block, a preparation that makes a block, a gate coupling a qubit to a
 /// block, another coupling a block to many qubits, an `x` run if a
-/// parity of earlier readouts is odd, and two encodings of a qubit beside
-/// a block, one keeping that block, one consuming it.
+/// parity of earlier readouts is odd, two encodings of a qubit beside a
+/// block, one keeping that block, one consuming it, and, for the check of
+/// blocks given twice, instructions consuming or making two blocks, of
+/// one type or two, and merging many qubits into a block or splitting
+/// them out of one.
 fn device() -> InstructionSet {
     let qubit = || [BlockType::qubit()];
     InstructionSet::new(
@@ -55,6 +58,16 @@ fn device() -> InstructionSet {
             InstructionDef::new("encode_consuming")
                 .takes([BlockType::qubit(), carbon()])
                 .gives([carbon()]),
+            InstructionDef::new("measure_pair").takes([BlockType::qubit(), BlockType::qubit()]),
+            InstructionDef::new("measure_mixed").takes([BlockType::qubit(), carbon()]),
+            InstructionDef::new("prepare_pair").gives([carbon(), carbon()]),
+            InstructionDef::new("prepare_mixed").gives([BlockType::qubit(), carbon()]),
+            InstructionDef::new("merge_many")
+                .takes([carbon().into(), BlockOperand::variadic(BlockType::qubit())])
+                .gives([carbon()]),
+            InstructionDef::new("split_many")
+                .takes([carbon()])
+                .gives([carbon().into(), BlockOperand::variadic(BlockType::qubit())]),
         ],
     )
     .expect("a valid set")
@@ -133,6 +146,7 @@ fn first_refused_instruction_is_reported_at_its_position() {
                 mnemonic: "h".into(),
                 expected: 1,
                 got: 0,
+                variadic: false,
             }
         )
     );
@@ -216,40 +230,6 @@ fn variadic_operand_s_blocks_are_each_checked() {
     );
 }
 
-/// Qubit 0 and block 0 are two units of the shot's state.
-#[test]
-fn blocks_of_different_types_may_share_an_index() {
-    let set = device();
-    check_batch(
-        &set,
-        &[literal(&set, "couple", &[0, 0])],
-        &limits(&set, None, 1, 1),
-    )
-    .expect("a qubit and a block");
-}
-
-/// Beyond a few blocks, the check sorts them: a variadic `MPP` on many
-/// qubits is refused when one is given twice, and only then.
-#[test]
-fn many_blocks_with_one_given_twice_are_refused() {
-    let set = device();
-    let limits = limits(&set, None, 40, 0);
-    let distinct: Vec<u32> = (0..30).rev().collect();
-    check_batch(&set, &[literal(&set, "mpp", &distinct)], &limits).expect("distinct qubits");
-    let mut repeated = distinct;
-    repeated.push(17);
-    assert_eq!(
-        check_batch(&set, &[literal(&set, "mpp", &repeated)], &limits),
-        fault_at(
-            0,
-            InstructionFault::RepeatedBlock {
-                mnemonic: "mpp".into(),
-                block: 17,
-            }
-        )
-    );
-}
-
 #[test]
 fn missing_argument_is_refused() {
     let set = device();
@@ -311,21 +291,6 @@ fn select_over_flags_the_instruction_lacks_is_refused() {
     );
 }
 
-/// Beyond a few blocks, where the check sorts them, a qubit and a block
-/// still share an index: block 0 and qubits 0 to 19.
-#[test]
-fn many_blocks_of_different_types_may_share_an_index() {
-    let set = device();
-    let mut blocks = vec![0];
-    blocks.extend(0..20);
-    check_batch(
-        &set,
-        &[literal(&set, "couple_many", &blocks)],
-        &limits(&set, None, 20, 1),
-    )
-    .expect("a block and twenty qubits");
-}
-
 /// Counts back start at 1, the shot's latest readout: a part writing
 /// `recent(0)` by hand is refused at the check, as when built by name.
 #[test]
@@ -342,6 +307,55 @@ fn bit_argument_counting_back_zero_is_refused() {
             }
         )
     );
+}
+
+/// Qubit 0 and block 0 are two units of the shot's state.
+#[test]
+fn blocks_of_different_types_may_share_an_index() {
+    let set = device();
+    check_batch(
+        &set,
+        &[literal(&set, "couple", &[0, 0])],
+        &limits(&set, None, 1, 1),
+    )
+    .expect("a qubit and a block");
+}
+
+/// Beyond a few blocks, the check sorts them: a variadic `MPP` on many
+/// qubits is refused when one is given twice, and only then.
+#[test]
+fn many_blocks_with_one_given_twice_are_refused() {
+    let set = device();
+    let limits = limits(&set, None, 40, 0);
+    let distinct: Vec<u32> = (0..30).rev().collect();
+    check_batch(&set, &[literal(&set, "mpp", &distinct)], &limits).expect("distinct qubits");
+    let mut repeated = distinct;
+    repeated.push(17);
+    assert_eq!(
+        check_batch(&set, &[literal(&set, "mpp", &repeated)], &limits),
+        fault_at(
+            0,
+            InstructionFault::RepeatedBlock {
+                mnemonic: "mpp".into(),
+                block: 17,
+            }
+        )
+    );
+}
+
+/// Beyond a few blocks, where the check sorts them, a qubit and a block
+/// still share an index: block 0 and qubits 0 to 19.
+#[test]
+fn many_blocks_of_different_types_may_share_an_index() {
+    let set = device();
+    let mut blocks = vec![0];
+    blocks.extend(0..20);
+    check_batch(
+        &set,
+        &[literal(&set, "couple_many", &blocks)],
+        &limits(&set, None, 20, 1),
+    )
+    .expect("a block and twenty qubits");
 }
 
 /// A block keeps its index when it changes type: qubit 0 encoded beside
@@ -376,4 +390,145 @@ fn block_changing_type_onto_the_index_of_a_consumed_block_is_accepted() {
         &limits(&set, None, 1, 1),
     )
     .expect("block 0 replaced");
+}
+
+/// Measuring qubit 0 twice in one pair: one block, consumed twice.
+#[test]
+fn consumed_blocks_of_one_type_and_index_are_refused() {
+    let set = device();
+    assert_eq!(
+        check_batch(
+            &set,
+            &[literal(&set, "measure_pair", &[0, 0])],
+            &limits(&set, None, 1, 0)
+        ),
+        fault_at(
+            0,
+            InstructionFault::RepeatedBlock {
+                mnemonic: "measure_pair".into(),
+                block: 0,
+            }
+        )
+    );
+}
+
+/// Qubit 0 and block 0, both consumed: two blocks, though neither
+/// survives the instruction.
+#[test]
+fn consumed_blocks_of_different_types_may_share_an_index() {
+    let set = device();
+    check_batch(
+        &set,
+        &[literal(&set, "measure_mixed", &[0, 0])],
+        &limits(&set, None, 1, 1),
+    )
+    .expect("a qubit and a block");
+}
+
+/// Two blocks prepared as block 0: one index for two blocks after the
+/// instruction.
+#[test]
+fn new_blocks_of_one_type_and_index_are_refused() {
+    let set = device();
+    assert_eq!(
+        check_batch(
+            &set,
+            &[literal(&set, "prepare_pair", &[0, 0])],
+            &limits(&set, None, 0, 1)
+        ),
+        fault_at(
+            0,
+            InstructionFault::RepeatedBlock {
+                mnemonic: "prepare_pair".into(),
+                block: 0,
+            }
+        )
+    );
+}
+
+/// Qubit 0 and block 0, both new: two blocks, though neither existed
+/// before the instruction.
+#[test]
+fn new_blocks_of_different_types_may_share_an_index() {
+    let set = device();
+    check_batch(
+        &set,
+        &[literal(&set, "prepare_mixed", &[0, 0])],
+        &limits(&set, None, 1, 1),
+    )
+    .expect("a qubit and a block");
+}
+
+/// Beyond a few blocks, where the check sorts them: twenty qubits merged
+/// into block 0, which the instruction consumes, one of them twice.
+#[test]
+fn many_consumed_blocks_with_one_given_twice_are_refused() {
+    let set = device();
+    let mut blocks = vec![0];
+    blocks.extend(0..20);
+    blocks.push(5);
+    assert_eq!(
+        check_batch(
+            &set,
+            &[literal(&set, "merge_many", &blocks)],
+            &limits(&set, None, 20, 1)
+        ),
+        fault_at(
+            0,
+            InstructionFault::RepeatedBlock {
+                mnemonic: "merge_many".into(),
+                block: 5,
+            }
+        )
+    );
+}
+
+/// Beyond a few blocks, where the check sorts them: twenty qubits split
+/// out of block 0, one of them made twice.
+#[test]
+fn many_new_blocks_with_one_given_twice_are_refused() {
+    let set = device();
+    let mut blocks = vec![0];
+    blocks.extend(0..20);
+    blocks.push(5);
+    assert_eq!(
+        check_batch(
+            &set,
+            &[literal(&set, "split_many", &blocks)],
+            &limits(&set, None, 20, 1)
+        ),
+        fault_at(
+            0,
+            InstructionFault::RepeatedBlock {
+                mnemonic: "split_many".into(),
+                block: 5,
+            }
+        )
+    );
+}
+
+/// Of several blocks given twice, the fault names the one at the earliest
+/// position that repeats a block before it, for few blocks as for many:
+/// in `3, 5, 5, 3`, block 5.
+#[test]
+fn repeated_block_named_is_the_earliest_repeat_in_position_order() {
+    let set = device();
+    let limits = limits(&set, None, 40, 0);
+    let few = vec![3, 5, 5, 3];
+    let mut many = few.clone();
+    many.extend(10..30);
+    for blocks in [few, many] {
+        assert_eq!(
+            check_batch(&set, &[literal(&set, "mpp", &blocks)], &limits),
+            fault_at(
+                0,
+                InstructionFault::RepeatedBlock {
+                    mnemonic: "mpp".into(),
+                    block: 5,
+                }
+            ),
+            "{} blocks",
+            blocks.len()
+        );
+    }
 }

@@ -69,6 +69,84 @@ fn macro_constants_are_the_opcodes_of_their_mnemonics() {
     }
 }
 
+#[expect(dead_code, reason = "the test reads a few of the 200 constants")]
+mod many_gates {
+    use crate::instruction_set;
+
+    instruction_set! {
+        /// A merged set of 200 instructions, more than a macro counting by
+        /// recursion could number.
+        pub ManyGates {
+            I000 = i000(qubit), I001 = i001(qubit), I002 = i002(qubit), I003 = i003(qubit),
+            I004 = i004(qubit), I005 = i005(qubit), I006 = i006(qubit), I007 = i007(qubit),
+            I008 = i008(qubit), I009 = i009(qubit), I010 = i010(qubit), I011 = i011(qubit),
+            I012 = i012(qubit), I013 = i013(qubit), I014 = i014(qubit), I015 = i015(qubit),
+            I016 = i016(qubit), I017 = i017(qubit), I018 = i018(qubit), I019 = i019(qubit),
+            I020 = i020(qubit), I021 = i021(qubit), I022 = i022(qubit), I023 = i023(qubit),
+            I024 = i024(qubit), I025 = i025(qubit), I026 = i026(qubit), I027 = i027(qubit),
+            I028 = i028(qubit), I029 = i029(qubit), I030 = i030(qubit), I031 = i031(qubit),
+            I032 = i032(qubit), I033 = i033(qubit), I034 = i034(qubit), I035 = i035(qubit),
+            I036 = i036(qubit), I037 = i037(qubit), I038 = i038(qubit), I039 = i039(qubit),
+            I040 = i040(qubit), I041 = i041(qubit), I042 = i042(qubit), I043 = i043(qubit),
+            I044 = i044(qubit), I045 = i045(qubit), I046 = i046(qubit), I047 = i047(qubit),
+            I048 = i048(qubit), I049 = i049(qubit), I050 = i050(qubit), I051 = i051(qubit),
+            I052 = i052(qubit), I053 = i053(qubit), I054 = i054(qubit), I055 = i055(qubit),
+            I056 = i056(qubit), I057 = i057(qubit), I058 = i058(qubit), I059 = i059(qubit),
+            I060 = i060(qubit), I061 = i061(qubit), I062 = i062(qubit), I063 = i063(qubit),
+            I064 = i064(qubit), I065 = i065(qubit), I066 = i066(qubit), I067 = i067(qubit),
+            I068 = i068(qubit), I069 = i069(qubit), I070 = i070(qubit), I071 = i071(qubit),
+            I072 = i072(qubit), I073 = i073(qubit), I074 = i074(qubit), I075 = i075(qubit),
+            I076 = i076(qubit), I077 = i077(qubit), I078 = i078(qubit), I079 = i079(qubit),
+            I080 = i080(qubit), I081 = i081(qubit), I082 = i082(qubit), I083 = i083(qubit),
+            I084 = i084(qubit), I085 = i085(qubit), I086 = i086(qubit), I087 = i087(qubit),
+            I088 = i088(qubit), I089 = i089(qubit), I090 = i090(qubit), I091 = i091(qubit),
+            I092 = i092(qubit), I093 = i093(qubit), I094 = i094(qubit), I095 = i095(qubit),
+            I096 = i096(qubit), I097 = i097(qubit), I098 = i098(qubit), I099 = i099(qubit),
+            I100 = i100(qubit), I101 = i101(qubit), I102 = i102(qubit), I103 = i103(qubit),
+            I104 = i104(qubit), I105 = i105(qubit), I106 = i106(qubit), I107 = i107(qubit),
+            I108 = i108(qubit), I109 = i109(qubit), I110 = i110(qubit), I111 = i111(qubit),
+            I112 = i112(qubit), I113 = i113(qubit), I114 = i114(qubit), I115 = i115(qubit),
+            I116 = i116(qubit), I117 = i117(qubit), I118 = i118(qubit), I119 = i119(qubit),
+            I120 = i120(qubit), I121 = i121(qubit), I122 = i122(qubit), I123 = i123(qubit),
+            I124 = i124(qubit), I125 = i125(qubit), I126 = i126(qubit), I127 = i127(qubit),
+            I128 = i128(qubit), I129 = i129(qubit), I130 = i130(qubit), I131 = i131(qubit),
+            I132 = i132(qubit), I133 = i133(qubit), I134 = i134(qubit), I135 = i135(qubit),
+            I136 = i136(qubit), I137 = i137(qubit), I138 = i138(qubit), I139 = i139(qubit),
+            I140 = i140(qubit), I141 = i141(qubit), I142 = i142(qubit), I143 = i143(qubit),
+            I144 = i144(qubit), I145 = i145(qubit), I146 = i146(qubit), I147 = i147(qubit),
+            I148 = i148(qubit), I149 = i149(qubit), I150 = i150(qubit), I151 = i151(qubit),
+            I152 = i152(qubit), I153 = i153(qubit), I154 = i154(qubit), I155 = i155(qubit),
+            I156 = i156(qubit), I157 = i157(qubit), I158 = i158(qubit), I159 = i159(qubit),
+            I160 = i160(qubit), I161 = i161(qubit), I162 = i162(qubit), I163 = i163(qubit),
+            I164 = i164(qubit), I165 = i165(qubit), I166 = i166(qubit), I167 = i167(qubit),
+            I168 = i168(qubit), I169 = i169(qubit), I170 = i170(qubit), I171 = i171(qubit),
+            I172 = i172(qubit), I173 = i173(qubit), I174 = i174(qubit), I175 = i175(qubit),
+            I176 = i176(qubit), I177 = i177(qubit), I178 = i178(qubit), I179 = i179(qubit),
+            I180 = i180(qubit), I181 = i181(qubit), I182 = i182(qubit), I183 = i183(qubit),
+            I184 = i184(qubit), I185 = i185(qubit), I186 = i186(qubit), I187 = i187(qubit),
+            I188 = i188(qubit), I189 = i189(qubit), I190 = i190(qubit), I191 = i191(qubit),
+            I192 = i192(qubit), I193 = i193(qubit), I194 = i194(qubit), I195 = i195(qubit),
+            I196 = i196(qubit), I197 = i197(qubit), I198 = i198(qubit), I199 = i199(qubit),
+        }
+    }
+}
+use many_gates::ManyGates;
+
+/// A device's set merged with a code's may hold hundreds of instructions:
+/// the macro numbers each in place, the last too.
+#[test]
+fn macro_numbers_a_set_of_hundreds_of_instructions() {
+    let set = ManyGates::set();
+    for (opcode, mnemonic) in [
+        (ManyGates::I000, "i000"),
+        (ManyGates::I127, "i127"),
+        (ManyGates::I128, "i128"),
+        (ManyGates::I199, "i199"),
+    ] {
+        assert_eq!(set.opcode(mnemonic), Some(opcode), "{mnemonic}");
+    }
+}
+
 /// A set known only at run time, as a loader reads Qodec's YAML: names
 /// unknown when the crate is built, here read from `text`, one
 /// instruction per line (`; `), each `mnemonic qubits parameter outcomes`,
