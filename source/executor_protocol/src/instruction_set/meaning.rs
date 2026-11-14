@@ -1,0 +1,383 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! What an instruction does ([`Meaning`]), as Qodec declares it in its
+//! `action`, in a canonical form: so that two instruction sets can be
+//! matched by what their instructions do, not by what they call them
+//! (Stim's `H` is a state vector's `h`).
+//!
+//! A meaning is a list of steps, each written with [`Pauli`] operators
+//! over the instruction's qubits: prepare a stabilizer state, apply a
+//! Clifford or a Pauli, observe Paulis, rotate about a Pauli by an
+//! [`Angle`]; any step but an observation may run only if a parity of
+//! [`Guard`]s is odd (Qodec's `if`) or even (`unless`). Two meanings are
+//! the same when their steps are equal: equality is syntactic, on a
+//! canonical form (a Pauli's factors sorted, a Clifford listing only the
+//! generators it changes, a guard's terms sorted), so two actions doing
+//! the same thing written otherwise (other stabilizer generators) differ.
+//! A parameter is named by its position among the instruction's
+//! parameters, not by its name, so that `rotate(theta)` and
+//! `rotate(angle)` are the same instruction.
+//!
+//! An instruction that declares no action has the meaning
+//! [`Meaning::undeclared`]: QIR's gates written in code, a profiler's
+//! `round`. Such an instruction is matched by mnemonic only, and only
+//! between sets of one name.
+//!
+//! The block sizes an action's qubits are numbered over are the set's
+//! (its block types), compared with the instruction's blocks, so a meaning
+//! holds only its steps. Parsing Qodec's YAML is a loader's job.
+
+use super::{Parameter, ParameterKind, Pauli};
+use std::collections::BTreeMap;
+use std::fmt;
+
+/// What an instruction does, as Qodec declares it in its `action`, or
+/// [`undeclared`](Self::undeclared).
+///
+/// Built step by step, in the action's order: Qodec's `action: [clifford:
+/// {X_0: X_0 X_1, Z_1: Z_0 Z_1}]` is
+/// `Meaning::declared().clifford([(Pauli::x(0), Pauli::x(0) * Pauli::x(1)),
+/// (Pauli::z(1), Pauli::z(0) * Pauli::z(1))])`, and `rotate_z0`'s action
+/// (`rotate: {pauli: Z_0, angle: theta}`, `observe: Z_0`, `pauli: X_0`
+/// with `if: [correction, outcomes[0]]`), for parameters `correction`
+/// then `theta`, is
+/// `Meaning::declared().rotate(Pauli::z(0), Angle::Parameter(1))
+/// .observe([Pauli::z(0)]).pauli(Pauli::x(0)).only_if([Guard::Parameter(0),
+/// Guard::Outcome(0)])`.
+///
+/// What a meaning refers to (its parameters' kinds, its outcomes) is
+/// checked when its set is built, as a
+/// [`DeclarationFault::Meaning`](crate::DeclarationFault::Meaning).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Meaning {
+    /// `None` when undeclared.
+    steps: Option<Vec<Step>>,
+    /// An `only_if` or `unless` given before any step, refused when the set
+    /// is built.
+    guard_without_step: bool,
+}
+
+impl Meaning {
+    /// The meaning of an instruction that declares no action. Its set can
+    /// be matched by mnemonic only, with a set of the same name.
+    #[must_use]
+    pub fn undeclared() -> Self {
+        Self::default()
+    }
+
+    /// A declared action with no steps yet: the steps follow, in order.
+    #[must_use]
+    pub fn declared() -> Self {
+        Self {
+            steps: Some(Vec::new()),
+            guard_without_step: false,
+        }
+    }
+
+    /// This action, then the preparation of the state `generators`
+    /// stabilize, Qodec's `stabilize`.
+    #[must_use]
+    pub fn stabilize(self, generators: impl IntoIterator<Item = Pauli>) -> Self {
+        self.then(Operation::Stabilize(generators.into_iter().collect()))
+    }
+
+    /// This action, then the Clifford that maps each generator to its
+    /// image, Qodec's `clifford`. A generator mapped to itself is dropped,
+    /// as one not listed is fixed.
+    #[must_use]
+    pub fn clifford(self, images: impl IntoIterator<Item = (Pauli, Pauli)>) -> Self {
+        let changed = images
+            .into_iter()
+            .filter(|(generator, image)| generator != image)
+            .collect();
+        self.then(Operation::Clifford(changed))
+    }
+
+    /// This action, then `pauli`, Qodec's `pauli`.
+    #[must_use]
+    pub fn pauli(self, pauli: Pauli) -> Self {
+        self.then(Operation::Pauli(pauli))
+    }
+
+    /// This action, then the measurement of `observables`, one outcome
+    /// each, in order, Qodec's `observe`.
+    #[must_use]
+    pub fn observe(self, observables: impl IntoIterator<Item = impl Into<Observable>>) -> Self {
+        self.then(Operation::Observe(
+            observables.into_iter().map(Into::into).collect(),
+        ))
+    }
+
+    /// This action, then the rotation about `pauli` by `angle`, Qodec's
+    /// `rotate`: `exp(-iθP/2)`, so that `θ = π/4` about `Z` is a `T` gate
+    /// up to a global phase.
+    #[must_use]
+    pub fn rotate(self, pauli: Pauli, angle: Angle) -> Self {
+        self.then(Operation::Rotate { pauli, angle })
+    }
+
+    /// The latest step, run only if the parity of `guards` is odd, Qodec's
+    /// `if`.
+    #[must_use]
+    pub fn only_if(self, guards: impl IntoIterator<Item = Guard>) -> Self {
+        self.guarded(true, guards)
+    }
+
+    /// The latest step, run only if the parity of `guards` is even,
+    /// Qodec's `unless`.
+    #[must_use]
+    pub fn unless(self, guards: impl IntoIterator<Item = Guard>) -> Self {
+        self.guarded(false, guards)
+    }
+
+    /// Whether the instruction declares what it does.
+    pub(crate) fn is_declared(&self) -> bool {
+        self.steps.is_some()
+    }
+
+    /// What this meaning refers to that an instruction with `parameters`
+    /// and `outcomes` does not have, every fault, in the order of its
+    /// steps: an angle, a guard or an observable naming a parameter it
+    /// lacks or of another kind; a guard naming an outcome not observed
+    /// before its step; a guard on an observation or on no step; and, when
+    /// declared, observations that give other than `outcomes` outcomes.
+    pub(crate) fn faults(&self, parameters: &[Parameter], outcomes: u32) -> Vec<MeaningFault> {
+        let mut faults = Vec::new();
+        if self.guard_without_step {
+            faults.push(MeaningFault::GuardWithoutStep);
+        }
+        let Some(steps) = &self.steps else {
+            return faults;
+        };
+        let mut observed: u32 = 0;
+        let refer = |step: usize, parameter: usize, expected: ParameterKind| match parameters
+            .get(parameter)
+        {
+            None => Some(MeaningFault::NotAParameter { step, parameter }),
+            Some(declared) if declared.kind != expected => Some(MeaningFault::WrongParameterKind {
+                step,
+                parameter,
+                expected,
+            }),
+            Some(_) => None,
+        };
+        for (step, Step { operation, guard }) in steps.iter().enumerate() {
+            if let Some(guard) = guard {
+                if matches!(operation, Operation::Observe(_)) {
+                    faults.push(MeaningFault::GuardedObserve { step });
+                }
+                for term in &guard.terms {
+                    match *term {
+                        Guard::Parameter(parameter) => {
+                            faults.extend(refer(step, parameter, ParameterKind::Bit));
+                        }
+                        Guard::Outcome(outcome) if outcome >= observed => {
+                            faults.push(MeaningFault::OutcomeNotYet { step, outcome });
+                        }
+                        Guard::Outcome(_) => {}
+                    }
+                }
+            }
+            match operation {
+                Operation::Rotate {
+                    angle: Angle::Parameter(parameter),
+                    ..
+                } => faults.extend(refer(step, *parameter, ParameterKind::Number)),
+                Operation::Observe(observables) => {
+                    for observable in observables {
+                        if let Observable::Parameter(parameter) = *observable {
+                            faults.extend(refer(step, parameter, ParameterKind::Pauli));
+                        }
+                    }
+                    let count = u32::try_from(observables.len()).unwrap_or(u32::MAX);
+                    observed = observed.saturating_add(count);
+                }
+                _ => {}
+            }
+        }
+        if observed != outcomes {
+            faults.push(MeaningFault::OutcomeCount {
+                declared: outcomes,
+                observed,
+            });
+        }
+        faults
+    }
+
+    fn then(self, operation: Operation) -> Self {
+        let mut steps = self.steps.unwrap_or_default();
+        steps.push(Step {
+            operation,
+            guard: None,
+        });
+        Self {
+            steps: Some(steps),
+            guard_without_step: self.guard_without_step,
+        }
+    }
+
+    fn guarded(mut self, odd: bool, guards: impl IntoIterator<Item = Guard>) -> Self {
+        let guard = Condition::new(odd, guards);
+        match self.steps.as_mut().and_then(|steps| steps.last_mut()) {
+            Some(step) => step.guard = guard,
+            None => self.guard_without_step = true,
+        }
+        self
+    }
+}
+
+/// The angle of a rotation: a number, or one of the instruction's `number`
+/// parameters.
+///
+/// Angles compare bit for bit, so that meanings are `Eq`: `0.5` equals
+/// `0.5`, a NaN equals itself, and `0.0` differs from `-0.0`; a loader
+/// that reads angles from text writes each the same way.
+#[derive(Clone, Copy, Debug)]
+pub enum Angle {
+    /// An angle fixed by the instruction, in radians.
+    Literal(f64),
+    /// The instruction's parameter at this position, from 0.
+    Parameter(usize),
+}
+
+impl PartialEq for Angle {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Angle::Literal(a), Angle::Literal(b)) => a.to_bits() == b.to_bits(),
+            (Angle::Parameter(a), Angle::Parameter(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Angle {}
+
+/// What an observation measures: a Pauli, or the instruction's `pauli`
+/// parameter at a position, as Stim's `MPP` measures the product it is
+/// given (Qodec's `observe: p`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Observable {
+    Pauli(Pauli),
+    Parameter(usize),
+}
+
+impl From<Pauli> for Observable {
+    fn from(pauli: Pauli) -> Self {
+        Observable::Pauli(pauli)
+    }
+}
+
+/// One term of a step's guard, Qodec's `if: [correction, outcomes[0]]`:
+/// the instruction's `bit` parameter at a position, or an outcome of an
+/// earlier observation of the same action, counted across them from 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Guard {
+    Parameter(usize),
+    Outcome(u32),
+}
+
+/// Why a meaning does not fit the instruction it is declared for: what
+/// its steps refer to that the instruction lacks. A step is counted from 0.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MeaningFault {
+    /// `only_if` or `unless` before any step: it guards nothing.
+    GuardWithoutStep,
+    /// A guard on an observation: Qodec's outcome count must not depend on
+    /// a run-time bit.
+    GuardedObserve { step: usize },
+    /// An angle, guard or observable names a parameter position the
+    /// instruction does not have.
+    NotAParameter { step: usize, parameter: usize },
+    /// It names a parameter of another kind: an angle needs a `number`, a
+    /// guard a `bit`, an observable a `pauli`.
+    WrongParameterKind {
+        step: usize,
+        parameter: usize,
+        expected: ParameterKind,
+    },
+    /// A guard names an outcome not observed before its step.
+    OutcomeNotYet { step: usize, outcome: u32 },
+    /// Its observations give `observed` outcomes, the instruction declares
+    /// `declared`.
+    OutcomeCount { declared: u32, observed: u32 },
+}
+
+impl fmt::Display for MeaningFault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MeaningFault::GuardWithoutStep => f.write_str("a guard before any step"),
+            MeaningFault::GuardedObserve { step } => {
+                write!(f, "step {step} observes under a guard")
+            }
+            MeaningFault::NotAParameter { step, parameter } => {
+                write!(f, "step {step} names parameter {parameter}, which it lacks")
+            }
+            MeaningFault::WrongParameterKind {
+                step,
+                parameter,
+                expected,
+            } => write!(
+                f,
+                "step {step} needs parameter {parameter} to be a `{expected}`"
+            ),
+            MeaningFault::OutcomeNotYet { step, outcome } => write!(
+                f,
+                "step {step} is guarded by outcome {outcome}, not observed before it"
+            ),
+            MeaningFault::OutcomeCount { declared, observed } => write!(
+                f,
+                "its action observes {observed} outcomes, its declaration says {declared}"
+            ),
+        }
+    }
+}
+
+/// One step of an action: what it does, and its guard, if any.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Step {
+    operation: Operation,
+    guard: Option<Condition>,
+}
+
+/// What a step does, in Qodec's terms.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Operation {
+    /// Prepares the state these Paulis stabilize.
+    Stabilize(Vec<Pauli>),
+    /// Maps each Pauli to its image; a generator not listed is fixed.
+    Clifford(BTreeMap<Pauli, Pauli>),
+    /// Applies a Pauli.
+    Pauli(Pauli),
+    /// Measures each observable, one outcome each, in order.
+    Observe(Vec<Observable>),
+    /// Rotates about a Pauli by an angle.
+    Rotate { pauli: Pauli, angle: Angle },
+}
+
+/// A step runs when the parity of its terms is `odd` (Qodec's `if`) or
+/// even (`unless`). Canonical: its terms sorted, and a term given twice
+/// dropped, since it cancels in a parity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Condition {
+    odd: bool,
+    terms: Vec<Guard>,
+}
+
+impl Condition {
+    /// `None` for `unless` with no term left: the step always runs.
+    fn new(odd: bool, guards: impl IntoIterator<Item = Guard>) -> Option<Self> {
+        let mut sorted: Vec<Guard> = guards.into_iter().collect();
+        sorted.sort_unstable();
+        let mut terms: Vec<Guard> = Vec::with_capacity(sorted.len());
+        for guard in sorted {
+            if terms.last() == Some(&guard) {
+                terms.pop();
+            } else {
+                terms.push(guard);
+            }
+        }
+        (odd || !terms.is_empty()).then_some(Self { odd, terms })
+    }
+}

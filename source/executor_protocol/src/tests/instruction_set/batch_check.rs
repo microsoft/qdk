@@ -1,0 +1,299 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! The check of a batch's instructions against the receiver's set and the
+//! shot's blocks, as at each `execute`, on instructions written as struct
+//! literals.
+
+use crate::instruction_set::instruction::batch_check::{BatchFault, BatchLimits, check_batch};
+use crate::{
+    Argument, BlockOperand, BlockType, Instruction, InstructionDef, InstructionFault,
+    InstructionSet, Opcode, ParameterKind,
+};
+use smallvec::smallvec;
+
+fn carbon() -> BlockType {
+    BlockType::new("carbon")
+}
+
+/// A device's set over qubits and a code's `carbon` blocks: gates, Stim's
+/// `MPP`, a flagged measurement, an encoding that turns a qubit into a
+/// block, a preparation that makes a block, and a gate coupling a qubit
+/// to a block.
+fn device() -> InstructionSet {
+    let qubit = || [BlockType::qubit()];
+    InstructionSet::new(
+        "Device",
+        [(BlockType::qubit(), 1), (carbon(), 2)],
+        [
+            InstructionDef::new("h").acts_on(qubit()),
+            InstructionDef::new("rz")
+                .acts_on(qubit())
+                .parameter("theta", ParameterKind::Number),
+            InstructionDef::new("mpp")
+                .acts_on([BlockOperand::variadic(BlockType::qubit())])
+                .outcomes(1),
+            InstructionDef::new("m")
+                .acts_on(qubit())
+                .outcomes(1)
+                .flags(["reject", "leak"]),
+            InstructionDef::new("encode")
+                .takes(qubit())
+                .gives([carbon()]),
+            InstructionDef::new("prepare").gives([carbon()]),
+            InstructionDef::new("couple").acts_on([BlockType::qubit(), carbon()]),
+        ],
+    )
+    .expect("a valid set")
+}
+
+/// The limits of shots of `qubits` qubits and `carbons` blocks.
+fn limits(set: &InstructionSet, max: Option<u32>, qubits: u32, carbons: u32) -> BatchLimits {
+    BatchLimits::new(set, max, |block_type| {
+        if *block_type == BlockType::qubit() {
+            qubits
+        } else {
+            carbons
+        }
+    })
+}
+
+/// `mnemonic` on `blocks`, with no argument and no flag pattern, as a part
+/// writes it on its hot path: unchecked.
+fn literal(set: &InstructionSet, mnemonic: &str, blocks: &[u32]) -> Instruction {
+    Instruction {
+        opcode: set.opcode(mnemonic).expect("an instruction of the set"),
+        blocks: blocks.iter().copied().collect(),
+        arguments: smallvec![],
+        select: None,
+    }
+}
+
+fn fault_at(at: usize, fault: InstructionFault) -> Result<(), BatchFault> {
+    Err(BatchFault::Instruction { at, fault })
+}
+
+#[test]
+fn batch_of_more_than_the_receiver_s_most_instructions_is_refused() {
+    let set = device();
+    let h = || literal(&set, "h", &[0]);
+    let limits = limits(&set, Some(2), 1, 0);
+    check_batch(&set, &[h(), h()], &limits).expect("two instructions");
+    assert_eq!(
+        check_batch(&set, &[h(), h(), h()], &limits),
+        Err(BatchFault::TooManyInstructions { max: 2, got: 3 })
+    );
+}
+
+#[test]
+fn receiver_with_no_most_accepts_any_count() {
+    let set = device();
+    let batch = vec![literal(&set, "h", &[0]); 1000];
+    check_batch(&set, &batch, &limits(&set, None, 1, 0)).expect("no limit");
+}
+
+#[test]
+fn opcode_beyond_the_set_is_refused() {
+    let set = device();
+    let mut beyond = literal(&set, "h", &[0]);
+    beyond.opcode = Opcode::__from_macro(7);
+    assert_eq!(
+        check_batch(&set, &[beyond], &limits(&set, None, 1, 0)),
+        fault_at(0, InstructionFault::UnknownOpcode(Opcode::__from_macro(7)))
+    );
+}
+
+/// The fault names the first refused instruction, at its position.
+#[test]
+fn first_refused_instruction_is_reported_at_its_position() {
+    let set = device();
+    let batch = [
+        literal(&set, "h", &[0]),
+        literal(&set, "h", &[]),
+        literal(&set, "h", &[0, 1]),
+    ];
+    assert_eq!(
+        check_batch(&set, &batch, &limits(&set, None, 2, 0)),
+        fault_at(
+            1,
+            InstructionFault::WrongBlockCount {
+                mnemonic: "h".into(),
+                expected: 1,
+                got: 0,
+            }
+        )
+    );
+}
+
+#[test]
+fn block_beyond_the_shot_s_blocks_of_its_type_is_refused() {
+    let set = device();
+    let limits = limits(&set, None, 4, 0);
+    check_batch(&set, &[literal(&set, "h", &[3])], &limits).expect("the last qubit");
+    assert_eq!(
+        check_batch(&set, &[literal(&set, "h", &[4])], &limits),
+        fault_at(
+            0,
+            InstructionFault::BlockBeyondNeeds {
+                mnemonic: "h".into(),
+                block: 4,
+                needs: 4,
+            }
+        )
+    );
+}
+
+/// Shots of 1 qubit and 3 blocks: `prepare` makes block 2, an index among
+/// the blocks, not the qubits.
+#[test]
+fn block_is_checked_against_the_shot_s_blocks_of_its_own_type() {
+    let set = device();
+    let limits = limits(&set, None, 1, 3);
+    check_batch(&set, &[literal(&set, "prepare", &[2])], &limits).expect("the last block");
+    assert_eq!(
+        check_batch(&set, &[literal(&set, "prepare", &[3])], &limits),
+        fault_at(
+            0,
+            InstructionFault::BlockBeyondNeeds {
+                mnemonic: "prepare".into(),
+                block: 3,
+                needs: 3,
+            }
+        )
+    );
+}
+
+/// `encode` turns qubit `k` into block `k`, so `k` must be below both the
+/// shot's qubits and its blocks.
+#[test]
+fn block_that_changes_type_is_checked_against_both_types() {
+    let set = device();
+    let limits = limits(&set, None, 4, 2);
+    check_batch(&set, &[literal(&set, "encode", &[1])], &limits).expect("within both");
+    assert_eq!(
+        check_batch(&set, &[literal(&set, "encode", &[2])], &limits),
+        fault_at(
+            0,
+            InstructionFault::BlockBeyondNeeds {
+                mnemonic: "encode".into(),
+                block: 2,
+                needs: 2,
+            }
+        )
+    );
+}
+
+#[test]
+fn variadic_operand_s_blocks_are_each_checked() {
+    let set = device();
+    assert_eq!(
+        check_batch(
+            &set,
+            &[literal(&set, "mpp", &[0, 1, 5])],
+            &limits(&set, None, 4, 0)
+        ),
+        fault_at(
+            0,
+            InstructionFault::BlockBeyondNeeds {
+                mnemonic: "mpp".into(),
+                block: 5,
+                needs: 4,
+            }
+        )
+    );
+}
+
+/// Qubit 0 and block 0 are two units of the shot's state.
+#[test]
+fn blocks_of_different_types_may_share_an_index() {
+    let set = device();
+    check_batch(
+        &set,
+        &[literal(&set, "couple", &[0, 0])],
+        &limits(&set, None, 1, 1),
+    )
+    .expect("a qubit and a block");
+}
+
+/// Beyond a few blocks, the check sorts them: a variadic `MPP` on many
+/// qubits is refused when one is given twice, and only then.
+#[test]
+fn many_blocks_with_one_given_twice_are_refused() {
+    let set = device();
+    let limits = limits(&set, None, 40, 0);
+    let distinct: Vec<u32> = (0..30).rev().collect();
+    check_batch(&set, &[literal(&set, "mpp", &distinct)], &limits).expect("distinct qubits");
+    let mut repeated = distinct;
+    repeated.push(17);
+    assert_eq!(
+        check_batch(&set, &[literal(&set, "mpp", &repeated)], &limits),
+        fault_at(
+            0,
+            InstructionFault::RepeatedBlock {
+                mnemonic: "mpp".into(),
+                block: 17,
+            }
+        )
+    );
+}
+
+#[test]
+fn missing_argument_is_refused() {
+    let set = device();
+    assert_eq!(
+        check_batch(
+            &set,
+            &[literal(&set, "rz", &[0])],
+            &limits(&set, None, 1, 0)
+        ),
+        fault_at(
+            0,
+            InstructionFault::MissingArgument {
+                mnemonic: "rz".into(),
+                parameter: "theta".into(),
+            }
+        )
+    );
+}
+
+#[test]
+fn arguments_beyond_the_parameters_are_refused() {
+    let set = device();
+    let mut rz = literal(&set, "rz", &[0]);
+    rz.arguments = smallvec![Argument::Number(0.1), Argument::Number(0.2)];
+    assert_eq!(
+        check_batch(&set, &[rz], &limits(&set, None, 1, 0)),
+        fault_at(
+            0,
+            InstructionFault::ExtraArguments {
+                mnemonic: "rz".into(),
+                expected: 1,
+                got: 2,
+            }
+        )
+    );
+}
+
+/// A pattern built for `m`'s flags, on an instruction rewritten to one
+/// without them: the pattern names flag 1, which `h` lacks.
+#[test]
+fn select_over_flags_the_instruction_lacks_is_refused() {
+    let set = device();
+    let limits = limits(&set, None, 1, 0);
+    let m = literal(&set, "m", &[0])
+        .select(&set, [[("leak", 0)]])
+        .expect("a declared flag");
+    check_batch(&set, std::slice::from_ref(&m), &limits).expect("the flags of `m`");
+    let mut h = m;
+    h.opcode = set.opcode("h").expect("an instruction of the set");
+    assert_eq!(
+        check_batch(&set, &[h], &limits),
+        fault_at(
+            0,
+            InstructionFault::UnknownFlag {
+                mnemonic: "h".into(),
+                name: "#1".into(),
+            }
+        )
+    );
+}
