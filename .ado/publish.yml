@@ -99,7 +99,6 @@ parameters:
 # - OwnerPersonalAlias
 # - pythonMacArm64Sha256
 # - pythonMacX64Sha256
-# - pythonNugetFeed
 # - toolchainFeed
 
 extends:
@@ -565,7 +564,7 @@ extends:
                                 -Version $(PYTHON_FREETHREADED_VERSION)
                                 -ExcludeVersion
                                 -OutputDirectory "$(Agent.TempDirectory)\python315t"
-                                -Source "$(pythonNugetFeed)"
+                                -Source "$(toolchainFeed)"
 
                           - pwsh: |
                               $ErrorActionPreference = "Stop"
