@@ -6,7 +6,7 @@
 use super::{CoinGates, Values, coin_gate, coin_gates};
 use crate::{
     Batch, Drive, DriveError, Execute, Instruction, InstructionSet, Needs, OpcodeMap, ReadoutValue,
-    Seed, ShotConditions, ShotSet,
+    Readouts, Seed, ShotConditions, ShotSet,
 };
 
 /// A coin tossed on qubit 0, copied onto qubit 1: a toss for every shot in
@@ -51,13 +51,15 @@ impl Drive for CoinCopy {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<Values>, DriveError> {
-        let tossed = below
+        let mut tossed = Readouts::new();
+        below
             .execute(
                 &[Batch {
                     shots,
                     instructions: &self.sequences[0],
                 }],
                 seed,
+                &mut tossed,
             )
             .await?;
         let coin = &tossed[0];
@@ -86,7 +88,8 @@ impl Drive for CoinCopy {
                 instructions,
             })
             .collect();
-        let read = below.execute(&batches, seed).await?;
+        let mut read = Readouts::new();
+        below.execute(&batches, seed, &mut read).await?;
         for ((positions, _, _), rows) in sets.iter().zip(&read) {
             for (j, &i) in positions.iter().enumerate() {
                 outputs[i].extend_from_slice(rows.row(j));
@@ -234,7 +237,8 @@ impl Drive for Program {
                 instructions,
             })
             .collect();
-        let readouts = below.execute(&batches, seed).await?;
+        let mut readouts = Readouts::new();
+        below.execute(&batches, seed, &mut readouts).await?;
         if self.ends_its_shots {
             below.end_shots(shots);
         }

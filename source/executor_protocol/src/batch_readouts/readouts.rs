@@ -85,6 +85,15 @@ impl Deref for Readouts {
     }
 }
 
+impl<'a> IntoIterator for &'a Readouts {
+    type Item = &'a BatchReadouts;
+    type IntoIter = std::slice::Iter<'a, BatchReadouts>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 /// The readouts in use, without the memory kept for reuse.
 impl Clone for Readouts {
     fn clone(&self) -> Self {

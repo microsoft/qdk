@@ -7,7 +7,7 @@
 
 use super::allocations;
 use crate::{
-    BatchReadouts, ReadoutFailure, ReadoutIndex, ReadoutValue, ShapeFault, ShotConditions,
+    BatchReadouts, ReadoutFailure, ReadoutIndex, ReadoutValue, Readouts, ShapeFault, ShotConditions,
 };
 
 use ReadoutValue::{One, Zero};
@@ -45,21 +45,51 @@ fn a_row_of_another_width_is_refused_and_not_added() {
 }
 
 /// Rows come back in the order they were pushed, the batch's shot set's,
-/// each with its conditions, and a lost value in its own slot.
+/// each with its conditions, clear ones before and after the first that
+/// has any, and a lost value in its own slot.
 #[test]
 fn rows_come_back_in_push_order_with_their_conditions() {
     let batch = readouts(
         2,
         &[
+            (&[Zero, Zero], ShotConditions::NONE),
             (&[One, LOST], ShotConditions::UNRESOLVED),
             (&[Zero, One], ShotConditions::NONE),
         ],
     );
-    assert_eq!(batch.shots(), 2);
-    assert_eq!(batch.row(0), [One, LOST]);
-    assert_eq!(batch.row(1), [Zero, One]);
-    assert_eq!(batch.conditions(0), ShotConditions::UNRESOLVED);
-    assert_eq!(batch.conditions(1), ShotConditions::NONE);
+    assert_eq!(batch.shots(), 3);
+    assert_eq!(batch.row(0), [Zero, Zero]);
+    assert_eq!(batch.row(1), [One, LOST]);
+    assert_eq!(batch.row(2), [Zero, One]);
+    assert_eq!(batch.conditions(0), ShotConditions::NONE);
+    assert_eq!(batch.conditions(1), ShotConditions::UNRESOLVED);
+    assert_eq!(batch.conditions(2), ShotConditions::NONE);
+}
+
+/// Two batches' readouts are equal when their rows and each shot's
+/// conditions are, whatever room each was made with, and differ when only
+/// a shot's conditions do.
+#[test]
+fn readouts_are_equal_when_their_rows_and_conditions_are() {
+    let rows: [(&[ReadoutValue], ShotConditions); 2] = [
+        (&[One], ShotConditions::NONE),
+        (&[Zero], ShotConditions::REJECTED),
+    ];
+    let mut roomy = BatchReadouts::with_capacity(10, 1);
+    for (values, conditions) in rows {
+        roomy
+            .push_row(values, conditions)
+            .expect("each row has the batch's width");
+    }
+    assert_eq!(readouts(1, &rows), roomy);
+    let clear = readouts(
+        1,
+        &[
+            (&[One], ShotConditions::NONE),
+            (&[Zero], ShotConditions::NONE),
+        ],
+    );
+    assert_ne!(readouts(1, &rows), clear);
 }
 
 /// A part reads the readout it asked for by its slot, on a given shot: the
@@ -77,11 +107,11 @@ fn value_reads_one_slot_of_a_shots_row() {
     assert_eq!(batch.value(1, ReadoutIndex::new(0)), Zero);
 }
 
-/// A batch's readouts, made with its number of shots, take at most two
-/// allocations however many rows are pushed: the values' buffer and the
-/// conditions'.
+/// A batch's readouts, made with its number of shots, take one allocation
+/// however many rows are pushed while every shot's conditions are clear:
+/// the values' buffer.
 #[test]
-fn a_full_batch_is_at_most_two_allocations() {
+fn a_full_batch_of_clear_shots_is_one_allocation() {
     let count = allocations(|| {
         let mut batch = BatchReadouts::with_capacity(100, 3);
         for _ in 0..100 {
@@ -91,7 +121,58 @@ fn a_full_batch_is_at_most_two_allocations() {
         }
         drop(batch);
     });
+    assert_eq!(count, 1);
+}
+
+/// A batch's readouts, made with its number of shots, take at most two
+/// allocations however many rows are pushed, when shots from the middle
+/// on have conditions: the values' buffer and the conditions'.
+#[test]
+fn a_full_batch_with_conditions_is_at_most_two_allocations() {
+    let count = allocations(|| {
+        let mut batch = BatchReadouts::with_capacity(100, 3);
+        for shot in 0..100 {
+            let conditions = if shot < 50 {
+                ShotConditions::NONE
+            } else {
+                ShotConditions::REJECTED
+            };
+            batch
+                .push_row(&[One, Zero, LOST], conditions)
+                .expect("each row has the batch's width");
+        }
+        drop(batch);
+    });
     assert_eq!(count, 2);
+}
+
+/// A caller that clears its readouts between `execute`s, as a driver
+/// sending a round at a time does, allocates nothing for an answer the
+/// size of one it held before, conditions included.
+#[test]
+fn cleared_readouts_take_an_answer_of_a_size_they_held_without_allocating() {
+    let fill = |readouts: &mut Readouts| {
+        for _ in 0..3 {
+            let batch = readouts.push_batch(100, 3);
+            for shot in 0..100 {
+                let conditions = if shot % 2 == 0 {
+                    ShotConditions::NONE
+                } else {
+                    ShotConditions::UNRESOLVED
+                };
+                batch
+                    .push_row(&[One, Zero, LOST], conditions)
+                    .expect("each row has the batch's width");
+            }
+        }
+    };
+    let mut readouts = Readouts::new();
+    fill(&mut readouts);
+    let first = readouts.clone();
+    readouts.clear();
+    let count = allocations(|| fill(&mut readouts));
+    assert_eq!(count, 0);
+    assert_eq!(readouts, first, "the same answer, in reused memory");
 }
 
 /// A batch with no readout slots, such as one that only applies gates,

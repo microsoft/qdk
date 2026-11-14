@@ -8,8 +8,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::{
-    Adapt, Batch, BatchReadouts, Capabilities, Drive, DriveError, Execute, ExecuteError,
-    InstructionSet, Needs, OpcodeMap, RunRefusal, Seed, ShotSet,
+    Adapt, Batch, Capabilities, Drive, DriveError, Execute, ExecuteError, InstructionSet, Needs,
+    OpcodeMap, Readouts, RunRefusal, Seed, ShotSet,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
@@ -172,8 +172,9 @@ impl<P: Adapt> Adapt for PanicsInDrop<P> {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> impl Future<Output = Result<Vec<BatchReadouts>, ExecuteError>> {
-        let future = self.part.adapt(batches, seed, below);
+        readouts: &mut Readouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        let future = self.part.adapt(batches, seed, below, readouts);
         Dropping {
             future: Box::pin(future),
             armed: self.armed,
@@ -211,8 +212,9 @@ impl<P: Execute> Execute for PanicsInDrop<P> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-    ) -> impl Future<Output = Result<Vec<BatchReadouts>, ExecuteError>> {
-        let future = self.part.execute(batches, seed);
+        readouts: &mut Readouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        let future = self.part.execute(batches, seed, readouts);
         Dropping {
             future: Box::pin(future),
             armed: self.armed,

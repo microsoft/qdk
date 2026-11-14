@@ -13,8 +13,8 @@ use std::time::Duration;
 use super::{CoinGates, Log, Stream, YieldNow, coin_gates, zeros};
 use crate::{
     Batch, BatchReadouts, BlockType, Capabilities, Drive, DriveError, Execute, ExecuteError,
-    InstructionSet, Needs, Opcode, OpcodeMap, ReadoutFailure, ReadoutValue, RunRefusal, Seed,
-    ShotConditions, ShotId, ShotSet,
+    InstructionSet, Needs, Opcode, OpcodeMap, ReadoutFailure, ReadoutValue, Readouts, RunRefusal,
+    Seed, ShotConditions, ShotId, ShotSet,
 };
 
 /// A toy executor on classical bits: `h` tosses a bit from the shot's
@@ -115,10 +115,10 @@ impl Execute for Bits {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         self.log.push("Bits execute");
         let [h, x, mz] = self.opcodes;
-        let mut answer = Vec::with_capacity(batches.len());
         for batch in batches {
             let reads = batch
                 .instructions
@@ -126,7 +126,7 @@ impl Execute for Bits {
                 .filter(|instruction| Some(instruction.opcode) == mz)
                 .count();
             let width = u32::try_from(reads).expect("a small batch");
-            let mut rows = BatchReadouts::with_capacity(batch.shots.len(), width);
+            let rows = readouts.push_batch(batch.shots.len(), width);
             for id in batch.shots.iter() {
                 let qubits = self.qubits;
                 let (bits, stream) = self
@@ -158,9 +158,8 @@ impl Execute for Bits {
                 };
                 rows.push_row(&row, conditions).expect("one value per `mz`");
             }
-            answer.push(rows);
         }
-        Ok(answer)
+        Ok(())
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
@@ -193,9 +192,10 @@ impl<E: Execute> Execute for Later<E> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         YieldNow::default().await;
-        self.0.execute(batches, seed).await
+        self.0.execute(batches, seed, readouts).await
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
@@ -230,7 +230,7 @@ impl<E> FromThread<E> {
 
 /// An answer, once the worker hands it over, and the waker to wake then.
 struct Handover {
-    answer: Option<Result<Vec<BatchReadouts>, ExecuteError>>,
+    answer: Option<Result<Readouts, ExecuteError>>,
     waker: Option<Waker>,
 }
 
@@ -251,8 +251,14 @@ impl<E: Execute> Execute for FromThread<E> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let answer = self.inner.execute(batches, seed).await;
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        let mut own = Readouts::new();
+        let answer = self
+            .inner
+            .execute(batches, seed, &mut own)
+            .await
+            .map(|()| own);
         let handover = Arc::new(Mutex::new(Handover {
             answer: None,
             waker: None,
@@ -284,7 +290,10 @@ impl<E: Execute> Execute for FromThread<E> {
         })
         .await;
         worker.join().expect("the worker ends");
-        answer
+        for batch in &answer? {
+            readouts.push(batch.clone());
+        }
+        Ok(())
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
@@ -326,7 +335,8 @@ impl Execute for Misshapen {
         &mut self,
         batches: &[Batch<'_>],
         _seed: Seed,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let last = batches.len() - 1;
         let mut answer: Vec<BatchReadouts> = batches
             .iter()
@@ -354,7 +364,10 @@ impl Execute for Misshapen {
             }
             _ => {}
         }
-        Ok(answer)
+        for batch in answer {
+            readouts.push(batch);
+        }
+        Ok(())
     }
 }
 
@@ -416,7 +429,8 @@ impl Execute for Panics {
         &mut self,
         _batches: &[Batch<'_>],
         _seed: Seed,
-    ) -> impl Future<Output = Result<Vec<BatchReadouts>, ExecuteError>> {
+        _readouts: &mut Readouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
         assert!(
             matches!(self.0, PanicsWhen::Polled),
             "the part broke while making its future"

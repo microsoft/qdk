@@ -46,7 +46,7 @@ use std::task::{Context, Poll};
 
 use crate::{
     Batch, BatchReadouts, Execute, ExecuteError, Instruction, InstructionSet, OpcodeMap,
-    ReadoutValue, Seed, ShotConditions, instruction_set,
+    ReadoutValue, Readouts, Seed, ShotConditions, instruction_set,
 };
 
 mod adapters;
@@ -131,13 +131,15 @@ fn mapped(map: &OpcodeMap, instructions: &[Instruction]) -> Vec<Instruction> {
 
 /// Sends `batches` below, each to its own shots with the instructions
 /// `rewrite` makes of it, in one `execute`, and answers with the readouts
-/// below: the run time of an adapter that keeps each batch's shots.
+/// below, appended to `readouts`: the run time of an adapter that keeps
+/// each batch's shots.
 async fn forward(
     batches: &[Batch<'_>],
     seed: Seed,
     below: &mut impl Execute,
+    readouts: &mut Readouts,
     rewrite: impl FnMut(&Batch<'_>) -> Vec<Instruction>,
-) -> Result<Vec<BatchReadouts>, ExecuteError> {
+) -> Result<(), ExecuteError> {
     let sent: Vec<Vec<Instruction>> = batches.iter().map(rewrite).collect();
     let below_batches: Vec<Batch<'_>> = batches
         .iter()
@@ -147,7 +149,7 @@ async fn forward(
             instructions,
         })
         .collect();
-    below.execute(&below_batches, seed).await
+    below.execute(&below_batches, seed, readouts).await
 }
 
 /// The receiver's opcodes, given by `>>`'s `bind`.

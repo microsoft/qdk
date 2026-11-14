@@ -13,7 +13,7 @@ use std::task::Poll;
 use super::{CoinGates, Log, Stream, bound, coin_gate, coin_gates, forward, mapped, zeros};
 use crate::{
     Adapt, Batch, BatchReadouts, BlockType, Capabilities, Execute, ExecuteError, Failure,
-    Instruction, InstructionSet, Needs, OpcodeMap, RunRefusal, Seed, ShotId, ShotSet,
+    Instruction, InstructionSet, Needs, OpcodeMap, Readouts, RunRefusal, Seed, ShotId, ShotSet,
 };
 
 /// A toy bit-flip noise: after each `x`, another `x` with probability
@@ -55,7 +55,8 @@ impl Adapt for BitFlip {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         let own = seed.derive("bit_flip");
         let mut sent: Vec<(ShotSet, Vec<Instruction>)> = Vec::new();
@@ -88,9 +89,9 @@ impl Adapt for BitFlip {
                 instructions,
             })
             .collect();
-        let answer = below.execute(&one_each, seed).await?;
+        let mut answer = Readouts::new();
+        below.execute(&one_each, seed, &mut answer).await?;
         let mut rows = answer.iter();
-        let mut readouts = Vec::with_capacity(batches.len());
         for batch in batches {
             let mine: Vec<&BatchReadouts> = rows.by_ref().take(batch.shots.len()).collect();
             let mut joined = BatchReadouts::with_capacity(mine.len(), mine[0].readouts());
@@ -101,7 +102,7 @@ impl Adapt for BitFlip {
             }
             readouts.push(joined);
         }
-        Ok(readouts)
+        Ok(())
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
@@ -173,11 +174,12 @@ impl Adapt for Profiler {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let count: usize = batches.iter().map(|batch| batch.instructions.len()).sum();
         self.instructions.set(self.instructions.get() + count);
         let map = bound(self.below.as_ref());
-        forward(batches, seed, below, |batch| {
+        forward(batches, seed, below, readouts, |batch| {
             mapped(map, batch.instructions)
         })
         .await
@@ -220,12 +222,13 @@ impl Adapt for NamesBelow {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         self.log.push(format!("below: {}", below.name()));
         self.log
             .push(format!("below accepts: {}", below.accepts().name()));
         let map = bound(self.below.as_ref());
-        forward(batches, seed, below, |batch| {
+        forward(batches, seed, below, readouts, |batch| {
             mapped(map, batch.instructions)
         })
         .await
@@ -258,26 +261,27 @@ impl Adapt for Splitter {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
-        let mut answer = Vec::with_capacity(batches.len());
+        let mut parts = Readouts::new();
         for batch in batches {
             let instructions = mapped(map, batch.instructions);
-            let mut parts = Vec::with_capacity(instructions.len());
+            parts.clear();
             for instruction in &instructions {
                 let step = Batch {
                     shots: batch.shots,
                     instructions: std::slice::from_ref(instruction),
                 };
-                parts.extend(below.execute(&[step], seed).await?);
+                below.execute(&[step], seed, &mut parts).await?;
             }
-            answer.push(if parts.is_empty() {
+            readouts.push(if parts.is_empty() {
                 zeros(batch.shots.len(), 0)
             } else {
                 BatchReadouts::concat_readouts(&parts)
             });
         }
-        Ok(answer)
+        Ok(())
     }
 }
 
@@ -337,9 +341,10 @@ impl Adapt for Spread {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
-        forward(batches, seed, below, |batch| {
+        forward(batches, seed, below, readouts, |batch| {
             let mut instructions = mapped(map, batch.instructions);
             for instruction in &mut instructions {
                 instruction.blocks[0] *= self.k;
@@ -405,8 +410,9 @@ impl Adapt for Pool {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.0.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.0.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -457,8 +463,9 @@ impl Adapt for Capped {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.spread.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.spread.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -499,8 +506,9 @@ impl Adapt for Contrary {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.0.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.0.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -544,8 +552,9 @@ impl Adapt for Workspace {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.0.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.0.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -589,8 +598,11 @@ impl Adapt for Queue {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.pass_through.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.pass_through
+            .adapt(batches, seed, below, readouts)
+            .await
     }
 }
 
@@ -648,8 +660,11 @@ impl Adapt for Restating {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.pass_through.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.pass_through
+            .adapt(batches, seed, below, readouts)
+            .await
     }
 }
 
@@ -686,8 +701,9 @@ impl Adapt for Unseedable {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.0.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.0.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -720,16 +736,18 @@ impl Adapt for Impatient {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         {
-            let mut first = pin!(self.0.adapt(batches, seed, below));
+            let mut dropped = Readouts::new();
+            let mut first = pin!(self.0.adapt(batches, seed, below, &mut dropped));
             poll_fn(|context| {
                 let _ = first.as_mut().poll(context);
                 Poll::Ready(())
             })
             .await;
         }
-        self.0.adapt(batches, seed, below).await
+        self.0.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -778,7 +796,8 @@ impl Adapt for Trap {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         if batches
             .iter()
             .any(|batch| batch.shots.iter().any(|id| id == self.shot))
@@ -789,7 +808,7 @@ impl Adapt for Trap {
             });
         }
         let map = bound(self.below.as_ref());
-        forward(batches, seed, below, |batch| {
+        forward(batches, seed, below, readouts, |batch| {
             mapped(map, batch.instructions)
         })
         .await
@@ -836,7 +855,8 @@ impl Adapt for FailsOnce {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         self.adapts += 1;
         if self.adapts == 2 {
             return Err(ExecuteError::Failed {
@@ -845,7 +865,7 @@ impl Adapt for FailsOnce {
             });
         }
         let map = bound(self.below.as_ref());
-        forward(batches, seed, below, |batch| {
+        forward(batches, seed, below, readouts, |batch| {
             mapped(map, batch.instructions)
         })
         .await
@@ -900,7 +920,8 @@ impl Adapt for Misbehaving {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         match self.misbehaviour {
             Misbehaviour::PanicsWithAString => {
                 panic!("the adapter broke on {} batches", batches.len())
@@ -909,7 +930,7 @@ impl Adapt for Misbehaving {
             Misbehaviour::SendsBeyondTheNeeds | Misbehaviour::TriplesEachBatch => {}
         }
         let map = bound(self.below.as_ref());
-        forward(batches, seed, below, |batch| {
+        forward(batches, seed, below, readouts, |batch| {
             let once = batch.instructions;
             let mut instructions = match self.misbehaviour {
                 Misbehaviour::TriplesEachBatch => [once, once, once].concat(),
@@ -968,8 +989,9 @@ impl Adapt for ForwardsParity {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.0.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.0.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -1006,8 +1028,9 @@ impl Adapt for LoweringWithoutParity {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.0.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.0.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -1058,11 +1081,14 @@ impl Adapt for Shifting {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let most = below.offers().max_instructions;
         self.log
             .push(format!("Shifting is offered {most:?} instructions a batch"));
-        self.pass_through.adapt(batches, seed, below).await
+        self.pass_through
+            .adapt(batches, seed, below, readouts)
+            .await
     }
 }
 
@@ -1121,8 +1147,11 @@ impl Adapt for PanicsEnding {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        self.pass_through.adapt(batches, seed, below).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.pass_through
+            .adapt(batches, seed, below, readouts)
+            .await
     }
 
     fn end_shots(&mut self, _shots: &ShotSet) {
@@ -1163,11 +1192,12 @@ impl Adapt for EndsBelow {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let readouts = self.0.adapt(batches, seed, below).await?;
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.0.adapt(batches, seed, below, readouts).await?;
         for batch in batches {
             below.end_shots(batch.shots);
         }
-        Ok(readouts)
+        Ok(())
     }
 }

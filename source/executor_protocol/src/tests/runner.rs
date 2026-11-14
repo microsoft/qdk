@@ -2,10 +2,12 @@
 // Licensed under the MIT License.
 
 //! Running shots on a chain: the records each shot gets, the run's
-//! refusals, the failures that end it, and the checks of each `execute`.
+//! refusals, the failures that end it, the checks of each `execute`, and
+//! what an `execute` does with the readouts its caller lends.
 
 mod boundaries;
 mod failures;
+mod lent_readouts;
 mod wait;
 
 use std::cell::{Cell, RefCell};
@@ -23,8 +25,8 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     Adapter, Capabilities, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure,
-    InstructionFault, InstructionSet, Needs, OpcodeMap, ReadoutFailure, ReadoutValue, RunError,
-    RunRefusal, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    InstructionFault, InstructionSet, Needs, OpcodeMap, ReadoutFailure, ReadoutValue, Readouts,
+    RunError, RunRefusal, Runner, Seed, ShotConditions, ShotId, ShotSet,
 };
 
 const SEED: u64 = 7;
@@ -1032,7 +1034,8 @@ impl Drive for SendsNothing {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<usize>, DriveError> {
-        let answer = below.execute(&[], seed).await?;
+        let mut answer = Readouts::new();
+        below.execute(&[], seed, &mut answer).await?;
         Ok(vec![answer.len(); shots.len()])
     }
 }
