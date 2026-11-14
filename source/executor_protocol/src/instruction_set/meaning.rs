@@ -46,16 +46,29 @@ use std::fmt;
 /// .observe([Pauli::z(0)]).pauli(Pauli::x(0)).only_if([Guard::Parameter(0),
 /// Guard::Outcome(0)])`.
 ///
-/// What a meaning refers to (its parameters' kinds, its outcomes) is
-/// checked when its set is built, as a
+/// What a meaning refers to (its parameters' kinds, its outcomes), and
+/// the slips made while writing it (a guard or a generator given twice),
+/// are checked when its set is built, as a
 /// [`DeclarationFault::Meaning`](crate::DeclarationFault::Meaning).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Eq)]
 pub struct Meaning {
     /// `None` when undeclared.
     steps: Option<Vec<Step>>,
-    /// An `only_if` or `unless` given before any step, refused when the set
-    /// is built.
-    guard_without_step: bool,
+    /// The faults made while building it, in order, refused when the set
+    /// is built: a guard before any step or given twice to one, a
+    /// generator a Clifford maps twice.
+    slips: Vec<MeaningFault>,
+    /// Whether the latest step has its guard, so that another is a slip.
+    last_step_guarded: bool,
+}
+
+/// Two meanings are equal when their steps and slips are, whatever guards
+/// the latest step was given: `pauli(x).unless([])` is `pauli(x)`, since
+/// an even parity of no term always holds.
+impl PartialEq for Meaning {
+    fn eq(&self, other: &Self) -> bool {
+        self.steps == other.steps && self.slips == other.slips
+    }
 }
 
 impl Meaning {
@@ -71,7 +84,7 @@ impl Meaning {
     pub fn declared() -> Self {
         Self {
             steps: Some(Vec::new()),
-            guard_without_step: false,
+            ..Self::default()
         }
     }
 
@@ -84,9 +97,23 @@ impl Meaning {
 
     /// This action, then the Clifford that maps each generator to its
     /// image, Qodec's `clifford`. A generator mapped to itself is dropped,
-    /// as one not listed is fixed.
+    /// as one not listed is fixed. A generator given twice is refused when
+    /// the set is built ([`MeaningFault::GeneratorTwice`]).
     #[must_use]
-    pub fn clifford(self, images: impl IntoIterator<Item = (Pauli, Pauli)>) -> Self {
+    pub fn clifford(mut self, images: impl IntoIterator<Item = (Pauli, Pauli)>) -> Self {
+        let images: Vec<(Pauli, Pauli)> = images.into_iter().collect();
+        let step = self.steps.as_ref().map_or(0, Vec::len);
+        for (position, (generator, _)) in images.iter().enumerate() {
+            if images[..position]
+                .iter()
+                .any(|(earlier, _)| earlier == generator)
+            {
+                self.slips.push(MeaningFault::GeneratorTwice {
+                    step,
+                    generator: generator.clone(),
+                });
+            }
+        }
         let changed = images
             .into_iter()
             .filter(|(generator, image)| generator != image)
@@ -118,14 +145,16 @@ impl Meaning {
     }
 
     /// The latest step, run only if the parity of `guards` is odd, Qodec's
-    /// `if`.
+    /// `if`. A step takes one guard: `only_if` or `unless` again on it is
+    /// refused when the set is built ([`MeaningFault::GuardTwice`]).
     #[must_use]
     pub fn only_if(self, guards: impl IntoIterator<Item = Guard>) -> Self {
         self.guarded(true, guards)
     }
 
     /// The latest step, run only if the parity of `guards` is even,
-    /// Qodec's `unless`.
+    /// Qodec's `unless`. A step takes one guard, as for
+    /// [`only_if`](Self::only_if).
     #[must_use]
     pub fn unless(self, guards: impl IntoIterator<Item = Guard>) -> Self {
         self.guarded(false, guards)
@@ -136,17 +165,15 @@ impl Meaning {
         self.steps.is_some()
     }
 
-    /// What this meaning refers to that an instruction with `parameters`
-    /// and `outcomes` does not have, every fault, in the order of its
-    /// steps: an angle, a guard or an observable naming a parameter it
-    /// lacks or of another kind; a guard naming an outcome not observed
-    /// before its step; a guard on an observation or on no step; and, when
-    /// declared, observations that give other than `outcomes` outcomes.
+    /// Every fault of this meaning for an instruction with `parameters` and
+    /// `outcomes`: first the slips made while building it, in order; then,
+    /// in the order of its steps, an angle, a guard or an observable
+    /// naming a parameter it lacks or of another kind, a guard naming an
+    /// outcome not observed before its step, a guard on an observation;
+    /// and, when declared, observations that give other than `outcomes`
+    /// outcomes.
     pub(crate) fn faults(&self, parameters: &[Parameter], outcomes: u32) -> Vec<MeaningFault> {
-        let mut faults = Vec::new();
-        if self.guard_without_step {
-            faults.push(MeaningFault::GuardWithoutStep);
-        }
+        let mut faults = self.slips.clone();
         let Some(steps) = &self.steps else {
             return faults;
         };
@@ -205,24 +232,27 @@ impl Meaning {
         faults
     }
 
-    fn then(self, operation: Operation) -> Self {
-        let mut steps = self.steps.unwrap_or_default();
-        steps.push(Step {
+    fn then(mut self, operation: Operation) -> Self {
+        self.steps.get_or_insert_with(Vec::new).push(Step {
             operation,
             guard: None,
         });
-        Self {
-            steps: Some(steps),
-            guard_without_step: self.guard_without_step,
-        }
+        self.last_step_guarded = false;
+        self
     }
 
     fn guarded(mut self, odd: bool, guards: impl IntoIterator<Item = Guard>) -> Self {
         let guard = Condition::new(odd, guards);
-        match self.steps.as_mut().and_then(|steps| steps.last_mut()) {
-            Some(step) => step.guard = guard,
-            None => self.guard_without_step = true,
+        let Some(steps) = self.steps.as_mut().filter(|steps| !steps.is_empty()) else {
+            self.slips.push(MeaningFault::GuardWithoutStep);
+            return self;
+        };
+        let step = steps.len() - 1;
+        if self.last_step_guarded {
+            self.slips.push(MeaningFault::GuardTwice { step });
         }
+        steps[step].guard = guard;
+        self.last_step_guarded = true;
         self
     }
 }
@@ -277,13 +307,20 @@ pub enum Guard {
     Outcome(u32),
 }
 
-/// Why a meaning does not fit the instruction it is declared for: what
-/// its steps refer to that the instruction lacks. A step is counted from 0.
+/// Why a meaning does not fit the instruction it is declared for: a slip
+/// made while writing it, or what its steps refer to that the instruction
+/// lacks. A step is counted from 0.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MeaningFault {
     /// `only_if` or `unless` before any step: it guards nothing.
     GuardWithoutStep,
+    /// `only_if` or `unless` given twice to one step, which would keep
+    /// only the latest.
+    GuardTwice { step: usize },
+    /// A Clifford maps one generator twice, which would keep only the
+    /// latest image.
+    GeneratorTwice { step: usize, generator: Pauli },
     /// A guard on an observation: Qodec's outcome count must not depend on
     /// a run-time bit.
     GuardedObserve { step: usize },
@@ -308,6 +345,10 @@ impl fmt::Display for MeaningFault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MeaningFault::GuardWithoutStep => f.write_str("a guard before any step"),
+            MeaningFault::GuardTwice { step } => write!(f, "step {step} is guarded twice"),
+            MeaningFault::GeneratorTwice { step, generator } => {
+                write!(f, "step {step} maps `{generator}` twice")
+            }
             MeaningFault::GuardedObserve { step } => {
                 write!(f, "step {step} observes under a guard")
             }

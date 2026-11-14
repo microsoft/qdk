@@ -13,13 +13,14 @@ use crate::{
     Meaning, MeaningFault, Observable, Opcode, ParameterKind, Pauli, instruction_set,
 };
 
+// Copied in `instruction_set!`'s doc: keep the two the same.
 instruction_set! {
     /// QIR's gates, as a state-vector simulator accepts them.
     CoinGates {
         H = h(qubit),
         RZ = rz(qubit; theta: Number),
         CX = cx(qubit, qubit),
-        MZ = mz(qubit) -> 1 readout,
+        MZ = mz(qubit) -> 1 outcome,
     }
 }
 
@@ -27,7 +28,7 @@ instruction_set! {
     /// A code's logical instructions, on blocks of two qubits.
     CodeGates [carbon: 2] {
         MERGE = merge(carbon, carbon),
-        MEASURE = measure(carbon; basis: Pauli) -> 2 readouts,
+        MEASURE = measure(carbon; basis: Pauli) -> 2 outcomes,
     }
 }
 
@@ -62,32 +63,51 @@ fn macro_constants_are_the_opcodes_of_their_mnemonics() {
     }
 }
 
-/// A set known only at run time, as a loader reads Qodec's YAML (names
-/// unknown when the crate is built, here from text), is the set the
-/// macro writes: they fit each other, each opcode to itself, and an
-/// instruction built by name on it holds the macro's constant.
-#[test]
-fn set_made_at_run_time_fits_as_a_static_one() {
-    // mnemonic, qubits, parameter of kind number, outcomes
-    let text = "h 1 - 0; rz 1 theta 0; cx 2 - 0; mz 1 - 1";
+/// A set known only at run time, as a loader reads Qodec's YAML: names
+/// unknown when the crate is built, here read from `text`, one
+/// instruction per line (`; `), each `mnemonic qubits parameter outcomes`,
+/// then optionally an action of one step: `clifford X_0:Z_0,Z_0:X_0`,
+/// `observe Z_0`, or `rotate Z_0` by the parameter (a number), `-` for
+/// none.
+fn load(name: &str, text: &str) -> InstructionSet {
+    let pauli = |text: &str| Pauli::parse(text).expect("a Pauli");
     let instructions = text.split("; ").map(|line| {
-        let [mnemonic, qubits, parameter, outcomes] = line
-            .split(' ')
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("four fields");
+        let fields: Vec<&str> = line.split(' ').collect();
+        let [mnemonic, qubits, parameter, outcomes] = fields[..4] else {
+            panic!("four fields in {line:?}");
+        };
         let qubits: usize = qubits.parse().expect("a count");
-        let def = InstructionDef::new(mnemonic)
+        let mut def = InstructionDef::new(mnemonic)
             .acts_on(vec![BlockType::qubit(); qubits])
             .outcomes(outcomes.parse().expect("a count"));
-        if parameter == "-" {
-            def
-        } else {
-            def.parameter(parameter, ParameterKind::Number)
+        if parameter != "-" {
+            def = def.parameter(parameter, ParameterKind::Number);
+        }
+        let step = Meaning::declared();
+        match fields[4..] {
+            [] => def,
+            ["clifford", images] => def.meaning(step.clifford(images.split(',').map(|image| {
+                let (generator, image) = image.split_once(':').expect("`generator:image`");
+                (pauli(generator), pauli(image))
+            }))),
+            ["observe", observable] => def.meaning(step.observe([pauli(observable)])),
+            ["rotate", axis] => def.meaning(step.rotate(pauli(axis), Angle::Parameter(0))),
+            _ => panic!("an action of one step in {line:?}"),
         }
     });
-    let loaded = InstructionSet::new("CoinGates", [(BlockType::qubit(), 1)], instructions)
-        .expect("a valid set");
+    InstructionSet::new(name, [(BlockType::qubit(), 1)], instructions).expect("a valid set")
+}
+
+/// `CoinGates`, read at run time.
+fn coin_gates_loaded() -> InstructionSet {
+    load("CoinGates", "h 1 - 0; rz 1 theta 0; cx 2 - 0; mz 1 - 1")
+}
+
+/// A set known only at run time is the set the macro writes: they fit
+/// each other, each opcode to itself.
+#[test]
+fn set_made_at_run_time_fits_as_a_static_one() {
+    let loaded = coin_gates_loaded();
     let map = CoinGates::set().fits(&loaded).expect("the same set");
     for opcode in [CoinGates::H, CoinGates::RZ, CoinGates::CX, CoinGates::MZ] {
         assert_eq!(map.map(opcode), opcode);
@@ -95,10 +115,38 @@ fn set_made_at_run_time_fits_as_a_static_one() {
     loaded
         .fits(&CoinGates::set())
         .expect("the same set, the other way");
-    let rz = loaded
+}
+
+/// A part that names its instructions at run time writes the opcodes a
+/// part written in code matches on.
+#[test]
+fn instruction_built_by_name_on_a_run_time_set_holds_the_static_constant() {
+    let rz = coin_gates_loaded()
         .instruction("rz", [3], &[("theta", 0.25.into())])
         .expect("a valid instruction");
     assert_eq!(rz.opcode, CoinGates::RZ);
+}
+
+/// A run-time set that declares what its instructions do fits a set of
+/// another name, with other mnemonics and parameter names, doing the
+/// same: the logical `lh`, `lmz` and `lrot` are a device's `h`, `mz` and
+/// `rz`, matched by meaning, none by mnemonic.
+#[test]
+fn set_made_at_run_time_declaring_meanings_fits_by_meaning_under_another_name() {
+    let logical = load(
+        "Logical",
+        "lh 1 - 0 clifford X_0:Z_0,Z_0:X_0; lmz 1 - 1 observe Z_0; lrot 1 theta 0 rotate Z_0",
+    );
+    let device = load(
+        "Device",
+        "mz 1 - 1 observe Z_0; rz 1 angle 0 rotate Z_0; h 1 - 0 clifford Z_0:X_0,X_0:Z_0",
+    );
+    let map = logical.fits(&device).expect("the same instructions");
+    for (sent, accepted) in [("lh", "h"), ("lmz", "mz"), ("lrot", "rz")] {
+        let opcode = logical.opcode(sent).expect("a logical instruction");
+        assert_eq!(device.mnemonic(map.map(opcode)), Some(accepted), "{sent}");
+    }
+    assert!(map.by_mnemonic().is_empty());
 }
 
 /// A code's set lists its block type and its size; its instructions take
@@ -439,6 +487,39 @@ fn guard_before_any_step_is_refused() {
             .observe([Pauli::z(0)]),
     );
     assert_eq!(meaning_faults(def), [MeaningFault::GuardWithoutStep]);
+}
+
+/// A second guard on one step would replace the first unseen.
+#[test]
+fn step_guarded_twice_is_refused() {
+    let def = rotate_z0().meaning(
+        Meaning::declared()
+            .observe([Pauli::z(0)])
+            .pauli(Pauli::x(0))
+            .only_if([Guard::Parameter(0)])
+            .unless([Guard::Outcome(0)]),
+    );
+    assert_eq!(meaning_faults(def), [MeaningFault::GuardTwice { step: 1 }]);
+}
+
+/// A second image of one generator would replace the first unseen, even
+/// an image that maps it to itself.
+#[test]
+fn clifford_mapping_a_generator_twice_is_refused() {
+    let def = InstructionDef::new("h")
+        .acts_on([BlockType::qubit()])
+        .meaning(Meaning::declared().clifford([
+            (Pauli::x(0), Pauli::z(0)),
+            (Pauli::z(0), Pauli::x(0)),
+            (Pauli::x(0), Pauli::x(0)),
+        ]));
+    assert_eq!(
+        meaning_faults(def),
+        [MeaningFault::GeneratorTwice {
+            step: 0,
+            generator: Pauli::x(0),
+        }]
+    );
 }
 
 #[test]

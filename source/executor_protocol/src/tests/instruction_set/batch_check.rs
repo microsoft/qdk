@@ -18,8 +18,9 @@ fn carbon() -> BlockType {
 
 /// A device's set over qubits and a code's `carbon` blocks: gates, Stim's
 /// `MPP`, a flagged measurement, an encoding that turns a qubit into a
-/// block, a preparation that makes a block, and a gate coupling a qubit
-/// to a block.
+/// block, a preparation that makes a block, a gate coupling a qubit to a
+/// block, another coupling a block to many qubits, and an `x` run if a
+/// parity of earlier readouts is odd.
 fn device() -> InstructionSet {
     let qubit = || [BlockType::qubit()];
     InstructionSet::new(
@@ -42,6 +43,11 @@ fn device() -> InstructionSet {
                 .gives([carbon()]),
             InstructionDef::new("prepare").gives([carbon()]),
             InstructionDef::new("couple").acts_on([BlockType::qubit(), carbon()]),
+            InstructionDef::new("couple_many")
+                .acts_on([carbon().into(), BlockOperand::variadic(BlockType::qubit())]),
+            InstructionDef::new("cond_x")
+                .acts_on(qubit())
+                .parameter("c", ParameterKind::Bit),
         ],
     )
     .expect("a valid set")
@@ -96,10 +102,10 @@ fn receiver_with_no_most_accepts_any_count() {
 fn opcode_beyond_the_set_is_refused() {
     let set = device();
     let mut beyond = literal(&set, "h", &[0]);
-    beyond.opcode = Opcode::__from_macro(7);
+    beyond.opcode = Opcode::__from_macro(99);
     assert_eq!(
         check_batch(&set, &[beyond], &limits(&set, None, 1, 0)),
-        fault_at(0, InstructionFault::UnknownOpcode(Opcode::__from_macro(7)))
+        fault_at(0, InstructionFault::UnknownOpcode(Opcode::__from_macro(99)))
     );
 }
 
@@ -293,6 +299,39 @@ fn select_over_flags_the_instruction_lacks_is_refused() {
             InstructionFault::UnknownFlag {
                 mnemonic: "h".into(),
                 name: "#1".into(),
+            }
+        )
+    );
+}
+
+/// Beyond a few blocks, where the check sorts them, a qubit and a block
+/// still share an index: block 0 and qubits 0 to 19.
+#[test]
+fn many_blocks_of_different_types_may_share_an_index() {
+    let set = device();
+    let mut blocks = vec![0];
+    blocks.extend(0..20);
+    check_batch(
+        &set,
+        &[literal(&set, "couple_many", &blocks)],
+        &limits(&set, None, 20, 1),
+    )
+    .expect("a block and twenty qubits");
+}
+
+/// Counts back start at 1, the shot's latest readout: a part writing
+/// `recent(0)` by hand is refused at the check, as when built by name.
+#[test]
+fn bit_argument_counting_back_zero_is_refused() {
+    let set = device();
+    let mut cond_x = literal(&set, "cond_x", &[0]);
+    cond_x.arguments = smallvec![Argument::recent(0)];
+    assert_eq!(
+        check_batch(&set, &[cond_x], &limits(&set, None, 1, 0)),
+        fault_at(
+            0,
+            InstructionFault::ZeroLookback {
+                mnemonic: "cond_x".into(),
             }
         )
     );

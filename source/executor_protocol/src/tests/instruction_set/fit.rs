@@ -290,3 +290,21 @@ fn meaning_declared_on_one_side_only_is_refused() {
     assert_eq!(declared.fits(&undeclared), meaning);
     assert_eq!(undeclared.fits(&declared), meaning);
 }
+
+/// The shape is compared before a one-sided meaning: a declared `h` on
+/// two qubits, against an undeclared `h` on one, differs in its blocks
+/// first.
+#[test]
+fn shape_mismatch_is_reported_before_a_one_sided_meaning() {
+    let declared = set_of(
+        "Gates",
+        1,
+        vec![
+            InstructionDef::new("h")
+                .acts_on([BlockType::qubit(), BlockType::qubit()])
+                .meaning(Meaning::declared().pauli(Pauli::x(0) * Pauli::x(1))),
+        ],
+    );
+    let undeclared = set_of("Gates", 1, vec![gate("h")]);
+    assert_eq!(declared.fits(&undeclared), Err(vec![blocks("h")]));
+}

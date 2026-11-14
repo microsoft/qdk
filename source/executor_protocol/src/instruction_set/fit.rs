@@ -35,15 +35,17 @@ impl InstructionSet {
     /// # Errors
     ///
     /// Every mismatch, in the order of `self`'s instructions, so that whoever
-    /// builds the chain fixes them at once: for each instruction not
-    /// matched, [`Meaning`](InstructionMismatch::Meaning) when the
-    /// receiver's instruction of its mnemonic does something else, or
-    /// declares what it does where the other does not;
-    /// [`Missing`](InstructionMismatch::Missing) when the receiver has no
-    /// instruction of its mnemonic, nor one doing the same; else each of
+    /// builds the chain fixes them at once. For each instruction not
+    /// matched, the first that applies:
+    /// [`Meaning`](InstructionMismatch::Meaning) when both it and the
+    /// receiver's instruction of its mnemonic declare what they do, and
+    /// differ; [`Missing`](InstructionMismatch::Missing) when the receiver
+    /// has no instruction of its mnemonic, nor one doing the same; each of
     /// [`Blocks`](InstructionMismatch::Blocks),
     /// [`Parameters`](InstructionMismatch::Parameters) and
-    /// [`Readouts`](InstructionMismatch::Readouts) that differ; else, both
+    /// [`Readouts`](InstructionMismatch::Readouts) that differ from the
+    /// receiver's instruction of its mnemonic; `Meaning` when one of the
+    /// two declares what it does and the other does not; else, both
     /// undeclared under sets of other names,
     /// [`OtherSet`](InstructionMismatch::OtherSet), given once.
     pub fn fits(&self, receiver: &InstructionSet) -> Result<OpcodeMap, Vec<InstructionMismatch>> {

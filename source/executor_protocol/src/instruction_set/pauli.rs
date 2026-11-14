@@ -77,6 +77,8 @@ impl Pauli {
             tokens.next();
         }
         let mut factors: Vec<(u32, Axis)> = Vec::new();
+        // Every qubit named, `I_k`'s included, which add no factor.
+        let mut named: Vec<u32> = Vec::new();
         for token in tokens {
             any = true;
             if token == "I" {
@@ -88,16 +90,19 @@ impl Pauli {
             }
             let qubit: u32 = qubit.parse().ok()?;
             let axis = match axis {
-                "I" => continue,
-                "X" => Axis::X,
-                "Y" => Axis::Y,
-                "Z" => Axis::Z,
+                "I" => None,
+                "X" => Some(Axis::X),
+                "Y" => Some(Axis::Y),
+                "Z" => Some(Axis::Z),
                 _ => return None,
             };
-            if factors.iter().any(|&(seen, _)| seen == qubit) {
+            if named.contains(&qubit) {
                 return None;
             }
-            factors.push((qubit, axis));
+            named.push(qubit);
+            if let Some(axis) = axis {
+                factors.push((qubit, axis));
+            }
         }
         if !any {
             return None;

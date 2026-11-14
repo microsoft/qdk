@@ -387,17 +387,18 @@ impl std::error::Error for DeclarationFault {}
 /// A set written in code, and a `const` [`Opcode`] for each of its
 /// instructions, from one list, so the two cannot disagree. For each
 /// instruction: its constant, its mnemonic, the blocks it acts on in
-/// place (its `in` and its `out`), its parameters after a `;`, and its
-/// readouts after `->`:
+/// place (its `in` and its `out`), its parameters after a `;`, and the
+/// outcomes it gives after `->` (`1 outcome` or `2 outcomes`; either word
+/// for any count), as in the crate's tests' `CoinGates`, copied here:
 ///
 /// ```ignore
 /// instruction_set! {
-///     /// QIR's `h`, `x`, `rz` and `mz`.
-///     pub CoinGates {
+///     /// QIR's gates, as a state-vector simulator accepts them.
+///     CoinGates {
 ///         H = h(qubit),
-///         X = x(qubit),
 ///         RZ = rz(qubit; theta: Number),
-///         MZ = mz(qubit) -> 1 readout,
+///         CX = cx(qubit, qubit),
+///         MZ = mz(qubit) -> 1 outcome,
 ///     }
 /// }
 /// ```
@@ -427,18 +428,18 @@ macro_rules! instruction_set {
     (@blocks [$($block:ident : $qubits:literal),+]) => {
         ::std::vec![$(($crate::BlockType::new(stringify!($block)), $qubits)),+]
     };
-    (@readouts $readouts:literal readout) => {
-        $readouts
+    (@outcomes $outcomes:literal outcome) => {
+        $outcomes
     };
-    (@readouts $readouts:literal readouts) => {
-        $readouts
+    (@outcomes $outcomes:literal outcomes) => {
+        $outcomes
     };
     (
         $(#[$attribute:meta])*
         $visibility:vis $name:ident $([$($block:ident : $qubits:literal),+ $(,)?])? {
             $($constant:ident = $mnemonic:ident (
                 $($operand:ident),* $(; $($parameter:ident : $kind:ident),* $(,)?)?
-            ) $(-> $readouts:literal $unit:ident)?),* $(,)?
+            ) $(-> $outcomes:literal $unit:ident)?),* $(,)?
         }
     ) => {
         $(#[$attribute])*
@@ -464,7 +465,7 @@ macro_rules! instruction_set {
                                     $($crate::BlockType::new(stringify!($operand))),*
                                 ]))
                                 $($(.parameter(stringify!($parameter), $crate::ParameterKind::$kind))*)?
-                                $(.outcomes($crate::instruction_set!(@readouts $readouts $unit)))?
+                                $(.outcomes($crate::instruction_set!(@outcomes $outcomes $unit)))?
                         ),*]),
                     )
                     .unwrap_or_else(|faults| {

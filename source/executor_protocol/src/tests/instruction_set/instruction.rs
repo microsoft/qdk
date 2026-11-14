@@ -281,7 +281,8 @@ fn pauli_argument_is_canonical() {
 #[test]
 fn malformed_pauli_text_is_refused() {
     for text in [
-        "", "-", "Z", "X_0 Z_0", "W_0", "X_a", "Z_", "i i", "X_0,Z_1",
+        "", "-", "Z", "X_0 Z_0", "I_0 X_0", "X_0 I_0", "I_1 I_1", "W_0", "X_a", "Z_", "i i",
+        "X_0,Z_1",
     ] {
         assert_eq!(
             Argument::pauli(text),
