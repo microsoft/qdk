@@ -6,7 +6,7 @@
 use super::{ChainBelow, Composed, kept, limits_below};
 use crate::admission::by_part::ByPart;
 use crate::checked::Checked;
-use crate::panics::end_both;
+use crate::panics::{await_part, end_both};
 use crate::roles::EndedRun;
 use crate::{
     Adapt, Capabilities, Drive, DriveError, Execute, InstructionSet, Needs, OpcodeMap, RunRefusal,
@@ -70,8 +70,8 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
 
     /// The part below first.
     async fn ready(&mut self) -> Result<(), RunRefusal> {
-        self.lower.ready().await?;
-        self.upper.ready().await
+        await_part(self.lower.ready()).await?;
+        await_part(self.upper.ready()).await
     }
 
     async fn drive(
@@ -89,12 +89,11 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
             adapter: &mut self.lower,
             below,
         };
-        self.upper
-            .drive(
-                shots,
-                seed,
-                &mut Checked::new(&mut rest, part, offer, batch_limits),
-            )
-            .await
+        await_part(self.upper.drive(
+            shots,
+            seed,
+            &mut Checked::new(&mut rest, part, offer, batch_limits),
+        ))
+        .await
     }
 }

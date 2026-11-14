@@ -1763,25 +1763,149 @@ fn a_panic_dropping_a_future_a_part_above_stopped_waiting_for_names_that_part() 
     }
 }
 
-/// A program over an executor that panics while polled, and again when
-/// its future is dropped: the run fails naming the executor, with the
-/// message of its first panic, and the second is dropped.
+/// A program, over a profiler, over two noises, over bits, each a part
+/// whose futures may panic when polled, and again when dropped.
+type CompoundChain = (
+    Driver<PanicsInDrop<Program>>,
+    Adapter<PanicsInDrop<Profiler>>,
+    Adapter<PanicsInDrop<BitFlip>>,
+    Adapter<PanicsInDrop<BitFlip>>,
+    Executor<PanicsInDrop<Bits>>,
+);
+
+/// The parts of a [`CompoundChain`], whose part at position `armed`
+/// panics when its futures are polled, and again when they are dropped.
+fn compound_chain(armed: usize, log: &Log) -> CompoundChain {
+    let counted = Rc::new(Cell::new(0));
+    (
+        Driver::new(PanicsInDrop::polled_too(
+            Program::new(&[("mz", 0)]),
+            armed == 0,
+        )),
+        Adapter::new(PanicsInDrop::polled_too(
+            Profiler::new(&counted, log),
+            armed == 1,
+        )),
+        Adapter::new(PanicsInDrop::polled_too(BitFlip::new(0, log), armed == 2)),
+        Adapter::new(PanicsInDrop::polled_too(BitFlip::new(0, log), armed == 3)),
+        Executor::new(PanicsInDrop::polled_too(Bits::new(log), armed == 4)),
+    )
+}
+
+/// A program, over a profiler, over two noises, over bits, in each of
+/// the 14 bracketings, one of them panicking while its future is polled,
+/// and again when that future is dropped: the run fails naming that
+/// part, at its position, with the message of its first panic, and the
+/// second is dropped; the process does not abort, as it would if a
+/// composed part's future dropped the part's while the first unwinds.
 #[test]
 fn a_part_panicking_polled_then_dropped_is_named_with_its_first_panic() {
-    let mut runner = runner(
-        Driver::new(Program::new(&[("mz", 0)]))
-            >> Executor::new(PanicsInDrop::new(Panics(PanicsWhen::Polled), true)),
-    );
-    let error = failed(runner.run(&ShotSet::ids([3, 1]), SEED));
-    assert!(
-        matches!(
-            &error.failure,
-            Failure::Panicked { part, message: Some(message) }
-                if *part == ChainPart::new(1, type_name::<Panics>())
-                    && message == "the part broke while it was polled"
-        ),
-        "{error:?}"
-    );
+    /// Runs `runner` on 2 shots, and checks it as above.
+    fn names<D: Drive, E: Execute>(mut runner: Runner<D, E>, named: &ChainPart) {
+        let error = failed(
+            runner
+                .run(&ShotSet::ids([9, 1]), SEED)
+                .map(|records| records.len()),
+        );
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(message) }
+                    if part == named && message == "the part's future broke when polled"
+            ),
+            "{named}: {error:?}"
+        );
+    }
+    /// Runs the chain armed at `$armed` in each bracketing `$chain` of its
+    /// parts, named as in `[$d, $a, $b, $c, $e]`.
+    macro_rules! in_each {
+        (
+            $armed:expr, $named:expr, [$d:ident, $a:ident, $b:ident, $c:ident, $e:ident],
+            $($chain:expr),+ $(,)?
+        ) => {$({
+            let log = Log::default();
+            let ($d, $a, $b, $c, $e) = compound_chain($armed, &log);
+            names(runner($chain), $named);
+        })+};
+    }
+    let parts = [
+        type_name::<Program>(),
+        type_name::<Profiler>(),
+        type_name::<BitFlip>(),
+        type_name::<BitFlip>(),
+        type_name::<Bits>(),
+    ];
+    for (armed, name) in parts.into_iter().enumerate() {
+        let named = &ChainPart::new(armed, name);
+        in_each!(
+            armed,
+            named,
+            [d, a, b, c, e],
+            d >> (((a >> b) >> c) >> e),
+            d >> ((a >> (b >> c)) >> e),
+            d >> ((a >> b) >> (c >> e)),
+            d >> (a >> ((b >> c) >> e)),
+            d >> (a >> (b >> (c >> e))),
+            (d >> a) >> ((b >> c) >> e),
+            (d >> a) >> (b >> (c >> e)),
+            ((d >> a) >> b) >> (c >> e),
+            (d >> (a >> b)) >> (c >> e),
+            (((d >> a) >> b) >> c) >> e,
+            ((d >> (a >> b)) >> c) >> e,
+            ((d >> a) >> (b >> c)) >> e,
+            (d >> ((a >> b) >> c)) >> e,
+            (d >> (a >> (b >> c))) >> e,
+        );
+    }
+}
+
+/// A program, over two noises, over bits, in each bracketing, one of them
+/// panicking while the future of its `ready` is polled, and again when
+/// it is dropped: the run raises the first panic, as it raises any panic
+/// in `ready`, and the second is dropped, so the process does not abort.
+#[test]
+fn a_panic_in_ready_polled_then_dropped_is_raised_with_its_first_message() {
+    /// Runs `runner` on 2 shots, and checks it as above.
+    fn raises<D: Drive, E: Execute>(mut runner: Runner<D, E>, armed: usize) {
+        let raised = catch_unwind(AssertUnwindSafe(|| {
+            runner.run(&ShotSet::ids([3, 1]), SEED).map(|_| ())
+        }));
+        let payload = raised.expect_err("a panic in `ready` is raised from the run");
+        assert_eq!(
+            payload.downcast_ref::<&str>().copied(),
+            Some("the part's future broke when polled"),
+            "part {armed}"
+        );
+    }
+    /// Runs the chain armed at `$armed` in each bracketing `$chain` of its
+    /// parts, named as in `[$d, $a, $b, $e]`.
+    macro_rules! in_each {
+        (
+            $armed:expr, [$d:ident, $a:ident, $b:ident, $e:ident],
+            $($chain:expr),+ $(,)?
+        ) => {$({
+            let log = Log::default();
+            let $d = Driver::new(PanicsInDrop::in_ready(
+                Program::new(&[("mz", 0)]),
+                $armed == 0,
+            ));
+            let $a = Adapter::new(PanicsInDrop::in_ready(BitFlip::new(0, &log), $armed == 1));
+            let $b = Adapter::new(PanicsInDrop::in_ready(BitFlip::new(0, &log), $armed == 2));
+            let $e = Executor::new(PanicsInDrop::in_ready(Bits::new(&log), $armed == 3));
+            raises(runner($chain), $armed);
+        })+};
+    }
+    for armed in 0..4 {
+        in_each!(
+            armed,
+            [d, a, b, e],
+            ((d >> a) >> b) >> e,
+            (d >> a) >> (b >> e),
+            d >> (a >> (b >> e)),
+            d >> ((a >> b) >> e),
+            (d >> (a >> b)) >> e,
+        );
+    }
 }
 
 /// Coin copies over bits that answer later, and whose futures panic once

@@ -6,7 +6,7 @@
 use super::{ChainBelow, Composed, kept, limits_below};
 use crate::admission::by_part::ByPart;
 use crate::checked::Checked;
-use crate::panics::end_both;
+use crate::panics::{await_part, end_both};
 use crate::{
     Adapt, Batch, BatchReadouts, Capabilities, Execute, ExecuteError, InstructionSet, Needs,
     OpcodeMap, RunRefusal, Seed, ShotSet,
@@ -66,8 +66,8 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
 
     /// The part below first.
     async fn ready(&mut self) -> Result<(), RunRefusal> {
-        self.lower.ready().await?;
-        self.upper.ready().await
+        await_part(self.lower.ready()).await?;
+        await_part(self.upper.ready()).await
     }
 
     async fn adapt(
@@ -85,13 +85,12 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
             adapter: &mut self.lower,
             below,
         };
-        self.upper
-            .adapt(
-                batches,
-                seed,
-                &mut Checked::new(&mut rest, part, offer, batch_limits),
-            )
-            .await
+        await_part(self.upper.adapt(
+            batches,
+            seed,
+            &mut Checked::new(&mut rest, part, offer, batch_limits),
+        ))
+        .await
     }
 
     /// The upper part, then the lower one, ended even if the upper part

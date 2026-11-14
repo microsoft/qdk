@@ -105,7 +105,8 @@ pub enum Failure {
         /// adapter, for an end it calls in `adapt`).
         part: ChainPart,
         /// Its message, when the panic's payload is text (a `&str` or a
-        /// `String`).
+        /// `String`): its poll's, when the future's destructor panics
+        /// after its poll did, the destructor's panic being dropped.
         message: Option<String>,
     },
     /// An `execute` was refused once the run had started.

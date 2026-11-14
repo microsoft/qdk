@@ -4,11 +4,14 @@
 //! A part's panics, caught by the protocol: in a part's future, made,
 //! polled, or dropped by the protocol ([`catch_panic`]), which makes a
 //! failure of it, and in its `end_shots` ([`end_both`]), which ends every
-//! other part before raising it again.
+//! other part before raising it again. Wherever the protocol awaits a
+//! part's future, it does so through [`await_part`], so that a panic
+//! leaves no live future of a part behind it.
 //!
 //! So that one part's panic neither leaves another part's shots held nor
-//! escapes where the protocol promises a failure. Only where a panic
-//! unwinds: on wasm32, it aborts, and nothing is caught.
+//! escapes where the protocol promises a failure, nor aborts the process
+//! by a second panic. Only where a panic unwinds: on wasm32, it aborts,
+//! and nothing is caught.
 
 use std::any::Any;
 use std::future::poll_fn;
@@ -45,16 +48,39 @@ pub(crate) async fn catch_panic<F: Future>(
     make: impl FnOnce() -> F,
 ) -> Result<F::Output, Option<String>> {
     let future = catch_unwind(AssertUnwindSafe(make)).map_err(panic_message)?;
+    let mut part = pin!(await_part(future));
+    poll_fn(
+        |context| match catch_unwind(AssertUnwindSafe(|| part.as_mut().poll(context))) {
+            Ok(poll) => poll.map(Ok),
+            Err(payload) => Poll::Ready(Err(panic_message(payload))),
+        },
+    )
+    .await
+}
+
+/// Awaits a part's future, `future`, which it drops as soon as it is
+/// ready or has panicked, inside a catch: a panic of the poll is raised
+/// again once the future is dropped, and one of the drop is raised when
+/// the poll did not panic, else dropped, so that only the first panic
+/// leaves.
+///
+/// So that a panic unwinds through the protocol's own futures, such as a
+/// composed part's, holding no live future of a part, whose destructor
+/// could panic a second time while the first unwinds, and so abort the
+/// process. Every future of a part the protocol awaits is awaited through
+/// this, [`catch_panic`]'s included. A panic leaves it as it would leave
+/// the part's future, so the boundary that catches it names the same
+/// part. `AssertUnwindSafe`, as for [`catch_panic`].
+pub(crate) async fn await_part<F: Future>(future: F) -> F::Output {
     let mut held = HeldFuture(pin!(Some(future)));
     poll_fn(
         |context| match catch_unwind(AssertUnwindSafe(|| held.poll_then_drop(context))) {
-            Ok(Poll::Ready(output)) => Poll::Ready(Ok(output)),
-            Ok(Poll::Pending) => Poll::Pending,
+            Ok(poll) => poll,
             Err(payload) => {
-                // The poll's panic is the part's first, so its message is
-                // the one the failure gives.
+                // The first panic, the poll's or, once ready, the drop's,
+                // is the one raised; a second, of the drop, is dropped.
                 drop(held.drop_caught());
-                Poll::Ready(Err(panic_message(payload)))
+                resume_unwind(payload)
             }
         },
     )
@@ -62,7 +88,7 @@ pub(crate) async fn catch_panic<F: Future>(
 }
 
 /// A part's future, pinned in place until it is dropped, which happens
-/// inside a catch: [`catch_panic`]'s, [`drop_caught`](Self::drop_caught)'s
+/// inside a catch: [`await_part`]'s, [`drop_caught`](Self::drop_caught)'s
 /// or its own drop's.
 struct HeldFuture<'a, F>(Pin<&'a mut Option<F>>);
 

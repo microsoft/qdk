@@ -21,7 +21,7 @@ pub(crate) mod wait;
 
 use crate::checked::Checked;
 use crate::instruction_set::instruction::batch_check::BatchLimits;
-use crate::panics::{catch_panic, end_both};
+use crate::panics::{await_part, catch_panic, end_both};
 use crate::roles::EndedRun;
 use crate::{
     Capabilities, ChainPart, Drive, DriveError, Execute, Failure, RunRefusal, Seed, ShotSet,
@@ -123,7 +123,9 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// or from the drop of its future, unless the thread is already
     /// unwinding. So a part that panics each time it ends shots makes every
     /// run that started its `drive` panic, once every other part is ended.
-    /// A panic in a part's `ready` is not caught.
+    /// A panic in a part's `ready` is not caught: the run raises it again,
+    /// the first one when the future of that `ready` panics again as it is
+    /// dropped.
     ///
     /// A part's panic in `end_shots` thus leaves the run in one of two
     /// ways, by who ended the shots: in an end a part above calls (the
@@ -154,8 +156,12 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             if seed.is_some() && !self.limits.seedable {
                 return Err(RunError::Refused(RunRefusal::NotSeedable));
             }
-            self.executor.ready().await.map_err(RunError::Refused)?;
-            self.driver.ready().await.map_err(RunError::Refused)?;
+            await_part(self.executor.ready())
+                .await
+                .map_err(RunError::Refused)?;
+            await_part(self.driver.ready())
+                .await
+                .map_err(RunError::Refused)?;
             let seed = Seed::new(seed.unwrap_or_else(drawn_seed));
             let unended = UnendedShots {
                 driver: &mut self.driver,
