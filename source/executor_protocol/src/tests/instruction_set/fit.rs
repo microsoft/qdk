@@ -135,6 +135,25 @@ fn operand_of_another_block_type_is_refused() {
     assert_eq!(sent.fits(&accepted), Err(vec![blocks("h")]));
 }
 
+/// Operands are read by position, so the same block types in another
+/// order do not fit.
+#[test]
+fn operands_are_compared_in_order() {
+    let carbon = BlockType::new("carbon");
+    let load = |operands: [BlockType; 2]| InstructionDef::new("load").acts_on(operands);
+    let gates = |instruction| {
+        InstructionSet::new(
+            "Gates",
+            [(BlockType::qubit(), 1), (carbon.clone(), 1)],
+            [instruction],
+        )
+        .expect("a valid set")
+    };
+    let sent = gates(load([BlockType::qubit(), carbon.clone()]));
+    let accepted = gates(load([carbon.clone(), BlockType::qubit()]));
+    assert_eq!(sent.fits(&accepted), Err(vec![blocks("load")]));
+}
+
 /// One name, two sizes: a block of two qubits is not a qubit.
 #[test]
 fn block_type_of_another_size_is_refused() {
@@ -175,6 +194,41 @@ fn parameters_of_other_kinds_are_refused() {
             mnemonic: "rz".into()
         }])
     );
+}
+
+/// Arguments travel by position, so the same kinds in another order do
+/// not fit.
+#[test]
+fn parameters_are_compared_in_order() {
+    let u = |first, second| gate("u").parameter("theta", first).parameter("k", second);
+    let sent = set_of(
+        "Gates",
+        1,
+        vec![u(ParameterKind::Number, ParameterKind::Integer)],
+    );
+    let accepted = set_of(
+        "Gates",
+        1,
+        vec![u(ParameterKind::Integer, ParameterKind::Number)],
+    );
+    assert_eq!(
+        sent.fits(&accepted),
+        Err(vec![InstructionMismatch::Parameters {
+            mnemonic: "u".into()
+        }])
+    );
+}
+
+/// A sender maps only its own opcodes: one beyond its set's last
+/// instruction, here an opcode of a larger set, panics.
+#[test]
+#[should_panic(expected = "index out of bounds")]
+fn mapping_an_opcode_beyond_the_sending_set_panics() {
+    let sent = set_of("Gates", 1, vec![gate("h")]);
+    let larger = set_of("Gates", 1, vec![gate("h"), gate("x")]);
+    let map = sent.fits(&larger).expect("`h` fits");
+    let beyond = larger.opcode("x").expect("`x` is in the larger set");
+    let _ = map.map(beyond);
 }
 
 /// Arguments travel by position, so names are the sender's own.

@@ -197,12 +197,15 @@ pub struct OpcodeMap {
 }
 
 impl OpcodeMap {
-    /// The receiver's opcode for `sent`, an opcode of the sending set: an
-    /// index.
+    /// The receiver's opcode for `sent`, an opcode of the sending set. The
+    /// map holds one opcode per instruction of that set, by position, and
+    /// does not know the set itself: an opcode of another set is not
+    /// detected when its position is within the sending set, and gives the
+    /// receiver's opcode for the sending set's instruction there.
     ///
     /// # Panics
     ///
-    /// If `sent` is not of the sending set.
+    /// If `sent` lies beyond the sending set's last instruction.
     #[must_use]
     pub fn map(&self, sent: Opcode) -> Opcode {
         self.opcodes[sent.index()]
