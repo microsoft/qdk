@@ -1,0 +1,174 @@
+name: Compiler regression review (draft)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number or URL (stack boundaries are inferred)
+        type: string
+      reference:
+        description: Reference commit/tag for a release comparison (instead of PR)
+        type: string
+      candidate:
+        description: Candidate commit/tag for a release comparison (instead of PR)
+        type: string
+
+permissions: {}
+
+env:
+  PYTHON_VERSION: "3.11"
+  RUST_TOOLCHAIN_VERSION: "1.95"
+  COPILOT_VERSION: "1.0.97"
+
+jobs:
+  resolve:
+    # Do not let dispatch's branch selector choose the trusted controller.
+    if: github.repository == 'microsoft/qdk' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Resolve immutable review boundaries
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_PR: ${{ inputs.pr }}
+          REVIEW_REFERENCE: ${{ inputs.reference }}
+          REVIEW_CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          python tools/compiler-review-workflow/workflow.py resolve \
+            --repository "$GITHUB_WORKSPACE" \
+            --pr "$REVIEW_PR" --reference "$REVIEW_REFERENCE" \
+            --candidate "$REVIEW_CANDIDATE" --output "$RUNNER_TEMP/scope.json"
+
+  prepare:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
+      - name: Restore existing CI cache without a save hook
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Match ci.yml's paths to keep its cache-version compatibility.
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ fromJSON(needs.resolve.outputs.scope).candidate }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Prebuild newest revision and bundle dependencies
+        env:
+          REVIEW_SCOPE: ${{ needs.resolve.outputs.scope }}
+          CARGO_HOME: /home/runner/.cargo
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN_VERSION }}
+        run: |
+          python tools/compiler-review-workflow/workflow.py prepare \
+            --scope "$REVIEW_SCOPE" --repository "$RUNNER_TEMP/candidate" \
+            --output "$RUNNER_TEMP/prepared"
+      - name: Transfer dependencies, not executable orchestration
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: compiler-review-dependencies
+          path: ${{ runner.temp }}/prepared/dependencies.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  review:
+    needs: [resolve, prepare]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      copilot-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: compiler-review-dependencies
+          path: ${{ runner.temp }}/prepared
+      - name: Install trusted controller and sandbox prerequisites
+        id: runtime
+        env:
+          REVIEW_SCOPE: ${{ needs.resolve.outputs.scope }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap slirp4netns iptables
+          sudo useradd --create-home --shell /bin/bash qdk-review
+          sudo install -d /opt/compiler-review-workflow /opt/compiler-review-kit \
+            /opt/review-tools/bin /etc/github-copilot /exchange/from_copilot
+          sudo cp -R tools/compiler-review-workflow/. /opt/compiler-review-workflow/
+          sudo cp -R tools/compiler-review-kit/. /opt/compiler-review-kit/
+          sudo cp "$(command -v rustup)" /opt/review-tools/bin/rustup
+          sudo ln -s rustup /opt/review-tools/bin/cargo
+          sudo ln -s rustup /opt/review-tools/bin/rustc
+          sudo ln -s "$(command -v node)" /opt/review-tools/bin/node
+          sudo env RUSTUP_HOME=/opt/review-rustup \
+            /opt/review-tools/bin/rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
+          sudo npm install --prefix /opt/copilot --global "@github/copilot@$COPILOT_VERSION"
+          sudo "$(command -v python)" -I /opt/compiler-review-workflow/workflow.py configure \
+            --scope "$REVIEW_SCOPE" --archive "$RUNNER_TEMP/prepared/dependencies.tar.gz"
+          sudo "$(command -v python)" -m venv /opt/qdk-venv
+          sudo chown -R qdk-review:qdk-review /opt/qdk-venv /work /exchange/from_copilot /home/qdk-review
+          sudo -u qdk-review env -i HOME=/home/qdk-review PATH=/usr/bin:/bin \
+            /opt/qdk-venv/bin/python -m pip install --no-index \
+            --find-links /work/dependencies/wheels /work/dependencies/wheels/*.whl
+          mkdir -p "$RUNNER_TEMP/review-logs"
+          printf '%s\n' "$REVIEW_SCOPE" > "$RUNNER_TEMP/review-logs/scope.json"
+          sudo cat /etc/github-copilot/managed-settings.json > "$RUNNER_TEMP/review-logs/sandbox-policy.json"
+      - name: Run sandboxed review with package retrieval disabled
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          REVIEW_MODEL: ${{ vars.COMPILER_REVIEW_MODEL }}
+        run: |
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN "$(command -v python)" -I \
+            /opt/compiler-review-workflow/workflow.py run \
+            --model "$REVIEW_MODEL" --logs "$RUNNER_TEMP/review-logs"
+      - name: Stop worker and collect redacted partial or final artifacts
+        if: always() && steps.runtime.outcome == 'success'
+        id: collect
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN "$(command -v python)" -I \
+            /opt/compiler-review-workflow/workflow.py collect \
+            --report /exchange/from_copilot --logs "$RUNNER_TEMP/review-logs" \
+            --output "$RUNNER_TEMP/review-artifact"
+      - name: Publish report, repros, issue drafts, and diagnostics
+        if: always() && steps.collect.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: compiler-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-artifact
+          retention-days: 21
+          if-no-files-found: error
