@@ -9,15 +9,16 @@
 //! that counts a lost readout: in each case the shot runs on, and its readouts
 //! stand, but whoever reads its results must know they are suspect. So each
 //! row of a batch's readouts carries its shot's conditions; a part above
-//! merges those it reads below with its own, by union, and passes them up,
-//! so the driver sees every condition raised on the shot, at any level.
-//! Once raised, a condition stays raised for the shot: nothing clears one.
+//! must merge those it reads below with its own, by union, and pass them up,
+//! so that the driver sees every condition raised on the shot, at any
+//! level. Once raised, a condition stays raised for the shot: this type has
+//! no operation that clears one.
 
 use std::fmt;
 use std::ops::{BitOr, BitOrAssign};
 
 /// The conditions raised on a shot: a set, merged by union ([`BitOr`]),
-/// never cleared.
+/// with no operation that clears one.
 ///
 /// One byte, behind a private field, so that a condition can be added
 /// without breaking any part. Its `Debug` names the conditions, as

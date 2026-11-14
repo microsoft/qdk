@@ -43,8 +43,9 @@ impl Seed {
     /// same alone or with any other shots, in any batches and any order.
     /// Two shots never share a stream: it is one step of `SplitMix64`
     /// (Steele, Lea and Flood, "Fast splittable pseudorandom number
-    /// generators", OOPSLA 2014) applied to `SplitMix64(seed) ^ shot`, and
-    /// both the step and the XOR are bijections of `u64`.
+    /// generators", OOPSLA 2014) applied to this seed's value XOR the
+    /// shot's id (for the run's seed `s`, `SplitMix64(s) ^ shot`), and both
+    /// the step and the XOR are bijections of `u64`.
     ///
     /// The run's seed gives each shot the stream the MPS simulation method
     /// seeds that shot with, so that method gives the same records alone and

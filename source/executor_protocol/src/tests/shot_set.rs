@@ -50,11 +50,17 @@ fn ids_panics_on_a_repeated_shot() {
 /// decreasing, interleaved, and two ranges joined.
 #[test]
 fn a_set_keeps_the_callers_order() {
-    let set = ShotSet::ids([9, 2, 7, 0]);
-    assert_eq!(ids_of(&set), [9, 2, 7, 0]);
-    assert_eq!(set.len(), 4);
+    assert_eq!(ids_of(&ShotSet::ids([9, 2, 7, 0])), [9, 2, 7, 0]);
     let joined = ShotSet::ids((0..3).chain(8..10));
     assert_eq!(ids_of(&joined), [0, 1, 2, 8, 9]);
+}
+
+/// A set's length is its number of shots, so a part sizes a batch's
+/// readouts by it.
+#[test]
+fn len_counts_the_shots() {
+    assert_eq!(ShotSet::ids([9, 2, 7, 0]).len(), 4);
+    assert_eq!(ShotSet::ids([3]).len(), 1);
 }
 
 /// Two sets are equal when they hold the same shots in the same order,

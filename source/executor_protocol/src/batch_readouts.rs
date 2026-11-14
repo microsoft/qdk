@@ -11,14 +11,17 @@
 //! the slots are each instruction's readouts in instruction order (its
 //! outcomes, then its flags), so slot k is the same readout on every shot
 //! of the batch; and a lost value is [`ReadoutValue::Missing`], never left
-//! out. So no value can be missing, repeated or unexpected: every row has
-//! exactly the batch's number of slots, R, and
-//! [`push_row`](BatchReadouts::push_row) refuses any other
-//! ([`ShapeFault`]).
+//! out. So every row has exactly R values, R being the width its maker
+//! gave [`with_capacity`](BatchReadouts::with_capacity), and
+//! [`push_row`](BatchReadouts::push_row) refuses any other width
+//! ([`ShapeFault`]). That R is the batch's number of readout slots is not
+//! checked here: it is for the composed executor to check, since it holds
+//! both the batch and its readouts, and only that check makes sure no value
+//! is missing, repeated or unexpected.
 //!
 //! The rows are dense: every value of the batch in one buffer, a byte or
-//! two each, so a shot's row is a slice, and a batch's readouts are two
-//! allocations, whatever its number of shots.
+//! two each, so a shot's row is a slice, and a batch's readouts, made with
+//! its number of shots, take at most two allocations, whatever that number.
 
 mod readout_value;
 mod shot_conditions;
@@ -33,10 +36,12 @@ pub use shot_conditions::ShotConditions;
 /// [`ReadoutValue`] per readout slot, and each shot's conditions. An
 /// `execute` returns one per batch, in the batches' order.
 ///
-/// Every row has exactly R values, R being the batch's number of readout
-/// slots (`push_row` refuses others); slot k is the same readout on every
-/// shot; and a lost value is [`ReadoutValue::Missing`]. A shot is read by
-/// its position in the batch's shot set, as `row(i)`.
+/// Every row has exactly R values, R being the width given to
+/// [`with_capacity`](Self::with_capacity) (`push_row` refuses others);
+/// that R is the batch's number of readout slots is for the composed
+/// executor to check; slot k is the same readout on every shot; and a lost
+/// value is [`ReadoutValue::Missing`]. A shot is read by its position in
+/// the batch's shot set, as `row(i)`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct BatchReadouts {
     /// R, the number of values in each row.
@@ -82,7 +87,8 @@ impl BatchReadouts {
         Ok(())
     }
 
-    /// R, the number of values in each row: the batch's readout slots.
+    /// R, the number of values in each row, as given to
+    /// [`with_capacity`](Self::with_capacity).
     #[must_use]
     pub fn readouts(&self) -> u32 {
         self.readouts
@@ -120,7 +126,7 @@ impl BatchReadouts {
     pub fn value(&self, shot: usize, readout: ReadoutIndex) -> ReadoutValue {
         assert!(
             readout.get() < self.readouts,
-            "slot {} is beyond the batch's {} readout slots",
+            "slot {} is beyond the rows' {} readout slots",
             readout.get(),
             self.readouts
         );
@@ -147,9 +153,11 @@ impl BatchReadouts {
     ///
     /// # Panics
     ///
-    /// When `parts` is empty, or its parts hold different numbers of rows,
-    /// or their slots add up beyond `u32::MAX`: each is the caller's bug,
-    /// since the parts must answer the same shots.
+    /// - When `parts` is empty: a batch has at least one part.
+    /// - When its parts hold different numbers of rows: the parts must
+    ///   answer the same shots.
+    /// - When their slots add up beyond `u32::MAX`: the joined width, R, is
+    ///   a `u32`.
     #[must_use]
     #[track_caller]
     pub fn concat_readouts(parts: &[BatchReadouts]) -> Self {
@@ -221,8 +229,8 @@ where
 }
 
 /// A readout slot's position in a batch's rows, k: slot k is the same
-/// readout on every shot of the batch. It is below R, the batch's number of
-/// slots, which is checked where it is used.
+/// readout on every shot of the batch. It must be below R, the rows' width,
+/// which [`BatchReadouts::value`] checks.
 ///
 /// A `u32`, at no cost over one, so that a slot is not mistaken for a
 /// shot's position or a count.
@@ -248,9 +256,9 @@ impl ReadoutIndex {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ShapeFault {
-    /// A row of `got` values, where the batch has `expected` readout slots.
+    /// A row of `got` values, where the readouts' rows have `expected`.
     RowWidth {
-        /// R, the batch's number of readout slots.
+        /// R, the width of the readouts' rows.
         expected: u32,
         /// The number of values the row held.
         got: usize,
@@ -262,7 +270,7 @@ impl fmt::Display for ShapeFault {
         match self {
             Self::RowWidth { expected, got } => write!(
                 f,
-                "a row of {got} readout values, where the batch has {expected} readout slots"
+                "a row of {got} readout values, where each row has {expected}"
             ),
         }
     }

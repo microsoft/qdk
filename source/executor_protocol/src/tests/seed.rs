@@ -30,12 +30,11 @@ fn shot_streams_match_the_mps_simulation_methods() {
     assert_eq!(stream(u64::MAX, u32::MAX), 16_813_757_279_435_679_236);
 }
 
-/// Shots of one run never share a stream, nor do runs with other seeds
-/// share the first shots' streams here.
+/// The shots of a run never share a stream, for each of several seeds.
 #[test]
 fn shots_have_distinct_streams() {
-    let mut seen = BTreeSet::new();
     for seed in [0, 7, u64::MAX] {
+        let mut seen = BTreeSet::new();
         for shot in 0..1 << 16 {
             assert!(
                 seen.insert(stream(seed, shot)),

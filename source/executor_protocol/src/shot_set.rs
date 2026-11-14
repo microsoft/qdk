@@ -149,7 +149,7 @@ impl ShotId {
     }
 }
 
-/// The shot's number, as messages name it: `shot 7`.
+/// The shot's number, `7`, as messages write it after "shot".
 impl fmt::Display for ShotId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
