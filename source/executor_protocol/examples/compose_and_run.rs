@@ -182,7 +182,8 @@ impl Adapt for BitFlip {
                     .or_insert_with(|| Stream(own.shot(id)));
                 let mut instructions = Vec::with_capacity(batch.instructions.len() + 1);
                 for instruction in batch.instructions {
-                    // It came in this adapter's opcodes: the sender's `bind` mapped it.
+                    // It came in this adapter's opcodes: the sender's
+                    // `bind` mapped it.
                     let flips = instruction.opcode == CoinGates::X && stream.chance(self.per_mille);
                     let mut mapped = instruction.clone();
                     mapped.opcode = map.map(instruction.opcode);
@@ -204,7 +205,9 @@ impl Adapt for BitFlip {
             .collect();
         let answer = below.execute(&one_each, seed).await?;
         // An `x` adds no readout, so each shot's row comes back as it is,
-        // joined again into one readouts per batch received.
+        // joined again into one readouts per batch received. The protocol
+        // has checked that `answer` holds one readouts per batch sent, and
+        // every batch holds a shot, so `mine[0]` exists.
         let mut rows = answer.iter();
         let mut readouts = Vec::with_capacity(batches.len());
         for batch in batches {
@@ -231,7 +234,9 @@ impl Adapt for BitFlip {
 
 /// A toy executor whose qubits are classical bits: `h` tosses a bit from
 /// the shot's stream, `x` flips it, and `mz` reads it. It runs at most
-/// 1000 shots at once.
+/// 1000 shots in one run, and resolves no readout parity (an argument
+/// that is the parity of earlier readouts, `Bit::Parity`): the coin's
+/// instructions take none.
 struct Bits {
     set: InstructionSet,
     /// The qubits each shot needs, from `provision`.
@@ -335,9 +340,11 @@ impl Stream {
 /// the parts free its state and a rerun with the same seed starts it
 /// afresh; the driver need not end them.
 fn coin_runner() -> Runner<Composed<CoinCopy, BitFlip>, Bits> {
-    // `>>` joins the driver and the adapter into one driver, a `Composed`;
-    // the last `>>`, onto the executor, checks that the parts fit and gives
-    // the runner, or every fault.
+    // Each part is wrapped in the role it plays (`Driver`, `Adapter`,
+    // `Executor`), which `>>` needs to pick the join. `>>` joins the driver
+    // and the adapter into one driver, a `Composed`; the last `>>`, onto
+    // the executor, checks that the parts fit and gives the runner, or
+    // every fault.
     let runner = Driver::new(CoinCopy::new())
         >> Adapter::new(BitFlip::new(200))
         >> Executor::new(Bits::new());
