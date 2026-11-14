@@ -43,7 +43,11 @@ impl Argument {
     }
 
     /// The XOR of `flip` and of the shot's readouts counted back by each of
-    /// `back`, as [`ReadoutParity`] reads it.
+    /// `back`, as [`ReadoutParity`] reads it. An empty `back` is the
+    /// constant `flip`, yet still a readout parity: its shots' needs must
+    /// use readout parities
+    /// ([`ParityNotProvisioned`](InstructionFault::ParityNotProvisioned)
+    /// otherwise); [`Bit::Value`] is a constant that needs none.
     #[must_use]
     pub fn parity(back: impl IntoIterator<Item = u32>, flip: bool) -> Self {
         Argument::Bit(Bit::Parity(ReadoutParity {

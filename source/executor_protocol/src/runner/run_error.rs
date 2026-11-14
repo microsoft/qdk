@@ -18,7 +18,8 @@ use crate::{DriveError, RunRefusal};
 pub enum RunError {
     /// Nothing ran: the run can be corrected and sent again.
     Refused(RunRefusal),
-    /// The shot the driver names, and why its work broke.
+    /// The shot the failure names ([`DriveError::shot`]), and why the run
+    /// broke.
     Failed(DriveError),
 }
 

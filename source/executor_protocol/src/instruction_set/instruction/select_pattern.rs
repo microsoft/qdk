@@ -39,7 +39,8 @@ impl Instruction {
     /// `[[("reject", 0)], [("leak", 0)]]` is Qodec's `select: [reject: 0,
     /// leak: 0]`, either flag 0; `[[("reject", 0), ("leak", 1)]]` its
     /// `select: [{reject: 0, leak: 1}]`, both. No pattern (`[]`) expects
-    /// nothing, as in Qodec.
+    /// nothing, as in Qodec. An empty pattern (`[[]]`) names no flag, so
+    /// every shot's flags match it.
     ///
     /// # Errors
     ///

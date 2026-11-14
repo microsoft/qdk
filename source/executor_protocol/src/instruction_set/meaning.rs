@@ -66,10 +66,10 @@ pub struct Meaning {
     guard_terms: Vec<(usize, Guard)>,
 }
 
-/// Two meanings are equal when their steps and slips are, whatever guards
-/// the latest step was given and whatever terms cancelled:
-/// `pauli(x).unless([])` is `pauli(x)`, since an even parity of no term
-/// always holds.
+/// Two meanings are equal when their steps (guards included) and slips
+/// are, whether or not the latest step was given an empty guard, and
+/// whatever terms cancelled: `pauli(x).unless([])` is `pauli(x)`, since an
+/// even parity of no term always holds.
 impl PartialEq for Meaning {
     fn eq(&self, other: &Self) -> bool {
         self.steps == other.steps && self.slips == other.slips

@@ -291,6 +291,7 @@ fn opcode_of_an_unknown_mnemonic_is_none() {
     assert_eq!(RotationGates::set().opcode("t"), None);
 }
 
+/// `RotationGates::MZ`, opcode 3, past `CodeGates`' two instructions.
 #[test]
 fn mnemonic_beyond_the_set_is_none() {
     assert_eq!(CodeGates::set().mnemonic(RotationGates::MZ), None);
@@ -348,6 +349,8 @@ fn operand_of_an_undeclared_block_type_is_refused_once() {
     );
 }
 
+/// `mpp` on any number of qubits, then one more: no block count would say
+/// where the variadic operand ends.
 #[test]
 fn variadic_operand_before_another_is_refused() {
     let faults = faults_of([InstructionDef::new("mpp").acts_on([
@@ -534,6 +537,7 @@ fn meaning_faults(def: InstructionDef) -> Vec<MeaningFault> {
         .collect()
 }
 
+/// `rotate_z0`'s meaning reads its two parameters and its one outcome.
 #[test]
 fn meaning_referring_to_what_its_instruction_has_is_accepted() {
     InstructionSet::new("Gates", [(BlockType::qubit(), 1)], [rotate_z0()]).expect("a valid set");
@@ -747,6 +751,7 @@ fn clifford_mapping_a_generator_twice_is_refused() {
     );
 }
 
+/// `rotate_z0` observes once, yet declares 2 outcomes.
 #[test]
 fn observations_giving_other_than_the_declared_outcomes_are_refused() {
     let def = rotate_z0().outcomes(2);

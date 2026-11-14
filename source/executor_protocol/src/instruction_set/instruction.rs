@@ -324,7 +324,14 @@ impl fmt::Display for InstructionFault {
                 mnemonic,
                 expected,
                 got,
-            } => write!(f, "`{mnemonic}` takes {expected} arguments, given {got}"),
+            } => {
+                let arguments = if *expected == 1 {
+                    "argument"
+                } else {
+                    "arguments"
+                };
+                write!(f, "`{mnemonic}` takes {expected} {arguments}, given {got}")
+            }
             InstructionFault::WrongArgumentKind {
                 mnemonic,
                 parameter,

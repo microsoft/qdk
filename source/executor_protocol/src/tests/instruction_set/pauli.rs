@@ -18,12 +18,15 @@ fn pauli_squared_is_the_identity() {
     assert_eq!((xz.clone() * xz).to_string(), "I");
 }
 
+/// `Z_2 · X_0` is written `X_0 Z_2`, so products in either order are equal.
 #[test]
 fn pauli_factors_are_sorted_by_qubit() {
     assert_eq!(Pauli::z(2) * Pauli::x(0), Pauli::x(0) * Pauli::z(2));
     assert_eq!((Pauli::z(2) * Pauli::x(0)).to_string(), "X_0 Z_2");
 }
 
+/// Negated twice, a Pauli is unchanged; the identity has a sign too:
+/// `-(X_0 · X_0)` is `-I`.
 #[test]
 fn pauli_negation_flips_its_sign() {
     assert_eq!((-Pauli::z(0)).to_string(), "-Z_0");

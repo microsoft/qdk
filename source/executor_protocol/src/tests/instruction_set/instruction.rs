@@ -98,8 +98,9 @@ fn argument_given_twice_is_refused() {
     );
 }
 
+/// `cx` given one block, or three.
 #[test]
-fn block_count_other_than_the_instruction_s_is_refused() {
+fn block_count_other_than_the_instructions_is_refused() {
     let set = gates();
     for blocks in [vec![0], vec![0, 1, 2]] {
         let got = u32::try_from(blocks.len()).expect("a few blocks");
@@ -166,6 +167,7 @@ fn first_missing_argument_is_refused() {
     );
 }
 
+/// `u`'s `theta`, a `number`, given an integer.
 #[test]
 fn argument_of_another_kind_is_refused() {
     let arguments = [("theta", 1i64.into()), ("phi", 0.2.into())];
@@ -226,11 +228,26 @@ fn select_patterns_are_alternatives() {
     assert!(!matched(0b11));
 }
 
+/// Qodec's `select: []`: the instruction expects nothing of its flags.
 #[test]
 fn no_select_pattern_expects_nothing() {
     let none: [[(&str, u8); 0]; 0] = [];
     let selected = m().select(&gates(), none).expect("no pattern");
     assert_eq!(selected.select, None);
+}
+
+/// Qodec's `select: [{}]`: one pattern naming no flag.
+#[test]
+fn empty_select_pattern_matches_every_shots_flags() {
+    let empty: [[(&str, u8); 0]; 1] = [[]];
+    let selected = m().select(&gates(), empty).expect("an empty pattern");
+    let patterns = selected.select.expect("one pattern");
+    let [pattern] = *patterns else {
+        panic!("one pattern, not {patterns:?}");
+    };
+    for flags in [0b00, 0b01, 0b10, 0b11] {
+        assert!(pattern.matches(flags), "flags {flags:#b}");
+    }
 }
 
 #[test]
@@ -294,6 +311,9 @@ fn pauli_argument_is_canonical() {
     assert_eq!(pauli("-i Y_1"), canonical(Pauli::x(1) * Pauli::z(1)));
 }
 
+/// One text per rule broken: nothing, a sign alone, a factor without its
+/// qubit, a qubit twice (`I_k` included), a letter or an index outside the
+/// grammar, `i` twice, a comma between factors.
 #[test]
 fn malformed_pauli_text_is_refused() {
     for text in [

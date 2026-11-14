@@ -106,7 +106,7 @@ fn fault_at(at: usize, fault: InstructionFault) -> Result<u32, BatchFault> {
 }
 
 #[test]
-fn batch_of_more_than_the_receiver_s_most_instructions_is_refused() {
+fn batch_of_more_than_the_receivers_most_instructions_is_refused() {
     let set = device();
     let h = || literal(&set, "h", &[0]);
     let limits = limits(&set, Some(2), 1, 0);
@@ -196,8 +196,9 @@ fn first_refused_instruction_is_reported_at_its_position() {
     );
 }
 
+/// Shots of 4 qubits: `h` on qubit 3 is accepted, on qubit 4 refused.
 #[test]
-fn block_beyond_the_shot_s_blocks_of_its_type_is_refused() {
+fn block_beyond_the_shots_blocks_of_its_type_is_refused() {
     let set = device();
     let limits = limits(&set, None, 4, 0);
     check_batch(&[literal(&set, "h", &[3])], &limits).expect("the last qubit");
@@ -217,7 +218,7 @@ fn block_beyond_the_shot_s_blocks_of_its_type_is_refused() {
 /// Shots of 1 qubit and 3 blocks: `prepare` makes block 2, an index among
 /// the blocks, not the qubits.
 #[test]
-fn block_is_checked_against_the_shot_s_blocks_of_its_own_type() {
+fn block_is_checked_against_the_shots_blocks_of_its_own_type() {
     let set = device();
     let limits = limits(&set, None, 1, 3);
     check_batch(&[literal(&set, "prepare", &[2])], &limits).expect("the last block");
@@ -254,8 +255,9 @@ fn block_that_changes_type_is_checked_against_both_types() {
     );
 }
 
+/// `mpp` on qubits 0, 1 and 5 of shots of 4 qubits: the last is refused.
 #[test]
-fn variadic_operand_s_blocks_are_each_checked() {
+fn variadic_operands_blocks_are_each_checked() {
     let set = device();
     assert_eq!(
         check_batch(
@@ -374,8 +376,8 @@ fn bit_argument_counting_back_zero_is_refused() {
 
 /// A readout parity is resolved by the executor, which the admission
 /// checks only for shots whose needs use one: a `cond_x` on a parity is
-/// accepted for such shots, and refused for others; a bit known when
-/// written is accepted for both.
+/// accepted for such shots, and refused for others, even a parity of no
+/// readout; a bit known when written is accepted for both.
 #[test]
 fn readout_parity_is_refused_unless_the_shots_needs_use_one() {
     let set = device();
@@ -388,16 +390,18 @@ fn readout_parity_is_refused_unless_the_shots_needs_use_one() {
     let with = BatchLimits::new(&set, None, |_| 1, true);
     check_batch(&[cond_x(Argument::recent(1))], &with).expect("parities used");
     check_batch(&[cond_x(Argument::Bit(Bit::Value(true)))], &without).expect("a known bit");
-    assert_eq!(
-        check_batch(&[cond_x(Argument::recent(1))], &without),
-        fault_at(
-            0,
-            InstructionFault::ParityNotProvisioned {
-                mnemonic: "cond_x".into(),
-                parameter: "c".into(),
-            }
-        )
-    );
+    for parity in [Argument::recent(1), Argument::parity([], true)] {
+        assert_eq!(
+            check_batch(&[cond_x(parity)], &without),
+            fault_at(
+                0,
+                InstructionFault::ParityNotProvisioned {
+                    mnemonic: "cond_x".into(),
+                    parameter: "c".into(),
+                }
+            )
+        );
+    }
 }
 
 /// Qubit 0 and block 0 are two units of the shot's state.

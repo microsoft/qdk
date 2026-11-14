@@ -57,6 +57,8 @@ fn declared_instruction_matches_one_doing_the_same_under_another_mnemonic() {
     assert_eq!(Some(map.map(sent)), state_vector.opcode("h"));
 }
 
+/// A receiver's `h2` and `h` are both Hadamards: the sent `h` maps to `h`,
+/// though `h2` comes first.
 #[test]
 fn instruction_of_its_own_mnemonic_is_preferred_among_those_doing_the_same() {
     let sent = set_of("Gates", 1, vec![gate("h").meaning(hadamard())]);
@@ -162,6 +164,7 @@ fn block_type_of_another_size_is_refused() {
     assert_eq!(sent.fits(&accepted), Err(vec![blocks("h")]));
 }
 
+/// An `mpp` on any number of qubits is not one on exactly one.
 #[test]
 fn variadic_and_fixed_operands_differ() {
     let mpp = |operand: BlockOperand| InstructionDef::new("mpp").acts_on([operand]);
@@ -240,6 +243,7 @@ fn parameter_names_may_differ() {
     sent.fits(&accepted).expect("the same kinds");
 }
 
+/// An `m` with a `leak` flag against one without: one readout slot more.
 #[test]
 fn readouts_are_compared_as_outcome_and_flag_counts() {
     let m = |flags: &[&str]| gate("m").outcomes(1).flags(flags.iter().copied());
@@ -264,6 +268,8 @@ fn flag_names_may_differ() {
     sent.fits(&accepted).expect("the same readouts");
 }
 
+/// A `u` that differs in its blocks, its parameters and its readouts: three
+/// mismatches, not the first alone.
 #[test]
 fn each_shape_difference_is_reported() {
     let sent = set_of(

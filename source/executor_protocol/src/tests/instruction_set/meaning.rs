@@ -8,6 +8,7 @@
 
 use crate::{Angle, Guard, Meaning, Pauli};
 
+/// A `cx` listing that it keeps `Z_0` equals the one that leaves it out.
 #[test]
 fn clifford_lists_only_the_generators_it_changes() {
     let cx = |images: Vec<(Pauli, Pauli)>| Meaning::declared().clifford(images);
@@ -51,12 +52,22 @@ fn guard_term_given_twice_cancels() {
     );
 }
 
-/// `unless` an empty parity always runs; `if` it never does.
+/// `unless` an empty parity always runs, so the step is as unguarded.
 #[test]
 fn unless_no_term_is_no_guard() {
     let x = || Meaning::declared().pauli(Pauli::x(0));
     assert_eq!(x().unless([]), x());
-    assert_ne!(x().only_if([]), x());
+}
+
+/// A guard before any step is a slip (`GuardWithoutStep`) that the meaning
+/// keeps, so it differs from one with the same steps, here none, and no
+/// slip.
+#[test]
+fn meaning_with_a_slip_differs_from_one_without() {
+    assert_ne!(
+        Meaning::declared().only_if([Guard::Parameter(0)]),
+        Meaning::declared()
+    );
 }
 
 #[test]
@@ -68,6 +79,8 @@ fn if_and_unless_differ() {
     );
 }
 
+/// Declared with no step, an instruction does nothing; undeclared, it
+/// makes no claim on what it does.
 #[test]
 fn declared_and_undeclared_meanings_differ() {
     assert_ne!(Meaning::declared(), Meaning::undeclared());

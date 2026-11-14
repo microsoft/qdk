@@ -19,11 +19,11 @@
 //! that crosses a boundary of a chain, and makes a failure of the batch
 //! ([`ExecuteError::Failed`](crate::ExecuteError::Failed), named by its
 //! first shot) of readouts not one per batch sent ([`ShapeFault::Batches`],
-//! named by the first batch's), of rows not one per shot of the batch
-//! ([`ShapeFault::Rows`]), or of an R that is not the batch's readout slots,
-//! the sum of its instructions' outcomes and flags ([`ShapeFault::Slots`]).
-//! So the part above finds every slot it asked for, on every shot, at its
-//! index.
+//! named by the first batch's first shot), of rows not one per shot of the
+//! batch ([`ShapeFault::Rows`]), or of an R that is not the batch's readout
+//! slots, the sum of its instructions' outcomes and flags
+//! ([`ShapeFault::Slots`]). So the part above finds every slot it asked
+//! for, on every shot, at its index.
 //!
 //! The rows are dense: every value of the batch in one buffer, a byte or
 //! two each, so a shot's row is a slice, and a batch's readouts, made with
