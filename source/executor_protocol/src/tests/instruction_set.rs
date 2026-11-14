@@ -187,7 +187,7 @@ fn load(name: &str, text: &str) -> InstructionSet {
 }
 
 /// `RotationGates`, read at run time.
-fn coin_gates_loaded() -> InstructionSet {
+fn rotation_gates_loaded() -> InstructionSet {
     load("RotationGates", "h 1 - 0; rz 1 theta 0; cx 2 - 0; mz 1 - 1")
 }
 
@@ -195,7 +195,7 @@ fn coin_gates_loaded() -> InstructionSet {
 /// each other, each opcode to itself.
 #[test]
 fn set_made_at_run_time_fits_as_a_static_one() {
-    let loaded = coin_gates_loaded();
+    let loaded = rotation_gates_loaded();
     let map = RotationGates::set().fits(&loaded).expect("the same set");
     for opcode in [
         RotationGates::H,
@@ -214,7 +214,7 @@ fn set_made_at_run_time_fits_as_a_static_one() {
 /// part written in code matches on.
 #[test]
 fn instruction_built_by_name_on_a_run_time_set_holds_the_static_constant() {
-    let rz = coin_gates_loaded()
+    let rz = rotation_gates_loaded()
         .instruction("rz", [3], &[("theta", 0.25.into())])
         .expect("a valid instruction");
     assert_eq!(rz.opcode, RotationGates::RZ);

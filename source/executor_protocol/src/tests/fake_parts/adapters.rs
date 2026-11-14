@@ -5,7 +5,10 @@
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::future::poll_fn;
+use std::pin::pin;
 use std::rc::Rc;
+use std::task::Poll;
 
 use super::{CoinGates, Log, Stream, bound, coin_gate, coin_gates, forward, mapped, zeros};
 use crate::{
@@ -636,6 +639,86 @@ impl Adapt for Restating {
         below: &mut impl Execute,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
         self.pass_through.adapt(batches, seed, below).await
+    }
+}
+
+/// A toy link to a device whose measurements cannot be seeded: it offers
+/// what is offered below, but not seedable. At run time it passes
+/// instructions through, as a [`Spread`] of 1.
+pub(crate) struct Unseedable(Spread);
+
+impl Unseedable {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self(Spread::new(1, log))
+    }
+}
+
+impl Adapt for Unseedable {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        below.not_seedable()
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        self.0.adapt(batches, seed, below).await
+    }
+}
+
+/// An adapter that stops waiting: it polls its answer from below once,
+/// drops that future unfinished, then asks below again and waits. At run
+/// time it passes instructions through, as a [`Spread`] of 1.
+pub(crate) struct Impatient(Spread);
+
+impl Impatient {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self(Spread::new(1, log))
+    }
+}
+
+impl Adapt for Impatient {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        {
+            let mut first = pin!(self.0.adapt(batches, seed, below));
+            poll_fn(|context| {
+                let _ = first.as_mut().poll(context);
+                Poll::Ready(())
+            })
+            .await;
+        }
+        self.0.adapt(batches, seed, below).await
     }
 }
 

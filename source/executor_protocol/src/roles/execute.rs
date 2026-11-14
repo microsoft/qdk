@@ -248,8 +248,8 @@ pub enum ExecuteRefusal {
         /// The batch's instructions.
         got: usize,
     },
-    /// `batches[batch]` reads more readout slots than a `u32` counts, its
-    /// instructions' together, from the instruction at `at` on, so no
+    /// `batches[batch]`'s instructions together read more readout slots
+    /// than a `u32` counts, from the instruction at `at` on, so no
     /// answer's width could hold them; `shot` is its first.
     TooManyReadoutSlots {
         /// The batch's first shot.

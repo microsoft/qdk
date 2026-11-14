@@ -18,12 +18,14 @@
 //!   `Spread` with a most of its own; [`Pool`], which draws two block
 //!   types from one pool below; [`Queue`], which lowers the most shots;
 //!   [`Restating`], which states its offer afresh, with no shot limit;
+//!   [`Unseedable`], which makes the offer not seedable;
 //!   [`LoweringWithoutParity`], which offers no readout parities;
 //!   [`Contrary`], whose offer shrinks as the offer below grows;
 //!   [`Workspace`], which takes qubits below it does not ask for; [`Trap`],
 //!   which fails a shot; [`FailsOnce`], which fails one `adapt`;
 //!   [`PanicsEnding`], which panics in `end_shots`, each time or once;
 //!   [`EndsBelow`], which ends its shots below inside `adapt`;
+//!   [`Impatient`], which stops waiting for its first answer from below;
 //!   [`Shifting`], whose offer changes once provisioned; [`Misbehaving`],
 //!   which breaks the protocol's rules; [`ForwardsParity`], which passes
 //!   readout parities down while its needs below use none.

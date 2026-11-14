@@ -187,16 +187,6 @@ impl InstructionSet {
     }
 }
 
-/// How a sent instruction was matched.
-enum Match {
-    ByMeaning(Opcode),
-    ByMnemonic(Opcode),
-}
-
-fn flag_count(def: &InstructionDef) -> u32 {
-    u32::try_from(def.flags.len()).expect("at most 64 flags, checked when the set is built")
-}
-
 /// The receiver's opcode for each opcode of the sending set: what a
 /// sender rewrites its instructions with, once, when it is bound below.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -325,3 +315,13 @@ impl fmt::Display for FitFaults {
 }
 
 impl std::error::Error for FitFaults {}
+
+/// How a sent instruction was matched.
+enum Match {
+    ByMeaning(Opcode),
+    ByMnemonic(Opcode),
+}
+
+fn flag_count(def: &InstructionDef) -> u32 {
+    u32::try_from(def.flags.len()).expect("at most 64 flags, checked when the set is built")
+}

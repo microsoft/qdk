@@ -19,9 +19,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, EndsBelow, FailsOnce, FromThread, Later, Log, Misshape, Misshapen,
-    Panics, PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Queue, Renamed, Restating,
-    Splitter, Spread, Trap, Values, YieldNow,
+    BitFlip, Bits, CoinCopy, EndsBelow, FailsOnce, FromThread, Impatient, Later, Log, Misshape,
+    Misshapen, Panics, PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Queue, Renamed,
+    Restating, Splitter, Spread, Trap, Unseedable, Values, YieldNow,
 };
 use crate::{
     Adapter, Capabilities, ChainPart, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor,
@@ -694,6 +694,34 @@ fn an_adapter_cannot_make_a_chain_seedable() {
     }
     assert_eq!(log.count("Bits ready"), 0, "no part asked");
     assert_eq!(log.count("Bits execute"), 0, "nothing ran");
+}
+
+/// Seedable bits under a link that cannot be seeded, under a profiler,
+/// bracketed both ways: a seeded run is refused before any part is asked,
+/// and a run with no seed runs.
+#[test]
+fn an_adapter_can_make_a_chain_not_seedable() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let d = || Driver::new(CoinCopy::new());
+    let profiler = || Adapter::new(Profiler::new(&counted, &log));
+    let link = || Adapter::new(Unseedable::new(&log));
+    let bits = || Executor::new(Bits::new(&log));
+    let shots = ShotSet::ids(0..2);
+    let mut left = runner(((d() >> profiler()) >> link()) >> bits());
+    let mut right = runner(d() >> (profiler() >> (link() >> bits())));
+    for (refusal, brackets) in [
+        (refused(left.run(&shots, SEED)), "left"),
+        (refused(right.run(&shots, SEED)), "right"),
+    ] {
+        assert!(
+            matches!(refusal, RunRefusal::NotSeedable),
+            "{brackets}: {refusal:?}"
+        );
+    }
+    assert_eq!(log.count("Bits ready"), 0, "no part asked");
+    left.run(&shots, None).expect("left: a run with no seed");
+    right.run(&shots, None).expect("right: a run with no seed");
 }
 
 /// An executor that cannot be seeded: a seeded run is refused before any
@@ -1673,6 +1701,37 @@ fn a_panic_dropping_a_parts_future_is_a_failure_naming_that_part() {
         for chain in bracketings {
             chain(armed, &ChainPart::new(armed, name));
         }
+    }
+}
+
+/// A program over an adapter that stops waiting for its first answer from
+/// below, over bits whose futures panic when dropped, bracketed both ways:
+/// the bits' future is dropped unfinished by the adapter, not by the
+/// protocol, so the panic unwinds through the adapter's call and the run
+/// fails naming the adapter, with the bits' message.
+#[test]
+fn a_panic_dropping_a_future_a_part_above_stopped_waiting_for_names_that_part() {
+    for brackets in ["left", "right"] {
+        let log = Log::default();
+        let d = Driver::new(Program::new(&[("mz", 0)]));
+        let a = Adapter::new(Impatient::new(&log));
+        let e = Executor::new(PanicsInDrop::new(Later(Bits::new(&log)), true));
+        let shots = ShotSet::ids([3, 1]);
+        let error = if brackets == "left" {
+            failed(runner((d >> a) >> e).run(&shots, SEED))
+        } else {
+            failed(runner(d >> (a >> e)).run(&shots, SEED))
+        };
+        assert_eq!(error.shot, ShotId::new(3), "{brackets}");
+        let adapter = ChainPart::new(1, type_name::<Impatient>());
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(message) }
+                    if *part == adapter && message == "the part's future broke when dropped"
+            ),
+            "{brackets}: {error:?}"
+        );
     }
 }
 

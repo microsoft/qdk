@@ -15,6 +15,50 @@
 use super::super::{BlockType, InstructionSet};
 use super::{Instruction, InstructionFault};
 
+/// Checks `instructions`, in the opcodes of the receiver's set that
+/// `limits` holds, against that set and `limits`: their count, then, in
+/// order, each instruction as [`InstructionSet::instruction`] checks one,
+/// plus the arguments past its parameters, its `select` (some pattern,
+/// over the flags it has), each block below the shot's of its type, and no
+/// readout parity unless the shots were provisioned for them, and that a
+/// `u32` still counts the batch's readout slots up to it. Those slots, the
+/// sum of its instructions', so that its answer's width can be checked; or
+/// the first fault.
+pub(crate) fn check_batch(
+    instructions: &[Instruction],
+    limits: &BatchLimits,
+) -> Result<u32, BatchFault> {
+    if let Some(max) = limits.max_instructions
+        && instructions.len() > max as usize
+    {
+        return Err(BatchFault::TooManyInstructions {
+            max,
+            got: instructions.len(),
+        });
+    }
+    let mut slots: u32 = 0;
+    for (at, instruction) in instructions.iter().enumerate() {
+        let its_slots = limits
+            .set
+            .check(instruction, Some(&limits.provisioned))
+            .map_err(|fault| BatchFault::Instruction { at, fault })?;
+        slots = slots
+            .checked_add(its_slots)
+            .ok_or(BatchFault::TooManyReadoutSlots { at })?;
+    }
+    Ok(slots)
+}
+
+/// Why a batch is refused: too many instructions, the first refused
+/// instruction, at its position in the batch, or more readout slots than a
+/// `u32` counts, from the instruction at `at` on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum BatchFault {
+    TooManyInstructions { max: u32, got: usize },
+    Instruction { at: usize, fault: InstructionFault },
+    TooManyReadoutSlots { at: usize },
+}
+
 /// The limits a batch is checked against, per receiver: built once, not
 /// per batch.
 #[derive(Clone, Debug)]
@@ -68,48 +112,4 @@ impl BatchLimits {
             },
         }
     }
-}
-
-/// Why a batch is refused: too many instructions, the first refused
-/// instruction, at its position in the batch, or more readout slots than a
-/// `u32` counts, from the instruction at `at` on.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum BatchFault {
-    TooManyInstructions { max: u32, got: usize },
-    Instruction { at: usize, fault: InstructionFault },
-    TooManyReadoutSlots { at: usize },
-}
-
-/// Checks `instructions`, in the opcodes of the receiver's set that
-/// `limits` holds, against that set and `limits`: their count, then each
-/// instruction as [`InstructionSet::instruction`] checks one, plus the
-/// arguments past its parameters, its `select` (some pattern, over the
-/// flags it has), each block below the shot's of its type, and no readout
-/// parity unless the shots were provisioned for them; then that a `u32`
-/// counts the batch's readout slots. Those slots, the sum of its
-/// instructions', so that its answer's width can be checked; or the first
-/// fault.
-pub(crate) fn check_batch(
-    instructions: &[Instruction],
-    limits: &BatchLimits,
-) -> Result<u32, BatchFault> {
-    if let Some(max) = limits.max_instructions
-        && instructions.len() > max as usize
-    {
-        return Err(BatchFault::TooManyInstructions {
-            max,
-            got: instructions.len(),
-        });
-    }
-    let mut slots: u32 = 0;
-    for (at, instruction) in instructions.iter().enumerate() {
-        let its_slots = limits
-            .set
-            .check(instruction, Some(&limits.provisioned))
-            .map_err(|fault| BatchFault::Instruction { at, fault })?;
-        slots = slots
-            .checked_add(its_slots)
-            .ok_or(BatchFault::TooManyReadoutSlots { at })?;
-    }
-    Ok(slots)
 }

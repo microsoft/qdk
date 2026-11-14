@@ -105,9 +105,14 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// a part's panic in `drive`, `execute` or an `end_shots` a part above
     /// calls, or in the destructor of the future its `drive`, `adapt` or
     /// `execute` returned, where a panic unwinds (on wasm32, it aborts).
-    /// When the run's future is dropped before such a future is ready, a
-    /// panic in that future's destructor is raised again from the drop,
-    /// unless the thread is already unwinding, as for `end_shots` below.
+    /// The failure names the part whose future it is when the protocol
+    /// drops that future, once it is ready or has panicked; when a part
+    /// above stops waiting and drops it unfinished, it names that part
+    /// above, through whose call the panic unwinds, as
+    /// [`Failure::Panicked`] says. When the run's future is dropped before
+    /// such a future is ready, a panic in that future's destructor is
+    /// raised again from the drop, unless the thread is already unwinding,
+    /// as for `end_shots` below.
     ///
     /// Once `drive` returns, fails or panics, or the future is dropped
     /// before it ends, the run's shots are ended on every part, every

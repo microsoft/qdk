@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 //! A part's panics, caught by the protocol: in a part's future, made,
-//! polled or dropped ([`catch_panic`]), which makes a failure of it, and
-//! in its `end_shots`
-//! ([`end_both`]), which ends every other part before raising it again.
+//! polled, or dropped by the protocol ([`catch_panic`]), which makes a
+//! failure of it, and in its `end_shots` ([`end_both`]), which ends every
+//! other part before raising it again.
 //!
 //! So that one part's panic neither leaves another part's shots held nor
 //! escapes where the protocol promises a failure. Only where a panic
@@ -18,24 +18,27 @@ use std::task::{Context, Poll, ready};
 
 /// Makes a part's future with `make`, and awaits it: its output, or the
 /// message of the part's panic, when the message is text. A panic in the
-/// future's destructor is the part's too: the future is dropped inside the
-/// catch, as soon as it is ready or has panicked, so the part's panic is
-/// caught in every phase of its future, made, polled or dropped, by the
-/// boundary that names the part.
+/// future's destructor is the part's too when the protocol drops the
+/// future: it is dropped inside the catch, as soon as it is ready or has
+/// panicked, so the boundary that names the part catches its panic whether
+/// the future is made, polled or dropped.
 ///
-/// If this future is itself dropped before the part's is ready, such as
-/// when a run's future is dropped, no one is left to return a failure to:
-/// a panic in the part's future's destructor is then raised again from
-/// the drop, as [`end_both`] raises a panic of `end_shots`, unless the
-/// thread is already unwinding, where a second panic would abort the
-/// process and it is dropped with its payload.
+/// If this future is itself dropped before the part's is ready, the part's
+/// future is dropped with it, outside the catch: a panic in its destructor
+/// is raised again from the drop, as [`end_both`] raises a panic of
+/// `end_shots`, unless the thread is already unwinding, where a second
+/// panic would abort the process and it is dropped with its payload. Whose
+/// panic it then is depends on who dropped this future: a part above that
+/// stopped waiting for it, whose own boundary catches the panic in its
+/// call and names that part above; or the drop of a run's future, where
+/// no one is left to return a failure to.
 ///
 /// `AssertUnwindSafe`, because a part may be left half-updated by its
 /// panic, and the protocol calls it again: the panic reaches the part
 /// above as a failure, the runner ends the run's shots on every part, the
-/// part that panicked included, and a later run calls it as
-/// before. So a part must tolerate being called after its panic, as after
-/// an error, as [`Failure::Panicked`](crate::Failure::Panicked) says.
+/// part that panicked included, and a later run calls it as before. So a
+/// part must tolerate being called after its panic, as after an error, as
+/// [`Failure::Panicked`](crate::Failure::Panicked) says.
 /// Unless a part above recovers from the failure, the run gives no output,
 /// so nothing reaches the user from a half-updated part.
 pub(crate) async fn catch_panic<F: Future>(

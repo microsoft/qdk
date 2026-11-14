@@ -119,7 +119,8 @@ fn batch_of_more_than_the_receiver_s_most_instructions_is_refused() {
 
 /// An answer's width is a `u32`: a batch whose instructions' readout slots
 /// sum to `u32::MAX` is accepted, and one with more refused, naming the
-/// instruction from which they no longer fit.
+/// instruction from which they no longer fit, before any later instruction
+/// is checked.
 #[test]
 fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
     let set = InstructionSet::new(
@@ -140,6 +141,12 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
     );
     assert_eq!(
         check_batch(&[half.clone(), half.clone()], &limits),
+        Err(BatchFault::TooManyReadoutSlots { at: 1 })
+    );
+    let mut beyond = one.clone();
+    beyond.opcode = Opcode::__from_macro(99);
+    assert_eq!(
+        check_batch(&[half.clone(), half.clone(), beyond], &limits),
         Err(BatchFault::TooManyReadoutSlots { at: 1 })
     );
     assert_eq!(
