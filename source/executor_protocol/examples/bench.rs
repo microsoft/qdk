@@ -50,20 +50,21 @@ instruction_set! {
     }
 }
 
-/// The mix: each gate's mnemonic, qubits and weight, as in QIR programs
-/// (two-qubit gates and single-qubit rotations most).
-const MIX: [(&str, usize, u64); 11] = [
-    ("cx", 2, 30),
-    ("h", 1, 15),
-    ("rz", 1, 15),
-    ("t", 1, 10),
-    ("t_adj", 1, 5),
-    ("s", 1, 5),
-    ("x", 1, 5),
-    ("cz", 2, 5),
-    ("ccx", 3, 3),
-    ("reset", 1, 2),
-    ("swap", 2, 5),
+/// The mix: each gate of `MixGates`, its qubits and its weight, as in QIR
+/// programs (two-qubit gates and single-qubit rotations most). A gate's
+/// place here is its place in a [`Profile`]'s counts.
+const MIX: [(Opcode, usize, u64); 11] = [
+    (MixGates::CX, 2, 30),
+    (MixGates::H, 1, 15),
+    (MixGates::RZ, 1, 15),
+    (MixGates::T, 1, 10),
+    (MixGates::T_ADJ, 1, 5),
+    (MixGates::S, 1, 5),
+    (MixGates::X, 1, 5),
+    (MixGates::CZ, 2, 5),
+    (MixGates::CCX, 3, 3),
+    (MixGates::RESET, 1, 2),
+    (MixGates::SWAP, 2, 5),
 ];
 
 /// The qubits the mix draws from.
@@ -958,8 +959,8 @@ struct Profiler {
 /// What a [`Profiler`] counted.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Profile {
-    /// Each gate's count, in `MixGates`' order.
-    counts: [u64; 11],
+    /// Each gate's count, in `MIX`'s order.
+    counts: [u64; MIX.len()],
     top_qubit: Option<u32>,
 }
 
@@ -991,24 +992,35 @@ impl Profile {
     }
 }
 
-/// A gate's place in `MixGates`. A match, since an opcode's index is the
-/// protocol's own: the compiler makes it a bounds check.
-fn gate_index(opcode: Opcode) -> usize {
+/// A gate's place in `MIX`. A match, since an opcode's index is the
+/// protocol's own, and a search of `MIX` would compare each opcode in turn
+/// on the profiler's hot path.
+const fn gate_index(opcode: Opcode) -> usize {
     match opcode {
-        MixGates::CCX => 0,
-        MixGates::CX => 1,
-        MixGates::CZ => 2,
-        MixGates::RZ => 3,
-        MixGates::H => 4,
+        MixGates::CX => 0,
+        MixGates::H => 1,
+        MixGates::RZ => 2,
+        MixGates::T => 3,
+        MixGates::T_ADJ => 4,
         MixGates::S => 5,
-        MixGates::T => 6,
-        MixGates::T_ADJ => 7,
-        MixGates::X => 8,
-        MixGates::SWAP => 9,
-        MixGates::RESET => 10,
-        _ => unreachable!("the protocol checked: an instruction of MixGates"),
+        MixGates::X => 6,
+        MixGates::CZ => 7,
+        MixGates::CCX => 8,
+        MixGates::RESET => 9,
+        MixGates::SWAP => 10,
+        _ => panic!("the protocol checked: an instruction of MixGates"),
     }
 }
+
+// `gate_index` gives each gate of `MIX` its place there, checked when the
+// bench is built.
+const _: () = {
+    let mut place = 0;
+    while place < MIX.len() {
+        assert!(gate_index(MIX[place].0) == place);
+        place += 1;
+    }
+};
 
 impl Execute for Profiler {
     fn accepts(&self) -> &InstructionSet {
@@ -1129,9 +1141,10 @@ fn build(draws: &[Draw]) -> Vec<Instruction> {
 /// The instruction of `draw`, built and checked by name in `set`,
 /// `MixGates`.
 fn build_one(set: &InstructionSet, draw: &Draw) -> Instruction {
-    let (mnemonic, arity, _) = MIX[draw.gate];
+    let (opcode, arity, _) = MIX[draw.gate];
+    let mnemonic = set.mnemonic(opcode).expect("a gate of MixGates");
     let theta = [("theta", Argument::from(draw.theta))];
-    let arguments: &[(&str, Argument)] = if mnemonic == "rz" { &theta } else { &[] };
+    let arguments: &[(&str, Argument)] = if opcode == MixGates::RZ { &theta } else { &[] };
     set.instruction(mnemonic, draw.qubits[..arity].iter().copied(), arguments)
         .expect("an instruction of MixGates")
 }
