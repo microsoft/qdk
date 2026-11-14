@@ -90,6 +90,18 @@ fn an_answer_of_more_readouts_than_batches_is_a_failure() {
     );
 }
 
+/// An executor answering no readouts for the run's one batch: a failure.
+#[test]
+fn an_answer_of_fewer_readouts_than_batches_is_a_failure() {
+    assert_eq!(
+        shape_fault(Misshape::MissingReadouts),
+        ShapeFault::Batches {
+            expected: 1,
+            got: 0
+        }
+    );
+}
+
 /// An executor answering a row fewer than the batch's shots: a failure.
 #[test]
 fn an_answer_missing_a_shots_row_is_a_failure() {
@@ -99,6 +111,20 @@ fn an_answer_missing_a_shots_row_is_a_failure() {
             batch: 0,
             expected: 3,
             got: 2
+        }
+    );
+}
+
+/// An executor answering a row more than the batch's shots, a fourth row
+/// for 3 shots: a failure.
+#[test]
+fn an_answer_of_more_rows_than_the_batchs_shots_is_a_failure() {
+    assert_eq!(
+        shape_fault(Misshape::ExtraRow),
+        ShapeFault::Rows {
+            batch: 0,
+            expected: 3,
+            got: 4
         }
     );
 }
@@ -113,6 +139,20 @@ fn an_answer_wider_than_the_batchs_readouts_is_a_failure() {
             batch: 0,
             expected: 1,
             got: 2
+        }
+    );
+}
+
+/// An executor answering no value for the batch's one readout slot: a
+/// failure.
+#[test]
+fn an_answer_narrower_than_the_batchs_readouts_is_a_failure() {
+    assert_eq!(
+        shape_fault(Misshape::MissingValue),
+        ShapeFault::Slots {
+            batch: 0,
+            expected: 1,
+            got: 0
         }
     );
 }

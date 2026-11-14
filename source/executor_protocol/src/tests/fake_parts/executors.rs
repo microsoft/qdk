@@ -297,10 +297,16 @@ impl<E: Execute> Execute for FromThread<E> {
 pub(crate) enum Misshape {
     /// A readouts more than the batches.
     ExtraReadouts,
+    /// A readouts fewer than the batches: none for the last batch.
+    MissingReadouts,
     /// A row fewer than the last batch's shots.
     MissingRow,
+    /// A row more than the last batch's shots.
+    ExtraRow,
     /// A value more in each row than the last batch's readout slots.
     ExtraValue,
+    /// A value fewer in each row than the last batch's readout slots.
+    MissingValue,
 }
 
 /// An executor of [`CoinGates`] whose answer has the wrong shape, in its
@@ -333,14 +339,20 @@ impl Execute for Misshapen {
                     .count();
                 let (rows, width) = match self.0 {
                     Misshape::MissingRow if index == last => (batch.shots.len() - 1, reads),
+                    Misshape::ExtraRow if index == last => (batch.shots.len() + 1, reads),
                     Misshape::ExtraValue if index == last => (batch.shots.len(), reads + 1),
+                    Misshape::MissingValue if index == last => (batch.shots.len(), reads - 1),
                     _ => (batch.shots.len(), reads),
                 };
                 zeros(rows, width)
             })
             .collect();
-        if let Misshape::ExtraReadouts = self.0 {
-            answer.push(zeros(1, 0));
+        match self.0 {
+            Misshape::ExtraReadouts => answer.push(zeros(1, 0)),
+            Misshape::MissingReadouts => {
+                answer.pop();
+            }
+            _ => {}
         }
         Ok(answer)
     }
