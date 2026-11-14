@@ -49,8 +49,7 @@ impl fmt::Display for BlockType {
 }
 
 impl fmt::Debug for BlockType {
-    /// Its name, as [`Display`](fmt::Display) writes it, so a fault reads
-    /// as the set declares it.
+    /// Its name, quoted, so a fault reads as the set declares it.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.0)
     }
@@ -61,7 +60,9 @@ impl fmt::Debug for BlockType {
 /// (Stim's `MPP` on any number of qubits).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BlockOperand {
+    /// The type of its blocks.
     pub block_type: BlockType,
+    /// Whether it stands for any positive number of blocks.
     pub variadic: bool,
 }
 

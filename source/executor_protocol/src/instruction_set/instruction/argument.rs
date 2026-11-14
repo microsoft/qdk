@@ -19,9 +19,13 @@ use std::sync::Arc;
 pub enum Argument {
     /// For a `bit` parameter.
     Bit(Bit),
+    /// For a `number` parameter.
     Number(f64),
+    /// For an `integer` parameter.
     Integer(i64),
+    /// For a `boolean` parameter.
     Boolean(bool),
+    /// For a `string` parameter.
     Text(Arc<str>),
     /// In Qodec's sparse form over the instruction's qubits (not checked),
     /// `Z_0 Z_2`.

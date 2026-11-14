@@ -106,7 +106,10 @@ pub trait Drive {
     /// dropped, the runner ends every shot of `shots` on every part below
     /// ([`Execute::end_shots`]), so a driver need not end them. It may end
     /// a shot below as soon as that shot ends, to free its state early; the
-    /// runner's second end of it does nothing.
+    /// runner's second end of it does nothing. A part's panic in an end the
+    /// driver calls fails the run naming the driver, where the same panic
+    /// in the runner's end is raised again from the run
+    /// ([`Runner::run_async`](crate::Runner::run_async)).
     fn drive(
         &mut self,
         shots: &ShotSet,

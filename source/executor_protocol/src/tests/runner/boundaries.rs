@@ -21,7 +21,7 @@ use crate::tests::fake_parts::{
 use crate::{
     Adapt, Adapter, Argument, Capabilities, ChainPart, CompositionFaults, Drive, DriveError,
     Driver, Execute, ExecuteRefusal, Executor, Failure, Instruction, InstructionFault, Needs,
-    RunError, Runner, ShapeFault, ShotId, ShotSet,
+    ReadoutValue, RunError, Runner, ShapeFault, ShotConditions, ShotId, ShotSet,
 };
 
 /// A run of a chain in one bracketing: how it failed, what its parts
@@ -335,6 +335,32 @@ fn a_readout_parity_the_needs_use_crosses_every_boundary() {
         run.unwrap_or_else(|error| panic!("bracketing {i}: {error:?}"));
     }
     assert_eq!(log.count("Bits execute"), 5, "each bracketing ran it");
+}
+
+/// A driver flipping and measuring qubit 0 in `CoinGates`, over bits
+/// whose `accepts` answers [`ParityGates`] once provisioned, in which
+/// `x` is `x_if` and `mz` is past the set's end, directly and through an
+/// adapter in both bracketings: each run checks the batch against the set
+/// `>>` fitted and bound, so it runs and reads 1, and the adapter reads
+/// that set as the one below it accepts.
+#[test]
+fn every_batch_is_checked_against_the_set_read_when_composed() {
+    let log = Log::default();
+    let names_below = || Adapter::new(NamesBelow::new(&log));
+    let bits = || Executor::new(Bits::new(&log).accepting_once_provisioned(ParityGates::set()));
+    let shots = ShotSet::ids([5, 3]);
+    let runs = [
+        runner(flip_and_measure() >> bits()).run(&shots, SEED),
+        runner((flip_and_measure() >> names_below()) >> bits()).run(&shots, SEED),
+        runner(flip_and_measure() >> (names_below() >> bits())).run(&shots, SEED),
+    ];
+    for (i, run) in runs.into_iter().enumerate() {
+        let records = run.unwrap_or_else(|error| panic!("bracketing {i}: {error:?}"));
+        let ones = (vec![ReadoutValue::One], ShotConditions::NONE);
+        assert_eq!(records, [ones.clone(), ones], "bracketing {i}");
+    }
+    assert_eq!(log.count("Bits execute"), 3, "each bracketing ran it");
+    assert_eq!(log.count("below accepts: CoinGates"), 2);
 }
 
 /// An executor answering a row fewer than the batch's two shots, below a

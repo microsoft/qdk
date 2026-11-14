@@ -43,8 +43,9 @@ pub trait Execute {
 
     /// The instructions it runs, which the part above must fit.
     ///
-    /// Its answer must not change once the part is composed: the fit and
-    /// `bind`'s map are made once, by `>>`.
+    /// Its answer must not change once the part is composed: the fit,
+    /// `bind`'s map, and the set every batch it receives is checked
+    /// against are made or read once, by `>>`.
     fn accepts(&self) -> &InstructionSet;
 
     /// What it can ever serve, such as its most qubits, which the driver's
@@ -135,7 +136,9 @@ pub trait Execute {
     /// when its run's future was dropped, a part above panicked while it
     /// waited, or a part above stopped waiting for it: the part then
     /// cancels the work that `execute` started for these shots, or ignores
-    /// its answer.
+    /// its answer. A panic here, in an end the driver calls, fails the run
+    /// naming the driver; in the runner's end, it is raised again from the
+    /// run ([`Runner::run_async`](crate::Runner::run_async)).
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }

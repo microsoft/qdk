@@ -170,9 +170,10 @@ impl Adapt for Profiler {
     }
 }
 
-/// An adapter that passes each batch down unchanged, logging the name of
-/// the part below as `below: <name>` first, as an adapter naming the part
-/// below in its own errors would read it.
+/// An adapter that passes each batch down unchanged, logging first the
+/// name of the part below as `below: <name>`, as an adapter naming the
+/// part below in its own errors would read it, then the name of the set
+/// the part below accepts as `below accepts: <set>`.
 pub(crate) struct NamesBelow {
     below: Option<OpcodeMap>,
     log: Log,
@@ -207,6 +208,8 @@ impl Adapt for NamesBelow {
         below: &mut impl Execute,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
         self.log.push(format!("below: {}", below.name()));
+        self.log
+            .push(format!("below accepts: {}", below.accepts().name()));
         let map = bound(self.below.as_ref());
         forward(batches, seed, below, |batch| {
             mapped(map, batch.instructions)

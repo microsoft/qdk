@@ -624,6 +624,41 @@ fn step_guarded_by_a_parity_that_is_always_even_is_refused() {
     );
 }
 
+/// Guards that cancel still name what they read: a parameter 7 the
+/// instruction lacks, or an outcome not yet observed, is refused as in a
+/// guard that does not cancel, beside the parity that is always even.
+#[test]
+fn guards_that_cancel_are_checked_like_any_other() {
+    let guarded = |guard: Guard| {
+        rotate_z0().meaning(
+            Meaning::declared()
+                .pauli(Pauli::x(0))
+                .only_if([guard, guard])
+                .observe([Pauli::z(0)]),
+        )
+    };
+    assert_eq!(
+        meaning_faults(guarded(Guard::Parameter(7))),
+        [
+            MeaningFault::GuardNeverMet { step: 0 },
+            MeaningFault::NotAParameter {
+                step: 0,
+                parameter: 7
+            },
+        ]
+    );
+    assert_eq!(
+        meaning_faults(guarded(Guard::Outcome(0))),
+        [
+            MeaningFault::GuardNeverMet { step: 0 },
+            MeaningFault::OutcomeNotYet {
+                step: 0,
+                outcome: 0
+            },
+        ]
+    );
+}
+
 /// A second image of one generator would replace the first unseen, even
 /// an image that maps it to itself.
 #[test]

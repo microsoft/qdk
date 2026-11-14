@@ -189,6 +189,7 @@ impl InstructionSet {
 /// .parameter("theta", ParameterKind::Number)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstructionDef {
+    /// `mnemonic`: its name, unique in its set.
     pub mnemonic: String,
     /// `in`: the blocks it acts on, in order.
     pub inputs: Vec<BlockOperand>,
@@ -325,26 +326,54 @@ impl Opcode {
 #[non_exhaustive]
 pub enum DeclarationFault {
     /// The set declares a block type twice.
-    RepeatedBlockType { block_type: BlockType },
+    RepeatedBlockType {
+        /// The block type declared twice.
+        block_type: BlockType,
+    },
     /// The set declares two instructions of one mnemonic.
-    RepeatedMnemonic { mnemonic: String },
+    RepeatedMnemonic {
+        /// The mnemonic declared twice.
+        mnemonic: String,
+    },
     /// An operand of a block type the set does not declare.
     UnknownBlockType {
+        /// The instruction's mnemonic.
         mnemonic: String,
+        /// The operand's block type.
         block_type: BlockType,
     },
     /// A variadic operand that is not the last of its side, or a position
     /// variadic on one side and not on the other.
-    MisplacedVariadic { mnemonic: String },
+    MisplacedVariadic {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+    },
     /// Two parameters of one name.
-    RepeatedParameter { mnemonic: String, parameter: String },
+    RepeatedParameter {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The parameter's name.
+        parameter: String,
+    },
     /// Two flags of one name.
-    RepeatedFlag { mnemonic: String, flag: String },
+    RepeatedFlag {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The flag's name.
+        flag: String,
+    },
     /// More than 64 flags: a flag pattern is a `u64`.
-    TooManyFlags { mnemonic: String, flags: usize },
+    TooManyFlags {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// Its flags.
+        flags: usize,
+    },
     /// What its meaning refers to that it lacks.
     Meaning {
+        /// The instruction's mnemonic.
         mnemonic: String,
+        /// The fault of its meaning.
         fault: MeaningFault,
     },
 }

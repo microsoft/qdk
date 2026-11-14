@@ -27,8 +27,9 @@ pub trait Adapt {
 
     /// The instructions it receives, which the part above must fit.
     ///
-    /// Its answer must not change once the part is composed: the fit and
-    /// `bind`'s map are made once, by `>>`.
+    /// Its answer must not change once the part is composed: the fit,
+    /// `bind`'s map, and the set every batch it receives is checked
+    /// against are made or read once, by `>>`.
     fn accepts(&self) -> &InstructionSet;
 
     /// The instructions it sends below, which must fit the part below.

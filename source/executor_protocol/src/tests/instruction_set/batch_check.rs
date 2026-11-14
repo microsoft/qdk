@@ -110,9 +110,9 @@ fn batch_of_more_than_the_receiver_s_most_instructions_is_refused() {
     let set = device();
     let h = || literal(&set, "h", &[0]);
     let limits = limits(&set, Some(2), 1, 0);
-    check_batch(&set, &[h(), h()], &limits).expect("two instructions");
+    check_batch(&[h(), h()], &limits).expect("two instructions");
     assert_eq!(
-        check_batch(&set, &[h(), h(), h()], &limits),
+        check_batch(&[h(), h(), h()], &limits),
         Err(BatchFault::TooManyInstructions { max: 2, got: 3 })
     );
 }
@@ -121,7 +121,7 @@ fn batch_of_more_than_the_receiver_s_most_instructions_is_refused() {
 fn receiver_with_no_most_accepts_any_count() {
     let set = device();
     let batch = vec![literal(&set, "h", &[0]); 1000];
-    check_batch(&set, &batch, &limits(&set, None, 1, 0)).expect("no limit");
+    check_batch(&batch, &limits(&set, None, 1, 0)).expect("no limit");
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn opcode_beyond_the_set_is_refused() {
     let mut beyond = literal(&set, "h", &[0]);
     beyond.opcode = Opcode::__from_macro(99);
     assert_eq!(
-        check_batch(&set, &[beyond], &limits(&set, None, 1, 0)),
+        check_batch(&[beyond], &limits(&set, None, 1, 0)),
         fault_at(0, InstructionFault::UnknownOpcode(Opcode::__from_macro(99)))
     );
 }
@@ -145,7 +145,7 @@ fn first_refused_instruction_is_reported_at_its_position() {
         literal(&set, "h", &[0, 1]),
     ];
     assert_eq!(
-        check_batch(&set, &batch, &limits(&set, None, 2, 0)),
+        check_batch(&batch, &limits(&set, None, 2, 0)),
         fault_at(
             1,
             InstructionFault::WrongBlockCount {
@@ -162,9 +162,9 @@ fn first_refused_instruction_is_reported_at_its_position() {
 fn block_beyond_the_shot_s_blocks_of_its_type_is_refused() {
     let set = device();
     let limits = limits(&set, None, 4, 0);
-    check_batch(&set, &[literal(&set, "h", &[3])], &limits).expect("the last qubit");
+    check_batch(&[literal(&set, "h", &[3])], &limits).expect("the last qubit");
     assert_eq!(
-        check_batch(&set, &[literal(&set, "h", &[4])], &limits),
+        check_batch(&[literal(&set, "h", &[4])], &limits),
         fault_at(
             0,
             InstructionFault::BlockBeyondNeeds {
@@ -182,9 +182,9 @@ fn block_beyond_the_shot_s_blocks_of_its_type_is_refused() {
 fn block_is_checked_against_the_shot_s_blocks_of_its_own_type() {
     let set = device();
     let limits = limits(&set, None, 1, 3);
-    check_batch(&set, &[literal(&set, "prepare", &[2])], &limits).expect("the last block");
+    check_batch(&[literal(&set, "prepare", &[2])], &limits).expect("the last block");
     assert_eq!(
-        check_batch(&set, &[literal(&set, "prepare", &[3])], &limits),
+        check_batch(&[literal(&set, "prepare", &[3])], &limits),
         fault_at(
             0,
             InstructionFault::BlockBeyondNeeds {
@@ -202,9 +202,9 @@ fn block_is_checked_against_the_shot_s_blocks_of_its_own_type() {
 fn block_that_changes_type_is_checked_against_both_types() {
     let set = device();
     let limits = limits(&set, None, 4, 2);
-    check_batch(&set, &[literal(&set, "encode", &[1])], &limits).expect("within both");
+    check_batch(&[literal(&set, "encode", &[1])], &limits).expect("within both");
     assert_eq!(
-        check_batch(&set, &[literal(&set, "encode", &[2])], &limits),
+        check_batch(&[literal(&set, "encode", &[2])], &limits),
         fault_at(
             0,
             InstructionFault::BlockBeyondNeeds {
@@ -221,7 +221,6 @@ fn variadic_operand_s_blocks_are_each_checked() {
     let set = device();
     assert_eq!(
         check_batch(
-            &set,
             &[literal(&set, "mpp", &[0, 1, 5])],
             &limits(&set, None, 4, 0)
         ),
@@ -240,11 +239,7 @@ fn variadic_operand_s_blocks_are_each_checked() {
 fn missing_argument_is_refused() {
     let set = device();
     assert_eq!(
-        check_batch(
-            &set,
-            &[literal(&set, "rz", &[0])],
-            &limits(&set, None, 1, 0)
-        ),
+        check_batch(&[literal(&set, "rz", &[0])], &limits(&set, None, 1, 0)),
         fault_at(
             0,
             InstructionFault::MissingArgument {
@@ -261,7 +256,7 @@ fn arguments_beyond_the_parameters_are_refused() {
     let mut rz = literal(&set, "rz", &[0]);
     rz.arguments = smallvec![Argument::Number(0.1), Argument::Number(0.2)];
     assert_eq!(
-        check_batch(&set, &[rz], &limits(&set, None, 1, 0)),
+        check_batch(&[rz], &limits(&set, None, 1, 0)),
         fault_at(
             0,
             InstructionFault::ExtraArguments {
@@ -282,11 +277,11 @@ fn select_over_flags_the_instruction_lacks_is_refused() {
     let m = literal(&set, "m", &[0])
         .select(&set, [[("leak", 0)]])
         .expect("a declared flag");
-    check_batch(&set, std::slice::from_ref(&m), &limits).expect("the flags of `m`");
+    check_batch(std::slice::from_ref(&m), &limits).expect("the flags of `m`");
     let mut h = m;
     h.opcode = set.opcode("h").expect("an instruction of the set");
     assert_eq!(
-        check_batch(&set, &[h], &limits),
+        check_batch(&[h], &limits),
         fault_at(
             0,
             InstructionFault::UnknownFlag {
@@ -307,11 +302,11 @@ fn select_of_no_patterns_is_refused() {
     let m = literal(&set, "m", &[0])
         .select(&set, [[("leak", 0)]])
         .expect("a declared flag");
-    check_batch(&set, std::slice::from_ref(&m), &limits).expect("a select of one pattern");
+    check_batch(std::slice::from_ref(&m), &limits).expect("a select of one pattern");
     let mut empty = m;
     empty.select = Some(Box::new([]));
     assert_eq!(
-        check_batch(&set, &[empty], &limits),
+        check_batch(&[empty], &limits),
         fault_at(
             0,
             InstructionFault::EmptySelect {
@@ -329,7 +324,7 @@ fn bit_argument_counting_back_zero_is_refused() {
     let mut cond_x = literal(&set, "cond_x", &[0]);
     cond_x.arguments = smallvec![Argument::recent(0)];
     assert_eq!(
-        check_batch(&set, &[cond_x], &limits(&set, None, 1, 0)),
+        check_batch(&[cond_x], &limits(&set, None, 1, 0)),
         fault_at(
             0,
             InstructionFault::ZeroLookback {
@@ -353,10 +348,10 @@ fn readout_parity_is_refused_unless_the_shots_needs_use_one() {
     };
     let without = limits(&set, None, 1, 0);
     let with = BatchLimits::new(&set, None, |_| 1, true);
-    check_batch(&set, &[cond_x(Argument::recent(1))], &with).expect("parities used");
-    check_batch(&set, &[cond_x(Argument::Bit(Bit::Value(true)))], &without).expect("a known bit");
+    check_batch(&[cond_x(Argument::recent(1))], &with).expect("parities used");
+    check_batch(&[cond_x(Argument::Bit(Bit::Value(true)))], &without).expect("a known bit");
     assert_eq!(
-        check_batch(&set, &[cond_x(Argument::recent(1))], &without),
+        check_batch(&[cond_x(Argument::recent(1))], &without),
         fault_at(
             0,
             InstructionFault::ParityNotProvisioned {
@@ -372,7 +367,6 @@ fn readout_parity_is_refused_unless_the_shots_needs_use_one() {
 fn blocks_of_different_types_may_share_an_index() {
     let set = device();
     check_batch(
-        &set,
         &[literal(&set, "couple", &[0, 0])],
         &limits(&set, None, 1, 1),
     )
@@ -386,11 +380,11 @@ fn many_blocks_with_one_given_twice_are_refused() {
     let set = device();
     let limits = limits(&set, None, 40, 0);
     let distinct: Vec<u32> = (0..30).rev().collect();
-    check_batch(&set, &[literal(&set, "mpp", &distinct)], &limits).expect("distinct qubits");
+    check_batch(&[literal(&set, "mpp", &distinct)], &limits).expect("distinct qubits");
     let mut repeated = distinct;
     repeated.push(17);
     assert_eq!(
-        check_batch(&set, &[literal(&set, "mpp", &repeated)], &limits),
+        check_batch(&[literal(&set, "mpp", &repeated)], &limits),
         fault_at(
             0,
             InstructionFault::RepeatedBlock {
@@ -409,7 +403,6 @@ fn many_blocks_of_different_types_may_share_an_index() {
     let mut blocks = vec![0];
     blocks.extend(0..20);
     check_batch(
-        &set,
         &[literal(&set, "couple_many", &blocks)],
         &limits(&set, None, 20, 1),
     )
@@ -423,7 +416,6 @@ fn block_changing_type_onto_the_index_of_a_surviving_block_is_refused() {
     let set = device();
     assert_eq!(
         check_batch(
-            &set,
             &[literal(&set, "encode_beside", &[0, 0])],
             &limits(&set, None, 1, 1)
         ),
@@ -443,7 +435,6 @@ fn block_changing_type_onto_the_index_of_a_surviving_block_is_refused() {
 fn block_changing_type_onto_the_index_of_a_consumed_block_is_accepted() {
     let set = device();
     check_batch(
-        &set,
         &[literal(&set, "encode_consuming", &[0, 0])],
         &limits(&set, None, 1, 1),
     )
@@ -456,7 +447,6 @@ fn consumed_blocks_of_one_type_and_index_are_refused() {
     let set = device();
     assert_eq!(
         check_batch(
-            &set,
             &[literal(&set, "measure_pair", &[0, 0])],
             &limits(&set, None, 1, 0)
         ),
@@ -476,7 +466,6 @@ fn consumed_blocks_of_one_type_and_index_are_refused() {
 fn consumed_blocks_of_different_types_may_share_an_index() {
     let set = device();
     check_batch(
-        &set,
         &[literal(&set, "measure_mixed", &[0, 0])],
         &limits(&set, None, 1, 1),
     )
@@ -490,7 +479,6 @@ fn new_blocks_of_one_type_and_index_are_refused() {
     let set = device();
     assert_eq!(
         check_batch(
-            &set,
             &[literal(&set, "prepare_pair", &[0, 0])],
             &limits(&set, None, 0, 1)
         ),
@@ -510,7 +498,6 @@ fn new_blocks_of_one_type_and_index_are_refused() {
 fn new_blocks_of_different_types_may_share_an_index() {
     let set = device();
     check_batch(
-        &set,
         &[literal(&set, "prepare_mixed", &[0, 0])],
         &limits(&set, None, 1, 1),
     )
@@ -527,7 +514,6 @@ fn many_consumed_blocks_with_one_given_twice_are_refused() {
     blocks.push(5);
     assert_eq!(
         check_batch(
-            &set,
             &[literal(&set, "merge_many", &blocks)],
             &limits(&set, None, 20, 1)
         ),
@@ -551,7 +537,6 @@ fn many_new_blocks_with_one_given_twice_are_refused() {
     blocks.push(5);
     assert_eq!(
         check_batch(
-            &set,
             &[literal(&set, "split_many", &blocks)],
             &limits(&set, None, 20, 1)
         ),
@@ -567,7 +552,7 @@ fn many_new_blocks_with_one_given_twice_are_refused() {
 
 /// Of several blocks given twice, the fault names the one at the earliest
 /// position that repeats a block before it, for few blocks as for many:
-/// in `3, 5, 5, 3`, block 5.
+/// in `5, 3, 5, 3`, block 5 (not 3, the smaller).
 #[test]
 fn repeated_block_named_is_the_earliest_repeat_in_position_order() {
     let set = device();
@@ -577,7 +562,7 @@ fn repeated_block_named_is_the_earliest_repeat_in_position_order() {
     many.extend(10..30);
     for blocks in [few, many] {
         assert_eq!(
-            check_batch(&set, &[literal(&set, "mpp", &blocks)], &limits),
+            check_batch(&[literal(&set, "mpp", &blocks)], &limits),
             fault_at(
                 0,
                 InstructionFault::RepeatedBlock {
@@ -602,5 +587,5 @@ fn a_batchs_readout_slots_count_each_instructions_outcomes_and_flags() {
         literal(&set, "m", &[0]),
         literal(&set, "mpp", &[0, 1]),
     ];
-    assert_eq!(check_batch(&set, &batch, &limits), Ok(4));
+    assert_eq!(check_batch(&batch, &limits), Ok(4));
 }

@@ -28,6 +28,8 @@ pub(crate) struct Bits {
     shots: BTreeMap<ShotId, (Vec<bool>, Stream)>,
     busy: Option<&'static str>,
     loses: bool,
+    /// The set `accepts` answers once provisioned, if it changes then.
+    set_once_provisioned: Option<InstructionSet>,
     log: Log,
 }
 
@@ -49,6 +51,7 @@ impl Bits {
             shots: BTreeMap::new(),
             busy: None,
             loses: false,
+            set_once_provisioned: None,
             log: log.clone(),
         }
     }
@@ -62,6 +65,14 @@ impl Bits {
     /// These bits, refusing every run in `ready`, for `why`.
     pub(crate) fn busy(mut self, why: &'static str) -> Self {
         self.busy = Some(why);
+        self
+    }
+
+    /// These bits, answering `set` to `accepts` once provisioned, while
+    /// still running their own `h`, `x` and `mz`: a part that breaks the
+    /// rule that its set does not change once composed.
+    pub(crate) fn accepting_once_provisioned(mut self, set: InstructionSet) -> Self {
+        self.set_once_provisioned = Some(set);
         self
     }
 
@@ -87,6 +98,9 @@ impl Execute for Bits {
         self.log
             .push(format!("Bits provisioned for {qubits} qubits"));
         self.qubits = qubits as usize;
+        if let Some(set) = self.set_once_provisioned.take() {
+            self.set = set;
+        }
     }
 
     async fn ready(&mut self) -> Result<(), RunRefusal> {

@@ -239,21 +239,36 @@ pub enum InstructionMismatch {
     OtherSet,
     /// The receiver has no instruction of this mnemonic, nor one doing the
     /// same with the same blocks, parameters and readouts.
-    Missing { mnemonic: String },
+    Missing {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+    },
     /// Its `in` or `out` differ: their block types, their sizes, or which
     /// are variadic.
-    Blocks { mnemonic: String },
+    Blocks {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+    },
     /// Its parameters' kinds, in order, differ.
-    Parameters { mnemonic: String },
+    Parameters {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+    },
     /// Its readouts differ: `(outcomes, flags)` of each side.
     Readouts {
+        /// The instruction's mnemonic.
         mnemonic: String,
+        /// The sent instruction's `(outcomes, flags)`.
         sent: (u32, u32),
+        /// The accepted instruction's `(outcomes, flags)`.
         accepted: (u32, u32),
     },
     /// The receiver's instruction of this mnemonic does something else, or
     /// one side declares what it does and the other does not.
-    Meaning { mnemonic: String },
+    Meaning {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+    },
 }
 
 impl fmt::Display for InstructionMismatch {
@@ -291,8 +306,11 @@ impl fmt::Display for InstructionMismatch {
 /// accepted, by their names, and every mismatch between them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FitFaults {
+    /// The name of the set the part above sends.
     pub sent: String,
+    /// The name of the set the part below accepts.
     pub accepted: String,
+    /// Every mismatch between them, in the sent set's order.
     pub mismatches: Vec<InstructionMismatch>,
 }
 

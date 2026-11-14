@@ -116,6 +116,13 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// run that started its `drive` panic, once every other part is ended.
     /// A panic in a part's `ready` is not caught.
     ///
+    /// A part's panic in `end_shots` thus leaves the run in one of two
+    /// ways, by who ended the shots: in an end the driver calls, it
+    /// unwinds through `drive`, and the run fails naming the driver
+    /// ([`Failure::Panicked`](crate::Failure::Panicked)); in the runner's
+    /// end, it is raised again from the run, and the driver's outputs are
+    /// lost.
+    ///
     /// The future is `Send` exactly when every part and every part's
     /// future is: no trait bounds the futures its parts return, and the
     /// runner does not box them.

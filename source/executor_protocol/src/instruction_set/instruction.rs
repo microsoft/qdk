@@ -146,71 +146,133 @@ pub enum InstructionFault {
     /// Both: `expected` is its count, or, with a variadic operand
     /// (`variadic`), the least.
     WrongBlockCount {
+        /// The instruction's mnemonic.
         mnemonic: String,
+        /// The blocks it takes, or the least, if `variadic`.
         expected: u32,
+        /// The blocks it was given.
         got: u32,
+        /// Whether it has a variadic operand.
         variadic: bool,
     },
     /// At an `execute`: a block at or past `needs`, the shot's blocks of
     /// its type.
     BlockBeyondNeeds {
+        /// The instruction's mnemonic.
         mnemonic: String,
+        /// The block, from 0.
         block: u32,
+        /// The shot's blocks of its type.
         needs: u32,
     },
     /// Both: one block twice, as `cx [0, 0]`, before the instruction or
     /// after it (a block turned into another type, given the index of a
     /// block of that type that survives).
-    RepeatedBlock { mnemonic: String, block: u32 },
+    RepeatedBlock {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The block given twice.
+        block: u32,
+    },
     /// Built: an argument named for no parameter of the instruction.
-    UnknownParameter { mnemonic: String, name: String },
+    UnknownParameter {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The name the argument was given for.
+        name: String,
+    },
     /// Built: two arguments for one parameter.
-    RepeatedArgument { mnemonic: String, parameter: String },
+    RepeatedArgument {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The parameter's name.
+        parameter: String,
+    },
     /// Both: no argument for this parameter, the first one missing.
-    MissingArgument { mnemonic: String, parameter: String },
+    MissingArgument {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The parameter's name.
+        parameter: String,
+    },
     /// At an `execute`: more arguments than parameters.
     ExtraArguments {
+        /// The instruction's mnemonic.
         mnemonic: String,
+        /// Its parameters.
         expected: u32,
+        /// The arguments given.
         got: u32,
     },
     /// Both: the argument for this parameter is not of its kind.
     WrongArgumentKind {
+        /// The instruction's mnemonic.
         mnemonic: String,
+        /// The parameter's name.
         parameter: String,
+        /// The parameter's kind.
         expected: ParameterKind,
     },
     /// [`Instruction::select`]: a flag the instruction lacks, or, at an
     /// `execute`, a pattern over one, named by its position (`#3`).
-    UnknownFlag { mnemonic: String, name: String },
+    UnknownFlag {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The flag's name, or its position (`#3`).
+        name: String,
+    },
     /// [`Instruction::select`]: one flag twice in one pattern.
-    RepeatedFlag { mnemonic: String, name: String },
+    RepeatedFlag {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The flag's name.
+        name: String,
+    },
     /// At an `execute`: a [`select`](Instruction::select) field of no
     /// patterns, `Some` of an empty list, which no shot's flags could
     /// match; the builder makes `None` of no pattern, which expects
     /// nothing.
-    EmptySelect { mnemonic: String },
+    EmptySelect {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+    },
     /// [`Instruction::select`]: a flag's value other than 0 or 1.
     FlagValueNotABit {
+        /// The instruction's mnemonic.
         mnemonic: String,
+        /// The flag's name.
         name: String,
+        /// The value given.
         value: u8,
     },
     /// [`Argument::pauli`]: text that is not a Pauli in Qodec's form.
     MalformedPauli(String),
     /// Both: a readout parity counting back 0, as `Argument::recent(0)`;
     /// counts back start at 1, the shot's latest readout.
-    ZeroLookback { mnemonic: String },
+    ZeroLookback {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+    },
     /// At an `execute`: a readout parity for this parameter, sent to shots
     /// whose needs, as they reach the receiver, use none
     /// ([`Needs::uses_readout_parity`](crate::Needs::uses_readout_parity)),
     /// so that the admission did not check that the receiver resolves
     /// them.
-    ParityNotProvisioned { mnemonic: String, parameter: String },
+    ParityNotProvisioned {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The parameter's name.
+        parameter: String,
+    },
     /// An executor's own rule beyond the set, in its words: a batch sampler
     /// refusing a measurement before the batch's end; an argument out of
     /// its range. A rule a capability can state is a capability instead.
-    Unsupported { mnemonic: String, reason: String },
+    Unsupported {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The executor's rule, in its words.
+        reason: String,
+    },
 }
 
 impl fmt::Display for InstructionFault {

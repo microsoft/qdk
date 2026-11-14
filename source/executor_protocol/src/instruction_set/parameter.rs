@@ -12,7 +12,9 @@ use std::fmt;
 /// parameters are ordered, and its arguments follow that order.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Parameter {
+    /// Its name, by which an argument is given.
     pub name: String,
+    /// Its kind, which its argument must have.
     pub kind: ParameterKind,
 }
 

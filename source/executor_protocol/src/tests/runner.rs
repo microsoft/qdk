@@ -284,45 +284,57 @@ fn a_drivers_end_of_its_shots_reaches_every_part_below() {
     );
 }
 
-/// A program that never ends its shots, over a noise, over bits, in both
-/// bracketings: once its run gives its outputs, every part has ended every
-/// shot of it, once, by the runner.
+/// A program that never ends its shots, over a noise, a trap that never
+/// springs and bits, in each of the five bracketings of four parts: once
+/// its run gives its outputs, every part has ended every shot of it, once,
+/// by the runner, top to bottom.
 #[test]
 fn a_successful_runs_shots_are_ended_on_every_part_even_when_the_driver_ends_none() {
-    let chains: [fn(&Log) -> usize; 2] = [
-        |log| {
-            let mut runner = runner(
-                (Driver::new(Program::new(&[("mz", 0)]).not_ending())
-                    >> Adapter::new(BitFlip::new(300, log)))
-                    >> Executor::new(Bits::new(log)),
-            );
-            runner
-                .run(&ShotSet::ids(0..3), SEED)
-                .expect("the run succeeds")
-                .len()
-        },
-        |log| {
-            let mut runner = runner(
-                Driver::new(Program::new(&[("mz", 0)]).not_ending())
-                    >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log))),
-            );
-            runner
-                .run(&ShotSet::ids(0..3), SEED)
-                .expect("the run succeeds")
-                .len()
-        },
-    ];
-    for (bracketing, chain) in chains.into_iter().enumerate() {
-        let log = Log::default();
-        assert_eq!(chain(&log), 3, "bracketing {bracketing}: every shot ran");
-        let ended: Vec<String> = log
-            .entries()
+    fn ended<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) -> Vec<String> {
+        let records = runner
+            .run(&ShotSet::ids(0..3), SEED)
+            .expect("the run succeeds");
+        assert_eq!(records.len(), 3, "every shot ran");
+        log.entries()
             .into_iter()
             .filter(|entry| entry.contains("end_shots"))
-            .collect();
+            .collect()
+    }
+    let program = || Driver::new(Program::new(&[("mz", 0)]).not_ending());
+    let noise = |log: &Log| Adapter::new(BitFlip::new(300, log));
+    let trap = |log: &Log| Adapter::new(Trap::on(99).logging(log));
+    let bits = |log: &Log| Executor::new(Bits::new(log));
+    let logs: [Log; 5] = Default::default();
+    let ends = [
+        ended(
+            runner(((program() >> noise(&logs[0])) >> trap(&logs[0])) >> bits(&logs[0])),
+            &logs[0],
+        ),
+        ended(
+            runner((program() >> noise(&logs[1])) >> (trap(&logs[1]) >> bits(&logs[1]))),
+            &logs[1],
+        ),
+        ended(
+            runner(program() >> (noise(&logs[2]) >> (trap(&logs[2]) >> bits(&logs[2])))),
+            &logs[2],
+        ),
+        ended(
+            runner(program() >> ((noise(&logs[3]) >> trap(&logs[3])) >> bits(&logs[3]))),
+            &logs[3],
+        ),
+        ended(
+            runner((program() >> (noise(&logs[4]) >> trap(&logs[4]))) >> bits(&logs[4])),
+            &logs[4],
+        ),
+    ];
+    for (bracketing, ended) in ends.into_iter().enumerate() {
         assert_eq!(
             ended,
-            ["BitFlip end_shots, holding 0", "Bits end_shots, holding 0"],
+            [
+                "BitFlip end_shots, holding 0",
+                "Trap end_shots",
+                "Bits end_shots, holding 0"
+            ],
             "bracketing {bracketing}"
         );
     }
@@ -1175,6 +1187,52 @@ fn a_panic_ending_shots_the_driver_ends_is_named_as_the_driver() {
     for chain in bracketings {
         chain(&Log::default());
     }
+}
+
+/// A program that never ends its shots, over an adapter whose first
+/// `end_shots` panics, over a noise, over bits, in each bracketing: the
+/// runner's end is the only one, so the panic is raised again from `run`,
+/// once the noise and the bits are ended, and the outputs are lost, where
+/// the same panic in the driver's end fails the run naming the driver.
+#[test]
+fn a_panic_ending_shots_the_runner_ends_is_raised_from_the_run() {
+    /// Runs `runner` on 8 shots, and checks it as above.
+    fn raised<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) {
+        let run = catch_unwind(AssertUnwindSafe(|| {
+            runner
+                .run(&ShotSet::ids(0..8), SEED)
+                .map(|records| records.len())
+        }));
+        let panic = run.expect_err("the run raises the panic");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"end_shots broke"));
+        assert_eq!(log.count("BitFlip end_shots, holding 0"), 1);
+        assert_eq!(log.count("Bits end_shots, holding 0"), 1);
+    }
+    let program = || Driver::new(Program::new(&[("mz", 0)]).not_ending());
+    let breaks = |log: &Log| Adapter::new(PanicsEnding::once(log));
+    let noise = |log: &Log| Adapter::new(BitFlip::new(300, log));
+    let bits = |log: &Log| Executor::new(Bits::new(log));
+    let logs: [Log; 5] = Default::default();
+    raised(
+        runner(((program() >> breaks(&logs[0])) >> noise(&logs[0])) >> bits(&logs[0])),
+        &logs[0],
+    );
+    raised(
+        runner((program() >> breaks(&logs[1])) >> (noise(&logs[1]) >> bits(&logs[1]))),
+        &logs[1],
+    );
+    raised(
+        runner(program() >> (breaks(&logs[2]) >> (noise(&logs[2]) >> bits(&logs[2])))),
+        &logs[2],
+    );
+    raised(
+        runner(program() >> ((breaks(&logs[3]) >> noise(&logs[3])) >> bits(&logs[3]))),
+        &logs[3],
+    );
+    raised(
+        runner((program() >> (breaks(&logs[4]) >> noise(&logs[4]))) >> bits(&logs[4])),
+        &logs[4],
+    );
 }
 
 /// Coin copies under a noise, over an adapter that panics in `end_shots`,

@@ -13,7 +13,7 @@
 //!   or by panicking ([`Panics`], also a driver).
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
-//!   [`NamesBelow`], which logs the name of the part below;
+//!   [`NamesBelow`], which logs the names of the part below and its set;
 //!   [`Spread`], which changes the needs and the offer; [`Capped`], a
 //!   `Spread` with a most of its own; [`Pool`], which draws two block
 //!   types from one pool below; [`Queue`], which lowers the most shots;

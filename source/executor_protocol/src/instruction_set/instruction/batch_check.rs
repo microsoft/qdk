@@ -8,17 +8,21 @@
 //! were not provisioned for.
 //!
 //! It takes plain data, so that it depends on no later concept: the
-//! receiver's set, the instructions, and [`BatchLimits`], derived once
-//! from the receiver's capabilities and the shots' needs. It compares
-//! integers only, and stops at the first fault: it runs on the hot path.
+//! instructions, and [`BatchLimits`], built once from the receiver's set,
+//! its capabilities and the shots' needs. It compares integers only, and
+//! stops at the first fault: it runs on the hot path.
 
 use super::super::{BlockType, InstructionSet};
 use super::{Instruction, InstructionFault};
 
 /// The limits a batch is checked against, per receiver: built once, not
 /// per batch.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct BatchLimits {
+    /// The receiver's set, as it was read when the limits were built: the
+    /// set the boundary was fitted and bound to, whatever the receiver
+    /// answers later.
+    set: InstructionSet,
     /// The most instructions one batch may hold, if the receiver says.
     max_instructions: Option<u32>,
     /// What each of the batch's instructions is checked against.
@@ -39,6 +43,11 @@ pub(crate) struct Provisioned {
 }
 
 impl BatchLimits {
+    /// The receiver's set, as it was read when the limits were built.
+    pub(crate) fn set(&self) -> &InstructionSet {
+        &self.set
+    }
+
     /// The limits of a receiver of `set` that runs at most
     /// `max_instructions` per batch, on shots whose blocks of each type
     /// `blocks_of` gives, and which may hold readout parities if
@@ -50,6 +59,7 @@ impl BatchLimits {
         readout_parity: bool,
     ) -> Self {
         Self {
+            set: set.clone(),
             max_instructions,
             provisioned: Provisioned {
                 blocks_of: set.block_types().map(blocks_of).collect(),
@@ -67,16 +77,15 @@ pub(crate) enum BatchFault {
     Instruction { at: usize, fault: InstructionFault },
 }
 
-/// Checks `instructions`, in the opcodes of `set`, the receiver's, against
-/// `set` and `limits`: their count, then each instruction as
-/// [`InstructionSet::instruction`] checks one, plus the arguments past its
-/// parameters, its `select` (some pattern, over the flags it has), each
-/// block below the shot's of its type, and no readout parity unless the
-/// shots were provisioned for them. The batch's readout slots, the sum of
-/// its instructions', so that its answer's width can be checked; or the
-/// first fault.
+/// Checks `instructions`, in the opcodes of the receiver's set that
+/// `limits` holds, against that set and `limits`: their count, then each
+/// instruction as [`InstructionSet::instruction`] checks one, plus the
+/// arguments past its parameters, its `select` (some pattern, over the
+/// flags it has), each block below the shot's of its type, and no readout
+/// parity unless the shots were provisioned for them. The batch's readout
+/// slots, the sum of its instructions', so that its answer's width can be
+/// checked; or the first fault.
 pub(crate) fn check_batch(
-    set: &InstructionSet,
     instructions: &[Instruction],
     limits: &BatchLimits,
 ) -> Result<u32, BatchFault> {
@@ -90,7 +99,8 @@ pub(crate) fn check_batch(
     }
     let mut slots: u32 = 0;
     for (at, instruction) in instructions.iter().enumerate() {
-        let its_slots = set
+        let its_slots = limits
+            .set
             .check(instruction, Some(&limits.provisioned))
             .map_err(|fault| BatchFault::Instruction { at, fault })?;
         slots = slots.saturating_add(its_slots);

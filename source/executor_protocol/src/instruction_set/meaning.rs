@@ -60,11 +60,16 @@ pub struct Meaning {
     slips: Vec<MeaningFault>,
     /// Whether the latest step has its guard, so that another is a slip.
     last_step_guarded: bool,
+    /// Each term given to a step's guards, with its step, once, before
+    /// the terms given twice cancel: so that what a term refers to is
+    /// checked even when it cancels.
+    guard_terms: Vec<(usize, Guard)>,
 }
 
 /// Two meanings are equal when their steps and slips are, whatever guards
-/// the latest step was given: `pauli(x).unless([])` is `pauli(x)`, since
-/// an even parity of no term always holds.
+/// the latest step was given and whatever terms cancelled:
+/// `pauli(x).unless([])` is `pauli(x)`, since an even parity of no term
+/// always holds.
 impl PartialEq for Meaning {
     fn eq(&self, other: &Self) -> bool {
         self.steps == other.steps && self.slips == other.slips
@@ -173,11 +178,12 @@ impl Meaning {
 
     /// Every fault of this meaning for an instruction with `parameters` and
     /// `outcomes`: first the slips made while building it, in order; then,
-    /// step by step, a guard on an observation, a guard naming a parameter
-    /// it lacks or of another kind or an outcome not observed before its
-    /// step, an angle or an observable naming a parameter it lacks or of
-    /// another kind; and, when declared, observations that give other than
-    /// `outcomes` outcomes.
+    /// step by step, a guard on an observation, a guard's term (each term
+    /// given, even one that cancels) naming a parameter it lacks or of
+    /// another kind or an outcome not observed before its step, an angle or
+    /// an observable naming a parameter it lacks or of another kind; and,
+    /// when declared, observations that give other than `outcomes`
+    /// outcomes.
     pub(crate) fn faults(&self, parameters: &[Parameter], outcomes: u32) -> Vec<MeaningFault> {
         let mut faults = self.slips.clone();
         let Some(steps) = &self.steps else {
@@ -195,21 +201,20 @@ impl Meaning {
             }),
             Some(_) => None,
         };
+        let mut guard_terms = self.guard_terms.iter().peekable();
         for (step, Step { operation, guard }) in steps.iter().enumerate() {
-            if let Some(guard) = guard {
-                if matches!(operation, Operation::Observe(_)) {
-                    faults.push(MeaningFault::GuardedObserve { step });
-                }
-                for term in &guard.terms {
-                    match *term {
-                        Guard::Parameter(parameter) => {
-                            faults.extend(refer(step, parameter, ParameterKind::Bit));
-                        }
-                        Guard::Outcome(outcome) if outcome >= observed => {
-                            faults.push(MeaningFault::OutcomeNotYet { step, outcome });
-                        }
-                        Guard::Outcome(_) => {}
+            if guard.is_some() && matches!(operation, Operation::Observe(_)) {
+                faults.push(MeaningFault::GuardedObserve { step });
+            }
+            while let Some(&(_, term)) = guard_terms.next_if(|(of, _)| *of == step) {
+                match term {
+                    Guard::Parameter(parameter) => {
+                        faults.extend(refer(step, parameter, ParameterKind::Bit));
                     }
+                    Guard::Outcome(outcome) if outcome >= observed => {
+                        faults.push(MeaningFault::OutcomeNotYet { step, outcome });
+                    }
+                    Guard::Outcome(_) => {}
                 }
             }
             match operation {
@@ -248,12 +253,20 @@ impl Meaning {
     }
 
     fn guarded(mut self, odd: bool, guards: impl IntoIterator<Item = Guard>) -> Self {
-        let guard = Condition::new(odd, guards);
+        let mut given: Vec<Guard> = guards.into_iter().collect();
+        given.sort_unstable();
+        let guard = Condition::new(odd, given.iter().copied());
         let Some(steps) = self.steps.as_mut().filter(|steps| !steps.is_empty()) else {
             self.slips.push(MeaningFault::GuardWithoutStep);
             return self;
         };
         let step = steps.len() - 1;
+        given.dedup();
+        for term in given {
+            if !self.guard_terms.contains(&(step, term)) {
+                self.guard_terms.push((step, term));
+            }
+        }
         if self.last_step_guarded {
             self.slips.push(MeaningFault::GuardTwice { step });
         }
@@ -300,7 +313,9 @@ impl Eq for Angle {}
 /// given (Qodec's `observe: p`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Observable {
+    /// This Pauli, fixed by the instruction.
     Pauli(Pauli),
+    /// The instruction's `pauli` parameter at this position, from 0.
     Parameter(usize),
 }
 
@@ -315,7 +330,9 @@ impl From<Pauli> for Observable {
 /// earlier observation of the same action, counted across them from 0.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Guard {
+    /// The instruction's `bit` parameter at this position, from 0.
     Parameter(usize),
+    /// The action's outcome at this position, from 0.
     Outcome(u32),
 }
 
@@ -329,31 +346,63 @@ pub enum MeaningFault {
     GuardWithoutStep,
     /// `only_if` or `unless` given twice to one step, which would keep
     /// only the latest.
-    GuardTwice { step: usize },
+    GuardTwice {
+        /// The step, from 0.
+        step: usize,
+    },
     /// `only_if` of no guard, or of guards that cancel in pairs: a parity
     /// that is always even, so the step would never run.
-    GuardNeverMet { step: usize },
+    GuardNeverMet {
+        /// The step, from 0.
+        step: usize,
+    },
     /// A Clifford maps one generator twice, which would keep only the
     /// latest image.
-    GeneratorTwice { step: usize, generator: Pauli },
+    GeneratorTwice {
+        /// The step, from 0.
+        step: usize,
+        /// The generator mapped twice.
+        generator: Pauli,
+    },
     /// A guard on an observation: Qodec's outcome count must not depend on
     /// a run-time bit.
-    GuardedObserve { step: usize },
+    GuardedObserve {
+        /// The step, from 0.
+        step: usize,
+    },
     /// An angle, guard or observable names a parameter position the
     /// instruction does not have.
-    NotAParameter { step: usize, parameter: usize },
+    NotAParameter {
+        /// The step, from 0.
+        step: usize,
+        /// The position named, from 0.
+        parameter: usize,
+    },
     /// It names a parameter of another kind: an angle needs a `number`, a
     /// guard a `bit`, an observable a `pauli`.
     WrongParameterKind {
+        /// The step, from 0.
         step: usize,
+        /// The parameter's position, from 0.
         parameter: usize,
+        /// The kind the step needs there.
         expected: ParameterKind,
     },
     /// A guard names an outcome not observed before its step.
-    OutcomeNotYet { step: usize, outcome: u32 },
+    OutcomeNotYet {
+        /// The step, from 0.
+        step: usize,
+        /// The outcome named, from 0.
+        outcome: u32,
+    },
     /// Its observations give `observed` outcomes, the instruction declares
     /// `declared`.
-    OutcomeCount { declared: u32, observed: u32 },
+    OutcomeCount {
+        /// The instruction's outcomes.
+        declared: u32,
+        /// Its observations' outcomes.
+        observed: u32,
+    },
 }
 
 impl fmt::Display for MeaningFault {
@@ -362,7 +411,11 @@ impl fmt::Display for MeaningFault {
             MeaningFault::GuardWithoutStep => f.write_str("a guard before any step"),
             MeaningFault::GuardTwice { step } => write!(f, "step {step} is guarded twice"),
             MeaningFault::GuardNeverMet { step } => {
-                write!(f, "step {step} is guarded by an odd parity of no guard")
+                write!(
+                    f,
+                    "step {step} is guarded by a parity that is always even (no guard, \
+                     or guards that cancel), so it never runs"
+                )
             }
             MeaningFault::GeneratorTwice { step, generator } => {
                 write!(f, "step {step} maps `{generator}` twice")
