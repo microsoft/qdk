@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use executor_protocol::{
     Adapt, Adapter, Batch, BatchReadouts, BlockType, Capabilities, Composed, Drive, DriveError,
     Driver, Execute, ExecuteError, Executor, Instruction, InstructionSet, Needs, OpcodeMap,
-    ReadoutValue, Runner, Seed, ShotConditions, ShotId, ShotSet, instruction_set,
+    ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet, instruction_set,
 };
 
 instruction_set! {
@@ -88,8 +88,9 @@ fn text(value: ReadoutValue) -> String {
 
 /// A coin tossed on qubit 0, copied onto qubit 1: every shot tosses the
 /// coin in a first `execute`; then, by its coin, flips qubit 1 and reads
-/// it, or only reads it, as two batches of a second `execute`. Each shot's
-/// output is its two values: the coin, then the copy.
+/// it, or only reads it, as two batches of a second `execute`, whose
+/// readouts come after the coin's in the buffer the driver lends. Each
+/// shot's output is its two values: the coin, then the copy.
 struct CoinCopy {
     set: InstructionSet,
     /// Toss; heads: flip and read qubit 1; tails: read qubit 1.
@@ -141,8 +142,9 @@ impl Drive for CoinCopy {
             shots,
             instructions: &self.sequences[0],
         };
-        let tossed = below.execute(&[toss], seed).await?;
-        let coin = &tossed[0];
+        let mut readouts = Readouts::new();
+        below.execute(&[toss], seed, &mut readouts).await?;
+        let coin = &readouts[0];
         let mut outputs: Vec<Vec<ReadoutValue>> =
             (0..shots.len()).map(|i| coin.row(i).to_vec()).collect();
 
@@ -165,9 +167,10 @@ impl Drive for CoinCopy {
             })
             .collect();
         // The same seed: each part keeps a shot's stream from its first
-        // batch until the shot ends.
-        let read = below.execute(&batches, seed).await?;
-        for ((positions, _, _), rows) in sides.iter().zip(&read) {
+        // batch until the shot ends. The sides' readouts are appended
+        // after the coin's.
+        below.execute(&batches, seed, &mut readouts).await?;
+        for ((positions, _, _), rows) in sides.iter().zip(&readouts[1..]) {
             for (j, &i) in positions.iter().enumerate() {
                 outputs[i].extend_from_slice(rows.row(j));
             }
@@ -196,6 +199,9 @@ struct BitFlip {
     /// The receiver's opcodes, from `bind`.
     below: Option<OpcodeMap>,
     streams: BTreeMap<ShotId, Stream>,
+    /// The readouts of the shots sent below one each, kept to reuse their
+    /// memory from one `adapt` to the next.
+    one_each: Readouts,
 }
 
 impl BitFlip {
@@ -205,6 +211,7 @@ impl BitFlip {
             per_mille,
             below: None,
             streams: BTreeMap::new(),
+            one_each: Readouts::new(),
         }
     }
 }
@@ -227,7 +234,8 @@ impl Adapt for BitFlip {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let map = self.below.as_ref().expect("`>>` binds before any run");
         // Apart from the executor's streams, which draw from `seed` itself.
         let own = seed.derive("bit_flip");
@@ -261,24 +269,24 @@ impl Adapt for BitFlip {
                 instructions,
             })
             .collect();
-        let answer = below.execute(&one_each, seed).await?;
+        self.one_each.clear();
+        below.execute(&one_each, seed, &mut self.one_each).await?;
         // An `x` adds no readout, so each shot's row comes back as it is,
-        // joined again into one readouts per batch received. The protocol
-        // has checked that `answer` holds one readouts per batch sent, and
-        // every batch holds a shot, so `mine[0]` exists.
-        let mut rows = answer.iter();
-        let mut readouts = Vec::with_capacity(batches.len());
+        // joined again into one readouts per batch received, appended to
+        // the caller's. The protocol has checked that `one_each` holds one
+        // readouts per batch sent, and every batch holds a shot, so
+        // `mine[0]` exists.
+        let mut rows = self.one_each.iter();
         for batch in batches {
             let mine: Vec<&BatchReadouts> = rows.by_ref().take(batch.shots.len()).collect();
-            let mut joined = BatchReadouts::with_capacity(mine.len(), mine[0].readouts());
+            let joined = readouts.push_batch(mine.len(), mine[0].readouts());
             for one in mine {
                 joined
                     .push_row(one.row(0), one.conditions(0))
                     .expect("a row of the batch's width");
             }
-            readouts.push(joined);
         }
-        Ok(readouts)
+        Ok(())
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
@@ -333,8 +341,8 @@ impl Execute for Bits {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let mut answer = Vec::with_capacity(batches.len());
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         for batch in batches {
             let reads = batch
                 .instructions
@@ -342,7 +350,7 @@ impl Execute for Bits {
                 .filter(|instruction| instruction.opcode == CoinGates::MZ)
                 .count();
             let width = u32::try_from(reads).expect("a short batch");
-            let mut rows = BatchReadouts::with_capacity(batch.shots.len(), width);
+            let rows = readouts.push_batch(batch.shots.len(), width);
             for id in batch.shots.iter() {
                 let qubits = self.qubits;
                 let (bits, stream) = self
@@ -363,9 +371,8 @@ impl Execute for Bits {
                 rows.push_row(&row, ShotConditions::NONE)
                     .expect("one value per `mz`");
             }
-            answer.push(rows);
         }
-        Ok(answer)
+        Ok(())
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {

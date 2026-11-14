@@ -28,8 +28,8 @@ use std::time::{Duration, Instant};
 use executor_protocol::{
     Adapt, Adapter, Argument, Arguments, Batch, BatchReadouts, BlockType, Capabilities,
     CompositionFaults, Drive, DriveError, Driver, Execute, ExecuteError, Executor, Instruction,
-    InstructionSet, Needs, Opcode, OpcodeMap, ReadoutValue, Runner, Seed, ShotConditions, ShotSet,
-    instruction_set,
+    InstructionSet, Needs, Opcode, OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShotConditions,
+    ShotSet, instruction_set,
 };
 
 instruction_set! {
@@ -454,6 +454,8 @@ struct Repetition3 {
     opcodes: [Opcode; 4],
     /// Each batch's physical instructions, kept to reuse their memory.
     lowered: Vec<Vec<Instruction>>,
+    /// The physical readouts, kept to reuse their memory.
+    physical_readouts: Readouts,
 }
 
 impl Repetition3 {
@@ -468,6 +470,7 @@ impl Repetition3 {
                 PhysicalGates::MZ,
             ],
             lowered: Vec::new(),
+            physical_readouts: Readouts::new(),
         }
     }
 }
@@ -506,7 +509,8 @@ impl Adapt for Repetition3 {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         self.lowered.resize_with(batches.len(), Vec::new);
         for (batch, lowered) in batches.iter().zip(&mut self.lowered) {
             lowered.clear();
@@ -522,8 +526,14 @@ impl Adapt for Repetition3 {
                 instructions: lowered,
             })
             .collect();
-        let answer = below.execute(&sent, seed).await?;
-        Ok(answer.iter().map(read_logical).collect())
+        self.physical_readouts.clear();
+        below
+            .execute(&sent, seed, &mut self.physical_readouts)
+            .await?;
+        for batch in &self.physical_readouts {
+            read_logical(batch, readouts);
+        }
+        Ok(())
     }
 }
 
@@ -548,15 +558,14 @@ fn lower(instruction: &Instruction, opcodes: [Opcode; 4], lowered: &mut Vec<Inst
 }
 
 /// The logical readouts of a batch's physical ones: each three's majority.
-fn read_logical(physical: &BatchReadouts) -> BatchReadouts {
-    let mut logical = BatchReadouts::with_capacity(physical.shots(), physical.readouts() / 3);
+fn read_logical(physical: &BatchReadouts, readouts: &mut Readouts) {
+    let logical = readouts.push_batch(physical.shots(), physical.readouts() / 3);
     for shot in 0..physical.shots() {
         let row = majority_of_threes(physical.row(shot));
         logical
             .push_row(&row, physical.conditions(shot))
             .expect("a third of the physical readouts");
     }
-    logical
 }
 
 /// An executor of `PhysicalGates` that only counts what it gets, answering
@@ -599,8 +608,8 @@ impl Execute for Sink {
         &mut self,
         batches: &[Batch<'_>],
         _seed: Seed,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let mut answer = Vec::with_capacity(batches.len());
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let mut row = Vec::new();
         for batch in batches {
             row.clear();
@@ -614,14 +623,13 @@ impl Execute for Sink {
                 record.extend_from_slice(batch.instructions);
             }
             let width = u32::try_from(row.len()).expect("a batch's readouts fit a u32");
-            let mut rows = BatchReadouts::with_capacity(batch.shots.len(), width);
+            let rows = readouts.push_batch(batch.shots.len(), width);
             for _ in 0..batch.shots.len() {
                 rows.push_row(&row, ShotConditions::NONE)
                     .expect("one value per `mz`");
             }
-            answer.push(rows);
         }
-        Ok(answer)
+        Ok(())
     }
 }
 
@@ -764,7 +772,8 @@ impl Execute for FromWorker {
         &mut self,
         batches: &[Batch<'_>],
         _seed: Seed,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         let job = batches
             .iter()
             .map(|batch| (batch.shots.clone(), batch.instructions.to_vec()))
@@ -782,7 +791,10 @@ impl Execute for FromWorker {
             }
         })
         .await;
-        Ok(answer)
+        for batch in answer {
+            readouts.push(batch);
+        }
+        Ok(())
     }
 }
 
@@ -832,17 +844,19 @@ impl<'p> ProgramInBatches<'p> {
             values: Vec::new(),
             call_times: Vec::new(),
         };
+        let mut readouts = Readouts::new();
         for chunk in self.program.chunks(self.batch) {
             let start = self.timed.then(Instant::now);
             let batches = [Batch {
                 shots,
                 instructions: black_box(chunk),
             }];
-            let answer = target.execute(&batches, seed).await?;
+            readouts.clear();
+            target.execute(&batches, seed, &mut readouts).await?;
             if let Some(start) = start {
                 received.call_times.push(start.elapsed());
             }
-            received.values.extend_from_slice(answer[0].row(0));
+            received.values.extend_from_slice(readouts[0].row(0));
         }
         Ok(received)
     }
@@ -944,8 +958,9 @@ impl Adapt for Forward {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        below.execute(batches, seed).await
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        below.execute(batches, seed, readouts).await
     }
 }
 
@@ -1036,13 +1051,13 @@ impl Execute for Profiler {
         &mut self,
         batches: &[Batch<'_>],
         _seed: Seed,
-    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let mut answer = Vec::with_capacity(batches.len());
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
         for batch in batches {
             self.profile.record(batch.instructions);
-            answer.push(no_readouts(batch.shots.len()));
+            readouts.push(no_readouts(batch.shots.len()));
         }
-        Ok(answer)
+        Ok(())
     }
 }
 
