@@ -70,7 +70,8 @@ const MIX: [(Opcode, usize, u64); 11] = [
 /// The qubits the mix draws from.
 const QUBITS: u32 = 100;
 
-/// The seed of every run: the executors here draw nothing.
+/// The seed of the mix's draws, and of every run, whose executors draw
+/// nothing.
 const SEED: u64 = 1;
 
 /// How much each section runs.
@@ -200,7 +201,7 @@ fn run_chain(program: &[Instruction], batch: usize, chain: Chain) -> Profile {
     let in_batches = ProgramInBatches::new(MixGates::set(), program, QUBITS, batch);
     let received = match chain {
         Chain::Direct => {
-            // The chain's executor is never called: `Direct` sends past it.
+            // The chain's executor is sent no batch: `Direct` sends past it.
             let unused = Profiler::new(Capabilities::unlimited());
             run_once(Driver::new(Direct(in_batches, &mut profiler)) >> Executor::new(unused))
         }
