@@ -155,9 +155,9 @@ impl Meaning {
     /// The latest step, run only if the parity of `guards` is odd, Qodec's
     /// `if`. A step takes one guard: `only_if` or `unless` again on it is
     /// refused when the set is built ([`MeaningFault::GuardTwice`]). So is
-    /// a parity that is always even, of no guard or of guards that cancel
-    /// in pairs ([`MeaningFault::GuardNeverMet`]): the step would never
-    /// run.
+    /// a parity of no term, none given or terms that cancel in pairs
+    /// ([`MeaningFault::GuardNeverMet`]): it is always even, and the step
+    /// needs an odd parity, so it would never run.
     #[must_use]
     pub fn only_if(self, guards: impl IntoIterator<Item = Guard>) -> Self {
         self.guarded(true, guards)
@@ -350,8 +350,9 @@ pub enum MeaningFault {
         /// The step, from 0.
         step: usize,
     },
-    /// `only_if` of no guard, or of guards that cancel in pairs: a parity
-    /// that is always even, so the step would never run.
+    /// `only_if` of no term, or of terms that cancel in pairs: the step
+    /// runs only if the parity is odd, and a parity of no term is always
+    /// even, so the step would never run.
     GuardNeverMet {
         /// The step, from 0.
         step: usize,
@@ -413,8 +414,8 @@ impl fmt::Display for MeaningFault {
             MeaningFault::GuardNeverMet { step } => {
                 write!(
                     f,
-                    "step {step} is guarded by a parity that is always even (no guard, \
-                     or guards that cancel), so it never runs"
+                    "step {step} runs only if a parity is odd, but the parity has no \
+                     term (none given, or terms that cancel in pairs), so it never runs"
                 )
             }
             MeaningFault::GeneratorTwice { step, generator } => {

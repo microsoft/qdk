@@ -19,9 +19,10 @@ use super::{Instruction, InstructionFault};
 /// per batch.
 #[derive(Clone, Debug)]
 pub(crate) struct BatchLimits {
-    /// The receiver's set, as it was read when the limits were built: the
-    /// set the boundary was fitted and bound to, whatever the receiver
-    /// answers later.
+    /// The receiver's set, as read when the limits were built, before the
+    /// receiver is provisioned (by the runner's `>>`, or by the provision of
+    /// the `Composed` holding the boundary), whatever the receiver answers
+    /// later.
     set: InstructionSet,
     /// The most instructions one batch may hold, if the receiver says.
     max_instructions: Option<u32>,

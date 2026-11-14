@@ -23,8 +23,9 @@ use crate::{
 };
 
 /// `inner`, the receiver of a boundary, with every `execute` it receives
-/// checked against `batch_limits`, which hold the receiver's set as `>>`
-/// read it, and its answer checked against the batches.
+/// checked against `batch_limits`, which hold the receiver's set as read
+/// before the receiver is provisioned, and its answer checked against the
+/// batches.
 pub(crate) struct Checked<'a, E> {
     inner: &'a mut E,
     /// The part that receives `inner`'s calls, as the admission listed it:
@@ -61,9 +62,11 @@ impl<E: Execute> Execute for Checked<'_, E> {
         self.inner.name()
     }
 
-    /// The receiver's set as `>>` read it, which `batch_limits` holds and
-    /// every batch is checked against, not the receiver's answer now: a
-    /// receiver whose set changed gets batches in the set it was bound to.
+    /// The receiver's set as read before the receiver is provisioned (by
+    /// the runner's `>>`, or by the provision of the `Composed` holding the
+    /// boundary), which `batch_limits` holds and every batch is checked
+    /// against, not the receiver's answer now: a receiver whose set changes
+    /// later gets batches checked against that set.
     fn accepts(&self) -> &InstructionSet {
         self.batch_limits.set()
     }

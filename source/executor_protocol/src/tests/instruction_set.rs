@@ -263,11 +263,22 @@ fn macro_declares_listed_block_types_and_their_sizes() {
     assert_eq!(map.map(CodeGates::MEASURE), CodeGates::MEASURE);
 }
 
+/// On every call: a first panic leaves nothing cached for the second.
 #[test]
-#[should_panic(expected = "`Faulty` declares a faulty set")]
 fn macro_set_with_a_declaration_fault_panics() {
     let _ = Faulty::A;
-    let _ = Faulty::set();
+    for call in ["first", "second"] {
+        let panic =
+            std::panic::catch_unwind(Faulty::set).expect_err(&format!("the {call} call panics"));
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied());
+        assert!(
+            message.is_some_and(|m| m.contains("`Faulty` declares a faulty set")),
+            "the {call} call: {message:?}"
+        );
+    }
 }
 
 #[test]
@@ -626,17 +637,39 @@ fn step_guarded_by_a_parity_that_is_always_even_is_refused() {
 
 /// Guards that cancel still name what they read: a parameter 7 the
 /// instruction lacks, or an outcome not yet observed, is refused as in a
-/// guard that does not cancel, beside the parity that is always even.
+/// guard that does not cancel; under `only_if`, beside the parity of no
+/// term, and under `unless`, where they leave the step unguarded, alone.
 #[test]
 fn guards_that_cancel_are_checked_like_any_other() {
+    let meaning = |meaning: Meaning| rotate_z0().meaning(meaning.observe([Pauli::z(0)]));
     let guarded = |guard: Guard| {
-        rotate_z0().meaning(
+        meaning(
             Meaning::declared()
                 .pauli(Pauli::x(0))
-                .only_if([guard, guard])
-                .observe([Pauli::z(0)]),
+                .only_if([guard, guard]),
         )
     };
+    let unless = |guard: Guard| {
+        meaning(
+            Meaning::declared()
+                .pauli(Pauli::x(0))
+                .unless([guard, guard]),
+        )
+    };
+    assert_eq!(
+        meaning_faults(unless(Guard::Parameter(7))),
+        [MeaningFault::NotAParameter {
+            step: 0,
+            parameter: 7
+        }]
+    );
+    assert_eq!(
+        meaning_faults(unless(Guard::Outcome(0))),
+        [MeaningFault::OutcomeNotYet {
+            step: 0,
+            outcome: 0
+        }]
+    );
     assert_eq!(
         meaning_faults(guarded(Guard::Parameter(7))),
         [

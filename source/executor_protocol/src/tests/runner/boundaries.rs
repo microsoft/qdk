@@ -341,10 +341,10 @@ fn a_readout_parity_the_needs_use_crosses_every_boundary() {
 /// whose `accepts` answers [`ParityGates`] once provisioned, in which
 /// `x` is `x_if` and `mz` is past the set's end, directly and through an
 /// adapter in both bracketings: each run checks the batch against the set
-/// `>>` fitted and bound, so it runs and reads 1, and the adapter reads
-/// that set as the one below it accepts.
+/// read before the bits were provisioned, so it runs and reads 1, and the
+/// adapter reads that set as the one below it accepts.
 #[test]
-fn every_batch_is_checked_against_the_set_read_when_composed() {
+fn every_batch_is_checked_against_the_set_read_before_provision() {
     let log = Log::default();
     let names_below = || Adapter::new(NamesBelow::new(&log));
     let bits = || Executor::new(Bits::new(&log).accepting_once_provisioned(ParityGates::set()));
