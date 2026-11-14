@@ -10,9 +10,12 @@ Prints the shots and failures; per shot the draws, largest bond, lost
 weight, TVD and peaks; the histogram of the records (chemistry order); the
 G statistic of the records against the table with a Monte Carlo p-value
 (20,000 draws); and the throughput: over the run (shots / (last end - first
-start)) and over the first wave (the shots that started within a minute of
-the first, divided by the time until the last of them ended). Exits 1 when
-a check fails.
+start)) and over the first wave (by default the shots that started within a
+minute of the first; with --first-wave N the first N shots to start),
+divided by the time until the last of them ended. The first wave's rate is
+compared with CuTensorNetEngine's qualified throughput, whose floor (14.7
+shots/h less 10%) it must reach, whichever engine ran. With --expect-shots
+N, fewer or more SHOT lines than N fail. Exits 1 when a check fails.
 """
 
 import argparse
@@ -21,7 +24,11 @@ import math
 import random
 import sys
 
-BAR = 14.7 * 0.9  # shots per hour: the qualified run's, less 10%
+# Shots per hour: CuTensorNetEngine's qualified run (16 processes under
+# CUDA MPS), and the floor every engine's first wave must reach, its 14.7
+# less 10%.
+QUALIFIED = 14.7
+BAR = QUALIFIED * 0.9
 
 
 def parse(paths):
@@ -58,13 +65,23 @@ def main():
     parser.add_argument("--draws", type=int, default=1414)
     parser.add_argument("--peaks", default="01010,10110")
     parser.add_argument("--tvd", type=float, default=1e-9)
+    parser.add_argument("--first-wave", type=int, default=None,
+                        help="the first wave's size: the processes that ran at once")
+    parser.add_argument("--expect-shots", type=int, default=None,
+                        help="the shots launched; a missing SHOT line fails")
     parser.add_argument("logs", nargs="+")
     args = parser.parse_args()
     shots, failures = parse(args.logs)
     probabilities = table(args.table)
     ok = True
 
-    print(f"shots: {len(shots)}, failed: {len(failures)}")
+    if args.expect_shots is None:
+        print(f"shots: {len(shots)}, failed: {len(failures)}")
+    else:
+        count_ok = len(shots) == args.expect_shots
+        print(f"shots: {len(shots)}, failed: {len(failures)}; expected {args.expect_shots}: "
+              f"{'pass' if count_ok else 'FAIL'}")
+        ok &= count_ok
     for failure in failures:
         print("  " + failure)
     ok &= not failures and bool(shots)
@@ -120,11 +137,16 @@ def main():
         ends = [float(s["end_unix"]) for s in shots]
         overall = n / (max(ends) - min(starts)) * 3600
         first = min(starts)
-        wave = [s for s in shots if float(s["start_unix"]) < first + 60]
+        if args.first_wave is None:
+            wave = [s for s in shots if float(s["start_unix"]) < first + 60]
+        else:
+            wave = sorted(shots, key=lambda s: float(s["start_unix"]))[: args.first_wave]
         wave_rate = len(wave) / (max(float(s["end_unix"]) for s in wave) - first) * 3600
         print(f"throughput: first wave {len(wave)} shots, {wave_rate:.1f} shots/h; "
-              f"whole run {overall:.1f} shots/h; bar {BAR:.2f} shots/h (14.7 less 10%): "
-              f"{'pass' if wave_rate >= BAR else 'FAIL'}")
+              f"whole run {overall:.1f} shots/h; against CuTensorNetEngine's qualified "
+              f"{QUALIFIED} shots/h: {wave_rate / QUALIFIED:.2f}x, floor {BAR:.2f} shots/h "
+              f"({QUALIFIED} less 10%): {'pass' if wave_rate >= BAR else 'FAIL'}")
+        ok &= wave_rate >= BAR
     print("ACCEPTANCE:", "PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
 
