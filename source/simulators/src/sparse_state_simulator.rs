@@ -140,6 +140,18 @@ impl SparseStateSim {
         (state, sorted_keys.len())
     }
 
+    /// Development only (not for review): the number of stored amplitudes
+    /// (the state's support), after applying every queued operation when
+    /// `flush` is set. Not part of the simulator's interface.
+    #[doc(hidden)]
+    pub fn dev_support_len(&mut self, flush: bool) -> usize {
+        if flush {
+            let keys: Vec<usize> = self.id_map.iter().map(|(k, _)| k).collect();
+            self.flush_queue(&keys, FlushLevel::HRxRy);
+        }
+        self.state.len()
+    }
+
     /// Allocates a fresh qubit, returning its identifier. Note that this will use the lowest available
     /// identifier, and may result in qubits being allocated "in the middle" of an existing register
     /// if those identifiers are available.
