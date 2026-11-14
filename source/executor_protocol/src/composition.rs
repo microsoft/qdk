@@ -32,7 +32,7 @@ mod composition_faults;
 use std::ops::Shr;
 
 use crate::admission::part_list::PartList;
-use crate::checked::limits;
+use crate::checked::batch_limits;
 use crate::{Adapt, AdmissionFaults, Drive, Execute, FitFaults, InstructionSet, OpcodeMap, Runner};
 
 pub use composed::Composed;
@@ -193,7 +193,7 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
             return Err(CompositionFaults::new(fit, admission));
         }
         self.part.provision();
-        let batch_limits = limits(rhs.part.accepts(), &offer, &needs);
+        let batch_limits = batch_limits(rhs.part.accepts(), &offer, &needs);
         rhs.part.provision(needs);
         Ok(Runner::new(self.part, rhs.part, reaching, batch_limits))
     }

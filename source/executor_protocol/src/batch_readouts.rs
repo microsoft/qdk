@@ -21,7 +21,7 @@
 //! first shot) of readouts not one per batch sent ([`ShapeFault::Batches`],
 //! named by the first batch's), of rows not one per shot of the batch
 //! ([`ShapeFault::Rows`]), or of an R that is not the batch's readout slots,
-//! the sum of its instructions' outcomes and flags ([`ShapeFault::Width`]).
+//! the sum of its instructions' outcomes and flags ([`ShapeFault::Slots`]).
 //! So the part above finds every slot it asked for, on every shot, at its
 //! index.
 //!
@@ -270,7 +270,7 @@ impl ReadoutIndex {
 /// another width than the one given to [`BatchReadouts::with_capacity`]
 /// (`RowWidth`, from [`BatchReadouts::push_row`]); or, found by the
 /// protocol's check of an answer crossing a boundary of a chain, readouts
-/// that do not match the batches sent (`Batches`, `Rows`, `Width`), each
+/// that do not match the batches sent (`Batches`, `Rows`, `Slots`), each
 /// carried as the batch's [`Failure::Part`](crate::Failure::Part).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -302,7 +302,7 @@ pub enum ShapeFault {
     },
     /// The readouts of `batches[batch]` have rows of `got` values, where
     /// the batch's instructions have `expected` readout slots.
-    Width {
+    Slots {
         /// The batch's position in the `execute`.
         batch: usize,
         /// The readout slots of the batch's instructions.
@@ -330,7 +330,7 @@ impl fmt::Display for ShapeFault {
                 f,
                 "{got} rows for batch {batch}, which has {expected} shots"
             ),
-            Self::Width {
+            Self::Slots {
                 batch,
                 expected,
                 got,

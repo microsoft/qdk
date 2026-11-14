@@ -26,6 +26,7 @@ use std::error::Error;
 use std::fmt;
 
 pub use adapt::Adapt;
+pub(crate) use drive::FailedRun;
 pub use drive::{Drive, DriveError};
 pub use execute::{Execute, ExecuteError, ExecuteRefusal};
 
@@ -65,13 +66,23 @@ impl fmt::Display for RunRefusal {
 impl Error for RunRefusal {}
 
 /// Why a shot's work broke once its run had started.
+///
+/// The part that fails names the shot. A failure the protocol makes is of
+/// a whole batch, or a whole run, so it names the first shot of what
+/// failed: of the batch, for a refusal or an answer's rows or slots; of the
+/// first batch, for an answer of readouts not one per batch, or a panic in
+/// an `execute`; of the run, for the driver's panic.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Failure {
     /// The part's own error, such as the program's trap or an engine's
-    /// fault.
+    /// fault; or a fault the protocol found in a part's answer, a
+    /// [`ShapeFault`](crate::ShapeFault). A caller tells them apart by
+    /// downcasting: `error.downcast_ref::<ShapeFault>()`.
     Part(Box<dyn Error + Send + Sync>),
-    /// A part panicked, with its message when it had one.
+    /// A part panicked, with its message when the panic's payload is text
+    /// (a `&str` or a `String`). Only where a panic unwinds: on wasm32, it
+    /// aborts, and nothing is caught.
     Panicked(Option<String>),
     /// An `execute` was refused once the run had started.
     Refused(ExecuteRefusal),

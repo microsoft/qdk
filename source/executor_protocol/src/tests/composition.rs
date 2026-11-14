@@ -324,11 +324,7 @@ fn where_the_brackets_go_changes_no_admission_fault() {
             offered: 30,
         }]
     );
-    assert_eq!(left.needed, right.needed);
-    assert_eq!(left.offered, right.offered);
-    assert_eq!(left.unmet, right.unmet);
-    assert_eq!(left.needs_by_part, right.needs_by_part);
-    assert_eq!(left.offers_by_part, right.offers_by_part);
+    assert_eq!(left, right);
 }
 
 /// 3 qubits and 2 carbon blocks, drawn from one pool of qubits below, over
@@ -367,11 +363,35 @@ fn where_the_brackets_go_changes_no_verdict_even_through_a_pool() {
 fn a_need_the_executor_does_not_offer_is_a_fault() {
     let log = Log::default();
     let composed =
-        Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(1).uses_readout_parity()))
+        Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(1).with_readout_parity()))
             >> Executor::new(Bits::new(&log));
     let faults = faults(composed);
     let admission = faults.admission().expect("an unmet need");
     assert_eq!(admission.unmet, [UnmetNeed::ReadoutParity]);
+}
+
+/// 9 qubits and readout parities, over bits offering 8 qubits and no
+/// parities: the message names the bits and both unmet needs.
+#[test]
+fn an_admission_fault_says_which_executor_and_every_unmet_need() {
+    let log = Log::default();
+    let offer = Capabilities::unlimited()
+        .max_qubits(8)
+        .without_readout_parity();
+    let composed =
+        Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(9).with_readout_parity()))
+            >> Executor::new(Bits::new(&log).offering(offer));
+    let faults = faults(composed);
+    let admission = faults.admission().expect("an unmet need");
+    assert_eq!(
+        admission.to_string(),
+        format!(
+            "the executor `{}` cannot serve the needs that reach it: needs 9 of block type \
+             `qubit`, where the offer allows at most 8; uses readout parities, and the offer \
+             does not resolve them",
+            type_name::<Bits>()
+        )
+    );
 }
 
 /// A chain that does not fit and whose needs are unmet: both, at once.
@@ -387,7 +407,7 @@ fn the_fit_and_the_admission_are_reported_together() {
     assert!(faults.admission().is_some(), "{faults}");
     let message = faults.to_string();
     assert!(message.contains("does not fit"), "{message}");
-    assert!(message.contains("needs 2 blocks"), "{message}");
+    assert!(message.contains("needs 2 of block type"), "{message}");
 }
 
 /// A program needing exactly what the executor offers composes, and its

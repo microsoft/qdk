@@ -59,6 +59,14 @@ pub trait Drive {
         below
     }
 
+    /// Ends the shots of `run`, which failed, on each adapter it holds, top
+    /// to bottom; by default it holds none. The runner calls it, then the
+    /// executor's `end_shots`; only the crate overrides it.
+    #[doc(hidden)]
+    fn end_failed_run(&mut self, run: FailedRun<'_>) {
+        let _ = run;
+    }
+
     // Run time.
 
     /// As [`Execute::ready`].
@@ -76,6 +84,18 @@ pub trait Drive {
         seed: Seed,
         below: &mut impl Execute,
     ) -> impl Future<Output = Result<Vec<Self::Output>, DriveError>>;
+}
+
+/// A run whose `drive` failed, as the runner tells
+/// [`Drive::end_failed_run`]: its shots.
+///
+/// Code outside the crate cannot name it, because this module is private:
+/// so only the crate overrides that method, and every part a driver holds
+/// is told.
+#[derive(Clone, Copy)]
+pub struct FailedRun<'a> {
+    /// The run's shots.
+    pub(crate) shots: &'a ShotSet,
 }
 
 /// What a `drive` returns to the runner when it gives no outputs: the shot

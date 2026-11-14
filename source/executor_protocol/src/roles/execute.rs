@@ -29,7 +29,7 @@ pub trait Execute {
     fn accepts(&self) -> &InstructionSet;
 
     /// What it can ever serve, such as its most qubits, which the driver's
-    /// needs must fit.
+    /// needs, as adapted down to it, must fit.
     fn offers(&self) -> Capabilities;
 
     /// Provisions this executor for `needs`, the driver's needs as adapted
@@ -84,7 +84,10 @@ pub trait Execute {
 
     /// Frees what it holds for shots that ended. The protocol calls it on
     /// every part, so a part never forwards it below; by default it does
-    /// nothing.
+    /// nothing. `shots` may hold shots it does not hold, or no longer
+    /// holds, such as when the runner ends every shot of a failed run,
+    /// some of which the driver had already ended: it does nothing for
+    /// those.
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }

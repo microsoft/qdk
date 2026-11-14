@@ -84,10 +84,10 @@ impl fmt::Display for UnmetNeed {
                 offered,
             } => write!(
                 f,
-                "needs {needed} blocks of type `{block_type}`, and {offered} are offered"
+                "needs {needed} of block type `{block_type}`, where the offer allows at most {offered}"
             ),
             UnmetNeed::ReadoutParity => {
-                f.write_str("uses readout parities, which are not resolved")
+                f.write_str("uses readout parities, and the offer does not resolve them")
             }
         }
     }
@@ -99,8 +99,10 @@ impl fmt::Display for UnmetNeed {
 /// part asks too much or offers too little.
 ///
 /// Each part is named by its type (`std::any::type_name`). Every field is
-/// the same whatever the brackets of the `>>`s.
-#[derive(Clone, Debug)]
+/// the same whatever the brackets of the `>>`s. Its message names the
+/// executor and every unmet need; each part's needs and offer are in the
+/// fields only.
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AdmissionFaults {
     /// The needs that reach the executor: the driver's, adapted by every
@@ -120,9 +122,16 @@ pub struct AdmissionFaults {
 
 impl fmt::Display for AdmissionFaults {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("the executor cannot serve the driver's shots:")?;
-        for unmet in &self.unmet {
-            write!(f, " {unmet};")?;
+        f.write_str("the executor")?;
+        if let Some((executor, _)) = self.offers_by_part.first() {
+            write!(f, " `{executor}`")?;
+        }
+        f.write_str(" cannot serve the needs that reach it: ")?;
+        for (i, unmet) in self.unmet.iter().enumerate() {
+            if i > 0 {
+                f.write_str("; ")?;
+            }
+            write!(f, "{unmet}")?;
         }
         Ok(())
     }

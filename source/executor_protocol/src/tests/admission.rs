@@ -69,7 +69,7 @@ fn needing_no_block_of_a_type_needs_nothing_of_it() {
 fn readout_parities_need_an_executor_resolving_them() {
     let offer = Capabilities::unlimited().without_readout_parity();
     assert_eq!(
-        Needs::qubits(1).uses_readout_parity().fit(&offer),
+        Needs::qubits(1).with_readout_parity().fit(&offer),
         Err(vec![UnmetNeed::ReadoutParity])
     );
     assert_eq!(Needs::qubits(1).fit(&offer), Ok(()));
@@ -79,7 +79,7 @@ fn readout_parities_need_an_executor_resolving_them() {
 /// parities.
 #[test]
 fn every_unmet_need_is_listed() {
-    let needs = Needs::qubits(9).blocks(carbon(), 3).uses_readout_parity();
+    let needs = Needs::qubits(9).blocks(carbon(), 3).with_readout_parity();
     let offer = Capabilities::unlimited()
         .max_qubits(8)
         .max_blocks(carbon(), 2)

@@ -82,22 +82,36 @@ async fn handed_over(shared: Shared) -> u32 {
     .await
 }
 
-/// A value a thread hands over after 30 ms: the wait polls twice, pending
-/// then ready, and sleeps between, not polling while it waits.
+/// A value a thread hands over 30 ms after the first poll: the wait polls
+/// twice, pending then ready, and sleeps between, not polling while it
+/// waits.
 #[test]
 fn a_wait_sleeps_until_woken() {
-    let shared = Shared::default();
-    let worker = {
-        let shared = Arc::clone(&shared);
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(30));
-            hand_over(&shared, 7);
-        })
-    };
-    let (future, polls) = counted(handed_over(shared));
-    assert_eq!(wait(future), 7);
-    worker.join().expect("the worker ends");
-    assert_eq!(polls.load(Ordering::SeqCst), 2);
+    let polls = ends_soon(|| {
+        let shared = Shared::default();
+        let (go, started) = mpsc::channel::<()>();
+        let worker = {
+            let shared = Arc::clone(&shared);
+            thread::spawn(move || {
+                started.recv().expect("the first poll starts the worker");
+                thread::sleep(Duration::from_millis(30));
+                hand_over(&shared, 7);
+            })
+        };
+        let mut handed = Box::pin(handed_over(shared));
+        let mut go = Some(go);
+        let (future, polls) = counted(std::future::poll_fn(move |context| {
+            let poll = handed.as_mut().poll(context);
+            if let (Poll::Pending, Some(go)) = (&poll, go.take()) {
+                go.send(()).expect("the worker waits");
+            }
+            poll
+        }));
+        assert_eq!(wait(future), 7);
+        worker.join().expect("the worker ends");
+        polls.load(Ordering::SeqCst)
+    });
+    assert_eq!(polls, 2);
 }
 
 /// A future woken during its first poll, before it returns `Pending`: the

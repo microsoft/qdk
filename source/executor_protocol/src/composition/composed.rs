@@ -19,8 +19,9 @@
 //! executor by the runner.
 
 use crate::admission::part_list::PartList;
-use crate::checked::{Checked, limits};
+use crate::checked::{Checked, batch_limits};
 use crate::instruction_set::instruction::batch_check::BatchLimits;
+use crate::roles::FailedRun;
 use crate::{
     Adapt, Batch, BatchReadouts, Capabilities, Drive, DriveError, Execute, ExecuteError,
     InstructionSet, Needs, OpcodeMap, RunRefusal, Seed, ShotSet,
@@ -40,7 +41,7 @@ pub struct Composed<U, L> {
     /// The limits of the batches crossing that boundary: computed at the
     /// first `execute`, since they need the offer of the chain below,
     /// which never changes once the runner is made.
-    limits: Option<BatchLimits>,
+    batch_limits: Option<BatchLimits>,
 }
 
 impl<U, L> Composed<U, L> {
@@ -50,24 +51,9 @@ impl<U, L> Composed<U, L> {
             upper,
             lower,
             below_needs: None,
-            limits: None,
+            batch_limits: None,
         }
     }
-}
-
-/// The limits cached in `cache`, else those of batches sent to a receiver
-/// of `receiver`'s instructions and of the offer `offer` gives, with the
-/// needs `below_needs`.
-fn cached_limits<'a>(
-    cache: &'a mut Option<BatchLimits>,
-    below_needs: Option<&Needs>,
-    receiver: &InstructionSet,
-    offer: impl FnOnce() -> Capabilities,
-) -> &'a BatchLimits {
-    cache.get_or_insert_with(|| {
-        let needs = below_needs.expect("provisioned by the `>>` that makes its runner");
-        limits(receiver, &offer(), needs)
-    })
 }
 
 /// Driver `>>` adapter: a driver.
@@ -92,7 +78,7 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         let below = self.upper.needs();
         self.lower.provision(below.clone());
         self.below_needs = Some(below);
-        self.limits = None;
+        self.batch_limits = None;
     }
 
     fn needs_by_part(&self, parts: &mut PartList) -> Needs {
@@ -103,6 +89,12 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
     fn offers_by_part(&self, below: Capabilities, parts: &mut PartList) -> Capabilities {
         let above = self.lower.offers_by_part(below, parts);
         self.upper.offers_by_part(above, parts)
+    }
+
+    /// The driver's adapters, then this one.
+    fn end_failed_run(&mut self, run: FailedRun<'_>) {
+        self.upper.end_failed_run(run);
+        self.lower.end_shots(run.shots);
     }
 
     /// The part below first.
@@ -117,8 +109,8 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<U::Output>, DriveError> {
-        let limits = cached_limits(
-            &mut self.limits,
+        let batch_limits = cached_batch_limits(
+            &mut self.batch_limits,
             self.below_needs.as_ref(),
             self.lower.accepts(),
             || self.lower.offers_above(below.offers()),
@@ -128,7 +120,7 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
             below,
         };
         self.upper
-            .drive(shots, seed, &mut Checked::new(&mut rest, limits))
+            .drive(shots, seed, &mut Checked::new(&mut rest, batch_limits))
             .await
     }
 }
@@ -162,7 +154,7 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
         self.upper.provision(above);
         self.lower.provision(below.clone());
         self.below_needs = Some(below);
-        self.limits = None;
+        self.batch_limits = None;
     }
 
     fn needs_by_part(&self, above: Needs, parts: &mut PartList) -> Needs {
@@ -187,8 +179,8 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let limits = cached_limits(
-            &mut self.limits,
+        let batch_limits = cached_batch_limits(
+            &mut self.batch_limits,
             self.below_needs.as_ref(),
             self.lower.accepts(),
             || self.lower.offers_above(below.offers()),
@@ -198,7 +190,7 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
             below,
         };
         self.upper
-            .adapt(batches, seed, &mut Checked::new(&mut rest, limits))
+            .adapt(batches, seed, &mut Checked::new(&mut rest, batch_limits))
             .await
     }
 
@@ -225,7 +217,7 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         self.upper.provision(needs);
         self.lower.provision(below.clone());
         self.below_needs = Some(below);
-        self.limits = None;
+        self.batch_limits = None;
     }
 
     fn needs_by_part(&self, above: Needs, parts: &mut PartList) -> Needs {
@@ -249,14 +241,18 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         batches: &[Batch<'_>],
         seed: Seed,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let limits = cached_limits(
-            &mut self.limits,
+        let batch_limits = cached_batch_limits(
+            &mut self.batch_limits,
             self.below_needs.as_ref(),
             self.lower.accepts(),
             || self.lower.offers(),
         );
         self.upper
-            .adapt(batches, seed, &mut Checked::new(&mut self.lower, limits))
+            .adapt(
+                batches,
+                seed,
+                &mut Checked::new(&mut self.lower, batch_limits),
+            )
             .await
     }
 
@@ -298,4 +294,19 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
         self.adapter.end_shots(shots);
         self.below.end_shots(shots);
     }
+}
+
+/// The batch limits cached in `cache`, else those of batches sent to a receiver
+/// of `receiver`'s instructions and of the offer `offer` gives, with the
+/// needs `below_needs`.
+fn cached_batch_limits<'a>(
+    cache: &'a mut Option<BatchLimits>,
+    below_needs: Option<&Needs>,
+    receiver: &InstructionSet,
+    offer: impl FnOnce() -> Capabilities,
+) -> &'a BatchLimits {
+    cache.get_or_insert_with(|| {
+        let needs = below_needs.expect("provisioned by the `>>` that makes its runner");
+        batch_limits(receiver, &offer(), needs)
+    })
 }

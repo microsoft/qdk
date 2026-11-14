@@ -22,6 +22,11 @@ use crate::BlockType;
 /// is provisioned with what reaches it. A shot's block indices of each
 /// type stay below its count here, which each `execute` checks. Its
 /// `Default` needs nothing.
+///
+/// Built from [`qubits`](Self::qubits) or its `Default`, with the builders
+/// below, since a struct literal is refused outside the crate: it is
+/// `#[non_exhaustive]`, so that a new need can come as a field whose
+/// default states nothing, without breaking the parts that build one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Needs {
@@ -50,7 +55,7 @@ impl Needs {
 
     /// These needs, with readout parities used.
     #[must_use]
-    pub fn uses_readout_parity(mut self) -> Self {
+    pub fn with_readout_parity(mut self) -> Self {
         self.uses_readout_parity = true;
         self
     }

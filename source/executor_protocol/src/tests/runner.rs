@@ -4,6 +4,7 @@
 //! Running shots on a chain: the records each shot gets, the run's
 //! refusals, the failures that end it, and the checks of each `execute`.
 
+mod boundaries;
 mod wait;
 
 use std::cell::{Cell, RefCell};
@@ -16,8 +17,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, FromThread, Later, Log, Misshape, Misshapen, Panics, PanicsWhen,
-    Profiler, Program, Queue, Splitter, Spread, Trap, Values, YieldNow,
+    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Misshape, Misshapen, Panics,
+    PanicsWhen, Profiler, Program, Queue, Splitter, Spread, Trap, Values, YieldNow,
 };
 use crate::{
     Adapter, Capabilities, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure,
@@ -635,6 +636,37 @@ fn a_batch_longer_than_the_executor_takes_is_refused_before_it_runs() {
     assert_eq!(log.count("Bits execute"), 0, "nothing ran");
 }
 
+/// Two batches in one `execute`, shots 4 and 2 measuring qubit 0, shots 9
+/// and 7 flipping qubit 5 beyond the program's 2 qubits: the second batch
+/// is refused, named by its first shot, 9, and neither batch runs.
+#[test]
+fn a_later_batchs_refusal_names_it_and_runs_no_batch() {
+    let log = Log::default();
+    let mut runner = runner(
+        Driver::new(Program::halves(&[("mz", 0)], &[("x", 5)]).needing(Needs::qubits(2)))
+            >> Executor::new(Bits::new(&log)),
+    );
+    let error = failed(runner.run(&ShotSet::ids([4, 2, 9, 7]), SEED));
+    assert_eq!(error.shot, ShotId::new(9));
+    let Failure::Refused(refusal) = error.failure else {
+        panic!("a refusal, not {:?}", error.failure);
+    };
+    assert_eq!(
+        refusal,
+        ExecuteRefusal::Instruction {
+            shot: ShotId::new(9),
+            batch: 1,
+            at: 0,
+            fault: InstructionFault::BlockBeyondNeeds {
+                mnemonic: "x".to_owned(),
+                block: 5,
+                needs: 2,
+            },
+        }
+    );
+    assert_eq!(log.count("Bits execute"), 0, "neither batch ran");
+}
+
 /// A driver sending no batch: an empty answer, and the executor is not
 /// called.
 struct SendsNothing;
@@ -696,6 +728,43 @@ fn a_failing_shot_ends_the_run_naming_it() {
     assert_eq!(error.to_string(), "shot 5 failed: the program trapped");
 }
 
+/// Coin copies under a noise flipping 30% of the `x`s, above an adapter
+/// failing the run's second `execute`, in both bracketings: the failed run
+/// leaves no shot's state in any part, so the rerun with the same seed gives
+/// the records of a new chain.
+#[test]
+fn a_rerun_after_a_failed_run_gives_a_new_chains_records() {
+    /// The records of `runner`'s second run of `shots`, its first failing.
+    fn rerun<D: Drive<Output = Values>, E: Execute>(
+        mut runner: Runner<D, E>,
+        shots: &ShotSet,
+    ) -> Vec<Values> {
+        failed(runner.run(shots, SEED));
+        runner.run(shots, SEED).expect("the rerun succeeds")
+    }
+    let shots = ShotSet::ids(0..16);
+    let log = Log::default();
+    let new_chain = runner(
+        Driver::new(CoinCopy::new())
+            >> Adapter::new(BitFlip::new(300, &log))
+            >> Executor::new(Bits::new(&log)),
+    )
+    .run(&shots, SEED)
+    .expect("the run succeeds");
+    let left = runner(
+        ((Driver::new(CoinCopy::new()) >> Adapter::new(BitFlip::new(300, &log)))
+            >> Adapter::new(FailsOnce::new()))
+            >> Executor::new(Bits::new(&log)),
+    );
+    let right = runner(
+        Driver::new(CoinCopy::new())
+            >> (Adapter::new(BitFlip::new(300, &log))
+                >> (Adapter::new(FailsOnce::new()) >> Executor::new(Bits::new(&log)))),
+    );
+    assert_eq!(rerun(left, &shots), new_chain, "the noise with the driver");
+    assert_eq!(rerun(right, &shots), new_chain, "the noise with the bits");
+}
+
 /// An executor answering a readouts more than the batches: a failure of
 /// the first batch's first shot, with the shape fault.
 #[test]
@@ -728,12 +797,48 @@ fn an_answer_missing_a_shots_row_is_a_failure() {
 fn an_answer_wider_than_the_batchs_readouts_is_a_failure() {
     assert_eq!(
         shape_fault(Misshape::ExtraValue),
-        ShapeFault::Width {
+        ShapeFault::Slots {
             batch: 0,
             expected: 1,
             got: 2
         }
     );
+}
+
+/// Two batches in one `execute`, shots 4 and 2 then 9 and 7, each measuring
+/// qubit 0, on an executor misshaping the second batch's readouts: the run
+/// fails naming that batch and its first shot, 9.
+#[test]
+fn a_later_batchs_misshapen_readouts_name_it() {
+    for (misshape, expected) in [
+        (
+            Misshape::MissingRow,
+            ShapeFault::Rows {
+                batch: 1,
+                expected: 2,
+                got: 1,
+            },
+        ),
+        (
+            Misshape::ExtraValue,
+            ShapeFault::Slots {
+                batch: 1,
+                expected: 1,
+                got: 2,
+            },
+        ),
+    ] {
+        let mut runner = runner(
+            Driver::new(Program::halves(&[("mz", 0)], &[("mz", 0)]))
+                >> Executor::new(Misshapen(misshape)),
+        );
+        let error = failed(runner.run(&ShotSet::ids([4, 2, 9, 7]), SEED));
+        assert_eq!(error.shot, ShotId::new(9), "{expected}");
+        let Failure::Part(fault) = error.failure else {
+            panic!("the part's error, not {:?}", error.failure);
+        };
+        assert_eq!(fault.downcast_ref::<ShapeFault>(), Some(&expected));
+    }
 }
 
 /// The shape fault of a run of 3 shots, first shot 6, of one `mz` on a

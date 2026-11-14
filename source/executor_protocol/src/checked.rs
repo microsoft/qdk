@@ -9,8 +9,8 @@
 //! batch before anything of it runs (an instruction the receiver does not
 //! accept, a block beyond the shot's, more instructions than the receiver
 //! takes), and makes a failure of an answer of the wrong shape or of a
-//! panic, so that the part above gets readouts it can index without a
-//! check of its own.
+//! panic (where a panic unwinds: on wasm32, it aborts), so that the part
+//! above gets readouts it can index without a check of its own.
 
 use std::any::Any;
 use std::future::poll_fn;
@@ -28,23 +28,27 @@ use crate::{
 };
 
 /// `inner`, the receiver of a boundary, with every `execute` it receives
-/// checked against `limits` and its answer checked against the batches.
+/// checked against `batch_limits` and its answer checked against the batches.
 pub(crate) struct Checked<'a, E> {
     inner: &'a mut E,
-    limits: &'a BatchLimits,
+    batch_limits: &'a BatchLimits,
 }
 
 impl<'a, E: Execute> Checked<'a, E> {
-    /// `inner`, checked against `limits`, built by [`limits`] for it.
-    pub(crate) fn new(inner: &'a mut E, limits: &'a BatchLimits) -> Self {
-        Self { inner, limits }
+    /// `inner`, checked against `batch_limits`, built by [`batch_limits`]
+    /// for it.
+    pub(crate) fn new(inner: &'a mut E, batch_limits: &'a BatchLimits) -> Self {
+        Self {
+            inner,
+            batch_limits,
+        }
     }
 }
 
 /// The limits of the batches sent to `receiver`, whose offer is `offer`,
 /// by a part whose shots need `needs`: the receiver's most instructions,
 /// and the blocks of each of its block types.
-pub(crate) fn limits(
+pub(crate) fn batch_limits(
     receiver: &InstructionSet,
     offer: &Capabilities,
     needs: &Needs,
@@ -81,8 +85,8 @@ impl<E: Execute> Execute for Checked<'_, E> {
 
     /// Refuses `batches` if any is refused, before any runs; an empty
     /// `execute` answers no readouts without reaching the receiver. Then
-    /// runs them on the receiver, and makes a failure of its panic, or of
-    /// an answer whose shape is not the batches'.
+    /// runs them on the receiver, and makes a failure of its panic (where a
+    /// panic unwinds), or of an answer whose shape is not the batches'.
     async fn execute(
         &mut self,
         batches: &[Batch<'_>],
@@ -93,7 +97,9 @@ impl<E: Execute> Execute for Checked<'_, E> {
         };
         let mut slots: SmallVec<[u32; 4]> = SmallVec::with_capacity(batches.len());
         for (index, batch) in batches.iter().enumerate() {
-            let readouts = check_batch(self.inner.accepts(), batch.instructions, self.limits)
+            #[cfg(test)]
+            BATCHES_CHECKED.with(|checked| checked.set(checked.get() + 1));
+            let readouts = check_batch(self.inner.accepts(), batch.instructions, self.batch_limits)
                 .map_err(|fault| ExecuteError::Refused(refusal(index, batch, fault)))?;
             slots.push(readouts);
         }
@@ -172,7 +178,7 @@ fn check_shape(
         if readouts.readouts() != expected {
             return Err(failed(
                 sent.shots,
-                ShapeFault::Width {
+                ShapeFault::Slots {
                     batch,
                     expected,
                     got: readouts.readouts(),
@@ -190,6 +196,13 @@ fn first_shot(shots: &ShotSet) -> ShotId {
 
 /// Makes a part's future with `make`, and awaits it: its output, or the
 /// message of the part's panic, when the message is text.
+///
+/// `AssertUnwindSafe`, because a part may be left half-updated by its
+/// panic, and the protocol calls it again: the run fails, the runner ends
+/// its shots on every part, the part that panicked included, and a later
+/// run calls it as before. So a part must tolerate being called after its
+/// panic, as after an error; the run that panicked gives no output, so
+/// nothing reaches the user from a half-updated part.
 pub(crate) async fn catch_panic<F: Future>(
     make: impl FnOnce() -> F,
 ) -> Result<F::Output, Option<String>> {
@@ -213,4 +226,11 @@ fn panic_message(payload: Box<dyn Any + Send>) -> Option<String> {
             .downcast_ref::<&str>()
             .map(|message| (*message).to_owned()),
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many batches this thread's `Checked`s checked: so the tests see
+    /// that each boundary is checked once, which no answer shows.
+    pub(crate) static BATCHES_CHECKED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }

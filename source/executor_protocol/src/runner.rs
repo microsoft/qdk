@@ -7,10 +7,12 @@
 //!
 //! A runner holds a chain that composed: its boundaries fit, its executor
 //! serves its driver's needs, and every part is provisioned. Each run
-//! checks what only a run can: its shots against the executor's most, its
-//! seed against whether the chain is seedable, and whether each part can
-//! take a run now. Then the driver runs the shots, calling the chain below
-//! it as one executor, whose every `execute` the protocol checks.
+//! checks what only a run can: its shots against the most the chain runs
+//! (the offer that reaches the driver), its seed against whether the chain
+//! is seedable, and whether each part can take a run now. Then the driver
+//! runs the shots, calling the chain below it as one executor, whose every
+//! `execute` the protocol checks. When the run fails, the runner ends its
+//! shots on every part, so that none keeps them.
 
 mod run_error;
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,6 +20,7 @@ pub(crate) mod wait;
 
 use crate::checked::{Checked, catch_panic};
 use crate::instruction_set::instruction::batch_check::BatchLimits;
+use crate::roles::FailedRun;
 use crate::{Capabilities, Drive, DriveError, Execute, Failure, RunRefusal, Seed, ShotSet};
 
 pub use run_error::RunError;
@@ -33,24 +36,24 @@ pub struct Runner<D: Drive, E: Execute> {
     executor: E,
     /// The offer that reaches the driver, the executor's as each adapter
     /// adapts it: its most shots and whether it is seedable, for each run.
-    limits: Capabilities,
+    offer: Capabilities,
     /// The limits of the batches the driver sends the executor.
     batch_limits: BatchLimits,
 }
 
 impl<D: Drive, E: Execute> Runner<D, E> {
     /// The runner of `driver` and `executor`, composed, admitted and
-    /// provisioned, with `limits`, the offer that reaches the driver.
+    /// provisioned, with `offer`, the offer that reaches the driver.
     pub(crate) fn new(
         driver: D,
         executor: E,
-        limits: Capabilities,
+        offer: Capabilities,
         batch_limits: BatchLimits,
     ) -> Self {
         Self {
             driver,
             executor,
-            limits,
+            offer,
             batch_limits,
         }
     }
@@ -75,10 +78,14 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// A `Some` seed gives the same outputs each time; a run with one is
     /// refused when the chain is not seedable. `None` draws a seed that is
     /// not reported, so the run cannot be repeated. A run is refused, and
-    /// nothing of it runs, when it has more shots than the executor's most,
-    /// or when a part's `ready` refuses it; each part is asked, the
-    /// executor first. Then the driver runs the shots, and a failure ends
-    /// the run with the shot it names, including a part's panic.
+    /// nothing of it runs, when it has more shots than the most the chain
+    /// runs (the offer that reaches the driver), or when a part's `ready`
+    /// refuses it; each part is asked, the executor first. Then the driver
+    /// runs the shots, and a failure ends the run with the shot it names,
+    /// including a part's panic where a panic unwinds (on wasm32, it
+    /// aborts). A failed run's shots are then ended on every part, the
+    /// driver's adapters top to bottom, then the executor, so that no part
+    /// carries them into the next run.
     pub fn run_async(
         &mut self,
         shots: &ShotSet,
@@ -86,7 +93,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     ) -> impl Future<Output = Result<Vec<D::Output>, RunError>> {
         let seed = seed.into();
         async move {
-            if let Some(most) = self.limits.max_shots
+            if let Some(most) = self.offer.max_shots
                 && shots.len() > most as usize
             {
                 return Err(RunError::Refused(RunRefusal::TooManyShots {
@@ -94,7 +101,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
                     most,
                 }));
             }
-            if seed.is_some() && !self.limits.seedable {
+            if seed.is_some() && !self.offer.seedable {
                 return Err(RunError::Refused(RunRefusal::NotSeedable));
             }
             self.executor.ready().await.map_err(RunError::Refused)?;
@@ -102,13 +109,17 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             let seed = Seed::new(seed.unwrap_or_else(drawn_seed));
             let mut below = Checked::new(&mut self.executor, &self.batch_limits);
             let driver = &mut self.driver;
-            match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
-                Ok(outputs) => outputs.map_err(RunError::Failed),
-                Err(message) => Err(RunError::Failed(DriveError {
+            let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
+                Ok(Ok(outputs)) => return Ok(outputs),
+                Ok(Err(failure)) => failure,
+                Err(message) => DriveError {
                     shot: shots.iter().next().expect("a shot set is never empty"),
                     failure: Failure::Panicked(message),
-                })),
-            }
+                },
+            };
+            self.driver.end_failed_run(FailedRun { shots });
+            self.executor.end_shots(shots);
+            Err(RunError::Failed(failure))
         }
     }
 }
