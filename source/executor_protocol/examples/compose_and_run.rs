@@ -291,11 +291,7 @@ impl Execute for Bits {
                     match instruction.opcode {
                         CoinGates::H => bits[qubit] = stream.chance(500),
                         CoinGates::X => bits[qubit] = !bits[qubit],
-                        CoinGates::MZ => row.push(if bits[qubit] {
-                            ReadoutValue::One
-                        } else {
-                            ReadoutValue::Zero
-                        }),
+                        CoinGates::MZ => row.push(bits[qubit].into()),
                         _ => unreachable!("the protocol checked: an instruction of the set"),
                     }
                 }
@@ -346,12 +342,9 @@ fn main() {
     let values = runner.run(&shots, SEED).expect("the chain runs 12 shots");
     println!("shot  coin  copy");
     for (id, shot) in shots.iter().zip(&values) {
-        println!(
-            "{:>4}  {:>4}  {:>4}",
-            id.get(),
-            text(shot[0]),
-            text(shot[1])
-        );
+        // `ShotId`'s `Display` ignores the width, so it is padded as text.
+        let id = id.to_string();
+        println!("{id:>4}  {:>4}  {:>4}", text(shot[0]), text(shot[1]));
     }
     println!("A copy unlike its coin: the noise flipped it.");
 

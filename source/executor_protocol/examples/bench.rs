@@ -99,8 +99,18 @@ const TINY: Size = Size {
     most_calls: 10,
 };
 
+/// The sections, by the names `main` takes.
+const SECTIONS: [&str; 4] = ["D", "C", "F", "W"];
+
 fn main() {
-    run(&FULL, std::env::args().nth(1).as_deref());
+    let only = std::env::args().nth(1);
+    if let Some(only) = &only
+        && !SECTIONS.contains(&only.as_str())
+    {
+        eprintln!("no section {only:?}: the sections are D, C, F and W");
+        std::process::exit(2);
+    }
+    run(&FULL, only.as_deref());
 }
 
 /// Runs the sections, or only the one named `only`.
@@ -184,29 +194,29 @@ fn chains_bench(size: &Size, program: &[Instruction]) {
 /// returns what the executor counted.
 fn run_chain(program: &[Instruction], batch: usize, chain: Chain) -> Profile {
     let mut profiler = Profiler::new(Capabilities::unlimited());
-    let chunks = Chunks::new(MixGates::set(), program, QUBITS, batch);
-    let sent = match chain {
+    let in_batches = ProgramInBatches::new(MixGates::set(), program, QUBITS, batch);
+    let received = match chain {
         Chain::Direct => {
             // The chain's executor is never called: `Direct` sends past it.
             let unused = Profiler::new(Capabilities::unlimited());
-            run_once(Driver::new(Direct(chunks, &mut profiler)) >> Executor::new(unused))
+            run_once(Driver::new(Direct(in_batches, &mut profiler)) >> Executor::new(unused))
         }
-        Chain::Bare => run_once(Driver::new(chunks) >> Executor::new(&mut profiler)),
+        Chain::Bare => run_once(Driver::new(in_batches) >> Executor::new(&mut profiler)),
         Chain::OneAdapter => run_once(
-            Driver::new(chunks) >> Adapter::new(Forward::new()) >> Executor::new(&mut profiler),
+            Driver::new(in_batches) >> Adapter::new(Forward::new()) >> Executor::new(&mut profiler),
         ),
         Chain::TwoAdapters => run_once(
-            Driver::new(chunks)
+            Driver::new(in_batches)
                 >> Adapter::new(Forward::new())
                 >> Adapter::new(Forward::new())
                 >> Executor::new(&mut profiler),
         ),
         Chain::Limited(most) => {
             profiler.offer = Capabilities::unlimited().max_instructions(most);
-            run_once(Driver::new(chunks) >> Executor::new(&mut profiler))
+            run_once(Driver::new(in_batches) >> Executor::new(&mut profiler))
         }
     };
-    black_box(sent);
+    black_box(received);
     profiler.profile
 }
 
@@ -216,7 +226,7 @@ fn run_chain(program: &[Instruction], batch: usize, chain: Chain) -> Profile {
 /// inside the protocol; and building an instruction by name, which checks
 /// it too.
 fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
-    println!("\nC. the checks, ns/instr (per call)");
+    println!("\nC. the checks, ns/instr (per call, where given)");
     let expected = Profile::of(program);
     let time = |batch, chain| best(size.repeats, &expected, || run_chain(program, batch, chain));
     let n = program.len();
@@ -235,14 +245,32 @@ fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
             per(limited, n.div_ceil(batch))
         );
     }
+    // Into one buffer, reused, so that the row times building, not
+    // allocating and freeing a program of 168-byte instructions.
+    let set = MixGates::set();
+    let mut buffer = Vec::with_capacity(BUILD_BUFFER);
     let built = best(size.repeats, &program.len(), || {
-        black_box(build(draws)).len()
+        let mut count = 0;
+        for some in draws.chunks(BUILD_BUFFER) {
+            buffer.clear();
+            buffer.extend(some.iter().map(|draw| build_one(&set, draw)));
+            count += black_box(&buffer).len();
+        }
+        count
     });
+    let last = &program[program.len() - buffer.len()..];
+    assert!(
+        buffer == last,
+        "the buffer holds the program's last instructions"
+    );
     println!(
         "  building each instruction by name (InstructionSet::instruction) {:>6.2}",
         per(built, n)
     );
 }
+
+/// The instructions C builds into its buffer at a time.
+const BUILD_BUFFER: usize = 10_000;
 
 // ----------------------------------------------------------- F: lowering
 
@@ -293,14 +321,18 @@ fn lowering_bench(size: &Size) {
     // The physical program, as the lowering sends it, for the baseline.
     let mut recorder = Sink::recording();
     run_once(
-        Driver::new(Chunks::new(LogicalGates::set(), &logical, 2, logical.len()))
-            >> Adapter::new(Repetition3::new())
+        Driver::new(ProgramInBatches::new(
+            LogicalGates::set(),
+            &logical,
+            2,
+            logical.len(),
+        )) >> Adapter::new(Repetition3::new())
             >> Executor::new(&mut recorder),
     );
     let physical = recorder.record.expect("a recording sink");
     let compose = compose_time(size.repeats, || {
         (
-            Driver::new(Chunks::new(LogicalGates::set(), &logical, 2, 6)),
+            Driver::new(ProgramInBatches::new(LogicalGates::set(), &logical, 2, 6)),
             Adapter::new(Repetition3::new()),
             Executor::new(Sink::new()),
         )
@@ -324,20 +356,28 @@ fn lowering_bench(size: &Size) {
         });
         let bare = best(size.repeats, &direct_answer, || {
             let mut sink = Sink::new();
-            let sent = run_once(
-                Driver::new(Chunks::new(PhysicalGates::set(), &physical, 6, 3 * batch))
-                    >> Executor::new(&mut sink),
+            let received = run_once(
+                Driver::new(ProgramInBatches::new(
+                    PhysicalGates::set(),
+                    &physical,
+                    6,
+                    3 * batch,
+                )) >> Executor::new(&mut sink),
             );
-            (sink.seen, sent.values)
+            (sink.seen, received.values)
         });
         let lowered = best(size.repeats, &lowered_answer, || {
             let mut sink = Sink::new();
-            let sent = run_once(
-                Driver::new(Chunks::new(LogicalGates::set(), &logical, 2, batch))
-                    >> Adapter::new(Repetition3::new())
+            let received = run_once(
+                Driver::new(ProgramInBatches::new(
+                    LogicalGates::set(),
+                    &logical,
+                    2,
+                    batch,
+                )) >> Adapter::new(Repetition3::new())
                     >> Executor::new(&mut sink),
             );
-            (sink.seen, sent.values)
+            (sink.seen, received.values)
         });
         println!(
             "  {batch:>12} {:>13.2} ns {:>13.2} ns {:>13.2} ns {:>19.2} ns",
@@ -354,7 +394,11 @@ fn lowering_bench(size: &Size) {
 /// building the parts.
 fn compose_time<'p>(
     repeats: usize,
-    mut parts: impl FnMut() -> (Driver<Chunks<'p>>, Adapter<Repetition3>, Executor<Sink>),
+    mut parts: impl FnMut() -> (
+        Driver<ProgramInBatches<'p>>,
+        Adapter<Repetition3>,
+        Executor<Sink>,
+    ),
 ) -> f64 {
     (0..=repeats)
         .map(|_| {
@@ -373,9 +417,10 @@ fn compose_time<'p>(
 /// the instructions the sink saw, and its readouts.
 fn sink_direct(physical: &[Instruction], batch: usize) -> (u64, Vec<ReadoutValue>) {
     let mut sink = Sink::new();
-    let chunks = Chunks::new(PhysicalGates::set(), physical, 6, batch);
-    let sent = run_once(Driver::new(Direct(chunks, &mut sink)) >> Executor::new(Sink::new()));
-    (sink.seen, sent.values)
+    let in_batches = ProgramInBatches::new(PhysicalGates::set(), physical, 6, batch);
+    let received =
+        run_once(Driver::new(Direct(in_batches, &mut sink)) >> Executor::new(Sink::new()));
+    (sink.seen, received.values)
 }
 
 /// Each three values' majority, as the lowering reads a logical qubit.
@@ -555,12 +600,7 @@ impl Execute for Sink {
             for instruction in batch.instructions {
                 self.seen += 1;
                 if instruction.opcode == PhysicalGates::MZ {
-                    let one = self.seen % 5 < 2;
-                    row.push(if one {
-                        ReadoutValue::One
-                    } else {
-                        ReadoutValue::Zero
-                    });
+                    row.push(ReadoutValue::from(self.seen % 5 < 2));
                 }
             }
             if let Some(record) = &mut self.record {
@@ -581,10 +621,16 @@ impl Execute for Sink {
 // ------------------------------------------------------------- W: worker
 
 /// W: the time of a call to an executor that answers from a worker thread,
-/// beside the same call answered on this thread.
+/// beside the same call answered on this thread. Each call's time holds a
+/// clock read before and after it, whose cost the section prints, so the
+/// columns compare above that floor (batch 1 is near it).
 fn worker_bench(size: &Size, program: &[Instruction]) {
     let repeats = size.repeats.min(5);
     println!("\nW. an executor answering from a worker thread, median call, µs, best of {repeats}");
+    println!(
+        "  each call's time holds two clock reads, {:.2} µs here (an empty pair's median)",
+        clock_floor()
+    );
     println!(
         "  {:>7} {:>7} {:>14} {:>14}",
         "batch", "calls", "worker", "this thread"
@@ -594,26 +640,36 @@ fn worker_bench(size: &Size, program: &[Instruction]) {
         let expected = Profile::of(program);
         let worker = median_call(repeats, || {
             let mut worker = FromWorker::spawn();
-            let mut chunks = Chunks::new(MixGates::set(), program, QUBITS, batch);
-            chunks.timed = true;
-            let sent = run_once(Driver::new(chunks) >> Executor::new(&mut worker));
+            let mut in_batches = ProgramInBatches::new(MixGates::set(), program, QUBITS, batch);
+            in_batches.timed = true;
+            let received = run_once(Driver::new(in_batches) >> Executor::new(&mut worker));
             assert_eq!(worker.finish(), expected, "the worker counted the program");
-            sent.call_times
+            received.call_times
         });
         let here = median_call(repeats, || {
             let mut profiler = Profiler::new(Capabilities::unlimited());
-            let mut chunks = Chunks::new(MixGates::set(), program, QUBITS, batch);
-            chunks.timed = true;
-            let sent = run_once(Driver::new(chunks) >> Executor::new(&mut profiler));
+            let mut in_batches = ProgramInBatches::new(MixGates::set(), program, QUBITS, batch);
+            in_batches.timed = true;
+            let received = run_once(Driver::new(in_batches) >> Executor::new(&mut profiler));
             assert_eq!(
                 profiler.profile, expected,
                 "the profiler counted the program"
             );
-            sent.call_times
+            received.call_times
         });
         let calls = program.len().div_ceil(batch);
         println!("  {batch:>7} {calls:>7} {worker:>14.2} {here:>14.2}");
     }
+}
+
+/// The median time, in µs, of a clock read before and after nothing: what
+/// each call's time in W holds beside the call.
+fn clock_floor() -> f64 {
+    let mut times: Vec<Duration> = (0..10_001)
+        .map(|_| black_box(Instant::now()).elapsed())
+        .collect();
+    times.sort_unstable();
+    times[times.len() / 2].as_secs_f64() * 1e6
 }
 
 /// The best, over `repeats` runs, of a run's median call, in µs.
@@ -728,7 +784,7 @@ impl Execute for FromWorker {
 /// A driver that sends its program below, `batch` instructions per
 /// `execute`, one shot, and returns every readout and, when `timed`, the
 /// time of each call.
-struct Chunks<'p> {
+struct ProgramInBatches<'p> {
     set: InstructionSet,
     /// The map `bind` must get, the set's own: the program goes below as
     /// it is, so every chain gets the same instructions.
@@ -739,13 +795,13 @@ struct Chunks<'p> {
     timed: bool,
 }
 
-/// What [`Chunks`] got back.
-struct Sent {
+/// What [`ProgramInBatches`] got back.
+struct Received {
     values: Vec<ReadoutValue>,
     call_times: Vec<Duration>,
 }
 
-impl<'p> Chunks<'p> {
+impl<'p> ProgramInBatches<'p> {
     fn new(set: InstructionSet, program: &'p [Instruction], qubits: u32, batch: usize) -> Self {
         let identity = set.fits(&set).expect("a set fits itself");
         Self {
@@ -764,8 +820,8 @@ impl<'p> Chunks<'p> {
         target: &mut impl Execute,
         shots: &ShotSet,
         seed: Seed,
-    ) -> Result<Sent, ExecuteError> {
-        let mut sent = Sent {
+    ) -> Result<Received, ExecuteError> {
+        let mut received = Received {
             values: Vec::new(),
             call_times: Vec::new(),
         };
@@ -777,16 +833,16 @@ impl<'p> Chunks<'p> {
             }];
             let answer = target.execute(&batches, seed).await?;
             if let Some(start) = start {
-                sent.call_times.push(start.elapsed());
+                received.call_times.push(start.elapsed());
             }
-            sent.values.extend_from_slice(answer[0].row(0));
+            received.values.extend_from_slice(answer[0].row(0));
         }
-        Ok(sent)
+        Ok(received)
     }
 }
 
-impl Drive for Chunks<'_> {
-    type Output = Sent;
+impl Drive for ProgramInBatches<'_> {
+    type Output = Received;
 
     fn sends(&self) -> &InstructionSet {
         &self.set
@@ -805,20 +861,20 @@ impl Drive for Chunks<'_> {
         shots: &ShotSet,
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<Sent>, DriveError> {
-        let sent = self.send(below, shots, seed).await?;
+    ) -> Result<Vec<Received>, DriveError> {
+        let received = self.send(below, shots, seed).await?;
         below.end_shots(shots);
-        Ok(vec![sent])
+        Ok(vec![received])
     }
 }
 
-/// [`Chunks`] sending to an executor of its own, past the chain it is
-/// composed with, awaiting each `execute` itself: the baseline. A driver,
-/// because only a run gives a seed to call `execute` with.
-struct Direct<'p, E>(Chunks<'p>, E);
+/// [`ProgramInBatches`] sending to an executor of its own, past the chain
+/// it is composed with, awaiting each `execute` itself: the baseline. A
+/// driver, because only a run gives a seed to call `execute` with.
+struct Direct<'p, E>(ProgramInBatches<'p>, E);
 
 impl<E: Execute> Drive for Direct<'_, E> {
-    type Output = Sent;
+    type Output = Received;
 
     fn sends(&self) -> &InstructionSet {
         self.0.sends()
@@ -837,12 +893,12 @@ impl<E: Execute> Drive for Direct<'_, E> {
         shots: &ShotSet,
         seed: Seed,
         below: &mut impl Execute,
-    ) -> Result<Vec<Sent>, DriveError> {
-        let Self(chunks, executor) = self;
-        let sent = chunks.send(executor, shots, seed).await?;
+    ) -> Result<Vec<Received>, DriveError> {
+        let Self(in_batches, executor) = self;
+        let received = in_batches.send(executor, shots, seed).await?;
         executor.end_shots(shots);
         below.end_shots(shots);
-        Ok(vec![sent])
+        Ok(vec![received])
     }
 }
 
@@ -985,9 +1041,9 @@ fn no_readouts(shots: usize) -> BatchReadouts {
 // --------------------------------------------------------------- harness
 
 /// Runs the composed chain on one shot, and returns its driver's output.
-fn run_once<D: Drive<Output = Sent>, E: Execute>(
+fn run_once<D: Drive<Output = Received>, E: Execute>(
     chain: Result<Runner<D, E>, CompositionFaults>,
-) -> Sent {
+) -> Received {
     let mut runner = chain.expect("the chain composes");
     let mut outputs = runner
         .run(&ShotSet::ids([0]), SEED)
@@ -1062,16 +1118,17 @@ fn draws(n: usize) -> Vec<Draw> {
 /// The program of `draws`, each instruction built and checked by name.
 fn build(draws: &[Draw]) -> Vec<Instruction> {
     let set = MixGates::set();
-    draws
-        .iter()
-        .map(|draw| {
-            let (mnemonic, arity, _) = MIX[draw.gate];
-            let theta = [("theta", Argument::from(draw.theta))];
-            let arguments: &[(&str, Argument)] = if mnemonic == "rz" { &theta } else { &[] };
-            set.instruction(mnemonic, draw.qubits[..arity].iter().copied(), arguments)
-                .expect("an instruction of MixGates")
-        })
-        .collect()
+    draws.iter().map(|draw| build_one(&set, draw)).collect()
+}
+
+/// The instruction of `draw`, built and checked by name in `set`,
+/// `MixGates`.
+fn build_one(set: &InstructionSet, draw: &Draw) -> Instruction {
+    let (mnemonic, arity, _) = MIX[draw.gate];
+    let theta = [("theta", Argument::from(draw.theta))];
+    let arguments: &[(&str, Argument)] = if mnemonic == "rz" { &theta } else { &[] };
+    set.instruction(mnemonic, draw.qubits[..arity].iter().copied(), arguments)
+        .expect("an instruction of MixGates")
 }
 
 /// `SplitMix64`: the mix's draws, without a crate beyond the protocol.
