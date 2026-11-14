@@ -56,6 +56,11 @@ pub struct BatchReadouts {
 
 impl BatchReadouts {
     /// No rows yet, of `readouts` values each, with room for `shots` rows.
+    ///
+    /// # Panics
+    ///
+    /// When the room for `shots` rows exceeds `isize::MAX` bytes, as
+    /// [`Vec::with_capacity`] does.
     #[must_use]
     pub fn with_capacity(shots: usize, readouts: u32) -> Self {
         Self {
@@ -100,50 +105,49 @@ impl BatchReadouts {
         self.conditions.len()
     }
 
-    /// The row of the shot at position `shot` in the batch's shot set: its
-    /// R values, by slot.
+    /// The row of the shot at `position` in the batch's shot set: its R
+    /// values, by slot.
     ///
     /// # Panics
     ///
-    /// When `shot` is not below [`shots`](Self::shots).
+    /// When `position` is not below [`shots`](Self::shots).
     #[must_use]
     #[track_caller]
-    pub fn row(&self, shot: usize) -> &[ReadoutValue] {
-        self.check_shot(shot);
+    pub fn row(&self, position: usize) -> &[ReadoutValue] {
+        self.check_position(position);
         let width = self.readouts as usize;
-        &self.values[shot * width..(shot + 1) * width]
+        &self.values[position * width..(position + 1) * width]
     }
 
     /// The value in readout slot `readout` of the row of the shot at
-    /// position `shot`.
+    /// `position` in the batch's shot set.
     ///
     /// # Panics
     ///
-    /// When `shot` is not below [`shots`](Self::shots), or `readout` not
+    /// When `position` is not below [`shots`](Self::shots), or `readout` not
     /// below R, where it would read another shot's value.
     #[must_use]
     #[track_caller]
-    pub fn value(&self, shot: usize, readout: ReadoutIndex) -> ReadoutValue {
+    pub fn value(&self, position: usize, readout: ReadoutIndex) -> ReadoutValue {
         assert!(
             readout.get() < self.readouts,
             "slot {} is beyond the rows' {} readout slots",
             readout.get(),
             self.readouts
         );
-        self.row(shot)[readout.get() as usize]
+        self.row(position)[readout.get() as usize]
     }
 
-    /// The conditions of the shot at position `shot` in the batch's shot
-    /// set.
+    /// The conditions of the shot at `position` in the batch's shot set.
     ///
     /// # Panics
     ///
-    /// When `shot` is not below [`shots`](Self::shots).
+    /// When `position` is not below [`shots`](Self::shots).
     #[must_use]
     #[track_caller]
-    pub fn conditions(&self, shot: usize) -> ShotConditions {
-        self.check_shot(shot);
-        self.conditions[shot]
+    pub fn conditions(&self, position: usize) -> ShotConditions {
+        self.check_position(position);
+        self.conditions[position]
     }
 
     /// Joins the readouts of one batch's instructions sent below in parts,
@@ -177,23 +181,23 @@ impl BatchReadouts {
             .try_fold(0u32, |sum, part| sum.checked_add(part.readouts))
             .expect("the parts' readout slots add up to at most u32::MAX");
         let mut joined = Self::with_capacity(shots, readouts);
-        for shot in 0..shots {
+        for position in 0..shots {
             let mut conditions = ShotConditions::NONE;
             for part in parts {
-                joined.values.extend_from_slice(part.row(shot));
-                conditions |= part.conditions(shot);
+                joined.values.extend_from_slice(part.row(position));
+                conditions |= part.conditions(position);
             }
             joined.conditions.push(conditions);
         }
         joined
     }
 
-    /// Panics, naming the rows, when `shot` is not the position of a row.
+    /// Panics, naming the rows, when `position` is not a row's.
     #[track_caller]
-    fn check_shot(&self, shot: usize) {
+    fn check_position(&self, position: usize) {
         assert!(
-            shot < self.shots(),
-            "shot position {shot} is beyond the readouts' {} rows",
+            position < self.shots(),
+            "shot position {position} is beyond the readouts' {} rows",
             self.shots()
         );
     }
@@ -208,7 +212,8 @@ impl BatchReadouts {
 )]
 impl fmt::Debug for BatchReadouts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let rows = (0..self.shots()).map(|shot| (self.row(shot), self.conditions[shot]));
+        let rows =
+            (0..self.shots()).map(|position| (self.row(position), self.conditions[position]));
         f.debug_struct("BatchReadouts")
             .field("readouts", &self.readouts)
             .field("rows", &DebugRows(rows))
@@ -252,7 +257,8 @@ impl ReadoutIndex {
     }
 }
 
-/// Why readouts do not have the shape of their batch.
+/// Why a row does not have the readouts' width, the one given to
+/// [`BatchReadouts::with_capacity`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ShapeFault {

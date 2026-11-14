@@ -12,7 +12,8 @@
 //! shift the draws of those below it:
 //!
 //! - the executor seeds each shot's stream with [`Seed::shot`], from the
-//!   shot's id alone, at the shot's first batch;
+//!   run's seed and the shot's id alone, not its place in a batch, at the
+//!   shot's first batch;
 //! - a part that draws, such as a noise model, takes a seed of its own with
 //!   [`Seed::derive`] and a key of its own, such as `"bit_flip"`, and seeds
 //!   each shot's stream with that seed's [`shot`](Seed::shot), so it never
@@ -31,7 +32,7 @@ use crate::shot_set::ShotId;
 ///
 /// Only the runner makes one, from the run's seed, so that every part of a
 /// run draws from that seed. It holds the run's seed after one `SplitMix64`
-/// step, which is what its `Debug` prints.
+/// step, or, once derived, that value plus the key's id in its high half.
 #[derive(Clone, Copy, Debug)]
 pub struct Seed(u64);
 

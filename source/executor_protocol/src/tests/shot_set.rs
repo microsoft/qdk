@@ -46,6 +46,13 @@ fn ids_panics_on_a_repeated_shot() {
     let _ = ShotSet::ids([4, 4]);
 }
 
+/// `ids` panics on no shots, with the fault `try_ids` returns.
+#[test]
+#[should_panic(expected = "a shot set needs at least one shot")]
+fn ids_panics_on_no_shots() {
+    let _ = ShotSet::ids([]);
+}
+
 /// A set keeps the caller's order, since a batch's rows come back in it:
 /// decreasing, interleaved, and two ranges joined.
 #[test]
