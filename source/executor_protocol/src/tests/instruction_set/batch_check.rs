@@ -534,9 +534,9 @@ fn repeated_block_named_is_the_earliest_repeat_in_position_order() {
 }
 
 /// The answer to a batch has a value per readout slot of its instructions:
-/// each instruction's outcomes, then its flags.
+/// as many as each instruction's outcomes and flags, summed.
 #[test]
-fn a_batchs_readout_slots_are_its_instructions_outcomes_then_flags() {
+fn a_batchs_readout_slots_count_each_instructions_outcomes_and_flags() {
     let set = device();
     let limits = limits(&set, None, 2, 0);
     let batch = [

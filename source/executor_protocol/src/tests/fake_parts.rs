@@ -17,7 +17,8 @@
 //!   the most shots; [`LoweringWithoutParity`], which offers no readout
 //!   parities; [`Trap`], which fails a shot; [`FailsOnce`], which fails
 //!   one `adapt`; [`PanicsEnding`], which panics in `end_shots`;
-//!   [`Misbehaving`], which breaks the protocol's rules.
+//!   [`Shifting`], whose offer changes once provisioned; [`Misbehaving`],
+//!   which breaks the protocol's rules.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads
 //! once the parts are composed.

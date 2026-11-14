@@ -150,10 +150,12 @@ impl ShotId {
     }
 }
 
-/// The shot's number, `7`, as messages write it after "shot".
+/// The shot's number, `7`, as messages write it after "shot"; a width, a
+/// fill and an alignment format it as they format the number, so that a
+/// table of shots lines up.
 impl fmt::Display for ShotId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        fmt::Display::fmt(&self.0, f)
     }
 }
 

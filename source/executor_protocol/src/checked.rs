@@ -25,15 +25,24 @@ use crate::{
 /// checked against `batch_limits` and its answer checked against the batches.
 pub(crate) struct Checked<'a, E> {
     inner: &'a mut E,
+    /// The offer that crosses the boundary, read before any part was
+    /// provisioned.
+    offer: &'a Capabilities,
     batch_limits: &'a BatchLimits,
 }
 
 impl<'a, E: Execute> Checked<'a, E> {
-    /// `inner`, checked against `batch_limits`, built by [`batch_limits`]
-    /// for it.
-    pub(crate) fn new(inner: &'a mut E, batch_limits: &'a BatchLimits) -> Self {
+    /// `inner`, whose offer was `offer` before any part was provisioned,
+    /// checked against `batch_limits`, built by [`batch_limits`] for it
+    /// from that offer.
+    pub(crate) fn new(
+        inner: &'a mut E,
+        offer: &'a Capabilities,
+        batch_limits: &'a BatchLimits,
+    ) -> Self {
         Self {
             inner,
+            offer,
             batch_limits,
         }
     }
@@ -44,8 +53,10 @@ impl<E: Execute> Execute for Checked<'_, E> {
         self.inner.accepts()
     }
 
+    /// The offer read before any part was provisioned, which the admission
+    /// checked and `batch_limits` holds, not the receiver's answer now.
     fn offers(&self) -> Capabilities {
-        self.inner.offers()
+        self.offer.clone()
     }
 
     /// Refuses `batches` if any is refused, before any runs; an empty

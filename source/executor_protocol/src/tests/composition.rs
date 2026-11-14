@@ -9,7 +9,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Profiler, Program, Spread, Values,
+    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Profiler, Program, Shifting,
+    Spread, Values,
 };
 use crate::{
     Adapter, BlockType, Capabilities, CompositionFaults, Drive, Driver, Execute, Executor,
@@ -279,6 +280,16 @@ fn provisioned<D: Drive, E: Execute>(
     composed: Result<Runner<D, E>, CompositionFaults>,
     log: &Log,
 ) -> Vec<String> {
+    logged_over_two_runs(composed, log, "provisioned")
+}
+
+/// What `composed` logs over two runs, in order, of entries containing
+/// `containing`.
+fn logged_over_two_runs<D: Drive, E: Execute>(
+    composed: Result<Runner<D, E>, CompositionFaults>,
+    log: &Log,
+    containing: &str,
+) -> Vec<String> {
     let Ok(mut runner) = composed else {
         panic!("the chain composes");
     };
@@ -289,11 +300,11 @@ fn provisioned<D: Drive, E: Execute>(
     }
     log.entries()
         .into_iter()
-        .filter(|entry| entry.contains("provisioned"))
+        .filter(|entry| entry.contains(containing))
         .collect()
 }
 
-/// A chain's provisioning, logged to the log it is given.
+/// What a chain logs, to the log it is given, of what a test watches.
 type Chain = fn(&Log) -> Vec<String>;
 
 /// Two encodings over bits, in each bracketing that `>>` makes a runner
@@ -399,6 +410,74 @@ fn every_part_is_provisioned_for_the_needs_read_before_the_drivers_provision() {
                 "Spread provisioned for 1 qubits",
                 "Bits provisioned for 1 qubits",
             ],
+            "{bracketing}"
+        );
+    }
+}
+
+/// Two adapters whose offers narrow from 2 instructions a batch to 1 once
+/// provisioned, which their rule forbids, over bits, under a program
+/// sending batches of 2, in each of the five bracketings: every boundary
+/// checks each batch against the offer read before any part was
+/// provisioned, and the upper adapter is told that offer, so the run
+/// succeeds alike.
+#[test]
+fn every_boundary_answers_the_offer_read_before_any_part_is_provisioned() {
+    fn program() -> Driver<Program> {
+        Driver::new(Program::new(&[("x", 0), ("mz", 0)]))
+    }
+    /// The offers each `Shifting` is told over two runs.
+    fn told<D: Drive, E: Execute>(
+        composed: Result<Runner<D, E>, CompositionFaults>,
+        log: &Log,
+    ) -> Vec<String> {
+        logged_over_two_runs(composed, log, "is offered")
+    }
+    let chains: [(&str, Chain); 5] = [
+        ("left", |log| {
+            let shifting = || Adapter::new(Shifting::new(log));
+            told(
+                ((program() >> shifting()) >> shifting()) >> Executor::new(Bits::new(log)),
+                log,
+            )
+        }),
+        ("right", |log| {
+            let shifting = || Adapter::new(Shifting::new(log));
+            told(
+                program() >> (shifting() >> (shifting() >> Executor::new(Bits::new(log)))),
+                log,
+            )
+        }),
+        ("middle", |log| {
+            let shifting = || Adapter::new(Shifting::new(log));
+            told(
+                (program() >> shifting()) >> (shifting() >> Executor::new(Bits::new(log))),
+                log,
+            )
+        }),
+        ("adapters joined", |log| {
+            let shifting = || Adapter::new(Shifting::new(log));
+            told(
+                program() >> ((shifting() >> shifting()) >> Executor::new(Bits::new(log))),
+                log,
+            )
+        }),
+        ("adapters joined to the driver", |log| {
+            let shifting = || Adapter::new(Shifting::new(log));
+            told(
+                (program() >> (shifting() >> shifting())) >> Executor::new(Bits::new(log)),
+                log,
+            )
+        }),
+    ];
+    for (bracketing, chain) in chains {
+        assert_eq!(
+            chain(&Log::default()),
+            [
+                "Shifting is offered Some(2) instructions a batch",
+                "Shifting is offered None instructions a batch",
+            ]
+            .repeat(2),
             "{bracketing}"
         );
     }

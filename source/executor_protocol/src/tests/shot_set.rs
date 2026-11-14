@@ -140,3 +140,13 @@ fn increasing_ids_allocate_only_the_set() {
 fn debug_lists_the_shots_in_order() {
     assert_eq!(format!("{:?}", ShotSet::ids([2, 5])), "ShotSet([2, 5])");
 }
+
+/// A table of results lines up its shots: a width, fill and alignment pad
+/// a shot as they pad its number.
+#[test]
+fn a_shot_is_padded_as_its_number() {
+    assert_eq!(
+        format!("{:>4}|{:*<3}", ShotId::new(7), ShotId::new(12)),
+        "   7|12*"
+    );
+}

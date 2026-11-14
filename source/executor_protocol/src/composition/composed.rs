@@ -16,7 +16,10 @@
 //! The upper part reaches the lower one through a `Checked`, so every
 //! boundary of the chain is checked once, whatever the brackets: the
 //! boundary inside a `Composed` here, and the one where the driver meets the
-//! executor by the runner.
+//! executor by the runner. Each checks against the offer that crosses it,
+//! kept when the `>>` that makes the runner reads every part's offer, before
+//! any part is provisioned, so that the checks are the same wherever the
+//! brackets go.
 
 use crate::admission::by_part::ByPart;
 use crate::checked::{Checked, batch_limits};
@@ -37,12 +40,12 @@ use crate::{
 pub struct Composed<U, L> {
     upper: U,
     lower: L,
-    /// The needs crossing the boundary between the halves, set when the
-    /// chain is provisioned.
-    below_needs: Option<Needs>,
-    /// The limits of the batches crossing that boundary: computed at the
-    /// first `execute`, since they need the offer of the chain below,
-    /// which never changes once the runner is made.
+    /// The offer crossing the boundary between the halves, the lower
+    /// half's with the chain below it, kept when the `>>` that makes the
+    /// runner reads every part's offer, before any part is provisioned.
+    below_offer: Option<Capabilities>,
+    /// The limits of the batches crossing that boundary, from that offer
+    /// and the needs crossing it, set when the chain is provisioned.
     batch_limits: Option<BatchLimits>,
 }
 
@@ -52,7 +55,7 @@ impl<U, L> Composed<U, L> {
         Self {
             upper,
             lower,
-            below_needs: None,
+            below_offer: None,
             batch_limits: None,
         }
     }
@@ -78,10 +81,13 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
     /// the admission checked them, read before the driver is provisioned.
     fn provision(&mut self) {
         let below = self.upper.needs();
+        self.batch_limits = Some(limits_below(
+            self.below_offer.as_ref(),
+            self.lower.accepts(),
+            &below,
+        ));
         self.upper.provision();
-        self.lower.provision(below.clone());
-        self.below_needs = Some(below);
-        self.batch_limits = None;
+        self.lower.provision(below);
     }
 
     fn needs_by_part(&self, by_part: &mut ByPart) -> Needs {
@@ -89,8 +95,9 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         self.lower.needs_by_part(above, by_part)
     }
 
-    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
+    fn offers_by_part(&mut self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
         let above = self.lower.offers_by_part(below, by_part);
+        self.below_offer = Some(above.clone());
         self.upper.offers_by_part(above, by_part)
     }
 
@@ -115,18 +122,17 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<U::Output>, DriveError> {
-        let batch_limits = cached_batch_limits(
-            &mut self.batch_limits,
-            self.below_needs.as_ref(),
-            self.lower.accepts(),
-            || self.lower.offers_above(below.offers()),
-        );
+        let (offer, batch_limits) = kept(self.below_offer.as_ref(), self.batch_limits.as_ref());
         let mut rest = ChainBelow {
             adapter: &mut self.lower,
             below,
         };
         self.upper
-            .drive(shots, seed, &mut Checked::new(&mut rest, batch_limits))
+            .drive(
+                shots,
+                seed,
+                &mut Checked::new(&mut rest, offer, batch_limits),
+            )
             .await
     }
 }
@@ -150,17 +156,20 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
     }
 
     fn offers_above(&self, below: Capabilities) -> Capabilities {
-        self.offers_by_part(below, &mut ByPart::ignored())
+        self.upper.offers_above(self.lower.offers_above(below))
     }
 
     /// Top down: the upper part with `above`, then the lower one with what
     /// the upper part needs below.
     fn provision(&mut self, above: Needs) {
         let below = self.upper.needs_below(above.clone());
+        self.batch_limits = Some(limits_below(
+            self.below_offer.as_ref(),
+            self.lower.accepts(),
+            &below,
+        ));
         self.upper.provision(above);
-        self.lower.provision(below.clone());
-        self.below_needs = Some(below);
-        self.batch_limits = None;
+        self.lower.provision(below);
     }
 
     fn needs_by_part(&self, above: Needs, by_part: &mut ByPart) -> Needs {
@@ -168,8 +177,9 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
         self.lower.needs_by_part(middle, by_part)
     }
 
-    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
+    fn offers_by_part(&mut self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
         let middle = self.lower.offers_by_part(below, by_part);
+        self.below_offer = Some(middle.clone());
         self.upper.offers_by_part(middle, by_part)
     }
 
@@ -185,18 +195,17 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let batch_limits = cached_batch_limits(
-            &mut self.batch_limits,
-            self.below_needs.as_ref(),
-            self.lower.accepts(),
-            || self.lower.offers_above(below.offers()),
-        );
+        let (offer, batch_limits) = kept(self.below_offer.as_ref(), self.batch_limits.as_ref());
         let mut rest = ChainBelow {
             adapter: &mut self.lower,
             below,
         };
         self.upper
-            .adapt(batches, seed, &mut Checked::new(&mut rest, batch_limits))
+            .adapt(
+                batches,
+                seed,
+                &mut Checked::new(&mut rest, offer, batch_limits),
+            )
             .await
     }
 
@@ -217,16 +226,19 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
     }
 
     fn offers(&self) -> Capabilities {
-        self.offers_by_part(&mut ByPart::ignored())
+        self.upper.offers_above(self.lower.offers())
     }
 
     /// Top down, as for an adapter.
     fn provision(&mut self, needs: Needs) {
         let below = self.upper.needs_below(needs.clone());
+        self.batch_limits = Some(limits_below(
+            self.below_offer.as_ref(),
+            self.lower.accepts(),
+            &below,
+        ));
         self.upper.provision(needs);
-        self.lower.provision(below.clone());
-        self.below_needs = Some(below);
-        self.batch_limits = None;
+        self.lower.provision(below);
     }
 
     fn needs_by_part(&self, above: Needs, by_part: &mut ByPart) -> Needs {
@@ -234,8 +246,9 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         self.lower.needs_by_part(below, by_part)
     }
 
-    fn offers_by_part(&self, by_part: &mut ByPart) -> Capabilities {
+    fn offers_by_part(&mut self, by_part: &mut ByPart) -> Capabilities {
         let below = self.lower.offers_by_part(by_part);
+        self.below_offer = Some(below.clone());
         self.upper.offers_by_part(below, by_part)
     }
 
@@ -250,17 +263,12 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         batches: &[Batch<'_>],
         seed: Seed,
     ) -> Result<Vec<BatchReadouts>, ExecuteError> {
-        let batch_limits = cached_batch_limits(
-            &mut self.batch_limits,
-            self.below_needs.as_ref(),
-            self.lower.accepts(),
-            || self.lower.offers(),
-        );
+        let (offer, batch_limits) = kept(self.below_offer.as_ref(), self.batch_limits.as_ref());
         self.upper
             .adapt(
                 batches,
                 seed,
-                &mut Checked::new(&mut self.lower, batch_limits),
+                &mut Checked::new(&mut self.lower, offer, batch_limits),
             )
             .await
     }
@@ -289,6 +297,9 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
         self.adapter.accepts()
     }
 
+    /// What the adapter offers above the chain below. Not asked at run
+    /// time: the `Checked` the part above calls answers the offer kept
+    /// for the boundary.
     fn offers(&self) -> Capabilities {
         self.adapter.offers_above(self.below.offers())
     }
@@ -311,17 +322,26 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
     }
 }
 
-/// The batch limits cached in `cache`, else those of batches sent to a receiver
-/// of `receiver`'s instructions and of the offer `offer` gives, with the
-/// needs `below_needs`.
-fn cached_batch_limits<'a>(
-    cache: &'a mut Option<BatchLimits>,
-    below_needs: Option<&Needs>,
+/// The offer and the batch limits a `Composed` keeps for its boundary.
+fn kept<'a>(
+    offer: Option<&'a Capabilities>,
+    batch_limits: Option<&'a BatchLimits>,
+) -> (&'a Capabilities, &'a BatchLimits) {
+    let precondition = "kept and provisioned by the `>>` that makes its runner";
+    (
+        offer.expect(precondition),
+        batch_limits.expect(precondition),
+    )
+}
+
+/// The limits of the batches sent across a boundary to a receiver of
+/// `receiver`'s instructions, with the offer `offer` kept for it, for
+/// `below_needs`, the needs crossing it.
+fn limits_below(
+    offer: Option<&Capabilities>,
     receiver: &InstructionSet,
-    offer: impl FnOnce() -> Capabilities,
-) -> &'a BatchLimits {
-    cache.get_or_insert_with(|| {
-        let needs = below_needs.expect("provisioned by the `>>` that makes its runner");
-        batch_limits(receiver, &offer(), needs)
-    })
+    below_needs: &Needs,
+) -> BatchLimits {
+    let offer = offer.expect("kept by the `>>` that makes its runner, before it provisions");
+    batch_limits(receiver, offer, below_needs)
 }

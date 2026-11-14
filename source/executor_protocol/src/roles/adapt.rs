@@ -46,6 +46,11 @@ pub trait Adapt {
     /// below, the admission still checks what
     /// [`needs_below`](Self::needs_below) passes down against the
     /// executor's own offer.
+    ///
+    /// Its answer must not change once the adapter is composed, not even
+    /// by its own `provision`: the `>>` that makes a runner reads it once,
+    /// before any part is provisioned, and the admission and every check of
+    /// a run use that answer.
     fn offers_above(&self, below: Capabilities) -> Capabilities {
         below
     }
@@ -68,9 +73,11 @@ pub trait Adapt {
     }
 
     /// Its offer above, listed as this part's; only the crate overrides it,
-    /// to list each part it holds.
+    /// to list each part it holds, and to keep the offer that crosses each
+    /// boundary it holds. The `>>` that makes a runner calls it once, before
+    /// any part is provisioned.
     #[doc(hidden)]
-    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
+    fn offers_by_part(&mut self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
         let above = self.offers_above(below);
         by_part.note_offer::<Self>(&above);
         above
@@ -130,7 +137,7 @@ impl<A: Adapt + ?Sized> Adapt for &mut A {
         (**self).needs_by_part(above, by_part)
     }
 
-    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
+    fn offers_by_part(&mut self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
         (**self).offers_by_part(below, by_part)
     }
 

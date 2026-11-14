@@ -29,7 +29,11 @@ pub trait Execute {
     fn accepts(&self) -> &InstructionSet;
 
     /// What it can ever serve, such as its most qubits, which the driver's
-    /// needs, as adapted down to it, must fit.
+    /// needs, as adapted down to it, must fit. Its answer must not change
+    /// once the executor is composed, not even by its own `provision`: the
+    /// `>>` that makes a runner reads it once, before any part is
+    /// provisioned, and the admission and every check of a run use that
+    /// answer.
     fn offers(&self) -> Capabilities;
 
     /// Provisions this executor for `needs`, the driver's needs as adapted
@@ -51,9 +55,11 @@ pub trait Execute {
     }
 
     /// Its offer, listed as this part's; only the crate overrides it, to
-    /// list each adapter's too.
+    /// list each adapter's too, and to keep the offer that crosses each
+    /// boundary it holds. The `>>` that makes a runner calls it once, before
+    /// any part is provisioned.
     #[doc(hidden)]
-    fn offers_by_part(&self, by_part: &mut ByPart) -> Capabilities {
+    fn offers_by_part(&mut self, by_part: &mut ByPart) -> Capabilities {
         let offer = self.offers();
         by_part.note_offer::<Self>(&offer);
         offer
@@ -89,9 +95,11 @@ pub trait Execute {
     /// where the protocol's other checks of an `execute` are per
     /// instruction and per batch.
     ///
-    /// Its future may be dropped before it answers, when its run's future
-    /// is dropped; the runner then ends the run's shots
-    /// ([`end_shots`](Self::end_shots)).
+    /// Its future may be dropped before it answers: when its run's future
+    /// is dropped, when a part above panics while it waits, or when a part
+    /// above stops waiting for it. The runner then ends the run's shots
+    /// ([`end_shots`](Self::end_shots)), once the run fails or its future is
+    /// dropped.
     fn execute(
         &mut self,
         batches: &[Batch<'_>],
@@ -104,8 +112,10 @@ pub trait Execute {
     /// holds, such as when the runner ends every shot of a failed run,
     /// some of which the driver had already ended: it does nothing for
     /// those. It may also follow an `execute` dropped before it answered,
-    /// when its run's future was dropped: the part then cancels the work
-    /// that `execute` started for these shots, or ignores its answer.
+    /// such as when its run's future was dropped, a part above panicked
+    /// while it waited, or a part above stopped waiting for it: the part
+    /// then cancels the work that `execute` started for these shots, or
+    /// ignores its answer.
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }
@@ -128,7 +138,7 @@ impl<E: Execute + ?Sized> Execute for &mut E {
         (**self).needs_by_part(above, by_part)
     }
 
-    fn offers_by_part(&self, by_part: &mut ByPart) -> Capabilities {
+    fn offers_by_part(&mut self, by_part: &mut ByPart) -> Capabilities {
         (**self).offers_by_part(by_part)
     }
 

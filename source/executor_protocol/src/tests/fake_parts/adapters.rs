@@ -622,6 +622,61 @@ impl Adapt for LoweringWithoutParity {
     }
 }
 
+/// An adapter whose offer narrows once it is provisioned, which
+/// [`Adapt::offers_above`]'s rule forbids, as a lowering that picks its
+/// encoding then: at most 2 instructions a batch before, 1 after. At each
+/// `adapt` it logs the most instructions the part below says it takes, and
+/// passes instructions through, as a [`Spread`] of 1.
+pub(crate) struct Shifting {
+    provisioned: bool,
+    pass_through: Spread,
+    log: Log,
+}
+
+impl Shifting {
+    pub(crate) fn new(log: &Log) -> Self {
+        Self {
+            provisioned: false,
+            pass_through: Spread::new(1, log),
+            log: log.clone(),
+        }
+    }
+}
+
+impl Adapt for Shifting {
+    fn accepts(&self) -> &InstructionSet {
+        self.pass_through.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.pass_through.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.pass_through.bind(below);
+    }
+
+    fn offers_above(&self, below: Capabilities) -> Capabilities {
+        below.max_instructions(if self.provisioned { 1 } else { 2 })
+    }
+
+    fn provision(&mut self, _above: Needs) {
+        self.provisioned = true;
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<BatchReadouts>, ExecuteError> {
+        let most = below.offers().max_instructions;
+        self.log
+            .push(format!("Shifting is offered {most:?} instructions a batch"));
+        self.pass_through.adapt(batches, seed, below).await
+    }
+}
+
 /// An adapter that panics in each `end_shots`, with its message, a `&str`.
 /// At run time it passes instructions through, as a [`Spread`] of 1.
 pub(crate) struct PanicsEnding {

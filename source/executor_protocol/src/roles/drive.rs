@@ -56,9 +56,11 @@ pub trait Drive {
     }
 
     /// The offer that reaches this driver from `below`, listing those of
-    /// each adapter it holds; only the crate overrides it.
+    /// each adapter it holds; only the crate overrides it, to list them, and
+    /// to keep the offer that crosses each boundary it holds. The `>>` that
+    /// makes a runner calls it once, before any part is provisioned.
     #[doc(hidden)]
-    fn offers_by_part(&self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
+    fn offers_by_part(&mut self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
         let _ = by_part;
         below
     }
@@ -81,7 +83,9 @@ pub trait Drive {
     /// Runs `shots` by calling `below`, the rest of the chain as one
     /// executor, until each shot ends; ends each shot below when it ends;
     /// and gives each shot's output, in the order of `shots`. An error from
-    /// below passes up with `?`, through `From<ExecuteError>`.
+    /// below passes up with `?`, through `From<ExecuteError>`. The runner
+    /// returns the outputs as given: it does not check their count or
+    /// order.
     fn drive(
         &mut self,
         shots: &ShotSet,

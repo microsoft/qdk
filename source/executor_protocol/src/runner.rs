@@ -39,32 +39,37 @@ pub struct Runner<D: Drive, E: Execute> {
     /// The offer that reaches the driver, the executor's as each adapter
     /// adapts it: its most shots and whether it is seedable, for each run.
     offer: Capabilities,
+    /// The executor's offer, which the driver's `below.offers()` answers.
+    executor_offer: Capabilities,
     /// The limits of the batches the driver sends the executor.
     batch_limits: BatchLimits,
 }
 
 impl<D: Drive, E: Execute> Runner<D, E> {
     /// The runner of `driver` and `executor`, composed, admitted and
-    /// provisioned, with `offer`, the offer that reaches the driver.
+    /// provisioned, with `offer`, the offer that reaches the driver, and
+    /// `executor_offer`, both read before any part was provisioned.
     pub(crate) fn new(
         driver: D,
         executor: E,
         offer: Capabilities,
+        executor_offer: Capabilities,
         batch_limits: BatchLimits,
     ) -> Self {
         Self {
             driver,
             executor,
             offer,
+            executor_offer,
             batch_limits,
         }
     }
 
-    /// Runs `shots` with `seed`, and blocks until the run ends: each shot's
-    /// output, in the order of `shots`. It is [`run_async`](Self::run_async)'s
-    /// future, waited for on this thread with no async runtime, sleeping
-    /// while it waits for a part. Not on wasm32, which cannot block: there,
-    /// use `run_async`.
+    /// Runs `shots` with `seed`, and blocks until the run ends: the driver's
+    /// outputs, as [`run_async`](Self::run_async) gives them. It is
+    /// `run_async`'s future, waited for on this thread with no async
+    /// runtime, sleeping while it waits for a part. Not on wasm32, which
+    /// cannot block: there, use `run_async`.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run(
         &mut self,
@@ -75,7 +80,9 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     }
 
     /// Runs `shots` with `seed`, as a future, for a caller that is already
-    /// async: each shot's output, in the order of `shots`.
+    /// async: the driver's outputs, as it gives them, which
+    /// [`Drive::drive`]'s rule makes one per shot, in the order of `shots`;
+    /// the runner does not check their count or order.
     ///
     /// A `Some` seed gives the same outputs each time; a run with one is
     /// refused when the chain is not seedable. `None` draws a seed that is
@@ -87,8 +94,8 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// a part's panic in `drive`, `execute` or an `end_shots` the driver
     /// calls, where a panic unwinds (on wasm32, it aborts).
     ///
-    /// A failed run's shots are then ended on every part, the driver's
-    /// adapters top to bottom, then the executor, so that no part carries
+    /// A failed run's shots are then ended on every part, every adapter top
+    /// to bottom, then the executor at the bottom, so that no part carries
     /// them into the next run; so are those of a run whose future is
     /// dropped before it ends. Every part is ended even if one panics in
     /// `end_shots`; the first such panic, top to bottom, is then raised
@@ -126,7 +133,11 @@ impl<D: Drive, E: Execute> Runner<D, E> {
                 executor: &mut self.executor,
                 shots,
             };
-            let mut below = Checked::new(&mut *unended.executor, &self.batch_limits);
+            let mut below = Checked::new(
+                &mut *unended.executor,
+                &self.executor_offer,
+                &self.batch_limits,
+            );
             let driver = &mut *unended.driver;
             let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
                 Ok(Ok(outputs)) => {

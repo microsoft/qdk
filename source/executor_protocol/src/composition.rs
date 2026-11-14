@@ -168,7 +168,10 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
     /// chain, with each part's needs and offer when an offer falls short;
     /// otherwise provisions the driver, then the executor with the driver's
     /// needs, and the runner keeps the offer that reaches the driver as its
-    /// run limits.
+    /// run limits. Every offer is read once, before any part is
+    /// provisioned, and each boundary keeps the one that crosses it, so
+    /// that every check of a run is against the offer the admission
+    /// checked.
     fn compose(mut self, mut rhs: Executor<E>) -> Self::Output {
         let boundary = fit(self.part.sends(), rhs.part.accepts());
         let boundary = boundary.map(|below| self.part.bind(below)).err();
@@ -182,10 +185,16 @@ impl<D: Drive, E: Execute> Compose<Executor<E>> for Driver<D> {
         if !fit.is_empty() || admission.is_some() {
             return Err(CompositionFaults::new(fit, admission));
         }
-        self.part.provision();
         let batch_limits = batch_limits(rhs.part.accepts(), &offer, &needs);
+        self.part.provision();
         rhs.part.provision(needs);
-        Ok(Runner::new(self.part, rhs.part, reaching, batch_limits))
+        Ok(Runner::new(
+            self.part,
+            rhs.part,
+            reaching,
+            offer,
+            batch_limits,
+        ))
     }
 }
 
