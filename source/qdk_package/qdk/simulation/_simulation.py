@@ -794,6 +794,8 @@ def prepare_qir_with_correlated_noise(
 
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
+    # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
+    DecomposeMxMyPass().run(mod)
 
     # Extract the gates including correlated noise instructions
     return GpuCorrelatedNoisePass(noise_tables).run_and_collect(mod)
@@ -842,6 +844,9 @@ class GpuSimulator:
         mod, _, _, _ = preprocess_simulation_input(input, None, None, None)
         if is_adaptive(mod):
             self._is_adaptive = True
+            # Ccx and X/Y-basis measurements are not supported in the GPU simulator, decompose them
+            DecomposeCcxPass().run(mod)
+            DecomposeMxMyPass().run(mod)
             # Build noise_intrinsics dict from loaded noise tables (if any)
             noise_intrinsics = None
             if self.tables is not None:
