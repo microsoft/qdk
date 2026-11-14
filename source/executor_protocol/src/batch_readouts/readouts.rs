@@ -7,9 +7,10 @@
 //! The caller lends it, and the `execute` appends to it, as
 //! `std::io::Read::read_to_end` appends to the caller's `Vec`: so a caller
 //! that sends many small `execute`s, such as a driver sending a round at a
-//! time, reuses one buffer, and an `execute` allocates nothing once the
-//! buffer has held answers of its size. Clearing it keeps the memory of
-//! every batch's readouts, which the next answer reuses.
+//! time, reuses one buffer, and an `execute` that fills it with
+//! [`Readouts::push_batch`] allocates nothing once the buffer has held
+//! answers of its size. Clearing it keeps the memory of every batch's
+//! readouts, which the next answer reuses.
 
 use std::fmt;
 use std::ops::Deref;
@@ -19,18 +20,33 @@ use super::BatchReadouts;
 /// The readouts of the batches of one or more `execute`s, read as a slice
 /// of [`BatchReadouts`], in the order they were added.
 ///
-/// An `execute` appends one per batch, in the batches' order, and touches
-/// none of those before; the protocol checks that, on every answer that
-/// crosses a boundary of a chain, it appended one per batch of the batches'
-/// shape, and an `execute` that fails leaves it as it was. Its owner
-/// [`clear`](Self::clear)s it between `execute`s whose answers it no longer
-/// needs; the memory stays, for the next.
+/// An `execute` appends one per batch, in the batches' order. Through the
+/// protocol, it cannot change those it found: it reads them as a slice,
+/// and its [`clear`](Self::clear) keeps them. The protocol checks, on
+/// every answer that crosses a boundary of a chain, that it appended one
+/// per batch of the batches' shape, and an `execute` that fails leaves it
+/// as it was. Its owner `clear`s it between `execute`s whose answers it no
+/// longer needs; the memory stays, for the next.
 #[derive(Default)]
 pub struct Readouts {
     /// The batches' readouts: the first `len` in use, the rest kept, with
     /// their memory, for the next ones added.
     batches: Vec<BatchReadouts>,
     len: usize,
+    /// While it is lent to an `execute` through the protocol, the readouts
+    /// that `execute` found, which `clear` keeps; 0 otherwise.
+    found: usize,
+}
+
+/// A lending of [`Readouts`] to an `execute`, from [`Readouts::lend`] to
+/// [`Readouts::end_loan`].
+#[derive(Clone, Copy)]
+pub(crate) struct Loan {
+    /// The readouts the `execute` found: its answer starts there.
+    start: usize,
+    /// What `found` was before, restored when the loan ends: the start of
+    /// the loan this one is nested in, if any.
+    outer: usize,
 }
 
 impl Readouts {
@@ -40,9 +56,11 @@ impl Readouts {
         Self::default()
     }
 
-    /// Empties it, keeping its memory.
+    /// Empties it, keeping its memory. Lent to an `execute` through the
+    /// protocol, it removes only the readouts that `execute` added, never
+    /// those it found.
     pub fn clear(&mut self) {
-        self.len = 0;
+        self.len = self.found;
     }
 
     /// Adds the next batch's readouts, with no rows yet, of `readouts`
@@ -61,7 +79,8 @@ impl Readouts {
     }
 
     /// Adds the next batch's readouts, made elsewhere, such as by
-    /// [`BatchReadouts::concat_readouts`].
+    /// [`BatchReadouts::concat_readouts`]: they take the place of the
+    /// memory kept for the next batch, which is freed.
     pub fn push(&mut self, batch: BatchReadouts) {
         if self.len == self.batches.len() {
             self.batches.push(batch);
@@ -71,9 +90,29 @@ impl Readouts {
         self.len += 1;
     }
 
-    /// Keeps the first `len` readouts, if it holds more.
-    pub(crate) fn truncate(&mut self, len: usize) {
-        self.len = self.len.min(len);
+    /// Lends it to an `execute`, which appends after the readouts it holds
+    /// now and, until the loan ends, cannot `clear` them.
+    pub(crate) fn lend(&mut self) -> Loan {
+        let loan = Loan {
+            start: self.len,
+            outer: self.found,
+        };
+        self.found = self.len;
+        loan
+    }
+
+    /// The readouts appended during `loan`: none when the `execute`
+    /// replaced the whole value with one of fewer readouts.
+    pub(crate) fn appended(&self, loan: Loan) -> &[BatchReadouts] {
+        self.get(loan.start..).unwrap_or_default()
+    }
+
+    /// Ends `loan`, keeping the answer appended during it, or removing it.
+    pub(crate) fn end_loan(&mut self, loan: Loan, keep_answer: bool) {
+        if !keep_answer {
+            self.len = self.len.min(loan.start);
+        }
+        self.found = loan.outer;
     }
 }
 
@@ -100,6 +139,7 @@ impl Clone for Readouts {
         Self {
             batches: self.to_vec(),
             len: self.len,
+            found: 0,
         }
     }
 }

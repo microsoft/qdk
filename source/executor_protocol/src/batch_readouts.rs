@@ -40,6 +40,7 @@ use std::error::Error;
 use std::fmt;
 
 pub use readout_value::{ReadoutFailure, ReadoutValue};
+pub(crate) use readouts::Loan;
 pub use readouts::Readouts;
 pub use shot_conditions::ShotConditions;
 
@@ -340,8 +341,7 @@ pub enum ShapeFault {
         got: usize,
     },
     /// An `execute` appended `got` batches' readouts to the caller's
-    /// [`Readouts`], where it was sent `expected` batches; `got` is 0 when
-    /// it removed readouts it found there.
+    /// [`Readouts`], where it was sent `expected` batches.
     Batches {
         /// The batches sent.
         expected: usize,

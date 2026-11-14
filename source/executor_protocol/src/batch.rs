@@ -8,9 +8,9 @@ use crate::{Instruction, ShotSet};
 /// A request: run `instructions`, in order, on each of `shots`.
 ///
 /// An `execute` holds any number of batches, so that a part sends at once
-/// the work of shots at different points of their programs; it answers with
-/// one [`BatchReadouts`](crate::BatchReadouts) per batch, in the batches'
-/// order, with a row per shot in `shots`' order and a value per readout
+/// the work of shots at different points of their programs; it appends one
+/// [`BatchReadouts`](crate::BatchReadouts) per batch to the caller's
+/// [`Readouts`](crate::Readouts), in the batches' order, with a row per shot in `shots`' order and a value per readout
 /// slot of `instructions`. How the batches of one `execute` relate, such
 /// as a shot in at most one of them, is said on
 /// [`Execute::execute`](crate::Execute::execute).

@@ -68,7 +68,7 @@ fn rows_come_back_in_push_order_with_their_conditions() {
 
 /// Two batches' readouts are equal when their rows and each shot's
 /// conditions are, whatever room each was made with, and differ when only
-/// a shot's conditions do.
+/// a value, or only a shot's conditions, does.
 #[test]
 fn readouts_are_equal_when_their_rows_and_conditions_are() {
     let rows: [(&[ReadoutValue], ShotConditions); 2] = [
@@ -82,6 +82,14 @@ fn readouts_are_equal_when_their_rows_and_conditions_are() {
             .expect("each row has the batch's width");
     }
     assert_eq!(readouts(1, &rows), roomy);
+    let flipped = readouts(
+        1,
+        &[
+            (&[One], ShotConditions::NONE),
+            (&[One], ShotConditions::REJECTED),
+        ],
+    );
+    assert_ne!(readouts(1, &rows), flipped);
     let clear = readouts(
         1,
         &[
@@ -173,6 +181,58 @@ fn cleared_readouts_take_an_answer_of_a_size_they_held_without_allocating() {
     let count = allocations(|| fill(&mut readouts));
     assert_eq!(count, 0);
     assert_eq!(readouts, first, "the same answer, in reused memory");
+}
+
+/// Cleared readouts that held a small answer take a much larger one as
+/// fresh readouts would: at most two allocations, the values' and the
+/// conditions', made once with the room for every row.
+#[test]
+fn cleared_readouts_take_a_larger_answer_in_at_most_two_allocations() {
+    let mut readouts = Readouts::new();
+    readouts
+        .push_batch(1, 3)
+        .push_row(&[One, Zero, LOST], ShotConditions::NONE)
+        .expect("each row has the batch's width");
+    readouts.clear();
+    let count = allocations(|| {
+        let batch = readouts.push_batch(1000, 3);
+        for shot in 0..1000 {
+            let conditions = if shot == 0 {
+                ShotConditions::REJECTED
+            } else {
+                ShotConditions::NONE
+            };
+            batch
+                .push_row(&[One, Zero, LOST], conditions)
+                .expect("each row has the batch's width");
+        }
+    });
+    assert!(count <= 2, "{count} allocations");
+}
+
+/// Two `Readouts` are equal when they hold equal batches' readouts in the
+/// same order, whatever memory each keeps, and differ when one batch's do.
+#[test]
+fn readouts_lists_are_equal_when_their_batches_are() {
+    let fill = |readouts: &mut Readouts, values: [&[ReadoutValue]; 2]| {
+        for row in values {
+            readouts
+                .push_batch(1, 1)
+                .push_row(row, ShotConditions::NONE)
+                .expect("each row has the batch's width");
+        }
+    };
+    let mut fresh = Readouts::new();
+    fill(&mut fresh, [&[One], &[Zero]]);
+    let mut reused = Readouts::new();
+    fill(&mut reused, [&[Zero], &[Zero]]);
+    fill(&mut reused, [&[Zero], &[Zero]]);
+    reused.clear();
+    fill(&mut reused, [&[One], &[Zero]]);
+    assert_eq!(fresh, reused);
+    let mut other = Readouts::new();
+    fill(&mut other, [&[One], &[One]]);
+    assert_ne!(fresh, other);
 }
 
 /// A batch with no readout slots, such as one that only applies gates,

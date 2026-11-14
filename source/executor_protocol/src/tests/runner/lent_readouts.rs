@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! What an `execute` through the protocol does with the readouts its
-//! caller lends: it appends its answer after those already there, and
-//! leaves them as they were when it fails or is dropped.
+//! caller lends: it appends its answer after those already there, cannot
+//! clear those, and leaves them as they were when it fails or is dropped.
 
 use std::cell::RefCell;
 use std::future::poll_fn;
@@ -13,11 +13,13 @@ use std::sync::OnceLock;
 use std::task::Poll;
 
 use super::{SEED, runner};
-use crate::tests::fake_parts::{Bits, CoinGates, Log, Misshape, Misshapen, YieldNow, coin_gate};
+use crate::tests::fake_parts::{
+    Bits, CoinGates, Log, Misshape, Misshapen, Profiler, YieldNow, coin_gate,
+};
 use crate::{
-    Batch, Capabilities, Drive, DriveError, Driver, Execute, ExecuteError, Executor, Failure,
-    Instruction, InstructionSet, Needs, OpcodeMap, ReadoutValue, Readouts, Seed, ShapeFault,
-    ShotConditions, ShotId, ShotSet,
+    Adapt, Adapter, Batch, Capabilities, CompositionFaults, Drive, DriveError, Driver, Execute,
+    ExecuteError, Executor, Failure, Instruction, InstructionSet, Needs, OpcodeMap, ReadoutValue,
+    Readouts, Runner, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
 };
 
 /// How a [`Lender`] waits for its `execute`.
@@ -131,6 +133,9 @@ enum Unruliness {
     WaitsAfterAppending,
     /// Clears the readouts it is lent, then appends its answer.
     ClearsFirst,
+    /// Replaces the readouts it is lent with new, empty ones, and appends
+    /// nothing.
+    ReplacesThem,
 }
 
 /// [`Bits`] breaking the rules of the readouts it is lent, as
@@ -156,8 +161,13 @@ impl Execute for Unruly {
         seed: Seed,
         readouts: &mut Readouts,
     ) -> Result<(), ExecuteError> {
-        if let Unruliness::ClearsFirst = self.1 {
-            readouts.clear();
+        match self.1 {
+            Unruliness::ClearsFirst => readouts.clear(),
+            Unruliness::ReplacesThem => {
+                *readouts = Readouts::new();
+                return Ok(());
+            }
+            _ => {}
         }
         self.0.execute(batches, seed, readouts).await?;
         match self.1 {
@@ -170,7 +180,7 @@ impl Execute for Unruly {
                 YieldNow::default().await;
                 Ok(())
             }
-            Unruliness::ClearsFirst => Ok(()),
+            Unruliness::ClearsFirst | Unruliness::ReplacesThem => Ok(()),
         }
     }
 
@@ -179,13 +189,53 @@ impl Execute for Unruly {
     }
 }
 
-/// What a [`Lender`] waiting as `waits` saw, on 3 shots above `executor`.
-fn seen<E: Execute>(waits: Waits, executor: E) -> Seen {
+/// A [`Profiler`] that sends each `execute` below twice, through the
+/// readouts it is lent, clearing the first answer before the second, as an
+/// adapter retrying an attempt would.
+struct Retries(Profiler);
+
+impl Adapt for Retries {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        self.0.adapt(batches, seed, below, readouts).await?;
+        readouts.clear();
+        self.0.adapt(batches, seed, below, readouts).await
+    }
+}
+
+/// What a [`Lender`] waiting as `waits` saw, on 3 shots, on the chain
+/// `below` composes it into.
+fn seen_on<D: Drive, E: Execute>(
+    waits: Waits,
+    below: impl FnOnce(Driver<Lender>) -> Result<Runner<D, E>, CompositionFaults>,
+) -> Seen {
     let seen = Rc::new(RefCell::new(None));
-    runner(Driver::new(Lender::new(waits, &seen)) >> Executor::new(executor))
+    runner(below(Driver::new(Lender::new(waits, &seen))))
         .run(&ShotSet::ids(0..3), SEED)
         .expect("the lender ends the run with no error");
     seen.take().expect("the lender ran")
+}
+
+/// What a [`Lender`] waiting as `waits` saw, on 3 shots above `executor`.
+fn seen<E: Execute>(waits: Waits, executor: E) -> Seen {
+    seen_on(waits, |lender| lender >> Executor::new(executor))
 }
 
 /// A driver lending readouts that hold a batch of its own: the answer of
@@ -250,15 +300,53 @@ fn a_failed_or_dropped_execute_leaves_the_lent_readouts_as_they_were() {
     assert_eq!(dropped.after, dropped.before, "the dropped execute");
 }
 
-/// An executor that clears the readouts it is lent, holding the driver's
-/// batch, then appends its answer for the one batch: a failure, since it
-/// appended none after the readouts it found.
+/// An executor that clears the readouts it is lent, as if they were its
+/// own, before it answers, and an adapter that clears the answer of the
+/// part below to send its `execute` again: each `clear` removes only what
+/// its `execute` added, so the driver's batch stays, followed by the
+/// answer; the driver's own `clear`, after, removes it all.
 #[test]
-fn an_answer_removing_readouts_it_found_is_a_failure() {
+fn clearing_the_lent_readouts_keeps_those_the_execute_found() {
     let log = Log::default();
-    let Seen { result, .. } = seen(
+    let counted = Rc::default();
+    let cleared = [
+        seen(
+            Waits::ForTheAnswer,
+            Unruly(Bits::new(&log), Unruliness::ClearsFirst),
+        ),
+        seen_on(Waits::ForTheAnswer, |lender| {
+            lender
+                >> Adapter::new(Retries(Profiler::new(&counted, &log)))
+                >> Executor::new(Bits::new(&log))
+        }),
+    ];
+    for (
+        case,
+        Seen {
+            before,
+            result,
+            mut after,
+        },
+    ) in cleared.into_iter().enumerate()
+    {
+        assert!(matches!(result, Some(Ok(()))), "case {case}: {result:?}");
+        assert_eq!(after.len(), 2, "case {case}");
+        assert_eq!(after[0], before[0], "case {case}: the driver's batch");
+        assert_eq!(after[1].shots(), 3, "case {case}: the answer");
+        after.clear();
+        assert!(after.is_empty(), "case {case}: the driver's clear");
+    }
+}
+
+/// An executor that replaces the readouts it is lent with new, empty ones,
+/// which no executor may do: a failure, since it appended none after the
+/// readouts the driver had, and the driver's readouts stay readable.
+#[test]
+fn an_execute_replacing_the_lent_readouts_with_fewer_is_a_failure() {
+    let log = Log::default();
+    let Seen { result, after, .. } = seen(
         Waits::ForTheAnswer,
-        Unruly(Bits::new(&log), Unruliness::ClearsFirst),
+        Unruly(Bits::new(&log), Unruliness::ReplacesThem),
     );
     let Some(Err(ExecuteError::Failed {
         failure: Failure::Part(why),
@@ -274,4 +362,5 @@ fn an_answer_removing_readouts_it_found_is_a_failure() {
             got: 0
         })
     );
+    assert!(after.is_empty());
 }

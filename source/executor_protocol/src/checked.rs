@@ -18,6 +18,7 @@
 
 use smallvec::SmallVec;
 
+use crate::batch_readouts::Loan;
 use crate::instruction_set::instruction::batch_check::{BatchFault, BatchLimits, check_batch};
 use crate::panics::catch_panic;
 use crate::{
@@ -166,22 +167,22 @@ fn refusal(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteRefusal
     }
 }
 
-/// The caller's `readouts` while an `execute` appends its answer to them,
-/// from `start`, their length before it: dropped unkept, it removes the
-/// answer, so that an `execute` that fails, panics or is dropped leaves
-/// them as they were.
+/// The caller's `readouts` while they are lent to an `execute` that
+/// appends its answer to them: dropped unkept, it removes the answer, so
+/// that an `execute` that fails, panics or is dropped leaves them as they
+/// were.
 struct PendingAnswer<'a> {
     readouts: &'a mut Readouts,
-    start: usize,
+    loan: Loan,
     kept: bool,
 }
 
 impl<'a> PendingAnswer<'a> {
     fn new(readouts: &'a mut Readouts) -> Self {
-        let start = readouts.len();
+        let loan = readouts.lend();
         Self {
             readouts,
-            start,
+            loan,
             kept: false,
         }
     }
@@ -191,10 +192,9 @@ impl<'a> PendingAnswer<'a> {
         self.readouts
     }
 
-    /// The readouts the receiver appended: none if it removed some it
-    /// found.
+    /// The readouts the receiver appended.
     fn appended(&self) -> &[BatchReadouts] {
-        self.readouts.get(self.start..).unwrap_or_default()
+        self.readouts.appended(self.loan)
     }
 
     /// Keeps the answer, once checked.
@@ -205,9 +205,7 @@ impl<'a> PendingAnswer<'a> {
 
 impl Drop for PendingAnswer<'_> {
     fn drop(&mut self) {
-        if !self.kept {
-            self.readouts.truncate(self.start);
-        }
+        self.readouts.end_loan(self.loan, self.kept);
     }
 }
 
