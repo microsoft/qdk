@@ -20,7 +20,13 @@
 //!   (`truncation=fixed-extent`), and reports no discarded weight;
 //! - `cutensornetTensorQR` of one `b × 2 × b` tensor: moving the centre;
 //! - cuSOLVER's `gesvdjBatched` (`2b ≤ 32`) and `gesvdaStridedBatched`
-//!   (the `b` largest of `2b × 2b`) for `K` matrices in one launch.
+//!   (the `b` largest of `2b × 2b`) for `K` matrices in one launch;
+//! - for each bond of `--unchecked-bonds`, too large for the host's
+//!   reference (θ alone is 10 GB at `b = 12 872`), the gate split only,
+//!   unchecked: its first run (uploads and allocations included), then
+//!   `--reps` timed runs, the library's extents and discarded weight, its
+//!   workspace's size, and whether the kept values are finite and sorted.
+//!   GESVDR keeps exactly `b` of the `2b` values there.
 //!
 //! The tensors are random, with left and right bonds whose weights decay
 //! as an MPS's Schmidt values do. Each call's answer is checked on the
@@ -43,7 +49,8 @@
 //!     [--engine cutensornet|cpu] [--bonds 8,16,24] [--batches 1,4,16] \
 //!     [--svd-algos gesvd,gesvdj,gesvdp,gesvdr] \
 //!     [--gate-split-algos reduced,direct] \
-//!     [--cusolver /path/to/libcusolver.so.11]
+//!     [--cusolver /path/to/libcusolver.so.11] \
+//!     [--unchecked-bonds 2048,4096,8192,12872] [--reps 2]
 //! ```
 //!
 //! The defaults: every SVD algorithm, `reduced` only. cuSOLVER's path may
@@ -91,6 +98,10 @@ struct Options {
     /// The gate-split algorithms' names, checked likewise.
     gate_split_algos: Vec<String>,
     cusolver: Option<std::path::PathBuf>,
+    /// Bonds timed without the host's reference.
+    unchecked_bonds: Vec<usize>,
+    /// The timed runs of each unchecked gate split, after the first.
+    reps: usize,
 }
 
 fn main() {
@@ -119,6 +130,8 @@ fn parse_options() -> Options {
         svd_algos: names("gesvd,gesvdj,gesvdp,gesvdr"),
         gate_split_algos: names("reduced"),
         cusolver: std::env::var_os("QDK_CUSOLVER_LIBRARY").map(Into::into),
+        unchecked_bonds: Vec::new(),
+        reps: 2,
     };
     let mut arguments = std::env::args().skip(1);
     while let Some(flag) = arguments.next() {
@@ -132,6 +145,8 @@ fn parse_options() -> Options {
             "--svd-algos" => options.svd_algos = names(&value),
             "--gate-split-algos" => options.gate_split_algos = names(&value),
             "--cusolver" => options.cusolver = Some(value.into()),
+            "--unchecked-bonds" => options.unchecked_bonds = list(&value),
+            "--reps" => options.reps = value.parse().expect("--reps takes a count"),
             _ => panic!("unknown flag {flag}"),
         }
     }
@@ -141,6 +156,7 @@ fn parse_options() -> Options {
 fn list(value: &str) -> Vec<usize> {
     value
         .split(',')
+        .filter(|item| !item.is_empty())
         .map(|item| item.parse().expect("a list of integers"))
         .collect()
 }
@@ -166,14 +182,7 @@ struct Problem {
 
 impl Problem {
     fn new(bond: usize, random: &mut Random) -> Self {
-        let decay = |index: usize| 10_f64.powf(-3.0 * ratio(index, bond));
-        let mut left: Vec<Complex64> = (0..2 * bond * bond)
-            .map(|index| random.normal() * decay(index % bond))
-            .collect();
-        let right: Vec<Complex64> = (0..2 * bond * bond)
-            .map(|index| random.normal() * decay(index / (2 * bond)))
-            .collect();
-        let gate: Vec<Complex64> = (0..16).map(|_| random.normal()).collect();
+        let (mut left, right, gate) = random_factors(bond, random);
         let mut theta = contract(bond, &left, &right, &gate);
         let norm = theta.iter().map(Complex64::norm_sqr).sum::<f64>().sqrt();
         for value in left.iter_mut().chain(theta.iter_mut()) {
@@ -187,6 +196,23 @@ impl Problem {
             theta,
         }
     }
+}
+
+/// Two random `bond × 2 × bond` tensors, their outer bonds' weights
+/// decaying over three decades, and a random `2 × 2 × 2 × 2` gate.
+fn random_factors(
+    bond: usize,
+    random: &mut Random,
+) -> (Vec<Complex64>, Vec<Complex64>, Vec<Complex64>) {
+    let decay = |index: usize| 10_f64.powf(-3.0 * ratio(index, bond));
+    let left = (0..2 * bond * bond)
+        .map(|index| random.normal() * decay(index % bond))
+        .collect();
+    let right = (0..2 * bond * bond)
+        .map(|index| random.normal() * decay(index / (2 * bond)))
+        .collect();
+    let gate = (0..16).map(|_| random.normal()).collect();
+    (left, right, gate)
 }
 
 /// `θ[i + b·P, Q + 2·k] = Σ G[P, Q, p, q]·A[i, p, j]·B[j, q, k]`.
@@ -372,7 +398,22 @@ fn run_on_cpu(options: &Options) -> bool {
             values[0],
         );
     }
+    let mut random = Random(2);
+    for &bond in &options.unchecked_bonds {
+        let started = Instant::now();
+        let (left, right, _) = random_factors(bond, &mut random);
+        println!(
+            "CPU-UNCHECKED b={bond} build_ms={:.2} left_gb={:.2} right_gb={:.2}",
+            started.elapsed().as_secs_f64() * 1e3,
+            gigabytes(left.len() * 16),
+            gigabytes(right.len() * 16),
+        );
+    }
     true
+}
+
+fn gigabytes(bytes: usize) -> f64 {
+    ratio(bytes >> 20, 1024)
 }
 
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
@@ -448,8 +489,111 @@ fn run_on_gpu(options: &Options) -> bool {
             Ok(solver) => report_batched(&device, &solver, options, &mut random),
         },
     }
+    let mut random = Random(2);
+    for &bond in &options.unchecked_bonds {
+        let (left, right, gate) = random_factors(bond, &mut random);
+        let inputs = qdk_cutensornet::dev_gate_split::GateSplitInputs {
+            left: &left,
+            right: &right,
+            gate: &gate,
+        };
+        for &svd in &svd_algos {
+            for &split in &split_algos {
+                report_unchecked_gate_split(&device, bond, &inputs, svd, split, options.reps);
+            }
+        }
+    }
     report_decision(deciding);
     true
+}
+
+/// Times one gate split at a bond too large for the host's reference: no
+/// agreement check, only what the library reports and whether the kept
+/// values are finite and sorted (`values_sane`).
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn report_unchecked_gate_split(
+    device: &qdk_cutensornet::dev_gate_split::BenchDevice,
+    bond: usize,
+    inputs: &qdk_cutensornet::dev_gate_split::GateSplitInputs<'_>,
+    svd: qdk_cutensornet::dev_gate_split::TensorSvdAlgo,
+    split: qdk_cutensornet::dev_gate_split::GateSplitAlgo,
+    reps: usize,
+) {
+    use qdk_cutensornet::dev_gate_split::{GateSplitInputs, TensorSvdAlgo, Truncation};
+
+    let (truncation, truncation_name) = if svd == TensorSvdAlgo::Gesvdr {
+        (Truncation::FixedExtent(bond), "fixed-extent")
+    } else {
+        (
+            Truncation::DiscardedWeight(DISCARDED_WEIGHT_CUTOFF),
+            "discarded-weight",
+        )
+    };
+    let pair = format!(
+        "b={bond} svd={} split={} truncation={truncation_name}",
+        svd.name(),
+        split.name()
+    );
+    let inputs = GateSplitInputs {
+        left: inputs.left,
+        right: inputs.right,
+        gate: inputs.gate,
+    };
+    let started = Instant::now();
+    let mut prepared = match device.gate_split(bond, svd, split, truncation, inputs) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            println!("UNCHECKED status=refused {pair} reason={error}");
+            return;
+        }
+    };
+    let first_run = started.elapsed().as_secs_f64() - prepared.setup_seconds();
+    let outcome = match prepared.outcome() {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            println!("UNCHECKED status=refused {pair} reason={error}");
+            return;
+        }
+    };
+    let values = &outcome.singular_values;
+    let values_sane = values
+        .iter()
+        .all(|value| value.is_finite() && *value >= 0.0)
+        && values.windows(2).all(|pair| pair[0] >= pair[1])
+        && usize::try_from(outcome.reduced_extent).is_ok_and(|kept| kept <= bond);
+    let discarded = outcome.discarded_weight.map_or_else(
+        || "not-computed".to_owned(),
+        |weight| format!("{weight:.3e}"),
+    );
+    let (device_bytes, host_bytes) = prepared.workspace_bytes();
+    let facts = format!(
+        "{pair} full={} reduced={} discarded_weight={discarded} values_sane={values_sane} s_max={:.3e} s_min_kept={:.3e} workspace_device_gb={:.2} workspace_host_gb={:.2} setup_ms={:.3} first_run_s={first_run:.2}",
+        outcome.full_extent,
+        outcome.reduced_extent,
+        values.first().copied().unwrap_or(f64::NAN),
+        values.last().copied().unwrap_or(f64::NAN),
+        gigabytes(device_bytes),
+        gigabytes(host_bytes),
+        prepared.setup_seconds() * 1e3,
+    );
+    let mut samples = Vec::new();
+    for _ in 0..reps {
+        let start = Instant::now();
+        if let Err(error) = prepared.run() {
+            println!("UNCHECKED status=refused {facts} reason={error}");
+            return;
+        }
+        samples.push(start.elapsed().as_secs_f64());
+    }
+    samples.sort_by(f64::total_cmp);
+    let status = if values_sane { "ok" } else { "suspect" };
+    match (samples.get(samples.len() / 2), samples.first()) {
+        (Some(median), Some(minimum)) => println!(
+            "UNCHECKED status={status} {facts} s_median={median:.2} s_min={minimum:.2} reps={}",
+            samples.len()
+        ),
+        _ => println!("UNCHECKED status={status} {facts} reps=0"),
+    }
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

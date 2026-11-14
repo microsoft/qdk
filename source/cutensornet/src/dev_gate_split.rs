@@ -701,6 +701,20 @@ impl GateSplit<'_> {
         self.setup_seconds
     }
 
+    /// The workspace's bytes on the device and on the host, as the library
+    /// recommended them for these descriptors.
+    #[must_use]
+    pub fn workspace_bytes(&self) -> (usize, usize) {
+        (
+            self.workspace
+                .device
+                .iter()
+                .map(|buffer| buffer.bytes)
+                .sum(),
+            self.workspace.host.iter().map(Vec::len).sum(),
+        )
+    }
+
     fn info_i64(&self, attribute: c_uint) -> Result<i64, String> {
         let mut value = 0_i64;
         self.read_info(attribute, (&raw mut value).cast(), size_of::<i64>())?;
