@@ -219,6 +219,37 @@ impl NoiseConfig {
         )
     }
 
+    fn copy(&self, py: Python<'_>) -> PyResult<Self> {
+        Ok(Self {
+            i: Py::new(py, (*self.i.borrow(py)).clone())?,
+            x: Py::new(py, (*self.x.borrow(py)).clone())?,
+            y: Py::new(py, (*self.y.borrow(py)).clone())?,
+            z: Py::new(py, (*self.z.borrow(py)).clone())?,
+            h: Py::new(py, (*self.h.borrow(py)).clone())?,
+            s: Py::new(py, (*self.s.borrow(py)).clone())?,
+            s_adj: Py::new(py, (*self.s_adj.borrow(py)).clone())?,
+            t: Py::new(py, (*self.t.borrow(py)).clone())?,
+            t_adj: Py::new(py, (*self.t_adj.borrow(py)).clone())?,
+            sx: Py::new(py, (*self.sx.borrow(py)).clone())?,
+            sx_adj: Py::new(py, (*self.sx_adj.borrow(py)).clone())?,
+            rx: Py::new(py, (*self.rx.borrow(py)).clone())?,
+            ry: Py::new(py, (*self.ry.borrow(py)).clone())?,
+            rz: Py::new(py, (*self.rz.borrow(py)).clone())?,
+            cx: Py::new(py, (*self.cx.borrow(py)).clone())?,
+            cy: Py::new(py, (*self.cy.borrow(py)).clone())?,
+            cz: Py::new(py, (*self.cz.borrow(py)).clone())?,
+            rxx: Py::new(py, (*self.rxx.borrow(py)).clone())?,
+            ryy: Py::new(py, (*self.ryy.borrow(py)).clone())?,
+            rzz: Py::new(py, (*self.rzz.borrow(py)).clone())?,
+            swap: Py::new(py, (*self.swap.borrow(py)).clone())?,
+            ccx: Py::new(py, (*self.ccx.borrow(py)).clone())?,
+            mov: Py::new(py, (*self.mov.borrow(py)).clone())?,
+            mz: Py::new(py, (*self.mz.borrow(py)).clone())?,
+            mresetz: Py::new(py, (*self.mresetz.borrow(py)).clone())?,
+            intrinsics: self.intrinsics.clone_ref(py),
+        })
+    }
+
     fn intrinsic<'py>(
         &'py mut self,
         py: Python<'py>,

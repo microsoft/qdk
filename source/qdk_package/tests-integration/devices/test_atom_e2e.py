@@ -254,6 +254,37 @@ def test_z_noise_inherits_from_rz():
     assert output == [qsharp.Result.One]
 
 
+def test_rz_noise_inheritance_does_not_mutate_caller_config():
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("operation Main() : Result { use q = Qubit(); S(q); MResetZ(q) }")
+    qir = qsharp.compile("Main()")
+    noise = NoiseConfig()
+
+    device = NeutralAtomDevice()
+    initial = device.simulate(qir, shots=20, noise=noise, type="stabilizer", seed=5)
+    assert initial == [qsharp.Result.Zero] * 20
+
+    noise.rz.x = 1.0
+    mutated_noise = noise.copy()
+    assert noise.intrinsics is mutated_noise.intrinsics
+
+    noisy_result = device.simulate(
+        qir, shots=20, noise=noise, type="stabilizer", seed=5
+    )
+    assert noisy_result == [qsharp.Result.One] * 20
+    assert noise.s.is_noiseless()
+    assert noise.s_adj.is_noiseless()
+    assert noise.t.is_noiseless()
+    assert noise.t_adj.is_noiseless()
+    assert noise.z.is_noiseless()
+
+    noise.rz.x = 0.0
+    reset_result = device.simulate(
+        qir, shots=20, noise=noise, type="stabilizer", seed=5
+    )
+    assert reset_result == [qsharp.Result.Zero] * 20
+
+
 def test_s_adj_noise_inherits_from_rz():
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval(
