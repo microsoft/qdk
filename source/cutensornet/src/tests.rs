@@ -18,6 +18,10 @@
 //! the host's system loader.
 
 mod cuda_mps_engine;
+#[cfg(unix)]
+mod dev_blocking_sync;
+#[cfg(unix)]
+mod dev_stream_ordered;
 mod devices;
 mod diagnosis;
 mod discovery;

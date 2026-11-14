@@ -15,6 +15,11 @@
 //! reduction cuTensorNet packs them at the reduced extent, the layout the
 //! engine reads (its documentation; checked on the device by
 //! [`self_check`](super::self_check)).
+//!
+//! Its device memory comes from `cudaMalloc`, or, EXPERIMENTAL, from CUDA's
+//! stream-ordered allocator on its stream
+//! ([`DeviceTensors::set_dev_stream_ordered_allocation`]), so that threads
+//! with an engine each do not wait for each other at every `cudaFree`.
 
 mod contraction;
 
@@ -25,6 +30,7 @@ use crate::dev_gate_split::{
     BenchCudaFunctions, BenchTensorFunctions, Descriptor, DeviceBuffer, SvdConfig, SvdInfo,
     TensorSvdAlgo, check_cuda, check_tensor, cuda_failure,
 };
+use crate::dev_stream_ordered::{StreamOrderedFunctions, open_stream_ordered};
 use crate::libraries::LoadedLibraries;
 use crate::libraries::cuda_runtime::cudart_12;
 use crate::libraries::cutensornet::v2_13;
@@ -64,6 +70,7 @@ pub struct DeviceTensors {
     gate: DeviceBuffer,
     contraction: ContractionFunctions,
     plans: RefCell<Plans>,
+    stream_ordered: Cell<Option<StreamOrderedFunctions>>,
     // Last: the handle and the stream outlive every object above.
     context: Rc<DeviceContext>,
 }
@@ -191,8 +198,36 @@ impl DeviceTensors {
             gate,
             contraction,
             plans: RefCell::new(Plans::new()),
+            stream_ordered: Cell::new(None),
             context,
         })
+    }
+
+    /// EXPERIMENTAL, development only (not for review): whether the later
+    /// tensors, the workspace and the singular values' buffer are
+    /// stream-ordered memory (`cudaMallocAsync` and `cudaFreeAsync` on the
+    /// engine's stream, from device 0's default pool) rather than
+    /// `cudaMalloc` and `cudaFree`; see `dev_stream_ordered.rs`. Buffers
+    /// made before keep their own way of being freed, so the option may
+    /// change at any time; the 256-byte gate buffer, made in
+    /// [`Self::open`], stays a `cudaMalloc`.
+    ///
+    /// # Errors
+    ///
+    /// When the CUDA Runtime lacks one of the allocator's functions (the
+    /// message names every missing one), or the pool's setup fails.
+    #[doc(hidden)]
+    pub fn set_dev_stream_ordered_allocation(&self, on: bool) -> Result<(), CudaMpsError> {
+        let functions = if on {
+            Some(
+                open_stream_ordered(&self.context.libraries.cuda_runtime.library)
+                    .map_err(failed)?,
+            )
+        } else {
+            None
+        };
+        self.stream_ordered.set(functions);
+        Ok(())
     }
 
     /// EXPERIMENTAL, development only (not for review): the SVD of every
@@ -283,9 +318,26 @@ impl DeviceTensors {
 
     fn allocate(&self, bytes: usize) -> Result<DeviceArray, CudaMpsError> {
         Ok(DeviceArray {
-            buffer: DeviceBuffer::new(&self.context.libraries, bytes.max(16)).map_err(failed)?,
+            buffer: self.new_buffer(bytes.max(16))?,
             _context: Rc::clone(&self.context),
         })
+    }
+
+    /// `bytes` of device memory, stream-ordered on the engine's stream when
+    /// [`Self::set_dev_stream_ordered_allocation`] is on.
+    fn new_buffer(&self, bytes: usize) -> Result<DeviceBuffer, CudaMpsError> {
+        match self.stream_ordered.get() {
+            None => DeviceBuffer::new(&self.context.libraries, bytes),
+            // SAFETY: every buffer of the engine is used on its stream only,
+            // each host access after a synchronisation of it
+            // (`TensorCalls`' implementation below); the stream outlives
+            // every buffer, as a `DeviceArray` and this struct drop their
+            // buffers before the context.
+            Some(functions) => unsafe {
+                DeviceBuffer::new_stream_ordered(&functions, self.context.stream, bytes)
+            },
+        }
+        .map_err(failed)
     }
 
     /// A tensor descriptor of complex doubles, its first mode fastest.
@@ -445,10 +497,7 @@ impl DeviceTensors {
                         let held = &mut workspace.device[slot];
                         if held.as_ref().is_none_or(|buffer| buffer.bytes < bytes) {
                             *held = None;
-                            *held = Some(
-                                DeviceBuffer::new(&self.context.libraries, bytes.max(256))
-                                    .map_err(failed)?,
-                            );
+                            *held = Some(self.new_buffer(bytes.max(256))?);
                         }
                         held.as_ref().expect("a device workspace").pointer
                     } else {
@@ -507,8 +556,7 @@ impl DeviceTensors {
         let mut values = self.values.borrow_mut();
         if values.as_ref().is_none_or(|buffer| buffer.bytes < bytes) {
             *values = None;
-            *values =
-                Some(DeviceBuffer::new(&self.context.libraries, bytes.max(256)).map_err(failed)?);
+            *values = Some(self.new_buffer(bytes.max(256))?);
         }
         Ok(values.as_ref().expect("a values buffer").pointer)
     }

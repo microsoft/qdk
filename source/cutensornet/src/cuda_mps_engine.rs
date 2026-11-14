@@ -152,6 +152,20 @@ impl CudaMpsEngine<DeviceTensors> {
         self.tensors.set_dev_svd_algo(algo)?;
         Ok(self)
     }
+
+    /// EXPERIMENTAL, development only (not for review): the same engine,
+    /// whose later device memory is stream-ordered on its stream when `on`;
+    /// see [`DeviceTensors::set_dev_stream_ordered_allocation`].
+    ///
+    /// # Errors
+    ///
+    /// When the CUDA Runtime lacks one of the allocator's functions, naming
+    /// every missing one, or the pool's setup fails.
+    #[doc(hidden)]
+    pub fn with_dev_stream_ordered_allocation(self, on: bool) -> Result<Self, CudaMpsError> {
+        self.tensors.set_dev_stream_ordered_allocation(on)?;
+        Ok(self)
+    }
 }
 
 impl<T: TensorCalls> CudaMpsEngine<T> {

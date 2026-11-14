@@ -33,7 +33,8 @@
 //!     [--routing engine|meet-halfway|meet-halfway-after-fusion] \
 //!     [--fusion pairs|unfused|seq|seq3] [--apply engine|mpo] \
 //!     [--reset split|merge] [--variant base|seq3-mpo] \
-//!     [--order resumer|identity] [--no-qr-moves] [--svd-algo gesvd|gesvdj]
+//!     [--order resumer|identity] [--no-qr-moves] [--svd-algo gesvd|gesvdj] \
+//!     [--stream-ordered-allocation] [--blocking-sync]
 //! ```
 //!
 //! `--variant` (development only) names a pair of `--fusion` and `--apply`
@@ -60,6 +61,16 @@
 //! both when they are not the defaults. With `cuda-mps`, each `SHOT` and `CALL`
 //! line ends with the engine's counters (`gate_splits`, `qr_moves`, their
 //! seconds, `mpo_seconds`, …).
+//!
+//! Development only, to compare `--threads N` in one process with N
+//! processes under CUDA MPS (`gpu-h2-threads.sh`), for `cuda-mps` only:
+//! `--stream-ordered-allocation` makes each engine's device memory
+//! stream-ordered (`CudaMpsEngine::with_dev_stream_ordered_allocation`), so
+//! that a thread's frees do not wait for the other threads' work;
+//! `--blocking-sync` makes the process's waits for the GPU block instead of
+//! spin (`dev_blocking_sync::use_blocking_sync`), set before any engine, and
+//! prints `BLOCKING_SYNC status=ok flags=…` (or `status=refused`, and the
+//! run stops). Both show in the variant's name and the `PROGRAM` line.
 //!
 //! `--group K` (development only) runs each K consecutive shots of the slice
 //! in one `run` call, so that they share a state until a draw splits them:
@@ -482,6 +493,11 @@ struct Options {
         expect(dead_code, reason = "read only where cuda-mps builds")
     )]
     svd_algo: Option<String>,
+    /// Development only: `cuda-mps`'s stream-ordered device memory
+    /// (`--stream-ordered-allocation`) and the process's blocking waits for
+    /// the GPU (`--blocking-sync`).
+    stream_ordered_allocation: bool,
+    blocking_sync: bool,
 }
 
 impl Options {
@@ -524,9 +540,13 @@ impl Options {
         let reset = value("--reset").unwrap_or_else(|| "split".to_string());
         let qr_moves = !args.iter().any(|arg| arg == "--no-qr-moves");
         let svd_algo = value("--svd-algo");
+        let stream_ordered_allocation = args.iter().any(|arg| arg == "--stream-ordered-allocation");
+        let blocking_sync = args.iter().any(|arg| arg == "--blocking-sync");
         assert!(
-            value("--engine").as_deref() == Some("cuda-mps") || qr_moves && svd_algo.is_none(),
-            "--no-qr-moves and --svd-algo: --engine cuda-mps only"
+            value("--engine").as_deref() == Some("cuda-mps")
+                || qr_moves && svd_algo.is_none() && !stream_ordered_allocation && !blocking_sync,
+            "--no-qr-moves, --svd-algo, --stream-ordered-allocation and --blocking-sync: \
+             --engine cuda-mps only"
         );
         assert!(fusion != "seq3" || apply == "mpo", "seq3 needs --apply mpo");
         Self {
@@ -608,16 +628,24 @@ impl Options {
                 other => panic!("--reset {other}: split or merge"),
             },
             variant: format!(
-                "{fusion}/{apply}/{reset}{}{}{}",
+                "{fusion}/{apply}/{reset}{}{}{}{}{}",
                 if identity_layout { "/identity" } else { "" },
                 if qr_moves { "" } else { "/gate-split-moves" },
                 svd_algo
                     .as_deref()
                     .map_or(String::new(), |algo| format!("/{algo}")),
+                if stream_ordered_allocation {
+                    "/stream-ordered"
+                } else {
+                    ""
+                },
+                if blocking_sync { "/blocking-sync" } else { "" },
             ),
             identity_layout,
             qr_moves,
             svd_algo,
+            stream_ordered_allocation,
+            blocking_sync,
         }
     }
 
@@ -982,7 +1010,8 @@ fn main() {
     let program = QirProgram::new(bytecode.program()).expect("the program builds");
     println!(
         "PROGRAM qubits={} two_qubit_gates={} measurements={} engine={} routing={} chi={} seed={} \
-         first_shot={} shots={} threads={} readout={}",
+         first_shot={} shots={} threads={} readout={} stream_ordered_allocation={} \
+         blocking_sync={}",
         program.qubits(),
         program.two_qubit_gates().len(),
         program.measured_qubits().len(),
@@ -994,6 +1023,8 @@ fn main() {
         options.shots,
         options.threads,
         options.readout.is_some(),
+        options.stream_ordered_allocation,
+        options.blocking_sync,
     );
     let ok = match options.engine.as_str() {
         "reference" => run_slice(
@@ -1039,6 +1070,17 @@ fn run_on_cutensornet(_options: &Options, _program: &QirProgram) -> bool {
 fn run_on_cuda_mps(options: &Options, program: &QirProgram) -> bool {
     let availability = qdk_cutensornet::discover().expect("cuTensorNet and the CUDA Runtime load");
     println!("AVAILABILITY {:?}", availability.report());
+    // Before any engine: CUDA takes the flags best before the device is in
+    // use, and a refusal must end the run rather than let it spin.
+    if options.blocking_sync {
+        match qdk_cutensornet::dev_blocking_sync::use_blocking_sync(&availability) {
+            Ok(flags) => println!("BLOCKING_SYNC status=ok flags={flags:#x}"),
+            Err(error) => {
+                println!("BLOCKING_SYNC status=refused error={error:?}");
+                return false;
+            }
+        }
+    }
     let algo = options.svd_algo.as_deref().map(|name| {
         qdk_cutensornet::dev_gate_split::TensorSvdAlgo::from_name(name)
             .unwrap_or_else(|| panic!("--svd-algo {name}: gesvd or gesvdj"))
@@ -1047,7 +1089,9 @@ fn run_on_cuda_mps(options: &Options, program: &QirProgram) -> bool {
         let engine = qdk_cutensornet::CudaMpsEngine::new(&availability)
             .expect("the tensor API on CUDA device 0")
             .with_dev_mpo_far(options.mpo)
-            .with_dev_qr_moves(options.qr_moves);
+            .with_dev_qr_moves(options.qr_moves)
+            .with_dev_stream_ordered_allocation(options.stream_ordered_allocation)
+            .unwrap_or_else(|error| panic!("--stream-ordered-allocation: {error}"));
         match algo {
             Some(algo) => engine
                 .with_dev_svd_algo(algo)

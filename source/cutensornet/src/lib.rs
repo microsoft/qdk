@@ -37,11 +37,30 @@
 
 #[doc(hidden)]
 pub mod cuda_mps_engine;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(
+        dead_code,
+        reason = "off Linux x86-64 the flags' setting is compiled for its tests only"
+    )
+)]
+#[doc(hidden)]
+pub mod dev_blocking_sync;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[doc(hidden)]
 pub mod dev_gate_split;
 #[doc(hidden)]
 pub mod dev_mpo_diagnostic;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(
+        dead_code,
+        reason = "off Linux x86-64 the allocator's table and pool setup are compiled for their tests only"
+    )
+)]
+mod dev_stream_ordered;
 #[cfg_attr(
     not(all(target_os = "linux", target_arch = "x86_64")),
     allow(

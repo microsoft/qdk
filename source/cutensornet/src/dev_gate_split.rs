@@ -778,11 +778,23 @@ impl TensorQr<'_> {
 
 pub(crate) type Status = v2_13::cutensornetStatus_t;
 
-/// Device memory, freed on drop.
+/// Device memory, freed on drop as it was allocated.
 pub(crate) struct DeviceBuffer {
     pub(crate) pointer: *mut c_void,
     pub(crate) bytes: usize,
-    free: crate::libraries::cuda_runtime::FreeFn,
+    release: Release,
+}
+
+/// How a [`DeviceBuffer`] is freed.
+enum Release {
+    /// By `cudaFree`, which waits for the whole device context.
+    Free(crate::libraries::cuda_runtime::FreeFn),
+    /// By `cudaFreeAsync` on the stream it was allocated on, which waits
+    /// for nothing.
+    FreeAsync {
+        free_async: crate::dev_stream_ordered::FreeAsyncFn,
+        stream: cudart_12::cudaStream_t,
+    },
 }
 
 impl DeviceBuffer {
@@ -794,15 +806,53 @@ impl DeviceBuffer {
         Ok(Self {
             pointer,
             bytes,
-            free: libraries.cuda_runtime.functions.free,
+            release: Release::Free(libraries.cuda_runtime.functions.free),
+        })
+    }
+
+    /// `bytes` of stream-ordered memory on `stream`.
+    ///
+    /// # Safety
+    ///
+    /// `stream` must outlive the buffer, and every use of the buffer must
+    /// be ordered on `stream` (on it, or synchronised with it), since it is
+    /// freed by `cudaFreeAsync` on `stream`.
+    pub(crate) unsafe fn new_stream_ordered(
+        functions: &crate::dev_stream_ordered::StreamOrderedFunctions,
+        stream: cudart_12::cudaStream_t,
+        bytes: usize,
+    ) -> Result<Self, String> {
+        let mut pointer = std::ptr::null_mut();
+        // SAFETY: `pointer` is a valid out-pointer; the stream is live (the
+        // caller's contract).
+        let status = unsafe { (functions.malloc_async)(&raw mut pointer, bytes, stream) };
+        check_cuda("cudaMallocAsync", status)?;
+        Ok(Self {
+            pointer,
+            bytes,
+            release: Release::FreeAsync {
+                free_async: functions.free_async,
+                stream,
+            },
         })
     }
 }
 
 impl Drop for DeviceBuffer {
     fn drop(&mut self) {
-        // SAFETY: the pointer came from `cudaMalloc` and is freed once.
-        let _ = unsafe { (self.free)(self.pointer) };
+        match self.release {
+            Release::Free(free) => {
+                // SAFETY: the pointer came from `cudaMalloc` and is freed
+                // once.
+                let _ = unsafe { free(self.pointer) };
+            }
+            Release::FreeAsync { free_async, stream } => {
+                // SAFETY: the pointer came from `cudaMallocAsync` on
+                // `stream`, which is still live, and is freed once
+                // (`new_stream_ordered`'s contract).
+                let _ = unsafe { free_async(self.pointer, stream) };
+            }
+        }
     }
 }
 
