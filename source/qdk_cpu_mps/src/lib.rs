@@ -73,6 +73,8 @@
 
 mod chain;
 #[doc(hidden)]
+pub mod dev_tensors;
+#[doc(hidden)]
 pub mod dev_trace;
 mod engine;
 mod error;
