@@ -102,15 +102,16 @@ impl ShotSet {
         if let Some(twice) = first_repeat(positions) {
             panic!("position {twice} is selected twice, which would name its shot twice");
         }
-        let shots = positions.iter().map(|&position| {
-            *self.0.get(position).unwrap_or_else(|| {
-                panic!(
-                    "position {position} is beyond the set's {} shots",
-                    self.len()
-                )
-            })
-        });
-        Some(Self(shots.collect()))
+        for &position in positions {
+            assert!(
+                position < self.len(),
+                "position {position} is beyond the set's {} shots",
+                self.len()
+            );
+        }
+        Some(Self(
+            positions.iter().map(|&position| self.0[position]).collect(),
+        ))
     }
 }
 

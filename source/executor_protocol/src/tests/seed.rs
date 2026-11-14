@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Each shot's stream depends only on the run's seed and the shot's id, and
-//! matches the MPS simulation method's; a derived seed's streams are apart
-//! from the run's and from other keys'.
+//! Each shot's stream is a fixed function of the run's seed and the shot's
+//! id; a derived seed's streams are apart from the run's and from other
+//! keys'.
 
 use std::collections::BTreeSet;
 
@@ -14,15 +14,15 @@ fn stream(seed: u64, shot: u32) -> u64 {
     Seed::new(seed).shot(ShotId::new(shot))
 }
 
-/// The MPS simulation method seeds its shot j of a run seeded s with
-/// `SplitMix64::new(mix(mix(s) ^ j))`; as a chain's executor, it gets the
-/// same streams from `Seed::shot`, so it gives the same records alone and
-/// in a chain.
+/// A shot's stream is fixed by the run's seed and the shot's id, the same on
+/// every platform and version of Rust, so a simulator that seeds its shots
+/// the same way gives the same records alone and as a chain's executor.
 // COMPATIBILITY NOTE: these answers are those of the MPS simulation
-// method's shot streams and of the earlier protocol's `shot_seed`, hence we
-// keep them.
+// method, which seeds its shot j of a run seeded s with
+// `SplitMix64::new(mix(mix(s) ^ j))`, and of the earlier protocol's
+// `shot_seed`, hence we keep them.
 #[test]
-fn shot_streams_match_the_mps_simulation_methods() {
+fn shot_streams_are_fixed_by_seed_and_id() {
     assert_eq!(stream(0, 0), 12_035_550_249_420_947_055);
     assert_eq!(stream(0, 1), 627_405_149_472_732_430);
     assert_eq!(stream(7, 1), 4_414_019_431_610_648_415);

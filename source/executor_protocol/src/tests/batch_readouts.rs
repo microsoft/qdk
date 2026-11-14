@@ -196,6 +196,33 @@ fn concat_unions_each_shots_conditions() {
     assert_eq!(joined.conditions(1), ShotConditions::NONE);
 }
 
+/// A batch sent below in one part gets its readouts back unchanged.
+#[test]
+fn concatenating_one_part_gives_it_back() {
+    let part = readouts(
+        2,
+        &[
+            (&[One, LOST], ShotConditions::REJECTED),
+            (&[Zero, One], ShotConditions::NONE),
+        ],
+    );
+    assert_eq!(
+        BatchReadouts::concat_readouts(std::slice::from_ref(&part)),
+        part
+    );
+}
+
+/// Parts of no rows join into no rows, of their summed width.
+#[test]
+fn concatenating_parts_of_no_rows_gives_no_rows_of_the_summed_width() {
+    let joined = BatchReadouts::concat_readouts(&[
+        BatchReadouts::with_capacity(0, 2),
+        BatchReadouts::with_capacity(0, 3),
+    ]);
+    assert_eq!(joined.shots(), 0);
+    assert_eq!(joined.readouts(), 5);
+}
+
 /// Parts that answer different numbers of shots cannot be one batch's.
 #[test]
 #[should_panic(expected = "readouts of 1 and of 2 shots cannot be joined")]

@@ -47,9 +47,10 @@ impl Seed {
     /// shot's id (for the run's seed `s`, `SplitMix64(s) ^ shot`), and both
     /// the step and the XOR are bijections of `u64`.
     ///
-    /// The run's seed gives each shot the stream the MPS simulation method
-    /// seeds that shot with, so that method gives the same records alone and
-    /// as a chain's executor.
+    /// For the run's seed, each shot's stream is a fixed function of the
+    /// run's seed and the shot's id, the same on every platform, so a
+    /// simulator that seeds its shots the same way gives the same records
+    /// alone and as a chain's executor.
     #[must_use]
     pub const fn shot(self, shot: ShotId) -> u64 {
         splitmix(self.0 ^ shot.get() as u64)
@@ -69,7 +70,7 @@ impl Seed {
     /// share their streams, and k keys share an id with probability about
     /// k²/2³³. A part with several streams derives one key for each from the
     /// seed it got, rather than deriving a derived seed again: ids add, so
-    /// a seed derived twice may be another key's.
+    /// a seed derived twice may be another key's, or the run's own.
     #[must_use]
     pub const fn derive(self, key: &str) -> Self {
         Self(self.0.wrapping_add((key_id(key) as u64) << 32))
