@@ -247,6 +247,14 @@ impl From<qep::ProfilerResult> for ProfilerResult {
 
 #[pymethods]
 impl ProfilerResult {
+    /// Loads saved profiling data from JSON text, raising `ValueError` for invalid data.
+    #[classmethod]
+    fn from_json(_cls: &Bound<'_, PyType>, json: &str) -> PyResult<Self> {
+        serde_json::from_str(json).map(Self).map_err(|error| {
+            PyValueError::new_err(format!("Invalid profiler result JSON: {error}"))
+        })
+    }
+
     /// Returns total counts and compact summaries of the trace and time series.
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)

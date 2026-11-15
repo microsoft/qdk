@@ -10,7 +10,7 @@ mod temporal_profiler;
 use crate::{QuantumBackend, StdioDriver, run_adaptive_program, run_qsharp_call, run_qsharp_expr};
 use qdk_simulators::bytecode::AdaptiveProgram;
 use qsc::interpret::{Interpreter, Value};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fmt,
     fs::File,
@@ -30,7 +30,7 @@ pub use temporal_profiler::{
 };
 
 /// Profiling data collected during quantum execution.
-#[derive(Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProfilerResult {
     /// Total counts.
     pub totals: TotalCounts,

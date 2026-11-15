@@ -3,10 +3,10 @@
 
 use crate::{Parameter, QuantumBackendInstruction};
 use rustc_hash::FxHashMap;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, fmt};
 
-#[derive(Clone, Debug, PartialEq, Default, Serialize)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct TotalCounts {
     /// Number of logical qubits, including factory qubits.
     pub logical_qubits: usize,
@@ -46,7 +46,7 @@ pub struct TotalCounts {
 ///   "number events per window / window size".
 /// Profiler may also report gate counts per aggregations window, e.g. "X gates per window", but
 ///    that metric will depend on window size, so it's not recommended.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TimeSeries {
     pub metric_name: String,
     pub metric_units: String,
@@ -57,7 +57,7 @@ pub struct TimeSeries {
 }
 
 /// Time series reporting metrics per time.
-#[derive(Clone, Debug, PartialEq, Default, Serialize)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct TemporalProfiles {
     pub profiles: Vec<TimeSeries>,
 
@@ -65,7 +65,7 @@ pub struct TemporalProfiles {
     pub aggregation_window_sec: Option<f64>,
 }
 
-#[derive(Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum LoggedInstructionParameter {
     Float(f64),
     ResultId(usize),
@@ -73,7 +73,7 @@ pub enum LoggedInstructionParameter {
     FactoryId(usize),
 }
 
-#[derive(Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct LoggedInstruction {
     pub instruction_name: Cow<'static, str>,
     pub parameters: Vec<LoggedInstructionParameter>,
@@ -138,7 +138,7 @@ impl fmt::Debug for LoggedInstruction {
 }
 
 /// For every instruction, records start and end time of that instruction.
-#[derive(Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct InstructionTrace {
     pub start_time_nanos: usize,
     pub end_time_nanos: usize,
@@ -156,7 +156,7 @@ impl fmt::Debug for InstructionTrace {
     }
 }
 
-#[derive(Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExecutionTrace {
     pub(super) instructions: Vec<InstructionTrace>,
 }

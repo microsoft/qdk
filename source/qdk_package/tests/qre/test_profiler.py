@@ -231,10 +231,22 @@ def test_sequential_counting_profiler(use_qir: bool, tmp_path: Path) -> None:
             "trace": None,
             "infos": [],
         }
+    restored = ProfilerResult.from_json(path.read_text(encoding="utf-8"))
+    assert restored.totals.calls_per_operation == result.totals.calls_per_operation
+    restored_path = tmp_path / "restored.json"
+    restored.to_json(restored_path)
+    assert json.loads(restored_path.read_text()) == json.loads(path.read_text())
     missing_path = tmp_path / "missing" / "profile.json"
     with pytest.raises(OSError, match="Failed to create") as error:
         result.to_json(missing_path)
     assert str(missing_path) in str(error.value)
+
+
+@pytest.mark.parametrize("data", ["{", "{}", "[]"])
+def test_profiler_result_invalid_json(data: str) -> None:
+    """Reject malformed JSON and incompatible result structures."""
+    with pytest.raises(ValueError, match="Invalid profiler result JSON"):
+        ProfilerResult.from_json(data)
 
 
 def test_sequential_counting_profiler_no_gate_times() -> None:
@@ -309,6 +321,10 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
     assert data["totals"]["logical_compute_qubits"] == 3
     assert data["totals"]["error"] == result.totals.error
     assert 0.0 < result.totals.error < 0.33
+    restored = ProfilerResult.from_json(path.read_text(encoding="utf-8"))
+    restored_path = tmp_path / "restored_temporal.json"
+    restored.to_json(restored_path)
+    assert json.loads(restored_path.read_text()) == data
 
 
 def test_temporal_profiler_configuration() -> None:

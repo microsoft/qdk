@@ -111,6 +111,12 @@ Unix, Python's `Profiler.profile_fds(instruction_fd, result_fd)` serves dedicate
 pipe descriptors instead, without redirecting process stdin/stdout.
 See the [interop connection example](../qep_interop/README.md#profiling-an-external-program-from-python).
 
+Python can reload saved profiling data with
+`ProfilerResult.from_json(path.read_text(encoding="utf-8"))`, including counts,
+temporal profiles, and any recorded trace. Invalid result JSON raises `ValueError`.
+The [in-process profiling notebook](demo/NativeQspInProcessProfile.ipynb) demonstrates
+compiling and running C++ with its own counting profiler, then inspecting the saved result.
+
 `QuantumBackends::sparse_sim()` creates a sparse simulator wrapped in
 `QsBackendShim`, supporting all QEP instructions. Qubits are allocated lazily;
 stored QIR result IDs are maintained separately across batches, so immediate
