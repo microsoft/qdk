@@ -38,8 +38,8 @@
 //!   pending gate of the site it leaves;
 //! - [`reads`]: probabilities, projections and conditional probabilities,
 //!   at the centre;
-//! - [`expectation`]: an observable's expectation, its terms sharing their
-//!   contractions;
+//! - [`expectation`]: an observable's expectation, all its terms in one
+//!   walk;
 //! - [`policy`]: the default cutoff, with its reason;
 //! - [`error`]: why an operation was refused or failed.
 //!
@@ -219,17 +219,6 @@ impl<A: SiteAlgebra> std::fmt::Debug for CanonicalMpsState<A> {
     }
 }
 
-#[cfg(test)]
-impl CanonicalMpsState<crate::algebra::fake_algebra::FakeAlgebra> {
-    /// The squared norm of the centre's tensor, for the test of an
-    /// invariant that no read shows, as every read divides by it.
-    pub(crate) fn centre_weight(&self) -> f64 {
-        let chain = self.chain.borrow();
-        let centre = &chain.sites[chain.centre].tensor;
-        centre.iter().map(num_complex::Complex64::norm_sqr).sum()
-    }
-}
-
 impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
     type State = CanonicalMpsState<A>;
     type Error = CanonicalMpsError<A::Error>;
@@ -290,8 +279,8 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
 
     /// Reads `p` from the value's own weight at the centre site, not as one
     /// minus the other's, and divides the site by the norm of what it kept,
-    /// computed scaled rather than as `√p`, so the state's norm is 1
-    /// however few digits `p` holds.
+    /// computed scaled rather than as `√p`, so the state's norm does not
+    /// shrink with `p`, however few digits `p` holds.
     ///
     /// Drops no singular value of its own: a projection does not compress
     /// the chain again, so the bonds [`MpsEngine::shape`] reports after it
@@ -315,11 +304,13 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
 
     /// Draws by `tensornet`'s shared sampler,
     /// [`sample_by_conditionals`](sampling::sample_by_conditionals), from
-    /// [`conditional_probability_of_one`](MpsEngine::conditional_probability_of_one)'s
-    /// probabilities: each new nonempty prefix of values projects them on a
-    /// fork, so the state is not projected. A value of probability exactly
-    /// zero is never drawn. Fails with [`CanonicalMpsError::TooManyValues`]
-    /// when the values cannot be held.
+    /// [`conditional_probability_of_one`][conditional]'s probabilities:
+    /// each new nonempty prefix of values projects them on a fork, so the
+    /// state is not projected. A value of probability exactly zero is never
+    /// drawn. Fails with [`CanonicalMpsError::TooManyValues`] when the
+    /// values cannot be held.
+    ///
+    /// [conditional]: MpsEngine::conditional_probability_of_one
     fn sample(
         &self,
         state: &Self::State,

@@ -1,28 +1,25 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! An observable's expectation, `⟨ψ|O|ψ⟩ / ⟨ψ|ψ⟩`, its terms sharing their
-//! contractions.
+//! An observable's expectation, `⟨ψ|O|ψ⟩ / ⟨ψ|ψ⟩`, all its terms in one
+//! walk.
 //!
 //! A simulator estimates observables between gates; a chemistry reading
-//! holds hundreds of Pauli strings on two to four sites each, so one
-//! contraction per term would cost the reading many times its terms. With
-//! the centre on a site, the sites left of it contract to the identity
-//! from the left and those right of it from the right, so a term needs
-//! only the sites between its own and the centre; and the expectation
-//! divides by the squared norm at the centre, so a gate's drift from norm 1
-//! does not reach it. The terms share the rest:
+//! holds hundreds of Pauli strings on two to four sites each, so reading
+//! the sites once per term would read them many times over. With the
+//! centre on a site, the sites left of it contract to the identity from
+//! the left and those right of it from the right, so a term needs only the
+//! sites between its own and the centre; and the expectation divides by
+//! the squared norm at the centre, so a gate's drift from norm 1 does not
+//! reach it. The terms are evaluated together:
 //!
-//! - the environments of the plain chain (left of a term's first site,
-//!   right of its last) are computed once, for all terms;
-//! - the terms are walked as a trie of their factors sorted by site, so
-//!   terms with the same first factors share their walk;
-//! - a term's last factor is closed by a right environment with its Pauli,
-//!   computed once per site and Pauli.
-//!
-//! The sites are read once each, on the host ([`HostSite`]), with their
-//! pending gates applied; the contractions are products of `dense_linalg`
-//! matrices.
+//! - the sites between the terms and the centre are read once each, on the
+//!   host ([`HostSite`]), with their pending gates applied, whatever the
+//!   number of terms;
+//! - the terms are walked as a trie of their factors sorted by site, from
+//!   the plain chain's environments, each term's last factor closed by a
+//!   right environment with its Pauli;
+//! - the contractions are products of `dense_linalg` matrices.
 
 use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain, reads::HostSite};
 use crate::algebra::SiteAlgebra;
@@ -90,7 +87,7 @@ type Environment = Option<Vec<Complex64>>;
 type Term<'t> = (Complex64, &'t [(usize, Pauli)]);
 
 /// The expectation's walk over the sites `low..=high`, with the plain
-/// chain's environments and the closing environments computed once.
+/// chain's environments and the terms' closing environments.
 struct Walk<'s, 'h> {
     sites: &'s [HostSite<'h>],
     low: usize,

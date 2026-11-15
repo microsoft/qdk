@@ -110,20 +110,19 @@ exactly zero reads exactly 0, and a gate's drift from norm 1 divides out.
 **A projection.** It returns `p = P(b)`, refuses `p` of zero or NaN, zeroes
 the other value's elements, and divides the site by the norm of what it
 kept. It computes the norm as `m · √(Σ |x / m|²)`, with `m` the largest
-modulus, not as `√p`, so the state's norm is 1 to rounding even when `p` is
-subnormal. It truncates nothing, so `W` is unchanged.
+modulus, not as `√p`, so the state's norm does not shrink with `p`, even
+when `p` is subnormal, and later projections stay possible. It truncates nothing, so `W` is unchanged.
 
 **An expectation.** An observable `c₀ + Σₖ cₖ Pₖ`, each `Pₖ` a product of
 one-site Paulis, has the value `c₀ + Σₖ cₖ ⟨ψ|Pₖ|ψ⟩ / ‖T_centre‖²`; the
 division takes out a gate's drift from norm 1. The sites left of the centre
 are isometries from the left, so the environment on any bond left of the
 centre is the identity, and likewise from the right; a term's contraction
-runs only over the sites between its own and the centre. The terms share
-the rest:
+runs only over the sites between its own and the centre. The terms are
+evaluated together:
 
-- the environments of the plain chain, from the centre outwards, are
-  computed once for all the terms;
-- the terms are walked as a trie of their factors, sorted by site, so terms
-  with the same first factors share their walk;
-- a term's last factor is closed by a right environment with its Pauli,
-  computed once per site and Pauli.
+- the sites between the terms and the centre are read once each, whatever
+  the number of terms;
+- the terms are walked as a trie of their factors, sorted by site, from the
+  environments of the plain chain;
+- a term's last factor is closed by a right environment with its Pauli.

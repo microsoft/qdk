@@ -152,7 +152,7 @@ fn a_truncation_fails_once_the_retained_weight_would_underflow() {
 
 /// Twenty rounds of a site turned by 4e-162, so that P(One) rounds to the
 /// smallest subnormal `f64`, projected on One and turned back to Zero: each
-/// projection is accepted, as it leaves a state of norm 1 whatever the
+/// projection is accepted, as it leaves a norm that does not shrink with the
 /// probability's precision (a division by `√p` would shrink the norm each
 /// round, until the value's probability rounded to zero).
 #[test]
@@ -169,19 +169,22 @@ fn projections_on_values_of_subnormal_probability_are_accepted() {
     }
 }
 
-/// An invariant of a projection, which no public read tells apart: a
-/// projection on an entangled pair, whose kept value spans two bond values,
-/// divides the site by the norm of what it kept, not by its largest entry,
-/// so the state's norm is 1.
+/// Two sites, each turned so that P(One) is 1e-200, the first projected on
+/// One: the projection divides the site by the norm of what it kept, so the
+/// second site's P(One) still reads 1e-200 (left unnormalised, the state's
+/// squared norm would be 1e-200, and the second value's weight, 1e-400,
+/// would underflow to zero).
 #[test]
-fn a_projection_leaves_a_state_of_norm_1() {
+fn a_projection_renormalises_the_state() {
+    let theta = 2.0 * 1e-100_f64.asin();
     for (engine, name) in both_fusions_and_cutoffs() {
-        let mut pair = engine.prepare(&chain(2, 2)).expect("prepare");
-        engine.apply(&mut pair, &[0], &ry(1.0)).expect("apply");
-        engine.apply(&mut pair, &[0, 1], &cnot()).expect("apply");
-        engine.apply(&mut pair, &[0], &ry(0.7)).expect("apply");
-        engine.project(&mut pair, 0, true).expect("project");
-        let norm = pair.centre_weight();
-        assert!((norm - 1.0).abs() < 1e-12, "{name}: {norm}");
+        let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+        engine.apply(&mut state, &[0], &ry(theta)).expect("apply");
+        engine.apply(&mut state, &[1], &ry(theta)).expect("apply");
+        engine
+            .project(&mut state, 0, true)
+            .expect("a possible value");
+        let p = engine.probability_of_one(&state, 1).expect("P(One)");
+        assert!((p / 1e-200 - 1.0).abs() < 1e-12, "{name}: {p:e}");
     }
 }

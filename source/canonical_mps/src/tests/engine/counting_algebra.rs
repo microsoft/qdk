@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! [`CountingAlgebra`]: [`FakeAlgebra`], counting the engine's calls, for
-//! the tests that pin how many splits, moves of the centre and reads an
-//! operation takes.
+//! the tests that pin how many splits, moves of the centre, reads and
+//! duplicates an operation takes.
 
 use crate::algebra::fake_algebra::FakeAlgebra;
 use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
@@ -19,10 +19,11 @@ pub(super) struct Counts {
     pub(super) gate_splits: Cell<usize>,
     pub(super) qr_moves: Cell<usize>,
     pub(super) reads: Cell<usize>,
+    pub(super) duplicates: Cell<usize>,
 }
 
-/// [`FakeAlgebra`], counting its gate splits, moves of the centre and
-/// reads into the [`Counts`] it shares with the test.
+/// [`FakeAlgebra`], counting its gate splits, moves of the centre, reads
+/// and duplicates into the [`Counts`] it shares with the test.
 #[derive(Clone)]
 pub(super) struct CountingAlgebra(Rc<Counts>);
 
@@ -56,6 +57,7 @@ impl SiteAlgebra for CountingAlgebra {
     }
 
     fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Self::Error> {
+        count(&self.0.duplicates);
         FakeAlgebra.duplicate(tensor, len)
     }
 

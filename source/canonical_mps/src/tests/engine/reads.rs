@@ -4,10 +4,13 @@
 //! Reads and projections: reads keep the state, a projection makes its
 //! value certain and returns its probability without recompressing, a
 //! conditional probability is the probability after its conditions, a
-//! move of the centre keeps the gate pending on the site it leaves, and an
-//! expectation contracts only between the observable and the centre.
+//! move of the centre keeps the gate pending on the site it leaves, a
+//! conditional probability forks once, and an expectation contracts only
+//! between the observable and the centre, reading each site once.
 
+use super::counting_algebra::Counts;
 use super::*;
+use std::rc::Rc;
 
 /// Reads move the orthogonality centre, never the state they read.
 #[test]
@@ -181,9 +184,15 @@ fn moving_the_centre_shrinks_a_bond_above_twice_its_neighbours() {
     }
 }
 
-/// The sites an expectation of Z on `observed` reads on a chain of
-/// `sites` entangled sites whose centre a read has left on `centre`.
-fn expectation_reads(sites: usize, centre: usize, observed: usize) -> usize {
+/// An engine counting its algebra's calls, and a chain of `sites` sites,
+/// each turned and entangled with the next, prepared on it.
+fn counted_entangled_chain(
+    sites: usize,
+) -> (
+    CanonicalMpsEngine<CountingAlgebra>,
+    CanonicalMpsState<CountingAlgebra>,
+    Rc<Counts>,
+) {
     let (algebra, counts) = CountingAlgebra::new();
     let engine = CanonicalMpsEngine::new(algebra);
     let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
@@ -195,11 +204,16 @@ fn expectation_reads(sites: usize, centre: usize, observed: usize) -> usize {
             .apply(&mut state, &[cut, cut + 1], &cnot())
             .expect("apply");
     }
+    (engine, state, counts)
+}
+
+/// The sites an expectation of `observable` reads on a chain of `sites`
+/// entangled sites whose centre a read has left on `centre`.
+fn expectation_reads(sites: usize, centre: usize, observable: &PauliSum) -> usize {
+    let (engine, state, counts) = counted_entangled_chain(sites);
     engine.probability_of_one(&state, centre).expect("P(One)");
     let before = counts.reads.get();
-    engine
-        .expectation(&state, &z_string(&[observed]))
-        .expect("expectation");
+    engine.expectation(&state, observable).expect("expectation");
     counts.reads.get() - before
 }
 
@@ -210,12 +224,62 @@ fn expectation_reads(sites: usize, centre: usize, observed: usize) -> usize {
 /// more.
 #[test]
 fn an_expectation_contracts_only_between_the_observable_and_the_centre() {
-    let near = expectation_reads(12, 0, 1);
-    assert_eq!(expectation_reads(12, 10, 11), near, "at the far end");
-    assert_eq!(expectation_reads(12, 6, 5), near, "below the centre");
-    assert_eq!(expectation_reads(6, 4, 5), near, "on a shorter chain");
+    let z = |site| z_string(&[site]);
+    let near = expectation_reads(12, 0, &z(1));
+    assert_eq!(expectation_reads(12, 10, &z(11)), near, "at the far end");
+    assert_eq!(expectation_reads(12, 6, &z(5)), near, "below the centre");
+    assert_eq!(expectation_reads(6, 4, &z(5)), near, "on a shorter chain");
     assert!(
-        expectation_reads(12, 0, 5) > near,
+        expectation_reads(12, 0, &z(5)) > near,
         "further from the centre"
     );
+}
+
+/// A chemistry reading holds many terms on a few neighbouring sites: six
+/// terms of one to three factors on sites 1 to 3, the centre on site 0,
+/// read each of the sites 0 to 3 once, as a single Z on site 3 does.
+#[test]
+fn an_expectation_reads_each_site_once_whatever_its_terms() {
+    let term = |factors| PauliTerm::new(real(0.5), factors).expect("a term");
+    let reading = PauliSum::new(
+        real(0.1),
+        vec![
+            term(vec![(1, Pauli::Z)]),
+            term(vec![(2, Pauli::Z)]),
+            term(vec![(3, Pauli::Z)]),
+            term(vec![(1, Pauli::X), (2, Pauli::X)]),
+            term(vec![(2, Pauli::Y), (3, Pauli::Y)]),
+            term(vec![(1, Pauli::Z), (2, Pauli::Z), (3, Pauli::Z)]),
+        ],
+    )
+    .expect("an observable");
+    assert_eq!(expectation_reads(8, 0, &reading), 4, "the reading");
+    assert_eq!(expectation_reads(8, 0, &z_string(&[3])), 4, "one Z");
+}
+
+/// Grouped shots read a site's probability given the values drawn on
+/// others: given two values, a conditional probability duplicates the
+/// chain's sites as many times as one fork does, both values projected on
+/// that one fork.
+#[test]
+fn a_conditional_probability_forks_once_for_all_its_conditions() {
+    let (engine, state, counts) = counted_entangled_chain(6);
+    engine.fork(&state).expect("fork");
+    let one_fork = counts.duplicates.get();
+    assert!(one_fork > 0, "a fork duplicates the sites");
+    engine
+        .conditional_probability_of_one(&state, 5, &[(1, true), (3, false)])
+        .expect("possible conditions");
+    assert_eq!(counts.duplicates.get() - one_fork, one_fork);
+}
+
+/// Without conditions, a conditional probability reads the state itself:
+/// it duplicates nothing.
+#[test]
+fn a_conditional_probability_without_conditions_forks_nothing() {
+    let (engine, state, counts) = counted_entangled_chain(6);
+    engine
+        .conditional_probability_of_one(&state, 5, &[])
+        .expect("P(One)");
+    assert_eq!(counts.duplicates.get(), 0);
 }
