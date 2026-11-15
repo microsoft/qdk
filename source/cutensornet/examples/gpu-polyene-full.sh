@@ -105,6 +105,12 @@
 #                  qr-off-<svd> with <svd> gesvd or gesvdj (default
 #                  "qr-on-gesvd")
 #   RELEVANT_CASES relevant's N/chi cases (default "16/128 20/128")
+#   RELEVANT_ENGINES relevant's engines, run in order on each case (default
+#                  "cuda-mps"; "cutensornet cuda-mps" compares the two)
+#   RELEVANT_VARIANT relevant's gate form, seq3-mpo or base (default
+#                  seq3-mpo; base applies the gates one by one, the form
+#                  CuTensorNetEngine runs as it is, without its dev-only
+#                  three-site MPOs)
 #   BUDGET_SECONDS the session's budget (default 18000, 5 h)
 #   LIMIT_PERCENT  the runs' own limits in percent (default 100)
 #   H2             H2's bytecode JSON (default /data/domingom/h2.bytecode.json)
@@ -120,6 +126,8 @@ OUT=${OUT:-$HOME/gpu-polyene-full-$(date +%Y%m%d-%H%M)}
 PARTS=${PARTS:-build kit diagnostic correctness relevant}
 COMBOS=${COMBOS:-qr-on-gesvd}
 RELEVANT_CASES=${RELEVANT_CASES:-16/128 20/128}
+RELEVANT_ENGINES=${RELEVANT_ENGINES:-cuda-mps}
+RELEVANT_VARIANT=${RELEVANT_VARIANT:-seq3-mpo}
 BUDGET_SECONDS=${BUDGET_SECONDS:-18000}
 LIMIT_PERCENT=${LIMIT_PERCENT:-100}
 BUILD_BOX=3600
@@ -363,17 +371,19 @@ combo_flags() {
   esac
 }
 
-# One polyene prefix run on cuda-mps, seq3-mpo: name $1, flags $2 (word
-# split), order $3, N $4, chi $5, limit $6, reference $7 (empty: none).
+# One polyene prefix run: name $1, flags $2 (word split), order $3, N $4,
+# chi $5, limit $6, reference $7 (empty: none), engine $8 (default
+# cuda-mps), variant $9 (default seq3-mpo).
 # Sets P_VERDICT (the harness's verdict, done, timed-out, error,
 # skipped), P_STEPS, P_SECONDS (to the last step reached), P_LAST (the
 # last step's seconds), P_DETAIL, and P_LOG.
 polyene_run() {
   local name=$1 flags=$2 order=$3 n=$4 chi=$5 limit=$6 reference=$7
+  local engine=${8:-cuda-mps} variant=${9:-seq3-mpo}
   P_LOG=$OUT/$name.log
   # shellcheck disable=SC2086
-  run_part "$limit" "$P_LOG" "$BIN/polyene_qpe_prefix" --engine cuda-mps --n "$n" --chi "$chi" \
-    --order "$order" --variant seq3-mpo $flags ${reference:+--reference "$reference"}
+  run_part "$limit" "$P_LOG" "$BIN/polyene_qpe_prefix" --engine "$engine" --n "$n" --chi "$chi" \
+    --order "$order" --variant "$variant" $flags ${reference:+--reference "$reference"}
   local done_line steps_lines step check counters error key
   done_line=$(grep '^POLYENE done ' "$P_LOG" | tail -1)
   steps_lines=$(grep '^POLYENE step ' "$P_LOG" | tail -2)
@@ -521,12 +531,13 @@ steps_table() {
 
 if wanted relevant; then
   for case_ in $RELEVANT_CASES; do
+   for engine in $RELEVANT_ENGINES; do
     n=${case_%/*}
     chi=${case_#*/}
     reference=$(reference_of "$n")
-    name=relevant-n$n-chi$chi-cuda-mps
+    name=relevant-n$n-chi$chi-$engine-$RELEVANT_VARIANT
     polyene_run "$name" "" interleave-centre "$n" "$chi" "$(box "$(relevant_box "$n")")" \
-      "$reference"
+      "$reference" "$engine" "$RELEVANT_VARIANT"
     read -r mean bond <<< "$(steps_table "$P_LOG" "$OUT/steps-$name.txt")"
     read -r cpu_seconds cpu_last <<< "$(cpu_prefix "$n" "$chi")"
     end=$(grep '^POLYENE end ' "$P_LOG" | tail -1)
@@ -538,8 +549,8 @@ if wanted relevant; then
       cp_verdict=$(awk -v g="${gap%% *}" -v t="$CP_TOLERANCE" \
         'BEGIN {print (g != "-" && g + 0 <= t + 0) ? "pass" : "fail"}')
     fi
-    line="verdict=$P_VERDICT cp_verdict=$cp_verdict step=relevant engine=cuda-mps combo=defaults"
-    line="$line variant=seq3-mpo order=interleave-centre n=$n chi=$chi steps_done=$P_STEPS"
+    line="verdict=$P_VERDICT cp_verdict=$cp_verdict step=relevant engine=$engine combo=defaults"
+    line="$line variant=$RELEVANT_VARIANT order=interleave-centre n=$n chi=$chi steps_done=$P_STEPS"
     line="$line gpu_seconds=$P_SECONDS cpu_prefix_seconds=$cpu_seconds"
     line="$line gpu_over_cpu=$([ "$P_STEPS" = 32 ] && ratio "$P_SECONDS" "$cpu_seconds" || echo -)"
     line="$line mean_step_seconds=$mean last_step_seconds=$P_LAST cpu_last_step_seconds=$cpu_last"
@@ -549,6 +560,7 @@ if wanted relevant; then
     line="$line reference=$reference cp_largest_gap=$gap cp_tolerance=$CP_TOLERANCE"
     line="$line (steps-$name.txt)"
     summary "$name" "$STATUS" "$SECONDS_TAKEN" "$line"
+   done
   done
 fi
 
