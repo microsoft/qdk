@@ -8,8 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-dense_linalg = { path = "../dense_linalg" }
 num-complex = { workspace = true }
+
+[dev-dependencies]
+dense_linalg = { path = "../dense_linalg" }
 
 [lints]
 workspace = true

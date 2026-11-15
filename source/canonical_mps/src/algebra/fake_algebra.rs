@@ -132,17 +132,9 @@ impl SiteAlgebra for FakeAlgebra {
             }
         })
     }
-
-    fn multiply(&self, a: MatrixRef<'_>, b: MatrixRef<'_>) -> Matrix {
-        Matrix::product(a, b)
-    }
-
-    fn svd(&self, a: MatrixRef<'_>) -> Result<Svd, Self::Error> {
-        Ok(thin_svd(a))
-    }
 }
 
-/// The thin SVD of `a`, as [`SiteAlgebra::svd`] states it.
+/// The thin SVD of `a`, the gated pair a split truncates.
 ///
 /// # Panics
 ///

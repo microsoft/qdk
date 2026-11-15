@@ -9,14 +9,14 @@
 //! truncation stays within.
 //!
 //! - [`algebra`]: the backend contract. [`SiteAlgebra`](algebra::SiteAlgebra)
-//!   is what a backend implements: a site tensor's storage, a gate split, a
-//!   move of the centre, and a host product and SVD. Its call and outcome
+//!   is what a backend implements: a site tensor's storage, a gate split,
+//!   and a move of the centre. Its call and outcome
 //!   types state the tensors' layout, and [`algebra::truncation`] gives host
 //!   backends the rule for which singular values a split keeps.
 //! - The engine, which implements `tensornet`'s `MpsEngine` over any
 //!   `SiteAlgebra`, is planned: it is not in this crate yet.
 //!
-//! It depends only on `num-complex` and `dense_linalg`, so it builds for
+//! It depends only on `num-complex`, so it builds for
 //! every target the QDK supports, WebAssembly included. Each item's
 //! documentation states its contract; the crate's `README.md` gives an
 //! overview for backend writers.

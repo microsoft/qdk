@@ -5,8 +5,8 @@
 //! tests stand on its answers: a gate split gives back the gated pair,
 //! truncated to its largest singular values and normalised, with an
 //! isometry away from the centre; a move of the centre is exact and leaves
-//! an isometry behind. Its product and SVD are `dense_linalg`'s, tested
-//! there.
+//! an isometry behind. The product, QR and SVD it computes them with are
+//! `dense_linalg`'s, tested there.
 //!
 //! The expected values come from the contract's formulas, computed here
 //! with plain loops, and from matrices whose SVD is known by construction.

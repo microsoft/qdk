@@ -14,8 +14,7 @@
 //! which values a truncation keeps within those bounds. So the engine is
 //! to be written once over this trait, and a backend implements only its
 //! operations: a gate split and a move of the centre on two neighbouring
-//! sites, the storage of a site, and a product and an SVD of small host
-//! matrices for the engine's reads and its factoring of operators.
+//! sites, and the storage of a site.
 //!
 //! An implementation may assume every argument is valid: the caller checks
 //! them before it calls. So it computes, and reports only its own
@@ -32,23 +31,20 @@
 //! packed: a site of extents `[left, 2, right]` holds exactly
 //! `left·2·right` elements.
 //!
-//! The host matrices of [`SiteAlgebra::multiply`] and [`SiteAlgebra::svd`]
-//! are `dense_linalg`'s [`Matrix`] and [`MatrixRef`], column-major like
-//! the sites; [`truncation`] holds the rule a host backend may use to
-//! truncate a split.
+//! [`truncation`] holds the rule a host backend may use to truncate a
+//! split.
 
 pub mod truncation;
 
 #[cfg(test)]
 pub(crate) mod fake_algebra;
 
-use dense_linalg::{Matrix, MatrixRef, Svd};
 use num_complex::Complex64;
 use std::borrow::Cow;
 
 /// The tensor operations of the canonical-form MPS engine: the storage of
-/// a site tensor, a gate split and a move of the orthogonality centre on
-/// two neighbouring sites, and a product and an SVD of host matrices.
+/// a site tensor, and a gate split and a move of the orthogonality centre
+/// on two neighbouring sites.
 ///
 /// The caller has checked every argument (extents, lengths, the call's
 /// settings) before it calls, so an implementation reports only what fails
@@ -122,22 +118,6 @@ pub trait SiteAlgebra {
         &self,
         call: &QrMoveCall<'_, Self::Tensor>,
     ) -> Result<QrMoveOutcome<Self::Tensor>, Self::Error>;
-
-    /// The product `a·b` of two host matrices. `a.cols()` equals
-    /// `b.rows()`.
-    fn multiply(&self, a: MatrixRef<'_>, b: MatrixRef<'_>) -> Matrix;
-
-    /// The thin singular value decomposition `a = u·diag(s)·v†` of a host
-    /// matrix, to rounding: `s` holds `r` values in nonincreasing order,
-    /// with `1 ≤ r ≤ min(rows, cols)`, `u` is `rows × r` with orthonormal
-    /// columns, and `v†` is `r × cols` with orthonormal rows. Values left
-    /// out (`r < min(rows, cols)`) are at most rounding's, and the zero
-    /// matrix gives one value, zero.
-    ///
-    /// It must be accurate on rank-deficient matrices, with repeated and
-    /// zero singular values: the engine will factor states whose Schmidt
-    /// rank is below the matrix's size all the time, and trust the values.
-    fn svd(&self, a: MatrixRef<'_>) -> Result<Svd, Self::Error>;
 }
 
 /// The site that holds the orthogonality centre after a call: the other
