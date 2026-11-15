@@ -1,0 +1,74 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! [`Truncation`]: which singular values a split keeps, for a backend that
+//! has them on the host, and what that keeps of the split's weight.
+//!
+//! [`SiteAlgebra::gate_split`](super::SiteAlgebra::gate_split) bounds what
+//! a split may drop; a backend whose library truncates keeps the library's
+//! rule within those bounds. A backend that computes the singular values
+//! itself uses this rule, so that every host backend truncates alike: it
+//! keeps the fewest values that meet the cutoff, within the cap, and drops
+//! a tail whose squares sum to exactly the cutoff's share.
+//!
+//! Every sum is of the values divided by the largest, at least 1, so none
+//! underflows however small the values are.
+
+/// Which singular values a split keeps, from [`Truncation::of`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Truncation {
+    /// The kept values, largest first, divided by their L2 norm; their
+    /// number is the split's bond.
+    pub normalised_values: Vec<f64>,
+    /// The share of the squared values kept, in `(0, 1]`, and exactly 1
+    /// when every dropped value is zero.
+    pub retained_fraction: f64,
+}
+
+impl Truncation {
+    /// The truncation of the singular `values` (nonempty, nonnegative,
+    /// nonincreasing) at `cutoff` (in `[0, 1)`) and `max_extent`: drop the
+    /// longest tail whose squares sum to at most `cutoff` of the squares of
+    /// all of them, but never the first value, then keep at most
+    /// `max_extent` values.
+    ///
+    /// The values of the zero matrix, all zero, keep one value, zero, and
+    /// a retained fraction of 1.
+    ///
+    /// # Panics
+    ///
+    /// When `max_extent` is 0: a split keeps at least one value.
+    #[must_use]
+    pub fn of(values: &[f64], cutoff: f64, max_extent: usize) -> Self {
+        assert!(max_extent >= 1, "a split keeps at least one value");
+        let largest = values[0];
+        if largest == 0.0 {
+            return Self {
+                normalised_values: vec![0.0],
+                retained_fraction: 1.0,
+            };
+        }
+        let square = |s: f64| (s / largest) * (s / largest);
+        let total: f64 = values.iter().map(|&s| square(s)).sum();
+        let allowed = cutoff * total;
+        let mut kept = values.len();
+        let mut discarded = 0.0;
+        while kept > 1 {
+            let next = discarded + square(values[kept - 1]);
+            if next > allowed {
+                break;
+            }
+            discarded = next;
+            kept -= 1;
+        }
+        let kept = kept.min(max_extent);
+        // A prefix of the same sum in the same order: exactly `total` when
+        // every dropped value is zero.
+        let kept_squares: f64 = values[..kept].iter().map(|&s| square(s)).sum();
+        let norm = kept_squares.sqrt();
+        Self {
+            normalised_values: values[..kept].iter().map(|&s| s / largest / norm).collect(),
+            retained_fraction: kept_squares / total,
+        }
+    }
+}

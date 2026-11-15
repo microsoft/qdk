@@ -1,0 +1,15 @@
+[package]
+name = "canonical_mps"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dense_linalg = { path = "../dense_linalg" }
+num-complex = { workspace = true }
+
+[lints]
+workspace = true
