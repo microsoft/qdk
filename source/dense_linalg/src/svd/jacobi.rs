@@ -11,9 +11,10 @@
 //! nearly orthogonal, as on the matrices of an MPS simulation of H₂, a few
 //! sweeps over the pairs suffice.
 //!
-//! The rotations converge on any matrix of full rank. They report a failure
-//! rather than answer columns that are not yet orthogonal: when the last sweep
-//! allowed ([`MAX_SWEEPS`]) still rotates a pair, the SVD fails
+//! The rotations converge on a matrix of full rank, but may need more
+//! sweeps than they allow ([`MAX_SWEEPS`]). They report a failure rather
+//! than answer columns that are not yet orthogonal: when the last sweep
+//! allowed still rotates a pair, the SVD fails
 //! ([`SvdError::DidNotConverge`]). They also factor the `W` that the fast
 //! route fails on.
 //!

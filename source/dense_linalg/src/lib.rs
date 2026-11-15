@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! Dense complex matrices with a checked thin singular value decomposition
-//! (SVD), with the product, thin QR decomposition and adjoint MPS
+//! (SVD), with the product, thin QR decomposition and adjoint that MPS
 //! simulators also need.
 //!
 //! General SVDs have returned factors that do not give back the matrix,
@@ -30,7 +30,8 @@
 //!
 //! // (3, 4)ᵀ·(1, 0, 0): column-major, one column after the other.
 //! let x = |re| Complex64::new(re, 0.0);
-//! let a = Matrix::new(2, 3, vec![x(3.0), x(4.0), x(0.0), x(0.0), x(0.0), x(0.0)]);
+//! let zero = x(0.0);
+//! let a = Matrix::new(2, 3, vec![x(3.0), x(4.0), zero, zero, zero, zero]);
 //! let svd = Svd::of(a.view())?;
 //! assert_eq!(svd.singular_values.len(), 1);
 //! assert!((svd.singular_values[0] - 5.0).abs() < 1e-14);
@@ -41,6 +42,7 @@
 mod kernels;
 mod matrix;
 mod qr;
+mod scaling;
 mod svd;
 
 #[cfg(test)]

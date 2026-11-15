@@ -21,10 +21,15 @@ impl Matrix {
     ///
     /// # Panics
     ///
-    /// When `elements` does not hold `rows·cols` elements.
+    /// When `rows·cols` overflows `usize`, or `elements` does not hold
+    /// `rows·cols` elements.
     #[must_use]
     pub fn new(rows: usize, cols: usize, elements: Vec<Complex64>) -> Self {
-        assert_eq!(elements.len(), rows * cols, "a {rows} × {cols} matrix");
+        assert_eq!(
+            elements.len(),
+            element_count(rows, cols),
+            "a {rows} × {cols} matrix"
+        );
         Self {
             rows,
             cols,
@@ -34,13 +39,17 @@ impl Matrix {
 
     /// The `rows × cols` matrix whose element `(i, j)` is `element(i, j)`,
     /// called column by column.
+    ///
+    /// # Panics
+    ///
+    /// When `rows·cols` overflows `usize`, before any call to `element`.
     #[must_use]
     pub fn from_fn(
         rows: usize,
         cols: usize,
         mut element: impl FnMut(usize, usize) -> Complex64,
     ) -> Self {
-        let mut elements = Vec::with_capacity(rows * cols);
+        let mut elements = Vec::with_capacity(element_count(rows, cols));
         for j in 0..cols {
             for i in 0..rows {
                 elements.push(element(i, j));
@@ -113,10 +122,15 @@ impl<'a> MatrixRef<'a> {
     ///
     /// # Panics
     ///
-    /// When `elements` does not hold `rows·cols` elements.
+    /// When `rows·cols` overflows `usize`, or `elements` does not hold
+    /// `rows·cols` elements.
     #[must_use]
     pub fn new(rows: usize, cols: usize, elements: &'a [Complex64]) -> Self {
-        assert_eq!(elements.len(), rows * cols, "a {rows} × {cols} matrix");
+        assert_eq!(
+            elements.len(),
+            element_count(rows, cols),
+            "a {rows} × {cols} matrix"
+        );
         Self {
             rows,
             cols,
@@ -148,4 +162,17 @@ impl<'a> MatrixRef<'a> {
         let (rows, elements) = (self.rows, self.elements);
         Matrix::from_fn(self.cols, rows, |i, j| elements[j + rows * i].conj())
     }
+}
+
+/// `rows·cols`, the number of elements of a `rows × cols` matrix.
+///
+/// # Panics
+///
+/// When it overflows `usize`: unchecked, it would wrap, in a build without
+/// overflow checks, to a count that a shorter `elements` could match.
+fn element_count(rows: usize, cols: usize) -> usize {
+    let Some(count) = rows.checked_mul(cols) else {
+        panic!("a {rows} × {cols} matrix has more elements than `usize` counts");
+    };
+    count
 }

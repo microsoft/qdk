@@ -32,6 +32,32 @@ fn a_borrowed_matrix_holds_rows_times_cols_elements() {
     let _ = MatrixRef::new(2, 3, &elements);
 }
 
+/// `2⁶³ × 2` on a 64-bit target (`2³¹ × 2` on 32 bits) has more elements
+/// than `usize` counts: unchecked, the count would wrap to 0, which an
+/// empty vector matches.
+#[test]
+#[should_panic(expected = "× 2 matrix has more elements than `usize` counts")]
+fn a_matrix_whose_element_count_overflows_is_refused() {
+    let _ = Matrix::new(1 << (usize::BITS - 1), 2, Vec::new());
+}
+
+/// A borrowed matrix too: an empty slice is not a `2⁶³ × 2` matrix.
+#[test]
+#[should_panic(expected = "× 2 matrix has more elements than `usize` counts")]
+fn a_borrowed_matrix_whose_element_count_overflows_is_refused() {
+    let _ = MatrixRef::new(1 << (usize::BITS - 1), 2, &[]);
+}
+
+/// A matrix built element by element is refused before its first element
+/// is computed.
+#[test]
+#[should_panic(expected = "× 2 matrix has more elements than `usize` counts")]
+fn from_fn_refuses_an_overflowing_element_count_before_any_element() {
+    let _ = Matrix::from_fn(1 << (usize::BITS - 1), 2, |_, _| {
+        panic!("no element is computed")
+    });
+}
+
 /// The product of two matrices is the naive product, to rounding, on tall,
 /// wide, square and single-row shapes.
 #[test]

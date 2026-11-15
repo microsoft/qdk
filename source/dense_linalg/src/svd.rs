@@ -39,9 +39,9 @@
 //! 2. A wide matrix is factored through its adjoint, so that the rotated
 //!    columns have length `min(m, n)`.
 //! 3. A matrix whose largest entry is outside `[2⁻¹⁰⁰, 2¹⁰⁰]` is scaled by
-//!    a power of two, so that the squared column norms neither overflow nor
-//!    underflow, and its singular values are scaled back at the end
-//!    ([`trimmed_thin_svd`] says when that rounds).
+//!    a power of two ([`PowerOfTwoScaling`]), so that the squared column
+//!    norms neither overflow nor underflow, and its singular values are
+//!    scaled back at the end ([`trimmed_thin_svd`] says when that rounds).
 //! 4. The trim (Drmač's preconditioning): a column-pivoted QR, `A·P = Q·R`,
 //!    whose rows of `R` of smallest norm are dropped, as many as keep the
 //!    dropped rows' Frobenius norm within `max(m, n) · ε` times the largest
@@ -71,6 +71,7 @@ use self::checks::checked;
 use self::jacobi::{MAX_SWEEPS, one_sided};
 use crate::kernels::{ColumnMajorSvd, Kernels, Shipped};
 use crate::matrix::{Matrix, MatrixRef};
+use crate::scaling::PowerOfTwoScaling;
 use num_complex::Complex64;
 
 /// A thin singular value decomposition `a = u·diag(s)·v†`, from
@@ -172,10 +173,9 @@ pub(crate) type TallSvd<'f> = &'f dyn Fn(usize, usize, &[Complex64]) -> Option<C
 /// matrix gives one value, 0). The caller checks the result
 /// ([`checks::checked`]): this function does not.
 ///
-/// The scaling by a power of two (step 3 of the module doc) is exact,
-/// except on an entry it takes below the normal range (more than about
-/// 2¹⁰²² times smaller than the largest), which it rounds, by far less than
-/// the checks allow. A matrix whose singular values are too large to store
+/// The scaling ([`PowerOfTwoScaling`], step 3 of the module doc) rounds
+/// only the entries it takes below the normal range, by far less than the
+/// checks allow. A matrix whose singular values are too large to store
 /// (above `f64::MAX`) gets infinite ones once they are scaled back, which
 /// the checks refuse, as they refuse values too small to store to their
 /// bound.
@@ -183,9 +183,9 @@ pub(crate) fn trimmed_thin_svd<K: Kernels>(a: MatrixRef<'_>, tall_svd: TallSvd<'
     let (rows, cols) = (a.rows(), a.cols());
     let zero = Complex64::new(0.0, 0.0);
     if a.elements().iter().all(|x| *x == zero) {
-        // The trim would keep no row (its tolerance is 0), and the scaling
-        // below takes the logarithm of the largest entry: so the zero
-        // matrix gets its one value here.
+        // The trim would keep no row (its tolerance is 0), and the matrix
+        // has no largest entry to scale by: so the zero matrix gets its one
+        // value here.
         let first = |n| {
             Matrix::from_fn(n, 1, |i, _| {
                 Complex64::new(f64::from(u8::from(i == 0)), 0.0)
@@ -198,45 +198,23 @@ pub(crate) fn trimmed_thin_svd<K: Kernels>(a: MatrixRef<'_>, tall_svd: TallSvd<'
         });
     }
     let wide = rows < cols;
-    let largest = a
-        .elements()
-        .iter()
-        .fold(0.0, |m: f64, x| m.max(x.re.abs()).max(x.im.abs()));
-    let exponent = if largest.is_finite() && !(2f64.powi(-100)..=2f64.powi(100)).contains(&largest)
-    {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "a binary exponent, |e| < 1100"
-        )]
-        let exponent = largest.log2().round() as i32;
-        exponent
-    } else {
-        0
-    };
-    // 2^-exponent as two factors, each finite whatever the exponent.
-    let factors = [
-        2f64.powi(-exponent / 2),
-        2f64.powi(-(exponent - exponent / 2)),
-    ];
-    let prepared = (wide || exponent != 0).then(|| {
+    let scaling = PowerOfTwoScaling::of(a.elements());
+    let prepared = (wide || scaling.is_some()).then(|| {
         let b = if wide {
             a.adjoint()
         } else {
             Matrix::new(rows, cols, a.elements().to_vec())
         };
-        if exponent == 0 {
-            b
-        } else {
-            let (r, c) = (b.rows(), b.cols());
-            let scaled = b.into_elements().into_iter();
-            Matrix::new(r, c, scaled.map(|x| x * factors[0] * factors[1]).collect())
+        match &scaling {
+            Some(scaling) => scaling.scaled(b),
+            None => b,
         }
     });
     let b = prepared.as_ref().map_or(a, Matrix::view);
     let (u_b, mut singular_values, v_b) = factor::<K>(b, tall_svd)?;
-    if exponent != 0 {
+    if let Some(scaling) = &scaling {
         for value in &mut singular_values {
-            *value = *value / factors[0] / factors[1];
+            *value = scaling.scaled_back(*value);
         }
     }
     let rank = singular_values.len();
