@@ -4,9 +4,9 @@ A gate acts on two neighbouring sites of the chain; a gate on sites further
 apart must first bring them together. This page gives the routing the
 engine uses, `swap-back-2x`, why it loses no weight to the move, what was
 tried before it and dropped, and the alternatives that could be explored
-later. The crate's [README](../README.md#how-each-mpsengine-method-is-implemented)
-summarizes it, and [`src/engine/routing.rs`](../src/engine/routing.rs)
-implements it.
+later. The crate's
+[README](../README.md#how-each-mpsengine-method-is-implemented) summarizes
+it, and [`src/engine/routing.rs`](../src/engine/routing.rs) implements it.
 
 The figures marked _study_ come from a study of the routings on an earlier
 version of this engine's rules, run on the CPU. Its error is the infidelity

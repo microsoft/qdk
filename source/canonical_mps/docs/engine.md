@@ -82,13 +82,16 @@ centre before it:
 
 ## Numerics
 
-**The truncation.** A split's `gate_split` drops the smallest singular
-values whose squares sum to at most the cutoff times the sum of all their
-squares (quimb's `cutoff_mode="rsum2"`), never the largest, then keeps at
-most the cap: the capacity's bond at the cut for a split at rest, none for
-a route's outbound SWAP, whose bond stays within twice the capacity's
-largest ([`routing.md`](routing.md)). It normalises the values it keeps, so
-the chain keeps a norm of about 1.
+**The truncation.** A split's `gate_split` keeps the largest singular
+value and drops values whose squares sum to at most the cutoff times the
+sum of all their squares, unless the cap cuts more: the capacity's bond at
+the cut for a split at rest, none for a route's outbound SWAP, whose bond
+stays within twice the capacity's largest ([`routing.md`](routing.md)).
+These are the bounds of `gate_split`'s contract
+([`algebra.rs`](../src/algebra.rs)); which values a split drops within
+them is the algebra's to choose, and an algebra that truncates by
+[`Truncation`](../src/algebra/truncation.rs) drops the longest such tail. A
+split normalises the values it keeps, so the chain keeps a norm of about 1.
 
 **The retained weight.** Each split returns the share `f ∈ (0, 1]` of the
 squared singular values it kept, and the state's retained weight is the
@@ -111,7 +114,8 @@ exactly zero reads exactly 0, and a gate's drift from norm 1 divides out.
 the other value's elements, and divides the site by the norm of what it
 kept. It computes the norm as `m · √(Σ |x / m|²)`, with `m` the largest
 modulus, not as `√p`, so the state's norm does not shrink with `p`, even
-when `p` is subnormal, and later projections stay possible. It truncates nothing, so `W` is unchanged.
+when `p` is subnormal, and later projections stay possible. It truncates
+nothing, so `W` is unchanged.
 
 **An expectation.** An observable `c₀ + Σₖ cₖ Pₖ`, each `Pₖ` a product of
 one-site Paulis, has the value `c₀ + Σₖ cₖ ⟨ψ|Pₖ|ψ⟩ / ‖T_centre‖²`; the

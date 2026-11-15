@@ -10,7 +10,7 @@
 //! measured values, estimates observables and draws samples. This engine
 //! holds the rules of all of it once, so that a backend (the CPU, a GPU
 //! library) writes only the tensor operations of [`SiteAlgebra`], and every
-//! backend routes, truncates and reads alike.
+//! backend routes and reads alike, and truncates within the same bounds.
 //!
 //! **The canonical form.** The state of `n` qubits is a chain of `n` site
 //! tensors, one per qubit, neighbours sharing a bond. Every site but one is
@@ -70,11 +70,12 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// backend `A`, which holds the site tensors and runs every operation on
 /// them. A backend crate names its own engine as this one on its algebra.
 ///
-/// Beyond the contract, a caller may rely on how it truncates, routes and
-/// fuses, the same on every backend.
+/// Beyond the contract, a caller may rely on how it routes and fuses, the
+/// same on every backend, and on the bounds its truncations stay within,
+/// which [`SiteAlgebra::gate_split`]'s contract sets for every backend.
 ///
-/// **Truncation.** Every split drops the tail of singular values within
-/// the engine's cutoff, never the largest value, and a split at rest keeps
+/// **Truncation.** Every split drops a tail of singular values within the
+/// engine's cutoff, never the largest value, and a split at rest keeps
 /// at most the capacity's bond at its cut (the `χ` of the chain a caller
 /// asks for in [`MpsEngine::prepare`]); a route's outbound SWAPs apply the
 /// cutoff alone (Routing, below). A split normalises the values it keeps,
@@ -139,13 +140,14 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         }
     }
 
-    /// The same engine, whose splits drop the smallest singular values
-    /// whose squares sum to at most `cutoff` times the sum of all their
-    /// squares (quimb's `cutoff_mode="rsum2"`), then, at rest, keep at most
-    /// the capacity's bond (Routing on [`CanonicalMpsEngine`]). A cutoff of
-    /// zero drops only zeros, and values whose squares underflow against
-    /// the largest. A split always keeps its largest value, however close
-    /// to 1 the cutoff.
+    /// The same engine, whose splits each keep their largest singular value
+    /// and drop values whose squares sum to at most `cutoff` times the sum
+    /// of all their squares, unless the capacity's bond, which a split at
+    /// rest keeps at most (Routing on [`CanonicalMpsEngine`]), cuts more.
+    /// These are the bounds of [`SiteAlgebra::gate_split`]'s contract;
+    /// which values a split drops within them is the algebra's to choose,
+    /// and an algebra that truncates by [`Truncation`] drops the longest
+    /// such tail.
     ///
     /// The cutoff and the capacity's bond `χ` are the two settings that
     /// trade time for accuracy. The cutoff bounds the weight a split may
@@ -160,6 +162,8 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     ///
     /// When `cutoff` is not in `[0, 1)`, NaN included: it is a fraction of
     /// a split's weight, and a cutoff of 1 or more would drop every value.
+    ///
+    /// [`Truncation`]: crate::algebra::truncation::Truncation
     #[must_use]
     pub fn with_cutoff(self, cutoff: f64) -> Self {
         assert!(

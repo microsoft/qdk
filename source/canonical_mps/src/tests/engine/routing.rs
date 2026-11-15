@@ -138,10 +138,9 @@ fn a_route_keeps_a_state_that_fits_uneven_bonds() {
 /// leaving the outbound split's loss out of the weight would end near 0.99.
 #[test]
 fn the_cutoff_applies_to_a_routes_splits() {
-    // COMPATIBILITY NOTE: this value was measured on the CPU engine, hence
-    // we keep it. The site tensors here come from the site algebra's own
-    // split, whose rounding the CPU engine's SVD did not share, so the
-    // value could have moved; it reads 0.979974491787900 again, fused and
+    // COMPATIBILITY NOTE: this behavior was present in the dev line's
+    // `qdk_cpu_mps` (its test of the same name, which measured
+    // 0.979974491787900), hence we keep the value: it holds here, fused and
     // unfused, within the test's 1e-12.
     let cutoff = 0.015;
     let half_turn = ry(std::f64::consts::FRAC_PI_2);

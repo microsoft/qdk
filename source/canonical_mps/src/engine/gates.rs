@@ -71,8 +71,8 @@ pub(super) struct FusedPair {
 /// What a split drops.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Truncation {
-    /// A split at rest, after a gate or a return SWAP: the cutoff, then
-    /// the capacity's bond.
+    /// A split at rest, after a gate or a return SWAP: the cutoff and the
+    /// capacity's bond.
     CutoffAndCapacity,
     /// A split after a route's outbound SWAP: the cutoff alone.
     CutoffOnly,

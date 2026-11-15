@@ -99,13 +99,10 @@ fn a_measured_value_has_probability_exactly_one() {
 /// of which `a_measured_value_has_probability_exactly_one` measures.
 #[test]
 fn a_sample_draws_one_where_zero_has_probability_zero() {
-    // COMPATIBILITY NOTE: this test was present in the CPU engine's tests,
-    // on site 1 of 5 fused and site 3 of 10 unfused, hence we keep its rule
-    // and name. The site tensors here come from the site algebra's own
-    // split, whose rounding the CPU engine's SVD did not share, so the
-    // sites on which the whole weight rounds below the uniform moved: we
-    // found them again by reading P(One) over the whole weight on every
-    // site of 5 to 10 sites, fused and unfused.
+    // COMPATIBILITY NOTE: this behavior was present in the dev line's
+    // `qdk_cpu_mps` (its test of the same name), hence we keep its rule.
+    // Its sites moved, because this crate's splits round differently from
+    // that engine's SVD, so they were found again as the doc above says.
     // 1 − 2⁻⁵³ is the largest `f64` below 1, so a uniform in [0, 1) is not
     // below it only when it is 1 − 2⁻⁵³ exactly.
     assert!(

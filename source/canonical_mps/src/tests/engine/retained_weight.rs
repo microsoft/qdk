@@ -170,10 +170,10 @@ fn projections_on_values_of_subnormal_probability_are_accepted() {
 }
 
 /// Two sites, each turned so that P(One) is 1e-200, the first projected on
-/// One: the projection divides the site by the norm of what it kept, so the
-/// second site's P(One) still reads 1e-200 (left unnormalised, the state's
-/// squared norm would be 1e-200, and the second value's weight, 1e-400,
-/// would underflow to zero).
+/// One: the projection renormalises what it kept, so the norm does not
+/// shrink with `p`, and the second site's P(One) still reads 1e-200 (left
+/// unnormalised, the state's squared norm would be 1e-200, and the second
+/// value's weight, 1e-400, would underflow to zero).
 #[test]
 fn a_projection_renormalises_the_state() {
     let theta = 2.0 * 1e-100_f64.asin();

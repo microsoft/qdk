@@ -3,15 +3,16 @@
 
 //! A matrix product state (MPS) engine in canonical form, written once
 //! over the tensor operations of a backend, so that each backend (the CPU,
-//! a GPU library) writes only those operations, and every backend routes,
-//! truncates and reads by the same rules.
+//! a GPU library) writes only those operations, and every backend routes
+//! and reads by the same rules, and truncates within the same bounds.
 //!
 //! - [`CanonicalMpsEngine`] is `tensornet`'s
 //!   [`MpsEngine`](tensornet::MpsEngine) on any
 //!   [`SiteAlgebra`](algebra::SiteAlgebra), with its state
 //!   ([`CanonicalMpsState`]), its errors ([`CanonicalMpsError`]) and what
 //!   its splits cost ([`SplitStatistics`]). It documents what a caller may
-//!   rely on beyond the contract: how it truncates, routes and fuses.
+//!   rely on beyond the contract: how it routes and fuses, and the bounds
+//!   its truncations stay within.
 //! - [`algebra`] is the backend contract.
 //!   [`SiteAlgebra`](algebra::SiteAlgebra) is what a backend implements: a
 //!   site tensor's storage, a gate split, and a move of the centre.
