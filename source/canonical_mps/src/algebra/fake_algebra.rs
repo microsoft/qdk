@@ -3,14 +3,14 @@
 
 //! [`FakeAlgebra`]: a [`SiteAlgebra`] on the host, for the crate's tests.
 //!
-//! The engine's rules are tested in CI with no backend crate: the engine
-//! runs on this algebra, whose tensors are vectors and whose maths is
-//! `dense_linalg`'s (its products, its QR, and its SVD, which checks its
-//! own factors). It truncates by the rule of [`Truncation`]. It is test
-//! support, not a test: it sits beside the trait it implements, and is
-//! compiled only with the tests, which live under `src/tests` and check it
-//! against the trait's contract, since the engine's tests stand on its
-//! answers.
+//! The planned engine's rules will be tested in CI with no backend crate:
+//! the engine will run on this algebra, whose tensors are vectors and
+//! whose maths is `dense_linalg`'s (its products, its QR, and its SVD,
+//! which checks its own factors). It truncates by the rule of
+//! [`Truncation`]. It is test support, not a test: it sits beside the
+//! trait it implements, and is compiled only with the tests, which live
+//! under `src/tests` and check it against the trait's contract, since the
+//! planned engine's tests will stand on its answers.
 
 use super::truncation::Truncation;
 use super::{CentreSide, GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};

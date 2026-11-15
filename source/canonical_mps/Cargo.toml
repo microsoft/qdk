@@ -11,6 +11,8 @@ repository.workspace = true
 num-complex = { workspace = true }
 
 [dev-dependencies]
+# The test algebra's product, QR and SVD (src/algebra/fake_algebra.rs); the
+# planned engine will make it a normal dependency.
 dense_linalg = { path = "../dense_linalg" }
 
 [lints]

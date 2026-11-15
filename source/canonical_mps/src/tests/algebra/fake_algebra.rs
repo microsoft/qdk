@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The test algebra against `SiteAlgebra`'s contract, since the engine's
-//! tests stand on its answers: a gate split gives back the gated pair,
-//! truncated to its largest singular values and normalised, with an
-//! isometry away from the centre; a move of the centre is exact and leaves
-//! an isometry behind. The product, QR and SVD it computes them with are
-//! `dense_linalg`'s, tested there.
+//! The test algebra against `SiteAlgebra`'s contract, since the planned
+//! engine's tests will stand on its answers: a gate split gives back the
+//! gated pair, truncated to its largest singular values and normalised,
+//! with an isometry away from the centre; a move of the centre is exact
+//! and leaves an isometry behind. The product, QR and SVD it computes
+//! them with are `dense_linalg`'s, tested there.
 //!
 //! The expected values come from the contract's formulas, computed here
 //! with plain loops, and from matrices whose SVD is known by construction.
@@ -169,10 +169,10 @@ fn a_move_of_the_centre_leaves_an_isometry_behind() {
 
 /// Moves of the centre across bonds smaller than, equal to and larger than
 /// the leaving site's side, a pair `[1, 2, m]`, `[m, 2, 2]`: the bond
-/// becomes the smaller of the bond and that side, 2 to the right and 4 to
-/// the left.
+/// becomes the smaller of the bond and that side (2 to the right, 4 to the
+/// left), exactly.
 #[test]
-fn the_bond_after_a_move_is_at_most_the_leaving_sites_side() {
+fn the_bond_after_a_move_is_the_smaller_of_the_bond_and_the_leaving_sites_side() {
     for m in [1, 2, 3] {
         let (a, b) = (random(2, m, 16), random(m, 4, 17));
         let (_, _, bond) = move_centre(&a, &b, 1, 2, None, CentreSide::Right);

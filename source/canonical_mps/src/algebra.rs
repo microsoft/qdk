@@ -16,10 +16,6 @@
 //! operations: a gate split and a move of the centre on two neighbouring
 //! sites, and the storage of a site.
 //!
-//! An implementation may assume every argument is valid: the caller checks
-//! them before it calls. So it computes, and reports only its own
-//! failures, in its [`SiteAlgebra::Error`].
-//!
 //! # The layout
 //!
 //! Every tensor holds complex doubles, its first mode fastest (Fortran
@@ -47,8 +43,14 @@ use std::borrow::Cow;
 /// on two neighbouring sites.
 ///
 /// The caller has checked every argument (extents, lengths, the call's
-/// settings) before it calls, so an implementation reports only what fails
-/// in its own computation. Tensors follow the [module's layout](self).
+/// settings) before it calls, so an implementation may assume each is
+/// valid. Tensors follow the [module's layout](self).
+///
+/// # Errors
+///
+/// Each method fails, with [`SiteAlgebra::Error`], only when the backend's
+/// own computation fails (an allocation, a copy, a library call), never
+/// for an argument.
 pub trait SiteAlgebra {
     /// Where one site tensor's elements live.
     type Tensor;
@@ -143,6 +145,7 @@ pub enum CentreSide {
 ///
 /// `θ` is never zero: the caller's states have norm 1, and its gates are
 /// unitary.
+#[derive(Debug)]
 pub struct GateSplitCall<'t, T> {
     /// `A`, of extents `[left_extent, 2, bond]`.
     pub left: &'t T,
@@ -162,8 +165,7 @@ pub struct GateSplitCall<'t, T> {
     pub max_extent: usize,
     /// The share of the squared singular values the split may drop, in
     /// `[0, 1)`; 0 drops the zeros, and may drop values so small, against
-    /// the largest, that their squares underflow ([`truncation`] drops
-    /// those below about 1e-162 of the largest).
+    /// the largest, that their squares underflow.
     pub cutoff: f64,
     /// The site that absorbs the singular values, and so holds the centre
     /// afterwards.
@@ -171,6 +173,7 @@ pub struct GateSplitCall<'t, T> {
 }
 
 /// What one gate split returned ([`SiteAlgebra::gate_split`]).
+#[derive(Debug)]
 pub struct GateSplitOutcome<T> {
     /// The new left site, of extents `[left_extent, 2, bond]`, packed.
     pub left: T,
@@ -192,6 +195,7 @@ pub struct GateSplitOutcome<T> {
 /// gated, read as the `bond × (2·right_extent)` matrix of columns `(q, b)`,
 /// is `L·Q` with `Q`'s rows orthonormal; `B` becomes `Q` and `A` becomes
 /// `A·L`.
+#[derive(Debug)]
 pub struct QrMoveCall<'t, T> {
     /// `A`, of extents `[left_extent, 2, bond]`.
     pub left: &'t T,
@@ -212,6 +216,7 @@ pub struct QrMoveCall<'t, T> {
 }
 
 /// What one move of the centre returned ([`SiteAlgebra::qr_move`]).
+#[derive(Debug)]
 pub struct QrMoveOutcome<T> {
     /// The new left site, of extents `[left_extent, 2, bond]`, packed.
     pub left: T,

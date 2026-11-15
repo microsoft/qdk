@@ -13,15 +13,15 @@
 //! and drops a tail whose squares sum to exactly the cutoff's share.
 //!
 //! Every square is of a value divided by the largest, so every sum is at
-//! least 1 and none underflows however small the values are. A value
-//! below about 1e-162 of the largest has a square that underflows to zero,
-//! so it counts as zero: a cutoff of 0 drops it.
+//! least 1 and none underflows however small the values are. A value so
+//! small, against the largest, that its square underflows to zero counts
+//! as zero: a cutoff of 0 drops it ([`Truncation::of`] says how small).
 
 /// Which singular values a split keeps, from [`Truncation::of`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct Truncation {
-    /// The kept values, largest first, divided by their L2 norm; their
-    /// number is the split's bond.
+    /// The kept values, largest first, divided by their L2 norm (the zero
+    /// spectrum's one value stays 0); their number is the split's bond.
     pub normalised_values: Vec<f64>,
     /// The share of the squared values kept, in `(0, 1]`, and exactly 1
     /// when every dropped value is zero.
