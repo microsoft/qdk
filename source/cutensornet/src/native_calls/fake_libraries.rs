@@ -210,17 +210,17 @@ enum Object {
     SvdConfig(SvdConfig),
     /// An SVD info, and what the last gate split given it truncated.
     SvdInfo(Option<super::tensor_calls::SvdTruncation>),
+    /// A contraction network: the info whose path it was last optimized
+    /// to, and whether it is prepared along that path.
     Network {
         inputs: [TensorShape; 2],
         output: TensorShape,
+        path: Option<usize>,
+        prepared: bool,
     },
     OptimizerInfo {
         network: usize,
         optimized: bool,
-    },
-    Plan {
-        network: usize,
-        info: usize,
     },
 }
 

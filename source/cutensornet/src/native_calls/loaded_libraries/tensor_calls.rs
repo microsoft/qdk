@@ -7,9 +7,11 @@
 //! Every call first takes that table, so on a cuTensorNet that lacks a
 //! function of it, every call fails with
 //! `NativeError::MissingNativeFunctions`, naming each missing one. The
-//! descriptors and networks are created with null strides (first mode
-//! fastest) and no qualifiers; cuTensorNet copies their extents and labels,
-//! so the caller's slices need live only during the call.
+//! descriptors, and the tensors of networks and their buffers, take null
+//! strides (first mode fastest) and no qualifiers; cuTensorNet copies their
+//! extents and labels, so the caller's slices need live only during the
+//! call. A network computes in `CUTENSORNET_COMPUTE_64F`, the default
+//! `cutensornetCreateNetwork` documents for `CUDA_C_64F` tensors.
 
 use crate::libraries::cutensornet::v2_13;
 use crate::libraries::{LoadedLibraries, cutensornet::tensor::CuTensorNetTensorFunctions};
@@ -17,8 +19,8 @@ use crate::native_calls::error::{NativeError, combine_execution_and_cleanup};
 use crate::native_calls::{
     OpaqueHandle, Stream,
     tensor_calls::{
-        GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation, TensorCalls,
-        TensorModes, TensorOperand,
+        ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
+        TensorCalls, TensorModes, TensorOperand,
     },
 };
 use std::{ffi::c_void, ptr::NonNull};
@@ -320,51 +322,48 @@ impl TensorCalls for LoadedLibraries {
         &self,
         handle: OpaqueHandle,
         inputs: [TensorModes<'_>; 2],
-        output: TensorModes<'_>,
-    ) -> Result<OpaqueHandle, NativeError> {
+        output_modes: &[i32],
+    ) -> Result<ContractionNetwork, NativeError> {
         let functions = self.tensor_functions()?;
         let input_mode_counts = [mode_count(inputs[0])?, mode_count(inputs[1])?];
-        let output_mode_count = mode_count(output)?;
-        let input_extents = inputs.map(|tensor| tensor.extents.as_ptr());
-        let input_modes = inputs.map(|tensor| tensor.modes.as_ptr());
+        let output_mode_count =
+            i32::try_from(output_modes.len()).map_err(|_| NativeError::ResourceSizeOverflow {
+                resource: "tensor mode count",
+            })?;
         let mut network = std::ptr::null_mut();
-        // SAFETY: the handle is live; two inputs, each with as many extents
-        // and labels as its count, and the output's, all of which
-        // cuTensorNet copies; null strides and qualifiers are the defaults
-        // (the first mode fastest, no conjugation); `network` is a writable
-        // out-pointer.
-        let status = unsafe {
-            (functions.create_network)(
-                handle.as_ptr(),
-                2,
-                input_mode_counts.as_ptr(),
-                input_extents.as_ptr(),
-                std::ptr::null(),
-                input_modes.as_ptr(),
-                std::ptr::null(),
-                output_mode_count,
-                output.extents.as_ptr(),
-                std::ptr::null(),
-                output.modes.as_ptr(),
-                v2_13::cudaDataType_t_CUDA_C_64F,
-                v2_13::cutensornetComputeType_t_CUTENSORNET_COMPUTE_64F,
-                &raw mut network,
-            )
-        };
-        self.check_cutensornet("cutensornetCreateNetworkDescriptor", status)?;
-        created(
+        // SAFETY: the handle is live and `network` is a writable out-pointer.
+        let status = unsafe { (functions.create_network)(handle.as_ptr(), &raw mut network) };
+        self.check_cutensornet("cutensornetCreateNetwork", status)?;
+        let network = created(network, "cutensornetCreateNetwork", "network")?;
+        let described = self.describe_network(
+            functions,
+            handle,
             network,
-            "cutensornetCreateNetworkDescriptor",
-            "network descriptor",
-        )
+            inputs,
+            input_mode_counts,
+            (output_mode_count, output_modes),
+        );
+        match described {
+            Ok(input_ids) => Ok(ContractionNetwork {
+                descriptor: network,
+                input_ids,
+            }),
+            Err(error) => {
+                // SAFETY: the network was created above, and is destroyed
+                // once, since the caller never receives it.
+                let status = unsafe { (functions.destroy_network)(network.as_ptr()) };
+                let destroyed = self.check_cutensornet("cutensornetDestroyNetwork", status);
+                combine_execution_and_cleanup(Err(error), destroyed)
+            }
+        }
     }
 
     fn destroy_contraction_network(&self, network: OpaqueHandle) -> Result<(), NativeError> {
         let functions = self.tensor_functions()?;
         // SAFETY: its owner destroys each network exactly once, after the
-        // plans and infos made from it.
+        // optimizer infos made from it.
         let status = unsafe { (functions.destroy_network)(network.as_ptr()) };
-        self.check_cutensornet("cutensornetDestroyNetworkDescriptor", status)
+        self.check_cutensornet("cutensornetDestroyNetwork", status)
     }
 
     fn create_optimizer_info(
@@ -389,8 +388,8 @@ impl TensorCalls for LoadedLibraries {
 
     fn destroy_optimizer_info(&self, info: OpaqueHandle) -> Result<(), NativeError> {
         let functions = self.tensor_functions()?;
-        // SAFETY: its owner destroys each info exactly once, after the plans
-        // made from it.
+        // SAFETY: its owner destroys each info exactly once, before its
+        // network.
         let status = unsafe { (functions.destroy_optimizer_info)(info.as_ptr()) };
         self.check_cutensornet("cutensornetDestroyContractionOptimizerInfo", status)
     }
@@ -491,71 +490,133 @@ impl TensorCalls for LoadedLibraries {
         self.check_cutensornet("cutensornetWorkspaceComputeContractionSizes", status)
     }
 
-    fn create_contraction_plan(
+    fn prepare_contraction(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
-        info: OpaqueHandle,
         workspace: OpaqueHandle,
-    ) -> Result<OpaqueHandle, NativeError> {
+    ) -> Result<(), NativeError> {
         let functions = self.tensor_functions()?;
-        let mut plan = std::ptr::null_mut();
-        // SAFETY: the handle, the network, its optimized info and the
-        // workspace descriptor, sized for them, are live; `plan` is a
-        // writable out-pointer.
+        // SAFETY: the handle, the network, optimized, and the workspace
+        // descriptor, sized for its path, are live.
         let status = unsafe {
-            (functions.create_plan)(
+            (functions.network_prepare_contraction)(
                 handle.as_ptr(),
                 network.as_ptr(),
-                info.as_ptr(),
                 workspace.as_ptr(),
-                &raw mut plan,
             )
         };
-        self.check_cutensornet("cutensornetCreateContractionPlan", status)?;
-        created(plan, "cutensornetCreateContractionPlan", "contraction plan")
-    }
-
-    fn destroy_contraction_plan(&self, plan: OpaqueHandle) -> Result<(), NativeError> {
-        let functions = self.tensor_functions()?;
-        // SAFETY: its owner destroys each plan exactly once.
-        let status = unsafe { (functions.destroy_plan)(plan.as_ptr()) };
-        self.check_cutensornet("cutensornetDestroyContractionPlan", status)
+        self.check_cutensornet("cutensornetNetworkPrepareContraction", status)
     }
 
     fn contract(
         &self,
         handle: OpaqueHandle,
-        plan: OpaqueHandle,
+        network: ContractionNetwork,
         inputs: [OpaqueHandle; 2],
         output: OpaqueHandle,
         workspace: OpaqueHandle,
         stream: Stream,
     ) -> Result<(), NativeError> {
         let functions = self.tensor_functions()?;
-        let inputs = inputs.map(|input| input.as_ptr().cast_const());
-        // SAFETY: the handle, the plan, the workspace and the stream are
-        // live; the inputs and the output hold their network tensors'
-        // extents, and the workspace was sized for this plan and lent the
-        // memory it asked for. Their owners keep them until the stream is
-        // synchronized. Slice 0 is the whole contraction: the plan's path
-        // is unsliced, which `optimize_contraction` checked.
+        for (input_id, input) in network.input_ids.into_iter().zip(inputs) {
+            // SAFETY: the handle and the network are live, `input_id` is
+            // the id cuTensorNet gave this input, and the buffer holds its
+            // extents (null strides: first mode fastest).
+            let status = unsafe {
+                (functions.network_set_input_tensor_memory)(
+                    handle.as_ptr(),
+                    network.descriptor.as_ptr(),
+                    input_id,
+                    input.as_ptr().cast_const(),
+                    std::ptr::null(),
+                )
+            };
+            self.check_cutensornet("cutensornetNetworkSetInputTensorMemory", status)?;
+        }
+        // SAFETY: the handle and the network are live, and the buffer holds
+        // the output's extents (null strides: first mode fastest).
         let status = unsafe {
-            (functions.contraction)(
+            (functions.network_set_output_tensor_memory)(
                 handle.as_ptr(),
-                plan.as_ptr(),
-                inputs.as_ptr(),
+                network.descriptor.as_ptr(),
                 output.as_ptr(),
-                workspace.as_ptr(),
+                std::ptr::null(),
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkSetOutputTensorMemory", status)?;
+        // SAFETY: the handle, the network, prepared, the workspace and the
+        // stream are live; the workspace was sized for the network's path
+        // and lent the memory it asked for. The buffers' owners keep them
+        // until the stream is synchronized. A null slice group is every
+        // slice, and the path has one, which `optimize_contraction`
+        // checked; 0 overwrites the output.
+        let status = unsafe {
+            (functions.network_contract)(
+                handle.as_ptr(),
+                network.descriptor.as_ptr(),
                 0,
+                workspace.as_ptr(),
+                std::ptr::null_mut(),
                 stream.as_ptr().cast(),
             )
         };
-        self.check_cutensornet("cutensornetContraction", status)
+        self.check_cutensornet("cutensornetNetworkContract", status)
     }
 }
 
 impl LoadedLibraries {
+    /// Appends `inputs` to the empty `network` and sets its output, of the
+    /// labels `output`; the ids cuTensorNet gave the inputs.
+    fn describe_network(
+        &self,
+        functions: &CuTensorNetTensorFunctions,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        inputs: [TensorModes<'_>; 2],
+        input_mode_counts: [i32; 2],
+        output: (i32, &[i32]),
+    ) -> Result<[i64; 2], NativeError> {
+        let mut input_ids = [0; 2];
+        for ((tensor, mode_count), input_id) in inputs
+            .into_iter()
+            .zip(input_mode_counts)
+            .zip(&mut input_ids)
+        {
+            // SAFETY: the handle and the network are live; `extents` and
+            // `modes` hold `mode_count` entries each, which cuTensorNet
+            // copies; null qualifiers are the defaults (no conjugation);
+            // `input_id` is a writable out-pointer.
+            let status = unsafe {
+                (functions.network_append_tensor)(
+                    handle.as_ptr(),
+                    network.as_ptr(),
+                    mode_count,
+                    tensor.extents.as_ptr(),
+                    tensor.modes.as_ptr(),
+                    std::ptr::null(),
+                    v2_13::cudaDataType_t_CUDA_C_64F,
+                    input_id,
+                )
+            };
+            self.check_cutensornet("cutensornetNetworkAppendTensor", status)?;
+        }
+        let (output_mode_count, output_modes) = output;
+        // SAFETY: the handle and the network are live, and `output_modes`
+        // holds `output_mode_count` labels, which cuTensorNet copies.
+        let status = unsafe {
+            (functions.network_set_output_tensor)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                output_mode_count,
+                output_modes.as_ptr(),
+                v2_13::cudaDataType_t_CUDA_C_64F,
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkSetOutputTensor", status)?;
+        Ok(input_ids)
+    }
+
     /// cuTensorNet's tensor API, or every function of it the library lacks.
     fn tensor_functions(&self) -> Result<&CuTensorNetTensorFunctions, NativeError> {
         self.cutensornet

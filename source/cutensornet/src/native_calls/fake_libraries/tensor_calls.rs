@@ -9,13 +9,13 @@
 //! It is as strict as the state calls about what cuTensorNet needs:
 //!
 //! - every object (a descriptor, an SVD config or info, a network, an
-//!   optimizer info, a plan) belongs to the handle it was created with;
+//!   optimizer info) belongs to the handle it was created with;
 //! - a gate split, a QR or a contraction runs only in a workspace last
 //!   sized for that same call (the same descriptors and config, or the
 //!   same network and path), and lent what each of its slots asks for;
-//! - a plan needs an optimized path of its network and a workspace sized
-//!   for both; a network outlives its optimizer infos and plans, and an
-//!   optimizer info its plans;
+//! - a network is prepared only once optimized, in a workspace sized for
+//!   its path, and contracted only once prepared; it outlives its optimizer
+//!   infos;
 //! - a gate split, a QR or a contraction runs on a live stream;
 //! - a gate split takes A·B·G's topology: each input label is shared by
 //!   two inputs and in neither output, or is in one input and one of U's
@@ -45,8 +45,8 @@ use crate::native_calls::error::NativeError;
 use crate::native_calls::{
     OpaqueHandle, Stream,
     tensor_calls::{
-        GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation, TensorCalls,
-        TensorModes, TensorOperand,
+        ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
+        TensorCalls, TensorModes, TensorOperand,
     },
 };
 use dense_linalg::{MatrixRef, Qr, Svd};
@@ -342,27 +342,14 @@ impl TensorCalls for FakeLibraries {
         &self,
         handle: OpaqueHandle,
         inputs: [TensorModes<'_>; 2],
-        output: TensorModes<'_>,
-    ) -> Result<OpaqueHandle, NativeError> {
+        output_modes: &[i32],
+    ) -> Result<ContractionNetwork, NativeError> {
         const OPERATION: &str = "create_contraction_network";
         let mut inner = self.call(OPERATION)?;
         let inputs = [
             TensorShape::of(inputs[0], OPERATION)?,
             TensorShape::of(inputs[1], OPERATION)?,
         ];
-        let output = TensorShape::of(output, OPERATION)?;
-        for (mode, extent) in output.modes.iter().zip(&output.extents) {
-            let found: Vec<i64> = inputs
-                .iter()
-                .filter_map(|input| input.extent(*mode))
-                .collect();
-            if found.is_empty() {
-                return Err(failed(OPERATION, "an output label is in no input"));
-            }
-            if found.iter().any(|found| found != extent) {
-                return Err(failed(OPERATION, "a label has two extents"));
-            }
-        }
         for mode in &inputs[0].modes {
             if let Some(extent) = inputs[1].extent(*mode)
                 && inputs[0].extent(*mode) != Some(extent)
@@ -370,19 +357,48 @@ impl TensorCalls for FakeLibraries {
                 return Err(failed(OPERATION, "a label has two extents"));
             }
         }
-        inner.create_on(handle, OPERATION, Object::Network { inputs, output })
+        let output_extents = output_modes
+            .iter()
+            .map(|mode| {
+                inputs
+                    .iter()
+                    .find_map(|input| input.extent(*mode))
+                    .ok_or_else(|| failed(OPERATION, "an output label is in no input"))
+            })
+            .collect::<Result<Vec<i64>, _>>()?;
+        let output = TensorShape::of(
+            TensorModes {
+                extents: &output_extents,
+                modes: output_modes,
+            },
+            OPERATION,
+        )?;
+        let descriptor = inner.create_on(
+            handle,
+            OPERATION,
+            Object::Network {
+                inputs,
+                output,
+                path: None,
+                prepared: false,
+            },
+        )?;
+        Ok(ContractionNetwork {
+            descriptor,
+            input_ids: [0, 1],
+        })
     }
 
     fn destroy_contraction_network(&self, network: OpaqueHandle) -> Result<(), NativeError> {
         const OPERATION: &str = "destroy_contraction_network";
         let mut inner = self.call(OPERATION)?;
         let in_use = inner.has_part(id(network), |object, network| {
-            matches!(object, Object::OptimizerInfo { network: of, .. } | Object::Plan { network: of, .. } if *of == network)
+            matches!(object, Object::OptimizerInfo { network: of, .. } if *of == network)
         });
         if in_use {
             return Err(failed(
                 OPERATION,
-                "an optimizer info or a plan of the network is live",
+                "an optimizer info of the network is live",
             ));
         }
         inner.destroy(network, OPERATION, |o| matches!(o, Object::Network { .. }))
@@ -408,17 +424,10 @@ impl TensorCalls for FakeLibraries {
     }
 
     fn destroy_optimizer_info(&self, info: OpaqueHandle) -> Result<(), NativeError> {
-        const OPERATION: &str = "destroy_optimizer_info";
-        let mut inner = self.call(OPERATION)?;
-        if inner.has_part(
-            id(info),
-            |object, info| matches!(object, Object::Plan { info: of, .. } if *of == info),
-        ) {
-            return Err(failed(OPERATION, "a plan of the optimizer info is live"));
-        }
-        inner.destroy(info, OPERATION, |o| {
-            matches!(o, Object::OptimizerInfo { .. })
-        })
+        self.call("destroy_optimizer_info")?
+            .destroy(info, "destroy_optimizer_info", |o| {
+                matches!(o, Object::OptimizerInfo { .. })
+            })
     }
 
     fn find_contraction_path(
@@ -439,6 +448,10 @@ impl TensorCalls for FakeLibraries {
         }
         if let Some(Object::OptimizerInfo { optimized, .. }) = inner.objects.get_mut(&id(info)) {
             *optimized = true;
+        }
+        if let Some(Object::Network { path, prepared, .. }) = inner.objects.get_mut(&id(network)) {
+            *path = Some(id(info));
+            *prepared = false;
         }
         Ok(())
     }
@@ -471,42 +484,31 @@ impl TensorCalls for FakeLibraries {
         inner.size_for(handle, workspace, call, OPERATION)
     }
 
-    fn create_contraction_plan(
+    fn prepare_contraction(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
-        info: OpaqueHandle,
         workspace: OpaqueHandle,
-    ) -> Result<OpaqueHandle, NativeError> {
-        const OPERATION: &str = "create_contraction_plan";
+    ) -> Result<(), NativeError> {
+        const OPERATION: &str = "prepare_contraction";
         let mut inner = self.call(OPERATION)?;
-        inner.path_of(handle, network, info, OPERATION)?;
+        let (path, _) = inner.network(handle, network, OPERATION)?;
+        let info = path.ok_or_else(|| failed(OPERATION, "the network is not optimized"))?;
         let call = SizedFor::Contraction {
             network: id(network),
-            info: id(info),
+            info,
         };
         inner.sized_for(handle, workspace, call, OPERATION)?;
-        inner.create_on(
-            handle,
-            OPERATION,
-            Object::Plan {
-                network: id(network),
-                info: id(info),
-            },
-        )
-    }
-
-    fn destroy_contraction_plan(&self, plan: OpaqueHandle) -> Result<(), NativeError> {
-        self.call("destroy_contraction_plan")?
-            .destroy(plan, "destroy_contraction_plan", |o| {
-                matches!(o, Object::Plan { .. })
-            })
+        if let Some(Object::Network { prepared, .. }) = inner.objects.get_mut(&id(network)) {
+            *prepared = true;
+        }
+        Ok(())
     }
 
     fn contract(
         &self,
         handle: OpaqueHandle,
-        plan: OpaqueHandle,
+        network: ContractionNetwork,
         inputs: [OpaqueHandle; 2],
         output: OpaqueHandle,
         workspace: OpaqueHandle,
@@ -515,21 +517,26 @@ impl TensorCalls for FakeLibraries {
         const OPERATION: &str = "contract";
         let mut inner = self.call(OPERATION)?;
         inner.require(stream, OPERATION, |o| matches!(o, Object::Stream))?;
-        inner.owned(handle, plan, OPERATION)?;
-        let Some(&Object::Plan { network, info }) = inner.objects.get(&id(plan)) else {
-            return Err(failed(OPERATION, "no such plan"));
+        let network = network.descriptor;
+        let (path, prepared) = inner.network(handle, network, OPERATION)?;
+        let (Some(info), true) = (path, prepared) else {
+            return Err(failed(OPERATION, "the network is not prepared"));
         };
         inner.sized_for(
             handle,
             workspace,
-            SizedFor::Contraction { network, info },
+            SizedFor::Contraction {
+                network: id(network),
+                info,
+            },
             OPERATION,
         )?;
         inner.lent_scratch(workspace, OPERATION)?;
         let Some(Object::Network {
             inputs: shapes,
             output: output_shape,
-        }) = inner.objects.get(&network)
+            ..
+        }) = inner.objects.get(&id(network))
         else {
             return Err(failed(OPERATION, "no such network"));
         };
@@ -958,6 +965,21 @@ impl Inner {
         match self.objects.get(&id(info)) {
             Some(&Object::OptimizerInfo { network, optimized }) => Ok((network, optimized)),
             _ => Err(failed(operation, "no such optimizer info")),
+        }
+    }
+
+    /// The info whose path `network`, which must belong to `handle`, was
+    /// last optimized to, and whether it is prepared along it.
+    fn network(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        operation: &'static str,
+    ) -> Result<(Option<usize>, bool), NativeError> {
+        self.owned(handle, network, operation)?;
+        match self.objects.get(&id(network)) {
+            Some(&Object::Network { path, prepared, .. }) => Ok((path, prepared)),
+            _ => Err(failed(operation, "no such network")),
         }
     }
 

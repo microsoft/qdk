@@ -16,8 +16,8 @@
 //! Every tensor is complex double (`CUDA_C_64F`), its first mode fastest
 //! (null strides), and every call computes in double precision
 //! (`CUTENSORNET_COMPUTE_64F`). The objects a caller creates here
-//! (descriptors, SVD configs and infos, networks, optimizer infos, plans)
-//! belong to the handle they were created with, and are used only with it.
+//! (descriptors, SVD configs and infos, networks, optimizer infos) belong
+//! to the handle they were created with, and are used only with it.
 //! A call that runs on a stream (`gate_split`, `tensor_qr`, `contract`) runs
 //! in a workspace sized for that call (its `…_workspace_sizes`) and lent
 //! the memory each slot asks for (`MemoryCalls::set_workspace`); its results
@@ -35,6 +35,18 @@ use crate::native_calls::error::NativeError;
 /// The calls of cuTensorNet's tensor API that a canonical MPS needs: tensor
 /// descriptors, the gate split and its SVD settings and report, the QR, and
 /// pairwise contractions.
+///
+/// A contraction runs through a network of its two inputs and its output.
+/// The network is created
+/// ([`create_contraction_network`](Self::create_contraction_network)),
+/// given a path ([`optimize_contraction`](Self::optimize_contraction)), a
+/// workspace sized for it
+/// ([`contraction_workspace_sizes`](Self::contraction_workspace_sizes)) and
+/// prepared ([`prepare_contraction`](Self::prepare_contraction)) once, then
+/// contracted any number of times, each time on the buffers given to
+/// [`contract`](Self::contract), so a caller may keep one network per
+/// shape. A new path needs a new sizing and preparation. Its optimizer
+/// infos are destroyed before it.
 pub(crate) trait TensorCalls: MemoryCalls {
     /// Fails unless the library exports every function of the tensor API,
     /// naming each missing one (`NativeError::MissingNativeFunctions`).
@@ -115,14 +127,15 @@ pub(crate) trait TensorCalls: MemoryCalls {
         stream: Stream,
     ) -> Result<(), NativeError>;
 
-    /// A network that contracts two tensors into `output`: every label
-    /// absent from the output is summed.
+    /// A network that contracts two tensors into a tensor of the labels
+    /// `output_modes`, in that order: every label absent from the output is
+    /// summed, and each output mode takes its extent from the inputs.
     fn create_contraction_network(
         &self,
         handle: OpaqueHandle,
         inputs: [TensorModes<'_>; 2],
-        output: TensorModes<'_>,
-    ) -> Result<OpaqueHandle, NativeError>;
+        output_modes: &[i32],
+    ) -> Result<ContractionNetwork, NativeError>;
     fn destroy_contraction_network(&self, network: OpaqueHandle) -> Result<(), NativeError>;
     fn create_optimizer_info(
         &self,
@@ -131,10 +144,11 @@ pub(crate) trait TensorCalls: MemoryCalls {
     ) -> Result<OpaqueHandle, NativeError>;
     fn destroy_optimizer_info(&self, info: OpaqueHandle) -> Result<(), NativeError>;
     /// Finds a contraction path for `network` within `workspace_limit`
-    /// bytes, into `info`, unsliced, since [`contract`](Self::contract)
-    /// runs the whole network at once: a path the optimizer sliced anyway
-    /// is refused (`NativeError::InvalidNativeResult`), so a contraction is
-    /// never partial.
+    /// bytes, into `info` and the network, unsliced, since
+    /// [`contract`](Self::contract) runs the whole network at once: a path
+    /// the optimizer sliced anyway is refused
+    /// (`NativeError::InvalidNativeResult`), so a contraction is never
+    /// partial.
     fn optimize_contraction(
         &self,
         handle: OpaqueHandle,
@@ -156,8 +170,9 @@ pub(crate) trait TensorCalls: MemoryCalls {
     }
     /// The search behind [`optimize_contraction`](Self::optimize_contraction),
     /// which checks its result: finds a path for `network` within
-    /// `workspace_limit` bytes, into `info`, with slicing disabled; the
-    /// optimizer's configuration is created and destroyed inside.
+    /// `workspace_limit` bytes, into `info` and the network, with slicing
+    /// disabled; the optimizer's configuration is created and destroyed
+    /// inside.
     fn find_contraction_path(
         &self,
         handle: OpaqueHandle,
@@ -179,23 +194,23 @@ pub(crate) trait TensorCalls: MemoryCalls {
         info: OpaqueHandle,
         workspace: OpaqueHandle,
     ) -> Result<(), NativeError>;
-    /// A plan to contract `network` along `info`'s path, in `workspace`,
-    /// which must be sized for it.
-    fn create_contraction_plan(
+    /// Prepares `network` to be contracted along the path it was last
+    /// optimized to, in `workspace`, which must be sized for that path.
+    fn prepare_contraction(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
-        info: OpaqueHandle,
         workspace: OpaqueHandle,
-    ) -> Result<OpaqueHandle, NativeError>;
-    fn destroy_contraction_plan(&self, plan: OpaqueHandle) -> Result<(), NativeError>;
-    /// Queues the contraction of `inputs` into `output` on `stream`, by
-    /// `plan`, whole: its path is unsliced
-    /// ([`optimize_contraction`](Self::optimize_contraction)).
+    ) -> Result<(), NativeError>;
+    /// Queues the contraction of `inputs` into `output` on `stream`, by the
+    /// prepared `network`, whole: its path is unsliced
+    /// ([`optimize_contraction`](Self::optimize_contraction)). The buffers
+    /// are given to the network at each call, so one prepared network
+    /// contracts new buffers of its shapes each time.
     fn contract(
         &self,
         handle: OpaqueHandle,
-        plan: OpaqueHandle,
+        network: ContractionNetwork,
         inputs: [OpaqueHandle; 2],
         output: OpaqueHandle,
         workspace: OpaqueHandle,
@@ -210,6 +225,14 @@ pub(crate) trait TensorCalls: MemoryCalls {
 pub(crate) struct TensorModes<'a> {
     pub(crate) extents: &'a [i64],
     pub(crate) modes: &'a [i32],
+}
+
+/// A contraction network and the ids cuTensorNet gave its two inputs, by
+/// which [`TensorCalls::contract`] hands it their buffers.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ContractionNetwork {
+    pub(crate) descriptor: OpaqueHandle,
+    pub(crate) input_ids: [i64; 2],
 }
 
 /// A tensor descriptor and the device buffer it describes.

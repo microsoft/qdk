@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! cuTensorNet's tensor API: tensor descriptors, the SVD's configuration and
-//! report, the gate split, the QR, and pairwise contractions.
+//! report, the gate split, the QR, and pairwise contractions through a
+//! network.
 //!
 //! These functions factor and contract one or two MPS tensors at a time,
 //! for a caller that holds the MPS itself (`native_calls::tensor_calls`);
@@ -10,13 +11,6 @@
 //! looked up as one optional table, [`CuTensorNetTensorFunctions`]: a
 //! cuTensorNet that lacks them is still usable through the state API, and
 //! whoever needs them reports every missing one.
-//!
-//! The pairwise contractions use the network-descriptor API
-//! (`cutensornetCreateNetworkDescriptor`, `cutensornetCreateContractionPlan`,
-//! `cutensornetContraction` and their destroys), which cuTensorNet 2.9
-//! deprecated in favour of its network API (`cutensornetCreateNetwork`,
-//! `cutensornetNetworkContract`, …). 2.13, the release the bindings were
-//! audited against, still exports it.
 
 use super::v2_13;
 use crate::libraries::cuda_runtime::cudart_12;
@@ -44,9 +38,11 @@ crate::libraries::loader::function_table! {
         required gate_split: GateSplitFn = cutensornetGateSplit,
         required qr_sizes: WorkspaceComputeQrSizesFn = cutensornetWorkspaceComputeQRSizes,
         required tensor_qr: TensorQrFn = cutensornetTensorQR,
-        required create_network: CreateNetworkDescriptorFn = cutensornetCreateNetworkDescriptor,
-        required destroy_network: DestroyNetworkDescriptorFn =
-            cutensornetDestroyNetworkDescriptor,
+        required create_network: CreateNetworkFn = cutensornetCreateNetwork,
+        required destroy_network: DestroyNetworkFn = cutensornetDestroyNetwork,
+        required network_append_tensor: NetworkAppendTensorFn = cutensornetNetworkAppendTensor,
+        required network_set_output_tensor: NetworkSetOutputTensorFn =
+            cutensornetNetworkSetOutputTensor,
         required create_optimizer_config: CreateContractionOptimizerConfigFn =
             cutensornetCreateContractionOptimizerConfig,
         required destroy_optimizer_config: DestroyContractionOptimizerConfigFn =
@@ -62,9 +58,13 @@ crate::libraries::loader::function_table! {
         required optimize: ContractionOptimizeFn = cutensornetContractionOptimize,
         required contraction_sizes: WorkspaceComputeContractionSizesFn =
             cutensornetWorkspaceComputeContractionSizes,
-        required create_plan: CreateContractionPlanFn = cutensornetCreateContractionPlan,
-        required destroy_plan: DestroyContractionPlanFn = cutensornetDestroyContractionPlan,
-        required contraction: ContractionFn = cutensornetContraction,
+        required network_prepare_contraction: NetworkPrepareContractionFn =
+            cutensornetNetworkPrepareContraction,
+        required network_set_input_tensor_memory: NetworkSetInputTensorMemoryFn =
+            cutensornetNetworkSetInputTensorMemory,
+        required network_set_output_tensor_memory: NetworkSetOutputTensorMemoryFn =
+            cutensornetNetworkSetOutputTensorMemory,
+        required network_contract: NetworkContractFn = cutensornetNetworkContract,
     }
 }
 
@@ -180,27 +180,36 @@ pub(crate) type TensorQrFn = unsafe extern "C" fn(
     cudart_12::cudaStream_t,
 ) -> v2_13::cutensornetStatus_t;
 
-/// Function pointer for `cutensornetCreateNetworkDescriptor`.
-pub(crate) type CreateNetworkDescriptorFn = unsafe extern "C" fn(
+/// Function pointer for `cutensornetCreateNetwork`.
+pub(crate) type CreateNetworkFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
-    i32,
-    *const i32,
-    *const *const i64,
-    *const *const i64,
-    *const *const i32,
-    *const v2_13::cutensornetTensorQualifiers_t,
-    i32,
-    *const i64,
-    *const i64,
-    *const i32,
-    v2_13::cudaDataType_t,
-    v2_13::cutensornetComputeType_t,
     *mut v2_13::cutensornetNetworkDescriptor_t,
 ) -> v2_13::cutensornetStatus_t;
 
-/// Function pointer for `cutensornetDestroyNetworkDescriptor`.
-pub(crate) type DestroyNetworkDescriptorFn =
+/// Function pointer for `cutensornetDestroyNetwork`.
+pub(crate) type DestroyNetworkFn =
     unsafe extern "C" fn(v2_13::cutensornetNetworkDescriptor_t) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetNetworkAppendTensor`.
+pub(crate) type NetworkAppendTensorFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    i32,
+    *const i64,
+    *const i32,
+    *const v2_13::cutensornetTensorQualifiers_t,
+    v2_13::cudaDataType_t,
+    *mut i64,
+) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetNetworkSetOutputTensor`.
+pub(crate) type NetworkSetOutputTensorFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    i32,
+    *const i32,
+    v2_13::cudaDataType_t,
+) -> v2_13::cutensornetStatus_t;
 
 /// Function pointer for `cutensornetCreateContractionOptimizerConfig`.
 pub(crate) type CreateContractionOptimizerConfigFn =
@@ -267,26 +276,37 @@ pub(crate) type WorkspaceComputeContractionSizesFn =
         v2_13::cutensornetWorkspaceDescriptor_t,
     ) -> v2_13::cutensornetStatus_t;
 
-/// Function pointer for `cutensornetCreateContractionPlan`.
-pub(crate) type CreateContractionPlanFn = unsafe extern "C" fn(
+/// Function pointer for `cutensornetNetworkPrepareContraction`.
+pub(crate) type NetworkPrepareContractionFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
     v2_13::cutensornetNetworkDescriptor_t,
-    v2_13::cutensornetContractionOptimizerInfo_t,
     v2_13::cutensornetWorkspaceDescriptor_t,
-    *mut v2_13::cutensornetContractionPlan_t,
 ) -> v2_13::cutensornetStatus_t;
 
-/// Function pointer for `cutensornetDestroyContractionPlan`.
-pub(crate) type DestroyContractionPlanFn =
-    unsafe extern "C" fn(v2_13::cutensornetContractionPlan_t) -> v2_13::cutensornetStatus_t;
-
-/// Function pointer for `cutensornetContraction`.
-pub(crate) type ContractionFn = unsafe extern "C" fn(
+/// Function pointer for `cutensornetNetworkSetInputTensorMemory`.
+pub(crate) type NetworkSetInputTensorMemoryFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
-    v2_13::cutensornetContractionPlan_t,
-    *const *const c_void,
-    *mut c_void,
-    v2_13::cutensornetWorkspaceDescriptor_t,
+    v2_13::cutensornetNetworkDescriptor_t,
     i64,
+    *const c_void,
+    *const i64,
+) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetNetworkSetOutputTensorMemory`.
+pub(crate) type NetworkSetOutputTensorMemoryFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    *mut c_void,
+    *const i64,
+)
+    -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetNetworkContract`.
+pub(crate) type NetworkContractFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    i32,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+    v2_13::cutensornetSliceGroup_t,
     cudart_12::cudaStream_t,
 ) -> v2_13::cutensornetStatus_t;

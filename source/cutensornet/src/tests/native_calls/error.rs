@@ -29,13 +29,13 @@ fn a_call_to_missing_functions_names_each_one() {
                 symbol: "cutensornetTensorQR",
             },
             LibraryFault::MissingRequiredSymbol {
-                symbol: "cutensornetContraction",
+                symbol: "cutensornetNetworkContract",
             },
         ],
     );
     assert_eq!(
         error.to_string(),
-        "cuTensorNet does not export cutensornetTensorQR, cutensornetContraction"
+        "cuTensorNet does not export cutensornetTensorQR, cutensornetNetworkContract"
     );
 }
 

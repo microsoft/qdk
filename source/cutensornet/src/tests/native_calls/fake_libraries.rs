@@ -14,8 +14,8 @@ use crate::native_calls::{
     memory_calls::{MemoryCalls, WorkspaceSlot},
     session_calls::SessionCalls,
     tensor_calls::{
-        GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation, TensorCalls,
-        TensorModes, TensorOperand,
+        ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
+        TensorCalls, TensorModes, TensorOperand,
     },
 };
 use num_complex::Complex64;
@@ -94,6 +94,16 @@ impl Device {
             .expect("the buffer holds the bytes lent");
     }
 
+    /// A buffer of zeros for a tensor of `extents`, once the copies are
+    /// synchronized.
+    fn zeros(&self, extents: &[i64]) -> OpaqueHandle {
+        let elements = extents.iter().product::<i64>();
+        self.buffer(&vec![
+            Complex64::default();
+            usize::try_from(elements).unwrap_or(0)
+        ])
+    }
+
     /// The first `elements` values of `buffer`, once the stream is done.
     fn read(&self, buffer: OpaqueHandle, elements: usize) -> Vec<Complex64> {
         self.fake
@@ -107,21 +117,20 @@ impl Device {
     }
 }
 
-/// A contraction of two tensors through the fake: its device, plan and
+/// A contraction of two tensors through the fake: its device, network and
 /// buffers.
 struct Contraction {
     device: Device,
-    network: OpaqueHandle,
+    network: ContractionNetwork,
     info: OpaqueHandle,
-    plan: OpaqueHandle,
     inputs: [OpaqueHandle; 2],
     output: OpaqueHandle,
 }
 
 impl Contraction {
-    /// Plans the contraction of `inputs`, holding `data`, into `output`, in
-    /// a workspace sized for it, lent nothing yet.
-    fn planned(
+    /// The network of `inputs`, holding `data`, and `output`, optimized,
+    /// in a workspace sized for its path, lent nothing yet; not prepared.
+    fn sized(
         fake: FakeLibraries,
         inputs: [TensorModes<'_>; 2],
         data: [&[Complex64]; 2],
@@ -130,39 +139,52 @@ impl Contraction {
         let device = Device::new(fake);
         let (fake, handle) = (&device.fake, device.handle);
         let network = fake
-            .create_contraction_network(handle, inputs, output)
+            .create_contraction_network(handle, inputs, output.modes)
             .expect("the labels are consistent");
         let info = fake
-            .create_optimizer_info(handle, network)
+            .create_optimizer_info(handle, network.descriptor)
             .expect("the network is live");
-        fake.optimize_contraction(handle, network, 1 << 20, info)
+        fake.optimize_contraction(handle, network.descriptor, 1 << 20, info)
             .expect("the info is the network's");
-        fake.contraction_workspace_sizes(handle, network, info, device.workspace)
+        fake.contraction_workspace_sizes(handle, network.descriptor, info, device.workspace)
             .expect("the path is optimized");
-        let plan = fake
-            .create_contraction_plan(handle, network, info, device.workspace)
-            .expect("the workspace is sized for the path");
         let inputs = [device.buffer(data[0]), device.buffer(data[1])];
-        let elements = output.extents.iter().product::<i64>();
-        let output = device.buffer(&vec![
-            Complex64::default();
-            usize::try_from(elements).unwrap_or(0)
-        ]);
+        let output = device.zeros(output.extents);
         fake.synchronize_copies().expect("the copies were queued");
         Self {
             device,
             network,
             info,
-            plan,
             inputs,
             output,
         }
     }
 
-    /// Plans the dot product of two vectors of ones, of 2 elements.
+    /// As [`sized`](Self::sized), and prepared.
+    fn prepared(
+        fake: FakeLibraries,
+        inputs: [TensorModes<'_>; 2],
+        data: [&[Complex64]; 2],
+        output: TensorModes<'_>,
+    ) -> Self {
+        let contraction = Self::sized(fake, inputs, data, output);
+        contraction
+            .prepare()
+            .expect("the workspace is sized for the path");
+        contraction
+    }
+
+    /// Prepares the dot product of two vectors of ones, of 2 elements.
     fn dot_product(fake: FakeLibraries) -> Self {
         let ones = [Complex64::new(1.0, 0.0); 2];
-        Self::planned(fake, DOT_PRODUCT_INPUTS, [&ones, &ones], DOT_PRODUCT_OUTPUT)
+        Self::prepared(fake, DOT_PRODUCT_INPUTS, [&ones, &ones], DOT_PRODUCT_OUTPUT)
+    }
+
+    fn prepare(&self) -> Result<(), crate::NativeError> {
+        let device = &self.device;
+        device
+            .fake
+            .prepare_contraction(device.handle, self.network.descriptor, device.workspace)
     }
 
     fn contract(&self) -> Result<(), crate::NativeError> {
@@ -170,12 +192,21 @@ impl Contraction {
     }
 
     fn contract_on(&self, stream: Stream) -> Result<(), crate::NativeError> {
+        self.contract_buffers(self.inputs, self.output, stream)
+    }
+
+    fn contract_buffers(
+        &self,
+        inputs: [OpaqueHandle; 2],
+        output: OpaqueHandle,
+        stream: Stream,
+    ) -> Result<(), crate::NativeError> {
         let device = &self.device;
         device.fake.contract(
             device.handle,
-            self.plan,
-            self.inputs,
-            self.output,
+            self.network,
+            inputs,
+            output,
             device.workspace,
             stream,
         )
@@ -477,7 +508,7 @@ fn the_fake_contracts_as_the_labels_say() {
     let (i, k, l, j) = (1, 2, 3, 4);
     let left = values(2 * 3 * 2, 0.5);
     let right = values(3 * 2 * 2, -1.0);
-    let contraction = Contraction::planned(
+    let contraction = Contraction::prepared(
         FakeLibraries::new(),
         [
             TensorModes {
@@ -749,8 +780,9 @@ fn a_contraction_path_cut_into_slices_is_refused() {
     let device = Device::new(FakeLibraries::new());
     let (fake, handle) = (&device.fake, device.handle);
     let network = fake
-        .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT)
-        .expect("the labels are consistent");
+        .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
+        .expect("the labels are consistent")
+        .descriptor;
     let info = fake
         .create_optimizer_info(handle, network)
         .expect("the network is live");
@@ -762,60 +794,185 @@ fn a_contraction_path_cut_into_slices_is_refused() {
         .expect("the path is unsliced");
 }
 
-/// A caller that sizes a workspace for, or plans, a contraction before its
-/// path is optimized is caught on the fake.
+/// A caller that sizes a workspace for, or prepares, a contraction before
+/// its network's path is optimized is caught on the fake.
 #[test]
 fn a_contraction_needs_an_optimized_path() {
     let device = Device::new(FakeLibraries::new());
     let (fake, handle, workspace) = (&device.fake, device.handle, device.workspace);
     let network = fake
-        .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT)
-        .expect("the labels are consistent");
+        .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
+        .expect("the labels are consistent")
+        .descriptor;
     let info = fake
         .create_optimizer_info(handle, network)
         .expect("the network is live");
     fake.contraction_workspace_sizes(handle, network, info, workspace)
         .expect_err("the path is not optimized");
-    fake.create_contraction_plan(handle, network, info, workspace)
+    fake.prepare_contraction(handle, network, workspace)
         .expect_err("the path is not optimized");
     fake.optimize_contraction(handle, network, 1 << 20, info)
         .expect("the info is the network's");
     fake.contraction_workspace_sizes(handle, network, info, workspace)
         .expect("the path is optimized");
-    fake.create_contraction_plan(handle, network, info, workspace)
+    fake.prepare_contraction(handle, network, workspace)
         .expect("the workspace is sized for the path");
 }
 
-/// cuTensorNet's optimizer infos and plans refer to their network: a
-/// caller that destroys a network first is caught on the fake.
+/// cuTensorNet prepares a network in the workspace sized for its path: a
+/// caller that prepares an optimized network in a workspace it never sized
+/// is caught on the fake.
 #[test]
-fn a_network_outlives_its_optimizer_infos_and_plans() {
+fn a_contraction_is_prepared_in_a_workspace_sized_for_its_path() {
+    let device = Device::new(FakeLibraries::new());
+    let (fake, handle, workspace) = (&device.fake, device.handle, device.workspace);
+    let network = fake
+        .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
+        .expect("the labels are consistent")
+        .descriptor;
+    let info = fake
+        .create_optimizer_info(handle, network)
+        .expect("the network is live");
+    fake.optimize_contraction(handle, network, 1 << 20, info)
+        .expect("the info is the network's");
+    fake.prepare_contraction(handle, network, workspace)
+        .expect_err("the workspace is not sized");
+    fake.contraction_workspace_sizes(handle, network, info, workspace)
+        .expect("the path is optimized");
+    fake.prepare_contraction(handle, network, workspace)
+        .expect("the workspace is sized for the path");
+}
+
+/// cuTensorNet's optimizer infos refer to their network: a caller that
+/// destroys a network first is caught on the fake.
+#[test]
+fn a_network_outlives_its_optimizer_infos() {
     let contraction = Contraction::dot_product(FakeLibraries::new());
     let fake = &contraction.device.fake;
-    fake.destroy_contraction_network(contraction.network)
-        .expect_err("its optimizer info and plan are live");
-    fake.destroy_contraction_plan(contraction.plan)
-        .expect("the plan is live");
-    fake.destroy_contraction_network(contraction.network)
+    fake.destroy_contraction_network(contraction.network.descriptor)
         .expect_err("its optimizer info is live");
     fake.destroy_optimizer_info(contraction.info)
-        .expect("its plan is destroyed");
-    fake.destroy_contraction_network(contraction.network)
+        .expect("the info is live");
+    fake.destroy_contraction_network(contraction.network.descriptor)
         .expect("nothing of the network is live");
 }
 
-/// A plan refers to the path it was made from: a caller that destroys the
-/// optimizer info first is caught on the fake.
+/// cuTensorNet contracts a network as its last preparation set it up, for
+/// the path it had then: a caller that contracts an optimized network it
+/// never prepared, or did not prepare again after optimizing it again, is
+/// caught on the fake.
 #[test]
-fn an_optimizer_info_outlives_its_plans() {
-    let contraction = Contraction::dot_product(FakeLibraries::new());
-    let fake = &contraction.device.fake;
-    fake.destroy_optimizer_info(contraction.info)
-        .expect_err("its plan is live");
-    fake.destroy_contraction_plan(contraction.plan)
-        .expect("the plan is live");
-    fake.destroy_optimizer_info(contraction.info)
-        .expect("its plan is destroyed");
+fn a_contraction_needs_a_network_prepared_for_its_path() {
+    let ones = [Complex64::new(1.0, 0.0); 2];
+    let contraction = Contraction::sized(
+        FakeLibraries::new(),
+        DOT_PRODUCT_INPUTS,
+        [&ones, &ones],
+        DOT_PRODUCT_OUTPUT,
+    );
+    let device = &contraction.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    contraction
+        .contract()
+        .expect_err("the network is not prepared");
+    contraction
+        .prepare()
+        .expect("the workspace is sized for the path");
+    contraction.contract().expect("the network is prepared");
+    let network = contraction.network.descriptor;
+    device
+        .fake
+        .optimize_contraction(device.handle, network, 1 << 20, contraction.info)
+        .expect("the info is the network's");
+    device
+        .fake
+        .contraction_workspace_sizes(device.handle, network, contraction.info, device.workspace)
+        .expect("the path is optimized");
+    device.lend(WorkspaceSlot::DeviceScratch);
+    contraction
+        .contract()
+        .expect_err("the network is not prepared for its new path");
+    contraction
+        .prepare()
+        .expect("the workspace is sized for the path");
+    contraction
+        .contract()
+        .expect("the network is prepared again");
+}
+
+/// cuTensorNet takes each output mode's extent from the inputs: a caller
+/// whose output names a label no input has is caught on the fake.
+#[test]
+fn a_contraction_output_label_must_be_an_input_label() {
+    let device = Device::new(FakeLibraries::new());
+    device
+        .fake
+        .create_contraction_network(device.handle, DOT_PRODUCT_INPUTS, &[2])
+        .expect_err("no input has the label 2");
+    device
+        .fake
+        .create_contraction_network(device.handle, DOT_PRODUCT_INPUTS, &[1])
+        .expect("both inputs have the label 1");
+}
+
+/// A label names one mode of the network: a caller whose two inputs give
+/// one label two extents is caught on the fake.
+#[test]
+fn a_contraction_label_has_one_extent() {
+    let device = Device::new(FakeLibraries::new());
+    let inputs = |extent| {
+        [
+            DOT_PRODUCT_INPUTS[0],
+            TensorModes {
+                extents: extent,
+                modes: &[1],
+            },
+        ]
+    };
+    device
+        .fake
+        .create_contraction_network(device.handle, inputs(&[3]), &[])
+        .expect_err("the label 1 has the extents 2 and 3");
+    device
+        .fake
+        .create_contraction_network(device.handle, inputs(&[2]), &[])
+        .expect("the label 1 has the extent 2 in both inputs");
+}
+
+/// A simulator keeps one prepared network per shape and contracts it again
+/// on new buffers at each step: the second contraction on the fake computes
+/// from its own buffers, as the first did from its.
+#[test]
+fn a_prepared_network_contracts_new_buffers_each_time() {
+    let first = [
+        [Complex64::new(1.0, 1.0), Complex64::new(2.0, 0.0)],
+        [Complex64::new(3.0, 0.0), Complex64::new(4.0, -1.0)],
+    ];
+    let contraction = Contraction::prepared(
+        FakeLibraries::new(),
+        DOT_PRODUCT_INPUTS,
+        [&first[0], &first[1]],
+        DOT_PRODUCT_OUTPUT,
+    );
+    let device = &contraction.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    contraction.contract().expect("the network is prepared");
+    let second = [
+        [Complex64::new(5.0, 0.0), Complex64::new(0.0, 6.0)],
+        [Complex64::new(7.0, 2.0), Complex64::new(-1.0, 0.0)],
+    ];
+    let inputs = [device.buffer(&second[0]), device.buffer(&second[1])];
+    let output = device.zeros(&[]);
+    device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    contraction
+        .contract_buffers(inputs, output, device.stream)
+        .expect("the network is still prepared");
+    let dot = |[a, b]: [[Complex64; 2]; 2]| a[0] * b[0] + a[1] * b[1];
+    assert_eq!(contraction.output(1), vec![dot(first)]);
+    assert_eq!(device.read(output, 1), vec![dot(second)]);
 }
 
 /// A workspace holds the sizes of the call it was last sized for: a caller
