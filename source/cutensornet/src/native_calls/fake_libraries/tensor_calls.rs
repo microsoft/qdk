@@ -32,18 +32,17 @@
 //! sliced one.
 //!
 //! A gate split's report and outputs follow cuTensorNet's. Under a
-//! discarded-weight cutoff (a positive one; 0, the default, sets none), the
-//! reduced extent is the lowest of the shared mode's extent in U's
+//! discarded-weight cutoff (any value set, 0 included, asks for a truncation by
+//! value), the reduced extent is the lowest of the shared mode's extent in U's
 //! descriptor, the count of singular values (the SVD leaves out those of
 //! rounding's size) and the cutoff's rank, and U's and V's descriptors are
-//! given it. With no cutoff, the reduced extent is the shared mode's
-//! extent and the descriptors keep it; a split whose SVD gave fewer values
-//! than that extent is refused, since cuTensorNet would complete the
-//! singular vectors, which the fake does not model. The full extent is the
-//! smaller side of the split, whatever the SVD left out. The fake absorbs
-//! the singular values into U or V only, writes none to their buffer, and
-//! refuses a product of A, B and the gate that is zero, whose singular
-//! vectors are arbitrary.
+//! given it. With no cutoff set, the reduced extent is the shared mode's extent
+//! and the descriptors keep it; a split whose SVD gave fewer values than that
+//! extent is refused, since cuTensorNet would complete the singular vectors,
+//! which the fake does not model. The full extent is the smaller side of the
+//! split, whatever the SVD left out. The fake absorbs the singular values into
+//! U or V only, writes none to their buffer, and refuses a product of A, B and
+//! the gate that is zero, whose singular vectors are arbitrary.
 
 use super::{
     FakeLibraries, Inner, Object,
@@ -114,7 +113,7 @@ impl TensorCalls for FakeLibraries {
                 if !(0.0..=1.0).contains(&cutoff) {
                     return Err(failed(OPERATION, "a cutoff outside [0, 1]"));
                 }
-                config.cutoff = cutoff;
+                config.cutoff = Some(cutoff);
             }
         }
         Ok(())
@@ -270,8 +269,9 @@ impl TensorCalls for FakeLibraries {
         )?;
         inner.write(u.data, &u_tensor, OPERATION)?;
         inner.write(v.data, &v_tensor, OPERATION)?;
-        // With no cutoff, `split` keeps the descriptors' extent or refuses,
-        // so this lowers them only under a cutoff, as cuTensorNet does.
+        // With no cutoff set, `split` keeps the descriptors' extent or
+        // refuses, so this lowers them only under a cutoff, as cuTensorNet
+        // does.
         inner.set_extent(u.descriptor, sides.shared, reduced_extent);
         inner.set_extent(v.descriptor, sides.shared, reduced_extent);
         let full_extent =
@@ -596,8 +596,9 @@ pub(super) struct SvdConfig {
     /// Which factor absorbs the singular values; none returns them apart.
     partition: Option<Partition>,
     normalized: bool,
-    /// The discarded-weight cutoff; 0 truncates nothing.
-    cutoff: f64,
+    /// The discarded-weight cutoff, if set: any value, 0 included, asks
+    /// for a truncation by value.
+    cutoff: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -799,12 +800,12 @@ struct Split {
     discarded_weight: f64,
 }
 
-/// Why the fake refuses a split with no cutoff whose SVD left out a value
+/// Why the fake refuses a split with no cutoff set whose SVD left out a value
 /// the shared extent needs: cuTensorNet keeps the extent there, with
 /// singular vectors completing the basis, which `dense_linalg`'s SVD does
 /// not give.
 const EXACT_SPLIT_OF_RANK_DEFICIENT_PAIR: &str = "the fake does not model an exact \
-    split of a rank-deficient pair (with no cutoff, cuTensorNet keeps the \
+    split of a rank-deficient pair (with no cutoff set, cuTensorNet keeps the \
     extent and the descriptors); configure a discarded-weight cutoff";
 
 /// Factors the `rows`×`cols` column-major `theta` as `settings` say, into
@@ -832,18 +833,18 @@ fn split(
         return Err("the gate split's product is zero");
     }
     let rank = values.len();
-    if settings.cutoff <= 0.0 && rank < max_extent {
+    if settings.cutoff.is_none() && rank < max_extent {
         return Err(EXACT_SPLIT_OF_RANK_DEFICIENT_PAIR);
     }
     let mut reduced = rank.min(max_extent);
-    if settings.cutoff > 0.0 {
+    if let Some(cutoff) = settings.cutoff {
         let mut discarded = 0.0;
         let dropped = squares
             .iter()
             .rev()
             .take_while(|&&square| {
                 discarded += square;
-                discarded <= settings.cutoff * total
+                discarded <= cutoff * total
             })
             .count();
         reduced = reduced.min((rank - dropped).max(1));

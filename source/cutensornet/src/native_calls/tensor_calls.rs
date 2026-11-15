@@ -305,6 +305,7 @@ pub(crate) enum SvdSetting {
     PartitionSv,
     /// The smallest singular values are dropped while their squared sum is
     /// at most this fraction of the total, and at least one is kept.
+    /// Setting it, 0 included, asks for a truncation by value.
     DiscardedWeightCutoff(f64),
 }
 

@@ -815,10 +815,10 @@ fn a_gate_split_caps_the_bond_at_its_descriptors_extent_which_it_lowers() {
     assert!((capped.truncation.discarded_weight - 0.1).abs() < 1e-12);
 }
 
-/// With no cutoff, cuTensorNet keeps the shared extent it is asked for,
-/// completing the singular vectors of a rank-deficient θ, which the fake
-/// does not model: it refuses a product state's θ (rank 1) at extent 2,
-/// and accepts it at a fixed extent of 1.
+/// With no cutoff set, cuTensorNet keeps the shared extent it is asked
+/// for, completing the singular vectors of a rank-deficient θ, which the
+/// fake does not model: it refuses a product state's θ (rank 1) at extent
+/// 2, and accepts it at a fixed extent of 1.
 #[test]
 fn a_gate_split_with_no_cutoff_refuses_fewer_values_than_its_extent() {
     let product_state = matrix([[1.0, 1.0], [1.0, 1.0]]);
@@ -838,8 +838,27 @@ fn a_gate_split_with_no_cutoff_refuses_fewer_values_than_its_extent() {
     assert_eq!(factors.extent, 1);
 }
 
-/// With no cutoff, cuTensorNet leaves U's and V's descriptors as they are,
-/// so a caller reusing them splits the next gate at the same extent.
+/// A cutoff of 0, as a simulator asking for no loss sets it, still asks
+/// for a truncation by value: a product state's θ splits to bond 1, and
+/// the descriptors are lowered to it, so the next split is capped there.
+#[test]
+fn a_gate_split_at_a_cutoff_of_zero_truncates_by_value() {
+    let split = GateSplit::of(
+        matrix([[1.0, 1.0], [1.0, 1.0]]),
+        &[
+            SvdSetting::PartitionUs,
+            SvdSetting::DiscardedWeightCutoff(0.0),
+        ],
+    );
+    let product = split.split().expect("a cutoff is set");
+    assert_eq!(product.extent, 1, "θ has rank 1");
+    split.load(matrix([[3.0, 0.0], [0.0, 1.0]]));
+    let capped = split.split().expect("θ has full rank");
+    assert_eq!(capped.extent, 1, "the descriptors were lowered to 1");
+}
+
+/// With no cutoff set, cuTensorNet leaves U's and V's descriptors as they
+/// are, so a caller reusing them splits the next gate at the same extent.
 #[test]
 fn a_gate_split_with_no_cutoff_keeps_its_descriptors_extent() {
     let split = GateSplit::of(
