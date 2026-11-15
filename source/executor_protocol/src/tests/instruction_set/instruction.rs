@@ -6,7 +6,7 @@
 
 use crate::tests::allocations;
 use crate::{
-    Argument, BlockOperand, BlockType, Instruction, InstructionDef, InstructionFault,
+    Argument, Bit, BlockOperand, BlockType, Instruction, InstructionDef, InstructionFault,
     InstructionSet, Opcode, ParameterKind, Pauli,
 };
 use smallvec::smallvec;
@@ -136,7 +136,7 @@ fn variadic_operand_takes_any_positive_number_of_blocks() {
 
 /// A variadic operand's count is its least: the message says so.
 #[test]
-fn variadic_block_count_fault_reads_as_a_least() {
+fn a_variadic_block_count_fault_says_at_least() {
     let set = gates();
     let fault = set
         .instruction("mpp", [], &[("p", pauli("Z_0"))])
@@ -193,6 +193,17 @@ fn readout_parity_counting_back_zero_is_refused() {
             mnemonic: "cond_x".into(),
         })
     );
+}
+
+/// `recent(k)` is Stim's `rec[-k]` itself, not its complement: the
+/// parity of the one readout `k` back, unflipped.
+#[test]
+fn recent_is_the_unflipped_parity_of_one_readout() {
+    let Argument::Bit(Bit::Parity(parity)) = Argument::recent(3) else {
+        panic!("a readout parity");
+    };
+    assert_eq!(parity.back(), [3]);
+    assert!(!parity.flip());
 }
 
 fn m() -> crate::Instruction {
@@ -313,12 +324,12 @@ fn pauli_argument_is_canonical() {
 
 /// One text per rule broken: nothing, a sign alone, a factor without its
 /// qubit, a qubit twice (`I_k` included), a letter or an index outside the
-/// grammar, `i` twice, a comma between factors.
+/// grammar, a signed index, `i` twice, a comma between factors.
 #[test]
 fn malformed_pauli_text_is_refused() {
     for text in [
-        "", "-", "Z", "X_0 Z_0", "I_0 X_0", "X_0 I_0", "I_1 I_1", "W_0", "X_a", "Z_", "i i",
-        "X_0,Z_1",
+        "", "-", "Z", "X_0 Z_0", "I_0 X_0", "X_0 I_0", "I_1 I_1", "W_0", "X_a", "Z_", "X_+1",
+        "i i", "X_0,Z_1",
     ] {
         assert_eq!(
             Argument::pauli(text),

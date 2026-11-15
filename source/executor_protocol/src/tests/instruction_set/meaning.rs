@@ -8,91 +8,82 @@
 
 use crate::{Angle, Guard, Meaning, Pauli};
 
-/// A `cx` listing that it keeps `Z_0` equals the one that leaves it out.
+/// Two meanings are equal exactly when they do the same: the order of
+/// Clifford images and of guard terms, unchanged generators and terms that
+/// cancel are ignored; `only_if` and `unless`, declared and undeclared,
+/// and angles bit for bit are told apart.
 #[test]
-fn clifford_lists_only_the_generators_it_changes() {
+fn meanings_are_equal_exactly_when_they_do_the_same() {
     let cx = |images: Vec<(Pauli, Pauli)>| Meaning::declared().clifford(images);
-    assert_eq!(
-        cx(vec![
-            (Pauli::x(0), Pauli::x(0) * Pauli::x(1)),
-            (Pauli::z(0), Pauli::z(0)),
-        ]),
-        cx(vec![(Pauli::x(0), Pauli::x(0) * Pauli::x(1))]),
-    );
-}
-
-#[test]
-fn clifford_images_compare_in_any_order() {
-    let cx = |images: Vec<(Pauli, Pauli)>| Meaning::declared().clifford(images);
-    let x = (Pauli::x(0), Pauli::x(0) * Pauli::x(1));
-    let z = (Pauli::z(1), Pauli::z(0) * Pauli::z(1));
-    assert_eq!(cx(vec![x.clone(), z.clone()]), cx(vec![z, x]));
-}
-
-#[test]
-fn guard_terms_compare_in_any_order() {
-    let guarded = |guards: [Guard; 2]| Meaning::declared().pauli(Pauli::x(0)).only_if(guards);
-    assert_eq!(
-        guarded([Guard::Parameter(0), Guard::Outcome(0)]),
-        guarded([Guard::Outcome(0), Guard::Parameter(0)]),
-    );
-}
-
-/// A term twice cancels in a parity.
-#[test]
-fn guard_term_given_twice_cancels() {
+    let cx_x = || (Pauli::x(0), Pauli::x(0) * Pauli::x(1));
+    let cx_z = || (Pauli::z(1), Pauli::z(0) * Pauli::z(1));
     let x = || Meaning::declared().pauli(Pauli::x(0));
-    assert_eq!(
-        x().only_if([
-            Guard::Parameter(0),
-            Guard::Parameter(1),
-            Guard::Parameter(0)
-        ]),
-        x().only_if([Guard::Parameter(1)]),
-    );
-}
-
-/// `unless` an empty parity always runs, so the step is as unguarded.
-#[test]
-fn unless_no_term_is_no_guard() {
-    let x = || Meaning::declared().pauli(Pauli::x(0));
-    assert_eq!(x().unless([]), x());
-}
-
-/// A guard before any step is a slip (`GuardWithoutStep`) that the meaning
-/// keeps, so it differs from one with the same steps, here none, and no
-/// slip.
-#[test]
-fn meaning_with_a_slip_differs_from_one_without() {
-    assert_ne!(
-        Meaning::declared().only_if([Guard::Parameter(0)]),
-        Meaning::declared()
-    );
-}
-
-#[test]
-fn if_and_unless_differ() {
-    let x = || Meaning::declared().pauli(Pauli::x(0));
-    assert_ne!(
-        x().only_if([Guard::Parameter(0)]),
-        x().unless([Guard::Parameter(0)])
-    );
-}
-
-/// Declared with no step, an instruction does nothing; undeclared, it
-/// makes no claim on what it does.
-#[test]
-fn declared_and_undeclared_meanings_differ() {
-    assert_ne!(Meaning::declared(), Meaning::undeclared());
-}
-
-/// Angles compare bit for bit, so a meaning is `Eq`.
-#[test]
-fn angles_compare_bit_for_bit() {
     let rotate = |angle: f64| Meaning::declared().rotate(Pauli::z(0), Angle::Literal(angle));
-    assert_eq!(rotate(0.5), rotate(0.5));
-    assert_ne!(rotate(0.0), rotate(-0.0));
-    assert_eq!(rotate(f64::NAN), rotate(f64::NAN));
+    for (row, a, b, equal) in [
+        // A `cx` listing that it keeps `Z_0` equals the one that leaves it
+        // out.
+        (
+            "a Clifford listing a generator it keeps",
+            cx(vec![cx_x(), (Pauli::z(0), Pauli::z(0))]),
+            cx(vec![cx_x()]),
+            true,
+        ),
+        (
+            "Clifford images in another order",
+            cx(vec![cx_x(), cx_z()]),
+            cx(vec![cx_z(), cx_x()]),
+            true,
+        ),
+        (
+            "guard terms in another order",
+            x().only_if([Guard::Parameter(0), Guard::Outcome(0)]),
+            x().only_if([Guard::Outcome(0), Guard::Parameter(0)]),
+            true,
+        ),
+        // A term twice cancels in a parity.
+        (
+            "a guard term given twice",
+            x().only_if([
+                Guard::Parameter(0),
+                Guard::Parameter(1),
+                Guard::Parameter(0),
+            ]),
+            x().only_if([Guard::Parameter(1)]),
+            true,
+        ),
+        // `unless` an empty parity always runs, so the step is as
+        // unguarded.
+        ("`unless` no term", x().unless([]), x(), true),
+        // A guard before any step is a slip (`GuardWithoutStep`) that the
+        // meaning keeps, so it differs from one with the same steps, here
+        // none, and no slip.
+        (
+            "a slip",
+            Meaning::declared().only_if([Guard::Parameter(0)]),
+            Meaning::declared(),
+            false,
+        ),
+        (
+            "`only_if` and `unless` one parity",
+            x().only_if([Guard::Parameter(0)]),
+            x().unless([Guard::Parameter(0)]),
+            false,
+        ),
+        // Declared with no step, an instruction does nothing; undeclared,
+        // it makes no claim on what it does.
+        (
+            "declared and undeclared",
+            Meaning::declared(),
+            Meaning::undeclared(),
+            false,
+        ),
+        // Angles compare bit for bit, so a meaning is `Eq`.
+        ("one angle", rotate(0.5), rotate(0.5), true),
+        ("zero and minus zero", rotate(0.0), rotate(-0.0), false),
+        ("NaN and itself", rotate(f64::NAN), rotate(f64::NAN), true),
+    ] {
+        assert_eq!(a == b, equal, "{row}");
+    }
 }
 
 /// A loader may start every meaning undeclared and add the steps it reads:

@@ -286,14 +286,12 @@ fn macro_set_is_named_for_its_type() {
     assert_eq!(RotationGates::set().name(), "RotationGates");
 }
 
+/// A mnemonic not in the set has no opcode, and an opcode past the set's
+/// instructions, `RotationGates::MZ`, opcode 3, past `CodeGates`' two
+/// instructions, has no mnemonic.
 #[test]
-fn opcode_of_an_unknown_mnemonic_is_none() {
+fn lookups_outside_the_set_give_none() {
     assert_eq!(RotationGates::set().opcode("t"), None);
-}
-
-/// `RotationGates::MZ`, opcode 3, past `CodeGates`' two instructions.
-#[test]
-fn mnemonic_beyond_the_set_is_none() {
     assert_eq!(CodeGates::set().mnemonic(RotationGates::MZ), None);
 }
 
@@ -310,27 +308,47 @@ fn opcodes_number_instructions_in_order() {
     assert_eq!(set.opcode("h"), Some(Opcode::__from_macro(1)));
 }
 
+/// A set declares each name once: a block type, a mnemonic, and, in one
+/// instruction, a parameter or a flag declared twice is refused.
 #[test]
-fn block_type_declared_twice_is_refused() {
-    let faults = InstructionSet::new("Gates", [(carbon(), 2), (carbon(), 3)], [])
-        .expect_err("a faulty declaration");
-    assert_eq!(
-        faults,
-        [DeclarationFault::RepeatedBlockType {
-            block_type: carbon()
-        }]
-    );
-}
-
-#[test]
-fn mnemonic_declared_twice_is_refused() {
-    let faults = faults_of([InstructionDef::new("h"), InstructionDef::new("h")]);
-    assert_eq!(
-        faults,
-        [DeclarationFault::RepeatedMnemonic {
-            mnemonic: "h".into()
-        }]
-    );
+fn a_name_declared_twice_in_a_set_is_refused() {
+    for (row, faults, expected) in [
+        (
+            "a block type",
+            InstructionSet::new("Gates", [(carbon(), 2), (carbon(), 3)], [])
+                .expect_err("a faulty declaration"),
+            DeclarationFault::RepeatedBlockType {
+                block_type: carbon(),
+            },
+        ),
+        (
+            "a mnemonic",
+            faults_of([InstructionDef::new("h"), InstructionDef::new("h")]),
+            DeclarationFault::RepeatedMnemonic {
+                mnemonic: "h".into(),
+            },
+        ),
+        (
+            "a parameter",
+            faults_of([InstructionDef::new("u")
+                .parameter("theta", ParameterKind::Number)
+                .parameter("theta", ParameterKind::Number)]),
+            DeclarationFault::RepeatedParameter {
+                mnemonic: "u".into(),
+                parameter: "theta".into(),
+            },
+        ),
+        (
+            "a flag",
+            faults_of([InstructionDef::new("m").flags(["leak", "leak"])]),
+            DeclarationFault::RepeatedFlag {
+                mnemonic: "m".into(),
+                flag: "leak".into(),
+            },
+        ),
+    ] {
+        assert_eq!(faults, [expected], "{row}");
+    }
 }
 
 /// An undeclared type is reported once per instruction, though it is on
@@ -349,74 +367,54 @@ fn operand_of_an_undeclared_block_type_is_refused_once() {
     );
 }
 
-/// `mpp` on any number of qubits, then one more: no block count would say
-/// where the variadic operand ends.
+/// A variadic operand is the last, and variadic on both sides: otherwise
+/// no block count would say where it ends, or one block would become many,
+/// or many one.
 #[test]
-fn variadic_operand_before_another_is_refused() {
-    let faults = faults_of([InstructionDef::new("mpp").acts_on([
-        BlockOperand::variadic(BlockType::qubit()),
-        BlockType::qubit().into(),
-    ])]);
-    assert_eq!(
-        faults,
-        [DeclarationFault::MisplacedVariadic {
-            mnemonic: "mpp".into()
-        }]
-    );
-}
-
-/// A position variadic on `in` and fixed on `out` would make one block
-/// of many.
-#[test]
-fn variadic_on_one_side_only_is_refused() {
-    let faults = faults_of([InstructionDef::new("fuse")
-        .takes([BlockOperand::variadic(BlockType::qubit())])
-        .gives([BlockType::qubit()])]);
-    assert_eq!(
-        faults,
-        [DeclarationFault::MisplacedVariadic {
-            mnemonic: "fuse".into()
-        }]
-    );
-}
-
-#[test]
-fn variadic_last_operand_is_accepted() {
-    InstructionSet::new(
-        "Gates",
-        [(BlockType::qubit(), 1)],
-        [InstructionDef::new("mpp")
-            .acts_on([BlockOperand::variadic(BlockType::qubit())])
-            .parameter("p", ParameterKind::Pauli)
-            .outcomes(1)],
-    )
-    .expect("a variadic last operand");
-}
-
-#[test]
-fn parameter_declared_twice_is_refused() {
-    let faults = faults_of([InstructionDef::new("u")
-        .parameter("theta", ParameterKind::Number)
-        .parameter("theta", ParameterKind::Number)]);
-    assert_eq!(
-        faults,
-        [DeclarationFault::RepeatedParameter {
-            mnemonic: "u".into(),
-            parameter: "theta".into(),
-        }]
-    );
-}
-
-#[test]
-fn flag_declared_twice_is_refused() {
-    let faults = faults_of([InstructionDef::new("m").flags(["leak", "leak"])]);
-    assert_eq!(
-        faults,
-        [DeclarationFault::RepeatedFlag {
-            mnemonic: "m".into(),
-            flag: "leak".into(),
-        }]
-    );
+fn a_variadic_operand_is_last_and_variadic_on_both_sides() {
+    let qubits = || BlockOperand::variadic(BlockType::qubit());
+    let misplaced = |mnemonic: &str| {
+        Err(vec![DeclarationFault::MisplacedVariadic {
+            mnemonic: mnemonic.into(),
+        }])
+    };
+    for (row, instruction, declared) in [
+        // `mpp` on any number of qubits, then one more: no block count
+        // would say where the variadic operand ends.
+        (
+            "a variadic operand before another",
+            InstructionDef::new("mpp").acts_on([qubits(), BlockType::qubit().into()]),
+            misplaced("mpp"),
+        ),
+        // A position variadic on `in` and fixed on `out` would make one
+        // block of many.
+        (
+            "variadic on the input side only",
+            InstructionDef::new("fuse")
+                .takes([qubits()])
+                .gives([BlockType::qubit()]),
+            misplaced("fuse"),
+        ),
+        // And fixed on `in`, variadic on `out`, many blocks of one.
+        (
+            "variadic on the output side only",
+            InstructionDef::new("split")
+                .takes([BlockType::qubit()])
+                .gives([qubits()]),
+            misplaced("split"),
+        ),
+        (
+            "a variadic last operand on both sides",
+            InstructionDef::new("mpp")
+                .acts_on([qubits()])
+                .parameter("p", ParameterKind::Pauli)
+                .outcomes(1),
+            Ok(()),
+        ),
+    ] {
+        let set = InstructionSet::new("Gates", [(BlockType::qubit(), 1)], [instruction]);
+        assert_eq!(set.map(|_| ()), declared, "{row}");
+    }
 }
 
 /// A flag pattern is a `u64`: 64 flags are accepted, 65 refused.
@@ -632,7 +630,8 @@ fn guard_before_any_step_is_refused() {
     assert_eq!(meaning_faults(def), [MeaningFault::GuardWithoutStep]);
 }
 
-/// A second guard on one step would replace the first unseen.
+/// A second guard on one step would replace the first unseen; a guard on
+/// each of two steps is accepted.
 #[test]
 fn step_guarded_twice_is_refused() {
     let def = rotate_z0().meaning(
@@ -643,6 +642,16 @@ fn step_guarded_twice_is_refused() {
             .unless([Guard::Outcome(0)]),
     );
     assert_eq!(meaning_faults(def), [MeaningFault::GuardTwice { step: 1 }]);
+    let each_step_once = rotate_z0().meaning(
+        Meaning::declared()
+            .observe([Pauli::z(0)])
+            .pauli(Pauli::x(0))
+            .only_if([Guard::Parameter(0)])
+            .pauli(Pauli::z(0))
+            .unless([Guard::Outcome(0)]),
+    );
+    InstructionSet::new("Gates", [(BlockType::qubit(), 1)], [each_step_once])
+        .expect("each step guarded once");
 }
 
 /// `only_if` of no guard, or of one guard twice, which cancels: the
@@ -751,17 +760,29 @@ fn clifford_mapping_a_generator_twice_is_refused() {
     );
 }
 
-/// `rotate_z0` observes once, yet declares 2 outcomes.
+/// An observation gives one outcome per observable: `rotate_z0` observes
+/// once, yet declares 2 outcomes; an `mzz` observing `Z_0` and `Z_1` in one
+/// step gives 2, not 1.
 #[test]
 fn observations_giving_other_than_the_declared_outcomes_are_refused() {
-    let def = rotate_z0().outcomes(2);
-    assert_eq!(
-        meaning_faults(def),
-        [MeaningFault::OutcomeCount {
-            declared: 2,
-            observed: 1
-        }]
-    );
+    let mzz = |outcomes| {
+        InstructionDef::new("mzz")
+            .acts_on([BlockType::qubit(), BlockType::qubit()])
+            .outcomes(outcomes)
+            .meaning(Meaning::declared().observe([Pauli::z(0), Pauli::z(1)]))
+    };
+    for (row, def, declared, observed) in [
+        ("one observable", rotate_z0().outcomes(2), 2, 1),
+        ("two observables in one step", mzz(1), 1, 2),
+    ] {
+        assert_eq!(
+            meaning_faults(def),
+            [MeaningFault::OutcomeCount { declared, observed }],
+            "{row}"
+        );
+    }
+    InstructionSet::new("Gates", [(BlockType::qubit(), 1)], [mzz(2)])
+        .expect("two observables, 2 outcomes");
 }
 
 /// An undeclared meaning makes no claim on the outcomes.

@@ -318,8 +318,10 @@ impl Adapt for Spread {
     }
 
     fn needs_below(&self, above: Needs) -> Needs {
-        let qubits = above.blocks_of(&BlockType::qubit()) * self.k;
-        above.blocks(BlockType::qubit(), qubits)
+        match above.blocks_of(&BlockType::qubit()) {
+            0 => above,
+            qubits => above.blocks(BlockType::qubit(), qubits * self.k),
+        }
     }
 
     fn offers_above(&self, below: Capabilities) -> Capabilities {
@@ -416,24 +418,104 @@ impl Adapt for Pool {
     }
 }
 
-/// A toy encoding whose decoder holds at most `most` logical qubits: a
-/// [`Spread`] of `k` that offers above at most `most` qubits, whatever the
-/// qubits below.
-pub(crate) struct Capped {
-    most: u32,
+/// An adapter that changes only the offer: a [`Spread`] of `k`, whose
+/// offer above is `offer` applied to the spread's. Each constructor is a
+/// toy: a part whose offer depends on the offer below as a real one's
+/// does, or as no real part's does. At run time it passes instructions
+/// through the spread.
+pub(crate) struct Offering {
     spread: Spread,
+    offer: Box<dyn Fn(Capabilities) -> Capabilities>,
 }
 
-impl Capped {
-    pub(crate) fn new(k: u32, most: u32, log: &Log) -> Self {
+impl Offering {
+    fn new(k: u32, log: &Log, offer: impl Fn(Capabilities) -> Capabilities + 'static) -> Self {
         Self {
-            most,
             spread: Spread::new(k, log),
+            offer: Box::new(offer),
         }
+    }
+
+    /// A toy encoding whose decoder holds at most `most` logical qubits: a
+    /// [`Spread`] of `k` that offers above at most `most` qubits, whatever
+    /// the qubits below.
+    pub(crate) fn capped(k: u32, most: u32, log: &Log) -> Self {
+        Self::new(k, log, move |mut above| {
+            if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
+                *qubits = Some(qubits.map_or(most, |q| q.min(most)));
+            }
+            above
+        })
+    }
+
+    /// An adapter whose offer shrinks as the offer below grows, as no real
+    /// part's does: the qubits below, up to 10, and 1 over more.
+    pub(crate) fn contrary(log: &Log) -> Self {
+        Self::new(1, log, |mut above| {
+            if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
+                *qubits = Some(qubits.filter(|&q| q <= 10).unwrap_or(1));
+            }
+            above
+        })
+    }
+
+    /// A toy decoder that takes a workspace from the qubits below without
+    /// asking for it in its needs below, which [`Adapt::needs_below`]'s
+    /// rule forbids: it offers 1 qubit above over at most 10 below, and
+    /// every qubit below over more, and needs below what reaches it. So
+    /// given exactly what it needs below, it is short on its own, while
+    /// over more qubits it is not.
+    pub(crate) fn workspace(log: &Log) -> Self {
+        Self::new(1, log, |mut above| {
+            if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
+                *qubits = qubits.map(|q| if q <= 10 { 1 } else { q });
+            }
+            above
+        })
+    }
+
+    /// A toy job queue that takes at most `most` shots a run, so it lowers
+    /// the offer's most shots to `most`.
+    pub(crate) fn queue(most: u32, log: &Log) -> Self {
+        Self::new(1, log, move |below| {
+            let most = below.max_shots.map_or(most, |m| m.min(most));
+            below.max_shots(most)
+        })
+    }
+
+    /// A toy decoder that states its offer afresh, as
+    /// `Capabilities::unlimited().max_qubits(qubits)`, whatever is offered
+    /// below: seedable, and no limit on shots.
+    pub(crate) fn restating(qubits: u32, log: &Log) -> Self {
+        Self::new(1, log, move |_| {
+            Capabilities::unlimited().max_qubits(qubits)
+        })
+    }
+
+    /// The decoder [`Offering::restating`] makes, stating at most
+    /// `most_shots` shots a run.
+    pub(crate) fn restating_most_shots(qubits: u32, most_shots: u32, log: &Log) -> Self {
+        Self::new(1, log, move |_| {
+            Capabilities::unlimited()
+                .max_qubits(qubits)
+                .max_shots(most_shots)
+        })
+    }
+
+    /// A toy link to a device whose measurements cannot be seeded: it
+    /// offers what is offered below, but not seedable.
+    pub(crate) fn unseedable(log: &Log) -> Self {
+        Self::new(1, log, Capabilities::not_seedable)
+    }
+
+    /// A toy lowering that cannot carry readout parities: it offers none
+    /// above, whatever the offer below.
+    pub(crate) fn lowering_without_parity(log: &Log) -> Self {
+        Self::new(1, log, Capabilities::without_readout_parity)
     }
 }
 
-impl Adapt for Capped {
+impl Adapt for Offering {
     fn accepts(&self) -> &InstructionSet {
         self.spread.accepts()
     }
@@ -451,11 +533,7 @@ impl Adapt for Capped {
     }
 
     fn offers_above(&self, below: Capabilities) -> Capabilities {
-        let mut above = self.spread.offers_above(below);
-        if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
-            *qubits = Some(qubits.map_or(self.most, |q| q.min(self.most)));
-        }
-        above
+        (self.offer)(self.spread.offers_above(below))
     }
 
     async fn adapt(
@@ -466,244 +544,6 @@ impl Adapt for Capped {
         readouts: &mut Readouts,
     ) -> Result<(), ExecuteError> {
         self.spread.adapt(batches, seed, below, readouts).await
-    }
-}
-
-/// An adapter whose offer shrinks as the offer below grows, as no real
-/// part's does: the qubits below, up to 10, and 1 over more. At run time
-/// it passes instructions through, as a [`Spread`] of 1.
-pub(crate) struct Contrary(Spread);
-
-impl Contrary {
-    pub(crate) fn new(log: &Log) -> Self {
-        Self(Spread::new(1, log))
-    }
-}
-
-impl Adapt for Contrary {
-    fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
-    }
-
-    fn sends(&self) -> &InstructionSet {
-        self.0.sends()
-    }
-
-    fn bind(&mut self, below: OpcodeMap) {
-        self.0.bind(below);
-    }
-
-    fn offers_above(&self, below: Capabilities) -> Capabilities {
-        let mut above = below;
-        if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
-            *qubits = Some(qubits.filter(|&q| q <= 10).unwrap_or(1));
-        }
-        above
-    }
-
-    async fn adapt(
-        &mut self,
-        batches: &[Batch<'_>],
-        seed: Seed,
-        below: &mut impl Execute,
-        readouts: &mut Readouts,
-    ) -> Result<(), ExecuteError> {
-        self.0.adapt(batches, seed, below, readouts).await
-    }
-}
-
-/// A toy decoder that takes a workspace from the qubits below without
-/// asking for it in its needs below, which [`Adapt::needs_below`]'s rule
-/// forbids: it offers 1 qubit above over at most 10 below, and every qubit
-/// below over more, and needs below what reaches it. So given exactly what
-/// it needs below, it is short on its own, while over more qubits it is
-/// not. At run time it passes instructions through, as a [`Spread`] of 1.
-pub(crate) struct Workspace(Spread);
-
-impl Workspace {
-    pub(crate) fn new(log: &Log) -> Self {
-        Self(Spread::new(1, log))
-    }
-}
-
-impl Adapt for Workspace {
-    fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
-    }
-
-    fn sends(&self) -> &InstructionSet {
-        self.0.sends()
-    }
-
-    fn bind(&mut self, below: OpcodeMap) {
-        self.0.bind(below);
-    }
-
-    fn offers_above(&self, below: Capabilities) -> Capabilities {
-        let mut above = below;
-        if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
-            *qubits = qubits.map(|q| if q <= 10 { 1 } else { q });
-        }
-        above
-    }
-
-    async fn adapt(
-        &mut self,
-        batches: &[Batch<'_>],
-        seed: Seed,
-        below: &mut impl Execute,
-        readouts: &mut Readouts,
-    ) -> Result<(), ExecuteError> {
-        self.0.adapt(batches, seed, below, readouts).await
-    }
-}
-
-/// A toy job queue that takes at most `most` shots a run, so it lowers the
-/// offer's most shots to `most`. At run time it passes instructions
-/// through, as a [`Spread`] of 1.
-pub(crate) struct Queue {
-    most: u32,
-    pass_through: Spread,
-}
-
-impl Queue {
-    pub(crate) fn new(most: u32, log: &Log) -> Self {
-        Self {
-            most,
-            pass_through: Spread::new(1, log),
-        }
-    }
-}
-
-impl Adapt for Queue {
-    fn accepts(&self) -> &InstructionSet {
-        self.pass_through.accepts()
-    }
-
-    fn sends(&self) -> &InstructionSet {
-        self.pass_through.sends()
-    }
-
-    fn bind(&mut self, below: OpcodeMap) {
-        self.pass_through.bind(below);
-    }
-
-    fn offers_above(&self, below: Capabilities) -> Capabilities {
-        let most = below.max_shots.map_or(self.most, |m| m.min(self.most));
-        below.max_shots(most)
-    }
-
-    async fn adapt(
-        &mut self,
-        batches: &[Batch<'_>],
-        seed: Seed,
-        below: &mut impl Execute,
-        readouts: &mut Readouts,
-    ) -> Result<(), ExecuteError> {
-        self.pass_through
-            .adapt(batches, seed, below, readouts)
-            .await
-    }
-}
-
-/// A toy decoder that states its offer afresh, as
-/// `Capabilities::unlimited().max_qubits(qubits)`, whatever is offered
-/// below: seedable, and no limit on shots, or `most_shots` when told. At
-/// run time it passes instructions through, as a [`Spread`] of 1.
-pub(crate) struct Restating {
-    qubits: u32,
-    most_shots: Option<u32>,
-    pass_through: Spread,
-}
-
-impl Restating {
-    pub(crate) fn new(qubits: u32, log: &Log) -> Self {
-        Self {
-            qubits,
-            most_shots: None,
-            pass_through: Spread::new(1, log),
-        }
-    }
-
-    /// This decoder, stating at most `most` shots a run.
-    pub(crate) fn most_shots(self, most: u32) -> Self {
-        Self {
-            most_shots: Some(most),
-            ..self
-        }
-    }
-}
-
-impl Adapt for Restating {
-    fn accepts(&self) -> &InstructionSet {
-        self.pass_through.accepts()
-    }
-
-    fn sends(&self) -> &InstructionSet {
-        self.pass_through.sends()
-    }
-
-    fn bind(&mut self, below: OpcodeMap) {
-        self.pass_through.bind(below);
-    }
-
-    fn offers_above(&self, _below: Capabilities) -> Capabilities {
-        let offer = Capabilities::unlimited().max_qubits(self.qubits);
-        match self.most_shots {
-            Some(most) => offer.max_shots(most),
-            None => offer,
-        }
-    }
-
-    async fn adapt(
-        &mut self,
-        batches: &[Batch<'_>],
-        seed: Seed,
-        below: &mut impl Execute,
-        readouts: &mut Readouts,
-    ) -> Result<(), ExecuteError> {
-        self.pass_through
-            .adapt(batches, seed, below, readouts)
-            .await
-    }
-}
-
-/// A toy link to a device whose measurements cannot be seeded: it offers
-/// what is offered below, but not seedable. At run time it passes
-/// instructions through, as a [`Spread`] of 1.
-pub(crate) struct Unseedable(Spread);
-
-impl Unseedable {
-    pub(crate) fn new(log: &Log) -> Self {
-        Self(Spread::new(1, log))
-    }
-}
-
-impl Adapt for Unseedable {
-    fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
-    }
-
-    fn sends(&self) -> &InstructionSet {
-        self.0.sends()
-    }
-
-    fn bind(&mut self, below: OpcodeMap) {
-        self.0.bind(below);
-    }
-
-    fn offers_above(&self, below: Capabilities) -> Capabilities {
-        below.not_seedable()
-    }
-
-    async fn adapt(
-        &mut self,
-        batches: &[Batch<'_>],
-        seed: Seed,
-        below: &mut impl Execute,
-        readouts: &mut Readouts,
-    ) -> Result<(), ExecuteError> {
-        self.0.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -982,45 +822,6 @@ impl Adapt for ForwardsParity {
             resolves_readout_parity: true,
             ..below
         }
-    }
-
-    async fn adapt(
-        &mut self,
-        batches: &[Batch<'_>],
-        seed: Seed,
-        below: &mut impl Execute,
-        readouts: &mut Readouts,
-    ) -> Result<(), ExecuteError> {
-        self.0.adapt(batches, seed, below, readouts).await
-    }
-}
-
-/// A toy lowering that cannot carry readout parities: it offers none
-/// above, whatever the offer below. At run time it passes instructions
-/// through, as a [`Spread`] of 1.
-pub(crate) struct LoweringWithoutParity(Spread);
-
-impl LoweringWithoutParity {
-    pub(crate) fn new(log: &Log) -> Self {
-        Self(Spread::new(1, log))
-    }
-}
-
-impl Adapt for LoweringWithoutParity {
-    fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
-    }
-
-    fn sends(&self) -> &InstructionSet {
-        self.0.sends()
-    }
-
-    fn bind(&mut self, below: OpcodeMap) {
-        self.0.bind(below);
-    }
-
-    fn offers_above(&self, below: Capabilities) -> Capabilities {
-        below.without_readout_parity()
     }
 
     async fn adapt(

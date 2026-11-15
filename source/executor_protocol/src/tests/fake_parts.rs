@@ -14,14 +14,12 @@
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
 //!   [`NamesBelow`], which logs the names of the part below and its set;
-//!   [`Spread`], which changes the needs and the offer; [`Capped`], a
-//!   `Spread` with a most of its own; [`Pool`], which draws two block
-//!   types from one pool below; [`Queue`], which lowers the most shots;
-//!   [`Restating`], which states its offer afresh, with no shot limit;
-//!   [`Unseedable`], which makes the offer not seedable;
-//!   [`LoweringWithoutParity`], which offers no readout parities;
-//!   [`Contrary`], whose offer shrinks as the offer below grows;
-//!   [`Workspace`], which takes qubits below it does not ask for; [`Trap`],
+//!   [`Spread`], which changes the needs and the offer; [`Offering`], a
+//!   `Spread` with an offer of its own, one toy per constructor: a
+//!   capped encoding, a job queue lowering the most shots, a decoder
+//!   restating its offer, a link that cannot be seeded, a lowering
+//!   offering no readout parities, and two offers no real part makes;
+//!   [`Pool`], which draws two block types from one pool below; [`Trap`],
 //!   which fails a shot; [`FailsOnce`], which fails one `adapt`;
 //!   [`PanicsEnding`], which panics in `end_shots`, each time or once;
 //!   [`EndsBelow`], which ends its shots below inside `adapt`;
@@ -178,6 +176,81 @@ fn zeros(rows: usize, width: usize) -> BatchReadouts {
     }
     readouts
 }
+
+/// Runs `$check` on the chain of the parts `[$d, …, $e]`, top to bottom,
+/// in each bracketing `>>` makes of them: 2 for three parts, 5 for four
+/// and 14 for five. Each bracketing runs `$setup`, a block of statements
+/// that binds the parts, afresh, so it gets new parts (and a new log, if
+/// `$setup` makes one); `$check` reads the chain `>>` makes as `$chain`,
+/// and the bracketing, written out, as `$brackets`, for its messages.
+macro_rules! in_each_bracketing {
+    (
+        [$d:ident, $a:ident, $e:ident] from $setup:tt,
+        |$chain:ident, $brackets:ident| $check:expr $(,)?
+    ) => {
+        $crate::tests::fake_parts::in_each_bracketing!(
+            @each $setup $chain $brackets $check;
+            ($d >> $a) >> $e,
+            $d >> ($a >> $e),
+        )
+    };
+    (
+        [$d:ident, $a:ident, $b:ident, $e:ident] from $setup:tt,
+        |$chain:ident, $brackets:ident| $check:expr $(,)?
+    ) => {
+        $crate::tests::fake_parts::in_each_bracketing!(
+            @each $setup $chain $brackets $check;
+            (($d >> $a) >> $b) >> $e,
+            ($d >> $a) >> ($b >> $e),
+            $d >> ($a >> ($b >> $e)),
+            $d >> (($a >> $b) >> $e),
+            ($d >> ($a >> $b)) >> $e,
+        )
+    };
+    (
+        [$d:ident, $a:ident, $b:ident, $c:ident, $e:ident] from $setup:tt,
+        |$chain:ident, $brackets:ident| $check:expr $(,)?
+    ) => {
+        $crate::tests::fake_parts::in_each_bracketing!(
+            @each $setup $chain $brackets $check;
+            $d >> ((($a >> $b) >> $c) >> $e),
+            $d >> (($a >> ($b >> $c)) >> $e),
+            $d >> (($a >> $b) >> ($c >> $e)),
+            $d >> ($a >> (($b >> $c) >> $e)),
+            $d >> ($a >> ($b >> ($c >> $e))),
+            ($d >> $a) >> (($b >> $c) >> $e),
+            ($d >> $a) >> ($b >> ($c >> $e)),
+            (($d >> $a) >> $b) >> ($c >> $e),
+            ($d >> ($a >> $b)) >> ($c >> $e),
+            ((($d >> $a) >> $b) >> $c) >> $e,
+            (($d >> ($a >> $b)) >> $c) >> $e,
+            (($d >> $a) >> ($b >> $c)) >> $e,
+            ($d >> (($a >> $b) >> $c)) >> $e,
+            ($d >> ($a >> ($b >> $c))) >> $e,
+        )
+    };
+    (@each $setup:tt $chain:ident $brackets:ident $check:tt; $bracketing:expr, $($rest:expr,)*) => {
+        $crate::tests::fake_parts::in_each_bracketing!(
+            @one $setup $chain $brackets $check; $bracketing
+        );
+        $crate::tests::fake_parts::in_each_bracketing!(
+            @each $setup $chain $brackets $check; $($rest,)*
+        );
+    };
+    (@each $setup:tt $chain:ident $brackets:ident $check:tt;) => {};
+    (
+        @one { $($setup:tt)* } $chain:ident $brackets:ident $check:tt;
+        $bracketing:expr
+    ) => {{
+        $($setup)*
+        #[allow(unused_variables)]
+        let $brackets: &str = stringify!($bracketing);
+        let $chain = $bracketing;
+        $check
+    }};
+}
+
+pub(crate) use in_each_bracketing;
 
 // ---------------------------------------------------------------- futures
 

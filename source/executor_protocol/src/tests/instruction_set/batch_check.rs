@@ -382,6 +382,7 @@ fn first_refused_instruction_is_reported_at_its_position() {
 /// patterns its instruction does not take, is refused; the same
 /// instruction, with what it takes, runs.
 #[test]
+#[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn an_instruction_its_set_does_not_take_is_refused() {
     let set = device();
     let mut beyond = literal(&set, "h", &[0]);
@@ -396,6 +397,10 @@ fn an_instruction_its_set_does_not_take_is_refused() {
         .expect("a declared flag");
     let mut h_with_ms_pattern = m.clone();
     h_with_ms_pattern.opcode = set.opcode("h").expect("an instruction of the set");
+    let mut h_with_ms_first_flag = literal(&set, "m", &[0])
+        .select(&set, [[("reject", 1)]])
+        .expect("a declared flag");
+    h_with_ms_first_flag.opcode = h_with_ms_pattern.opcode;
     let mut select_of_none = m.clone();
     select_of_none.select = Some(Box::new([]));
     let cond_x = |argument| {
@@ -451,6 +456,18 @@ fn an_instruction_its_set_does_not_take_is_refused() {
             ),
         ),
         (
+            "a pattern on flag 0 on `h`, just past its no flags",
+            vec![h_with_ms_first_flag],
+            qubit(),
+            refused_at(
+                0,
+                InstructionFault::UnknownFlag {
+                    mnemonic: "h".into(),
+                    name: "#0".into(),
+                },
+            ),
+        ),
+        (
             "a `select` of no patterns, which no shot's flags match",
             vec![select_of_none],
             qubit(),
@@ -482,8 +499,9 @@ fn an_instruction_its_set_does_not_take_is_refused() {
 }
 
 /// Each block an instruction names is below the shots' blocks of its
-/// type: for one type, for its own type among several, for both types of
-/// a block that changes type, and for each block of a variadic operand.
+/// type: for one type, for its own type among several, for a type the
+/// shots need none of, for both types of a block that changes type, and
+/// for each block of a variadic operand.
 #[test]
 fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
     let set = device();
@@ -522,6 +540,12 @@ fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
             on("prepare", &[3]),
             shots_of(1, 3),
             beyond("prepare", 3, 3),
+        ),
+        (
+            "`prepare` making block 0, of shots needing no block of its type",
+            on("prepare", &[0]),
+            Needs::qubits(1),
+            beyond("prepare", 0, 0),
         ),
         (
             "`encode` turning qubit 1 into block 1, of 4 qubits and 2 blocks",

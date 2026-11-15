@@ -20,7 +20,7 @@ fn pauli_squared_is_the_identity() {
 
 /// `Z_2 · X_0` is written `X_0 Z_2`, so products in either order are equal.
 #[test]
-fn pauli_factors_are_sorted_by_qubit() {
+fn a_pauli_is_written_in_qubit_order() {
     assert_eq!(Pauli::z(2) * Pauli::x(0), Pauli::x(0) * Pauli::z(2));
     assert_eq!((Pauli::z(2) * Pauli::x(0)).to_string(), "X_0 Z_2");
 }

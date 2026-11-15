@@ -20,8 +20,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, FromThread, Later, Log, Panics, PanicsWhen, Profiler, Program, Queue,
-    Restating, Splitter, Spread, Trap, Unseedable, Values, YieldNow,
+    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Offering, Panics, PanicsWhen,
+    Profiler, Program, Splitter, Spread, Trap, Values, YieldNow, in_each_bracketing,
 };
 use crate::{
     Adapter, Capabilities, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure,
@@ -539,19 +539,20 @@ fn two_tasks_on_one_thread() {
     );
 }
 
-/// Coin copies under a noise, over bits that answer later, in both
-/// bracketings: a run whose future is dropped after its first `execute`
-/// leaves no shot's state in any part, so the rerun with the same seed
-/// gives the records of a new chain.
+/// Coin copies under a noise flipping 30% of the `x`s, over bits, in both
+/// bracketings, whose first run does not finish: it is dropped after its
+/// first `execute`, the bits answering later, or failed by an adapter
+/// failing its second `execute`. The unfinished run leaves no shot's state
+/// in any part, so the rerun with the same seed gives the records of a new
+/// chain.
 #[test]
-fn a_rerun_after_a_dropped_run_gives_a_new_chains_records() {
-    /// The records of `runner`'s second run of `shots`, its first dropped
-    /// unfinished.
-    fn rerun<D: Drive<Output = Values>, E: Execute>(
-        mut runner: Runner<D, E>,
+fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
+    /// Polls `runner`'s run of `shots` twice, then drops it unfinished.
+    fn drop_unfinished<D: Drive, E: Execute>(
+        runner: &mut Runner<D, E>,
         shots: &ShotSet,
         log: &Log,
-    ) -> Vec<Values> {
+    ) {
         {
             let mut run = std::pin::pin!(runner.run_async(shots, SEED));
             for _ in 0..2 {
@@ -560,36 +561,40 @@ fn a_rerun_after_a_dropped_run_gives_a_new_chains_records() {
             }
         }
         assert_eq!(log.count("Bits execute"), 1, "one execute before the drop");
-        runner.run(shots, SEED).expect("the rerun succeeds")
     }
     let shots = ShotSet::ids(0..16);
-    let new_chain = runner(
-        Driver::new(CoinCopy::new())
-            >> Adapter::new(BitFlip::new(300, &Log::default()))
-            >> Executor::new(Bits::new(&Log::default())),
-    )
-    .run(&shots, SEED)
-    .expect("the run succeeds");
+    let noise = |log: &Log| Adapter::new(BitFlip::new(300, log));
+    let coin_copy = || Driver::new(CoinCopy::new());
+    let new_chain =
+        runner(coin_copy() >> noise(&Log::default()) >> Executor::new(Bits::new(&Log::default())))
+            .run(&shots, SEED)
+            .expect("the run succeeds");
+    let mut reruns = Vec::new();
     let log = Log::default();
-    let left = runner(
-        (Driver::new(CoinCopy::new()) >> Adapter::new(BitFlip::new(300, &log)))
-            >> Executor::new(Later(Bits::new(&log))),
-    );
-    assert_eq!(
-        rerun(left, &shots, &log),
-        new_chain,
-        "the noise with the driver"
-    );
+    let mut left = runner((coin_copy() >> noise(&log)) >> Executor::new(Later(Bits::new(&log))));
+    drop_unfinished(&mut left, &shots, &log);
+    reruns.push(("dropped, the noise with the driver", left.run(&shots, SEED)));
     let log = Log::default();
-    let right = runner(
-        Driver::new(CoinCopy::new())
-            >> (Adapter::new(BitFlip::new(300, &log)) >> Executor::new(Later(Bits::new(&log)))),
+    let mut right = runner(coin_copy() >> (noise(&log) >> Executor::new(Later(Bits::new(&log)))));
+    drop_unfinished(&mut right, &shots, &log);
+    reruns.push(("dropped, the noise with the bits", right.run(&shots, SEED)));
+    let log = Log::default();
+    let mut left = runner(
+        ((coin_copy() >> noise(&log)) >> Adapter::new(FailsOnce::new()))
+            >> Executor::new(Bits::new(&log)),
     );
-    assert_eq!(
-        rerun(right, &shots, &log),
-        new_chain,
-        "the noise with the bits"
+    failed(left.run(&shots, SEED));
+    reruns.push(("failed, the noise with the driver", left.run(&shots, SEED)));
+    let log = Log::default();
+    let mut right = runner(
+        coin_copy()
+            >> (noise(&log) >> (Adapter::new(FailsOnce::new()) >> Executor::new(Bits::new(&log)))),
     );
+    failed(right.run(&shots, SEED));
+    reruns.push(("failed, the noise with the bits", right.run(&shots, SEED)));
+    for (row, rerun) in reruns {
+        assert_eq!(rerun.expect("the rerun succeeds"), new_chain, "{row}");
+    }
 }
 
 /// Whether `T` may move to another thread; it compiles only if so.
@@ -613,276 +618,203 @@ fn a_runs_future_is_send_when_every_part_and_its_future_are() {
 
 // ---------------------------------------------------------------- refusals
 
-/// An executor running 4 shots at most: a run of 5 is refused before any
-/// part is asked, and a run of 4 runs.
-#[test]
-fn a_run_of_more_shots_than_the_executor_runs_is_refused() {
-    let log = Log::default();
-    let offer = Capabilities::unlimited().max_qubits(64).max_shots(4);
-    let mut runner =
-        runner(Driver::new(CoinCopy::new()) >> Executor::new(Bits::new(&log).offering(offer)));
-    let refusal = refused(runner.run(&ShotSet::ids(0..5), SEED));
+/// Runs one shot more than `most` on `runner`, refused before any part is
+/// asked or runs, then `most` shots, a record each: a row of
+/// [`a_run_of_more_shots_than_its_chain_takes_is_refused`], named `row`.
+fn takes_at_most<D: Drive<Output: std::fmt::Debug>, E: Execute>(
+    row: &str,
+    mut runner: Runner<D, E>,
+    most: u32,
+    log: &Log,
+) {
+    let asked = log.count("Bits ready");
+    let ran = log.count("Bits execute");
+    let refusal = refused(runner.run(&ShotSet::ids(0..=most), SEED));
     assert!(
-        matches!(refusal, RunRefusal::TooManyShots { asked: 5, most: 4 }),
-        "{refusal:?}"
+        matches!(refusal, RunRefusal::TooManyShots { asked, most: limit } if asked == most + 1 && limit == most),
+        "{row}: {refusal:?}"
     );
-    assert_eq!(log.count("Bits ready"), 0, "no part asked");
+    assert_eq!(log.count("Bits ready"), asked, "{row}: no part asked");
+    assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran");
+    let records = runner
+        .run(&ShotSet::ids(0..most), SEED)
+        .unwrap_or_else(|error| panic!("{row}: a run of {most}: {error:?}"));
+    assert_eq!(records.len(), most as usize, "{row}: a record per shot");
+}
+
+/// A chain runs at most the fewest shots any of its parts offers, in every
+/// bracketing: a run of one more is refused before any part is asked or
+/// runs, and a run of that many runs. So an adapter may lower the most
+/// shots a run may have, but not raise it.
+#[test]
+fn a_run_of_more_shots_than_its_chain_takes_is_refused() {
+    let log = Log::default();
+    let bits = |most| {
+        let offer = Capabilities::unlimited().max_qubits(64).max_shots(most);
+        Executor::new(Bits::new(&log).offering(offer))
+    };
+    // An executor running 4 shots at most.
+    let alone = runner(Driver::new(CoinCopy::new()) >> bits(4));
+    takes_at_most("the executor alone", alone, 4, &log);
+    // Bits under a job queue of 4 shots at most: the queue's limit holds
+    // wherever the brackets go.
+    in_each_bracketing!([d, queue, e] from {
+        let d = Driver::new(CoinCopy::new());
+        let queue = Adapter::new(Offering::queue(4, &log));
+        let e = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        takes_at_most(&format!("under a queue, {brackets}"), runner(chain), 4, &log);
+    });
+    // Bits running 1 shot at most, under a decoder that restates its offer
+    // with no shot limit, or with a limit of 4: the bits' limit still holds.
+    in_each_bracketing!([d, decoder, e] from {
+        let d = Driver::new(CoinCopy::new());
+        let decoder = Adapter::new(Offering::restating(64, &log));
+        let e = bits(1);
+    }, |chain, brackets| {
+        let row = format!("a decoder with no limit, {brackets}");
+        takes_at_most(&row, runner(chain), 1, &log);
+    });
+    in_each_bracketing!([d, decoder, e] from {
+        let d = Driver::new(CoinCopy::new());
+        let decoder = Adapter::new(Offering::restating_most_shots(64, 4, &log));
+        let e = bits(1);
+    }, |chain, brackets| {
+        let row = format!("a decoder raising the limit, {brackets}");
+        takes_at_most(&row, runner(chain), 1, &log);
+    });
+    // Bits running 8 shots at most, under a decoder that restates its offer
+    // with a limit of 4: the decoder's lower limit holds.
+    in_each_bracketing!([d, decoder, e] from {
+        let d = Driver::new(CoinCopy::new());
+        let decoder = Adapter::new(Offering::restating_most_shots(64, 4, &log));
+        let e = bits(8);
+    }, |chain, brackets| {
+        let row = format!("a decoder lowering the limit, {brackets}");
+        takes_at_most(&row, runner(chain), 4, &log);
+    });
+    // Bits running 8 shots at most, under a job queue of 4, under a decoder
+    // that restates its offer with no shot limit: the queue's limit, though
+    // neither the executor's nor the one reaching the driver, holds.
+    in_each_bracketing!([d, decoder, queue, e] from {
+        let d = Driver::new(CoinCopy::new());
+        let decoder = Adapter::new(Offering::restating(64, &log));
+        let queue = Adapter::new(Offering::queue(4, &log));
+        let e = bits(8);
+    }, |chain, brackets| {
+        let row = format!("a queue under a decoder, {brackets}");
+        takes_at_most(&row, runner(chain), 4, &log);
+    });
+}
+
+/// Runs `shots` shots with a seed on `runner`, refused before any part is
+/// asked or runs, then with no seed: a row of
+/// [`a_seeded_run_is_refused_unless_every_part_is_seedable`], named `row`.
+fn refuses_a_seed<D: Drive<Output: std::fmt::Debug>, E: Execute>(
+    row: &str,
+    mut runner: Runner<D, E>,
+    shots: u32,
+    log: &Log,
+) {
+    let shots = ShotSet::ids(0..shots);
+    let asked = log.count("Bits ready");
+    let ran = log.count("Bits execute");
+    let refusal = refused(runner.run(&shots, SEED));
+    assert!(
+        matches!(refusal, RunRefusal::NotSeedable),
+        "{row}: {refusal:?}"
+    );
+    assert_eq!(log.count("Bits ready"), asked, "{row}: no part asked");
+    assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran");
     runner
-        .run(&ShotSet::ids(0..4), SEED)
-        .expect("as many shots as the executor runs");
+        .run(&shots, None)
+        .unwrap_or_else(|error| panic!("{row}: a run with no seed: {error:?}"));
 }
 
-/// Bits under a job queue of 4 shots at most, bracketed both ways: the
-/// queue's limit holds for each, so a run of 5 is refused.
+/// A chain is seedable only if every part is, in every bracketing: a seeded
+/// run on one that is not is refused before any part is asked or runs, and
+/// a run with no seed runs. So an adapter may make a chain not seedable,
+/// but not seedable.
 #[test]
-fn where_the_brackets_go_changes_no_run_refusal() {
-    let log = Log::default();
-    let d = || Driver::new(CoinCopy::new());
-    let queue = || Adapter::new(Queue::new(4, &log));
-    let bits = || Executor::new(Bits::new(&log));
-    let shots = ShotSet::ids(0..5);
-    let left = refused(runner((d() >> queue()) >> bits()).run(&shots, SEED));
-    let right = refused(runner(d() >> (queue() >> bits())).run(&shots, SEED));
-    for (refusal, brackets) in [(left, "left"), (right, "right")] {
-        assert!(
-            matches!(refusal, RunRefusal::TooManyShots { asked: 5, most: 4 }),
-            "{brackets}: {refusal:?}"
-        );
-    }
-}
-
-/// Bits running 1 shot at most, under a decoder that restates its offer
-/// with no shot limit, or with a limit of 4, bracketed both ways: the
-/// bits' limit still holds, so a run of 2 is refused before any part is
-/// asked or runs.
-#[test]
-fn an_adapter_cannot_raise_the_most_shots_a_run_may_have() {
-    let log = Log::default();
-    let d = || Driver::new(CoinCopy::new());
-    let offer = Capabilities::unlimited().max_qubits(64).max_shots(1);
-    let bits = || Executor::new(Bits::new(&log).offering(offer.clone()));
-    let shots = ShotSet::ids(0..2);
-    for most in [None, Some(4)] {
-        let decoder = || {
-            let restating = Restating::new(64, &log);
-            Adapter::new(match most {
-                Some(most) => restating.most_shots(most),
-                None => restating,
-            })
-        };
-        let left = refused(runner((d() >> decoder()) >> bits()).run(&shots, SEED));
-        let right = refused(runner(d() >> (decoder() >> bits())).run(&shots, SEED));
-        for (refusal, brackets) in [(left, "left"), (right, "right")] {
-            assert!(
-                matches!(refusal, RunRefusal::TooManyShots { asked: 2, most: 1 }),
-                "{most:?}, {brackets}: {refusal:?}"
-            );
-        }
-    }
-    assert_eq!(log.count("Bits ready"), 0, "no part asked");
-    assert_eq!(log.count("Bits execute"), 0, "nothing ran");
-}
-
-/// Bits running 8 shots at most, under a decoder that restates its offer
-/// with a limit of 4, bracketed both ways: the decoder's lower limit holds,
-/// so a run of 5 is refused before any part is asked, and a run of 4 runs.
-#[test]
-fn an_adapter_can_lower_the_most_shots_below_the_executors() {
-    let log = Log::default();
-    let d = || Driver::new(CoinCopy::new());
-    let decoder = || Adapter::new(Restating::new(64, &log).most_shots(4));
-    let offer = Capabilities::unlimited().max_qubits(64).max_shots(8);
-    let bits = || Executor::new(Bits::new(&log).offering(offer.clone()));
-    let mut left = runner((d() >> decoder()) >> bits());
-    let mut right = runner(d() >> (decoder() >> bits()));
-    let five = ShotSet::ids(0..5);
-    for (refusal, brackets) in [
-        (refused(left.run(&five, SEED)), "left"),
-        (refused(right.run(&five, SEED)), "right"),
-    ] {
-        assert!(
-            matches!(refusal, RunRefusal::TooManyShots { asked: 5, most: 4 }),
-            "{brackets}: {refusal:?}"
-        );
-    }
-    assert_eq!(log.count("Bits ready"), 0, "no part asked");
-    let four = ShotSet::ids(0..4);
-    left.run(&four, SEED).expect("left: a run of 4");
-    right.run(&four, SEED).expect("right: a run of 4");
-}
-
-/// Bits that cannot be seeded, under a decoder that restates its offer as
-/// seedable, bracketed both ways: a seeded run of 1 shot is still refused
-/// before any part is asked or runs.
-#[test]
-fn an_adapter_cannot_make_a_chain_seedable() {
-    let log = Log::default();
-    let d = || Driver::new(CoinCopy::new());
-    let decoder = || Adapter::new(Restating::new(64, &log));
-    let offer = Capabilities::unlimited().max_qubits(64).not_seedable();
-    let bits = || Executor::new(Bits::new(&log).offering(offer.clone()));
-    let shots = ShotSet::ids(0..1);
-    let left = refused(runner((d() >> decoder()) >> bits()).run(&shots, SEED));
-    let right = refused(runner(d() >> (decoder() >> bits())).run(&shots, SEED));
-    for (refusal, brackets) in [(left, "left"), (right, "right")] {
-        assert!(
-            matches!(refusal, RunRefusal::NotSeedable),
-            "{brackets}: {refusal:?}"
-        );
-    }
-    assert_eq!(log.count("Bits ready"), 0, "no part asked");
-    assert_eq!(log.count("Bits execute"), 0, "nothing ran");
-}
-
-/// Bits running 8 shots at most, under a job queue of 4, under a decoder
-/// that restates its offer with no shot limit, bracketed both ways: the
-/// queue's limit, though neither the executor's nor the one reaching the
-/// driver, holds, so a run of 5 is refused before any part is asked, and a
-/// run of 4 runs.
-#[test]
-fn an_adapter_in_the_middle_lowers_the_most_shots_under_one_restating_its_offer() {
-    let log = Log::default();
-    let d = || Driver::new(CoinCopy::new());
-    let decoder = || Adapter::new(Restating::new(64, &log));
-    let queue = || Adapter::new(Queue::new(4, &log));
-    let offer = Capabilities::unlimited().max_qubits(64).max_shots(8);
-    let bits = || Executor::new(Bits::new(&log).offering(offer.clone()));
-    let mut left = runner(((d() >> decoder()) >> queue()) >> bits());
-    let mut right = runner(d() >> (decoder() >> (queue() >> bits())));
-    let five = ShotSet::ids(0..5);
-    for (refusal, brackets) in [
-        (refused(left.run(&five, SEED)), "left"),
-        (refused(right.run(&five, SEED)), "right"),
-    ] {
-        assert!(
-            matches!(refusal, RunRefusal::TooManyShots { asked: 5, most: 4 }),
-            "{brackets}: {refusal:?}"
-        );
-    }
-    assert_eq!(log.count("Bits ready"), 0, "no part asked");
-    let four = ShotSet::ids(0..4);
-    left.run(&four, SEED).expect("left: a run of 4");
-    right.run(&four, SEED).expect("right: a run of 4");
-}
-
-/// Seedable bits under a link that cannot be seeded, under a decoder that
-/// restates its offer as seedable, bracketed both ways: the link's
-/// seedability, though neither the executor's nor the one reaching the
-/// driver, holds, so a seeded run is refused before any part is asked, and
-/// a run with no seed runs.
-#[test]
-fn an_adapter_in_the_middle_makes_a_chain_not_seedable_under_one_restating_its_offer() {
-    let log = Log::default();
-    let d = || Driver::new(CoinCopy::new());
-    let decoder = || Adapter::new(Restating::new(64, &log));
-    let link = || Adapter::new(Unseedable::new(&log));
-    let bits = || Executor::new(Bits::new(&log));
-    let shots = ShotSet::ids(0..2);
-    let mut left = runner(((d() >> decoder()) >> link()) >> bits());
-    let mut right = runner(d() >> (decoder() >> (link() >> bits())));
-    for (refusal, brackets) in [
-        (refused(left.run(&shots, SEED)), "left"),
-        (refused(right.run(&shots, SEED)), "right"),
-    ] {
-        assert!(
-            matches!(refusal, RunRefusal::NotSeedable),
-            "{brackets}: {refusal:?}"
-        );
-    }
-    assert_eq!(log.count("Bits ready"), 0, "no part asked");
-    left.run(&shots, None).expect("left: a run with no seed");
-    right.run(&shots, None).expect("right: a run with no seed");
-}
-
-/// Seedable bits under a link that cannot be seeded, under a profiler,
-/// bracketed both ways: a seeded run is refused before any part is asked,
-/// and a run with no seed runs.
-#[test]
-fn an_adapter_can_make_a_chain_not_seedable() {
+fn a_seeded_run_is_refused_unless_every_part_is_seedable() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
-    let d = || Driver::new(CoinCopy::new());
-    let profiler = || Adapter::new(Profiler::new(&counted, &log));
-    let link = || Adapter::new(Unseedable::new(&log));
-    let bits = || Executor::new(Bits::new(&log));
-    let shots = ShotSet::ids(0..2);
-    let mut left = runner(((d() >> profiler()) >> link()) >> bits());
-    let mut right = runner(d() >> (profiler() >> (link() >> bits())));
-    for (refusal, brackets) in [
-        (refused(left.run(&shots, SEED)), "left"),
-        (refused(right.run(&shots, SEED)), "right"),
-    ] {
-        assert!(
-            matches!(refusal, RunRefusal::NotSeedable),
-            "{brackets}: {refusal:?}"
-        );
-    }
-    assert_eq!(log.count("Bits ready"), 0, "no part asked");
-    left.run(&shots, None).expect("left: a run with no seed");
-    right.run(&shots, None).expect("right: a run with no seed");
+    let unseedable_bits = || {
+        let offer = Capabilities::unlimited().max_qubits(64).not_seedable();
+        Executor::new(Bits::new(&log).offering(offer))
+    };
+    // An executor that cannot be seeded.
+    let alone = runner(Driver::new(CoinCopy::new()) >> unseedable_bits());
+    refuses_a_seed("the executor alone", alone, 4, &log);
+    // Bits that cannot be seeded, under a decoder that restates its offer
+    // as seedable: the bits' seedability still holds.
+    in_each_bracketing!([d, decoder, e] from {
+        let d = Driver::new(CoinCopy::new());
+        let decoder = Adapter::new(Offering::restating(64, &log));
+        let e = unseedable_bits();
+    }, |chain, brackets| {
+        let row = format!("a decoder over bits, {brackets}");
+        refuses_a_seed(&row, runner(chain), 1, &log);
+    });
+    // Seedable bits under a link that cannot be seeded, under a profiler.
+    in_each_bracketing!([d, profiler, link, e] from {
+        let d = Driver::new(CoinCopy::new());
+        let profiler = Adapter::new(Profiler::new(&counted, &log));
+        let link = Adapter::new(Offering::unseedable(&log));
+        let e = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        let row = format!("a link under a profiler, {brackets}");
+        refuses_a_seed(&row, runner(chain), 2, &log);
+    });
+    // Seedable bits under a link that cannot be seeded, under a decoder
+    // that restates its offer as seedable: the link's seedability, though
+    // neither the executor's nor the one reaching the driver, holds.
+    in_each_bracketing!([d, decoder, link, e] from {
+        let d = Driver::new(CoinCopy::new());
+        let decoder = Adapter::new(Offering::restating(64, &log));
+        let link = Adapter::new(Offering::unseedable(&log));
+        let e = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        let row = format!("a link under a decoder, {brackets}");
+        refuses_a_seed(&row, runner(chain), 2, &log);
+    });
 }
 
-/// An executor that cannot be seeded: a seeded run is refused before any
-/// part is asked, and a run with no seed runs.
+/// A part that cannot take a run refuses it with its reason, wherever the
+/// brackets go: the parts below it are asked, those above it are not, and
+/// nothing runs.
 #[test]
-fn a_seeded_run_on_a_chain_not_seedable_is_refused() {
-    let log = Log::default();
-    let offer = Capabilities::unlimited().max_qubits(64).not_seedable();
-    let mut runner =
-        runner(Driver::new(CoinCopy::new()) >> Executor::new(Bits::new(&log).offering(offer)));
-    let refusal = refused(runner.run(&ShotSet::ids(0..4), SEED));
-    assert!(matches!(refusal, RunRefusal::NotSeedable), "{refusal:?}");
-    assert_eq!(log.count("Bits ready"), 0, "no part asked");
-    runner
-        .run(&ShotSet::ids(0..4), None)
-        .expect("a run with no seed");
-}
-
-/// Busy bits under a profiler: the run is refused with the bits' reason,
-/// and nothing above them is asked or runs.
-#[test]
-fn a_part_that_cannot_take_a_run_refuses_it() {
-    let log = Log::default();
+fn a_part_refusing_a_run_stops_the_asking_wherever_the_brackets_go() {
     let counted = Rc::new(Cell::new(0));
-    let mut runner = runner(
+    let calibrating = |refusal: &RunRefusal| matches!(refusal, RunRefusal::Unavailable(why) if why.to_string() == "calibrating");
+    // Busy bits under a profiler: refused with the bits' reason, and the
+    // profiler above them is not asked.
+    let log = Log::default();
+    let mut busy = runner(
         Driver::new(CoinCopy::new())
             >> Adapter::new(Profiler::new(&counted, &log))
             >> Executor::new(Bits::new(&log).busy("calibrating")),
     );
-    let refusal = refused(runner.run(&ShotSet::ids(0..4), SEED));
-    assert!(
-        matches!(&refusal, RunRefusal::Unavailable(why) if why.to_string() == "calibrating"),
-        "{refusal:?}"
+    let refusal = refused(busy.run(&ShotSet::ids(0..4), SEED));
+    assert!(calibrating(&refusal), "busy bits: {refusal:?}");
+    assert_eq!(
+        log.count("Profiler ready"),
+        0,
+        "busy bits: the profiler not asked"
     );
-    assert_eq!(log.count("Profiler ready"), 0);
-    assert_eq!(counted.get(), 0, "nothing ran");
-}
-
-/// A profiler that cannot take a run, between bits and another profiler,
-/// in each of the five bracketings: the run is refused with its reason;
-/// the bits below it are asked, and the profiler above it is not.
-#[test]
-fn a_part_refusing_a_run_stops_the_asking_wherever_the_brackets_go() {
-    let counted = Rc::new(Cell::new(0));
+    // A profiler that cannot take a run, between bits and another profiler:
+    // the bits below it are asked, and the profiler above it is not.
     let shots = ShotSet::ids(0..2);
-    for brackets in 0..5 {
+    in_each_bracketing!([d, above, refusing, bits] from {
         let log = Log::default();
         let refusing_log = Log::default();
-        let d = || Driver::new(CoinCopy::new());
-        let above = || Adapter::new(Profiler::new(&counted, &log));
-        let refusing = || Adapter::new(Profiler::new(&counted, &refusing_log).busy("calibrating"));
-        let bits = || Executor::new(Bits::new(&log));
-        let refusal = match brackets {
-            0 => refused(runner(((d() >> above()) >> refusing()) >> bits()).run(&shots, SEED)),
-            1 => refused(runner((d() >> (above() >> refusing())) >> bits()).run(&shots, SEED)),
-            2 => refused(runner((d() >> above()) >> (refusing() >> bits())).run(&shots, SEED)),
-            3 => refused(runner(d() >> ((above() >> refusing()) >> bits())).run(&shots, SEED)),
-            _ => refused(runner(d() >> (above() >> (refusing() >> bits()))).run(&shots, SEED)),
-        };
-        assert!(
-            matches!(&refusal, RunRefusal::Unavailable(why) if why.to_string() == "calibrating"),
-            "{brackets}: {refusal:?}"
-        );
+        let d = Driver::new(CoinCopy::new());
+        let above = Adapter::new(Profiler::new(&counted, &log));
+        let refusing = Adapter::new(Profiler::new(&counted, &refusing_log).busy("calibrating"));
+        let bits = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        let refusal = refused(runner(chain).run(&shots, SEED));
+        assert!(calibrating(&refusal), "{brackets}: {refusal:?}");
         assert_eq!(log.count("Bits ready"), 1, "{brackets}: the bits asked");
         assert_eq!(
             refusing_log.count("Profiler ready"),
@@ -894,7 +826,7 @@ fn a_part_refusing_a_run_stops_the_asking_wherever_the_brackets_go() {
             0,
             "{brackets}: the profiler above not asked"
         );
-    }
+    });
     assert_eq!(counted.get(), 0, "nothing ran");
 }
 
@@ -931,62 +863,6 @@ fn the_parts_are_asked_bottom_up() {
         ["Bits ready", "Profiler ready"],
         "the profiler with the bits"
     );
-}
-
-/// An instruction on a qubit beyond the program's needs: the `execute` is
-/// refused, typed, naming the batch's first shot, and nothing of it runs.
-#[test]
-fn an_instruction_beyond_the_needs_is_refused_before_it_runs() {
-    let log = Log::default();
-    let mut runner = checked(
-        Driver::new(Program::new(&[("mz", 0), ("x", 5)]).needing(Needs::qubits(2)))
-            >> Executor::new(Bits::new(&log)),
-    );
-    let error = failed(runner.run(&ShotSet::ids([4, 2]), SEED));
-    assert_eq!(error.shot, ShotId::new(4));
-    let Failure::Refused(refusal) = error.failure else {
-        panic!("a refusal, not {:?}", error.failure);
-    };
-    assert_eq!(
-        refusal,
-        ExecuteRefusal::Instruction {
-            shot: ShotId::new(4),
-            batch: 0,
-            at: 1,
-            fault: InstructionFault::BlockBeyondNeeds {
-                mnemonic: "x".to_owned(),
-                block: 5,
-                needs: 2,
-            },
-        }
-    );
-    assert_eq!(log.count("Bits execute"), 0, "nothing ran");
-}
-
-/// A batch longer than the executor takes: refused, typed, and nothing of
-/// it runs.
-#[test]
-fn a_batch_longer_than_the_executor_takes_is_refused_before_it_runs() {
-    let log = Log::default();
-    let offer = Capabilities::unlimited().max_qubits(64).max_instructions(1);
-    let mut runner = checked(
-        Driver::new(Program::new(&[("x", 0), ("mz", 0)]))
-            >> Executor::new(Bits::new(&log).offering(offer)),
-    );
-    let error = failed(runner.run(&ShotSet::ids(0..2), SEED));
-    assert!(
-        matches!(
-            error.failure,
-            Failure::Refused(ExecuteRefusal::TooManyInstructions {
-                batch: 0,
-                max: 1,
-                got: 2,
-                ..
-            })
-        ),
-        "{error:?}"
-    );
-    assert_eq!(log.count("Bits execute"), 0, "nothing ran");
 }
 
 /// Two batches in one `execute`, shots 4 and 2 measuring qubit 0, shots 9

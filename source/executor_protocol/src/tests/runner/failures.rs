@@ -6,19 +6,21 @@
 //! its future's poll or drop, or its end of the shots. Each is named after
 //! the right part wherever the brackets go, and the run's shots are ended.
 
-use std::any::type_name;
+use std::any::{Any, type_name};
 use std::cell::Cell;
+use std::fmt::Debug;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 use std::task::{Context, Waker};
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, EndsBelow, FailsOnce, Impatient, Later, Log, Misshape, Misshapen,
-    Panics, PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Renamed, Trap, Values,
+    BitFlip, Bits, CoinCopy, EndsBelow, Impatient, Later, Log, Misbehaving, Misbehaviour, Misshape,
+    Misshapen, Panics, PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Renamed, Trap,
+    in_each_bracketing,
 };
 use crate::{
-    Adapter, ChainPart, Drive, Driver, Execute, Executor, Failure, Runner, ShapeFault, ShotId,
-    ShotSet,
+    Adapter, ChainPart, Drive, Driver, Execute, Executor, Failure, RunError, Runner, ShapeFault,
+    ShotId, ShotSet,
 };
 
 use super::{SEED, failed, runner};
@@ -40,131 +42,84 @@ fn a_failing_shot_ends_the_run_naming_it() {
     assert_eq!(error.to_string(), "shot 5 failed: the program trapped");
 }
 
-/// Coin copies under a noise flipping 30% of the `x`s, above an adapter
-/// failing the run's second `execute`, in both bracketings: the failed run
-/// leaves no shot's state in any part, so the rerun with the same seed gives
-/// the records of a new chain.
+/// An executor answering readouts misshapen for the run's one batch, of
+/// one `mz` on shots 6, 1 and 2: the run fails naming the batch's first
+/// shot, 6, with the shape fault.
 #[test]
-fn a_rerun_after_a_failed_run_gives_a_new_chains_records() {
-    /// The records of `runner`'s second run of `shots`, its first failing.
-    fn rerun<D: Drive<Output = Values>, E: Execute>(
-        mut runner: Runner<D, E>,
-        shots: &ShotSet,
-    ) -> Vec<Values> {
-        failed(runner.run(shots, SEED));
-        runner.run(shots, SEED).expect("the rerun succeeds")
+fn an_answer_misshapen_for_its_batch_is_a_failure() {
+    for (row, misshape, expected) in [
+        (
+            "a readouts more than the batches",
+            Misshape::ExtraReadouts,
+            ShapeFault::Batches {
+                expected: 1,
+                got: 2,
+            },
+        ),
+        (
+            "no readouts for the one batch",
+            Misshape::MissingReadouts,
+            ShapeFault::Batches {
+                expected: 1,
+                got: 0,
+            },
+        ),
+        (
+            "a row fewer than the batch's shots",
+            Misshape::MissingRow,
+            ShapeFault::Rows {
+                batch: 0,
+                expected: 3,
+                got: 2,
+            },
+        ),
+        (
+            "a fourth row for 3 shots",
+            Misshape::ExtraRow,
+            ShapeFault::Rows {
+                batch: 0,
+                expected: 3,
+                got: 4,
+            },
+        ),
+        (
+            "a value more than the batch's readout slots",
+            Misshape::ExtraValue,
+            ShapeFault::Slots {
+                batch: 0,
+                expected: 1,
+                got: 2,
+            },
+        ),
+        (
+            "no value for the batch's one readout slot",
+            Misshape::MissingValue,
+            ShapeFault::Slots {
+                batch: 0,
+                expected: 1,
+                got: 0,
+            },
+        ),
+    ] {
+        let mut runner =
+            runner(Driver::new(Program::new(&[("mz", 0)])) >> Executor::new(Misshapen(misshape)));
+        let run = runner.run(&ShotSet::ids([6, 1, 2]), SEED);
+        assert_eq!(shape_fault(row, run, 6), expected, "{row}");
     }
-    let shots = ShotSet::ids(0..16);
-    let log = Log::default();
-    let new_chain = runner(
-        Driver::new(CoinCopy::new())
-            >> Adapter::new(BitFlip::new(300, &log))
-            >> Executor::new(Bits::new(&log)),
-    )
-    .run(&shots, SEED)
-    .expect("the run succeeds");
-    let left = runner(
-        ((Driver::new(CoinCopy::new()) >> Adapter::new(BitFlip::new(300, &log)))
-            >> Adapter::new(FailsOnce::new()))
-            >> Executor::new(Bits::new(&log)),
-    );
-    let right = runner(
-        Driver::new(CoinCopy::new())
-            >> (Adapter::new(BitFlip::new(300, &log))
-                >> (Adapter::new(FailsOnce::new()) >> Executor::new(Bits::new(&log)))),
-    );
-    assert_eq!(rerun(left, &shots), new_chain, "the noise with the driver");
-    assert_eq!(rerun(right, &shots), new_chain, "the noise with the bits");
-}
-
-/// An executor answering a readouts more than the batches: a failure of
-/// the first batch's first shot, with the shape fault.
-#[test]
-fn an_answer_of_more_readouts_than_batches_is_a_failure() {
-    assert_eq!(
-        shape_fault(Misshape::ExtraReadouts),
-        ShapeFault::Batches {
-            expected: 1,
-            got: 2
-        }
-    );
-}
-
-/// An executor answering no readouts for the run's one batch: a failure.
-#[test]
-fn an_answer_of_fewer_readouts_than_batches_is_a_failure() {
-    assert_eq!(
-        shape_fault(Misshape::MissingReadouts),
-        ShapeFault::Batches {
-            expected: 1,
-            got: 0
-        }
-    );
-}
-
-/// An executor answering a row fewer than the batch's shots: a failure.
-#[test]
-fn an_answer_missing_a_shots_row_is_a_failure() {
-    assert_eq!(
-        shape_fault(Misshape::MissingRow),
-        ShapeFault::Rows {
-            batch: 0,
-            expected: 3,
-            got: 2
-        }
-    );
-}
-
-/// An executor answering a row more than the batch's shots, a fourth row
-/// for 3 shots: a failure.
-#[test]
-fn an_answer_of_more_rows_than_the_batchs_shots_is_a_failure() {
-    assert_eq!(
-        shape_fault(Misshape::ExtraRow),
-        ShapeFault::Rows {
-            batch: 0,
-            expected: 3,
-            got: 4
-        }
-    );
-}
-
-/// An executor answering a value more than the batch's readout slots: a
-/// failure.
-#[test]
-fn an_answer_wider_than_the_batchs_readouts_is_a_failure() {
-    assert_eq!(
-        shape_fault(Misshape::ExtraValue),
-        ShapeFault::Slots {
-            batch: 0,
-            expected: 1,
-            got: 2
-        }
-    );
-}
-
-/// An executor answering no value for the batch's one readout slot: a
-/// failure.
-#[test]
-fn an_answer_narrower_than_the_batchs_readouts_is_a_failure() {
-    assert_eq!(
-        shape_fault(Misshape::MissingValue),
-        ShapeFault::Slots {
-            batch: 0,
-            expected: 1,
-            got: 0
-        }
-    );
 }
 
 /// Two batches in one `execute`, shots 4 and 2 then 9 and 7, each measuring
-/// qubit 0, on an executor misshaping the second batch's readouts: the run
-/// fails naming that batch and its first shot, 9.
+/// qubit 0, on an executor misshaping its answer: the run fails naming the
+/// first shot of the batch at fault, 9 for the second batch's rows or
+/// values, or, for a count of readouts, which no one batch is at fault
+/// for, the first batch's, 4.
 #[test]
-fn a_later_batchs_misshapen_readouts_name_it() {
-    for (misshape, expected) in [
+fn a_misshapen_answer_to_two_batches_names_the_batch_at_fault() {
+    for (row, misshape, shot, expected) in [
         (
+            "a row fewer than the second batch's shots",
             Misshape::MissingRow,
+            9,
             ShapeFault::Rows {
                 batch: 1,
                 expected: 2,
@@ -172,11 +127,22 @@ fn a_later_batchs_misshapen_readouts_name_it() {
             },
         ),
         (
+            "a value more than the second batch's readout slots",
             Misshape::ExtraValue,
+            9,
             ShapeFault::Slots {
                 batch: 1,
                 expected: 1,
                 got: 2,
+            },
+        ),
+        (
+            "no readouts for the second batch",
+            Misshape::MissingReadouts,
+            4,
+            ShapeFault::Batches {
+                expected: 2,
+                got: 1,
             },
         ),
     ] {
@@ -184,24 +150,17 @@ fn a_later_batchs_misshapen_readouts_name_it() {
             Driver::new(Program::halves(&[("mz", 0)], &[("mz", 0)]))
                 >> Executor::new(Misshapen(misshape)),
         );
-        let error = failed(runner.run(&ShotSet::ids([4, 2, 9, 7]), SEED));
-        assert_eq!(error.shot, ShotId::new(9), "{expected}");
-        let Failure::Part(fault) = error.failure else {
-            panic!("the part's error, not {:?}", error.failure);
-        };
-        assert_eq!(fault.downcast_ref::<ShapeFault>(), Some(&expected));
+        let run = runner.run(&ShotSet::ids([4, 2, 9, 7]), SEED);
+        assert_eq!(shape_fault(row, run, shot), expected, "{row}");
     }
 }
 
-/// The shape fault of a run of 3 shots, first shot 6, of one `mz` on a
-/// misshapen executor, checking the failure names shot 6.
-fn shape_fault(misshape: Misshape) -> ShapeFault {
-    let mut runner =
-        runner(Driver::new(Program::new(&[("mz", 0)])) >> Executor::new(Misshapen(misshape)));
-    let error = failed(runner.run(&ShotSet::ids([6, 1, 2]), SEED));
-    assert_eq!(error.shot, ShotId::new(6));
+/// The shape fault of the failure `run` ended in, checking it names `shot`.
+fn shape_fault<T: Debug>(row: &str, run: Result<T, RunError>, shot: u32) -> ShapeFault {
+    let error = failed(run);
+    assert_eq!(error.shot, ShotId::new(shot), "{row}");
     let Failure::Part(fault) = error.failure else {
-        panic!("the part's error, not {:?}", error.failure);
+        panic!("{row}: the part's error, not {:?}", error.failure);
     };
     *fault.downcast_ref::<ShapeFault>().expect("a shape fault")
 }
@@ -212,78 +171,55 @@ fn shape_fault(misshape: Misshape) -> ShapeFault {
 /// runner, and when it fails, by the runner.
 #[test]
 fn a_runs_shots_are_ended_top_to_bottom_even_when_it_fails() {
-    /// The ends logged by a run that succeeds, then by one that fails.
-    type Ends = [Vec<String>; 2];
-    /// The shots ended by `runner`'s run of shots 0 to 3, which succeeds,
-    /// then by its run of shots 0 to 7, which fails on shot 5, as logged
-    /// to `log`.
-    fn ends<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) -> Ends {
-        let ended = |log: &Log| -> Vec<String> {
-            log.entries()
-                .into_iter()
-                .filter(|entry| entry.contains("end_shots"))
-                .collect()
-        };
-        runner
-            .run(&ShotSet::ids(0..4), SEED)
-            .expect("a run without shot 5 succeeds");
-        let succeeded = ended(log);
-        failed(
-            runner
-                .run(&ShotSet::ids(0..8), SEED)
-                .map(|records| records.len()),
-        );
-        let failed_run = ended(log)[succeeded.len()..].to_vec();
-        [succeeded, failed_run]
+    /// The ends `log` holds, in order.
+    fn ended(log: &Log) -> Vec<String> {
+        log.entries()
+            .into_iter()
+            .filter(|entry| entry.contains("end_shots"))
+            .collect()
     }
-    let bracketings: [fn(&Log) -> Ends; 5] = [
-        |log| {
-            let chain = Driver::new(CoinCopy::new())
-                >> Adapter::new(BitFlip::new(300, log))
-                >> Adapter::new(Trap::on(5).logging(log))
-                >> Executor::new(Bits::new(log));
-            ends(runner(chain), log)
-        },
-        |log| {
-            let chain = (Driver::new(CoinCopy::new())
-                >> (Adapter::new(BitFlip::new(300, log))
-                    >> Adapter::new(Trap::on(5).logging(log))))
-                >> Executor::new(Bits::new(log));
-            ends(runner(chain), log)
-        },
-        |log| {
-            let chain = (Driver::new(CoinCopy::new()) >> Adapter::new(BitFlip::new(300, log)))
-                >> (Adapter::new(Trap::on(5).logging(log)) >> Executor::new(Bits::new(log)));
-            ends(runner(chain), log)
-        },
-        |log| {
-            let chain = Driver::new(CoinCopy::new())
-                >> ((Adapter::new(BitFlip::new(300, log))
-                    >> Adapter::new(Trap::on(5).logging(log)))
-                    >> Executor::new(Bits::new(log)));
-            ends(runner(chain), log)
-        },
-        |log| {
-            let chain = Driver::new(CoinCopy::new())
-                >> (Adapter::new(BitFlip::new(300, log))
-                    >> (Adapter::new(Trap::on(5).logging(log)) >> Executor::new(Bits::new(log))));
-            ends(runner(chain), log)
-        },
-    ];
     let top_to_bottom = [
         "BitFlip end_shots, holding 0",
         "Trap end_shots",
         "Bits end_shots, holding 0",
     ];
-    for (bracketing, chain) in bracketings.into_iter().enumerate() {
-        let [succeeded, failed_run] = chain(&Log::default());
-        assert_eq!(
-            succeeded,
-            [top_to_bottom, top_to_bottom].concat(),
-            "bracketing {bracketing}, ended by the driver, then the runner"
-        );
-        assert_eq!(failed_run, top_to_bottom, "bracketing {bracketing}, failed");
-    }
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = Driver::new(CoinCopy::new());
+            let a = Adapter::new(BitFlip::new(300, &log));
+            let b = Adapter::new(Trap::on(5).logging(&log));
+            let e = Executor::new(Bits::new(&log));
+        },
+        |chain, brackets| {
+            let mut runner = runner(chain);
+            runner
+                .run(&ShotSet::ids(0..4), SEED)
+                .expect("a run without shot 5 succeeds");
+            let succeeded = ended(&log);
+            failed(runner.run(&ShotSet::ids(0..8), SEED));
+            assert_eq!(
+                succeeded,
+                [top_to_bottom, top_to_bottom].concat(),
+                "{brackets}, ended by the driver, then the runner"
+            );
+            assert_eq!(
+                ended(&log)[succeeded.len()..],
+                top_to_bottom,
+                "{brackets}, failed"
+            );
+        }
+    );
+}
+
+/// The panic `runner`'s run of shots 0 to 7 raises, which it must.
+fn raised<D: Drive, E: Execute>(runner: &mut Runner<D, E>) -> Box<dyn Any + Send> {
+    catch_unwind(AssertUnwindSafe(|| {
+        runner
+            .run(&ShotSet::ids(0..8), SEED)
+            .map(|records| records.len())
+    }))
+    .expect_err("the run raises a panic")
 }
 
 /// Coin copies under an adapter that panics in `end_shots`, over a noise,
@@ -293,166 +229,78 @@ fn a_runs_shots_are_ended_top_to_bottom_even_when_it_fails() {
 /// and `run` then raises the panic.
 #[test]
 fn a_panic_ending_shots_ends_every_other_part_then_leaves_the_run() {
-    /// Runs `runner` on 8 shots, and checks it as above.
-    fn ends_every_other_part<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) {
-        let run = catch_unwind(AssertUnwindSafe(|| {
-            runner
-                .run(&ShotSet::ids(0..8), SEED)
-                .map(|records| records.len())
-        }));
-        let panic = run.expect_err("the run raises the panic");
-        assert_eq!(panic.downcast_ref::<&str>(), Some(&"end_shots broke"));
-        assert_eq!(log.count("BitFlip end_shots, holding 0"), 2);
-        assert_eq!(log.count("Bits end_shots, holding 0"), 2);
-    }
-    let bracketings: [fn(&Log); 5] = [
-        |log| {
-            let chain = Driver::new(CoinCopy::new())
-                >> Adapter::new(PanicsEnding::new(log))
-                >> Adapter::new(BitFlip::new(300, log))
-                >> Executor::new(Bits::new(log));
-            ends_every_other_part(runner(chain), log);
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = Driver::new(CoinCopy::new());
+            let a = Adapter::new(PanicsEnding::new(&log));
+            let b = Adapter::new(BitFlip::new(300, &log));
+            let e = Executor::new(Bits::new(&log));
         },
-        |log| {
-            let chain = (Driver::new(CoinCopy::new())
-                >> (Adapter::new(PanicsEnding::new(log)) >> Adapter::new(BitFlip::new(300, log))))
-                >> Executor::new(Bits::new(log));
-            ends_every_other_part(runner(chain), log);
-        },
-        |log| {
-            let chain = (Driver::new(CoinCopy::new()) >> Adapter::new(PanicsEnding::new(log)))
-                >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log)));
-            ends_every_other_part(runner(chain), log);
-        },
-        |log| {
-            let chain = Driver::new(CoinCopy::new())
-                >> ((Adapter::new(PanicsEnding::new(log)) >> Adapter::new(BitFlip::new(300, log)))
-                    >> Executor::new(Bits::new(log)));
-            ends_every_other_part(runner(chain), log);
-        },
-        |log| {
-            let chain = Driver::new(CoinCopy::new())
-                >> (Adapter::new(PanicsEnding::new(log))
-                    >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log))));
-            ends_every_other_part(runner(chain), log);
-        },
-    ];
-    for chain in bracketings {
-        chain(&Log::default());
-    }
+        |chain, brackets| {
+            let panic = raised(&mut runner(chain));
+            assert_eq!(
+                panic.downcast_ref::<&str>(),
+                Some(&"end_shots broke"),
+                "{brackets}"
+            );
+            assert_eq!(log.count("BitFlip end_shots, holding 0"), 2, "{brackets}");
+            assert_eq!(log.count("Bits end_shots, holding 0"), 2, "{brackets}");
+        }
+    );
 }
 
-/// Coin copies over an adapter whose first `end_shots` panics, over a
-/// noise, over bits, in each bracketing: the driver ends each shot on the
-/// chain below, so the panic unwinds through the driver's `drive`, and the
-/// run fails naming the driver, part 0, not the adapter.
+/// An adapter whose first `end_shots` panics, under the part that ends the
+/// shots, in each bracketing: the panic unwinds through that part's call,
+/// so the run fails naming it, not the adapter that panicked. Coin copies,
+/// over that adapter, over a noise, over bits, end each shot on the chain
+/// below in `drive`: the run names the driver, part 0. A program that
+/// never ends its shots, over an adapter that ends them below inside
+/// `adapt`, over that adapter, over bits: the run names the ending
+/// adapter, part 1, not the driver.
 #[test]
-fn a_panic_ending_shots_the_driver_ends_is_named_as_the_driver() {
-    /// Runs `runner` on 8 shots, and checks it as above.
-    fn names_the_driver<D: Drive, E: Execute>(mut runner: Runner<D, E>) {
-        let error = failed(
-            runner
-                .run(&ShotSet::ids(0..8), SEED)
-                .map(|records| records.len()),
-        );
+fn a_panic_ending_shots_is_named_as_the_part_that_ended_them() {
+    /// Checks that `run` failed naming `part` and the end's message.
+    fn names<T: Debug>(row: &str, run: Result<T, RunError>, part: &ChainPart) {
+        let error = failed(run);
         assert!(
             matches!(
                 &error.failure,
-                Failure::Panicked { part, message: Some(message) }
-                    if *part == ChainPart::new(0, type_name::<CoinCopy>())
-                        && message == "end_shots broke"
+                Failure::Panicked { part: named, message: Some(message) }
+                    if named == part && message == "end_shots broke"
             ),
-            "{error:?}"
+            "{row}: {error:?}"
         );
     }
-    let bracketings: [fn(&Log); 5] = [
-        |log| {
-            names_the_driver(runner(
-                Driver::new(CoinCopy::new())
-                    >> Adapter::new(PanicsEnding::once(log))
-                    >> Adapter::new(BitFlip::new(300, log))
-                    >> Executor::new(Bits::new(log)),
-            ));
+    let shots = ShotSet::ids(0..8);
+    let driver = ChainPart::new(0, type_name::<CoinCopy>());
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = Driver::new(CoinCopy::new());
+            let a = Adapter::new(PanicsEnding::once(&log));
+            let b = Adapter::new(BitFlip::new(300, &log));
+            let e = Executor::new(Bits::new(&log));
         },
-        |log| {
-            names_the_driver(runner(
-                (Driver::new(CoinCopy::new())
-                    >> (Adapter::new(PanicsEnding::once(log))
-                        >> Adapter::new(BitFlip::new(300, log))))
-                    >> Executor::new(Bits::new(log)),
-            ));
+        |chain, brackets| {
+            let row = format!("ended by the driver, {brackets}");
+            names(&row, runner(chain).run(&shots, SEED), &driver);
+        }
+    );
+    let adapter = ChainPart::new(1, type_name::<EndsBelow>());
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = Driver::new(Program::new(&[("mz", 0)]).not_ending());
+            let a = Adapter::new(EndsBelow::new(&log));
+            let b = Adapter::new(PanicsEnding::once(&log));
+            let e = Executor::new(Bits::new(&log));
         },
-        |log| {
-            names_the_driver(runner(
-                (Driver::new(CoinCopy::new()) >> Adapter::new(PanicsEnding::once(log)))
-                    >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log))),
-            ));
-        },
-        |log| {
-            names_the_driver(runner(
-                Driver::new(CoinCopy::new())
-                    >> ((Adapter::new(PanicsEnding::once(log))
-                        >> Adapter::new(BitFlip::new(300, log)))
-                        >> Executor::new(Bits::new(log))),
-            ));
-        },
-        |log| {
-            names_the_driver(runner(
-                Driver::new(CoinCopy::new())
-                    >> (Adapter::new(PanicsEnding::once(log))
-                        >> (Adapter::new(BitFlip::new(300, log)) >> Executor::new(Bits::new(log)))),
-            ));
-        },
-    ];
-    for chain in bracketings {
-        chain(&Log::default());
-    }
-}
-
-/// A program that never ends its shots, over an adapter that ends its
-/// shots below inside `adapt`, over an adapter whose first `end_shots`
-/// panics, over bits, in each bracketing: the panic unwinds through the
-/// ending adapter's `adapt`, so the run fails naming that adapter, part 1,
-/// not the driver, and not the part that panicked.
-#[test]
-fn a_panic_ending_shots_an_adapter_ends_is_named_as_that_adapter() {
-    /// Runs `runner` on 8 shots, and checks it as above.
-    fn names_the_adapter<D: Drive, E: Execute>(mut runner: Runner<D, E>) {
-        let error = failed(
-            runner
-                .run(&ShotSet::ids(0..8), SEED)
-                .map(|records| records.len()),
-        );
-        assert!(
-            matches!(
-                &error.failure,
-                Failure::Panicked { part, message: Some(message) }
-                    if *part == ChainPart::new(1, type_name::<EndsBelow>())
-                        && message == "end_shots broke"
-            ),
-            "{error:?}"
-        );
-    }
-    let program = || Driver::new(Program::new(&[("mz", 0)]).not_ending());
-    let ends = |log: &Log| Adapter::new(EndsBelow::new(log));
-    let panics = |log: &Log| Adapter::new(PanicsEnding::once(log));
-    let bits = |log: &Log| Executor::new(Bits::new(log));
-    let logs: [Log; 5] = Default::default();
-    names_the_adapter(runner(
-        ((program() >> ends(&logs[0])) >> panics(&logs[0])) >> bits(&logs[0]),
-    ));
-    names_the_adapter(runner(
-        (program() >> ends(&logs[1])) >> (panics(&logs[1]) >> bits(&logs[1])),
-    ));
-    names_the_adapter(runner(
-        program() >> (ends(&logs[2]) >> (panics(&logs[2]) >> bits(&logs[2]))),
-    ));
-    names_the_adapter(runner(
-        program() >> ((ends(&logs[3]) >> panics(&logs[3])) >> bits(&logs[3])),
-    ));
-    names_the_adapter(runner(
-        (program() >> (ends(&logs[4]) >> panics(&logs[4]))) >> bits(&logs[4]),
-    ));
+        |chain, brackets| {
+            let row = format!("ended by an adapter, {brackets}");
+            names(&row, runner(chain).run(&shots, SEED), &adapter);
+        }
+    );
 }
 
 /// A program that never ends its shots, over an adapter whose first
@@ -462,42 +310,24 @@ fn a_panic_ending_shots_an_adapter_ends_is_named_as_that_adapter() {
 /// the same panic in the driver's end fails the run naming the driver.
 #[test]
 fn a_panic_ending_shots_the_runner_ends_is_raised_from_the_run() {
-    /// Runs `runner` on 8 shots, and checks it as above.
-    fn raised<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) {
-        let run = catch_unwind(AssertUnwindSafe(|| {
-            runner
-                .run(&ShotSet::ids(0..8), SEED)
-                .map(|records| records.len())
-        }));
-        let panic = run.expect_err("the run raises the panic");
-        assert_eq!(panic.downcast_ref::<&str>(), Some(&"end_shots broke"));
-        assert_eq!(log.count("BitFlip end_shots, holding 0"), 1);
-        assert_eq!(log.count("Bits end_shots, holding 0"), 1);
-    }
-    let program = || Driver::new(Program::new(&[("mz", 0)]).not_ending());
-    let breaks = |log: &Log| Adapter::new(PanicsEnding::once(log));
-    let noise = |log: &Log| Adapter::new(BitFlip::new(300, log));
-    let bits = |log: &Log| Executor::new(Bits::new(log));
-    let logs: [Log; 5] = Default::default();
-    raised(
-        runner(((program() >> breaks(&logs[0])) >> noise(&logs[0])) >> bits(&logs[0])),
-        &logs[0],
-    );
-    raised(
-        runner((program() >> breaks(&logs[1])) >> (noise(&logs[1]) >> bits(&logs[1]))),
-        &logs[1],
-    );
-    raised(
-        runner(program() >> (breaks(&logs[2]) >> (noise(&logs[2]) >> bits(&logs[2])))),
-        &logs[2],
-    );
-    raised(
-        runner(program() >> ((breaks(&logs[3]) >> noise(&logs[3])) >> bits(&logs[3]))),
-        &logs[3],
-    );
-    raised(
-        runner((program() >> (breaks(&logs[4]) >> noise(&logs[4]))) >> bits(&logs[4])),
-        &logs[4],
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = Driver::new(Program::new(&[("mz", 0)]).not_ending());
+            let a = Adapter::new(PanicsEnding::once(&log));
+            let b = Adapter::new(BitFlip::new(300, &log));
+            let e = Executor::new(Bits::new(&log));
+        },
+        |chain, brackets| {
+            let panic = raised(&mut runner(chain));
+            assert_eq!(
+                panic.downcast_ref::<&str>(),
+                Some(&"end_shots broke"),
+                "{brackets}"
+            );
+            assert_eq!(log.count("BitFlip end_shots, holding 0"), 1, "{brackets}");
+            assert_eq!(log.count("Bits end_shots, holding 0"), 1, "{brackets}");
+        }
     );
 }
 
@@ -554,130 +384,132 @@ fn a_run_dropped_unfinished_raises_an_ends_panic_from_the_drop() {
 /// top to bottom, and the bits are still ended.
 #[test]
 fn of_two_panics_ending_shots_the_first_is_raised() {
-    /// Runs `runner` on 8 shots, and checks it as above.
-    fn raises_the_first<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) {
-        let run = catch_unwind(AssertUnwindSafe(|| {
-            runner
-                .run(&ShotSet::ids(0..8), SEED)
-                .map(|records| records.len())
-        }));
-        let panic = run.expect_err("the run raises a panic");
-        assert_eq!(panic.downcast_ref::<&str>(), Some(&"first"));
-        assert_eq!(log.count("Bits end_shots, holding 0"), 2);
-    }
-    let bracketings: [fn(&Log); 5] = [
-        |log| {
-            let chain = Driver::new(CoinCopy::new())
-                >> Adapter::new(PanicsEnding::saying("first", log))
-                >> Adapter::new(PanicsEnding::saying("second", log))
-                >> Executor::new(Bits::new(log));
-            raises_the_first(runner(chain), log);
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = Driver::new(CoinCopy::new());
+            let a = Adapter::new(PanicsEnding::saying("first", &log));
+            let b = Adapter::new(PanicsEnding::saying("second", &log));
+            let e = Executor::new(Bits::new(&log));
         },
-        |log| {
-            let chain = (Driver::new(CoinCopy::new())
-                >> (Adapter::new(PanicsEnding::saying("first", log))
-                    >> Adapter::new(PanicsEnding::saying("second", log))))
-                >> Executor::new(Bits::new(log));
-            raises_the_first(runner(chain), log);
-        },
-        |log| {
-            let chain = (Driver::new(CoinCopy::new())
-                >> Adapter::new(PanicsEnding::saying("first", log)))
-                >> (Adapter::new(PanicsEnding::saying("second", log))
-                    >> Executor::new(Bits::new(log)));
-            raises_the_first(runner(chain), log);
-        },
-        |log| {
-            let chain = Driver::new(CoinCopy::new())
-                >> ((Adapter::new(PanicsEnding::saying("first", log))
-                    >> Adapter::new(PanicsEnding::saying("second", log)))
-                    >> Executor::new(Bits::new(log)));
-            raises_the_first(runner(chain), log);
-        },
-        |log| {
-            let chain = Driver::new(CoinCopy::new())
-                >> (Adapter::new(PanicsEnding::saying("first", log))
-                    >> (Adapter::new(PanicsEnding::saying("second", log))
-                        >> Executor::new(Bits::new(log))));
-            raises_the_first(runner(chain), log);
-        },
-    ];
-    for chain in bracketings {
-        chain(&Log::default());
-    }
-}
-
-/// An executor that panics, while making its future or while it is
-/// polled: the run fails naming the batch's first shot, the executor at
-/// its position and the message.
-#[test]
-fn an_executors_panic_is_a_failure_of_its_batch() {
-    for (when, message) in [
-        (
-            PanicsWhen::MakingItsFuture,
-            "the part broke while making its future",
-        ),
-        (PanicsWhen::Polled, "the part broke while it was polled"),
-    ] {
-        let mut runner =
-            runner(Driver::new(Program::new(&[("mz", 0)])) >> Executor::new(Panics(when)));
-        let error = failed(runner.run(&ShotSet::ids([3, 1]), SEED));
-        assert_eq!(error.shot, ShotId::new(3));
-        assert!(
-            matches!(
-                &error.failure,
-                Failure::Panicked { part, message: Some(m) }
-                    if *part == ChainPart::new(1, type_name::<Panics>()) && m == message
-            ),
-            "{error:?}"
-        );
-    }
-}
-
-/// A driver that panics: the run fails naming its first shot and the
-/// driver, part 0.
-#[test]
-fn a_drivers_panic_is_a_failure_of_the_run() {
-    for (when, message) in [
-        (
-            PanicsWhen::MakingItsFuture,
-            "the part broke while making its future",
-        ),
-        (PanicsWhen::Polled, "the part broke while it was polled"),
-    ] {
-        let log = Log::default();
-        let mut runner = runner(Driver::new(Panics(when)) >> Executor::new(Bits::new(&log)));
-        let error = failed(runner.run(&ShotSet::ids([9, 1]), SEED));
-        assert_eq!(error.shot, ShotId::new(9));
-        assert!(
-            matches!(
-                &error.failure,
-                Failure::Panicked { part, message: Some(m) }
-                    if *part == ChainPart::new(0, type_name::<Panics>()) && m == message
-            ),
-            "{error:?}"
-        );
-    }
-}
-
-/// A driver panicking while polled, composed with a profiler: the run
-/// fails naming the driver, not the profiler.
-#[test]
-fn a_composed_drivers_panic_names_the_driver() {
-    let log = Log::default();
-    let counted = Rc::new(Cell::new(0));
-    let mut runner = runner(
-        (Driver::new(Panics(PanicsWhen::Polled)) >> Adapter::new(Profiler::new(&counted, &log)))
-            >> Executor::new(Bits::new(&log)),
+        |chain, brackets| {
+            let panic = raised(&mut runner(chain));
+            assert_eq!(panic.downcast_ref::<&str>(), Some(&"first"), "{brackets}");
+            assert_eq!(log.count("Bits end_shots, holding 0"), 2, "{brackets}");
+        }
     );
-    let error = failed(runner.run(&ShotSet::ids([9, 1]), SEED));
+}
+
+/// A part that panics, as a driver, an executor or an adapter, alone or
+/// composed, wherever the brackets go: the run of shots 3 and 1 fails
+/// naming shot 3, the first of the batch or the run the panic hit, the
+/// part at its position, not a part composed with it, and the panic's
+/// message, or none if it is not text.
+#[test]
+fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
+    let shots = ShotSet::ids([3, 1]);
+    let program = || Driver::new(Program::new(&[("mz", 0)]));
+    let panics = ChainPart::new(1, type_name::<Panics>());
+    let polled = Some("the part broke while it was polled");
+    for (when, message) in [
+        (
+            PanicsWhen::MakingItsFuture,
+            Some("the part broke while making its future"),
+        ),
+        (PanicsWhen::Polled, polled),
+    ] {
+        let run = runner(program() >> Executor::new(Panics(when))).run(&shots, SEED);
+        names_the_panic("an executor", run, &panics, message);
+        let log = Log::default();
+        let run =
+            runner(Driver::new(Panics(when)) >> Executor::new(Bits::new(&log))).run(&shots, SEED);
+        let driver = ChainPart::new(0, type_name::<Panics>());
+        names_the_panic("a driver", run, &driver, message);
+    }
+    let executor = ChainPart::new(2, type_name::<Panics>());
+    in_each_bracketing!(
+        [d, a, e] from {
+            let log = Log::default();
+            let counted = Rc::new(Cell::new(0));
+            let d = program();
+            let a = Adapter::new(Profiler::new(&counted, &log));
+            let e = Executor::new(Panics(PanicsWhen::Polled));
+        },
+        |chain, brackets| {
+            let row = format!("an executor below a profiler, {brackets}");
+            names_the_panic(&row, runner(chain).run(&shots, SEED), &executor, polled);
+        }
+    );
+    let driver = ChainPart::new(0, type_name::<Panics>());
+    in_each_bracketing!(
+        [d, a, e] from {
+            let log = Log::default();
+            let counted = Rc::new(Cell::new(0));
+            let d = Driver::new(Panics(PanicsWhen::Polled));
+            let a = Adapter::new(Profiler::new(&counted, &log));
+            let e = Executor::new(Bits::new(&log));
+        },
+        |chain, brackets| {
+            let row = format!("a driver above a profiler, {brackets}");
+            names_the_panic(&row, runner(chain).run(&shots, SEED), &driver, polled);
+        }
+    );
+    let adapter = ChainPart::new(1, type_name::<Misbehaving>());
+    let formatted = Some("the adapter broke on 1 batches");
+    for (misbehaviour, message, what) in [
+        (
+            Misbehaviour::PanicsWithAString,
+            formatted,
+            "a formatted message",
+        ),
+        (Misbehaviour::PanicsWithANumber, None, "a number, not text"),
+    ] {
+        in_each_bracketing!(
+            [d, a, e] from {
+                let log = Log::default();
+                let d = program();
+                let a = Adapter::new(Misbehaving::new(misbehaviour));
+                let e = Executor::new(Bits::new(&log));
+            },
+            |chain, brackets| {
+                let row = format!("an adapter panicking with {what}, {brackets}");
+                names_the_panic(&row, runner(chain).run(&shots, SEED), &adapter, message);
+            }
+        );
+    }
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let counted = Rc::new(Cell::new(0));
+            let d = program();
+            let a = Adapter::new(Misbehaving::new(Misbehaviour::PanicsWithAString));
+            let b = Adapter::new(Profiler::new(&counted, &log));
+            let e = Executor::new(Bits::new(&log));
+        },
+        |chain, brackets| {
+            let row = format!("an adapter above a profiler, {brackets}");
+            names_the_panic(&row, runner(chain).run(&shots, SEED), &adapter, formatted);
+        }
+    );
+}
+
+/// Checks that `run`, of shots 3 and 1, failed naming shot 3, `part` and
+/// `message`, the panic's text if it has one.
+fn names_the_panic<T: Debug>(
+    row: &str,
+    run: Result<T, RunError>,
+    part: &ChainPart,
+    message: Option<&str>,
+) {
+    let error = failed(run);
+    assert_eq!(error.shot, ShotId::new(3), "{row}");
     assert!(
         matches!(
             &error.failure,
-            Failure::Panicked { part, .. }
-                if *part == ChainPart::new(0, type_name::<Panics>())
+            Failure::Panicked { part: named, message: given }
+                if named == part && given.as_deref() == message
         ),
-        "{error:?}"
+        "{row}: {error:?}"
     );
 }
 
@@ -725,32 +557,19 @@ fn a_panic_names_the_part_by_its_name() {
 /// the failed run ends its shots on the noise and the bits.
 #[test]
 fn a_run_failed_by_a_drivers_panic_ends_its_shots() {
-    /// Runs `runner` on 2 shots, which fails, and checks it as above.
-    fn ends_its_shots<D: Drive, E: Execute>(mut runner: Runner<D, E>, log: &Log) {
-        failed(
-            runner
-                .run(&ShotSet::ids([9, 1]), SEED)
-                .map(|records| records.len()),
-        );
-        assert_eq!(log.count("BitFlip end_shots, holding 0"), 1);
-        assert_eq!(log.count("Bits end_shots, holding 0"), 1);
-    }
     for when in [PanicsWhen::MakingItsFuture, PanicsWhen::Polled] {
-        let log = Log::default();
-        ends_its_shots(
-            runner(
-                (Driver::new(Panics(when)) >> Adapter::new(BitFlip::new(0, &log)))
-                    >> Executor::new(Bits::new(&log)),
-            ),
-            &log,
-        );
-        let log = Log::default();
-        ends_its_shots(
-            runner(
-                Driver::new(Panics(when))
-                    >> (Adapter::new(BitFlip::new(0, &log)) >> Executor::new(Bits::new(&log))),
-            ),
-            &log,
+        in_each_bracketing!(
+            [d, a, e] from {
+                let log = Log::default();
+                let d = Driver::new(Panics(when));
+                let a = Adapter::new(BitFlip::new(0, &log));
+                let e = Executor::new(Bits::new(&log));
+            },
+            |chain, brackets| {
+                failed(runner(chain).run(&ShotSet::ids([9, 1]), SEED));
+                assert_eq!(log.count("BitFlip end_shots, holding 0"), 1, "{brackets}");
+                assert_eq!(log.count("Bits end_shots, holding 0"), 1, "{brackets}");
+            }
         );
     }
 }
@@ -783,51 +602,6 @@ fn drop_chain(armed: usize, log: &Log) -> DropChain {
 /// its shots are ended on the bits.
 #[test]
 fn a_panic_dropping_a_parts_future_is_a_failure_naming_that_part() {
-    /// Runs `runner` on 2 shots, and checks it as above.
-    fn names<D: Drive, E: Execute>(mut runner: Runner<D, E>, named: &ChainPart, log: &Log) {
-        let error = failed(
-            runner
-                .run(&ShotSet::ids([9, 1]), SEED)
-                .map(|records| records.len()),
-        );
-        assert_eq!(error.shot, ShotId::new(9));
-        assert!(
-            matches!(
-                &error.failure,
-                Failure::Panicked { part, message: Some(message) }
-                    if part == named && message == "the part's future broke when dropped"
-            ),
-            "{named}: {error:?}"
-        );
-        assert!(log.count("Bits end_shots, holding 0") >= 1, "{named}");
-    }
-    let bracketings: [fn(usize, &ChainPart); 5] = [
-        |armed, named| {
-            let log = Log::default();
-            let (d, a, b, e) = drop_chain(armed, &log);
-            names(runner(((d >> a) >> b) >> e), named, &log);
-        },
-        |armed, named| {
-            let log = Log::default();
-            let (d, a, b, e) = drop_chain(armed, &log);
-            names(runner((d >> a) >> (b >> e)), named, &log);
-        },
-        |armed, named| {
-            let log = Log::default();
-            let (d, a, b, e) = drop_chain(armed, &log);
-            names(runner(d >> (a >> (b >> e))), named, &log);
-        },
-        |armed, named| {
-            let log = Log::default();
-            let (d, a, b, e) = drop_chain(armed, &log);
-            names(runner(d >> ((a >> b) >> e)), named, &log);
-        },
-        |armed, named| {
-            let log = Log::default();
-            let (d, a, b, e) = drop_chain(armed, &log);
-            names(runner((d >> (a >> b)) >> e), named, &log);
-        },
-    ];
     let parts = [
         type_name::<Program>(),
         type_name::<Profiler>(),
@@ -835,9 +609,29 @@ fn a_panic_dropping_a_parts_future_is_a_failure_naming_that_part() {
         type_name::<Bits>(),
     ];
     for (armed, name) in parts.into_iter().enumerate() {
-        for chain in bracketings {
-            chain(armed, &ChainPart::new(armed, name));
-        }
+        let named = ChainPart::new(armed, name);
+        in_each_bracketing!(
+            [d, a, b, e] from {
+                let log = Log::default();
+                let (d, a, b, e) = drop_chain(armed, &log);
+            },
+            |chain, brackets| {
+                let error = failed(runner(chain).run(&ShotSet::ids([9, 1]), SEED));
+                assert_eq!(error.shot, ShotId::new(9), "{named}, {brackets}");
+                assert!(
+                    matches!(
+                        &error.failure,
+                        Failure::Panicked { part, message: Some(message) }
+                            if *part == named && message == "the part's future broke when dropped"
+                    ),
+                    "{named}, {brackets}: {error:?}"
+                );
+                assert!(
+                    log.count("Bits end_shots, holding 0") >= 1,
+                    "{named}, {brackets}"
+                );
+            }
+        );
     }
 }
 
@@ -909,34 +703,6 @@ fn compound_chain(armed: usize, log: &Log) -> CompoundChain {
 /// composed part's future dropped the part's while the first unwinds.
 #[test]
 fn a_part_panicking_polled_then_dropped_is_named_with_its_first_panic() {
-    /// Runs `runner` on 2 shots, and checks it as above.
-    fn names<D: Drive, E: Execute>(mut runner: Runner<D, E>, named: &ChainPart) {
-        let error = failed(
-            runner
-                .run(&ShotSet::ids([9, 1]), SEED)
-                .map(|records| records.len()),
-        );
-        assert!(
-            matches!(
-                &error.failure,
-                Failure::Panicked { part, message: Some(message) }
-                    if part == named && message == "the part's future broke when polled"
-            ),
-            "{named}: {error:?}"
-        );
-    }
-    /// Runs the chain armed at `$armed` in each bracketing `$chain` of its
-    /// parts, named as in `[$d, $a, $b, $c, $e]`.
-    macro_rules! in_each {
-        (
-            $armed:expr, $named:expr, [$d:ident, $a:ident, $b:ident, $c:ident, $e:ident],
-            $($chain:expr),+ $(,)?
-        ) => {$({
-            let log = Log::default();
-            let ($d, $a, $b, $c, $e) = compound_chain($armed, &log);
-            names(runner($chain), $named);
-        })+};
-    }
     let parts = [
         type_name::<Program>(),
         type_name::<Profiler>(),
@@ -945,25 +711,23 @@ fn a_part_panicking_polled_then_dropped_is_named_with_its_first_panic() {
         type_name::<Bits>(),
     ];
     for (armed, name) in parts.into_iter().enumerate() {
-        let named = &ChainPart::new(armed, name);
-        in_each!(
-            armed,
-            named,
-            [d, a, b, c, e],
-            d >> (((a >> b) >> c) >> e),
-            d >> ((a >> (b >> c)) >> e),
-            d >> ((a >> b) >> (c >> e)),
-            d >> (a >> ((b >> c) >> e)),
-            d >> (a >> (b >> (c >> e))),
-            (d >> a) >> ((b >> c) >> e),
-            (d >> a) >> (b >> (c >> e)),
-            ((d >> a) >> b) >> (c >> e),
-            (d >> (a >> b)) >> (c >> e),
-            (((d >> a) >> b) >> c) >> e,
-            ((d >> (a >> b)) >> c) >> e,
-            ((d >> a) >> (b >> c)) >> e,
-            (d >> ((a >> b) >> c)) >> e,
-            (d >> (a >> (b >> c))) >> e,
+        let named = ChainPart::new(armed, name);
+        in_each_bracketing!(
+            [program, profiler, noise, more_noise, bits] from {
+                let log = Log::default();
+                let (program, profiler, noise, more_noise, bits) = compound_chain(armed, &log);
+            },
+            |chain, brackets| {
+                let error = failed(runner(chain).run(&ShotSet::ids([9, 1]), SEED));
+                assert!(
+                    matches!(
+                        &error.failure,
+                        Failure::Panicked { part, message: Some(message) }
+                            if *part == named && message == "the part's future broke when polled"
+                    ),
+                    "{named}, {brackets}: {error:?}"
+                );
+            }
         );
     }
 }
@@ -974,45 +738,30 @@ fn a_part_panicking_polled_then_dropped_is_named_with_its_first_panic() {
 /// in `ready`, and the second is dropped, so the process does not abort.
 #[test]
 fn a_panic_in_ready_polled_then_dropped_is_raised_with_its_first_message() {
-    /// Runs `runner` on 2 shots, and checks it as above.
-    fn raises<D: Drive, E: Execute>(mut runner: Runner<D, E>, armed: usize) {
-        let raised = catch_unwind(AssertUnwindSafe(|| {
-            runner.run(&ShotSet::ids([3, 1]), SEED).map(|_| ())
-        }));
-        let payload = raised.expect_err("a panic in `ready` is raised from the run");
-        assert_eq!(
-            payload.downcast_ref::<&str>().copied(),
-            Some("the part's future broke when polled"),
-            "part {armed}"
-        );
-    }
-    /// Runs the chain armed at `$armed` in each bracketing `$chain` of its
-    /// parts, named as in `[$d, $a, $b, $e]`.
-    macro_rules! in_each {
-        (
-            $armed:expr, [$d:ident, $a:ident, $b:ident, $e:ident],
-            $($chain:expr),+ $(,)?
-        ) => {$({
-            let log = Log::default();
-            let $d = Driver::new(PanicsInDrop::in_ready(
-                Program::new(&[("mz", 0)]),
-                $armed == 0,
-            ));
-            let $a = Adapter::new(PanicsInDrop::in_ready(BitFlip::new(0, &log), $armed == 1));
-            let $b = Adapter::new(PanicsInDrop::in_ready(BitFlip::new(0, &log), $armed == 2));
-            let $e = Executor::new(PanicsInDrop::in_ready(Bits::new(&log), $armed == 3));
-            raises(runner($chain), $armed);
-        })+};
-    }
     for armed in 0..4 {
-        in_each!(
-            armed,
-            [d, a, b, e],
-            ((d >> a) >> b) >> e,
-            (d >> a) >> (b >> e),
-            d >> (a >> (b >> e)),
-            d >> ((a >> b) >> e),
-            (d >> (a >> b)) >> e,
+        in_each_bracketing!(
+            [d, a, b, e] from {
+                let log = Log::default();
+                let d = Driver::new(PanicsInDrop::in_ready(
+                    Program::new(&[("mz", 0)]),
+                    armed == 0,
+                ));
+                let a = Adapter::new(PanicsInDrop::in_ready(BitFlip::new(0, &log), armed == 1));
+                let b = Adapter::new(PanicsInDrop::in_ready(BitFlip::new(0, &log), armed == 2));
+                let e = Executor::new(PanicsInDrop::in_ready(Bits::new(&log), armed == 3));
+            },
+            |chain, brackets| {
+                let mut runner = runner(chain);
+                let raised = catch_unwind(AssertUnwindSafe(|| {
+                    runner.run(&ShotSet::ids([3, 1]), SEED).map(|_| ())
+                }));
+                let payload = raised.expect_err("a panic in `ready` is raised from the run");
+                assert_eq!(
+                    payload.downcast_ref::<&str>().copied(),
+                    Some("the part's future broke when polled"),
+                    "part {armed}, {brackets}"
+                );
+            }
         );
     }
 }

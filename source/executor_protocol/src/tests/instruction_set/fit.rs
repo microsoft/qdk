@@ -118,108 +118,130 @@ fn undeclared_instructions_of_sets_of_other_names_are_refused_once() {
     );
 }
 
+/// The set of `instruction` over qubits and `carbon` blocks.
+fn qubit_and_carbon(instruction: InstructionDef) -> InstructionSet {
+    InstructionSet::new(
+        "Gates",
+        [(BlockType::qubit(), 1), (BlockType::new("carbon"), 1)],
+        [instruction],
+    )
+    .expect("a valid set")
+}
+
 fn blocks(mnemonic: &str) -> InstructionMismatch {
     InstructionMismatch::Blocks {
         mnemonic: mnemonic.into(),
     }
 }
 
+/// Between sets, an instruction fits one of the same shape only: the same
+/// block operands (type, size, order, variadic or not, input or output),
+/// the same parameter kinds in order and the same readout counts.
 #[test]
-fn operand_of_another_block_type_is_refused() {
-    let sent = set_of("Gates", 1, vec![gate("h")]);
-    let carbon = BlockType::new("carbon");
-    let accepted = InstructionSet::new(
-        "Gates",
-        [(BlockType::qubit(), 1), (carbon.clone(), 1)],
-        [InstructionDef::new("h").acts_on([carbon])],
-    )
-    .expect("a valid set");
-    assert_eq!(sent.fits(&accepted), Err(vec![blocks("h")]));
-}
-
-/// Operands are read by position, so the same block types in another
-/// order do not fit.
-#[test]
-fn operands_are_compared_in_order() {
+fn an_instruction_fits_only_one_of_the_same_shape() {
     let carbon = BlockType::new("carbon");
     let load = |operands: [BlockType; 2]| InstructionDef::new("load").acts_on(operands);
-    let gates = |instruction| {
-        InstructionSet::new(
-            "Gates",
-            [(BlockType::qubit(), 1), (carbon.clone(), 1)],
-            [instruction],
-        )
-        .expect("a valid set")
-    };
-    let sent = gates(load([BlockType::qubit(), carbon.clone()]));
-    let accepted = gates(load([carbon.clone(), BlockType::qubit()]));
-    assert_eq!(sent.fits(&accepted), Err(vec![blocks("load")]));
-}
-
-/// One name, two sizes: a block of two qubits is not a qubit.
-#[test]
-fn block_type_of_another_size_is_refused() {
-    let sent = set_of("Gates", 1, vec![gate("h")]);
-    let accepted = set_of("Gates", 2, vec![gate("h")]);
-    assert_eq!(sent.fits(&accepted), Err(vec![blocks("h")]));
-}
-
-/// An `mpp` on any number of qubits is not one on exactly one.
-#[test]
-fn variadic_and_fixed_operands_differ() {
     let mpp = |operand: BlockOperand| InstructionDef::new("mpp").acts_on([operand]);
-    let sent = set_of(
-        "Gates",
-        1,
-        vec![mpp(BlockOperand::variadic(BlockType::qubit()))],
-    );
-    let accepted = set_of("Gates", 1, vec![mpp(BlockType::qubit().into())]);
-    assert_eq!(sent.fits(&accepted), Err(vec![blocks("mpp")]));
-}
-
-/// A measurement that keeps its qubit is not one that consumes it.
-#[test]
-fn outputs_are_compared_as_inputs_are() {
     let measure = || InstructionDef::new("m").takes([BlockType::qubit()]);
-    let sent = set_of("Gates", 1, vec![measure()]);
-    let accepted = set_of("Gates", 1, vec![measure().gives([BlockType::qubit()])]);
-    assert_eq!(sent.fits(&accepted), Err(vec![blocks("m")]));
-}
-
-#[test]
-fn parameters_of_other_kinds_are_refused() {
     let rz = |kind| gate("rz").parameter("theta", kind);
-    let sent = set_of("Gates", 1, vec![rz(ParameterKind::Number)]);
-    let accepted = set_of("Gates", 1, vec![rz(ParameterKind::Integer)]);
-    assert_eq!(
-        sent.fits(&accepted),
-        Err(vec![InstructionMismatch::Parameters {
-            mnemonic: "rz".into()
-        }])
-    );
-}
-
-/// Arguments travel by position, so the same kinds in another order do
-/// not fit.
-#[test]
-fn parameters_are_compared_in_order() {
     let u = |first, second| gate("u").parameter("theta", first).parameter("k", second);
-    let sent = set_of(
-        "Gates",
-        1,
-        vec![u(ParameterKind::Number, ParameterKind::Integer)],
-    );
-    let accepted = set_of(
-        "Gates",
-        1,
-        vec![u(ParameterKind::Integer, ParameterKind::Number)],
-    );
-    assert_eq!(
-        sent.fits(&accepted),
+    let m = |flags: &[&str]| gate("m").outcomes(1).flags(flags.iter().copied());
+    let parameters = |mnemonic: &str| {
         Err(vec![InstructionMismatch::Parameters {
-            mnemonic: "u".into()
+            mnemonic: mnemonic.into(),
         }])
-    );
+    };
+    for (row, sent, accepted, fit) in [
+        (
+            "an operand of another block type",
+            set_of("Gates", 1, vec![gate("h")]),
+            qubit_and_carbon(InstructionDef::new("h").acts_on([carbon.clone()])),
+            Err(vec![blocks("h")]),
+        ),
+        // Operands are read by position.
+        (
+            "the same block types in another order",
+            qubit_and_carbon(load([BlockType::qubit(), carbon.clone()])),
+            qubit_and_carbon(load([carbon.clone(), BlockType::qubit()])),
+            Err(vec![blocks("load")]),
+        ),
+        // One name, two sizes: a block of two qubits is not a qubit.
+        (
+            "a block type of another size",
+            set_of("Gates", 1, vec![gate("h")]),
+            set_of("Gates", 2, vec![gate("h")]),
+            Err(vec![blocks("h")]),
+        ),
+        // An `mpp` on any number of qubits is not one on exactly one.
+        (
+            "a variadic operand against a fixed one",
+            set_of(
+                "Gates",
+                1,
+                vec![mpp(BlockOperand::variadic(BlockType::qubit()))],
+            ),
+            set_of("Gates", 1, vec![mpp(BlockType::qubit().into())]),
+            Err(vec![blocks("mpp")]),
+        ),
+        // A measurement that keeps its qubit is not one that consumes it.
+        (
+            "an output against none",
+            set_of("Gates", 1, vec![measure()]),
+            set_of("Gates", 1, vec![measure().gives([BlockType::qubit()])]),
+            Err(vec![blocks("m")]),
+        ),
+        // An instruction acting on its qubit in place takes it and gives
+        // it back.
+        (
+            "in place against taking and giving the same block",
+            set_of("Gates", 1, vec![gate("h")]),
+            set_of(
+                "Gates",
+                1,
+                vec![
+                    InstructionDef::new("h")
+                        .takes([BlockType::qubit()])
+                        .gives([BlockType::qubit()]),
+                ],
+            ),
+            Ok(()),
+        ),
+        (
+            "a parameter of another kind",
+            set_of("Gates", 1, vec![rz(ParameterKind::Number)]),
+            set_of("Gates", 1, vec![rz(ParameterKind::Integer)]),
+            parameters("rz"),
+        ),
+        // Arguments travel by position.
+        (
+            "parameter kinds in another order",
+            set_of(
+                "Gates",
+                1,
+                vec![u(ParameterKind::Number, ParameterKind::Integer)],
+            ),
+            set_of(
+                "Gates",
+                1,
+                vec![u(ParameterKind::Integer, ParameterKind::Number)],
+            ),
+            parameters("u"),
+        ),
+        // An `m` with a `leak` flag against one without: one readout slot
+        // more.
+        (
+            "a flag more",
+            set_of("Gates", 1, vec![m(&["leak"])]),
+            set_of("Gates", 1, vec![m(&[])]),
+            Err(vec![InstructionMismatch::Readouts {
+                mnemonic: "m".into(),
+                sent: (1, 1),
+                accepted: (1, 0),
+            }]),
+        ),
+    ] {
+        assert_eq!(sent.fits(&accepted).map(|_| ()), fit, "{row}");
+    }
 }
 
 /// A sender maps only its own opcodes: one beyond its set's last
@@ -234,38 +256,27 @@ fn mapping_an_opcode_beyond_the_sending_set_panics() {
     let _ = map.map(beyond);
 }
 
-/// Arguments travel by position, so names are the sender's own.
+/// Arguments and flags travel by position, as readouts do, so their
+/// names are the sender's own.
 #[test]
-fn parameter_names_may_differ() {
+fn parameter_and_flag_names_are_the_senders_own() {
     let rz = |name| gate("rz").parameter(name, ParameterKind::Number);
-    let sent = set_of("Gates", 1, vec![rz("theta")]);
-    let accepted = set_of("Gates", 1, vec![rz("angle")]);
-    sent.fits(&accepted).expect("the same kinds");
-}
-
-/// An `m` with a `leak` flag against one without: one readout slot more.
-#[test]
-fn readouts_are_compared_as_outcome_and_flag_counts() {
-    let m = |flags: &[&str]| gate("m").outcomes(1).flags(flags.iter().copied());
-    let sent = set_of("Gates", 1, vec![m(&["leak"])]);
-    let accepted = set_of("Gates", 1, vec![m(&[])]);
-    assert_eq!(
-        sent.fits(&accepted),
-        Err(vec![InstructionMismatch::Readouts {
-            mnemonic: "m".into(),
-            sent: (1, 1),
-            accepted: (1, 0),
-        }])
-    );
-}
-
-/// Flags travel by position, as readouts, so names are the sender's own.
-#[test]
-fn flag_names_may_differ() {
     let m = |flag| gate("m").outcomes(1).flags([flag]);
-    let sent = set_of("Gates", 1, vec![m("leak")]);
-    let accepted = set_of("Gates", 1, vec![m("erasure")]);
-    sent.fits(&accepted).expect("the same readouts");
+    for (row, sent, accepted) in [
+        (
+            "parameter names",
+            set_of("Gates", 1, vec![rz("theta")]),
+            set_of("Gates", 1, vec![rz("angle")]),
+        ),
+        (
+            "flag names",
+            set_of("Gates", 1, vec![m("leak")]),
+            set_of("Gates", 1, vec![m("erasure")]),
+        ),
+    ] {
+        sent.fits(&accepted)
+            .unwrap_or_else(|mismatches| panic!("{row}: {mismatches:?}"));
+    }
 }
 
 /// A `u` that differs in its blocks, its parameters and its readouts: three

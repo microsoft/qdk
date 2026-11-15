@@ -364,19 +364,40 @@ fn concatenating_parts_of_no_rows_gives_no_rows_of_the_summed_width() {
     assert_eq!(joined.readouts(), 5);
 }
 
-/// Parts that answer different numbers of shots cannot be one batch's.
+/// Parts that answer different numbers of shots cannot be one batch's,
+/// whether the later part answers more shots than the first or fewer.
 #[test]
-#[should_panic(expected = "readouts of 1 and of 2 shots cannot be joined")]
 fn concat_panics_on_parts_of_other_shots() {
-    let one = readouts(1, &[(&[One], ShotConditions::NONE)]);
-    let two = readouts(
-        1,
-        &[
-            (&[One], ShotConditions::NONE),
-            (&[Zero], ShotConditions::NONE),
-        ],
-    );
-    let _ = BatchReadouts::concat_readouts(&[one, two]);
+    let one = || readouts(1, &[(&[One], ShotConditions::NONE)]);
+    let two = || {
+        readouts(
+            1,
+            &[
+                (&[One], ShotConditions::NONE),
+                (&[Zero], ShotConditions::NONE),
+            ],
+        )
+    };
+    for (row, parts, expected) in [
+        (
+            "a later part of more shots",
+            [one(), two()],
+            "of 1 and of 2",
+        ),
+        (
+            "a later part of fewer shots",
+            [two(), one()],
+            "of 2 and of 1",
+        ),
+    ] {
+        let panic =
+            std::panic::catch_unwind(|| BatchReadouts::concat_readouts(&parts)).expect_err(row);
+        let message = panic.downcast_ref::<String>().map(String::as_str);
+        assert!(
+            message.is_some_and(|m| m.contains(&format!("readouts {expected} shots cannot be joined"))),
+            "{row}: {message:?}"
+        );
+    }
 }
 
 /// No parts have no shots to join.
@@ -413,20 +434,40 @@ fn merging_conditions_keeps_every_one_raised() {
     );
 }
 
-/// `contains` asks for every condition given, not any of them.
+/// `contains` holds when every condition asked for is raised, not any of
+/// them; asking for none holds for every shot, clear or not.
 #[test]
-fn contains_needs_every_condition() {
+fn contains_holds_when_every_condition_asked_is_raised() {
     let rejected = ShotConditions::REJECTED;
-    assert!(!rejected.contains(ShotConditions::REJECTED | ShotConditions::UNRESOLVED));
-    assert!(!rejected.contains(ShotConditions::UNRESOLVED));
-    assert!(rejected.contains(ShotConditions::REJECTED));
-}
-
-/// Asking for no condition holds for every shot, clear or not.
-#[test]
-fn every_set_contains_none() {
-    assert!(ShotConditions::REJECTED.contains(ShotConditions::NONE));
-    assert!(ShotConditions::NONE.contains(ShotConditions::NONE));
+    for (row, raised, asked, holds) in [
+        (
+            "one raised, one not",
+            rejected,
+            ShotConditions::REJECTED | ShotConditions::UNRESOLVED,
+            false,
+        ),
+        (
+            "one not raised",
+            rejected,
+            ShotConditions::UNRESOLVED,
+            false,
+        ),
+        ("the one raised", rejected, ShotConditions::REJECTED, true),
+        (
+            "none, of a raised set",
+            rejected,
+            ShotConditions::NONE,
+            true,
+        ),
+        (
+            "none, of a clear set",
+            ShotConditions::NONE,
+            ShotConditions::NONE,
+            true,
+        ),
+    ] {
+        assert_eq!(raised.contains(asked), holds, "{row}");
+    }
 }
 
 /// Only a shot with no condition is clear.

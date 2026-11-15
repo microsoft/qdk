@@ -267,37 +267,53 @@ fn an_execute_appends_its_answer_after_the_readouts_already_there() {
 #[test]
 fn a_failed_or_dropped_execute_leaves_the_lent_readouts_as_they_were() {
     let log = Log::default();
-    let failed = [
-        seen(
-            Waits::ForTheAnswer,
-            Unruly(Bits::new(&log), Unruliness::FailsAfterAppending),
-        ),
-        seen(
-            Waits::ForTheAnswer,
-            Unruly(Bits::new(&log), Unruliness::PanicsAfterAppending),
-        ),
-        seen(Waits::ForTheAnswer, Misshapen(Misshape::ExtraRow)),
-    ];
     for (
-        case,
+        row,
         Seen {
             before,
             result,
             after,
         },
-    ) in failed.iter().enumerate()
-    {
-        assert!(
-            matches!(result, Some(Err(ExecuteError::Failed { .. }))),
-            "case {case}: {result:?}"
-        );
-        assert_eq!(after, before, "case {case}");
+        fails,
+    ) in [
+        (
+            "an executor failing after appending",
+            seen(
+                Waits::ForTheAnswer,
+                Unruly(Bits::new(&log), Unruliness::FailsAfterAppending),
+            ),
+            true,
+        ),
+        (
+            "an executor panicking after appending",
+            seen(
+                Waits::ForTheAnswer,
+                Unruly(Bits::new(&log), Unruliness::PanicsAfterAppending),
+            ),
+            true,
+        ),
+        (
+            "an executor answering a row too many",
+            seen(Waits::ForTheAnswer, Misshapen(Misshape::ExtraRow)),
+            true,
+        ),
+        (
+            "an execute dropped after appending",
+            seen(
+                Waits::ForOnePoll,
+                Unruly(Bits::new(&log), Unruliness::WaitsAfterAppending),
+            ),
+            false,
+        ),
+    ] {
+        if fails {
+            assert!(
+                matches!(result, Some(Err(ExecuteError::Failed { .. }))),
+                "{row}: {result:?}"
+            );
+        }
+        assert_eq!(after, before, "{row}");
     }
-    let dropped = seen(
-        Waits::ForOnePoll,
-        Unruly(Bits::new(&log), Unruliness::WaitsAfterAppending),
-    );
-    assert_eq!(dropped.after, dropped.before, "the dropped execute");
 }
 
 /// An executor that clears the readouts it is lent, as if they were its
