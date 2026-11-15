@@ -47,7 +47,7 @@
 //! require_send::<qdk_cutensornet::CuTensorNetState>();
 //! ```
 
-pub(crate) mod error;
+mod error;
 mod native_state;
 mod policy;
 
@@ -189,8 +189,9 @@ impl MpsEngine for CuTensorNetEngine {
         sites: &[usize],
         matrix: &[Complex64],
     ) -> Result<(), EngineError> {
-        self.native_state(state, |site_count| checks::apply(site_count, sites, matrix))?
-            .apply(sites, matrix)
+        Ok(self
+            .native_state(state, |site_count| checks::apply(site_count, sites, matrix))?
+            .apply(sites, matrix)?)
     }
 
     fn probability_of_one(
@@ -198,10 +199,11 @@ impl MpsEngine for CuTensorNetEngine {
         state: &CuTensorNetState,
         site: usize,
     ) -> Result<f64, EngineError> {
-        self.native_state(state, |site_count| {
-            checks::probability_of_one(site_count, site)
-        })?
-        .probability_of_one(site)
+        Ok(self
+            .native_state(state, |site_count| {
+                checks::probability_of_one(site_count, site)
+            })?
+            .probability_of_one(site)?)
     }
 
     /// Two expectations on the state, no fork: the condition's projector
@@ -259,14 +261,15 @@ impl MpsEngine for CuTensorNetEngine {
         state: &CuTensorNetState,
         observable: &PauliSum,
     ) -> Result<Complex64, EngineError> {
-        self.native_state(state, |site_count| {
-            checks::expectation(site_count, observable)
-        })?
-        .expectation(observable)
+        Ok(self
+            .native_state(state, |site_count| {
+                checks::expectation(site_count, observable)
+            })?
+            .expectation(observable)?)
     }
 
     fn shape(&self, state: &CuTensorNetState) -> Result<MpsShape, EngineError> {
-        self.native_state(state, refuses_nothing)?.shape()
+        Ok(self.native_state(state, refuses_nothing)?.shape()?)
     }
 
     /// The squared norm cuTensorNet reports for the computed state, one
@@ -275,7 +278,9 @@ impl MpsEngine for CuTensorNetEngine {
     /// never rescaled. Computing the state truncates it, so reading the
     /// weight may truncate, as the contract allows.
     fn retained_weight(&self, state: &CuTensorNetState) -> Result<f64, EngineError> {
-        self.native_state(state, refuses_nothing)?.retained_weight()
+        Ok(self
+            .native_state(state, refuses_nothing)?
+            .retained_weight()?)
     }
 }
 

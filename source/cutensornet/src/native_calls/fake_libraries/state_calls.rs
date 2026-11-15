@@ -8,7 +8,7 @@ use super::{
     Computed, FakeLibraries, FakeState, Object, failed, id,
     state_vector::{StateVector, truncate},
 };
-use crate::engine::EngineError;
+use crate::native_calls::error::NativeError;
 use crate::native_calls::{
     OpaqueHandle, Stream,
     state_calls::{
@@ -22,7 +22,7 @@ impl StateCalls for FakeLibraries {
         &self,
         handle: OpaqueHandle,
         mode_extents: &[i64],
-    ) -> Result<OpaqueHandle, EngineError> {
+    ) -> Result<OpaqueHandle, NativeError> {
         let mut inner = self.call("create_state")?;
         if mode_extents.iter().any(|&extent| extent != 2) {
             return Err(failed("create_state", "a mode is not a qubit"));
@@ -43,7 +43,7 @@ impl StateCalls for FakeLibraries {
         )
     }
 
-    fn destroy_state(&self, state: OpaqueHandle) -> Result<(), EngineError> {
+    fn destroy_state(&self, state: OpaqueHandle) -> Result<(), NativeError> {
         self.call("destroy_state")?
             .destroy(state, "destroy_state", |o| matches!(o, Object::State(_)))
     }
@@ -55,7 +55,7 @@ impl StateCalls for FakeLibraries {
         modes: &[i32],
         tensor: OpaqueHandle,
         unitary: bool,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         const OPERATION: &str = "apply_tensor_operator";
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, state, OPERATION)?;
@@ -78,7 +78,7 @@ impl StateCalls for FakeLibraries {
         handle: OpaqueHandle,
         state: OpaqueHandle,
         capacity: &NativeCapacity,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut inner = self.call("finalize_mps")?;
         inner.owned(handle, state, "finalize_mps")?;
         let state = inner.state(state, "finalize_mps")?;
@@ -109,7 +109,7 @@ impl StateCalls for FakeLibraries {
         handle: OpaqueHandle,
         state: OpaqueHandle,
         configuration: StateF64Configuration,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut inner = self.call("configure_state_f64")?;
         inner.owned(handle, state, "configure_state_f64")?;
         let state = inner.state(state, "configure_state_f64")?;
@@ -128,7 +128,7 @@ impl StateCalls for FakeLibraries {
         handle: OpaqueHandle,
         state: OpaqueHandle,
         configuration: StateU32Configuration,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut inner = self.call("configure_state_u32")?;
         inner.owned(handle, state, "configure_state_u32")?;
         let fake_state = inner.state(state, "configure_state_u32")?;
@@ -147,7 +147,7 @@ impl StateCalls for FakeLibraries {
         maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         _stream: Stream,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut inner = self.call("prepare_state")?;
         inner.owned(handle, state, "prepare_state")?;
         inner.owned(handle, workspace, "prepare_state")?;
@@ -171,7 +171,7 @@ impl StateCalls for FakeLibraries {
         layout: &mut MpsLayout,
         outputs: &mut [OpaqueHandle],
         _stream: Stream,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         const OPERATION: &str = "compute_state";
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, state, OPERATION)?;
@@ -218,7 +218,7 @@ impl StateCalls for FakeLibraries {
                 truncate(&mut computed, cut, kept);
             }
         }
-        let bond = |cut: usize| -> Result<i64, EngineError> {
+        let bond = |cut: usize| -> Result<i64, NativeError> {
             let realized = computed.kept_rank(cut, cutoff).min(bonds[cut]);
             i64::try_from(realized).map_err(|_| failed(OPERATION, "bond overflow"))
         };
@@ -268,7 +268,7 @@ impl StateCalls for FakeLibraries {
         state: OpaqueHandle,
         layout: &MpsLayout,
         tensors: &[OpaqueHandle],
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         const OPERATION: &str = "initialize_mps";
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, state, OPERATION)?;
@@ -310,7 +310,7 @@ impl StateCalls for FakeLibraries {
         Ok(())
     }
 
-    fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError> {
+    fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), NativeError> {
         const OPERATION: &str = "capture_mps";
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, state, OPERATION)?;
@@ -333,7 +333,7 @@ impl StateCalls for FakeLibraries {
         &self,
         handle: OpaqueHandle,
         _mode_extents: &[i64],
-    ) -> Result<OpaqueHandle, EngineError> {
+    ) -> Result<OpaqueHandle, NativeError> {
         self.call("create_network_operator")?.create_on(
             handle,
             "create_network_operator",
@@ -341,7 +341,7 @@ impl StateCalls for FakeLibraries {
         )
     }
 
-    fn destroy_network_operator(&self, operator: OpaqueHandle) -> Result<(), EngineError> {
+    fn destroy_network_operator(&self, operator: OpaqueHandle) -> Result<(), NativeError> {
         self.call("destroy_network_operator")?
             .destroy(operator, "destroy_network_operator", |o| {
                 matches!(o, Object::Operator(_))
@@ -355,7 +355,7 @@ impl StateCalls for FakeLibraries {
         coefficient: Complex64,
         factor_modes: &[Box<[i32]>],
         factor_tensors: &[OpaqueHandle],
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         const OPERATION: &str = "append_product";
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, operator, OPERATION)?;
@@ -385,7 +385,7 @@ impl StateCalls for FakeLibraries {
         handle: OpaqueHandle,
         state: OpaqueHandle,
         operator: OpaqueHandle,
-    ) -> Result<OpaqueHandle, EngineError> {
+    ) -> Result<OpaqueHandle, NativeError> {
         let mut inner = self.call("create_expectation")?;
         inner.owned(handle, state, "create_expectation")?;
         inner.owned(handle, operator, "create_expectation")?;
@@ -406,7 +406,7 @@ impl StateCalls for FakeLibraries {
         )
     }
 
-    fn destroy_expectation(&self, expectation: OpaqueHandle) -> Result<(), EngineError> {
+    fn destroy_expectation(&self, expectation: OpaqueHandle) -> Result<(), NativeError> {
         self.call("destroy_expectation")?
             .destroy(expectation, "destroy_expectation", |o| {
                 matches!(o, Object::Expectation { .. })
@@ -418,7 +418,7 @@ impl StateCalls for FakeLibraries {
         handle: OpaqueHandle,
         expectation: OpaqueHandle,
         hyper_samples: i32,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut inner = self.call("configure_expectation_hyper_samples")?;
         inner.owned(handle, expectation, "configure_expectation_hyper_samples")?;
         inner.require(expectation, "configure_expectation_hyper_samples", |o| {
@@ -442,7 +442,7 @@ impl StateCalls for FakeLibraries {
         _maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         _stream: Stream,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut inner = self.call("prepare_expectation")?;
         inner.owned(handle, expectation, "prepare_expectation")?;
         inner.owned(handle, workspace, "prepare_expectation")?;
@@ -464,7 +464,7 @@ impl StateCalls for FakeLibraries {
         expectation: OpaqueHandle,
         workspace: OpaqueHandle,
         _stream: Stream,
-    ) -> Result<(Complex64, Complex64), EngineError> {
+    ) -> Result<(Complex64, Complex64), NativeError> {
         const OPERATION: &str = "compute_expectation";
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, expectation, OPERATION)?;

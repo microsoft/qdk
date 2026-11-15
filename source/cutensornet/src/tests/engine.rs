@@ -15,6 +15,7 @@ use crate::engine::{
 };
 use crate::native_calls::{
     NativeCalls, StateF64Configuration, StateU32Configuration,
+    error::NativeError,
     fake_libraries::{FakeLibraries, WORKSPACE_BYTES},
 };
 use num_complex::Complex64;
@@ -382,10 +383,10 @@ fn a_failed_free_of_one_previous_output_still_frees_the_others() {
     libraries.fail("free", libraries.count("free") + 1);
     assert!(matches!(
         engine.probability_of_one(&state, 0),
-        Err(EngineError::NativeCallFailed {
+        Err(EngineError::Native(NativeError::NativeCallFailed {
             operation: "free",
             ..
-        })
+        }))
     ));
     drop(state);
     drop(engine);
@@ -646,7 +647,7 @@ fn a_failed_restart_reports_the_native_failure() {
         assert!(
             matches!(
                 &failed,
-                Err(EngineError::NativeCallFailed { operation: at, .. }) if *at == operation
+                Err(EngineError::Native(NativeError::NativeCallFailed { operation: at, .. })) if *at == operation
             ),
             "{operation}: {failed:?}"
         );
@@ -662,7 +663,7 @@ fn a_failed_restart_poisons_the_state() {
         assert!(
             matches!(
                 restart.engine.shape(&restart.state),
-                Err(EngineError::Poisoned { .. })
+                Err(EngineError::Native(NativeError::Poisoned { .. }))
             ),
             "{operation}"
         );
@@ -744,10 +745,10 @@ fn a_growth_beyond_the_free_memory_fails() {
     ok(engine.apply(&mut state, &[0], &hadamard()));
     assert!(matches!(
         engine.shape(&state),
-        Err(EngineError::WorkspaceLimitExceeded {
+        Err(EngineError::Native(NativeError::WorkspaceLimitExceeded {
             required: 2048,
             maximum: 1500
-        })
+        }))
     ));
 }
 
@@ -760,10 +761,10 @@ fn a_workspace_above_the_free_memory_fails_before_any_scratch() {
     let state = bell(&engine);
     assert!(matches!(
         engine.shape(&state),
-        Err(EngineError::WorkspaceLimitExceeded {
+        Err(EngineError::Native(NativeError::WorkspaceLimitExceeded {
             required: 1024,
             maximum: 1000
-        })
+        }))
     ));
     assert_eq!(libraries.scratch_buffers(), 0);
 }
@@ -777,15 +778,32 @@ fn a_native_failure_while_computing_poisons_the_state() {
     libraries.fail("compute_state", 1);
     assert!(matches!(
         engine.probability_of_one(&state, 0),
-        Err(EngineError::NativeCallFailed {
+        Err(EngineError::Native(NativeError::NativeCallFailed {
             operation: "compute_state",
             ..
-        })
+        }))
     ));
     assert!(matches!(
         engine.apply(&mut state, &[1], &hadamard()),
-        Err(EngineError::Poisoned { .. })
+        Err(EngineError::Native(NativeError::Poisoned { .. }))
     ));
+}
+
+/// A native failure reaches the engine's caller with the native call's
+/// own message, nothing added: a failed compute reads as the call that
+/// failed.
+#[test]
+fn a_native_failure_reads_as_the_native_error() {
+    let (engine, libraries) = engine();
+    let state = bell(&engine);
+    libraries.fail("compute_state", 1);
+    let error = engine
+        .probability_of_one(&state, 0)
+        .expect_err("the compute fails");
+    let EngineError::Native(native) = &error else {
+        panic!("a native failure: {error:?}");
+    };
+    assert_eq!(error.to_string(), native.to_string());
 }
 
 /// A read changes nothing in the state: when its expectation fails, its
@@ -1039,7 +1057,7 @@ fn a_norm_that_is_not_positive_and_real_is_an_invalid_native_result() {
         assert!(
             matches!(
                 engine.retained_weight(&state),
-                Err(EngineError::InvalidNativeResult { .. })
+                Err(EngineError::Native(NativeError::InvalidNativeResult { .. }))
             ),
             "{norm}"
         );
@@ -1089,7 +1107,10 @@ fn a_realized_bond_beyond_the_capacity_is_an_invalid_native_result() {
     libraries.misreport_extents(1, &[2, 2]);
     let realized = engine.shape(&state);
     assert!(
-        matches!(realized, Err(EngineError::InvalidNativeResult { .. })),
+        matches!(
+            realized,
+            Err(EngineError::Native(NativeError::InvalidNativeResult { .. }))
+        ),
         "{realized:?}"
     );
 }
@@ -1104,7 +1125,10 @@ fn a_realized_site_of_three_levels_is_an_invalid_native_result() {
     libraries.misreport_extents(1, &[1, 2]);
     let realized = engine.shape(&state);
     assert!(
-        matches!(realized, Err(EngineError::InvalidNativeResult { .. })),
+        matches!(
+            realized,
+            Err(EngineError::Native(NativeError::InvalidNativeResult { .. }))
+        ),
         "{realized:?}"
     );
 }
@@ -1119,7 +1143,10 @@ fn a_normalized_expectation_that_overflows_is_an_invalid_native_result() {
     libraries.set_squared_norm(c(1e-320));
     let value = engine.expectation(&state, &z(0));
     assert!(
-        matches!(value, Err(EngineError::InvalidNativeResult { .. })),
+        matches!(
+            value,
+            Err(EngineError::Native(NativeError::InvalidNativeResult { .. }))
+        ),
         "{value:?}"
     );
 }
@@ -1135,7 +1162,10 @@ fn a_nan_from_the_library_is_an_invalid_native_result_not_a_refusal() {
     libraries.queue_expectation_values(&[c(f64::NAN)]);
     let given = engine.conditional_probability_of_one(&state, 1, &[(0, true)]);
     assert!(
-        matches!(given, Err(EngineError::InvalidNativeResult { .. })),
+        matches!(
+            given,
+            Err(EngineError::Native(NativeError::InvalidNativeResult { .. }))
+        ),
         "{given:?}"
     );
 }
@@ -1149,7 +1179,10 @@ fn a_compute_workspace_of_no_bytes_is_an_invalid_native_result() {
     libraries.set_workspace_bytes(0);
     let realized = engine.shape(&state);
     assert!(
-        matches!(realized, Err(EngineError::InvalidNativeResult { .. })),
+        matches!(
+            realized,
+            Err(EngineError::Native(NativeError::InvalidNativeResult { .. }))
+        ),
         "{realized:?}"
     );
 }
@@ -1164,7 +1197,10 @@ fn a_negative_expectation_workspace_is_an_invalid_native_result() {
     libraries.set_workspace_bytes(-1);
     let p = engine.probability_of_one(&state, 0);
     assert!(
-        matches!(p, Err(EngineError::InvalidNativeResult { .. })),
+        matches!(
+            p,
+            Err(EngineError::Native(NativeError::InvalidNativeResult { .. }))
+        ),
         "{p:?}"
     );
 }

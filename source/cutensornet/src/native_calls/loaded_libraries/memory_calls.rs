@@ -4,12 +4,12 @@
 //! `MemoryCalls` on the loaded libraries: device memory, copies and
 //! cuTensorNet workspaces.
 
-use crate::engine::EngineError;
 use crate::libraries::{
     LoadedLibraries,
     cuda_runtime::{self, cudart_12},
     cutensornet::v2_13,
 };
+use crate::native_calls::error::NativeError;
 use crate::native_calls::{
     OpaqueHandle,
     complex::{Complex64Abi, complex_bytes},
@@ -18,7 +18,7 @@ use crate::native_calls::{
 use std::ptr::NonNull;
 
 impl MemoryCalls for LoadedLibraries {
-    fn memory_info(&self) -> Result<(usize, usize), EngineError> {
+    fn memory_info(&self) -> Result<(usize, usize), NativeError> {
         let mut free = 0;
         let mut total = 0;
         // SAFETY: both arguments are valid writable `size_t` out-pointers.
@@ -28,20 +28,20 @@ impl MemoryCalls for LoadedLibraries {
         Ok((free, total))
     }
 
-    fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, EngineError> {
+    fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, NativeError> {
         let mut allocation = std::ptr::null_mut();
         // SAFETY: `allocation` is a valid writable out-pointer, and
         // `cudaMalloc` takes any size by value: one it cannot serve is an
         // error status, and a null allocation is refused below.
         let status = unsafe { (self.cuda_runtime.functions.malloc)(&raw mut allocation, bytes) };
         self.check_cuda("cudaMalloc", status)?;
-        NonNull::new(allocation).ok_or(EngineError::MissingNativeResource {
+        NonNull::new(allocation).ok_or(NativeError::MissingNativeResource {
             operation: "cudaMalloc",
             resource: "device allocation",
         })
     }
 
-    fn free(&self, allocation: OpaqueHandle) -> Result<(), EngineError> {
+    fn free(&self, allocation: OpaqueHandle) -> Result<(), NativeError> {
         // SAFETY: `NativeState`, which owns every device allocation, frees
         // each successful cudaMalloc allocation exactly once.
         let status = unsafe { (self.cuda_runtime.functions.free)(allocation.as_ptr()) };
@@ -52,7 +52,7 @@ impl MemoryCalls for LoadedLibraries {
         &self,
         destination: OpaqueHandle,
         source: &[Complex64Abi],
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let bytes = complex_bytes(source.len(), "complex tensor")?;
         // SAFETY: the retained destination allocation is at least `bytes`
         // long, and `source` is a live host slice: a copy from pageable host
@@ -73,7 +73,7 @@ impl MemoryCalls for LoadedLibraries {
         destination: OpaqueHandle,
         source: OpaqueHandle,
         bytes: usize,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         // SAFETY: both allocations are live and at least `bytes` long, and
         // the stream that wrote `source` has been synchronized.
         let status = unsafe {
@@ -87,7 +87,7 @@ impl MemoryCalls for LoadedLibraries {
         self.check_cuda("cudaMemcpy(D2D)", status)
     }
 
-    fn synchronize_copies(&self) -> Result<(), EngineError> {
+    fn synchronize_copies(&self) -> Result<(), NativeError> {
         let legacy = std::ptr::without_provenance_mut(cuda_runtime::STREAM_LEGACY);
         // SAFETY: `cudaStreamLegacy` is a valid stream for every CUDA
         // Runtime call that takes one.
@@ -95,20 +95,20 @@ impl MemoryCalls for LoadedLibraries {
         self.check_cuda("cudaStreamSynchronize(cudaStreamLegacy)", status)
     }
 
-    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, EngineError> {
+    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, NativeError> {
         let mut workspace = std::ptr::null_mut();
         // SAFETY: the handle is live and workspace is a writable out-pointer.
         let status = unsafe {
             (self.cutensornet.functions.create_workspace)(handle.as_ptr(), &raw mut workspace)
         };
         self.check_cutensornet("cutensornetCreateWorkspaceDescriptor", status)?;
-        NonNull::new(workspace).ok_or(EngineError::MissingNativeResource {
+        NonNull::new(workspace).ok_or(NativeError::MissingNativeResource {
             operation: "cutensornetCreateWorkspaceDescriptor",
             resource: "workspace descriptor",
         })
     }
 
-    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), EngineError> {
+    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), NativeError> {
         // SAFETY: the owner consumes this descriptor exactly once.
         let status = unsafe { (self.cutensornet.functions.destroy_workspace)(workspace.as_ptr()) };
         self.check_cutensornet("cutensornetDestroyWorkspaceDescriptor", status)
@@ -118,7 +118,7 @@ impl MemoryCalls for LoadedLibraries {
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
-    ) -> Result<i64, EngineError> {
+    ) -> Result<i64, NativeError> {
         let preference = v2_13::cutensornetWorksizePref_t_CUTENSORNET_WORKSIZE_PREF_RECOMMENDED;
         let mut bytes = 0;
         // SAFETY: live, sized workspace; bytes is a writable int64_t.
@@ -142,7 +142,7 @@ impl MemoryCalls for LoadedLibraries {
         workspace: OpaqueHandle,
         scratch: OpaqueHandle,
         bytes: i64,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         // SAFETY: the scratch is a live device allocation of at least
         // `bytes`, which its owner keeps until the descriptor is destroyed.
         let status = unsafe {

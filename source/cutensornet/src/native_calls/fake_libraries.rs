@@ -88,7 +88,7 @@ use super::{
     complex::Complex64Abi,
     state_calls::{StateF64Configuration, StateU32Configuration},
 };
-use crate::engine::EngineError;
+use crate::native_calls::error::NativeError;
 use num_complex::Complex64;
 use state_vector::StateVector;
 use std::{
@@ -209,8 +209,8 @@ struct Computed {
     outputs: Vec<usize>,
 }
 
-fn failed(operation: &'static str, message: &str) -> EngineError {
-    EngineError::NativeCallFailed {
+fn failed(operation: &'static str, message: &str) -> NativeError {
+    NativeError::NativeCallFailed {
         component: "fake libraries",
         operation,
         status: 1,
@@ -226,7 +226,7 @@ fn id(handle: OpaqueHandle) -> usize {
     handle.addr().get()
 }
 
-fn to_usize(value: i64) -> Result<usize, EngineError> {
+fn to_usize(value: i64) -> Result<usize, NativeError> {
     usize::try_from(value).map_err(|_| failed("conversion", "negative value"))
 }
 
@@ -373,7 +373,7 @@ impl FakeLibraries {
     }
 
     /// Records a call to `operation` and fails it if asked to.
-    fn call(&self, operation: &'static str) -> Result<MutexGuard<'_, Inner>, EngineError> {
+    fn call(&self, operation: &'static str) -> Result<MutexGuard<'_, Inner>, NativeError> {
         let mut inner = self.lock();
         inner.events.push(operation);
         let count = inner.calls.entry(operation).or_insert(0);
@@ -394,7 +394,7 @@ impl Inner {
         &self,
         workspace: OpaqueHandle,
         operation: &'static str,
-    ) -> Result<usize, EngineError> {
+    ) -> Result<usize, NativeError> {
         if self.copies_running {
             return Err(failed(operation, "a copy may still be running"));
         }
@@ -430,7 +430,7 @@ impl Inner {
         handle: OpaqueHandle,
         operation: &'static str,
         object: Object,
-    ) -> Result<OpaqueHandle, EngineError> {
+    ) -> Result<OpaqueHandle, NativeError> {
         self.require(handle, operation, |o| matches!(o, Object::Handle))?;
         let created = self.create(object);
         self.owners.insert(id(created), id(handle));
@@ -443,7 +443,7 @@ impl Inner {
         handle: OpaqueHandle,
         object: OpaqueHandle,
         operation: &'static str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         self.require(handle, operation, |o| matches!(o, Object::Handle))?;
         match self.owners.get(&id(object)) {
             Some(&owner) if owner == id(handle) => Ok(()),
@@ -457,7 +457,7 @@ impl Inner {
         handle: OpaqueHandle,
         operation: &'static str,
         is_kind: fn(&Object) -> bool,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         match self.objects.get(&id(handle)) {
             Some(object) if is_kind(object) => {
                 self.objects.remove(&id(handle));
@@ -473,14 +473,14 @@ impl Inner {
         handle: OpaqueHandle,
         operation: &'static str,
         is_kind: fn(&Object) -> bool,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         match self.objects.get(&id(handle)) {
             Some(object) if is_kind(object) => Ok(()),
             _ => Err(failed(operation, "no such object")),
         }
     }
 
-    fn buffer(&self, id: usize, operation: &'static str) -> Result<&[Complex64Abi], EngineError> {
+    fn buffer(&self, id: usize, operation: &'static str) -> Result<&[Complex64Abi], NativeError> {
         match self.objects.get(&id) {
             Some(Object::Buffer(buffer)) => Ok(buffer),
             _ => Err(failed(operation, "no such buffer")),
@@ -491,7 +491,7 @@ impl Inner {
         &mut self,
         handle: OpaqueHandle,
         operation: &'static str,
-    ) -> Result<&mut FakeState, EngineError> {
+    ) -> Result<&mut FakeState, NativeError> {
         match self.objects.get_mut(&id(handle)) {
             Some(Object::State(state)) => Ok(state),
             _ => Err(failed(operation, "no such state")),
@@ -500,7 +500,7 @@ impl Inner {
 
     /// The state `state` was last computed as, if no operator was applied
     /// since and its output buffers are still allocated.
-    fn computed(&self, state: usize, operation: &'static str) -> Result<&StateVector, EngineError> {
+    fn computed(&self, state: usize, operation: &'static str) -> Result<&StateVector, NativeError> {
         match self.objects.get(&state) {
             Some(Object::State(FakeState {
                 operators,
@@ -521,7 +521,7 @@ impl Inner {
         &self,
         computed: &Computed,
         operation: &'static str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         for &output in &computed.outputs {
             self.buffer(output, operation)
                 .map_err(|_| failed(operation, "a computed MPS's output buffer was freed"))?;
@@ -537,7 +537,7 @@ impl Inner {
         sites: &[usize],
         tensor: usize,
         operation: &'static str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let elements = 1 << (2 * sites.len());
         let matrix: Vec<Complex64> = self
             .buffer(tensor, operation)?

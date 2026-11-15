@@ -6,3 +6,4 @@
 //! (`src/tests/engine.rs`).
 
 mod complex;
+mod error;

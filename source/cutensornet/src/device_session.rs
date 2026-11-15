@@ -21,9 +21,8 @@
 //! so the engine and its states do too. It makes its native calls through
 //! `SessionCalls` (`native_calls/session_calls.rs`).
 
-use crate::engine::{
-    EngineError,
-    error::{combine_execution_and_cleanup, first_failure, report_failed_release},
+use crate::native_calls::error::{
+    NativeError, combine_execution_and_cleanup, first_failure, report_failed_release,
 };
 use crate::native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls};
 use std::{marker::PhantomData, rc::Rc, sync::Arc};
@@ -47,10 +46,10 @@ impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
     /// Selects device `device_ordinal`, then creates the stream and the
     /// handle on it. A host with no such device is `NoDevice`, refused
     /// before any selection; a failed creation releases what was created.
-    pub(crate) fn new(calls: Arc<Calls>, device_ordinal: i32) -> Result<Self, EngineError> {
+    pub(crate) fn new(calls: Arc<Calls>, device_ordinal: i32) -> Result<Self, NativeError> {
         let device_count = calls.device_count()?;
         if device_ordinal < 0 || device_ordinal >= device_count {
-            return Err(EngineError::NoDevice);
+            return Err(NativeError::NoDevice);
         }
         calls.set_device(device_ordinal)?;
         let stream = calls.create_stream()?;
@@ -76,7 +75,7 @@ impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
 
     /// Selects the session's device on the calling thread, as every engine
     /// call does first: CUDA's current device is per thread.
-    pub(crate) fn bind_device(&self) -> Result<(), EngineError> {
+    pub(crate) fn bind_device(&self) -> Result<(), NativeError> {
         self.calls.set_device(self.device_ordinal)
     }
 
@@ -90,7 +89,7 @@ impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
             .expect("a live session always owns its cuTensorNet handle")
     }
 
-    fn release(&mut self) -> Result<(), EngineError> {
+    fn release(&mut self) -> Result<(), NativeError> {
         if self.stream.is_none() && self.handle.is_none() {
             return Ok(());
         }

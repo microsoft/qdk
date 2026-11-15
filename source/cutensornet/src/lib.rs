@@ -69,3 +69,4 @@ mod tests;
 pub use discovery::{Availability, discover, error::AvailabilityError, report::AvailabilityReport};
 pub use engine::{CuTensorNetEngine, CuTensorNetState, EngineError};
 pub use libraries::report::{LibraryFault, LibraryReport, Version};
+pub use native_calls::error::NativeError;

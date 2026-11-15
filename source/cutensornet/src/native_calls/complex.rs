@@ -13,7 +13,7 @@
 //! that pass it. [`complex_bytes`] sizes a device buffer of them, for the
 //! engine and the native calls alike.
 
-use crate::engine::EngineError;
+use crate::native_calls::error::NativeError;
 use num_complex::Complex64;
 use std::mem::{align_of, offset_of, size_of};
 
@@ -46,15 +46,15 @@ impl From<Complex64> for Complex64Abi {
 /// `resource` in an overflow. An empty buffer is refused before any native
 /// call, as an invalid call: no tensor the engine allocates or copies is
 /// empty, so an empty one is the engine's fault, not the library's.
-pub(crate) fn complex_bytes(elements: usize, resource: &'static str) -> Result<usize, EngineError> {
+pub(crate) fn complex_bytes(elements: usize, resource: &'static str) -> Result<usize, NativeError> {
     if elements == 0 {
-        return Err(EngineError::InvalidNativeCall {
+        return Err(NativeError::InvalidNativeCall {
             reason: format!("a {resource} needs at least one element"),
         });
     }
     elements
         .checked_mul(size_of::<Complex64Abi>())
-        .ok_or(EngineError::ResourceSizeOverflow { resource })
+        .ok_or(NativeError::ResourceSizeOverflow { resource })
 }
 
 const _: () = assert!(size_of::<Complex64Abi>() == 16);

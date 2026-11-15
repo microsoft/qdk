@@ -5,23 +5,23 @@
 //! workspaces.
 
 use super::{FakeLibraries, Object, WORKSPACE_BYTES, failed, id, to_usize};
-use crate::engine::EngineError;
+use crate::native_calls::error::NativeError;
 use crate::native_calls::{OpaqueHandle, complex::Complex64Abi, memory_calls::MemoryCalls};
 
 impl MemoryCalls for FakeLibraries {
-    fn memory_info(&self) -> Result<(usize, usize), EngineError> {
+    fn memory_info(&self) -> Result<(usize, usize), NativeError> {
         let inner = self.call("memory_info")?;
         Ok((inner.free_memory.unwrap_or(1 << 40), 1 << 40))
     }
 
-    fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, EngineError> {
+    fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, NativeError> {
         let elements = bytes.div_ceil(size_of::<Complex64Abi>());
         Ok(self
             .call("allocate")?
             .create(Object::Buffer(vec![Complex64Abi::default(); elements])))
     }
 
-    fn free(&self, allocation: OpaqueHandle) -> Result<(), EngineError> {
+    fn free(&self, allocation: OpaqueHandle) -> Result<(), NativeError> {
         let mut inner = self.call("free")?;
         if inner.stream_busy {
             return Err(failed("free", "the stream may still be using the buffer"));
@@ -46,7 +46,7 @@ impl MemoryCalls for FakeLibraries {
         destination: OpaqueHandle,
         source: OpaqueHandle,
         bytes: usize,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut inner = self.call("copy_on_device")?;
         let elements = bytes / size_of::<Complex64Abi>();
         let source_buffer = inner.buffer(id(source), "copy_on_device")?;
@@ -72,7 +72,7 @@ impl MemoryCalls for FakeLibraries {
         Ok(())
     }
 
-    fn synchronize_copies(&self) -> Result<(), EngineError> {
+    fn synchronize_copies(&self) -> Result<(), NativeError> {
         let mut inner = self.call("synchronize_copies")?;
         inner.copies_running = false;
         inner.copy_sources.clear();
@@ -83,7 +83,7 @@ impl MemoryCalls for FakeLibraries {
         &self,
         destination: OpaqueHandle,
         source: &[Complex64Abi],
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut inner = self.call("copy_to_device")?;
         match inner.objects.get_mut(&id(destination)) {
             Some(Object::Buffer(buffer)) if buffer.len() >= source.len() => {
@@ -95,7 +95,7 @@ impl MemoryCalls for FakeLibraries {
         Ok(())
     }
 
-    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, EngineError> {
+    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, NativeError> {
         self.call("create_workspace")?.create_on(
             handle,
             "create_workspace",
@@ -103,7 +103,7 @@ impl MemoryCalls for FakeLibraries {
         )
     }
 
-    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), EngineError> {
+    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), NativeError> {
         self.call("destroy_workspace")?
             .destroy(workspace, "destroy_workspace", |o| {
                 matches!(o, Object::Workspace { .. })
@@ -114,7 +114,7 @@ impl MemoryCalls for FakeLibraries {
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
-    ) -> Result<i64, EngineError> {
+    ) -> Result<i64, NativeError> {
         let inner = self.call("workspace_size")?;
         inner.require(workspace, "workspace_size", |o| {
             matches!(o, Object::Workspace { .. })
@@ -129,7 +129,7 @@ impl MemoryCalls for FakeLibraries {
         workspace: OpaqueHandle,
         scratch: OpaqueHandle,
         bytes: i64,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut inner = self.call("set_workspace")?;
         inner.owned(handle, workspace, "set_workspace")?;
         let allocation = id(scratch);

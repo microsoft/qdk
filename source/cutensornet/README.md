@@ -240,12 +240,12 @@ libraries where they are installed.
 What the crate requires is checked when it runs; where it has run is listed
 apart. Anything else is expected to work, but not verified.
 
-| Requirement   | Checked by                                                    | Verified on                                                                                      |
-| ------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                   | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
-| The libraries | `discover`: the exact versions of [Versions](#versions)       | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
-| A CUDA driver | not checked: its version is reported only                     | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
-| An NVIDIA GPU | `CuTensorNetEngine::new`: `EngineError::NoDevice` without one | an A100 80GB, where the engine passes `tensornet`'s conformance kit                              |
+| Requirement   | Checked by                                                                         | Verified on                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                                        | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
+| The libraries | `discover`: the exact versions of [Versions](#versions)                            | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
+| A CUDA driver | not checked: its version is reported only                                          | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
+| An NVIDIA GPU | `CuTensorNetEngine::new`: `EngineError::Native(NativeError::NoDevice)` without one | an A100 80GB, where the engine passes `tensornet`'s conformance kit                              |
 
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the

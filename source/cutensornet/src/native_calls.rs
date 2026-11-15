@@ -19,6 +19,7 @@
 //!   └─ state_calls.rs    StateCalls: states, operators, reads;
 //!                        NativeCapacity, MpsLayout
 //! the values passed      OpaqueHandle, Stream, complex.rs (Complex64Abi)
+//! the failures           error.rs (NativeError)
 //! the implementations    loaded_libraries.rs, loaded_libraries/ (Linux x86-64)
 //!                        fake_libraries.rs, fake_libraries/ (tests only)
 //! ```
@@ -28,6 +29,7 @@
 //! each implementation.
 
 pub(crate) mod complex;
+pub(crate) mod error;
 #[cfg(test)]
 pub(crate) mod fake_libraries;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

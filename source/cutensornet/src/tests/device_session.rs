@@ -7,7 +7,7 @@
 //! dropping releases the handle before the stream.
 
 use crate::device_session::DeviceSession;
-use crate::engine::EngineError;
+use crate::native_calls::error::NativeError;
 use crate::native_calls::fake_libraries::FakeLibraries;
 use std::sync::Arc;
 
@@ -60,7 +60,7 @@ fn a_failed_handle_creation_releases_the_stream() {
     assert!(
         matches!(
             opened,
-            Err(EngineError::NativeCallFailed {
+            Err(NativeError::NativeCallFailed {
                 operation: "create_handle",
                 ..
             })
@@ -78,7 +78,7 @@ fn a_host_without_a_cuda_device_is_refused() {
     libraries.set_device_count(0);
     assert!(matches!(
         DeviceSession::new(libraries.clone(), 0),
-        Err(EngineError::NoDevice)
+        Err(NativeError::NoDevice)
     ));
     assert_eq!(libraries.events(), ["device_count"], "no device selected");
 }
@@ -90,7 +90,7 @@ fn an_ordinal_beyond_the_devices_is_refused_before_selection() {
     let libraries = Arc::new(FakeLibraries::new());
     assert!(matches!(
         DeviceSession::new(libraries.clone(), 1),
-        Err(EngineError::NoDevice)
+        Err(NativeError::NoDevice)
     ));
     assert_eq!(libraries.events(), ["device_count"], "no device selected");
 }
@@ -102,7 +102,7 @@ fn a_negative_ordinal_is_refused_before_selection() {
     let libraries = Arc::new(FakeLibraries::new());
     assert!(matches!(
         DeviceSession::new(libraries.clone(), -1),
-        Err(EngineError::NoDevice)
+        Err(NativeError::NoDevice)
     ));
     assert_eq!(libraries.events(), ["device_count"], "no device selected");
 }

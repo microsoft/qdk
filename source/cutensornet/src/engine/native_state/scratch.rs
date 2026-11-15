@@ -9,8 +9,9 @@
 //! largest call's; while it grows, the old and the new.
 
 use super::NativeState;
-use crate::engine::{EngineError, policy::MAXIMUM_WORKSPACE_BYTES};
+use crate::engine::policy::MAXIMUM_WORKSPACE_BYTES;
 use crate::native_calls::OpaqueHandle;
+use crate::native_calls::error::NativeError;
 use std::rc::Rc;
 
 impl NativeState {
@@ -23,11 +24,11 @@ impl NativeState {
         workspace: OpaqueHandle,
         bytes: i64,
         resource: &'static str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let device_session = Rc::clone(&self.device_session);
         let (calls, handle) = (device_session.calls(), self.handle());
         let needed =
-            usize::try_from(bytes).map_err(|_| EngineError::ResourceSizeOverflow { resource })?;
+            usize::try_from(bytes).map_err(|_| NativeError::ResourceSizeOverflow { resource })?;
         let held = self.scratch.map_or(0, |(_, size)| size);
         if needed > held {
             let (free, _) = calls.memory_info()?;
@@ -61,7 +62,7 @@ impl NativeState {
     /// device's free memory and the scratch the state holds, whichever is
     /// less. Not their sum: a larger buffer is allocated before the held
     /// one is freed, so a growth must fit in the free memory alone.
-    pub(super) fn available_workspace_bytes(&self) -> Result<usize, EngineError> {
+    pub(super) fn available_workspace_bytes(&self) -> Result<usize, NativeError> {
         let (free, _) = self.device_session.calls().memory_info()?;
         let held = self.scratch.map_or(0, |(_, size)| size);
         Ok(MAXIMUM_WORKSPACE_BYTES.min(free.max(held)))
@@ -72,16 +73,16 @@ fn validate_workspace_size(
     required: usize,
     policy_maximum: usize,
     available: usize,
-) -> Result<(), EngineError> {
+) -> Result<(), NativeError> {
     let maximum = policy_maximum.min(available);
     if required > maximum {
-        return Err(EngineError::WorkspaceLimitExceeded { required, maximum });
+        return Err(NativeError::WorkspaceLimitExceeded { required, maximum });
     }
     Ok(())
 }
 
-fn size_i64(bytes: usize) -> Result<i64, EngineError> {
-    i64::try_from(bytes).map_err(|_| EngineError::ResourceSizeOverflow {
+fn size_i64(bytes: usize) -> Result<i64, NativeError> {
+    i64::try_from(bytes).map_err(|_| NativeError::ResourceSizeOverflow {
         resource: "device workspace",
     })
 }

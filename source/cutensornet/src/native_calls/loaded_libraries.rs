@@ -6,7 +6,7 @@
 //! (`crate::libraries`) through the function tables discovery looked up,
 //! one file per trait (`loaded_libraries/session_calls.rs`,
 //! `loaded_libraries/memory_calls.rs`, `loaded_libraries/state_calls.rs`).
-//! This file holds what they share: turning a status into an `EngineError`
+//! This file holds what they share: turning a status into a `NativeError`
 //! with the library's message.
 //!
 //! This module is the only code that calls cuTensorNet and the CUDA Runtime,
@@ -21,8 +21,8 @@
 //! (`libraries::cuda_runtime::CudaFunctions`,
 //! `libraries::cutensornet::CuTensorNetFunctions`).
 
-use crate::engine::EngineError;
 use crate::libraries::{LoadedLibraries, cuda_runtime::cudart_12, cutensornet::v2_13};
+use crate::native_calls::error::NativeError;
 use std::ffi::CStr;
 
 mod memory_calls;
@@ -57,11 +57,11 @@ impl LoadedLibraries {
         &self,
         operation: &'static str,
         status: cudart_12::cudaError_t,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         if status == cudart_12::cudaError_cudaSuccess {
             Ok(())
         } else {
-            Err(EngineError::NativeCallFailed {
+            Err(NativeError::NativeCallFailed {
                 component: "CUDA Runtime",
                 operation,
                 status,
@@ -74,11 +74,11 @@ impl LoadedLibraries {
         &self,
         operation: &'static str,
         status: v2_13::cutensornetStatus_t,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         if status == v2_13::cutensornetStatus_t_CUTENSORNET_STATUS_SUCCESS {
             Ok(())
         } else {
-            Err(EngineError::NativeCallFailed {
+            Err(NativeError::NativeCallFailed {
                 component: "cuTensorNet",
                 operation,
                 status,

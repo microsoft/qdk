@@ -6,7 +6,7 @@
 //! stream and its cuTensorNet handle.
 
 use super::{OpaqueHandle, Stream};
-use crate::engine::EngineError;
+use crate::native_calls::error::NativeError;
 
 /// The native calls a `DeviceSession` makes: CUDA's device selection and
 /// stream, and cuTensorNet's handle.
@@ -17,11 +17,11 @@ use crate::engine::EngineError;
 /// each object once, after its dependents (a handle's states) and after
 /// the stream's work that uses it.
 pub(crate) trait SessionCalls: Send + Sync {
-    fn device_count(&self) -> Result<i32, EngineError>;
-    fn set_device(&self, ordinal: i32) -> Result<(), EngineError>;
-    fn create_stream(&self) -> Result<Stream, EngineError>;
-    fn synchronize_stream(&self, stream: Stream) -> Result<(), EngineError>;
-    fn destroy_stream(&self, stream: Stream) -> Result<(), EngineError>;
-    fn create_handle(&self) -> Result<OpaqueHandle, EngineError>;
-    fn destroy_handle(&self, handle: OpaqueHandle) -> Result<(), EngineError>;
+    fn device_count(&self) -> Result<i32, NativeError>;
+    fn set_device(&self, ordinal: i32) -> Result<(), NativeError>;
+    fn create_stream(&self) -> Result<Stream, NativeError>;
+    fn synchronize_stream(&self, stream: Stream) -> Result<(), NativeError>;
+    fn destroy_stream(&self, stream: Stream) -> Result<(), NativeError>;
+    fn create_handle(&self) -> Result<OpaqueHandle, NativeError>;
+    fn destroy_handle(&self, handle: OpaqueHandle) -> Result<(), NativeError>;
 }

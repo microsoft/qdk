@@ -43,17 +43,17 @@
 //!   (`synchronize_copies`), and for its stream before it reads what a compute
 //!   wrote or frees what the compute read.
 //! - **Failures.** A native failure while the state is changed or computed
-//!   leaves it unusable: every later call reports [`EngineError::Poisoned`]. A
+//!   leaves it unusable: every later call reports [`NativeError::Poisoned`]. A
 //!   failed read releases what it created and leaves the state as it was.
 //! - **Release.** Dropping the state releases its native objects and its device
 //!   memory (`close`). A failed release is not reported, except on stderr in
 //!   debug builds; `CuTensorNetState` says why.
 
-use super::{
-    EngineError,
-    error::{combine_execution_and_cleanup, first_failure, report_failed_release},
-};
+use super::EngineError;
 use crate::device_session::DeviceSession;
+use crate::native_calls::error::{
+    NativeError, combine_execution_and_cleanup, first_failure, report_failed_release,
+};
 use crate::native_calls::{
     NativeCalls, OpaqueHandle,
     complex::{Complex64Abi, complex_bytes},
@@ -120,7 +120,7 @@ impl NativeState {
     pub(super) fn new(
         device_session: &Rc<DeviceSession<dyn NativeCalls>>,
         requested: &MpsShape,
-    ) -> Result<Self, EngineError> {
+    ) -> Result<Self, NativeError> {
         let capacity = NativeCapacity::new(requested)?;
         let state_extents = vec![2; capacity.native_shape().site_count()].into_boxed_slice();
         let handle = device_session.handle();
@@ -177,7 +177,7 @@ impl NativeState {
         &mut self,
         sites: &[usize],
         matrix: &[Complex64],
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         self.check_live()?;
         let modes = sites
             .iter()
@@ -189,7 +189,7 @@ impl NativeState {
 
     /// P(One) of `site`: ⟨Π₁⟩ / ⟨ψ|ψ⟩, one expectation on the computed
     /// state, remembered for a projection of the same site.
-    pub(super) fn probability_of_one(&mut self, site: usize) -> Result<f64, EngineError> {
+    pub(super) fn probability_of_one(&mut self, site: usize) -> Result<f64, NativeError> {
         self.check_live()?;
         self.ensure_computed()?;
         let probability = self.probability(site, true)?;
@@ -209,7 +209,7 @@ impl NativeState {
     ) -> Result<f64, EngineError> {
         self.check_live()?;
         if given.is_empty() {
-            return self.probability_of_one(site);
+            return Ok(self.probability_of_one(site)?);
         }
         let mut condition: BTreeMap<i32, [f64; 2]> = BTreeMap::new();
         for &(at, one) in given {
@@ -268,7 +268,7 @@ impl NativeState {
     /// this state's computed MPS, computing it first if an operator was
     /// applied since. The copies are the fork's own, so this state may
     /// change, compute, restart or be dropped without the fork seeing it.
-    pub(super) fn fork(&mut self) -> Result<Self, EngineError> {
+    pub(super) fn fork(&mut self) -> Result<Self, NativeError> {
         self.check_live()?;
         self.ensure_computed()?;
         let layout = self
@@ -311,7 +311,7 @@ impl NativeState {
 
     /// `c_I + Σₖ cₖ⟨ψ|Pₖ|ψ⟩ / ⟨ψ|ψ⟩`: the identity coefficient on the host,
     /// the rest as one native expectation.
-    pub(super) fn expectation(&mut self, observable: &PauliSum) -> Result<Complex64, EngineError> {
+    pub(super) fn expectation(&mut self, observable: &PauliSum) -> Result<Complex64, NativeError> {
         self.check_live()?;
         if observable.terms().is_empty() {
             return Ok(observable.identity_coefficient());
@@ -324,13 +324,13 @@ impl NativeState {
                     .factors()
                     .iter()
                     .map(|&(site, pauli)| Ok((mode(site)?, pauli.matrix().map(Complex64Abi::from))))
-                    .collect::<Result<Vec<_>, EngineError>>()?;
+                    .collect::<Result<Vec<_>, NativeError>>()?;
                 Ok(ProductTerm {
                     coefficient: term.coefficient(),
                     factors,
                 })
             })
-            .collect::<Result<Vec<_>, EngineError>>()?;
+            .collect::<Result<Vec<_>, NativeError>>()?;
         self.ensure_computed()?;
         let (value, squared_norm) = self.query(&terms)?;
         Ok(observable.identity_coefficient() + normalize_expectation(value, squared_norm)?)
@@ -339,7 +339,7 @@ impl NativeState {
     /// The chain of the computed state as the caller sees it, computing it
     /// first if an operator was applied since: the extents the library
     /// realized, without the padding site of a lone qubit.
-    pub(super) fn shape(&mut self) -> Result<MpsShape, EngineError> {
+    pub(super) fn shape(&mut self) -> Result<MpsShape, NativeError> {
         self.check_live()?;
         let realized = self.ensure_computed()?;
         self.capacity.logical(realized)
@@ -351,7 +351,7 @@ impl NativeState {
     /// because `configure` pins `SvdNormalizationNone`, so the kept
     /// singular values are never rescaled; the padding of a lone site stays
     /// |0⟩ and changes nothing.
-    pub(super) fn retained_weight(&mut self) -> Result<f64, EngineError> {
+    pub(super) fn retained_weight(&mut self) -> Result<f64, NativeError> {
         self.check_live()?;
         self.ensure_computed()?;
         let identity = BTreeMap::from([(0, [1.0, 1.0])]);
@@ -359,9 +359,9 @@ impl NativeState {
         positive_squared_norm(squared_norm)
     }
 
-    fn check_live(&self) -> Result<(), EngineError> {
+    fn check_live(&self) -> Result<(), NativeError> {
         if let Some(reason) = &self.poisoned {
-            return Err(EngineError::Poisoned {
+            return Err(NativeError::Poisoned {
                 reason: reason.clone(),
             });
         }
@@ -372,8 +372,8 @@ impl NativeState {
     /// state may be half changed.
     fn poison_on_error<T>(
         &mut self,
-        change: impl FnOnce(&mut Self) -> Result<T, EngineError>,
-    ) -> Result<T, EngineError> {
+        change: impl FnOnce(&mut Self) -> Result<T, NativeError>,
+    ) -> Result<T, NativeError> {
         let result = change(self);
         if let Err(error) = &result {
             self.poisoned = Some(error.to_string());
@@ -388,14 +388,14 @@ impl NativeState {
             .unwrap_or_else(|| self.device_session.handle())
     }
 
-    fn state(&self) -> Result<OpaqueHandle, EngineError> {
-        self.state.ok_or_else(|| EngineError::Poisoned {
+    fn state(&self) -> Result<OpaqueHandle, NativeError> {
+        self.state.ok_or_else(|| NativeError::Poisoned {
             reason: "the state is closed".to_string(),
         })
     }
 
-    fn workspace(&self) -> Result<OpaqueHandle, EngineError> {
-        self.workspace.ok_or_else(|| EngineError::Poisoned {
+    fn workspace(&self) -> Result<OpaqueHandle, NativeError> {
+        self.workspace.ok_or_else(|| NativeError::Poisoned {
             reason: "the state's workspace is closed".to_string(),
         })
     }
@@ -404,7 +404,7 @@ impl NativeState {
         &mut self,
         elements: usize,
         resource: &'static str,
-    ) -> Result<OpaqueHandle, EngineError> {
+    ) -> Result<OpaqueHandle, NativeError> {
         let bytes = complex_bytes(elements, resource)?;
         let allocation = self.device_session.calls().allocate(bytes)?;
         self.allocations.push(allocation);
@@ -416,7 +416,7 @@ impl NativeState {
     /// returns the first failure. Later closes do nothing: `new` closes a
     /// state whose workspace it failed to create, and dropping that state
     /// closes it again.
-    fn close(&mut self) -> Result<(), EngineError> {
+    fn close(&mut self) -> Result<(), NativeError> {
         if self.closed {
             return Ok(());
         }
@@ -459,8 +459,8 @@ impl Drop for NativeState {
 
 /// The native mode of one of the caller's sites, which the engine's checks
 /// have bounded by the site count.
-fn mode(site: usize) -> Result<i32, EngineError> {
-    i32::try_from(site).map_err(|_| EngineError::ResourceSizeOverflow {
+fn mode(site: usize) -> Result<i32, NativeError> {
+    i32::try_from(site).map_err(|_| NativeError::ResourceSizeOverflow {
         resource: "native mode",
     })
 }

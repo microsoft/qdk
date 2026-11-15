@@ -24,23 +24,23 @@
 //! still holds, and it starts no compute before the copies are done.
 
 use super::{OpaqueHandle, complex::Complex64Abi};
-use crate::engine::EngineError;
+use crate::native_calls::error::NativeError;
 
 /// The CUDA Runtime and cuTensorNet calls on device memory and workspace
 /// descriptors, as the engine makes them. Every implementer of
 /// `StateCalls` implements them.
 pub(crate) trait MemoryCalls {
     /// The device's free and total memory, in bytes (`cudaMemGetInfo`).
-    fn memory_info(&self) -> Result<(usize, usize), EngineError>;
-    fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, EngineError>;
-    fn free(&self, allocation: OpaqueHandle) -> Result<(), EngineError>;
+    fn memory_info(&self) -> Result<(usize, usize), NativeError>;
+    fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, NativeError>;
+    fn free(&self, allocation: OpaqueHandle) -> Result<(), NativeError>;
     /// Copies `source` to the device; the host slice may be reused when it
     /// returns, but the copy may not have reached the device yet.
     fn copy_to_device(
         &self,
         destination: OpaqueHandle,
         source: &[Complex64Abi],
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     /// Copies `bytes` from one device allocation to another; the copy may
     /// still be running when it returns.
     fn copy_on_device(
@@ -48,19 +48,19 @@ pub(crate) trait MemoryCalls {
         destination: OpaqueHandle,
         source: OpaqueHandle,
         bytes: usize,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     /// Waits for every copy made so far (`cudaStreamSynchronize` on
     /// `cudaStreamLegacy`).
-    fn synchronize_copies(&self) -> Result<(), EngineError>;
-    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, EngineError>;
-    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), EngineError>;
+    fn synchronize_copies(&self) -> Result<(), NativeError>;
+    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, NativeError>;
+    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), NativeError>;
     /// The device scratch cuTensorNet recommends for what `workspace` was
     /// last prepared for.
     fn workspace_size(
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
-    ) -> Result<i64, EngineError>;
+    ) -> Result<i64, NativeError>;
     /// Lends `bytes` of the device allocation `scratch` to `workspace`.
     fn set_workspace(
         &self,
@@ -68,5 +68,5 @@ pub(crate) trait MemoryCalls {
         workspace: OpaqueHandle,
         scratch: OpaqueHandle,
         bytes: i64,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
 }
