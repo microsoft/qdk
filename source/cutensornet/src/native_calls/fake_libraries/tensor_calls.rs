@@ -25,15 +25,19 @@
 //! - a gate split's shared extent does not exceed the smaller side of its
 //!   matrix θ, and a QR's equals the smaller side of its matrix;
 //! - a QR's input carries exactly Q's and R's other modes;
-//! - a gate split takes A·B·G's topology: each input label is shared by
-//!   two inputs and in neither output, or is in one input and one of U's
-//!   or V's other modes, so no label is summed alone;
+//! - a gate split takes A·B·G's topology, as cuTensorNet's gate split
+//!   states it: A, B and the gate are pairwise connected (each pair shares
+//!   a label); each input label is shared by two inputs and in neither
+//!   output, or is in one input and one of U's or V's other modes, so no
+//!   label is summed alone; and a label of A alone is kept in U, one of B
+//!   alone in V, one of the gate alone in either;
 //! - U's and V's buffers hold their descriptors' extents before
 //!   truncation, as cuTensorNet asks, since the reduced extent is known
 //!   only once the split has run;
 //! - the singular values' buffer holds as many doubles as the shared
 //!   mode's extent (counted in the fake's 16-byte elements), and an SVD
-//!   info is read only once the stream is synchronized.
+//!   info is read only once the stream of the split that wrote it is
+//!   synchronized.
 //!
 //! The fake does not slice: it contracts a network's two inputs at once,
 //! whatever the path. It need not model slicing, since the loaded libraries
@@ -151,10 +155,10 @@ impl TensorCalls for FakeLibraries {
         const OPERATION: &str = "svd_truncation";
         let inner = self.call(OPERATION)?;
         inner.owned(handle, info, OPERATION)?;
-        if inner.stream_busy {
+        if inner.write_pending(id(info)) {
             return Err(failed(
                 OPERATION,
-                "the stream may still be writing the info",
+                "the stream writing the info is not synchronized",
             ));
         }
         match inner.objects.get(&id(info)) {
@@ -303,7 +307,8 @@ impl TensorCalls for FakeLibraries {
                 discarded_weight,
             });
         }
-        inner.stream_busy = true;
+        let written = [id(u.data), id(v.data), id(singular_values), id(info)];
+        inner.queue_on(stream, written);
         Ok(())
     }
 
@@ -377,7 +382,7 @@ impl TensorCalls for FakeLibraries {
         )?;
         inner.write(q.data, &q_tensor, OPERATION)?;
         inner.write(r.data, &r_tensor, OPERATION)?;
-        inner.stream_busy = true;
+        inner.queue_on(stream, [id(q.data), id(r.data)]);
         Ok(())
     }
 
@@ -606,7 +611,7 @@ impl TensorCalls for FakeLibraries {
         let result = contract(&[&tensors[0], &tensors[1]], &output_shape.modes)
             .map_err(|message| failed(OPERATION, message))?;
         inner.write(output, &result, OPERATION)?;
-        inner.stream_busy = true;
+        inner.queue_on(stream, [id(output)]);
         Ok(())
     }
 }
@@ -734,25 +739,43 @@ impl Sides {
         })
     }
 
-    /// Fails unless every label of a gate split's `inputs` (A, B and the
-    /// gate) is either shared by two of them and in neither output, or in
-    /// one of them and one output's other modes: no label is summed alone,
-    /// and none is both contracted and kept.
+    /// Fails unless a gate split's `inputs` (A, B and the gate, in that
+    /// order) form the graph cuTensorNet's gate split expects: each pair of
+    /// them shares a label (a fully connected graph); every label is either
+    /// shared by two of them and in neither output, or in one of them and
+    /// one output's other modes (no label is summed alone, and none is both
+    /// contracted and kept); and a label of A alone is kept in U (the left
+    /// output), one of B alone in V, one of the gate alone in either.
     fn check_gate_split_labels(
         &self,
-        inputs: &[&DenseTensor],
+        inputs: &[&DenseTensor; 3],
         operation: &'static str,
     ) -> Result<(), NativeError> {
-        let kept = |mode: &i32| self.left.0.contains(mode) || self.right.0.contains(mode);
-        for input in inputs {
+        let connected = |[first, second]: [usize; 2]| {
+            inputs[first]
+                .modes
+                .iter()
+                .any(|mode| inputs[second].modes.contains(mode))
+        };
+        if ![[0, 1], [0, 2], [1, 2]].into_iter().all(connected) {
+            return Err(failed(
+                operation,
+                "A, B and the gate are not pairwise connected",
+            ));
+        }
+        let on_left = |mode: &i32| self.left.0.contains(mode);
+        let on_right = |mode: &i32| self.right.0.contains(mode);
+        for (at, input) in inputs.iter().enumerate() {
             for mode in &input.modes {
                 let count = inputs
                     .iter()
                     .filter(|other| other.modes.contains(mode))
                     .count();
-                let fits = match count {
-                    1 => kept(mode),
-                    2 => !kept(mode) && *mode != self.shared,
+                let fits = match (count, at) {
+                    (1, 0) => on_left(mode),
+                    (1, 1) => on_right(mode),
+                    (1, _) => on_left(mode) || on_right(mode),
+                    (2, _) => !on_left(mode) && !on_right(mode) && *mode != self.shared,
                     _ => false,
                 };
                 if !fits {
@@ -916,10 +939,16 @@ fn split(
     })
 }
 
+/// The number of elements of a tensor of `extents`; one whose count
+/// overflows `usize` is refused, as no buffer could hold it.
 fn product(extents: &[i64]) -> Result<usize, NativeError> {
-    extents
-        .iter()
-        .try_fold(1, |product: usize, &extent| Ok(product * to_usize(extent)?))
+    extents.iter().try_fold(1, |product: usize, &extent| {
+        product
+            .checked_mul(to_usize(extent)?)
+            .ok_or(NativeError::ResourceSizeOverflow {
+                resource: "tensor elements",
+            })
+    })
 }
 
 impl Inner {

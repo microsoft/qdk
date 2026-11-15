@@ -99,6 +99,12 @@ pub(crate) trait TensorCalls: MemoryCalls {
     /// at the reduced extent of their shared mode; `info` reports the
     /// truncation.
     ///
+    /// A, B and the gate "are expected to form a fully connected graph"
+    /// (each pair shares a mode), and their modes not contracted go to U
+    /// and V: U's "consistent with" A and the gate, V's with B and the gate
+    /// (cuTensorNet's `cutensornetGateSplit`); so A's own modes go to U, B's
+    /// to V, and the gate's to either.
+    ///
     /// The shared mode's extent in U's and V's descriptors "shall not
     /// exceed the minimum of m (row dimension) and n (column dimension) of
     /// the smallest equivalent matrix SVD problem" (cuTensorNet's

@@ -30,7 +30,9 @@ impl SessionCalls for FakeLibraries {
         inner.require(stream, "synchronize_stream", |o| {
             matches!(o, Object::Stream)
         })?;
-        inner.stream_busy = false;
+        inner
+            .pending_writes
+            .retain(|_, writer| *writer != id(stream));
         Ok(())
     }
 

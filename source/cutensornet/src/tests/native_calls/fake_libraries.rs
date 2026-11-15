@@ -786,11 +786,12 @@ fn a_gate_split_keeps_one_value_whatever_the_cutoff() {
     assert_close(&factors.product(), &matrix([[3.0, 0.0], [0.0, 0.0]]));
 }
 
-/// A caller grows a bond up to the extent the split could have kept, as
-/// cuTensorNet reports it: the smaller side of θ. A product state's θ has
-/// rank 1, so a cutoff keeps one value, yet it reports 2; a site with an
-/// outer bond of 2 makes θ 4×2 on the left, or 2×4 on the right, and
-/// reports 2 either way.
+/// A caller grows a bond up to the extent the split could have kept, which
+/// the fake reports as the smaller side of θ (cuTensorNet may report less
+/// under its reduced algorithm, which no GPU run has checked yet). A
+/// product state's θ has rank 1, so a cutoff keeps one value, yet the fake
+/// reports 2; a site with an outer bond of 2 makes θ 4×2 on the left, or
+/// 2×4 on the right, and the fake reports 2 either way.
 #[test]
 fn a_gate_split_reports_the_smaller_side_as_its_full_extent() {
     let rank_one = GateSplit::of(
@@ -1218,19 +1219,64 @@ fn a_tensor_descriptor_refuses_a_repeated_mode() {
     create(&[1, 2, 3]).expect("every label names one mode");
 }
 
-/// A tensor call writes its output on the session's stream, which a copy
-/// to the host does not wait for: a caller that copies a contraction's
-/// output before synchronizing the stream is caught on the fake.
+/// A tensor's element count can overflow the host's addresses, which no
+/// buffer could hold: a caller whose extents multiply past `usize` is
+/// refused with an error, not a panic.
 #[test]
-fn a_copy_to_the_host_needs_the_stream_synchronized() {
+fn a_tensor_whose_element_count_overflows_is_refused() {
+    let device = Device::new(FakeLibraries::new());
+    let zero = Complex64::default();
+    let qr_of = |extent: i64, elements: usize| {
+        let input = device.operand(&[extent, 3], &[1, 2], &values(elements, 0.5));
+        let q = device.operand(&[extent, 3], &[1, 4], &vec![zero; elements]);
+        let r = device.operand(&[3, 3], &[4, 2], &[zero; 9]);
+        device
+            .fake
+            .synchronize_copies()
+            .expect("the copies were queued");
+        device.fake.qr_workspace_sizes(
+            device.handle,
+            input.descriptor,
+            q.descriptor,
+            r.descriptor,
+            device.workspace,
+        )?;
+        device.lend(WorkspaceSlot::DeviceScratch);
+        device
+            .fake
+            .tensor_qr(device.handle, input, q, r, device.workspace, device.stream)
+    };
+    let refused = qr_of(i64::MAX, 1).expect_err("the input's element count overflows");
+    assert!(
+        matches!(refused, crate::NativeError::ResourceSizeOverflow { .. }),
+        "{refused:?}"
+    );
+    qr_of(3, 9).expect("each buffer holds its tensor's 9 elements");
+}
+
+/// A tensor call writes its output on its stream, which a copy to the host
+/// does not wait for: a caller that copies a contraction's output before
+/// synchronizing that stream, or after synchronizing only another one, is
+/// caught on the fake.
+#[test]
+fn a_copy_to_the_host_needs_the_writing_stream_synchronized() {
     let contraction = Contraction::dot_product(FakeLibraries::new());
     let device = &contraction.device;
+    let other_stream = device.fake.create_stream().expect("the fake has a device");
     contraction.contract().expect("the network is prepared");
     let mut output = [Complex64Abi::default()];
     device
         .fake
         .copy_to_host(&mut output, contraction.output)
         .expect_err("the stream may still be writing the output");
+    device
+        .fake
+        .synchronize_stream(other_stream)
+        .expect("the other stream is live");
+    device
+        .fake
+        .copy_to_host(&mut output, contraction.output)
+        .expect_err("only a stream that did not write the output is synchronized");
     device
         .fake
         .synchronize_stream(device.stream)
@@ -1240,6 +1286,137 @@ fn a_copy_to_the_host_needs_the_stream_synchronized() {
         .copy_to_host(&mut output, contraction.output)
         .expect("the stream is synchronized");
     assert_eq!(Complex64::from(output[0]), Complex64::new(2.0, 0.0));
+}
+
+/// A gate split and a QR write each of their outputs on their stream: a
+/// caller that copies any of them to the host before synchronizing it is
+/// caught on the fake.
+#[test]
+fn every_output_of_a_tensor_call_is_read_once_its_stream_is_synchronized() {
+    let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    let device = &split.device;
+    split.size(split.config);
+    split
+        .run(split.config, device.stream)
+        .expect("the workspace is sized and lent");
+    let zero = Complex64::default();
+    let input = device.operand(&[2, 3], &[1, 2], &values(6, 0.5));
+    let q = device.operand(&[2, 2], &[1, 3], &[zero; 4]);
+    let r = device.operand(&[2, 3], &[3, 2], &[zero; 6]);
+    device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    device
+        .fake
+        .qr_workspace_sizes(
+            device.handle,
+            input.descriptor,
+            q.descriptor,
+            r.descriptor,
+            device.workspace,
+        )
+        .expect("the descriptors are live");
+    device.lend(WorkspaceSlot::DeviceScratch);
+    device
+        .fake
+        .tensor_qr(device.handle, input, q, r, device.workspace, device.stream)
+        .expect("the workspace is sized and lent");
+    let outputs = [split.operands.u.data, split.operands.v.data, q.data, r.data];
+    let mut values = [Complex64Abi::default()];
+    for output in outputs {
+        device
+            .fake
+            .copy_to_host(&mut values, output)
+            .expect_err("the stream may still be writing the output");
+    }
+    device
+        .fake
+        .synchronize_stream(device.stream)
+        .expect("the stream is live");
+    for output in outputs {
+        device
+            .fake
+            .copy_to_host(&mut values, output)
+            .expect("the stream is synchronized");
+    }
+}
+
+/// The fake does not track which buffers a stream's work reads: a caller
+/// that frees a contraction's input before synchronizing the stream, which
+/// a GPU may still be reading, is caught on the fake.
+#[test]
+fn a_buffer_is_freed_once_every_stream_is_synchronized() {
+    let contraction = Contraction::dot_product(FakeLibraries::new());
+    let device = &contraction.device;
+    contraction.contract().expect("the network is prepared");
+    device
+        .fake
+        .free(contraction.inputs[0])
+        .expect_err("the contraction may still be reading its input");
+    device
+        .fake
+        .synchronize_stream(device.stream)
+        .expect("the stream is live");
+    device
+        .fake
+        .free(contraction.inputs[0])
+        .expect("every stream is synchronized");
+}
+
+/// Work queued on one stream does not hold back a read of what another,
+/// synchronized stream wrote: a caller that runs a QR on a second stream
+/// still reads a gate split's factors and report once the split's stream
+/// is synchronized, and is refused only the QR's factors.
+#[test]
+fn a_read_waits_only_for_the_stream_that_wrote_it() {
+    let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    let device = &split.device;
+    split.size(split.config);
+    split
+        .run(split.config, device.stream)
+        .expect("the workspace is sized and lent");
+    device
+        .fake
+        .synchronize_stream(device.stream)
+        .expect("the stream is live");
+    let zero = Complex64::default();
+    let input = device.operand(&[2, 3], &[1, 2], &values(6, 0.5));
+    let q = device.operand(&[2, 2], &[1, 3], &[zero; 4]);
+    let r = device.operand(&[2, 3], &[3, 2], &[zero; 6]);
+    device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    device
+        .fake
+        .qr_workspace_sizes(
+            device.handle,
+            input.descriptor,
+            q.descriptor,
+            r.descriptor,
+            device.workspace,
+        )
+        .expect("the descriptors are live");
+    device.lend(WorkspaceSlot::DeviceScratch);
+    let qr_stream = device.fake.create_stream().expect("the fake has a device");
+    device
+        .fake
+        .tensor_qr(device.handle, input, q, r, device.workspace, qr_stream)
+        .expect("the workspace is sized and lent");
+    let mut values = [Complex64Abi::default()];
+    device
+        .fake
+        .svd_truncation(device.handle, split.info)
+        .expect("the split's stream is synchronized");
+    device
+        .fake
+        .copy_to_host(&mut values, split.operands.u.data)
+        .expect("the split's stream is synchronized");
+    device
+        .fake
+        .copy_to_host(&mut values, q.data)
+        .expect_err("the QR's stream may still be writing Q");
 }
 
 /// No tensor is empty, so the loaded libraries refuse an empty copy before
@@ -1578,12 +1755,14 @@ fn a_tensor_call_needs_a_workspace_sized_for_it() {
         .expect("the workspace is sized for this config");
 }
 
-/// cuTensorNet writes a gate split's report on the stream: a caller that
-/// reads it before synchronizing is caught on the fake.
+/// cuTensorNet writes a gate split's report on the split's stream: a
+/// caller that reads it before synchronizing that stream, or after
+/// synchronizing only another one, is caught on the fake.
 #[test]
-fn an_svd_info_is_read_once_the_stream_is_synchronized() {
+fn an_svd_info_is_read_once_its_writing_stream_is_synchronized() {
     let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
     let device = &split.device;
+    let other_stream = device.fake.create_stream().expect("the fake has a device");
     split.size(split.config);
     split
         .run(split.config, device.stream)
@@ -1592,6 +1771,14 @@ fn an_svd_info_is_read_once_the_stream_is_synchronized() {
         .fake
         .svd_truncation(device.handle, split.info)
         .expect_err("the stream may still be writing the info");
+    device
+        .fake
+        .synchronize_stream(other_stream)
+        .expect("the other stream is live");
+    device
+        .fake
+        .svd_truncation(device.handle, split.info)
+        .expect_err("only a stream that did not write the info is synchronized");
     device
         .fake
         .synchronize_stream(device.stream)
@@ -1646,8 +1833,10 @@ fn an_svd_cutoff_outside_zero_to_one_is_refused() {
     configure(1.0).expect("1 is a fraction");
 }
 
-/// cuTensorNet refuses memory for a slot that asks for none: a caller that
-/// lends every slot regardless of its size is caught on the fake.
+/// The fake refuses memory for a slot that asks for none, a rule wider
+/// than the evidence (on an A100, cuTensorNet refuses a zero-size
+/// workspace with a pointer): a caller that lends every slot regardless of
+/// its size is caught on the fake.
 #[test]
 fn a_workspace_slot_that_asks_for_nothing_is_lent_nothing() {
     let device = Device::new(FakeLibraries::new());
@@ -1714,4 +1903,136 @@ fn a_gate_split_refuses_a_label_outside_its_topology() {
     split
         .split()
         .expect_err("the gate's extra label is in no other tensor");
+}
+
+/// cuTensorNet's gate split takes A, B and the gate as a fully connected
+/// graph: a caller whose A and B share no bond, so that the split is not a
+/// two-site gate on neighbouring sites, is caught on the fake.
+#[test]
+fn a_gate_split_needs_a_b_and_the_gate_pairwise_connected() {
+    let mut split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    split.split().expect("A and B share their bond");
+    let (one, zero) = (Complex64::new(1.0, 0.0), Complex64::default());
+    split.operands.a = split.device.operand(&[2], &[P], &[one, zero]);
+    split.operands.b = split.device.operand(&[2], &[Q], &[one, zero]);
+    split
+        .device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    split.split().expect_err("A and B share no label");
+}
+
+/// A gate split keeps A's site in U and B's in V: a caller that puts a
+/// label of A alone (its outer bond) in V, or one of B alone in U, is
+/// caught on the fake; the gate's own labels may go to either side.
+#[test]
+fn a_gate_split_keeps_a_label_of_a_alone_in_u_and_of_b_alone_in_v() {
+    let theta = matrix([[3.0, 0.0], [0.0, 1.0]]);
+    let split_with = |a: &[i32], b: &[i32], u: &[i32], v: &[i32]| {
+        let mut split = GateSplit::of(theta, &[SvdSetting::PartitionUs, ROUNDING_CUTOFF]);
+        let device = &split.device;
+        let extents = |modes: &[i32]| -> Vec<i64> {
+            modes
+                .iter()
+                .map(|&mode| if mode == BOND { 1 } else { 2 })
+                .collect()
+        };
+        let elements = |modes: &[i32]| 1 << (modes.len() - usize::from(modes.contains(&BOND)));
+        split.operands.a = device.operand(&extents(a), a, &values(elements(a), 0.5));
+        split.operands.b = device.operand(&extents(b), b, &values(elements(b), -0.25));
+        let zeros = |modes: &[i32]| vec![Complex64::default(); elements(modes)];
+        split.operands.u = device.operand(&extents(u), u, &zeros(u));
+        split.operands.v = device.operand(&extents(v), v, &zeros(v));
+        device
+            .fake
+            .synchronize_copies()
+            .expect("the copies were queued");
+        split.split().map(|_| ())
+    };
+    let (a, b) = ([OUTER, P, BOND], [BOND, Q]);
+    split_with(&a, &b, &[OUTER, P_OUT, S], &[S, Q_OUT]).expect("A's outer bond is in U");
+    split_with(&a, &b, &[P_OUT, S], &[S, Q_OUT, OUTER]).expect_err("A's outer bond is in V");
+    let (a, b) = ([P, BOND], [BOND, Q, OUTER]);
+    split_with(&a, &b, &[P_OUT, S], &[S, Q_OUT, OUTER]).expect("B's outer bond is in V");
+    split_with(&a, &b, &[OUTER, P_OUT, S], &[S, Q_OUT]).expect_err("B's outer bond is in U");
+    split_with(&[P, BOND], &[BOND, Q], &[Q_OUT, S], &[S, P_OUT])
+        .expect("the gate's outputs may go to either side");
+}
+
+/// A site of a product state, or one at the chain's end, has bonds of
+/// extent 1, and a gate on a qubit can be 1×1 in a test: a caller whose
+/// every mode, the shared one included, has extent 1 still gets the
+/// product of A, B and the gate, at a reduced and full extent of 1.
+#[test]
+fn a_gate_split_takes_modes_of_extent_one() {
+    let device = Device::new(FakeLibraries::new());
+    let config = device
+        .fake
+        .create_svd_config(device.handle)
+        .expect("the handle is live");
+    device
+        .fake
+        .configure_svd(device.handle, config, SvdSetting::PartitionSv)
+        .expect("the setting is in range");
+    let info = device
+        .fake
+        .create_svd_info(device.handle)
+        .expect("the handle is live");
+    let a_value = Complex64::new(1.0, 2.0);
+    let b_value = Complex64::new(0.5, -0.5);
+    let gate_value = Complex64::new(-1.0, 0.25);
+    let zero = Complex64::default();
+    let operands = GateSplitOperands {
+        a: device.operand(&[1, 1], &[P, BOND], &[a_value]),
+        b: device.operand(&[1, 1], &[BOND, Q], &[b_value]),
+        gate: device.operand(&[1, 1, 1, 1], &[P_OUT, Q_OUT, P, Q], &[gate_value]),
+        u: device.operand(&[1, 1], &[P_OUT, S], &[zero]),
+        v: device.operand(&[1, 1], &[S, Q_OUT], &[zero]),
+        singular_values: device.buffer(&[zero]),
+    };
+    device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    let descriptors = GateSplitDescriptors {
+        a: operands.a.descriptor,
+        b: operands.b.descriptor,
+        gate: operands.gate.descriptor,
+        u: operands.u.descriptor,
+        v: operands.v.descriptor,
+    };
+    device
+        .fake
+        .gate_split_workspace_sizes(device.handle, &descriptors, config, device.workspace)
+        .expect("the descriptors and config are live");
+    device.lend(WorkspaceSlot::DeviceScratch);
+    device
+        .fake
+        .gate_split(
+            device.handle,
+            &operands,
+            config,
+            info,
+            device.workspace,
+            device.stream,
+        )
+        .expect("every label is shared or kept on its side");
+    let (u, v) = (
+        device.read(operands.u.data, 1),
+        device.read(operands.v.data, 1),
+    );
+    assert_close(&[u[0] * v[0]], &[a_value * b_value * gate_value]);
+    let report = device
+        .fake
+        .svd_truncation(device.handle, info)
+        .expect("the stream is synchronized");
+    assert_eq!(
+        (
+            report.reduced_extent,
+            report.full_extent,
+            report.discarded_weight
+        ),
+        (1, 1, 0.0)
+    );
 }

@@ -52,8 +52,11 @@
 //!   workspace that asks for some, at least what the slot asks, and no
 //!   copy still running (`synchronize_copies`, the legacy stream), and the
 //!   source of a copy still running is not freed;
-//!   after a compute, nothing is freed or captured until the session's
-//!   stream is synchronized;
+//!   after a compute, nothing is freed or captured until every stream
+//!   that ran work is synchronized (the fake does not track what a
+//!   stream's work reads), and a buffer a compute or a tensor call wrote,
+//!   or an SVD info, is read only once the stream that wrote it is
+//!   synchronized: another stream's synchronization says nothing of it;
 //! - a device-to-device copy of a whole computed tensor holds that tensor;
 //!   a partial copy holds nothing;
 //! - every object a call takes a handle for (a workspace, state, network
@@ -93,7 +96,7 @@ mod state_vector;
 mod tensor_calls;
 
 use super::{
-    OpaqueHandle,
+    OpaqueHandle, Stream,
     complex::Complex64Abi,
     memory_calls::WorkspaceSlot,
     state_calls::{StateF64Configuration, StateU32Configuration},
@@ -140,9 +143,11 @@ struct Inner {
     /// Whether a copy may still be running on the legacy stream: set by a
     /// copy, cleared by `synchronize_copies`.
     copies_running: bool,
-    /// Whether the session's stream may still be running work: set by a
-    /// compute or a tensor call, cleared by `synchronize_stream`.
-    stream_busy: bool,
+    /// What the work queued on a stream may still be writing (a compute's
+    /// outputs, a tensor call's outputs and SVD info), by id, with the
+    /// stream it is queued on: set by the call, cleared by
+    /// `synchronize_stream` on that stream alone.
+    pending_writes: BTreeMap<usize, usize>,
     /// The destination of every device-to-device copy.
     copy_destinations: Vec<usize>,
     /// The sources of the device-to-device copies that may still be
@@ -491,6 +496,27 @@ impl Inner {
             Some((scratch, _)) => Ok(size_of_val(self.buffer(scratch, operation)?)),
             None => Ok(0),
         }
+    }
+
+    /// Queues work on `stream` that writes `written`, by id, until
+    /// `synchronize_stream(stream)`.
+    fn queue_on(&mut self, stream: Stream, written: impl IntoIterator<Item = usize>) {
+        for object in written {
+            self.pending_writes.insert(object, id(stream));
+        }
+    }
+
+    /// Whether work queued on a stream not synchronized since may still
+    /// write `object`.
+    fn write_pending(&self, object: usize) -> bool {
+        self.pending_writes.contains_key(&object)
+    }
+
+    /// Whether any stream may still be running work: the fake does not
+    /// track what a stream's work reads, so a buffer is freed, and a
+    /// compute captured, only once every stream is synchronized.
+    fn any_stream_busy(&self) -> bool {
+        !self.pending_writes.is_empty()
     }
 
     /// The bytes `workspace` lends its device scratch, 0 if none.

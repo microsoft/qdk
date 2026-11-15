@@ -43,7 +43,7 @@ flowchart TD
   E -->|"prepare, fork"| S["<b>CuTensorNetState</b>"]
   S -->|holds| NS["<b>NativeState</b><br/>one cuTensorNet state,<br/>the computed MPS"]
   NS -->|"runs in"| DS
-  DS -->|"every native call,<br/>its own and its states'"| NC["<b>NativeCalls</b><br/>SessionCalls, MemoryCalls,<br/>StateCalls, TensorCalls"]
+  DS -->|holds| NC["<b>NativeCalls</b><br/>SessionCalls, MemoryCalls,<br/>StateCalls, TensorCalls"]
   LL["<b>LoadedLibraries</b>"] -.->|implements| NC
 ```
 

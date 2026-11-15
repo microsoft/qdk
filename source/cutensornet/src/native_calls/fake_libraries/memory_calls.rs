@@ -29,8 +29,8 @@ impl MemoryCalls for FakeLibraries {
 
     fn free(&self, allocation: OpaqueHandle) -> Result<(), NativeError> {
         let mut inner = self.call("free")?;
-        if inner.stream_busy {
-            return Err(failed("free", "the stream may still be using the buffer"));
+        if inner.any_stream_busy() {
+            return Err(failed("free", "a stream may still be using the buffer"));
         }
         if inner.copy_sources.contains(&id(allocation)) {
             return Err(failed("free", "a copy may still be reading the buffer"));
@@ -112,10 +112,10 @@ impl MemoryCalls for FakeLibraries {
         // The loaded libraries refuse an empty copy before any native call.
         complex_bytes(destination.len(), "complex tensor")?;
         let inner = self.call("copy_to_host")?;
-        if inner.stream_busy {
+        if inner.write_pending(id(source)) {
             return Err(failed(
                 "copy_to_host",
-                "the stream may still be writing the buffer",
+                "the stream writing the buffer is not synchronized",
             ));
         }
         let copied = inner

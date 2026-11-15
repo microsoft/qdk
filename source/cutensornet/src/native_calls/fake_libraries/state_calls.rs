@@ -170,7 +170,7 @@ impl StateCalls for FakeLibraries {
         workspace: OpaqueHandle,
         layout: &mut MpsLayout,
         outputs: &mut [OpaqueHandle],
-        _stream: Stream,
+        stream: Stream,
     ) -> Result<(), NativeError> {
         const OPERATION: &str = "compute_state";
         let mut inner = self.call(OPERATION)?;
@@ -251,7 +251,7 @@ impl StateCalls for FakeLibraries {
         for (site, &output) in outputs.iter().enumerate() {
             inner.mps_tensors.insert(output, (number, site));
         }
-        inner.stream_busy = true;
+        inner.queue_on(stream, outputs.iter().copied());
         inner.state(state, OPERATION)?.computed = Some((
             Computed {
                 state: computed,
@@ -314,7 +314,7 @@ impl StateCalls for FakeLibraries {
         const OPERATION: &str = "capture_mps";
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, state, OPERATION)?;
-        if inner.stream_busy {
+        if inner.any_stream_busy() {
             return Err(failed(OPERATION, "the compute may still be running"));
         }
         let target = inner.state(state, OPERATION)?;
