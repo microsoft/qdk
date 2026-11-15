@@ -87,6 +87,43 @@ def test_profile_qsp_application(qsp_toolchain: None) -> None:
     assert result.infos == []
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Requires Linux CPU affinity APIs")
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_qsp_cpu_affinity(tmp_path: Path, platform: str, fail: bool) -> None:
+    """Check Linux-only parent/child pinning and restoration after success or failure."""
+    executable = tmp_path / "report_affinity"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os\n"
+        'os.write(int(os.environ["QDK_INSTRUCTION_FD"]), '
+        "json.dumps(sorted(os.sched_getaffinity(0))).encode())\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    application = QspApplication(executable)
+    original_affinity = os.sched_getaffinity(0)
+    expected = {min(original_affinity)} if platform == "linux" else original_affinity
+
+    def serve(instruction_fd: int, _result_fd: int) -> None:
+        """Check both endpoints' actual affinity before optionally failing."""
+        assert os.sched_getaffinity(0) == expected
+        assert set(json.loads(os.read(instruction_fd, 4096))) == expected
+        if fail:
+            raise RuntimeError("callback failed")
+
+    with (
+        patch.object(application, "compile", return_value=executable),
+        patch("qdk.qre.application._qsp.sys.platform", platform),
+    ):
+        if fail:
+            with pytest.raises(RuntimeError, match="callback failed"):
+                application._run_qsp_application(serve)
+        else:
+            application._run_qsp_application(serve)
+    assert os.sched_getaffinity(0) == original_affinity
+
+
 def test_qsp_get_trace(qsp_toolchain: None) -> None:
     """Collect native C++ gates and preserve stored measurement results across batches."""
     application = QspApplication.for_cpp_code("""

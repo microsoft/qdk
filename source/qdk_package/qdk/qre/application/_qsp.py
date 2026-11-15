@@ -97,12 +97,19 @@ class QspApplication(Application[None]):
         Returns:
             The callback's result after the program exits successfully.
 
+        On Linux, the calling thread and child share one CPU during execution;
+        the calling thread's original affinity is restored afterward.
         Callback errors propagate after the child process is stopped.
         """
         if os.name != "posix":
             raise NotImplementedError("QSP execution requires POSIX file descriptors.")
         compiled_exe = self.compile()
         with ExitStack() as pipes:
+            if sys.platform == "linux":
+                original_affinity = os.sched_getaffinity(0)
+                # Avoid cross-core overhead in synchronous pipe exchanges; the child inherits affinity.
+                os.sched_setaffinity(0, {min(original_affinity)})
+                pipes.callback(os.sched_setaffinity, 0, original_affinity)
             instruction_read, instruction_write = os.pipe()
             instructions = pipes.enter_context(
                 os.fdopen(instruction_read, "rb", buffering=0)
