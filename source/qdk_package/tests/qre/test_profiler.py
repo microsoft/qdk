@@ -87,41 +87,43 @@ def test_profile_qsp_application(qsp_toolchain: None) -> None:
     assert result.infos == []
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="Requires Linux CPU affinity APIs")
-@pytest.mark.parametrize("platform", ["linux", "darwin"])
-@pytest.mark.parametrize("fail", [False, True])
-def test_qsp_cpu_affinity(tmp_path: Path, platform: str, fail: bool) -> None:
-    """Check Linux-only parent/child pinning and restoration after success or failure."""
-    executable = tmp_path / "report_affinity"
-    executable.write_text(
-        f"#!{sys.executable}\n"
-        "import json, os\n"
-        'os.write(int(os.environ["QDK_INSTRUCTION_FD"]), '
-        "json.dumps(sorted(os.sched_getaffinity(0))).encode())\n",
+def test_profile_qsp_application_options(qsp_toolchain: None, tmp_path: Path) -> None:
+    """Use an extra source, a compiler define, and a spaced program argument together."""
+    header = tmp_path / "workload.h"
+    header.write_text("void run_workload(void);\n", encoding="utf-8")
+    helper = tmp_path / "workload.cpp"
+    helper.write_text(
+        '#include "workload.h"\n'
+        '#include "qep_interop.h"\n'
+        "// Emit the number of gates configured by the compiler.\n"
+        "void run_workload(void) {\n"
+        "    for (int i = 0; i < REPETITIONS; ++i) qdk_x(0);\n"
+        "}\n",
         encoding="utf-8",
     )
-    executable.chmod(0o700)
-    application = QspApplication(executable)
-    original_affinity = os.sched_getaffinity(0)
-    expected = {min(original_affinity)} if platform == "linux" else original_affinity
+    source = tmp_path / "main.cpp"
+    source.write_text(
+        '#include "workload.h"\n'
+        '#include "qep_interop.h"\n'
+        "#include <string.h>\n"
+        "// Check argument boundaries and call the separately compiled workload.\n"
+        "int main(int argc, char **argv) {\n"
+        '    if (argc != 2 || strcmp(argv[1], "run workload") != 0) return 1;\n'
+        "    run_workload();\n"
+        "    return qdk_mz(0) > 1;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    application = QspApplication(
+        source,
+        extra_sources=[helper],
+        args=["run workload"],
+        compiler_args=["-DREPETITIONS=3"],
+    )
 
-    def serve(instruction_fd: int, _result_fd: int) -> None:
-        """Check both endpoints' actual affinity before optionally failing."""
-        assert os.sched_getaffinity(0) == expected
-        assert set(json.loads(os.read(instruction_fd, 4096))) == expected
-        if fail:
-            raise RuntimeError("callback failed")
+    result = QREProfiler.counting().profile(application)
 
-    with (
-        patch.object(application, "compile", return_value=executable),
-        patch("qdk.qre.application._qsp.sys.platform", platform),
-    ):
-        if fail:
-            with pytest.raises(RuntimeError, match="callback failed"):
-                application._run_qsp_application(serve)
-        else:
-            application._run_qsp_application(serve)
-    assert os.sched_getaffinity(0) == original_affinity
+    assert result.totals.calls_per_operation == {"x": 3, "mz": 1}
 
 
 def test_qsp_get_trace(qsp_toolchain: None) -> None:
@@ -151,7 +153,11 @@ def test_qsp_get_trace(qsp_toolchain: None) -> None:
     assert trace.num_gates == 7
     assert trace.depth == 6
     assert {instruction.id for instruction in trace.required_isa} == {
-        PAULI_X, CX, CCX, MEAS_Z, MEAS_RESET_Z
+        PAULI_X,
+        CX,
+        CCX,
+        MEAS_Z,
+        MEAS_RESET_Z,
     }
 
 

@@ -58,13 +58,21 @@ result = QREProfiler.counting().profile(QspApplication("my_program.cpp"))
 print(result.totals.calls_per_operation)
 ```
 
-`QspApplication.compile()` invokes `c++` (or the command in `CXX`), links the
+`QspApplication.compile()` invokes `cc` (or `CC`) for a `.c` main source using C11,
+and `c++` (or `CXX`) for other sources using C++17. It links the
 release archive, and returns the absolute path of an executable named
 `<source-stem>_qsp` beside the source. Profiling compiles and runs it, connecting
 two dedicated inherited pipes through the environment variables above. Neither
 process's stdin/stdout is redirected, so the C++ program can print normal logs
 to stdout. Compiler failures, nonzero program exits, and protocol errors raise
 exceptions.
+
+Pass `extra_sources=[...]` to compile additional translation units alongside the
+main source, `args=[...]` for executable arguments, and `compiler_args=[...]` for
+additional compiler/linker flags (including `-I`, `-D`, and `-l` options).
+Source paths are resolved from the current working directory. Arguments are passed
+as separate tokens, not split as shell commands. Extra compiler arguments follow
+the interop archive and system libraries so additional libraries link correctly.
 
 The program should call `qdk_` instructions directly, without `qdk_init()` or
 `qdk_save_profile()`. Finish with a measurement/result read to submit buffered
@@ -252,6 +260,11 @@ and saving (including the final buffer flush).
 ```sh
 ./target/release/shor_c --profile 20
 ```
+
+The [Shor native profiling notebook](../qep/demo/ShorsNativeProfile.ipynb) uses
+`QspApplication` with `arithmetic.c` as an extra source and `-lgmp` as a compiler
+argument. It compares external streaming (`--run-random 100`) with an in-process
+counting profile (`--profile 100`) loaded from JSON.
 
 The Fortran example accepts the number directly and defaults to 187:
 

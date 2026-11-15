@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 import os
@@ -25,10 +25,20 @@ _Result = TypeVar("_Result")
 class QspApplication(Application[None]):
     """Quantum program written in compiled language using QSP function calls.
 
-    Currently supports C++ in a QDK source checkout on Linux and macOS.
+    Supports C and C++ in a QDK source checkout on Linux and macOS.
+
+    Args:
+        source_path: Main source file.
+        extra_sources: Additional source files to compile and link.
+        args: Command-line arguments passed to the executable.
+        compiler_args: Extra compiler/linker arguments, appended after the archive
+            and system libraries. Use these for include paths, defines, and libraries.
     """
 
-    source_path: str | Path  # C++ source.
+    source_path: str | Path
+    extra_sources: Sequence[str | Path] = ()
+    args: Sequence[str] = ()
+    compiler_args: Sequence[str] = ()
     _source_directory: TemporaryDirectory[str] | None = field(
         default=None, init=False, repr=False, compare=False
     )
@@ -48,15 +58,18 @@ class QspApplication(Application[None]):
         return application
 
     def compile(self) -> Path:
-        """Compile C++ against the release interop archive and return its executable.
+        """Compile sources against the release interop archive and return its executable.
 
         Requires ``cargo build --release -p qep_interop`` in the checkout.
-        Uses ``CXX`` when set, otherwise ``c++``. Compiler failures propagate as
+        A ``.c`` main source uses ``CC`` (default ``cc``) and C11; other sources
+        use ``CXX`` (default ``c++``) and C++17. Relative source paths are resolved
+        from the current working directory. Compiler failures propagate as
         ``subprocess.CalledProcessError``, with diagnostics on stderr.
         """
         if sys.platform not in {"linux", "darwin"}:
             raise NotImplementedError("QSP compilation supports Linux and macOS only.")
         source = Path(self.source_path).resolve(strict=True)
+        extra_sources = [Path(path).resolve(strict=True) for path in self.extra_sources]
         repository = Path(__file__).resolve().parents[5]
         include = repository / "source" / "qep_interop" / "include"
         library = repository / "target" / "release" / "libqep_interop.a"
@@ -68,16 +81,20 @@ class QspApplication(Application[None]):
             )
         executable = source.with_name(f"{source.stem}_qsp")
         libraries = ["-ldl", "-lpthread", "-lm"] if sys.platform == "linux" else []
+        is_c = source.suffix == ".c"
+        compiler = os.environ.get("CC", "cc") if is_c else os.environ.get("CXX", "c++")
         subprocess.run(
             [
-                *shlex.split(os.environ.get("CXX", "c++")),
-                "-std=c++17",
+                *shlex.split(compiler),
+                "-std=c11" if is_c else "-std=c++17",
                 "-O2",
                 "-I",
                 str(include),
                 str(source),
+                *(str(path) for path in extra_sources),
                 str(library),
                 *libraries,
+                *self.compiler_args,
                 "-o",
                 str(executable),
             ],
@@ -121,7 +138,7 @@ class QspApplication(Application[None]):
             child_results = pipes.enter_context(os.fdopen(result_read, "rb", buffering=0))
             results = pipes.enter_context(os.fdopen(result_write, "wb", buffering=0))
             with subprocess.Popen(
-                [str(compiled_exe)],
+                [str(compiled_exe), *self.args],
                 pass_fds=(child_instructions.fileno(), child_results.fileno()),
                 env={
                     **os.environ,
