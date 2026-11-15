@@ -1,0 +1,78 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! [`Kernels`]: the steps of the crate's computations that a linear
+//! algebra library provides, so that the library is one file.
+//!
+//! The SVD's rules are the crate's own and computed once, on top of these
+//! steps: the checks, the trim's choice of rows, the scaling, the one-sided
+//! Jacobi rotations and the rule that routes a matrix to the fast route.
+//! A library brings only what it computes faster or better than code
+//! written here: the product, the thin QR, the column-pivoted QR and the
+//! application of its `Q`, and the fast route's SVD.
+//!
+//! [`Shipped`] is the implementation the public API computes with.
+
+#[cfg(feature = "kernels-nalgebra")]
+pub(crate) mod nalgebra;
+#[cfg(not(feature = "kernels-nalgebra"))]
+mod t4a_faer;
+
+use crate::matrix::{Matrix, MatrixRef};
+use crate::qr::Qr;
+use crate::svd::ColumnMajorSvd;
+use num_complex::Complex64;
+
+/// The implementation of [`Kernels`] the public API computes with.
+#[cfg(not(feature = "kernels-nalgebra"))]
+pub(crate) type Shipped = self::t4a_faer::T4aFaer;
+
+/// The implementation of [`Kernels`] the public API computes with.
+#[cfg(feature = "kernels-nalgebra")]
+pub(crate) type Shipped = self::nalgebra::Nalgebra;
+
+/// The steps a linear algebra library computes for the crate, each on the
+/// calling thread.
+pub(crate) trait Kernels {
+    /// What [`Kernels::q_kept_times`] needs of a column-pivoted QR to apply
+    /// its `Q`: its reflectors, or `Q` itself.
+    type Q;
+
+    /// The product `a·b`; `a.cols()` equals `b.rows()`.
+    fn product(a: MatrixRef<'_>, b: MatrixRef<'_>) -> Matrix;
+
+    /// The thin QR decomposition of `a`, as [`Qr::of`] states it.
+    fn qr(a: MatrixRef<'_>) -> Qr;
+
+    /// The column-pivoted QR decomposition `a·P = Q·R` of `a`, thin.
+    fn pivoted_qr(a: MatrixRef<'_>) -> PivotedQr<Self::Q>;
+
+    /// `Q_kept·x`, column-major, as many rows as `qr`'s `A`: `Q_kept` the
+    /// columns `kept` (increasing) of `qr`'s `Q`, `x` `kept.len() × rank`,
+    /// column-major.
+    fn q_kept_times(
+        qr: &PivotedQr<Self::Q>,
+        kept: &[usize],
+        x: &[Complex64],
+        rank: usize,
+    ) -> Vec<Complex64>;
+
+    /// The fast route's SVD: `w = U·diag(S)·V†` of the `rows × cols`
+    /// matrix `w`, column-major, `rows ≥ cols ≥ 1`, with one value per
+    /// column; or `None` when it reports a failure. Its factors are not
+    /// trusted: the SVD checks them, and factors `w` by the rotations
+    /// when they are not finite.
+    fn tall_svd(rows: usize, cols: usize, w: &[Complex64]) -> Option<ColumnMajorSvd>;
+}
+
+/// A column-pivoted QR decomposition `A·P = Q·R` of a `rows × cols`
+/// matrix `A`, thin: `R` is `min(rows, cols) × cols`, upper trapezoidal.
+pub(crate) struct PivotedQr<Q> {
+    /// `R`.
+    pub(crate) r: Matrix,
+    /// The permutation: column `j` of `R` is column `forward[j]` of `A`,
+    /// so that `(R·Pᵀ)[i, forward[j]] = R[i, j]`.
+    pub(crate) forward: Vec<usize>,
+    /// What [`Kernels::q_kept_times`] needs of `Q`.
+    pub(crate) q: Q,
+}
