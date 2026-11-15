@@ -177,7 +177,7 @@ impl Contraction {
         }
     }
 
-    /// As [`sized`](Self::sized), and prepared.
+    /// As [`sized`](Self::sized), its device scratch lent, and prepared.
     fn prepared(
         fake: FakeLibraries,
         inputs: [TensorModes<'_>; 2],
@@ -185,9 +185,10 @@ impl Contraction {
         output: TensorModes<'_>,
     ) -> Self {
         let contraction = Self::sized(fake, inputs, data, output);
+        contraction.device.lend(WorkspaceSlot::DeviceScratch);
         contraction
             .prepare()
-            .expect("the workspace is sized for the path");
+            .expect("the workspace is sized for the path and lent");
         contraction
     }
 
@@ -635,7 +636,6 @@ fn the_fake_contracts_as_the_labels_say() {
             modes: &[j, i],
         },
     );
-    contraction.device.lend(WorkspaceSlot::DeviceScratch);
     contraction.contract().expect("the workspace is lent");
     let mut expected = vec![Complex64::default(); 4];
     for (ji, element) in expected.iter_mut().enumerate() {
@@ -676,19 +676,14 @@ fn a_tensor_call_needs_memory_in_every_slot_that_asks_for_it() {
 /// fake.
 #[test]
 fn a_tensor_call_needs_at_least_what_each_slot_asks_for() {
-    let contraction = Contraction::dot_product(FakeLibraries::new());
-    let asked = contraction.device.asked(WorkspaceSlot::DeviceScratch);
-    contraction
-        .device
+    let qr = TensorQr::sized(FakeLibraries::new(), 3);
+    let asked = qr.device.asked(WorkspaceSlot::DeviceScratch);
+    qr.device
         .lend_bytes(WorkspaceSlot::DeviceScratch, asked - 1);
-    contraction
-        .contract()
+    qr.run_on(qr.device.stream)
         .expect_err("the device scratch is one byte short");
-    contraction
-        .device
-        .lend_bytes(WorkspaceSlot::DeviceScratch, asked);
-    contraction
-        .contract()
+    qr.device.lend_bytes(WorkspaceSlot::DeviceScratch, asked);
+    qr.run_on(qr.device.stream)
         .expect("the device scratch is lent in full");
 }
 
@@ -1230,7 +1225,6 @@ fn a_tensor_descriptor_refuses_a_repeated_mode() {
 fn a_copy_to_the_host_needs_the_stream_synchronized() {
     let contraction = Contraction::dot_product(FakeLibraries::new());
     let device = &contraction.device;
-    device.lend(WorkspaceSlot::DeviceScratch);
     contraction.contract().expect("the network is prepared");
     let mut output = [Complex64Abi::default()];
     device
@@ -1286,6 +1280,7 @@ fn an_empty_copy_is_refused() {
 #[test]
 fn a_contraction_needs_an_optimized_path() {
     let device = Device::new(FakeLibraries::new());
+    device.lend(WorkspaceSlot::DeviceScratch);
     let (fake, handle, workspace) = (&device.fake, device.handle, device.workspace);
     let network = fake
         .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
@@ -1359,6 +1354,7 @@ fn a_contraction_workspace_is_sized_with_an_info_of_its_network() {
 #[test]
 fn a_contraction_is_prepared_in_a_workspace_sized_for_its_path() {
     let device = Device::new(FakeLibraries::new());
+    device.lend(WorkspaceSlot::DeviceScratch);
     let (fake, handle, workspace) = (&device.fake, device.handle, device.workspace);
     let network = fake
         .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
@@ -1375,6 +1371,55 @@ fn a_contraction_is_prepared_in_a_workspace_sized_for_its_path() {
         .expect("the path is optimized");
     fake.prepare_contraction(handle, network, workspace)
         .expect("the workspace is sized for the path");
+}
+
+/// cuTensorNet checks the device scratch's size when it prepares a
+/// network: a caller that prepares before lending the workspace its memory
+/// is caught on the fake.
+#[test]
+fn a_contraction_is_prepared_with_its_device_scratch_lent() {
+    let ones = [Complex64::new(1.0, 0.0); 2];
+    let contraction = Contraction::sized(
+        FakeLibraries::new(),
+        DOT_PRODUCT_INPUTS,
+        [&ones, &ones],
+        DOT_PRODUCT_OUTPUT,
+    );
+    contraction
+        .prepare()
+        .expect_err("the device scratch is not lent");
+    contraction.device.lend(WorkspaceSlot::DeviceScratch);
+    contraction
+        .prepare()
+        .expect("the device scratch is lent what it asks for");
+}
+
+/// cuTensorNet contracts with at least the device scratch it was prepared
+/// with: a caller that prepares a network with a large scratch, then lends
+/// a smaller one to contract it, is caught on the fake.
+#[test]
+fn a_contraction_needs_at_least_the_scratch_lent_at_its_preparation() {
+    let ones = [Complex64::new(1.0, 0.0); 2];
+    let contraction = Contraction::sized(
+        FakeLibraries::new(),
+        DOT_PRODUCT_INPUTS,
+        [&ones, &ones],
+        DOT_PRODUCT_OUTPUT,
+    );
+    let device = &contraction.device;
+    let asked = device.asked(WorkspaceSlot::DeviceScratch);
+    device.lend_bytes(WorkspaceSlot::DeviceScratch, 2 * asked);
+    contraction
+        .prepare()
+        .expect("the device scratch is lent more than it asks for");
+    device.lend_bytes(WorkspaceSlot::DeviceScratch, 2 * asked - 1);
+    contraction
+        .contract()
+        .expect_err("the device scratch is one byte short of the preparation's");
+    device.lend_bytes(WorkspaceSlot::DeviceScratch, 2 * asked);
+    contraction
+        .contract()
+        .expect("the device scratch is the preparation's");
 }
 
 /// cuTensorNet's optimizer infos refer to their network: a caller that
@@ -1489,7 +1534,6 @@ fn a_prepared_network_contracts_new_buffers_each_time() {
         DOT_PRODUCT_OUTPUT,
     );
     let device = &contraction.device;
-    device.lend(WorkspaceSlot::DeviceScratch);
     contraction.contract().expect("the network is prepared");
     let second = [
         [Complex64::new(5.0, 0.0), Complex64::new(0.0, 6.0)],
@@ -1638,7 +1682,6 @@ fn a_tensor_call_runs_on_a_live_stream() {
         .expect("the gate split's stream is live");
     qr_on(3, destroyed_stream).expect_err("the QR's stream is destroyed");
     let contraction = Contraction::dot_product(FakeLibraries::new());
-    contraction.device.lend(WorkspaceSlot::DeviceScratch);
     contraction
         .contract_on(destroyed_stream(&contraction.device))
         .expect_err("the contraction's stream is destroyed");

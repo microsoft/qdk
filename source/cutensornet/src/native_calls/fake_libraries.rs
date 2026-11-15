@@ -211,12 +211,13 @@ enum Object {
     /// An SVD info, and what the last gate split given it truncated.
     SvdInfo(Option<super::tensor_calls::SvdTruncation>),
     /// A contraction network: the info whose path it was last optimized
-    /// to, and whether it is prepared along that path.
+    /// to, and, once prepared along that path, the device scratch bytes
+    /// lent at the preparation.
     Network {
         inputs: [TensorShape; 2],
         output: TensorShape,
         path: Option<usize>,
-        prepared: bool,
+        prepared: Option<i64>,
     },
     OptimizerInfo {
         network: usize,
@@ -489,6 +490,20 @@ impl Inner {
         match lent[slot_index(WorkspaceSlot::DeviceScratch)] {
             Some((scratch, _)) => Ok(size_of_val(self.buffer(scratch, operation)?)),
             None => Ok(0),
+        }
+    }
+
+    /// The bytes `workspace` lends its device scratch, 0 if none.
+    fn lent_scratch_bytes(
+        &self,
+        workspace: OpaqueHandle,
+        operation: &'static str,
+    ) -> Result<i64, NativeError> {
+        match self.objects.get(&id(workspace)) {
+            Some(Object::Workspace { lent, .. }) => {
+                Ok(lent[slot_index(WorkspaceSlot::DeviceScratch)].map_or(0, |(_, bytes)| bytes))
+            }
+            _ => Err(failed(operation, "no such workspace")),
         }
     }
 

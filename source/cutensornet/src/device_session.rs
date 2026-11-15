@@ -12,10 +12,7 @@
 //! the order the caller issued them, and one synchronization waits for all
 //! of it. A cuTensorNet handle is the library's context; every native
 //! object (a state, a workspace descriptor, a tensor descriptor) belongs
-//! to the handle it was created on, and must be released before it. The
-//! engine restarts a state on a handle of its own
-//! (`engine/native_state.rs`), so the session's handle is the one its new
-//! states start on.
+//! to the handle it was created on, and must be released before it.
 //!
 //! `DeviceSession` selects the device, then creates the stream and the
 //! handle, and releases them when dropped, the handle first. It is `!Send`

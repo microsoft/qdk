@@ -18,8 +18,9 @@
 //! - an optimizer info serves only the network it was created for: its
 //!   path is searched, and a workspace sized, for that network alone;
 //! - a network is prepared only once optimized, in a workspace sized for
-//!   its path, and contracted only once prepared; it outlives its optimizer
-//!   infos;
+//!   its path and lent at least the device scratch it asks for, and
+//!   contracted only once prepared, with at least the device scratch lent
+//!   at its preparation; it outlives its optimizer infos;
 //! - a gate split, a QR or a contraction runs on a live stream;
 //! - a gate split's shared extent does not exceed the smaller side of its
 //!   matrix θ, and a QR's equals the smaller side of its matrix;
@@ -38,7 +39,8 @@
 //! whatever the path. It need not model slicing, since the loaded libraries
 //! disable it, and a path cuTensorNet sliced anyway is still contracted
 //! whole (`TensorCalls::optimize_contraction`), so a caller sees the same
-//! result either way.
+//! result either way. It ignores the path search's workspace limit, which
+//! cuTensorNet's optimizer takes as a constraint the path may exceed.
 //!
 //! A gate split's report and outputs follow cuTensorNet's. Under a
 //! discarded-weight cutoff (any value set, 0 included, asks for a truncation by
@@ -61,6 +63,7 @@ use super::{
 use crate::native_calls::error::NativeError;
 use crate::native_calls::{
     OpaqueHandle, Stream,
+    memory_calls::WorkspaceSlot,
     tensor_calls::{
         ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
         TensorCalls, TensorModes, TensorOperand,
@@ -420,7 +423,7 @@ impl TensorCalls for FakeLibraries {
                 inputs,
                 output,
                 path: None,
-                prepared: false,
+                prepared: None,
             },
         )?;
         Ok(ContractionNetwork {
@@ -491,7 +494,7 @@ impl TensorCalls for FakeLibraries {
         }
         if let Some(Object::Network { path, prepared, .. }) = inner.objects.get_mut(&id(network)) {
             *path = Some(id(info));
-            *prepared = false;
+            *prepared = None;
         }
         Ok(())
     }
@@ -522,14 +525,28 @@ impl TensorCalls for FakeLibraries {
         const OPERATION: &str = "prepare_contraction";
         let mut inner = self.call(OPERATION)?;
         let (path, _) = inner.network(handle, network, OPERATION)?;
+        // `sized_for` below refuses an unoptimized network too, since only
+        // an optimized path can be sized for; this check names the cause.
         let info = path.ok_or_else(|| failed(OPERATION, "the network is not optimized"))?;
         let call = SizedFor::Contraction {
             network: id(network),
             info,
         };
         inner.sized_for(handle, workspace, call, OPERATION)?;
+        // cuTensorNet validates the device scratch's size at preparation,
+        // against the minimum the path needs, and `contract` then needs at
+        // least the size set here (`cutensornetWorkspaceSetMemory`'s and
+        // `cutensornetNetworkContract`'s notes, `generated/v2_13.rs`).
+        let asked = inner.recommended_bytes(WorkspaceSlot::DeviceScratch);
+        let scratch = inner.lent_scratch_bytes(workspace, OPERATION)?;
+        if scratch < asked {
+            return Err(failed(
+                OPERATION,
+                "the device scratch is lent less than it asks for",
+            ));
+        }
         if let Some(Object::Network { prepared, .. }) = inner.objects.get_mut(&id(network)) {
-            *prepared = true;
+            *prepared = Some(scratch);
         }
         Ok(())
     }
@@ -548,7 +565,7 @@ impl TensorCalls for FakeLibraries {
         inner.require(stream, OPERATION, |o| matches!(o, Object::Stream))?;
         let network = network.descriptor;
         let (path, prepared) = inner.network(handle, network, OPERATION)?;
-        let (Some(info), true) = (path, prepared) else {
+        let (Some(info), Some(prepared_scratch)) = (path, prepared) else {
             return Err(failed(OPERATION, "the network is not prepared"));
         };
         inner.sized_for(
@@ -561,6 +578,12 @@ impl TensorCalls for FakeLibraries {
             OPERATION,
         )?;
         inner.lent_scratch(workspace, OPERATION)?;
+        if inner.lent_scratch_bytes(workspace, OPERATION)? < prepared_scratch {
+            return Err(failed(
+                OPERATION,
+                "the device scratch is lent less than at the network's preparation",
+            ));
+        }
         let Some(Object::Network {
             inputs: shapes,
             output: output_shape,
@@ -1015,13 +1038,14 @@ impl Inner {
     }
 
     /// The info whose path `network`, which must belong to `handle`, was
-    /// last optimized to, and whether it is prepared along it.
+    /// last optimized to, and, once prepared along it, the device scratch
+    /// bytes lent at the preparation.
     fn network(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
         operation: &'static str,
-    ) -> Result<(Option<usize>, bool), NativeError> {
+    ) -> Result<(Option<usize>, Option<i64>), NativeError> {
         self.owned(handle, network, operation)?;
         match self.objects.get(&id(network)) {
             Some(&Object::Network { path, prepared, .. }) => Ok((path, prepared)),

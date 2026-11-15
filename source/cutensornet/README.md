@@ -43,7 +43,7 @@ flowchart TD
   E -->|"prepare, fork"| S["<b>CuTensorNetState</b>"]
   S -->|holds| NS["<b>NativeState</b><br/>one cuTensorNet state,<br/>the computed MPS"]
   NS -->|"runs in"| DS
-  DS -->|"every native call,<br/>its own and its states'"| NC["<b>NativeCalls</b><br/>SessionCalls, MemoryCalls,<br/>StateCalls"]
+  DS -->|"every native call,<br/>its own and its states'"| NC["<b>NativeCalls</b><br/>SessionCalls, MemoryCalls,<br/>StateCalls, TensorCalls"]
   LL["<b>LoadedLibraries</b>"] -.->|implements| NC
 ```
 
@@ -59,21 +59,20 @@ flowchart TD
   and its native states share it, so it closes after the last of them.
 - [`NativeState`](src/engine/native_state.rs) computes its cuTensorNet
   state into an MPS only when a read needs it ([Phases](#phases)).
-- [`NativeCalls`](src/native_calls.rs) is every call the crate makes
-  to the CUDA Runtime and cuTensorNet, by kind: the session's, device
-  memory's, the states', and the tensor API's (gate splits, QRs,
-  contractions), which the planned GPU site algebra will make. The engine
-  calls nothing else, so it also runs
-  in the [host tests](src/tests/engine.rs), which have no GPU. On a GPU, the
-  [`LoadedLibraries`](src/libraries.rs) that discovery loaded answer them:
-  `CuTensorNetEngine::new` takes them from an `Availability`.
+- [`NativeCalls`](src/native_calls.rs) is every call the crate makes to the
+  CUDA Runtime and cuTensorNet, by kind: the session's, device memory's, the
+  states', and the tensor API's (gate splits, QRs, contractions), which a
+  planned GPU site algebra for a canonical MPS will make. The engine calls
+  nothing else, so it also runs in the [host tests](src/tests/engine.rs),
+  which have no GPU. On a GPU, the [`LoadedLibraries`](src/libraries.rs) that
+  discovery loaded answer them: `CuTensorNetEngine::new` takes them from an
+  `Availability`.
 
 The settings the engine fixes, with how each was chosen, are in
 [`src/engine/policy.rs`](src/engine/policy.rs);
 [`src/engine.rs`](src/engine.rs) maps its files. `DeviceSession` and
 `NativeCalls` sit at the crate's root, beside `src/engine/`, not in it: the
-engine uses them, and so will a planned GPU site algebra for a canonical MPS,
-so they belong to neither.
+engine uses them, and so will that site algebra, so they belong to neither.
 
 ### Phases
 

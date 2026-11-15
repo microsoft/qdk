@@ -42,11 +42,13 @@ use crate::native_calls::error::NativeError;
 /// given a path ([`optimize_contraction`](Self::optimize_contraction)), a
 /// workspace sized for it
 /// ([`contraction_workspace_sizes`](Self::contraction_workspace_sizes)) and
-/// prepared ([`prepare_contraction`](Self::prepare_contraction)) once, then
+/// lent its memory (`MemoryCalls::set_workspace`), and prepared
+/// ([`prepare_contraction`](Self::prepare_contraction)) once, then
 /// contracted any number of times, each time on the buffers given to
-/// [`contract`](Self::contract), so a caller may keep one network per
-/// shape. A new path needs a new sizing and preparation. Its optimizer
-/// infos are destroyed before it.
+/// [`contract`](Self::contract) and with at least the device scratch lent
+/// at the preparation, so a caller may keep one network per shape. A new
+/// path needs a new sizing and preparation. Its optimizer infos are
+/// destroyed before it.
 pub(crate) trait TensorCalls: MemoryCalls {
     /// Fails unless the library exports every function of the tensor API,
     /// naming each missing one (`NativeError::MissingNativeFunctions`).
@@ -158,15 +160,20 @@ pub(crate) trait TensorCalls: MemoryCalls {
         network: OpaqueHandle,
     ) -> Result<OpaqueHandle, NativeError>;
     fn destroy_optimizer_info(&self, info: OpaqueHandle) -> Result<(), NativeError>;
-    /// Finds a contraction path for `network` within `workspace_limit`
-    /// bytes, into `info` and the network; the optimizer's configuration is
-    /// created and destroyed inside.
+    /// Finds a contraction path for `network`, into `info` and the network,
+    /// passing `workspace_limit` bytes as the optimizer's memory
+    /// constraint; the optimizer's configuration is created and destroyed
+    /// inside. The path's workspace may exceed the limit, since slicing is
+    /// disabled (below); [`contraction_workspace_sizes`] gives what it
+    /// needs.
     ///
     /// Slicing is disabled, so the path contracts the network in one
     /// contraction per call: slicing trades memory for one contraction per
     /// slice, and a pairwise contraction needs no such trade. Should a
     /// path come back sliced anyway, [`contract`](Self::contract) still
     /// contracts every slice, so its result stays whole.
+    ///
+    /// [`contraction_workspace_sizes`]: Self::contraction_workspace_sizes
     fn optimize_contraction(
         &self,
         handle: OpaqueHandle,
@@ -183,7 +190,10 @@ pub(crate) trait TensorCalls: MemoryCalls {
         workspace: OpaqueHandle,
     ) -> Result<(), NativeError>;
     /// Prepares `network` to be contracted along the path it was last
-    /// optimized to, in `workspace`, which must be sized for that path.
+    /// optimized to, in `workspace`, which must be sized for that path and
+    /// lent its memory (`MemoryCalls::set_workspace`): cuTensorNet checks
+    /// the device scratch's size here, and [`contract`](Self::contract)
+    /// needs at least the device scratch lent at this preparation.
     fn prepare_contraction(
         &self,
         handle: OpaqueHandle,
@@ -280,10 +290,10 @@ pub(crate) struct SvdTruncation {
     /// The extent of the shared mode as U and V hold it.
     pub(crate) reduced_extent: i64,
     /// The extent of the shared mode without truncation: the smaller side
-    /// of the smallest equivalent matrix SVD problem. The fake libraries
-    /// report the smaller side of the product as a matrix; under
-    /// `CUTENSORNET_GATE_SPLIT_ALGO_REDUCED`, cuTensorNet may report less,
-    /// which no GPU run has checked yet.
+    /// of the smallest equivalent matrix SVD problem. Under
+    /// `CUTENSORNET_GATE_SPLIT_ALGO_REDUCED`, that problem may be smaller
+    /// than the product of A, B and the gate as a matrix, which no GPU run
+    /// has checked yet.
     pub(crate) full_extent: i64,
     /// The squared sum of the dropped singular values over that of all.
     pub(crate) discarded_weight: f64,
