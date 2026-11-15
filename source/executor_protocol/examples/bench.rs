@@ -12,11 +12,12 @@
 //!
 //! The executors only count what they get, so the time is the protocol's
 //! and the parts' own. Each variant is checked on every run: it must count
-//! what the program holds (or, in F, answer what the direct call answers,
-//! and its composing must compose). It runs once untimed before it is
-//! timed, and keeps the best of 7. W has no untimed run, and keeps the best
-//! of up to 5 runs' median call. D, F and W send every batch unchecked, the
-//! default, or [`checked`](Batch::checked) with `--checked`; C runs both.
+//! what the program holds, received in batches checked as its flag asks
+//! (or, in F, answer what the direct call answers, and its composing must
+//! compose). It runs once untimed before it is timed, and keeps the best
+//! of 7. W has no untimed run, and keeps the best of up to 5 runs' median
+//! call. D, F and W send every batch unchecked, the default, or
+//! [`checked`](Batch::checked) with `--checked`; C runs both.
 //! D, C and W draw the common mix, or the parity-heavy one with
 //! `--parity-heavy`. Run it with `cargo run --release --example bench`,
 //! followed by at most one of `D`, `C`, `F` and `W`, and the flags.
@@ -180,17 +181,22 @@ fn main() {
 fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix) {
     let wants = |section: &str| only.is_none_or(|only| only == section);
     println!(
-        "{} instructions of the {} mix, best of {}; an instruction is {} bytes; batches {}",
-        size.instructions,
-        match mix {
-            Mix::Common => "common",
-            Mix::ParityHeavy => "parity-heavy",
-        },
-        size.repeats,
+        "an instruction is {} bytes; batches {}",
         size_of::<Instruction>(),
         if checked { "checked" } else { "unchecked" }
     );
+    if wants("D") || wants("C") || wants("F") {
+        println!("D, C and F: the best of {} runs", size.repeats);
+    }
     if wants("D") || wants("C") || wants("W") {
+        println!(
+            "D, C and W: {} instructions of the {} mix",
+            size.instructions,
+            match mix {
+                Mix::Common => "common",
+                Mix::ParityHeavy => "parity-heavy",
+            },
+        );
         let draws = draws(size.instructions, mix);
         let program = build(&draws);
         if wants("D") {
@@ -236,7 +242,7 @@ fn chains_bench(size: &Size, program: &[Instruction], checked: bool) {
         "  {:>7} {:>8} {:>20} {:>20} {:>20}",
         "batch", "direct", "≫P", "≫F≫P", "≫F≫F≫P"
     );
-    let expected = Profile::of(program);
+    let expected = Profile::of(program, checked);
     for batch in [1, 10, 100, 1_000, 10_000] {
         let time = |chain| {
             best(size.repeats, &expected, || {
@@ -300,13 +306,11 @@ fn run_chain(program: &[Instruction], batch: usize, chain: Chain, checked: bool)
 /// difference, since they run inside the protocol; and building an
 /// instruction by name, which checks it too. A boundary's cost without the
 /// checks is its cost per call (the answer's shape check, the catch of a
-/// panic, one `Checked` call) and the readout slots of each instruction's
-/// opcode.
+/// panic, one `Checked` call).
 fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
     println!("\nC. the checks, ns/instr (per call, where given)");
-    let expected = Profile::of(program);
     let time = |batch, chain, checked| {
-        best(size.repeats, &expected, || {
+        best(size.repeats, &Profile::of(program, checked), || {
             run_chain(program, batch, chain, checked)
         })
     };
@@ -433,12 +437,21 @@ fn lowering_bench(size: &Size, checked: bool) {
         "  {:>12} {:>16} {:>16} {:>16} {:>22}",
         "logical/call", "physical direct", "physical ≫sink", "lowered", "overhead per physical"
     );
-    let direct_answer = sink_direct(&physical, 3 * 6);
-    let lowered_answer = (direct_answer.0, majority_of_threes(&direct_answer.1));
+    let direct_answer = sink_direct(&physical, 3 * 6, checked);
+    assert_eq!(
+        direct_answer.1,
+        BatchKinds::only(checked),
+        "the sink got batches checked as the flag asks"
+    );
+    let lowered_answer = (
+        direct_answer.0,
+        direct_answer.1,
+        majority_of_threes(&direct_answer.2),
+    );
     let n = physical.len();
     for batch in [6, 60, 600, 6_000] {
         let direct = best(size.repeats, &direct_answer, || {
-            sink_direct(&physical, 3 * batch)
+            sink_direct(&physical, 3 * batch, checked)
         });
         let bare = best(size.repeats, &direct_answer, || {
             let mut sink = Sink::new();
@@ -448,7 +461,7 @@ fn lowering_bench(size: &Size, checked: bool) {
                         .checked_if(checked),
                 ) >> Executor::new(&mut sink),
             );
-            (sink.seen, received.values)
+            (sink.seen, sink.kinds, received.values)
         });
         let lowered = best(size.repeats, &lowered_answer, || {
             let mut sink = Sink::new();
@@ -459,7 +472,7 @@ fn lowering_bench(size: &Size, checked: bool) {
                 ) >> Adapter::new(Repetition3::new())
                     >> Executor::new(&mut sink),
             );
-            (sink.seen, received.values)
+            (sink.seen, sink.kinds, received.values)
         });
         println!(
             "  {batch:>12} {:>13.2} ns {:>13.2} ns {:>13.2} ns {:>19.2} ns",
@@ -495,15 +508,21 @@ fn compose_time<'p>(
         .fold(f64::INFINITY, f64::min)
 }
 
-/// The physical program sent straight to a sink, `batch` per `execute`:
-/// the instructions the sink saw, and its readouts.
-fn sink_direct(physical: &[Instruction], batch: usize) -> (u64, Vec<ReadoutValue>) {
+/// The physical program sent straight to a sink, `batch` per `execute`,
+/// each [`checked`](Batch::checked) if `checked`: the instructions the
+/// sink saw, the kinds of batches it got, and its readouts.
+fn sink_direct(
+    physical: &[Instruction],
+    batch: usize,
+    checked: bool,
+) -> (u64, BatchKinds, Vec<ReadoutValue>) {
     let mut sink = Sink::new();
-    let in_batches = ProgramInBatches::new(PhysicalGates::set(), physical, 6, batch);
+    let in_batches =
+        ProgramInBatches::new(PhysicalGates::set(), physical, 6, batch).checked_if(checked);
     // No boundary sees a batch: `Direct` sends past the chain.
     let received =
         run_once(Driver::new(Direct(in_batches, &mut sink)) >> Executor::new(Sink::new()));
-    (sink.seen, received.values)
+    (sink.seen, sink.kinds, received.values)
 }
 
 /// Each three values' majority, as the lowering reads a logical qubit.
@@ -645,11 +664,13 @@ fn read_logical(physical: &BatchReadouts, readouts: &mut Readouts) {
 
 /// An executor of `PhysicalGates` that only counts what it gets, answering
 /// each `mz` by its place in the stream, so that two chains sending the same
-/// stream get the same readouts; it may record the stream.
+/// stream get the same readouts; it notes the kinds of batches it gets, and
+/// may record the stream.
 struct Sink {
     set: InstructionSet,
     /// The instructions seen so far.
     seen: u64,
+    kinds: BatchKinds,
     record: Option<Vec<Instruction>>,
 }
 
@@ -658,6 +679,7 @@ impl Sink {
         Self {
             set: PhysicalGates::set(),
             seen: 0,
+            kinds: BatchKinds::default(),
             record: None,
         }
     }
@@ -688,6 +710,7 @@ impl Execute for Sink {
         let mut row = Vec::new();
         for batch in batches {
             row.clear();
+            self.kinds.record(batch.is_checked());
             for instruction in batch.instructions {
                 self.seen += 1;
                 if instruction.opcode == PhysicalGates::MZ {
@@ -727,7 +750,7 @@ fn worker_bench(size: &Size, program: &[Instruction], checked: bool) {
     );
     for batch in [1, 100, 10_000, 100_000] {
         let program = &program[..program.len().min(batch * size.most_calls)];
-        let expected = Profile::of(program);
+        let expected = Profile::of(program, checked);
         let worker = median_call(repeats, || {
             let mut worker = FromWorker::spawn();
             let mut in_batches =
@@ -785,8 +808,9 @@ struct FromWorker {
     handover: Arc<Mutex<Handover>>,
 }
 
-/// An `execute`'s batches, copied: each one's shots and instructions.
-type Job = Vec<(ShotSet, Vec<Instruction>)>;
+/// An `execute`'s batches, copied: each one's shots, instructions and
+/// whether it is checked.
+type Job = Vec<(ShotSet, Vec<Instruction>, bool)>;
 
 /// The worker's answer, once ready, and the waker to wake then.
 #[derive(Default)]
@@ -806,8 +830,8 @@ impl FromWorker {
                 for job in inbox {
                     let answer = job
                         .iter()
-                        .map(|(shots, instructions)| {
-                            profile.record(instructions);
+                        .map(|(shots, instructions, checked)| {
+                            profile.record(instructions, *checked);
                             no_readouts(shots.len())
                         })
                         .collect();
@@ -853,7 +877,13 @@ impl Execute for FromWorker {
     ) -> Result<(), ExecuteError> {
         let job = batches
             .iter()
-            .map(|batch| (batch.shots.clone(), batch.instructions.to_vec()))
+            .map(|batch| {
+                (
+                    batch.shots.clone(),
+                    batch.instructions.to_vec(),
+                    batch.is_checked(),
+                )
+            })
             .collect();
         let jobs = self.jobs.as_ref().expect("the worker runs until `finish`");
         jobs.send(job)
@@ -1051,8 +1081,9 @@ impl Adapt for Forward {
     }
 }
 
-/// An executor of `MixGates` that counts each opcode and the highest qubit:
-/// as cheap an executor as one that reads every instruction can be.
+/// An executor of `MixGates` that counts each opcode, the highest qubit and
+/// the kinds of batches: as cheap an executor as one that reads every
+/// instruction can be.
 struct Profiler {
     set: InstructionSet,
     offer: Capabilities,
@@ -1065,6 +1096,34 @@ struct Profile {
     /// Each gate's count, in `MIX`'s order.
     counts: [u64; MIX.len()],
     top_qubit: Option<u32>,
+    kinds: BatchKinds,
+}
+
+/// Whether a part received checked batches, unchecked ones, or both: what
+/// shows that a run sent what its flag asks, so a row labelled checked
+/// timed checked batches.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct BatchKinds {
+    checked: bool,
+    unchecked: bool,
+}
+
+impl BatchKinds {
+    /// The kinds of batches received, only `checked` ones or only
+    /// unchecked ones.
+    fn only(checked: bool) -> Self {
+        let mut kinds = Self::default();
+        kinds.record(checked);
+        kinds
+    }
+
+    fn record(&mut self, checked: bool) {
+        if checked {
+            self.checked = true;
+        } else {
+            self.unchecked = true;
+        }
+    }
 }
 
 impl Profiler {
@@ -1078,14 +1137,17 @@ impl Profiler {
 }
 
 impl Profile {
-    /// What a profiler counts of `program`.
-    fn of(program: &[Instruction]) -> Self {
+    /// What a profiler counts of `program`, sent in batches each
+    /// [`checked`](Batch::checked) if `checked`.
+    fn of(program: &[Instruction], checked: bool) -> Self {
         let mut profile = Self::default();
-        profile.record(program);
+        profile.record(program, checked);
         profile
     }
 
-    fn record(&mut self, instructions: &[Instruction]) {
+    /// Counts a batch of `instructions`, checked if `checked`.
+    fn record(&mut self, instructions: &[Instruction], checked: bool) {
+        self.kinds.record(checked);
         for instruction in instructions {
             self.counts[gate_index(instruction.opcode)] += 1;
             if let Some(&top) = instruction.blocks.iter().max() {
@@ -1142,7 +1204,7 @@ impl Execute for Profiler {
         readouts: &mut Readouts,
     ) -> Result<(), ExecuteError> {
         for batch in batches {
-            self.profile.record(batch.instructions);
+            self.profile.record(batch.instructions, batch.is_checked());
             readouts.push(no_readouts(batch.shots.len()));
         }
         Ok(())

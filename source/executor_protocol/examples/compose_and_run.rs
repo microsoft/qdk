@@ -7,10 +7,11 @@
 //!
 //! It prints each shot's two values, runs two of the shots again to show
 //! that a shot's values, noise included, are the same each time the chain
-//! runs it with the same seed, whatever shots run beside it, and shows a
-//! run the chain refuses. The run comes first, in `coin_runner` and
-//! `main`; the three parts follow, each in its own section. Run it with
-//! `cargo run --example compose_and_run`.
+//! runs it with the same seed, whatever shots run beside it, runs the
+//! shots again with every batch checked to show the checks change no
+//! value, and shows a run the chain refuses. The run comes first, in
+//! `coin_runner` and `main`; the three parts follow, each in its own
+//! section. Run it with `cargo run --example compose_and_run`.
 
 use std::collections::BTreeMap;
 
@@ -30,26 +31,24 @@ const SEED: u64 = 1;
 
 // ------------------------------------------------------------------ the run
 
-/// The three parts, composed: the coin, under 20% bit-flip noise, on bits.
+/// The three parts, composed: `coin`, under 20% bit-flip noise, on bits.
 ///
 /// After each run, the runner ends every shot of the run on every part, so
 /// the parts free its state and a rerun with the same seed starts it
 /// afresh; the driver need not end them.
-fn coin_runner() -> Runner<Composed<CoinCopy, BitFlip>, Bits> {
+fn coin_runner(coin: CoinCopy) -> Runner<Composed<CoinCopy, BitFlip>, Bits> {
     // Each part is wrapped in the role it plays (`Driver`, `Adapter`,
     // `Executor`), which `>>` needs to pick the join. `>>` joins the driver
     // and the adapter into one driver, a `Composed`. Each `>>` checks that
     // what is sent across it fits what is accepted; the last one, onto the
     // executor, also checks that the executor offers what the driver
     // needs, and gives the runner or every fault of the chain.
-    let runner = Driver::new(CoinCopy::new())
-        >> Adapter::new(BitFlip::new(200))
-        >> Executor::new(Bits::new());
+    let runner = Driver::new(coin) >> Adapter::new(BitFlip::new(200)) >> Executor::new(Bits::new());
     runner.expect("the parts compose: they all send and accept CoinGates")
 }
 
 fn main() {
-    let mut runner = coin_runner();
+    let mut runner = coin_runner(CoinCopy::new());
 
     let shots = ShotSet::ids(0..12);
     let values = runner.run(&shots, SEED).expect("the chain runs 12 shots");
@@ -66,6 +65,14 @@ fn main() {
         .expect("the chain runs 2 shots");
     let same = again == [values[4].clone(), values[5].clone()];
     println!("\nShots 4 and 5, run again alone: the same values, noise included? {same}");
+
+    // While a part of the chain is developed, the driver may send every
+    // batch checked: each boundary checks it before it runs, at a cost.
+    let checked = coin_runner(CoinCopy::new().checked())
+        .run(&shots, SEED)
+        .expect("the chain runs 12 checked shots");
+    let same = checked == values;
+    println!("\nThe 12 shots again, every batch checked: the same values? {same}");
 
     let refused = runner
         .run(&ShotSet::ids(0..2000), SEED)
@@ -90,11 +97,14 @@ fn text(value: ReadoutValue) -> String {
 /// coin in a first `execute`; then, by its coin, flips qubit 1 and reads
 /// it, or only reads it, as two batches of a second `execute`, whose
 /// readouts come after the coin's in the buffer the driver lends. Each
-/// shot's output is its two values: the coin, then the copy.
+/// shot's output is its two values: the coin, then the copy. Its batches
+/// go unchecked, unless made by [`checked`](Self::checked).
 struct CoinCopy {
     set: InstructionSet,
     /// Toss; heads: flip and read qubit 1; tails: read qubit 1.
     sequences: [Vec<Instruction>; 3],
+    /// Whether every batch it sends is checked.
+    checked: bool,
 }
 
 impl CoinCopy {
@@ -109,7 +119,20 @@ impl CoinCopy {
             vec![gate("x", 1), gate("mz", 1)],
             vec![gate("mz", 1)],
         ];
-        Self { set, sequences }
+        Self {
+            set,
+            sequences,
+            checked: false,
+        }
+    }
+
+    /// The same coin, sending every batch [`checked`](Batch::checked), as
+    /// while a part of its chain is developed.
+    fn checked(self) -> Self {
+        Self {
+            checked: true,
+            ..self
+        }
     }
 }
 
@@ -137,10 +160,10 @@ impl Drive for CoinCopy {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<Vec<ReadoutValue>>, DriveError> {
-        // First, every shot tosses its coin. Unchecked, as a sender that
-        // trusts the chain sends; while a part is developed, `.checked()`
-        // asks every boundary to check the batch before it runs, at a cost.
-        let toss = Batch::new(shots, &self.sequences[0]);
+        // First, every shot tosses its coin. Unchecked by default, as a
+        // sender that trusts the chain sends; `.checked()` asks every
+        // boundary to check the batch before it runs, at a cost.
+        let toss = Batch::new(shots, &self.sequences[0]).checked_if(self.checked);
         let mut readouts = Readouts::new();
         below.execute(&[toss], seed, &mut readouts).await?;
         let coin = &readouts[0];
@@ -160,7 +183,7 @@ impl Drive for CoinCopy {
         }
         let batches: Vec<Batch<'_>> = sides
             .iter()
-            .map(|(_, shots, sequence)| Batch::new(shots, sequence))
+            .map(|(_, shots, sequence)| Batch::new(shots, sequence).checked_if(self.checked))
             .collect();
         // The same seed: each part keeps a shot's stream from its first
         // batch until the shot ends. The sides' readouts are appended
@@ -405,7 +428,7 @@ mod tests {
     /// draws included.
     #[test]
     fn a_shot_run_again_alone_with_the_seed_gets_its_values() {
-        let mut runner = coin_runner();
+        let mut runner = coin_runner(CoinCopy::new());
         let values = runner
             .run(&ShotSet::ids(0..12), SEED)
             .expect("the chain runs 12 shots");
@@ -425,7 +448,7 @@ mod tests {
     /// run is refused, naming both counts.
     #[test]
     fn a_run_of_more_shots_than_the_executor_runs_is_refused() {
-        let refused = coin_runner().run(&ShotSet::ids(0..2000), SEED);
+        let refused = coin_runner(CoinCopy::new()).run(&ShotSet::ids(0..2000), SEED);
         assert!(matches!(
             refused,
             Err(RunError::Refused(RunRefusal::TooManyShots {
@@ -435,8 +458,24 @@ mod tests {
         ));
     }
 
+    /// A developer who checks the coin's batches while a part of the chain
+    /// is developed: every boundary checks them, the noise forwarding the
+    /// check to each batch it sends, and each shot gets the values it gets
+    /// unchecked.
+    #[test]
+    fn a_run_of_checked_batches_gives_the_values_of_an_unchecked_one() {
+        let shots = ShotSet::ids(0..12);
+        let unchecked = coin_runner(CoinCopy::new())
+            .run(&shots, SEED)
+            .expect("the chain runs 12 shots");
+        let checked = coin_runner(CoinCopy::new().checked())
+            .run(&shots, SEED)
+            .expect("the chain runs 12 checked shots");
+        assert_eq!(checked, unchecked);
+    }
+
     /// The example's `main`, as `cargo run` runs it, ends without a panic.
-    /// Kept beside the two tests above: only it runs the printed path, the
+    /// Kept beside the tests above: only it runs the printed path, the
     /// table with `text` and the refusal's message.
     #[test]
     fn main_runs() {
