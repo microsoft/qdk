@@ -27,8 +27,8 @@
 //! (`fake_libraries/state_vector.rs`), reading each matrix from its buffer at
 //! that moment, as the library reads it at compute time; reads use the computed
 //! state. It is strict about the order its callers call in, so a wrong order
-//! fails a test instead of passing silently; for the state API (the rule on
-//! buffers lent to a workspace holds for the tensor API too):
+//! fails a test instead of passing silently; for the state API (the rules on
+//! buffers lent to a workspace and on streams hold for the tensor API too):
 //!
 //! - `finalize_mps` once per state, before any configuration or prepare;
 //! - a compute needs a prepare since the last operator, and scratch
@@ -52,11 +52,14 @@
 //!   workspace that asks for some, at least what the slot asks, and no
 //!   copy still running (`synchronize_copies`, the legacy stream), and the
 //!   source of a copy still running is not freed;
-//!   after a compute, nothing is freed or captured until every stream
-//!   that ran work is synchronized (the fake does not track what a
-//!   stream's work reads), and a buffer a compute or a tensor call wrote,
-//!   or an SVD info, is read only once the stream that wrote it is
-//!   synchronized: another stream's synchronization says nothing of it;
+//! - after a compute or a tensor call, nothing is freed or captured until
+//!   every stream with work queued is synchronized (the fake does not
+//!   track what a stream's work reads); and a buffer a compute or a tensor
+//!   call wrote is copied to the host (`copy_to_host`), and an SVD info
+//!   reported (`svd_truncation`), only once the stream that wrote it is
+//!   synchronized: another stream's synchronization says nothing of it.
+//!   Other reads of a pending write (a later call's inputs,
+//!   `copy_on_device`'s source) are not checked;
 //! - a device-to-device copy of a whole computed tensor holds that tensor;
 //!   a partial copy holds nothing;
 //! - every object a call takes a handle for (a workspace, state, network
@@ -145,8 +148,13 @@ struct Inner {
     copies_running: bool,
     /// What the work queued on a stream may still be writing (a compute's
     /// outputs, a tensor call's outputs and SVD info), by id, with the
-    /// stream it is queued on: set by the call, cleared by
-    /// `synchronize_stream` on that stream alone.
+    /// stream of the last call queued to write it: set by the call, cleared
+    /// by `synchronize_stream` on that stream alone. An object written on
+    /// two streams is recorded under the later one, so synchronizing that
+    /// one releases it; the fake does not flag the two writes as a race.
+    /// A stream destroyed with writes pending keeps them, as its work may
+    /// still run after `cudaStreamDestroy`, so nothing is freed or captured
+    /// after that.
     pending_writes: BTreeMap<usize, usize>,
     /// The destination of every device-to-device copy.
     copy_destinations: Vec<usize>,

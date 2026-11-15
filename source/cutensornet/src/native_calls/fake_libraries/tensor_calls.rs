@@ -35,9 +35,9 @@
 //!   truncation, as cuTensorNet asks, since the reduced extent is known
 //!   only once the split has run;
 //! - the singular values' buffer holds as many doubles as the shared
-//!   mode's extent (counted in the fake's 16-byte elements), and an SVD
-//!   info is read only once the stream of the split that wrote it is
-//!   synchronized.
+//!   mode's extent (counted in the fake's 16-byte elements);
+//! - what a call writes on its stream, its SVD info included, is read as
+//!   the rule on streams in `fake_libraries.rs` says.
 //!
 //! The fake does not slice: it contracts a network's two inputs at once,
 //! whatever the path. It need not model slicing, since the loaded libraries

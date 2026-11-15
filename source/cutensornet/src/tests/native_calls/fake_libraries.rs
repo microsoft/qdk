@@ -6,7 +6,9 @@
 //! contraction, a gate split, a QR), and the rules the fake holds a caller
 //! to (tensor descriptors, workspaces, streams, objects' handles and
 //! lifetimes, a gate split's labels, copies of its results to the host),
-//! each refused on the fake as a misuse would fail on a GPU.
+//! each refused on the fake as a misuse would fail on a GPU. The rules on
+//! streams are shared with the state API, so a compute's are tested here
+//! too: only a direct caller can make the misuse they refuse.
 
 use crate::native_calls::{
     OpaqueHandle, Stream,
@@ -14,6 +16,7 @@ use crate::native_calls::{
     fake_libraries::FakeLibraries,
     memory_calls::{MemoryCalls, WorkspaceSlot},
     session_calls::SessionCalls,
+    state_calls::{MpsLayout, NativeCapacity, StateCalls},
     tensor_calls::{
         ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
         TensorCalls, TensorModes, TensorOperand,
@@ -21,6 +24,7 @@ use crate::native_calls::{
 };
 use num_complex::Complex64;
 use std::{cell::RefCell, ptr::NonNull};
+use tensornet::MpsShape;
 
 /// What every tensor call on the fake needs: a handle, a stream and a
 /// workspace.
@@ -1288,9 +1292,10 @@ fn a_copy_to_the_host_needs_the_writing_stream_synchronized() {
     assert_eq!(Complex64::from(output[0]), Complex64::new(2.0, 0.0));
 }
 
-/// A gate split and a QR write each of their outputs on their stream: a
-/// caller that copies any of them to the host before synchronizing it is
-/// caught on the fake.
+/// A gate split and a QR write each of their outputs on their stream (the
+/// split's U, V and singular values, the QR's Q and R): a caller that
+/// copies any of them to the host before synchronizing it is caught on the
+/// fake.
 #[test]
 fn every_output_of_a_tensor_call_is_read_once_its_stream_is_synchronized() {
     let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
@@ -1322,7 +1327,13 @@ fn every_output_of_a_tensor_call_is_read_once_its_stream_is_synchronized() {
         .fake
         .tensor_qr(device.handle, input, q, r, device.workspace, device.stream)
         .expect("the workspace is sized and lent");
-    let outputs = [split.operands.u.data, split.operands.v.data, q.data, r.data];
+    let outputs = [
+        split.operands.u.data,
+        split.operands.v.data,
+        split.operands.singular_values,
+        q.data,
+        r.data,
+    ];
     let mut values = [Complex64Abi::default()];
     for output in outputs {
         device
@@ -1361,6 +1372,93 @@ fn a_buffer_is_freed_once_every_stream_is_synchronized() {
     device
         .fake
         .free(contraction.inputs[0])
+        .expect("every stream is synchronized");
+}
+
+/// A two-qubit state computed on `device`'s stream, which is not yet
+/// synchronized, and the compute's output buffers, one per site.
+fn computed_state(device: &Device) -> (OpaqueHandle, Vec<OpaqueHandle>) {
+    let fake = &device.fake;
+    let state = fake
+        .create_state(device.handle, &[2, 2])
+        .expect("the handle is live");
+    let shape = MpsShape::new(vec![vec![2, 2], vec![2, 2]]).expect("a two-site chain");
+    let capacity = NativeCapacity::new(&shape).expect("the extents fit cuTensorNet's");
+    fake.finalize_mps(device.handle, state, &capacity)
+        .expect("the state is finalized once");
+    fake.prepare_state(
+        device.handle,
+        state,
+        1 << 20,
+        device.workspace,
+        device.stream,
+    )
+    .expect("the state is finalized");
+    device.lend(WorkspaceSlot::DeviceScratch);
+    let mut outputs: Vec<OpaqueHandle> = (0..2).map(|_| device.zeros(&[2, 2])).collect();
+    fake.synchronize_copies().expect("the copies were queued");
+    let mut layout = MpsLayout::new(&capacity);
+    fake.compute_state(
+        device.handle,
+        state,
+        device.workspace,
+        &mut layout,
+        &mut outputs,
+        device.stream,
+    )
+    .expect("the state is prepared and its scratch lent");
+    (state, outputs)
+}
+
+/// A compute writes the state's site tensors on its stream: a caller that
+/// copies one to the host before synchronizing that stream, or after
+/// synchronizing only another one, is caught on the fake.
+#[test]
+fn a_computed_site_is_copied_to_the_host_once_its_stream_is_synchronized() {
+    let device = Device::new(FakeLibraries::new());
+    let other_stream = device.fake.create_stream().expect("the fake has a device");
+    let (_, outputs) = computed_state(&device);
+    let mut values = [Complex64Abi::default()];
+    device
+        .fake
+        .copy_to_host(&mut values, outputs[0])
+        .expect_err("the compute may still be writing the site");
+    device
+        .fake
+        .synchronize_stream(other_stream)
+        .expect("the other stream is live");
+    device
+        .fake
+        .copy_to_host(&mut values, outputs[0])
+        .expect_err("only a stream that did not write the site is synchronized");
+    device
+        .fake
+        .synchronize_stream(device.stream)
+        .expect("the stream is live");
+    device
+        .fake
+        .copy_to_host(&mut values, outputs[0])
+        .expect("the stream is synchronized");
+}
+
+/// `capture_mps` reads the computed state, which the fake does not tie to
+/// one stream: a caller that captures a compute before synchronizing every
+/// stream with work queued is caught on the fake.
+#[test]
+fn a_compute_is_captured_once_every_stream_is_synchronized() {
+    let device = Device::new(FakeLibraries::new());
+    let (state, _) = computed_state(&device);
+    device
+        .fake
+        .capture_mps(device.handle, state)
+        .expect_err("the compute may still be running");
+    device
+        .fake
+        .synchronize_stream(device.stream)
+        .expect("the stream is live");
+    device
+        .fake
+        .capture_mps(device.handle, state)
         .expect("every stream is synchronized");
 }
 
@@ -1905,59 +2003,133 @@ fn a_gate_split_refuses_a_label_outside_its_topology() {
         .expect_err("the gate's extra label is in no other tensor");
 }
 
-/// cuTensorNet's gate split takes A, B and the gate as a fully connected
-/// graph: a caller whose A and B share no bond, so that the split is not a
-/// two-site gate on neighbouring sites, is caught on the fake.
-#[test]
-fn a_gate_split_needs_a_b_and_the_gate_pairwise_connected() {
-    let mut split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
-    split.split().expect("A and B share their bond");
-    let (one, zero) = (Complex64::new(1.0, 0.0), Complex64::default());
-    split.operands.a = split.device.operand(&[2], &[P], &[one, zero]);
-    split.operands.b = split.device.operand(&[2], &[Q], &[one, zero]);
-    split
-        .device
+/// A gate split, under a cutoff, of A, B and the gate carrying the labels
+/// `a`, `b` and `gate`, into U and V carrying `u` and `v`; every mode has
+/// extent 2 but the bond between A and B, of extent 1.
+fn split_with_labels(
+    a: &[i32],
+    b: &[i32],
+    gate: &[i32],
+    u: &[i32],
+    v: &[i32],
+) -> Result<(), crate::NativeError> {
+    let mut split = GateSplit::of(
+        matrix([[3.0, 0.0], [0.0, 1.0]]),
+        &[SvdSetting::PartitionUs, ROUNDING_CUTOFF],
+    );
+    let device = &split.device;
+    let extents = |modes: &[i32]| -> Vec<i64> {
+        modes
+            .iter()
+            .map(|&mode| if mode == BOND { 1 } else { 2 })
+            .collect()
+    };
+    let elements = |modes: &[i32]| 1 << (modes.len() - usize::from(modes.contains(&BOND)));
+    split.operands.a = device.operand(&extents(a), a, &values(elements(a), 0.5));
+    split.operands.b = device.operand(&extents(b), b, &values(elements(b), -0.25));
+    split.operands.gate = device.operand(&extents(gate), gate, &values(elements(gate), 0.25));
+    let zeros = |modes: &[i32]| vec![Complex64::default(); elements(modes)];
+    split.operands.u = device.operand(&extents(u), u, &zeros(u));
+    split.operands.v = device.operand(&extents(v), v, &zeros(v));
+    device
         .fake
         .synchronize_copies()
         .expect("the copies were queued");
-    split.split().expect_err("A and B share no label");
+    split.split().map(|_| ())
 }
 
-/// A gate split keeps A's site in U and B's in V: a caller that puts a
-/// label of A alone (its outer bond) in V, or one of B alone in U, is
-/// caught on the fake; the gate's own labels may go to either side.
+/// The gate of a two-site split, G[p', q', p, q].
+const GATE: [i32; 4] = [P_OUT, Q_OUT, P, Q];
+
+/// Whether `refused` is the fake's refusal of a gate split's labels for
+/// `reason`.
+fn refused_for(refused: &crate::NativeError, reason: &str) -> bool {
+    refused.to_string().contains(reason)
+}
+
+/// cuTensorNet's gate split takes A, B and the gate as a fully connected
+/// graph: a caller whose A and B share no bond, so that the split is not a
+/// two-site gate on neighbouring sites, or whose gate acts on one site
+/// alone, sharing no label with B's site or none with A's, is caught on the
+/// fake.
 #[test]
-fn a_gate_split_keeps_a_label_of_a_alone_in_u_and_of_b_alone_in_v() {
-    let theta = matrix([[3.0, 0.0], [0.0, 1.0]]);
-    let split_with = |a: &[i32], b: &[i32], u: &[i32], v: &[i32]| {
-        let mut split = GateSplit::of(theta, &[SvdSetting::PartitionUs, ROUNDING_CUTOFF]);
-        let device = &split.device;
-        let extents = |modes: &[i32]| -> Vec<i64> {
-            modes
-                .iter()
-                .map(|&mode| if mode == BOND { 1 } else { 2 })
-                .collect()
-        };
-        let elements = |modes: &[i32]| 1 << (modes.len() - usize::from(modes.contains(&BOND)));
-        split.operands.a = device.operand(&extents(a), a, &values(elements(a), 0.5));
-        split.operands.b = device.operand(&extents(b), b, &values(elements(b), -0.25));
-        let zeros = |modes: &[i32]| vec![Complex64::default(); elements(modes)];
-        split.operands.u = device.operand(&extents(u), u, &zeros(u));
-        split.operands.v = device.operand(&extents(v), v, &zeros(v));
-        device
-            .fake
-            .synchronize_copies()
-            .expect("the copies were queued");
-        split.split().map(|_| ())
-    };
+fn a_gate_split_needs_a_b_and_the_gate_pairwise_connected() {
+    let not_connected = "not pairwise connected";
+    split_with_labels(&[P, BOND], &[BOND, Q], &GATE, &[P_OUT, S], &[S, Q_OUT])
+        .expect("each pair shares a label");
+    let refused = split_with_labels(&[P], &[Q], &GATE, &[P_OUT, S], &[S, Q_OUT])
+        .expect_err("A and B share no label");
+    assert!(refused_for(&refused, not_connected), "{refused}");
+    let refused = split_with_labels(&[P, BOND], &[BOND, Q], &[Q_OUT, Q], &[P, S], &[S, Q_OUT])
+        .expect_err("A and the gate share no label");
+    assert!(refused_for(&refused, not_connected), "{refused}");
+    let refused = split_with_labels(&[P, BOND], &[BOND, Q], &[P_OUT, P], &[P_OUT, S], &[S, Q])
+        .expect_err("B and the gate share no label");
+    assert!(refused_for(&refused, not_connected), "{refused}");
+}
+
+/// A gate split contracts each label two inputs share: a caller whose A, B
+/// and gate all carry one label, which the split could neither contract
+/// pairwise nor keep, is caught on the fake.
+#[test]
+fn a_gate_split_refuses_a_label_on_all_three_inputs() {
+    let hyperedge = OUTER + 1;
+    split_with_labels(&[P, BOND], &[BOND, Q], &GATE, &[P_OUT, S], &[S, Q_OUT])
+        .expect("each label is on one or two inputs");
+    let refused = split_with_labels(
+        &[P, BOND, hyperedge],
+        &[BOND, Q, hyperedge],
+        &[P_OUT, Q_OUT, P, Q, hyperedge],
+        &[P_OUT, S],
+        &[S, Q_OUT],
+    )
+    .expect_err("a label is on all three inputs");
+    assert!(
+        refused_for(&refused, "outside a gate split's topology"),
+        "{refused}"
+    );
+}
+
+/// A gate split keeps A's site in U: a caller that puts a label of A alone
+/// (its outer bond) in V is caught on the fake.
+#[test]
+fn a_gate_split_keeps_a_label_of_a_alone_in_u() {
     let (a, b) = ([OUTER, P, BOND], [BOND, Q]);
-    split_with(&a, &b, &[OUTER, P_OUT, S], &[S, Q_OUT]).expect("A's outer bond is in U");
-    split_with(&a, &b, &[P_OUT, S], &[S, Q_OUT, OUTER]).expect_err("A's outer bond is in V");
+    split_with_labels(&a, &b, &GATE, &[OUTER, P_OUT, S], &[S, Q_OUT])
+        .expect("A's outer bond is in U");
+    let refused = split_with_labels(&a, &b, &GATE, &[P_OUT, S], &[S, Q_OUT, OUTER])
+        .expect_err("A's outer bond is in V");
+    assert!(
+        refused_for(&refused, "outside a gate split's topology"),
+        "{refused}"
+    );
+}
+
+/// A gate split keeps B's site in V: a caller that puts a label of B alone
+/// (its outer bond) in U is caught on the fake.
+#[test]
+fn a_gate_split_keeps_a_label_of_b_alone_in_v() {
     let (a, b) = ([P, BOND], [BOND, Q, OUTER]);
-    split_with(&a, &b, &[P_OUT, S], &[S, Q_OUT, OUTER]).expect("B's outer bond is in V");
-    split_with(&a, &b, &[OUTER, P_OUT, S], &[S, Q_OUT]).expect_err("B's outer bond is in U");
-    split_with(&[P, BOND], &[BOND, Q], &[Q_OUT, S], &[S, P_OUT])
-        .expect("the gate's outputs may go to either side");
+    split_with_labels(&a, &b, &GATE, &[P_OUT, S], &[S, Q_OUT, OUTER])
+        .expect("B's outer bond is in V");
+    let refused = split_with_labels(&a, &b, &GATE, &[OUTER, P_OUT, S], &[S, Q_OUT])
+        .expect_err("B's outer bond is in U");
+    assert!(
+        refused_for(&refused, "outside a gate split's topology"),
+        "{refused}"
+    );
+}
+
+/// A gate's outputs belong to neither site until the split places them: a
+/// caller that keeps the gate's second output in U and its first in V, as
+/// a swap of the two sites does, gets its split on the fake.
+#[test]
+fn a_gate_split_keeps_a_label_of_the_gate_alone_on_either_side() {
+    let (a, b) = ([P, BOND], [BOND, Q]);
+    split_with_labels(&a, &b, &GATE, &[P_OUT, S], &[S, Q_OUT])
+        .expect("the gate's first output is in U, its second in V");
+    split_with_labels(&a, &b, &GATE, &[Q_OUT, S], &[S, P_OUT])
+        .expect("the gate's second output is in U, its first in V");
 }
 
 /// A site of a product state, or one at the chain's end, has bonds of
