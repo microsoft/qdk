@@ -16,20 +16,18 @@
 //! The upper part reaches the lower one through a `Checked`, so every
 //! boundary of the chain is crossed through one, whatever the brackets: the
 //! boundary inside a `Composed` here, and the one where the driver meets the
-//! executor by the runner. Each checks the answers that cross it, and, when
-//! the runner turns the batch checks on, the batches, against the offer
-//! that crosses it, and names a panic below it by the part that receives
-//! the calls, both kept when the `>>` that makes the runner reads every
-//! part's offer, before any part is provisioned, so that the checks and the
-//! names are the same wherever the brackets go. The runner's switch reaches
-//! every boundary through each `Composed`'s `set_batch_checks`, which sets
-//! its own and passes the switch to both halves.
+//! executor by the runner. Each checks the answers that cross it, and the
+//! batches their senders marked [`checked`](Batch::checked), against the
+//! offer that crosses it, and names a panic below it by the part that
+//! receives the calls, both kept when the `>>` that makes the runner reads
+//! every part's offer, before any part is provisioned, so that the checks
+//! and the names are the same wherever the brackets go.
 
 mod adapt;
 mod drive;
 mod execute;
 
-use crate::checked::{BatchChecks, batch_limits};
+use crate::checked::batch_limits;
 use crate::instruction_set::instruction::batch_check::BatchLimits;
 use crate::panics::end_both;
 use crate::{
@@ -54,12 +52,9 @@ pub struct Composed<U, L> {
     /// half's with the chain below it, kept when the `>>` that makes the
     /// runner reads every part's offer, before any part is provisioned.
     below_offer: Option<Capabilities>,
-    /// The limits of the batches crossing that boundary, from that offer
-    /// and the needs crossing it, set when the chain is provisioned.
+    /// The limits of the checked batches crossing that boundary, from that
+    /// offer and the needs crossing it, set when the chain is provisioned.
     batch_limits: Option<BatchLimits>,
-    /// Whether that boundary checks each batch against those limits, as
-    /// the runner's `set_batch_checks` chose.
-    batch_checks: BatchChecks,
 }
 
 impl<U, L> Composed<U, L> {
@@ -71,7 +66,6 @@ impl<U, L> Composed<U, L> {
             below_part: None,
             below_offer: None,
             batch_limits: None,
-            batch_checks: BatchChecks::default(),
         }
     }
 }

@@ -4,7 +4,6 @@
 //! The adapter's role, [`Adapt`]: a part between a driver and an executor.
 
 use crate::admission::by_part::ByPart;
-use crate::checked::BatchChecks;
 use crate::{
     Batch, Capabilities, Execute, ExecuteError, InstructionSet, Needs, OpcodeMap, Readouts,
     RunRefusal, Seed, ShotSet,
@@ -17,8 +16,8 @@ use crate::{
 /// Such as a code that turns each logical instruction into physical ones,
 /// a noise model that adds instructions, or a debugger that splits a batch
 /// to stop between its instructions. The protocol checks the shape of the
-/// answer to each `execute` it receives and each it sends, and, when the
-/// runner turns the batch checks on, the batches of both, so it writes
+/// answer to each `execute` it receives and each it sends, and each batch
+/// of both its sender marked [`checked`](Batch::checked), so it writes
 /// only its own logic.
 pub trait Adapt {
     // Composition time.
@@ -31,8 +30,8 @@ pub trait Adapt {
     /// The instructions it receives, which the part above must fit.
     ///
     /// Its answer must not change once the part is composed: the fit and
-    /// `bind`'s map are made once, by `>>`, and the set the batch checks
-    /// hold each batch it receives to is read once, before it is
+    /// `bind`'s map are made once, by `>>`, and the set each checked batch
+    /// it receives is checked against is read once, before it is
     /// provisioned.
     fn accepts(&self) -> &InstructionSet;
 
@@ -68,11 +67,11 @@ pub trait Adapt {
 
     /// What it offers above, given what is offered `below`; by default the
     /// same. The admission checks the needs of the part above against it,
-    /// and, with the batch checks on, each batch the part above sends it is
-    /// checked against its most instructions. Where an offer cannot be exact, such as for two block
-    /// types drawn from one pool below, the admission still checks what
-    /// [`needs_below`](Self::needs_below) passes down against the
-    /// executor's own offer.
+    /// and each checked batch the part above sends it is checked against
+    /// its most instructions. Where an offer cannot be exact, such as for
+    /// two block types drawn from one pool below, the admission still
+    /// checks what [`needs_below`](Self::needs_below) passes down against
+    /// the executor's own offer.
     ///
     /// Its most shots and whether a run may fix its seed can lower the
     /// run's limits, such as for a job queue, but never raise them: each
@@ -130,12 +129,6 @@ pub trait Adapt {
         above
     }
 
-    /// As [`Execute::set_batch_checks`].
-    #[doc(hidden)]
-    fn set_batch_checks(&mut self, checks: BatchChecks) {
-        let _ = checks;
-    }
-
     // Run time.
 
     /// As [`Execute::ready`].
@@ -155,6 +148,12 @@ pub trait Adapt {
     /// Each batch it sends below holds only shots of the batches it got: a
     /// rule the adapter keeps, which the protocol does not check, and
     /// whose breach [`Drive::drive`](crate::Drive::drive) states.
+    ///
+    /// It decides whether each batch it sends below is
+    /// [`checked`](Batch::checked). The guideline is to carry the checks of
+    /// the batch it adapts, with
+    /// [`checked_if(batch.is_checked())`](Batch::checked_if), so that the
+    /// checks its sender chose reach every boundary below.
     fn adapt(
         &mut self,
         batches: &[Batch<'_>],
@@ -204,10 +203,6 @@ impl<A: Adapt + ?Sized> Adapt for &mut A {
 
     fn offers_by_part(&mut self, below: Capabilities, by_part: &mut ByPart) -> Capabilities {
         (**self).offers_by_part(below, by_part)
-    }
-
-    fn set_batch_checks(&mut self, checks: BatchChecks) {
-        (**self).set_batch_checks(checks);
     }
 
     fn ready(&mut self) -> impl Future<Output = Result<(), RunRefusal>> {

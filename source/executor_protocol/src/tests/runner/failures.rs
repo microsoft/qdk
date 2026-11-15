@@ -42,15 +42,30 @@ fn a_failing_shot_ends_the_run_naming_it() {
     assert_eq!(error.to_string(), "shot 5 failed: the program trapped");
 }
 
+/// The program measuring qubit 0 in one batch, checked if `checked`.
+fn measure(checked: bool) -> Driver<Program> {
+    let program = Program::new(&[("mz", 0)]);
+    Driver::new(if checked {
+        program.with_checked_batches()
+    } else {
+        program
+    })
+}
+
 /// An executor answering readouts misshapen for the run's one batch, of
 /// one `mz` on shots 6, 1 and 2: the run fails naming the batch's first
-/// shot, 6, with the shape fault.
+/// shot, 6, with the shape fault; the count of readouts and of rows is
+/// checked whether the batch is checked or not, the values per row only
+/// if it is.
 #[test]
 fn an_answer_misshapen_for_its_batch_is_a_failure() {
-    for (row, misshape, expected) in [
+    let both: &[bool] = &[false, true];
+    let checked: &[bool] = &[true];
+    for (row, misshape, sendings, expected) in [
         (
             "a readouts more than the batches",
             Misshape::ExtraReadouts,
+            both,
             ShapeFault::Batches {
                 expected: 1,
                 got: 2,
@@ -59,6 +74,7 @@ fn an_answer_misshapen_for_its_batch_is_a_failure() {
         (
             "no readouts for the one batch",
             Misshape::MissingReadouts,
+            both,
             ShapeFault::Batches {
                 expected: 1,
                 got: 0,
@@ -67,6 +83,7 @@ fn an_answer_misshapen_for_its_batch_is_a_failure() {
         (
             "a row fewer than the batch's shots",
             Misshape::MissingRow,
+            both,
             ShapeFault::Rows {
                 batch: 0,
                 expected: 3,
@@ -76,6 +93,7 @@ fn an_answer_misshapen_for_its_batch_is_a_failure() {
         (
             "a fourth row for 3 shots",
             Misshape::ExtraRow,
+            both,
             ShapeFault::Rows {
                 batch: 0,
                 expected: 3,
@@ -85,6 +103,7 @@ fn an_answer_misshapen_for_its_batch_is_a_failure() {
         (
             "a value more than the batch's readout slots",
             Misshape::ExtraValue,
+            checked,
             ShapeFault::Slots {
                 batch: 0,
                 expected: 1,
@@ -94,6 +113,7 @@ fn an_answer_misshapen_for_its_batch_is_a_failure() {
         (
             "no value for the batch's one readout slot",
             Misshape::MissingValue,
+            checked,
             ShapeFault::Slots {
                 batch: 0,
                 expected: 1,
@@ -101,18 +121,40 @@ fn an_answer_misshapen_for_its_batch_is_a_failure() {
             },
         ),
     ] {
-        let mut runner =
-            runner(Driver::new(Program::new(&[("mz", 0)])) >> Executor::new(Misshapen(misshape)));
-        let run = runner.run(&ShotSet::ids([6, 1, 2]), SEED);
-        assert_eq!(shape_fault(row, run, 6), expected, "{row}");
+        for &checked in sendings {
+            let row = format!("{row}, checked: {checked}");
+            let mut runner = runner(measure(checked) >> Executor::new(Misshapen(misshape)));
+            let run = runner.run(&ShotSet::ids([6, 1, 2]), SEED);
+            assert_eq!(shape_fault(&row, run, 6), expected, "{row}");
+        }
     }
 }
 
-/// Two batches in one `execute`, shots 4 and 2 then 9 and 7, each measuring
-/// qubit 0, on an executor misshaping its answer: the run fails naming the
-/// first shot of the batch at fault, 9 for the second batch's rows or
-/// values, or, for a count of readouts, which no one batch is at fault
-/// for, the first batch's, 4.
+/// An executor answering a value more or fewer in each row than the
+/// batch's readout slots, to an unchecked batch of one `mz`: the run
+/// succeeds, and the rows reach the driver as the executor wrote them,
+/// since only a checked batch's values per row are checked.
+#[test]
+fn an_unchecked_batchs_values_per_row_are_not_checked() {
+    for (row, misshape, width) in [
+        ("a value more", Misshape::ExtraValue, 2),
+        ("a value fewer", Misshape::MissingValue, 0),
+    ] {
+        let mut runner = runner(measure(false) >> Executor::new(Misshapen(misshape)));
+        let records = runner
+            .run(&ShotSet::ids([6, 1, 2]), SEED)
+            .unwrap_or_else(|error| panic!("{row}: {error:?}"));
+        for (values, _) in records {
+            assert_eq!(values.len(), width, "{row}");
+        }
+    }
+}
+
+/// Two checked batches in one `execute`, shots 4 and 2 then 9 and 7, each
+/// measuring qubit 0, on an executor misshaping its answer: the run fails
+/// naming the first shot of the batch at fault, 9 for the second batch's
+/// rows or values, or, for a count of readouts, which no one batch is at
+/// fault for, the first batch's, 4.
 #[test]
 fn a_misshapen_answer_to_two_batches_names_the_batch_at_fault() {
     for (row, misshape, shot, expected) in [
@@ -147,7 +189,7 @@ fn a_misshapen_answer_to_two_batches_names_the_batch_at_fault() {
         ),
     ] {
         let mut runner = runner(
-            Driver::new(Program::halves(&[("mz", 0)], &[("mz", 0)]))
+            Driver::new(Program::halves(&[("mz", 0)], &[("mz", 0)]).with_checked_batches())
                 >> Executor::new(Misshapen(misshape)),
         );
         let run = runner.run(&ShotSet::ids([4, 2, 9, 7]), SEED);

@@ -8,7 +8,6 @@ use std::error::Error;
 use std::fmt;
 
 use crate::admission::by_part::ByPart;
-use crate::checked::BatchChecks;
 use crate::{
     Capabilities, Execute, ExecuteError, Failure, InstructionSet, Needs, OpcodeMap, RunRefusal,
     Seed, ShotId, ShotSet,
@@ -84,12 +83,6 @@ pub trait Drive {
         let _ = run;
     }
 
-    /// As [`Execute::set_batch_checks`].
-    #[doc(hidden)]
-    fn set_batch_checks(&mut self, checks: BatchChecks) {
-        let _ = checks;
-    }
-
     // Run time.
 
     /// As [`Execute::ready`].
@@ -109,6 +102,9 @@ pub trait Drive {
     /// ([`Capabilities::max_shots`]), and the runner does not end it, so a
     /// part may carry its state into a later run, which then does not
     /// repeat with its seed.
+    ///
+    /// It decides whether each batch it sends is checked before it runs, as
+    /// [`Batch::checked`](crate::Batch::checked) says.
     ///
     /// Once `drive` returns, fails or panics, or its run's future is
     /// dropped, the runner ends every shot of `shots` on every part below

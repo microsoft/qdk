@@ -20,10 +20,13 @@
 //! ([`ExecuteError::Failed`](crate::ExecuteError::Failed), named by its
 //! first shot) of readouts not one per batch sent ([`ShapeFault::Batches`],
 //! named by the first batch's first shot), of rows not one per shot of the
-//! batch ([`ShapeFault::Rows`]), or of an R that is not the batch's readout
-//! slots, the sum of its instructions' outcomes and flags
-//! ([`ShapeFault::Slots`]). So the part above finds every slot it asked
-//! for, on every shot, at its index.
+//! batch ([`ShapeFault::Rows`]), or, for a batch its sender marked
+//! [`checked`](crate::Batch::checked), of an R that is not the batch's
+//! readout slots, the sum of its instructions' outcomes and flags
+//! ([`ShapeFault::Slots`]): that sum costs a pass over the instructions,
+//! which an unchecked batch is spared. So the part above finds a row for
+//! every shot, and, for a checked batch, every slot it asked for at its
+//! index.
 //!
 //! The rows are dense: every value of the batch in one buffer, a byte or
 //! two each, so a shot's row is a slice; and the shots' conditions are kept
@@ -52,8 +55,9 @@ pub use shot_conditions::ShotConditions;
 /// Every row has exactly R values, R being the width given to
 /// [`with_capacity`](Self::with_capacity) (`push_row` refuses others);
 /// the protocol checks, on every answer crossing a boundary of a chain,
-/// that it has a row per shot of its batch and that R is the batch's
-/// readout slots; slot k is the same readout on every shot; and a lost
+/// that it has a row per shot of its batch, and, for a
+/// [`checked`](crate::Batch::checked) batch, that R is the batch's readout
+/// slots; slot k is the same readout on every shot; and a lost
 /// value is [`ReadoutValue::Missing`]. A shot is read by its position in
 /// the batch's shot set, as `row(i)`.
 #[derive(Clone)]
@@ -301,8 +305,8 @@ where
 /// A readout slot's position in a batch's rows, k: slot k is the same
 /// readout on every shot of the batch. It must be below R, the rows' width,
 /// which [`BatchReadouts::value`] checks; R is the batch's readout slots
-/// on every answer that crossed a boundary of a chain, since the protocol
-/// checks it there.
+/// on every answer to a [`checked`](crate::Batch::checked) batch that
+/// crossed a boundary of a chain, since the protocol checks it there.
 ///
 /// A `u32`, at no cost over one, so that a slot is not mistaken for a
 /// shot's position or a count.
@@ -358,7 +362,8 @@ pub enum ShapeFault {
         /// The rows answered.
         got: usize,
     },
-    /// The readouts of `batches[batch]` have rows of `got` values, where
+    /// The readouts of `batches[batch]`, a batch its sender marked
+    /// [`checked`](crate::Batch::checked), have rows of `got` values, where
     /// the batch's instructions have `expected` readout slots.
     Slots {
         /// The batch's position in the `execute`.

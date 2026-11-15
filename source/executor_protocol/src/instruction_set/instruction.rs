@@ -11,9 +11,10 @@
 //! expects ([`Instruction::select`]). Names are resolved, and the
 //! instruction checked, when it is built, so what goes down a chain holds
 //! only integers and values: its opcode, its blocks, its arguments in the
-//! parameters' order. The same check runs again at each `execute` when the
-//! runner turns the batch checks on, on the receiver's set, since a part on
-//! its hot path builds instructions as struct literals.
+//! parameters' order. The same check runs again at each `execute` of a
+//! batch its sender marked [`checked`](crate::Batch::checked), on the
+//! receiver's set, since a part on its hot path builds instructions as
+//! struct literals.
 
 mod argument;
 pub(crate) mod batch_check;
@@ -32,8 +33,7 @@ use std::fmt;
 /// fault, for writing programs; a struct literal, with opcodes from
 /// [`instruction_set!`](crate::instruction_set) or
 /// [`InstructionSet::opcode`], builds one on a part's hot path. Either way,
-/// with the batch checks on
-/// ([`Runner::set_batch_checks`](crate::Runner::set_batch_checks)), the
+/// in a batch its sender marked [`checked`](crate::Batch::checked), the
 /// protocol checks it at each `execute`, comparing integers only.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Instruction {
@@ -47,8 +47,7 @@ pub struct Instruction {
     pub arguments: Arguments,
     /// Its flags' values without noise: one pattern must match. Rare, so
     /// one word when absent. `Some` of no pattern is refused at an
-    /// `execute` with the batch checks on
-    /// ([`InstructionFault::EmptySelect`]).
+    /// `execute` of a checked batch ([`InstructionFault::EmptySelect`]).
     pub select: Option<Box<[SelectPattern]>>,
 }
 
@@ -62,8 +61,8 @@ pub type Arguments = SmallVec<[Argument; 3]>;
 
 impl InstructionSet {
     /// The instruction `mnemonic` on `blocks`, with its arguments by
-    /// parameter name (`&[]` for none), checked against this set: as the
-    /// batch checks check each instruction at an `execute`, but for the
+    /// parameter name (`&[]` for none), checked against this set: as an
+    /// `execute` checks each instruction of a checked batch, but for the
     /// shot's blocks, which are not known yet, and with its names
     /// resolved here. A slice, so that `&[]` infers.
     ///
@@ -132,21 +131,12 @@ impl InstructionSet {
         layout.check(def, instruction, provisioned)?;
         Ok(layout.readout_slots())
     }
-
-    /// The readout slots of `opcode`'s instruction (its outcomes, then its
-    /// flags), unchecked: none for an opcode beyond this set.
-    pub(crate) fn readout_slots(&self, opcode: Opcode) -> u32 {
-        self.layouts
-            .get(opcode.index())
-            .map_or(0, super::layout::Layout::readout_slots)
-    }
 }
 
 /// Why an instruction is not one its set, or the executor, accepts: found
 /// when it is built ([`InstructionSet::instruction`],
-/// [`Instruction::select`], [`Argument::pauli`]), or at an `execute` with
-/// the batch checks on
-/// ([`Runner::set_batch_checks`](crate::Runner::set_batch_checks)).
+/// [`Instruction::select`], [`Argument::pauli`]), or at an `execute` of a
+/// batch its sender marked [`checked`](crate::Batch::checked).
 /// `mnemonic` is filled by whoever holds the set, so that the fault reads
 /// on its own; it allocates only when there is a fault.
 #[derive(Clone, Debug, PartialEq, Eq)]

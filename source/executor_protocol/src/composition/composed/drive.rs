@@ -5,7 +5,7 @@
 
 use super::{ChainBelow, Composed, kept, limits_below};
 use crate::admission::by_part::ByPart;
-use crate::checked::{BatchChecks, Checked};
+use crate::checked::Checked;
 use crate::panics::{await_part, end_both};
 use crate::roles::EndedRun;
 use crate::{
@@ -68,13 +68,6 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         );
     }
 
-    /// Its boundary's, and each half's.
-    fn set_batch_checks(&mut self, checks: BatchChecks) {
-        self.batch_checks = checks;
-        self.upper.set_batch_checks(checks);
-        self.lower.set_batch_checks(checks);
-    }
-
     /// The part below first.
     async fn ready(&mut self) -> Result<(), RunRefusal> {
         await_part(self.lower.ready()).await?;
@@ -99,7 +92,7 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         await_part(self.upper.drive(
             shots,
             seed,
-            &mut Checked::new(&mut rest, part, offer, batch_limits, self.batch_checks),
+            &mut Checked::new(&mut rest, part, offer, batch_limits),
         ))
         .await
     }

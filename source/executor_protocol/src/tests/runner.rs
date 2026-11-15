@@ -44,16 +44,6 @@ fn runner<D: Drive, E: Execute>(
     runner
 }
 
-/// The runner of the chain `composed` gave, which must compose, with the
-/// batch checks on.
-fn checked<D: Drive, E: Execute>(
-    composed: Result<Runner<D, E>, crate::CompositionFaults>,
-) -> Runner<D, E> {
-    let mut runner = runner(composed);
-    runner.set_batch_checks(true);
-    runner
-}
-
 /// [`CoinCopy`] on bits alone.
 fn coin_copy(log: &Log) -> Runner<CoinCopy, Bits> {
     runner(Driver::new(CoinCopy::new()) >> Executor::new(Bits::new(log)))
@@ -865,15 +855,19 @@ fn the_parts_are_asked_bottom_up() {
     );
 }
 
-/// Two batches in one `execute`, shots 4 and 2 measuring qubit 0, shots 9
-/// and 7 flipping qubit 5 beyond the program's 2 qubits: the second batch
-/// is refused, named by its first shot, 9, and neither batch runs.
+/// Two checked batches in one `execute`, shots 4 and 2 measuring qubit 0,
+/// shots 9 and 7 flipping qubit 5 beyond the program's 2 qubits: the
+/// second batch is refused, named by its first shot, 9, and neither batch
+/// runs.
 #[test]
 fn a_later_batchs_refusal_names_it_and_runs_no_batch() {
     let log = Log::default();
-    let mut runner = checked(
-        Driver::new(Program::halves(&[("mz", 0)], &[("x", 5)]).needing(Needs::qubits(2)))
-            >> Executor::new(Bits::new(&log)),
+    let mut runner = runner(
+        Driver::new(
+            Program::halves(&[("mz", 0)], &[("x", 5)])
+                .needing(Needs::qubits(2))
+                .with_checked_batches(),
+        ) >> Executor::new(Bits::new(&log)),
     );
     let error = failed(runner.run(&ShotSet::ids([4, 2, 9, 7]), SEED));
     assert_eq!(error.shot, ShotId::new(9));

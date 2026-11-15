@@ -14,8 +14,9 @@ use crate::tests::fake_parts::{
     Bits, CoinCopy, Log, Offering, Pool, Profiler, Program, Renamed, Spread, in_each_bracketing,
 };
 use crate::{
-    Adapter, AdmissionFaults, BlockType, Capabilities, ChainPart, CompositionFaults, Drive, Driver,
-    Execute, Executor, Needs, Runner, ShortOffer, ShotSet, UnmetNeed,
+    Adapt, Adapter, AdmissionFaults, BlockType, Capabilities, ChainPart, Composed,
+    CompositionFaults, Drive, Driver, Execute, Executor, Needs, Runner, ShortOffer, ShotSet,
+    UnmetNeed,
 };
 
 // ---------------------------------------------------------------- one boundary
@@ -451,6 +452,59 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_short_offers() {
             .collect::<Vec<_>>()
     };
     assert_eq!(unplaced(with), unplaced(without));
+}
+
+/// An encoding of 7 qubits per qubit over a part reserving an ancilla,
+/// over 100 qubits, whose offers do not commute: 14 qubits in this order,
+/// 13 swapped. Each part `>>` makes of them, in each bracketing, offers
+/// what the admission reads at the boundary above it, whether it is an
+/// executor or an adapter over the bits: each adapter's offer applied to
+/// the offer below it, the lower adapter's first.
+#[test]
+fn a_composed_part_offers_what_the_admission_reads_above_it() {
+    let log = Log::default();
+    let encoding = || Spread::new(7, &log);
+    let ancilla = || Offering::reserving_an_ancilla(&log);
+    let bits = || Bits::new(&log).offering(Capabilities::unlimited().max_qubits(100));
+    let read = admission(
+        Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(15)))
+            >> Adapter::new(encoding())
+            >> Adapter::new(ancilla())
+            >> Executor::new(bits()),
+    )
+    .offers_by_part;
+    let [_, (_, above_the_bits), (_, above_both)] = read.as_slice() else {
+        panic!("the offers of the bits, the ancilla and the encoding: {read:?}");
+    };
+    assert_eq!(
+        above_both,
+        &Capabilities::unlimited().max_qubits(14),
+        "the admission reads the ancilla's offer first"
+    );
+    for (row, offered, read) in [
+        (
+            "ancilla >> bits",
+            Composed::new(ancilla(), bits()).offers(),
+            above_the_bits,
+        ),
+        (
+            "encoding >> (ancilla >> bits)",
+            Composed::new(encoding(), Composed::new(ancilla(), bits())).offers(),
+            above_both,
+        ),
+        (
+            "(encoding >> ancilla) >> bits",
+            Composed::new(Composed::new(encoding(), ancilla()), bits()).offers(),
+            above_both,
+        ),
+        (
+            "encoding >> ancilla, over the bits",
+            Composed::new(encoding(), ancilla()).offers_above(bits().offers()),
+            above_both,
+        ),
+    ] {
+        assert_eq!(&offered, read, "{row}");
+    }
 }
 
 /// A chain refused at its admission, in each bracketing of its parts: the

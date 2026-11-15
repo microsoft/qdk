@@ -53,14 +53,7 @@ impl Drive for CoinCopy {
     ) -> Result<Vec<Values>, DriveError> {
         let mut tossed = Readouts::new();
         below
-            .execute(
-                &[Batch {
-                    shots,
-                    instructions: &self.sequences[0],
-                }],
-                seed,
-                &mut tossed,
-            )
+            .execute(&[Batch::new(shots, &self.sequences[0])], seed, &mut tossed)
             .await?;
         let coin = &tossed[0];
         let mut outputs: Vec<Values> = (0..shots.len()).map(|i| coin.row(i).to_vec()).collect();
@@ -83,10 +76,7 @@ impl Drive for CoinCopy {
                 .collect();
         let batches: Vec<Batch<'_>> = sets
             .iter()
-            .map(|(_, shots, instructions)| Batch {
-                shots,
-                instructions,
-            })
+            .map(|(_, shots, instructions)| Batch::new(shots, instructions))
             .collect();
         let mut read = Readouts::new();
         below.execute(&batches, seed, &mut read).await?;
@@ -102,8 +92,8 @@ impl Drive for CoinCopy {
 
 /// A driver that sends its instructions to every shot, as one batch of one
 /// `execute`, or its two sequences to each half of the shots, as two
-/// batches of one `execute`; each shot's output is its row and its
-/// conditions.
+/// batches of one `execute`, unchecked unless it is told; each shot's
+/// output is its row and its conditions.
 pub(crate) struct Program {
     set: InstructionSet,
     sequences: Vec<Vec<Instruction>>,
@@ -112,6 +102,8 @@ pub(crate) struct Program {
     needs_once_provisioned: Option<Needs>,
     /// Whether it ends its shots below once it has their readouts.
     ends_its_shots: bool,
+    /// Whether its batches are checked.
+    checked: bool,
 }
 
 impl Program {
@@ -148,6 +140,7 @@ impl Program {
             needs: Needs::qubits(qubits),
             needs_once_provisioned: None,
             ends_its_shots: true,
+            checked: false,
         }
     }
 
@@ -164,12 +157,19 @@ impl Program {
             needs,
             needs_once_provisioned: None,
             ends_its_shots: true,
+            checked: false,
         }
     }
 
     /// This program, stating `needs` instead.
     pub(crate) fn needing(mut self, needs: Needs) -> Self {
         self.needs = needs;
+        self
+    }
+
+    /// This program, its batches checked.
+    pub(crate) fn with_checked_batches(mut self) -> Self {
+        self.checked = true;
         self
     }
 
@@ -232,10 +232,7 @@ impl Drive for Program {
         let batches: Vec<Batch<'_>> = parts
             .iter()
             .zip(&self.sequences)
-            .map(|(shots, instructions)| Batch {
-                shots,
-                instructions,
-            })
+            .map(|(shots, instructions)| Batch::new(shots, instructions).checked_if(self.checked))
             .collect();
         let mut readouts = Readouts::new();
         below.execute(&batches, seed, &mut readouts).await?;

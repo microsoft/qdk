@@ -91,10 +91,7 @@ impl Drive for Lender {
             )
             .expect("a row of two values");
         let before = readouts.clone();
-        let batch = Batch {
-            shots,
-            instructions: &self.instructions,
-        };
+        let batch = Batch::new(shots, &self.instructions);
         let result = {
             let mut execute =
                 pin!(below.execute(std::slice::from_ref(&batch), seed, &mut readouts));

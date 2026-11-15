@@ -59,7 +59,7 @@ impl Adapt for BitFlip {
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         let own = seed.derive("bit_flip");
-        let mut sent: Vec<(ShotSet, Vec<Instruction>)> = Vec::new();
+        let mut sent: Vec<(ShotSet, Vec<Instruction>, bool)> = Vec::new();
         for batch in batches {
             for (j, id) in batch.shots.iter().enumerate() {
                 let stream = self
@@ -79,14 +79,14 @@ impl Adapt for BitFlip {
                 sent.push((
                     batch.shots.select(&[j]).expect("a position of the batch"),
                     instructions,
+                    batch.is_checked(),
                 ));
             }
         }
         let one_each: Vec<Batch<'_>> = sent
             .iter()
-            .map(|(shots, instructions)| Batch {
-                shots,
-                instructions,
+            .map(|(shots, instructions, checked)| {
+                Batch::new(shots, instructions).checked_if(*checked)
             })
             .collect();
         let mut answer = Readouts::new();
@@ -269,10 +269,8 @@ impl Adapt for Splitter {
             let instructions = mapped(map, batch.instructions);
             parts.clear();
             for instruction in &instructions {
-                let step = Batch {
-                    shots: batch.shots,
-                    instructions: std::slice::from_ref(instruction),
-                };
+                let step = Batch::new(batch.shots, std::slice::from_ref(instruction))
+                    .checked_if(batch.is_checked());
                 below.execute(&[step], seed, &mut parts).await?;
             }
             readouts.push(if parts.is_empty() {
@@ -469,6 +467,18 @@ impl Offering {
         Self::new(1, log, |mut above| {
             if let Some(qubits) = above.max_blocks.get_mut(&BlockType::qubit()) {
                 *qubits = qubits.map(|q| if q <= 10 { 1 } else { q });
+            }
+            above
+        })
+    }
+
+    /// A toy part reserving one qubit below as an ancilla: it offers above
+    /// one qubit fewer than below. Its needs below do not ask for the
+    /// ancilla, since the tests that use it read only its offer.
+    pub(crate) fn reserving_an_ancilla(log: &Log) -> Self {
+        Self::new(1, log, |mut above| {
+            if let Some(Some(qubits)) = above.max_blocks.get_mut(&BlockType::qubit()) {
+                *qubits = qubits.saturating_sub(1);
             }
             above
         })

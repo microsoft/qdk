@@ -26,8 +26,8 @@ use crate::BlockType;
 /// Where each limit is checked: the blocks and the readout parities by the
 /// `>>` that makes a runner, against the needs that reach each part; the
 /// shots and the seed by the runner, at each run, against every part's
-/// offer; the instructions at each `execute`, with the batch checks on
-/// ([`Runner::set_batch_checks`](crate::Runner::set_batch_checks)).
+/// offer; the instructions at each `execute`, for a batch its sender marked
+/// [`checked`](crate::Batch::checked).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Capabilities {

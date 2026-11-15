@@ -22,7 +22,7 @@ use std::any::Any;
 use std::future::poll_fn;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::pin::{Pin, pin};
-use std::task::{Context, Poll, ready};
+use std::task::{Context, Poll};
 
 /// Makes a part's future with `make`, and awaits it: its output, or the
 /// message of the part's panic, when the message is text. A panic in the
@@ -63,11 +63,11 @@ pub(crate) async fn catch_panic<F: Future>(
     .await
 }
 
-/// Awaits a part's future, `future`, which it drops as soon as it is
-/// ready or has panicked, inside a catch: a panic of the poll is raised
-/// again once the future is dropped, and one of the drop is raised when
-/// the poll did not panic, else dropped, so that only the first panic
-/// leaves.
+/// Awaits a part's future, `future`, which it drops in the poll that finds
+/// it ready or panicking, inside a catch, so that only the first panic
+/// leaves: a panic of the poll is raised again once the future is dropped,
+/// a panic of that drop being dropped; a panic of the drop of a ready
+/// future is raised as this future returns, by [`HeldFuture`]'s drop.
 ///
 /// So that a panic unwinds through the protocol's own futures, such as a
 /// composed part's, holding no live future of a part, whose destructor
@@ -79,11 +79,11 @@ pub(crate) async fn catch_panic<F: Future>(
 pub(crate) async fn await_part<F: Future>(future: F) -> F::Output {
     let mut held = HeldFuture(pin!(Some(future)));
     poll_fn(
-        |context| match catch_unwind(AssertUnwindSafe(|| held.poll_then_drop(context))) {
+        |context| match catch_unwind(AssertUnwindSafe(|| held.poll(context))) {
             Ok(poll) => poll,
             Err(payload) => {
-                // The first panic, the poll's or, once ready, the drop's,
-                // is the one raised; a second, of the drop, is dropped.
+                // The poll's panic is the one raised; a second, of the
+                // drop, is dropped.
                 drop(held.drop_caught());
                 resume_unwind(payload)
             }
@@ -92,23 +92,21 @@ pub(crate) async fn await_part<F: Future>(future: F) -> F::Output {
     .await
 }
 
-/// A part's future, pinned in place until it is dropped, which happens
-/// inside a catch: [`await_part`]'s, [`drop_caught`](Self::drop_caught)'s
-/// or its own drop's.
+/// A part's future, pinned in place until it is dropped, which only
+/// [`drop_caught`](Self::drop_caught) does, inside a catch of its own:
+/// called by [`await_part`] once a poll panicked, or by this holder's drop,
+/// as `await_part`'s future returns or is dropped.
 struct HeldFuture<'a, F>(Pin<&'a mut Option<F>>);
 
 impl<F: Future> HeldFuture<'_, F> {
-    /// Polls the future, and drops it once it is ready, so that a panic in
-    /// its destructor unwinds through the caller's catch.
-    fn poll_then_drop(&mut self, context: &mut Context<'_>) -> Poll<F::Output> {
-        let future = self
-            .0
+    /// Polls the future, which it keeps once ready: [`await_part`] then
+    /// returns, and this holder's drop drops the future in the same poll.
+    fn poll(&mut self, context: &mut Context<'_>) -> Poll<F::Output> {
+        self.0
             .as_mut()
             .as_pin_mut()
-            .expect("a future is not polled once it is ready or has panicked");
-        let output = ready!(future.poll(context));
-        self.0.set(None);
-        Poll::Ready(output)
+            .expect("a future is not polled once it is ready or has panicked")
+            .poll(context)
     }
 }
 

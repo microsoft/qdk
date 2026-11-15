@@ -128,9 +128,9 @@ fn mapped(map: &OpcodeMap, instructions: &[Instruction]) -> Vec<Instruction> {
 }
 
 /// Sends `batches` below, each to its own shots with the instructions
-/// `rewrite` makes of it, in one `execute`, and answers with the readouts
-/// below, appended to `readouts`: the run time of an adapter that keeps
-/// each batch's shots.
+/// `rewrite` makes of it, checked if it is, in one `execute`, and answers
+/// with the readouts below, appended to `readouts`: the run time of an
+/// adapter that keeps each batch's shots.
 async fn forward(
     batches: &[Batch<'_>],
     seed: Seed,
@@ -142,9 +142,8 @@ async fn forward(
     let below_batches: Vec<Batch<'_>> = batches
         .iter()
         .zip(&sent)
-        .map(|(batch, instructions)| Batch {
-            shots: batch.shots,
-            instructions,
+        .map(|(batch, instructions)| {
+            Batch::new(batch.shots, instructions).checked_if(batch.is_checked())
         })
         .collect();
     below.execute(&below_batches, seed, readouts).await

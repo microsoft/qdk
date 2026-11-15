@@ -20,8 +20,8 @@ use crate::BlockType;
 /// adapter adapts it for the part below
 /// ([`Adapt::needs_below`](crate::Adapt::needs_below)); and the executor
 /// is provisioned with what reaches it. A shot's block indices of each
-/// type stay below its count here, which each `execute` checks with the
-/// batch checks on. Its `Default` needs nothing.
+/// type stay below its count here, which each `execute` checks for a
+/// [`checked`](crate::Batch::checked) batch. Its `Default` needs nothing.
 ///
 /// Built from [`qubits`](Self::qubits) or its `Default`, with the builders
 /// below, since a struct literal is refused outside the crate: it is
@@ -35,9 +35,9 @@ pub struct Needs {
     pub blocks: BTreeMap<BlockType, u32>,
     /// Whether its instructions hold a readout parity
     /// ([`Bit::Parity`](crate::Bit::Parity)), which the executor must
-    /// resolve per shot, as the shot runs. With the batch checks on, an
-    /// `execute` holding one is refused at a boundary whose needs, as they
-    /// reach it, say `false` here
+    /// resolve per shot, as the shot runs. A checked batch holding one is
+    /// refused at a boundary whose needs, as they reach it, say `false`
+    /// here
     /// ([`ParityNotProvisioned`](crate::InstructionFault::ParityNotProvisioned)).
     pub uses_readout_parity: bool,
 }

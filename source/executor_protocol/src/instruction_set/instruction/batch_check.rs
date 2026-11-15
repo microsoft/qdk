@@ -2,12 +2,12 @@
 // Licensed under the MIT License.
 
 //! The check of a batch's instructions at an `execute` ([`check_batch`]):
-//! what the protocol runs on every batch an executor receives when its
-//! runner turns the batch checks on, so that no executor writes it, and
-//! none runs an instruction its set does not declare, a block its shots do
-//! not have, or a readout parity its shots were not provisioned for; and,
-//! with them off, the batch's readout slots alone ([`readout_slots`]), which
-//! the answer's shape is checked against.
+//! what the protocol runs on every batch an executor receives that its
+//! sender marked checked, so that no executor writes it, and none runs such
+//! a batch's instruction its set does not declare, a block its shots do not
+//! have, or a readout parity its shots were not provisioned for. It also
+//! gives the batch's readout slots, which the answer's shape is checked
+//! against.
 //!
 //! It takes plain data, so that it depends on no later concept: the
 //! instructions, and [`BatchLimits`], built once from the receiver's set,
@@ -49,17 +49,6 @@ pub(crate) fn check_batch(
             .ok_or(BatchFault::TooManyReadoutSlots { at })?;
     }
     Ok(slots)
-}
-
-/// The readout slots of `instructions`, in the opcodes of the receiver's
-/// set that `limits` holds, unchecked: the sum of each instruction's, as
-/// its opcode declares them, with an opcode beyond the set reading none,
-/// and a sum past `u32::MAX` read as `u32::MAX`. What the answer's width is
-/// checked against when the batch checks are off.
-pub(crate) fn readout_slots(instructions: &[Instruction], limits: &BatchLimits) -> u32 {
-    instructions.iter().fold(0, |slots, instruction| {
-        slots.saturating_add(limits.set.readout_slots(instruction.opcode))
-    })
 }
 
 /// Why a batch is refused: too many instructions, the first refused

@@ -11,8 +11,8 @@
 //! have, and its seed against whether the chain is seedable, both by every
 //! part's offer ([`RunLimits`]), and whether each part can take a run now.
 //! Then the driver runs the shots, calling the chain below it as one
-//! executor, whose every answer the protocol checks, and, once
-//! [`Runner::set_batch_checks`] turns them on, every batch. Once the run
+//! executor, whose every answer the protocol checks, and every batch its
+//! sender marked [`checked`](crate::Batch::checked). Once the run
 //! ends, whether it gave outputs, failed, or its future was dropped, the
 //! runner ends its shots on every part, so that none keeps them.
 
@@ -20,7 +20,7 @@ mod run_error;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod wait;
 
-use crate::checked::{BatchChecks, Checked};
+use crate::checked::Checked;
 use crate::instruction_set::instruction::batch_check::BatchLimits;
 use crate::panics::{await_part, catch_panic, end_both};
 use crate::roles::EndedRun;
@@ -50,12 +50,8 @@ pub struct Runner<D: Drive, E: Execute> {
     limits: RunLimits,
     /// The executor's offer, which the driver's `below.offers()` answers.
     executor_offer: Capabilities,
-    /// The limits of the batches the driver sends the executor.
+    /// The limits of the checked batches the driver sends the executor.
     batch_limits: BatchLimits,
-    /// Whether the boundary between the driver and the executor checks
-    /// each batch against those limits; the switch the runner passes to
-    /// every boundary its parts hold.
-    batch_checks: BatchChecks,
 }
 
 impl<D: Drive, E: Execute> Runner<D, E> {
@@ -78,40 +74,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             limits,
             executor_offer,
             batch_limits,
-            batch_checks: BatchChecks::default(),
         }
-    }
-
-    /// Turns the batch checks on (`true`) or off (`false`) for every run
-    /// that follows, at every boundary of the chain, wherever its brackets
-    /// go: off when `>>` makes the runner.
-    ///
-    /// With them on, each boundary refuses a batch before anything of it
-    /// runs, as an [`ExecuteRefusal`](crate::ExecuteRefusal): an
-    /// instruction the receiver does not accept (an opcode beyond its set,
-    /// or blocks, arguments or a flag `select` that do not match its
-    /// instruction), a block beyond the shots' blocks of its type, or given
-    /// twice by one instruction, a readout parity the shots' needs do not
-    /// use, more instructions than the receiver's most, or more readout
-    /// slots than a `u32` counts. Turn them on while developing a part, or
-    /// when a part above may send what the receiver does not accept, such
-    /// as one built from a user's description at run time.
-    ///
-    /// With them off, a part runs what the part above sends, unchecked:
-    /// each check costs time on every instruction, and a chain of parts
-    /// that keep the protocol's rules needs none. A faulty batch is then
-    /// not reported as the fault of the part that sent it: an executor
-    /// may panic on it, failing the run naming that executor
-    /// ([`Failure::Panicked`]), and an opcode beyond the receiver's set may
-    /// run as another of its instructions. The checks made whatever the
-    /// switch stay: the fit and the admission of the chain by `>>`, the
-    /// refusals of a run ([`RunRefusal`]), and the shape of each answer,
-    /// whose readout slots are then read from each instruction's opcode.
-    pub fn set_batch_checks(&mut self, on: bool) {
-        let checks = BatchChecks { on };
-        self.batch_checks = checks;
-        self.driver.set_batch_checks(checks);
-        self.executor.set_batch_checks(checks);
     }
 
     /// Runs `shots` with `seed`, and blocks until the run ends: the driver's
@@ -226,7 +189,6 @@ impl<D: Drive, E: Execute> Runner<D, E> {
                 &self.executor_part,
                 &self.executor_offer,
                 &self.batch_limits,
-                self.batch_checks,
             );
             let driver = &mut *unended.driver;
             let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {

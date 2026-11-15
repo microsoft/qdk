@@ -2,10 +2,9 @@
 // Licensed under the MIT License.
 
 //! The check of a batch's instructions against the receiver's set and the
-//! shot's blocks, as a runner with the batch checks on makes it at each
-//! `execute`: one batch of instructions written as struct literals, as a
-//! part writes them on its hot path, sent by a driver straight to an
-//! executor.
+//! shot's blocks, as each `execute` makes it of a checked batch: one
+//! checked batch of instructions written as struct literals, as a part
+//! writes them on its hot path, sent by a driver straight to an executor.
 
 use crate::{
     Argument, Batch, BatchReadouts, BlockOperand, BlockType, Capabilities, Drive, DriveError,
@@ -76,8 +75,9 @@ fn device() -> InstructionSet {
     .expect("a valid set")
 }
 
-/// A driver sending `instructions` as one batch to every shot, as they
-/// were written: in the opcodes of `set`, which is also the receiver's.
+/// A driver sending `instructions` as one checked batch to every shot, as
+/// they were written: in the opcodes of `set`, which is also the
+/// receiver's.
 struct Literal {
     set: InstructionSet,
     instructions: Vec<Instruction>,
@@ -103,10 +103,7 @@ impl Drive for Literal {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<()>, DriveError> {
-        let batch = Batch {
-            shots,
-            instructions: &self.instructions,
-        };
+        let batch = Batch::new(shots, &self.instructions).checked();
         below.execute(&[batch], seed, &mut Readouts::new()).await?;
         Ok(vec![(); shots.len()])
     }
@@ -150,8 +147,7 @@ impl Execute for Zeros {
 
 /// The run of shots 0 and 1, needing `needs`, each sent `instructions` of
 /// `set` as one batch, over an executor of `set` taking `most`
-/// instructions at most and answering `slots` values a shot, with the
-/// batch checks on.
+/// instructions at most and answering `slots` values a shot.
 fn run(
     set: &InstructionSet,
     instructions: Vec<Instruction>,
@@ -176,7 +172,6 @@ fn run(
     let Ok(mut runner) = driver >> executor else {
         panic!("the chain composes");
     };
-    runner.set_batch_checks(true);
     match runner.run(&ShotSet::ids(0..2), 7) {
         Ok(_) => Ok(()),
         Err(RunError::Failed(error)) => Err(error),
