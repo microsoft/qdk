@@ -101,14 +101,12 @@ function readDimension(source: SvgElement, name: "width" | "height"): number {
 }
 
 function buildStyle(fontMode: CircuitSvgFontMode): string {
-  const mainFont =
-    fontMode === "embed" ? '"QDKCircuitMain"' : '"KaTeX_Main",serif';
-  const mathFont =
-    fontMode === "embed" ? '"QDKCircuitMath"' : '"KaTeX_Math",serif';
+  const mainFont = '"KaTeX_Main","MJXZERO","MJXTEX",sans-serif';
+  const mathFont = '"KaTeX_Math","MJXZERO","MJXTEX-I",serif';
   const fontFaces =
     fontMode === "embed"
-      ? `@font-face{font-family:"QDKCircuitMain";src:url(data:font/woff2;base64,${KATEX_MAIN_REGULAR_WOFF2}) format("woff2");font-style:normal;font-weight:400}` +
-        `@font-face{font-family:"QDKCircuitMath";src:url(data:font/woff2;base64,${KATEX_MATH_ITALIC_WOFF2}) format("woff2");font-style:italic;font-weight:400}`
+      ? `@font-face{font-family:"KaTeX_Main";src:url(data:font/woff2;base64,${KATEX_MAIN_REGULAR_WOFF2}) format("woff2");font-style:normal;font-weight:400}` +
+        `@font-face{font-family:"KaTeX_Math";src:url(data:font/woff2;base64,${KATEX_MATH_ITALIC_WOFF2}) format("woff2");font-style:italic;font-weight:400}`
       : "";
 
   return (
@@ -121,12 +119,12 @@ function buildStyle(fontMode: CircuitSvgFontMode): string {
     `.${EXPORT_CLASS} .hidden{display:none}` +
     `.${EXPORT_CLASS} .register-classical{stroke-width:.5}` +
     `.${EXPORT_CLASS} .arg-button{text-decoration:none;word-spacing:-.2em}` +
-    `.${EXPORT_CLASS} .gate .qs-group-label{text-anchor:start}` +
+    `.${EXPORT_CLASS} .gate .qs-group-label{fill:currentColor;text-anchor:start}` +
     `.${EXPORT_CLASS} .control-line,.${EXPORT_CLASS} .control-dot{fill:currentColor}` +
     `.${EXPORT_CLASS} .anti-control-dot{fill:#fff;stroke:currentColor;stroke-width:2}` +
     `.${EXPORT_CLASS} .oplus>circle{fill:#fff;stroke:currentColor;stroke-width:2}` +
     `.${EXPORT_CLASS} .oplus>line{stroke:currentColor;stroke-width:2}` +
-    `.${EXPORT_CLASS} rect.gate-swap{fill:transparent;stroke:transparent}` +
+    `.${EXPORT_CLASS} rect.gate-swap{fill:none;stroke:none}` +
     `.${EXPORT_CLASS} .gate-unitary{fill:#fff;stroke:currentColor}` +
     `.${EXPORT_CLASS} .gate text{fill:#3b3b3b}` +
     `.${EXPORT_CLASS} .gate-measure{fill:#005fb8;stroke:currentColor}` +

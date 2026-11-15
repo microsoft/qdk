@@ -29,6 +29,9 @@ test("renderCircuitSvg creates deterministic standalone SVG without a DOM", () =
   assert.equal(JSON.stringify(circuit), before);
   assert.match(first, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n/);
   assert.match(first, /data:font\/woff2;base64,/);
+  assert.match(first, /@font-face\{font-family:"KaTeX_Main";/);
+  assert.match(first, /@font-face\{font-family:"KaTeX_Math";/);
+  assert.doesNotMatch(first, /QDKCircuitMain|QDKCircuitMath/);
   assert.doesNotMatch(first, /Segoe WPC/);
   assert.doesNotMatch(first, /gate-control/);
   assert.doesNotMatch(first, /\sdata-[A-Za-z0-9_-]+=/);
@@ -74,6 +77,7 @@ test("renderCircuitSvg supports reference fonts and a solid background", () => {
     background: "solid",
     fontMode: "reference",
   });
+
   const parsed = parseSvg(exported);
   const style = parsed.querySelector("style")?.textContent ?? "";
 
@@ -85,6 +89,26 @@ test("renderCircuitSvg supports reference fonts and a solid background", () => {
       .querySelector(".qdk-circuit-export-background")
       ?.getAttribute("fill"),
     null,
+  );
+});
+
+test("standalone SWAP hitboxes do not become black rectangles in SVG viewers", () => {
+  const circuit = representativeCircuit();
+  circuit.componentGrid.push({
+    components: [
+      {
+        kind: "unitary",
+        gate: "SWAP",
+        targets: [{ qubit: 0 }, { qubit: 1 }],
+      },
+    ],
+  });
+  const parsed = parseSvg(renderCircuitSvg(circuit));
+
+  assert.ok(parsed.querySelector("rect.gate-swap"));
+  assert.match(
+    parsed.querySelector("style")?.textContent ?? "",
+    /rect\.gate-swap\{fill:none;stroke:none\}/,
   );
 });
 

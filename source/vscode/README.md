@@ -20,6 +20,36 @@ The QDK extension currently supports:
 
 For more information about the QDK and Microsoft Quantum, visit [https://aka.ms/qdk](https://aka.ms/qdk).
 
+## Exporting circuit diagrams
+
+Select **Export as SVG** in the circuit viewer to save a transparent vector
+image using QDK's light-theme colors. The export preserves expanded and collapsed
+operations and includes the full circuit, independently of the viewer's zoom.
+The interactive viewer continues to use your current theme.
+
+Labels remain editable SVG text. The SVG embeds QDK's existing KaTeX fonts for
+standalone browsers. Inkscape and other converters that do not load SVG web
+fonts need the matching `KaTeX_Main-Regular.ttf` and `KaTeX_Math-Italic.ttf`
+fonts installed locally. These fonts are available in the
+[KaTeX distribution](https://github.com/KaTeX/KaTeX/releases).
+Without them, those tools substitute fonts and can change label spacing.
+
+For LaTeX or Overleaf, convert the SVG locally with Inkscape, then include the
+resulting vector PDF with `graphicx`:
+
+```shell
+inkscape circuit.svg --export-type=pdf --export-filename=circuit.pdf
+```
+
+```latex
+\usepackage{graphicx}
+% In the document:
+\includegraphics[width=\linewidth]{circuit.pdf}
+```
+
+If using the LaTeX `svg` package instead, set `inkscapelatex=false` to keep the
+circuit's labels rather than having LaTeX re-typeset them.
+
 ## Contributing
 
 To log issues, contribute to the project, or build the extension yourself, visit the repository at <https://github.com/microsoft/qdk>
