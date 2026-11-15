@@ -160,6 +160,10 @@ impl StateCalls for FakeLibraries {
             return Err(failed("prepare_state", "prepared before finalize"));
         }
         state.prepared_at = Some(state.operators.len());
+        // cuTensorNet sets the workspace's sizes for the state here
+        // (`cutensornetStatePrepare`'s `workDesc`, `generated/v2_13.rs`), so
+        // a tensor call needs the workspace sized for it again.
+        inner.forget_sizings(|sized, _| sized == id(workspace));
         Ok(())
     }
 
@@ -451,12 +455,13 @@ impl StateCalls for FakeLibraries {
             matches!(o, Object::Workspace { .. })
         })?;
         match inner.objects.get_mut(&id(expectation)) {
-            Some(Object::Expectation { prepared, .. }) => {
-                *prepared = true;
-                Ok(())
-            }
-            _ => Err(failed("prepare_expectation", "no such expectation")),
+            Some(Object::Expectation { prepared, .. }) => *prepared = true,
+            _ => return Err(failed("prepare_expectation", "no such expectation")),
         }
+        // As for `prepare_state` (`cutensornetExpectationPrepare`'s
+        // `workDesc`).
+        inner.forget_sizings(|sized, _| sized == id(workspace));
+        Ok(())
     }
 
     fn compute_expectation(

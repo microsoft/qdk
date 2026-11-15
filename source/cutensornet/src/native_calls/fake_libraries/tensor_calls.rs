@@ -14,7 +14,11 @@
 //!   optimizer info) belongs to the handle it was created with;
 //! - a gate split, a QR or a contraction runs only in a workspace last
 //!   sized for that same call (the same descriptors and config, or the
-//!   same network and path), and lent what each of its slots asks for;
+//!   same network and path), and lent what each of its slots asks for. A
+//!   state's or an expectation's preparation in that workspace sizes it
+//!   for the state API, as cuTensorNet's does, and a new path search for a
+//!   network, even into the same optimizer info, may find another path:
+//!   either undoes the sizing;
 //! - an optimizer info serves only the network it was created for: its
 //!   path is searched, and a workspace sized, for that network alone;
 //! - a network is prepared only once optimized, in a workspace sized for
@@ -501,6 +505,11 @@ impl TensorCalls for FakeLibraries {
             *path = Some(id(info));
             *prepared = None;
         }
+        // The search may find another path, even into the same info, and
+        // a workspace sized for the old one may not hold the new one's.
+        inner.forget_sizings(|_, call| {
+            matches!(call, SizedFor::Contraction { network: of, .. } if of == id(network))
+        });
         Ok(())
     }
 
@@ -1028,6 +1037,19 @@ impl Inner {
                 Ok(())
             }
             _ => Err(failed(operation, "no such workspace")),
+        }
+    }
+
+    /// Forgets the tensor call a workspace was sized for wherever `stale`,
+    /// given the workspace's id and that call, says the sizing no longer
+    /// holds, so the call is refused until the workspace is sized again.
+    pub(super) fn forget_sizings(&mut self, stale: impl Fn(usize, SizedFor) -> bool) {
+        for (&object, value) in &mut self.objects {
+            if let Object::Workspace { sized_for, .. } = value
+                && sized_for.is_some_and(|call| stale(object, call))
+            {
+                *sized_for = None;
+            }
         }
     }
 

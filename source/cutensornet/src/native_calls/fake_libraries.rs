@@ -55,10 +55,12 @@
 //! - a compute runs on a live stream, and a stream is synchronized only
 //!   while live;
 //! - after a compute or a tensor call, no buffer is freed (`free`) until
-//!   every stream with work queued is synchronized, since the fake does not
-//!   track what a stream's work reads; and no state is captured
-//!   (`capture_mps`) until then, a cautious choice: the fake knows a
-//!   compute's outputs and could wait for their stream alone;
+//!   every stream recorded as the last to write a pending object (below) is
+//!   synchronized, since the fake does not track what a stream's work
+//!   reads; and no state is captured (`capture_mps`) until then, a cautious
+//!   choice: the fake knows a compute's outputs and could wait for their
+//!   stream alone. A stream whose writes another stream wrote again since
+//!   is no longer recorded, so these waits do not cover its work;
 //! - a buffer a compute or a tensor call wrote is copied to the host
 //!   (`copy_to_host`), and an SVD info reported (`svd_truncation`), only
 //!   once the stream last queued to write it is synchronized: another
@@ -69,7 +71,7 @@
 //!   destination, `copy_to_device`'s destination;
 //! - a stream destroyed with writes pending keeps them, as its work may
 //!   still run after `cudaStreamDestroy`: no buffer is freed, and no state
-//!   captured, after that;
+//!   captured, while it is their last recorded writer;
 //! - a device-to-device copy of a whole computed tensor holds that tensor;
 //!   a partial copy holds nothing;
 //! - every object a call takes a handle for (a workspace, state, network
@@ -526,7 +528,8 @@ impl Inner {
         self.pending_writes.contains_key(&object)
     }
 
-    /// Whether any stream may still be running work. `free` needs it, as the
+    /// Whether any stream may still be running work, as far as the last
+    /// writers of pending writes record it. `free` needs it, as the
     /// fake does not track what a stream's work reads; `capture_mps` uses it
     /// as a cautious choice, since a compute's outputs are known and their
     /// stream alone could be waited for (the rules on streams, in this

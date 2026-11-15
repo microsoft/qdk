@@ -19,9 +19,11 @@
 //! (descriptors, SVD configs and infos, networks, optimizer infos) belong
 //! to the handle they were created with, and are used only with it.
 //! A call that runs on a stream (`gate_split`, `tensor_qr`, `contract`) runs
-//! in a workspace sized for that call (its `…_workspace_sizes`) and lent
-//! the memory each slot asks for (`MemoryCalls::set_workspace`); its results
-//! are ready once the caller synchronizes the stream.
+//! in a workspace last sized for that call (its `…_workspace_sizes`;
+//! preparing a state or an expectation in it sizes it for the state API
+//! instead) and lent the memory each slot asks for
+//! (`MemoryCalls::set_workspace`); its results are ready once the caller
+//! synchronizes the stream.
 //!
 //! The tensor API is not required to open the libraries, since the engine
 //! never calls it:
@@ -46,8 +48,9 @@ use crate::native_calls::error::NativeError;
 /// ([`prepare_contraction`](Self::prepare_contraction)) once, then
 /// contracted any number of times, each time on the buffers given to
 /// [`contract`](Self::contract) and with at least the device scratch lent
-/// at the preparation, so a caller may keep one network per shape. A new
-/// path needs a new sizing and preparation. Its optimizer infos are
+/// at the preparation, so a caller may keep one network per shape. Each
+/// path search, even into the same optimizer info, may find another path,
+/// so it needs a new sizing and preparation. Its optimizer infos are
 /// destroyed before it.
 pub(crate) trait TensorCalls: MemoryCalls {
     /// Fails unless the library exports every function of the tensor API,

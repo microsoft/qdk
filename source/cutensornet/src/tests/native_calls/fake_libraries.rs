@@ -457,6 +457,14 @@ impl Factors {
     }
 }
 
+/// Every slot of a workspace.
+const WORKSPACE_SLOTS: [WorkspaceSlot; 4] = [
+    WorkspaceSlot::DeviceScratch,
+    WorkspaceSlot::DeviceCache,
+    WorkspaceSlot::HostScratch,
+    WorkspaceSlot::HostCache,
+];
+
 // The labels of the QR's input modes i, k and j.
 const QR_I: i32 = 1;
 const QR_K: i32 = 2;
@@ -509,24 +517,31 @@ impl TensorQr {
             .fake
             .synchronize_copies()
             .expect("the copies were queued");
-        device
-            .fake
-            .qr_workspace_sizes(
-                device.handle,
-                input.descriptor,
-                q.descriptor,
-                r.descriptor,
-                device.workspace,
-            )
-            .expect("the descriptors are live");
-        Self {
+        let qr = Self {
             device,
             input,
             q,
             r,
             input_values,
             shared,
-        }
+        };
+        qr.size();
+        qr
+    }
+
+    /// Sizes the workspace for the QR.
+    fn size(&self) {
+        let device = &self.device;
+        device
+            .fake
+            .qr_workspace_sizes(
+                device.handle,
+                self.input.descriptor,
+                self.q.descriptor,
+                self.r.descriptor,
+                device.workspace,
+            )
+            .expect("the descriptors are live");
     }
 
     /// Queues the QR on `stream`.
@@ -656,7 +671,8 @@ fn the_fake_contracts_as_the_labels_say() {
 /// cuTensorNet may ask for memory in any slot of a workspace (a device
 /// cache, host scratch), and runs a call only once each is lent; a caller
 /// that lends device scratch alone is caught on the fake, whether it
-/// contracts, splits a gate or runs a QR.
+/// contracts, splits a gate or runs a QR, and so is one that leaves any
+/// single slot unlent.
 #[test]
 fn a_tensor_call_needs_memory_in_every_slot_that_asks_for_it() {
     let fake = FakeLibraries::new();
@@ -669,26 +685,50 @@ fn a_tensor_call_needs_memory_in_every_slot_that_asks_for_it() {
     needs_every_slot(&split.device, || {
         split.run(split.config, split.device.stream)
     });
-    let fake = FakeLibraries::new();
-    fake.set_other_workspace_slot_bytes(64);
-    let qr = TensorQr::sized(fake, 3);
-    needs_every_slot(&qr.device, || qr.run_on(qr.device.stream));
+    for unlent in WORKSPACE_SLOTS {
+        let fake = FakeLibraries::new();
+        fake.set_other_workspace_slot_bytes(64);
+        let qr = TensorQr::sized(fake, 3);
+        for slot in WORKSPACE_SLOTS.into_iter().filter(|&slot| slot != unlent) {
+            qr.device.lend(slot);
+        }
+        let refused = qr
+            .run_on(qr.device.stream)
+            .expect_err("one slot is lent nothing");
+        assert!(
+            refused_for(&refused, "no memory lent"),
+            "{unlent:?}: {refused}"
+        );
+        qr.device.lend(unlent);
+        qr.run_on(qr.device.stream).expect("every slot is lent");
+    }
 }
 
 /// A caller that lends a slot less than the size query asked for (an old
 /// size, after the workspace was sized for a larger call) is caught on the
-/// fake.
+/// fake, whichever slot it is.
 #[test]
 fn a_tensor_call_needs_at_least_what_each_slot_asks_for() {
-    let qr = TensorQr::sized(FakeLibraries::new(), 3);
-    let asked = qr.device.asked(WorkspaceSlot::DeviceScratch);
-    qr.device
-        .lend_bytes(WorkspaceSlot::DeviceScratch, asked - 1);
-    qr.run_on(qr.device.stream)
-        .expect_err("the device scratch is one byte short");
-    qr.device.lend_bytes(WorkspaceSlot::DeviceScratch, asked);
-    qr.run_on(qr.device.stream)
-        .expect("the device scratch is lent in full");
+    for short in WORKSPACE_SLOTS {
+        let fake = FakeLibraries::new();
+        fake.set_other_workspace_slot_bytes(64);
+        let qr = TensorQr::sized(fake, 3);
+        for slot in WORKSPACE_SLOTS {
+            let asked = qr.device.asked(slot);
+            qr.device
+                .lend_bytes(slot, if slot == short { asked - 1 } else { asked });
+        }
+        let refused = qr
+            .run_on(qr.device.stream)
+            .expect_err("one slot is one byte short");
+        assert!(
+            refused_for(&refused, "less memory lent"),
+            "{short:?}: {refused}"
+        );
+        qr.device.lend(short);
+        qr.run_on(qr.device.stream)
+            .expect("every slot is lent in full");
+    }
 }
 
 /// A caller's test of a two-site gate is checked against the fake: U·V is
@@ -1107,11 +1147,18 @@ fn a_qrs_q_has_orthonormal_columns() {
     assert_close(&gram, &identity(3));
 }
 
-/// cuTensorNet's QR is thin: a caller whose descriptors share more than the
-/// smaller side (4 rows, 3 columns) is caught on the fake.
+/// The QR is thin: a caller whose descriptors share more than the smaller
+/// side (4 rows, 3 columns), or less, is caught on the fake.
 #[test]
 fn a_qr_needs_the_shared_extent_to_be_the_smaller_side() {
-    qr(4).expect_err("Q and R share 4, the larger side");
+    for extent in [4, 2] {
+        let refused = qr(extent).expect_err("Q and R do not share the smaller side");
+        assert!(
+            refused_for(&refused, "not the smaller side"),
+            "{extent}: {refused}"
+        );
+    }
+    qr(3).expect("Q and R share the smaller side");
 }
 
 /// cuTensorNet's QR splits its input's modes between Q and R, and sums
@@ -1410,6 +1457,25 @@ fn computed_state_on(
     stream: Stream,
 ) -> Result<(OpaqueHandle, Vec<OpaqueHandle>), crate::NativeError> {
     let fake = &device.fake;
+    let (state, capacity) = prepared_state(device);
+    device.lend(WorkspaceSlot::DeviceScratch);
+    let mut outputs: Vec<OpaqueHandle> = (0..2).map(|_| device.zeros(&[2, 2])).collect();
+    fake.synchronize_copies().expect("the copies were queued");
+    let mut layout = MpsLayout::new(&capacity);
+    fake.compute_state(
+        device.handle,
+        state,
+        device.workspace,
+        &mut layout,
+        &mut outputs,
+        stream,
+    )?;
+    Ok((state, outputs))
+}
+
+/// A two-qubit state prepared in `device`'s workspace, and its capacity.
+fn prepared_state(device: &Device) -> (OpaqueHandle, NativeCapacity) {
+    let fake = &device.fake;
     let state = fake
         .create_state(device.handle, &[2, 2])
         .expect("the handle is live");
@@ -1425,19 +1491,7 @@ fn computed_state_on(
         device.stream,
     )
     .expect("the state is finalized");
-    device.lend(WorkspaceSlot::DeviceScratch);
-    let mut outputs: Vec<OpaqueHandle> = (0..2).map(|_| device.zeros(&[2, 2])).collect();
-    fake.synchronize_copies().expect("the copies were queued");
-    let mut layout = MpsLayout::new(&capacity);
-    fake.compute_state(
-        device.handle,
-        state,
-        device.workspace,
-        &mut layout,
-        &mut outputs,
-        stream,
-    )?;
-    Ok((state, outputs))
+    (state, capacity)
 }
 
 /// A compute is queued on a stream: a caller that passes a destroyed one is
@@ -1633,6 +1687,28 @@ fn a_destroyed_stream_keeps_its_writes_pending() {
         .fake
         .free(contraction.inputs[0])
         .expect_err("the destroyed stream's work may still run");
+}
+
+/// The fake records one writer per pending write, the stream last queued to
+/// write it: once a second stream contracts into the first one's output and
+/// is synchronized, the fake no longer holds `free` for the first stream's
+/// contraction, which a GPU may still be running. A caller's test does not
+/// catch that misuse on the fake.
+#[test]
+fn a_free_waits_only_for_the_last_writer_of_each_pending_write() {
+    let contraction = Contraction::dot_product(FakeLibraries::new());
+    let device = &contraction.device;
+    let second = device.fake.create_stream().expect("the fake has a device");
+    contraction.contract().expect("the first write");
+    contraction.contract_on(second).expect("the second write");
+    device
+        .fake
+        .synchronize_stream(second)
+        .expect("the second stream is live");
+    device
+        .fake
+        .free(contraction.inputs[0])
+        .expect("the first stream is no longer the output's recorded writer");
 }
 
 /// A stream is synchronized while it exists: a caller that synchronizes one
@@ -1851,8 +1927,9 @@ fn a_network_outlives_its_optimizer_infos() {
 
 /// cuTensorNet contracts a network as its last preparation set it up, for
 /// the path it had then: a caller that contracts an optimized network it
-/// never prepared, or did not prepare again after optimizing it again, is
-/// caught on the fake.
+/// never prepared, or did not prepare again after optimizing it again
+/// (sizing the workspace again, so that only the preparation is missing),
+/// is caught on the fake.
 #[test]
 fn a_contraction_needs_a_network_prepared_for_its_path() {
     let ones = [Complex64::new(1.0, 0.0); 2];
@@ -1864,9 +1941,10 @@ fn a_contraction_needs_a_network_prepared_for_its_path() {
     );
     let device = &contraction.device;
     device.lend(WorkspaceSlot::DeviceScratch);
-    contraction
+    let refused = contraction
         .contract()
         .expect_err("the network is not prepared");
+    assert!(refused_for(&refused, "not prepared"), "{refused}");
     contraction
         .prepare()
         .expect("the workspace is sized for the path");
@@ -1880,16 +1958,49 @@ fn a_contraction_needs_a_network_prepared_for_its_path() {
         .fake
         .contraction_workspace_sizes(device.handle, network, contraction.info, device.workspace)
         .expect("the path is optimized");
-    device.lend(WorkspaceSlot::DeviceScratch);
-    contraction
+    let refused = contraction
         .contract()
         .expect_err("the network is not prepared for its new path");
+    assert!(refused_for(&refused, "not prepared"), "{refused}");
     contraction
         .prepare()
         .expect("the workspace is sized for the path");
     contraction
         .contract()
         .expect("the network is prepared again");
+}
+
+/// cuTensorNet's optimizer may find another path at each search, even into
+/// the same optimizer info, and a workspace sized for the old path may not
+/// hold the new one's: a caller that searches a prepared network's path
+/// again and prepares it without sizing the workspace again is caught on
+/// the fake.
+#[test]
+fn a_new_path_search_needs_the_workspace_sized_again() {
+    let contraction = Contraction::dot_product(FakeLibraries::new());
+    let device = &contraction.device;
+    let network = contraction.network.descriptor;
+    device
+        .fake
+        .optimize_contraction(device.handle, network, 1 << 20, contraction.info)
+        .expect("the info is the network's");
+    let refused = contraction
+        .prepare()
+        .expect_err("the workspace is sized for the earlier search's path");
+    assert!(
+        refused_for(&refused, "not sized for this call"),
+        "{refused}"
+    );
+    device
+        .fake
+        .contraction_workspace_sizes(device.handle, network, contraction.info, device.workspace)
+        .expect("the path is optimized");
+    contraction
+        .prepare()
+        .expect("the workspace is sized for the new path");
+    contraction
+        .contract()
+        .expect("the network is prepared for its new path");
 }
 
 /// cuTensorNet takes each output mode's extent from the inputs: a caller
@@ -1970,7 +2081,7 @@ fn a_prepared_network_contracts_new_buffers_each_time() {
 /// that runs a gate split under another SVD config, without sizing again,
 /// is caught on the fake.
 #[test]
-fn a_tensor_call_needs_a_workspace_sized_for_it() {
+fn a_gate_split_needs_a_workspace_sized_for_its_config() {
     let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
     let device = &split.device;
     let other = device
@@ -1989,6 +2100,172 @@ fn a_tensor_call_needs_a_workspace_sized_for_it() {
     split
         .run(other, device.stream)
         .expect("the workspace is sized for this config");
+}
+
+/// A workspace is sized for a gate split's descriptors, not their shapes: a
+/// caller that sizes it with a new descriptor of U's shape, then runs the
+/// split with U's own, is caught on the fake.
+#[test]
+fn a_gate_split_needs_a_workspace_sized_for_its_descriptors() {
+    let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    let (device, operands) = (&split.device, &split.operands);
+    let same_shape_as_u = device
+        .fake
+        .create_tensor_descriptor(
+            device.handle,
+            TensorModes {
+                extents: &[2, 2],
+                modes: &[P_OUT, S],
+            },
+        )
+        .expect("the extents and modes match");
+    device
+        .fake
+        .gate_split_workspace_sizes(
+            device.handle,
+            &GateSplitDescriptors {
+                a: operands.a.descriptor,
+                b: operands.b.descriptor,
+                gate: operands.gate.descriptor,
+                u: same_shape_as_u,
+                v: operands.v.descriptor,
+            },
+            split.config,
+            device.workspace,
+        )
+        .expect("the descriptors and config are live");
+    device.lend(WorkspaceSlot::DeviceScratch);
+    let refused = split
+        .run(split.config, device.stream)
+        .expect_err("the workspace is sized for another U descriptor");
+    assert!(
+        refused_for(&refused, "not sized for this call"),
+        "{refused}"
+    );
+    split.size_workspace(split.config);
+    split
+        .run(split.config, device.stream)
+        .expect("the workspace is sized for these descriptors");
+}
+
+/// A caller that shares one workspace between its tensor calls, sizes it
+/// for a contraction, then runs a QR without sizing it again is caught on
+/// the fake.
+#[test]
+fn a_qr_needs_a_workspace_sized_for_it() {
+    let qr = TensorQr::sized(FakeLibraries::new(), 3);
+    let device = &qr.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    let [(network, info), _] = two_networks(device, true);
+    device
+        .fake
+        .contraction_workspace_sizes(device.handle, network, info, device.workspace)
+        .expect("the path is optimized");
+    let refused = qr
+        .run_on(device.stream)
+        .expect_err("the workspace is sized for a contraction");
+    assert!(
+        refused_for(&refused, "not sized for this call"),
+        "{refused}"
+    );
+    qr.size();
+    qr.run_on(device.stream)
+        .expect("the workspace is sized for the QR");
+}
+
+/// A caller that keeps one prepared network per shape in one workspace,
+/// sizes that workspace for another network, then contracts the first
+/// without sizing again is caught on the fake.
+#[test]
+fn a_contraction_needs_a_workspace_sized_for_its_path() {
+    let contraction = Contraction::dot_product(FakeLibraries::new());
+    let device = &contraction.device;
+    let [(other, other_info), _] = two_networks(device, true);
+    device
+        .fake
+        .contraction_workspace_sizes(device.handle, other, other_info, device.workspace)
+        .expect("the path is optimized");
+    let refused = contraction
+        .contract()
+        .expect_err("the workspace is sized for another network");
+    assert!(
+        refused_for(&refused, "not sized for this call"),
+        "{refused}"
+    );
+    device
+        .fake
+        .contraction_workspace_sizes(
+            device.handle,
+            contraction.network.descriptor,
+            contraction.info,
+            device.workspace,
+        )
+        .expect("the path is optimized");
+    contraction
+        .contract()
+        .expect("the workspace is sized for the network's path");
+}
+
+/// cuTensorNet's state preparation sets the sizes of the workspace it is
+/// given, for the state (`cutensornetStatePrepare`): a caller that shares
+/// one workspace between a state and a QR, and runs the QR after preparing
+/// the state without sizing the workspace for the QR again, is caught on
+/// the fake.
+#[test]
+fn a_state_preparation_undoes_a_tensor_calls_sizing() {
+    let qr = TensorQr::sized(FakeLibraries::new(), 3);
+    let device = &qr.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    prepared_state(device);
+    let refused = qr
+        .run_on(device.stream)
+        .expect_err("the workspace is sized for the state");
+    assert!(
+        refused_for(&refused, "not sized for this call"),
+        "{refused}"
+    );
+    qr.size();
+    qr.run_on(device.stream)
+        .expect("the workspace is sized for the QR again");
+}
+
+/// cuTensorNet's expectation preparation sets the sizes of the workspace it
+/// is given, as a state's does (`cutensornetExpectationPrepare`): a caller
+/// that runs a QR after preparing an expectation in the QR's workspace,
+/// without sizing it for the QR again, is caught on the fake.
+#[test]
+fn an_expectation_preparation_undoes_a_tensor_calls_sizing() {
+    let qr = TensorQr::sized(FakeLibraries::new(), 3);
+    let device = &qr.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    let (fake, handle) = (&device.fake, device.handle);
+    let state = fake
+        .create_state(handle, &[2, 2])
+        .expect("the handle is live");
+    let operator = fake
+        .create_network_operator(handle, &[2, 2])
+        .expect("the handle is live");
+    let expectation = fake
+        .create_expectation(handle, state, operator)
+        .expect("the state and operator are live");
+    fake.prepare_expectation(
+        handle,
+        expectation,
+        1 << 20,
+        device.workspace,
+        device.stream,
+    )
+    .expect("the expectation is live");
+    let refused = qr
+        .run_on(device.stream)
+        .expect_err("the workspace is sized for the expectation");
+    assert!(
+        refused_for(&refused, "not sized for this call"),
+        "{refused}"
+    );
+    qr.size();
+    qr.run_on(device.stream)
+        .expect("the workspace is sized for the QR again");
 }
 
 /// cuTensorNet writes a gate split's report on the split's stream: a
@@ -2183,8 +2460,7 @@ fn split_with_labels(
 /// The gate of a two-site split, G[p', q', p, q].
 const GATE: [i32; 4] = [P_OUT, Q_OUT, P, Q];
 
-/// Whether `refused` is the fake's refusal of a gate split's labels for
-/// `reason`.
+/// Whether `refused` is the fake's refusal for `reason`.
 fn refused_for(refused: &crate::NativeError, reason: &str) -> bool {
     refused.to_string().contains(reason)
 }
