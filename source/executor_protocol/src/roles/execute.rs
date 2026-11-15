@@ -24,7 +24,8 @@ use crate::{
 /// checks as that method says, against the executor's set and the needs it
 /// was provisioned for, so the executor runs only what it accepts; an
 /// unchecked batch, the default, the executor runs as the part above sends
-/// it.
+/// it, once the protocol has checked that it holds no more instructions
+/// than the executor takes.
 pub trait Execute {
     // Composition time.
 
@@ -113,8 +114,8 @@ pub trait Execute {
     /// `start + i` answers `batches[i]`. Called through the protocol, it
     /// cannot change the readouts it found unseen: it reads them as a
     /// slice, and [`Readouts::clear`](crate::Readouts::clear) keeps them;
-    /// assigning or swapping in another value for `*readouts` loses them,
-    /// and fails, as
+    /// when it found some, assigning or swapping in another value for
+    /// `*readouts` loses them, and fails, as
     /// [`ShapeFault::ReadoutsReplaced`](crate::ShapeFault::ReadoutsReplaced)
     /// says. Any other `execute` that fails, or one dropped before it
     /// answers, leaves `readouts` as they were when it is called through
@@ -260,7 +261,8 @@ pub enum ExecuteRefusal {
         fault: InstructionFault,
     },
     /// `batches[batch]` holds more instructions than the receiver's most
-    /// ([`Capabilities::max_instructions`]); `shot` is its first.
+    /// ([`Capabilities::max_instructions`]); `shot` is its first. Checked
+    /// for every batch, [`checked`](crate::Batch::checked) or not.
     TooManyInstructions {
         /// The batch's first shot.
         shot: ShotId,

@@ -26,8 +26,8 @@ use crate::BlockType;
 /// Where each limit is checked: the blocks and the readout parities by the
 /// `>>` that makes a runner, against the needs that reach each part; the
 /// shots and the seed by the runner, at each run, against every part's
-/// offer; the instructions at each `execute`, for a batch its sender marked
-/// [`checked`](crate::Batch::checked).
+/// offer; the instructions at each `execute`, against every batch's count,
+/// checked or not.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Capabilities {
@@ -38,7 +38,10 @@ pub struct Capabilities {
     /// the fewest any part of the chain offers, so an adapter can lower the
     /// executor's, never raise it.
     pub max_shots: Option<u32>,
-    /// The most instructions one batch may hold; `None`: no limit.
+    /// The most instructions one batch may hold; `None`: no limit. Every
+    /// batch sent to the executor is refused beyond it, checked or not, so
+    /// an executor that holds a batch in a buffer of fixed size relies on
+    /// it.
     pub max_instructions: Option<u32>,
     /// Whether a run may fix its seed, so that it gives the same records
     /// each time; a quantum computer's measurements cannot be seeded. A

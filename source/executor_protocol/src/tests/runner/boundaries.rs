@@ -694,10 +694,11 @@ enum Outcome {
 /// Two batches of one `execute`, on shots 4 and 2 a measure of qubit 0,
 /// on shots 9 and 7 a flip and a measure, one checked and the other not,
 /// to bits that take one instruction a batch, or to an executor answering
-/// a value more in each row of the second batch: each batch is checked as
-/// its sender chose. The unchecked batch's fault goes unreported, and the
-/// run gives a record per shot; the checked one's names batch 1 and its
-/// first shot, 9.
+/// a value more in each row of the second batch: each batch's count of
+/// instructions is checked whatever its sender chose, and its answer's
+/// width as its sender chose. The unchecked batch's width goes unreported,
+/// and the run gives a record per shot; every other fault names batch 1
+/// and its first shot, 9.
 #[test]
 fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     let shots = ShotSet::ids([4, 2, 9, 7]);
@@ -715,21 +716,24 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     };
     let wider = || Executor::new(Misshapen(Misshape::ExtraValue));
     let records = |run: Result<Vec<_>, RunError>| run.map(|records| records.len());
+    let too_many = || {
+        Outcome::Refused(ExecuteRefusal::TooManyInstructions {
+            shot: ShotId::new(9),
+            batch: 1,
+            max: 1,
+            got: 2,
+        })
+    };
     let rows: [(&str, Result<usize, RunError>, Outcome); 4] = [
         (
             "a batch longer than the bits take, unchecked, after a checked one",
             records(runner(program(true, false) >> one_instruction()).run(&shots, SEED)),
-            Outcome::Runs,
+            too_many(),
         ),
         (
             "a batch longer than the bits take, checked, after an unchecked one",
             records(runner(program(false, true) >> one_instruction()).run(&shots, SEED)),
-            Outcome::Refused(ExecuteRefusal::TooManyInstructions {
-                shot: ShotId::new(9),
-                batch: 1,
-                max: 1,
-                got: 2,
-            }),
+            too_many(),
         ),
         (
             "a value more in each row of the unchecked batch, after a checked one",

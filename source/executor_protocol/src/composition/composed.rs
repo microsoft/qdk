@@ -52,8 +52,8 @@ pub struct Composed<U, L> {
     /// half's with the chain below it, kept when the `>>` that makes the
     /// runner reads every part's offer, before any part is provisioned.
     below_offer: Option<Capabilities>,
-    /// The limits of the checked batches crossing that boundary, from that
-    /// offer and the needs crossing it, set when the chain is provisioned.
+    /// The limits of the batches crossing that boundary, from that offer
+    /// and the needs crossing it, set when the chain is provisioned.
     batch_limits: Option<BatchLimits>,
 }
 

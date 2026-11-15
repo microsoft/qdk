@@ -211,7 +211,9 @@ fn cleared_readouts_take_a_larger_answer_in_at_most_two_allocations() {
 }
 
 /// Two `Readouts` are equal when they hold equal batches' readouts in the
-/// same order, whatever memory each keeps, and differ when one batch's do.
+/// same order, whatever memory each keeps, and whether each batch was
+/// filled in place or made elsewhere and pushed into a cleared list; they
+/// differ when one batch's do.
 #[test]
 fn readouts_lists_are_equal_when_their_batches_are() {
     let fill = |readouts: &mut Readouts, values: [&[ReadoutValue]; 2]| {
@@ -233,6 +235,11 @@ fn readouts_lists_are_equal_when_their_batches_are() {
     let mut other = Readouts::new();
     fill(&mut other, [&[One], &[One]]);
     assert_ne!(fresh, other);
+    reused.clear();
+    for batch in &other {
+        reused.push(batch.clone());
+    }
+    assert_eq!(other, reused, "batches pushed into a cleared list");
 }
 
 /// A batch with no readout slots, such as one that only applies gates,

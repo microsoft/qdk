@@ -50,7 +50,7 @@ pub struct Runner<D: Drive, E: Execute> {
     limits: RunLimits,
     /// The executor's offer, which the driver's `below.offers()` answers.
     executor_offer: Capabilities,
-    /// The limits of the checked batches the driver sends the executor.
+    /// The limits of the batches the driver sends the executor.
     batch_limits: BatchLimits,
 }
 

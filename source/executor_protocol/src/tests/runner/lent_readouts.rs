@@ -140,6 +140,10 @@ enum Unruliness {
     /// Swaps in [`readouts_from_elsewhere`] for the readouts it is lent,
     /// as many, then appends its answer.
     SwapsInOthers,
+    /// As `SwapsInOthers` at its first `execute`, then obeys.
+    SwapsInOthersOnce,
+    /// Breaks no rule: appends its answer.
+    Obeys,
 }
 
 /// Readouts of one batch, of one row `[One, One]`, which no lender holds.
@@ -195,6 +199,11 @@ impl Execute for Unruly {
                 let mut others = readouts_from_elsewhere();
                 std::mem::swap(readouts, &mut others);
             }
+            Unruliness::SwapsInOthersOnce => {
+                let mut others = readouts_from_elsewhere();
+                std::mem::swap(readouts, &mut others);
+                self.1 = Unruliness::Obeys;
+            }
             _ => {}
         }
         self.0.execute(batches, seed, readouts).await?;
@@ -211,7 +220,9 @@ impl Execute for Unruly {
             Unruliness::ClearsFirst
             | Unruliness::ReplacesThem
             | Unruliness::ReplacesThemWithCopies
-            | Unruliness::SwapsInOthers => Ok(()),
+            | Unruliness::SwapsInOthers
+            | Unruliness::SwapsInOthersOnce
+            | Unruliness::Obeys => Ok(()),
         }
     }
 
@@ -246,6 +257,38 @@ impl Adapt for Retries {
         readouts: &mut Readouts,
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await?;
+        readouts.clear();
+        self.0.adapt(batches, seed, below, readouts).await
+    }
+}
+
+/// A [`Profiler`] that, when the `execute` below fails, clears its answer
+/// and sends it again, as an adapter recovering from a failure would.
+struct RetriesAfterAFailure(Profiler);
+
+impl Adapt for RetriesAfterAFailure {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        if self.0.adapt(batches, seed, below, readouts).await.is_ok() {
+            return Ok(());
+        }
         readouts.clear();
         self.0.adapt(batches, seed, below, readouts).await
     }
@@ -389,36 +432,70 @@ fn clearing_the_lent_readouts_keeps_those_the_execute_found() {
     }
 }
 
+/// Readouts of one batch, a row `[value]` per shot of a [`Lender`]'s.
+fn a_row_per_shot_of(value: ReadoutValue) -> Readouts {
+    let mut readouts = Readouts::new();
+    let batch = readouts.push_with_capacity(3, 1);
+    for _ in 0..3 {
+        batch
+            .push_row(&[value], ShotConditions::NONE)
+            .expect("a row of one value");
+    }
+    readouts
+}
+
 /// An executor that replaces the readouts it is lent, which no executor
 /// may do: with new, empty ones; with new ones holding copies of those it
-/// found, and its answer after them, so that their count is right; or
-/// with others, as many, swapped in. Each is a failure, named by the
-/// batch's first shot, and its answer is removed: the driver then holds
-/// the replacement's readouts as far as those it had, its own if copied.
+/// found, and its answer after them, so that their count is right; with
+/// others, as many, swapped in; or swapping in others once, below an
+/// adapter that recovers from the failure by clearing and sending again,
+/// and answers. Each is a failure, named by the batch's first shot, and
+/// its answer is removed: the driver then holds the replacement's readouts
+/// as far as those it had, its own if copied.
 #[test]
 fn an_execute_replacing_the_lent_readouts_is_a_failure() {
     /// The readouts the driver holds after, from those it held before.
     type Held = fn(&Readouts) -> Readouts;
     let log = Log::default();
-    let rows: [(&str, Unruliness, Held); 3] = [
-        ("empty ones", Unruliness::ReplacesThem, |_| Readouts::new()),
+    let counted = Rc::default();
+    let unruly = |unruliness| seen(Waits::ForTheAnswer, Unruly(Bits::new(&log), unruliness));
+    let rows: [(&str, Seen, Held); 4] = [
+        ("empty ones", unruly(Unruliness::ReplacesThem), |_| {
+            Readouts::new()
+        }),
         (
             "copies, then the answer",
-            Unruliness::ReplacesThemWithCopies,
+            unruly(Unruliness::ReplacesThemWithCopies),
             Readouts::clone,
         ),
         (
             "others, swapped in, then the answer",
-            Unruliness::SwapsInOthers,
+            unruly(Unruliness::SwapsInOthers),
             |_| readouts_from_elsewhere(),
         ),
+        (
+            "others, swapped in, below an adapter that recovers",
+            seen_on(Waits::ForTheAnswer, |lender| {
+                lender
+                    >> Adapter::new(RetriesAfterAFailure(Profiler::new(&counted, &log)))
+                    >> Executor::new(Unruly(Bits::new(&log), Unruliness::SwapsInOthersOnce))
+            }),
+            // The recovery's `clear` emptied the replacement, so the driver
+            // holds the answer sent again, where each shot's second `x`
+            // gave `Zero`.
+            |_| a_row_per_shot_of(ReadoutValue::Zero),
+        ),
     ];
-    for (scene, unruliness, held) in rows {
-        let Seen {
+    for (
+        scene,
+        Seen {
             before,
             result,
             after,
-        } = seen(Waits::ForTheAnswer, Unruly(Bits::new(&log), unruliness));
+        },
+        held,
+    ) in rows
+    {
         let Some(Err(ExecuteError::Failed {
             shot,
             failure: Failure::Part(why),

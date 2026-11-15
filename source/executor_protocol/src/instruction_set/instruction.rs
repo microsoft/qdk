@@ -46,8 +46,9 @@ pub struct Instruction {
     /// One per parameter, in the parameters' order.
     pub arguments: Arguments,
     /// Its flags' values without noise: one pattern must match. Rare, so
-    /// one word when absent. `Some` of no pattern is refused at an
-    /// `execute` of a checked batch ([`InstructionFault::EmptySelect`]).
+    /// boxed: two words, and no allocation when absent. `Some` of no
+    /// pattern is refused at an `execute` of a checked batch
+    /// ([`InstructionFault::EmptySelect`]).
     pub select: Option<Box<[SelectPattern]>>,
 }
 

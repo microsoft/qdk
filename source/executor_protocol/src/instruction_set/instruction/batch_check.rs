@@ -1,43 +1,53 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The check of a batch's instructions at an `execute` ([`check_batch`]):
-//! what the protocol runs on every batch an executor receives that its
-//! sender marked checked, so that no executor writes it, and none runs such
-//! a batch's instruction its set does not declare, a block its shots do not
-//! have, or a readout parity its shots were not provisioned for. It also
-//! gives the batch's readout slots, which the answer's shape is checked
-//! against.
+//! The checks of a batch at an `execute`, which the protocol runs so that
+//! no executor writes them: the count of its instructions
+//! ([`check_instruction_count`]), on every batch an executor receives, so
+//! that none receives more than it says it takes; and its instructions
+//! ([`check_batch`]), on every batch its sender marked checked, so that
+//! none runs such a batch's instruction its set does not declare, a block
+//! its shots do not have, or a readout parity its shots were not
+//! provisioned for. The second also gives the batch's readout slots, which
+//! the answer's shape is checked against.
 //!
-//! It takes plain data, so that it depends on no later concept: the
+//! They take plain data, so that they depend on no later concept: the
 //! instructions, and [`BatchLimits`], built once from the receiver's set,
-//! its capabilities and the shots' needs. It compares integers only, and
-//! stops at the first fault: it runs on the hot path.
+//! its capabilities and the shots' needs. They compare integers only, and
+//! stop at the first fault: they run on the hot path.
 
 use super::super::{BlockType, InstructionSet};
 use super::{Instruction, InstructionFault};
 
+/// Checks that `instructions` are no more than the receiver's most, which
+/// `limits` holds: one comparison, whether the batch is checked or not.
+pub(crate) fn check_instruction_count(
+    instructions: &[Instruction],
+    limits: &BatchLimits,
+) -> Result<(), BatchFault> {
+    match limits.max_instructions {
+        Some(max) if instructions.len() > max as usize => Err(BatchFault::TooManyInstructions {
+            max,
+            got: instructions.len(),
+        }),
+        _ => Ok(()),
+    }
+}
+
 /// Checks `instructions`, in the opcodes of the receiver's set that
-/// `limits` holds, against that set and `limits`: their count, then, in
-/// order, each instruction as [`InstructionSet::instruction`] checks one,
-/// plus the arguments past its parameters, its `select` (some pattern,
-/// over the flags it has), each block below the shot's of its type, and no
-/// readout parity unless the shots were provisioned for them, and that a
-/// `u32` still counts the batch's readout slots up to it. Returns those
-/// slots, the sum of its instructions', so that the answer's width can be
-/// checked, or the first fault.
+/// `limits` holds, against that set and `limits`, in order: each
+/// instruction as [`InstructionSet::instruction`] checks one, plus the
+/// arguments past its parameters, its `select` (some pattern, over the
+/// flags it has), each block below the shot's of its type, and no readout
+/// parity unless the shots were provisioned for them, and that a `u32`
+/// still counts the batch's readout slots up to it. Returns those slots,
+/// the sum of its instructions', so that the answer's width can be
+/// checked, or the first fault. Their count is
+/// [`check_instruction_count`]'s.
 pub(crate) fn check_batch(
     instructions: &[Instruction],
     limits: &BatchLimits,
 ) -> Result<u32, BatchFault> {
-    if let Some(max) = limits.max_instructions
-        && instructions.len() > max as usize
-    {
-        return Err(BatchFault::TooManyInstructions {
-            max,
-            got: instructions.len(),
-        });
-    }
     let mut slots: u32 = 0;
     for (at, instruction) in instructions.iter().enumerate() {
         let its_slots = limits

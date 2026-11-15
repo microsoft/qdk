@@ -1,10 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The check of a batch's instructions against the receiver's set and the
-//! shot's blocks, as each `execute` makes it of a checked batch: one
-//! checked batch of instructions written as struct literals, as a part
-//! writes them on its hot path, sent by a driver straight to an executor.
+//! The checks of a batch at an `execute`: its count of instructions, on
+//! every batch, and its instructions against the receiver's set and the
+//! shot's blocks, on a checked batch. One batch of instructions written as
+//! struct literals, as a part writes them on its hot path, sent by a
+//! driver straight to an executor.
 
 use crate::{
     Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, Capabilities, Drive, DriveError,
@@ -75,13 +76,14 @@ fn device() -> InstructionSet {
     .expect("a valid set")
 }
 
-/// A driver sending `instructions` as one checked batch to every shot, as
-/// they were written: in the opcodes of `set`, which is also the
-/// receiver's.
+/// A driver sending `instructions` as one batch to every shot, checked if
+/// `checked`, as they were written: in the opcodes of `set`, which is also
+/// the receiver's.
 struct Literal {
     set: InstructionSet,
     instructions: Vec<Instruction>,
     needs: Needs,
+    checked: bool,
 }
 
 impl Drive for Literal {
@@ -103,7 +105,7 @@ impl Drive for Literal {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<()>, DriveError> {
-        let batch = Batch::new(shots, &self.instructions).checked();
+        let batch = Batch::new(shots, &self.instructions).checked_if(self.checked);
         below.execute(&[batch], seed, &mut Readouts::new()).await?;
         Ok(vec![(); shots.len()])
     }
@@ -146,14 +148,15 @@ impl Execute for Zeros {
 }
 
 /// The run of shots 0 and 1, needing `needs`, each sent `instructions` of
-/// `set` as one batch, over an executor of `set` taking `most`
-/// instructions at most and answering `slots` values a shot.
+/// `set` as one batch, checked if `checked`, over an executor of `set`
+/// taking `most` instructions at most and answering `slots` values a shot.
 fn run(
     set: &InstructionSet,
     instructions: Vec<Instruction>,
     needs: Needs,
     most: Option<u32>,
     slots: u32,
+    checked: bool,
 ) -> Result<(), DriveError> {
     let mut offer = Capabilities::unlimited().max_blocks(carbon(), 64);
     if let Some(most) = most {
@@ -163,6 +166,7 @@ fn run(
         set: set.clone(),
         instructions,
         needs,
+        checked,
     });
     let executor = Executor::new(Zeros {
         set: set.clone(),
@@ -179,7 +183,7 @@ fn run(
     }
 }
 
-/// What the check makes of `instructions` of `set`, as [`run`] sends
+/// What the protocol makes of `instructions` of `set`, as [`run`] sends
 /// them: their readout slots, `slots`, if they ran, or the refusal.
 fn checked(
     set: &InstructionSet,
@@ -187,8 +191,9 @@ fn checked(
     needs: Needs,
     most: Option<u32>,
     slots: u32,
+    checked: bool,
 ) -> Result<u32, ExecuteRefusal> {
-    match run(set, instructions, needs, most, slots) {
+    match run(set, instructions, needs, most, slots, checked) {
         Ok(()) => Ok(slots),
         Err(DriveError {
             failure: Failure::Refused(refusal),
@@ -241,7 +246,7 @@ fn check_rows(rows: Vec<Row>) {
     for (scene, batch, needs, expected) in rows {
         let slots = *expected.as_ref().unwrap_or(&0);
         assert_eq!(
-            checked(&set, batch, needs, None, slots),
+            checked(&set, batch, needs, None, slots, true),
             expected,
             "{scene}"
         );
@@ -249,29 +254,30 @@ fn check_rows(rows: Vec<Row>) {
 }
 
 /// A batch of as many instructions as the receiver takes at most runs, a
-/// longer one is refused, and a receiver with no most takes any count.
+/// longer one is refused, checked or not, so that an executor with a
+/// buffer of that size never receives more; and a receiver with no most
+/// takes any count.
 #[test]
 fn a_batch_of_more_than_the_receivers_most_instructions_is_refused() {
     let set = device();
     let h = |count| vec![literal(&set, "h", &[0]); count];
-    for (most, count, expected) in [
-        (Some(2), 2, Ok(0)),
-        (
-            Some(2),
-            3,
-            Err(ExecuteRefusal::TooManyInstructions {
-                shot: ShotId::new(0),
-                batch: 0,
-                max: 2,
-                got: 3,
-            }),
-        ),
-        (None, 1000, Ok(0)),
+    let too_many = Err(ExecuteRefusal::TooManyInstructions {
+        shot: ShotId::new(0),
+        batch: 0,
+        max: 2,
+        got: 3,
+    });
+    for (most, count, sent_checked, expected) in [
+        (Some(2), 2, true, Ok(0)),
+        (Some(2), 2, false, Ok(0)),
+        (Some(2), 3, true, too_many.clone()),
+        (Some(2), 3, false, too_many),
+        (None, 1000, true, Ok(0)),
     ] {
         assert_eq!(
-            checked(&set, h(count), Needs::qubits(1), most, 0),
+            checked(&set, h(count), Needs::qubits(1), most, 0, sent_checked),
             expected,
-            "{count} instructions, at most {most:?}"
+            "{count} instructions, at most {most:?}, checked: {sent_checked}"
         );
     }
 }
@@ -310,7 +316,7 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
         ),
     ] {
         assert_eq!(
-            checked(&set, batch, Needs::qubits(1), None, 0),
+            checked(&set, batch, Needs::qubits(1), None, 0, true),
             Err(ExecuteRefusal::TooManyReadoutSlots {
                 shot: ShotId::new(0),
                 batch: 0,
@@ -322,7 +328,7 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
     let Err(DriveError {
         failure: Failure::Part(fault),
         ..
-    }) = run(&set, vec![half, rest], Needs::qubits(1), None, 0)
+    }) = run(&set, vec![half, rest], Needs::qubits(1), None, 0, true)
     else {
         panic!("an answer of no value a shot is a failure");
     };
@@ -346,7 +352,7 @@ fn a_batchs_readout_slots_count_each_instructions_outcomes_and_flags() {
         literal(&set, "m", &[0]),
         literal(&set, "mpp", &[0, 1]),
     ];
-    assert_eq!(checked(&set, batch, Needs::qubits(2), None, 4), Ok(4));
+    assert_eq!(checked(&set, batch, Needs::qubits(2), None, 4, true), Ok(4));
 }
 
 /// The refusal names the first refused instruction, at its position.
@@ -502,6 +508,17 @@ fn an_instruction_its_set_does_not_take_is_refused() {
         (
             "`cond_x` counting back 0 readouts, as when built by name",
             vec![cond_x(Argument::recent(0))],
+            qubit().with_readout_parity(),
+            refused_at(
+                0,
+                InstructionFault::ZeroLookback {
+                    mnemonic: "cond_x".into(),
+                },
+            ),
+        ),
+        (
+            "`cond_x` counting back 0 readouts last of six, spilled to the heap",
+            vec![cond_x(Argument::parity([1, 2, 3, 4, 5, 0], false))],
             qubit().with_readout_parity(),
             refused_at(
                 0,
