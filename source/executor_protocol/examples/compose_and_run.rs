@@ -137,7 +137,9 @@ impl Drive for CoinCopy {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<Vec<ReadoutValue>>, DriveError> {
-        // First, every shot tosses its coin.
+        // First, every shot tosses its coin. Unchecked, as a sender that
+        // trusts the chain sends; while a part is developed, `.checked()`
+        // asks every boundary to check the batch before it runs, at a cost.
         let toss = Batch::new(shots, &self.sequences[0]);
         let mut readouts = Readouts::new();
         below.execute(&[toss], seed, &mut readouts).await?;
