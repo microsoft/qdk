@@ -2,11 +2,17 @@
 // Licensed under the MIT License.
 
 //! `MemoryCalls` of the fake libraries: device buffers, copies and
-//! workspaces.
+//! workspaces, whose slots ask for what the fake was told
+//! (`FakeLibraries::set_workspace_bytes`,
+//! `FakeLibraries::set_other_workspace_slot_bytes`).
 
-use super::{FakeLibraries, Object, WORKSPACE_BYTES, failed, id, to_usize};
+use super::{FakeLibraries, Object, failed, id, is_device, slot_index, to_usize};
 use crate::native_calls::error::NativeError;
-use crate::native_calls::{OpaqueHandle, complex::Complex64Abi, memory_calls::MemoryCalls};
+use crate::native_calls::{
+    OpaqueHandle,
+    complex::Complex64Abi,
+    memory_calls::{MemoryCalls, WorkspaceSlot},
+};
 
 impl MemoryCalls for FakeLibraries {
     fn memory_info(&self) -> Result<(usize, usize), NativeError> {
@@ -29,11 +35,12 @@ impl MemoryCalls for FakeLibraries {
         if inner.copy_sources.contains(&id(allocation)) {
             return Err(failed("free", "a copy may still be reading the buffer"));
         }
-        if inner.objects.values().any(|object| {
-            matches!(
-                object,
-                Object::Workspace { scratch: Some((scratch, _)) } if *scratch == id(allocation)
-            )
+        if inner.objects.values().any(|object| match object {
+            Object::Workspace { lent, .. } => super::WORKSPACE_SLOTS.iter().any(|&slot| {
+                is_device(slot)
+                    && lent[slot_index(slot)].is_some_and(|(memory, _)| memory == id(allocation))
+            }),
+            _ => false,
         }) {
             return Err(failed("free", "the buffer is attached to a live workspace"));
         }
@@ -95,11 +102,34 @@ impl MemoryCalls for FakeLibraries {
         Ok(())
     }
 
+    fn copy_to_host(
+        &self,
+        destination: &mut [Complex64Abi],
+        source: OpaqueHandle,
+    ) -> Result<(), NativeError> {
+        let inner = self.call("copy_to_host")?;
+        if inner.stream_busy {
+            return Err(failed(
+                "copy_to_host",
+                "the stream may still be writing the buffer",
+            ));
+        }
+        let copied = inner
+            .buffer(id(source), "copy_to_host")?
+            .get(..destination.len())
+            .ok_or_else(|| failed("copy_to_host", "the source is too small"))?;
+        destination.copy_from_slice(copied);
+        Ok(())
+    }
+
     fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, NativeError> {
         self.call("create_workspace")?.create_on(
             handle,
             "create_workspace",
-            Object::Workspace { scratch: None },
+            Object::Workspace {
+                lent: [None; 4],
+                sized_for: None,
+            },
         )
     }
 
@@ -114,39 +144,47 @@ impl MemoryCalls for FakeLibraries {
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
+        slot: WorkspaceSlot,
     ) -> Result<i64, NativeError> {
         let inner = self.call("workspace_size")?;
         inner.require(workspace, "workspace_size", |o| {
             matches!(o, Object::Workspace { .. })
         })?;
         inner.owned(handle, workspace, "workspace_size")?;
-        Ok(inner.workspace_bytes.unwrap_or(WORKSPACE_BYTES))
+        Ok(inner.recommended_bytes(slot))
     }
 
+    /// Refuses memory for a slot that asks for none, as cuTensorNet does on
+    /// an A100 (status 7, an invalid workspace).
     fn set_workspace(
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
-        scratch: OpaqueHandle,
+        slot: WorkspaceSlot,
+        memory: OpaqueHandle,
         bytes: i64,
     ) -> Result<(), NativeError> {
         let mut inner = self.call("set_workspace")?;
         inner.owned(handle, workspace, "set_workspace")?;
-        let allocation = id(scratch);
-        if size_of_val(inner.buffer(allocation, "set_workspace")?) < to_usize(bytes)? {
+        if inner.recommended_bytes(slot) <= 0 {
+            return Err(failed("set_workspace", "the slot asks for no memory"));
+        }
+        let memory = id(memory);
+        if is_device(slot) && size_of_val(inner.buffer(memory, "set_workspace")?) < to_usize(bytes)?
+        {
             return Err(failed(
                 "set_workspace",
                 "the scratch is smaller than its size",
             ));
         }
         match inner.objects.get_mut(&id(workspace)) {
-            Some(Object::Workspace { scratch }) => {
-                *scratch = Some((allocation, bytes));
+            Some(Object::Workspace { lent, .. }) => {
+                lent[slot_index(slot)] = Some((memory, bytes));
             }
             _ => return Err(failed("set_workspace", "no such workspace")),
         }
-        if !inner.scratch.contains(&allocation) {
-            inner.scratch.push(allocation);
+        if slot == WorkspaceSlot::DeviceScratch && !inner.scratch.contains(&memory) {
+            inner.scratch.push(memory);
         }
         Ok(())
     }

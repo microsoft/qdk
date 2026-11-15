@@ -65,7 +65,10 @@ library's report:
 - reading its override variable and opening it: `InvalidOverride`,
   `NotFound` or `LoadFailed`, which end that library's checks;
 - looking up its functions: `MissingRequiredSymbol`, one per missing
-  function;
+  function. A table may hold optional tables, looked up with it but never a
+  fault of the library: cuTensorNet's tensor API, which the engine does not
+  call, is one, and its caller names the functions missing when it needs
+  them;
 - its versions: `VersionProbeFailed` or `UnsupportedVersion`, one per
   version. They are read even when other functions are missing, as a wrong
   version is the usual cause.

@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! `MemoryCalls` on the loaded libraries: device memory, copies and
-//! cuTensorNet workspaces.
+//! cuTensorNet workspaces, whose four slots map to cuTensorNet's memspace
+//! and workspace kind.
 
 use crate::libraries::{
     LoadedLibraries,
@@ -13,7 +14,7 @@ use crate::native_calls::error::NativeError;
 use crate::native_calls::{
     OpaqueHandle,
     complex::{Complex64Abi, complex_bytes},
-    memory_calls::MemoryCalls,
+    memory_calls::{MemoryCalls, WorkspaceSlot},
 };
 use std::ptr::NonNull;
 
@@ -95,6 +96,27 @@ impl MemoryCalls for LoadedLibraries {
         self.check_cuda("cudaStreamSynchronize(cudaStreamLegacy)", status)
     }
 
+    fn copy_to_host(
+        &self,
+        destination: &mut [Complex64Abi],
+        source: OpaqueHandle,
+    ) -> Result<(), NativeError> {
+        let bytes = complex_bytes(destination.len(), "complex tensor")?;
+        // SAFETY: the source allocation is live and at least `bytes` long,
+        // its writer has been synchronized, and `destination` is a live,
+        // writable host slice of `bytes`: a copy to pageable host memory
+        // returns once it has finished.
+        let status = unsafe {
+            (self.cuda_runtime.functions.memcpy)(
+                destination.as_mut_ptr().cast(),
+                source.as_ptr(),
+                bytes,
+                cudart_12::cudaMemcpyKind_cudaMemcpyDeviceToHost,
+            )
+        };
+        self.check_cuda("cudaMemcpy(D2H)", status)
+    }
+
     fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, NativeError> {
         let mut workspace = std::ptr::null_mut();
         // SAFETY: the handle is live and workspace is a writable out-pointer.
@@ -118,8 +140,10 @@ impl MemoryCalls for LoadedLibraries {
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
+        slot: WorkspaceSlot,
     ) -> Result<i64, NativeError> {
         let preference = v2_13::cutensornetWorksizePref_t_CUTENSORNET_WORKSIZE_PREF_RECOMMENDED;
+        let (memspace, kind) = native_slot(slot);
         let mut bytes = 0;
         // SAFETY: live, sized workspace; bytes is a writable int64_t.
         let status = unsafe {
@@ -127,8 +151,8 @@ impl MemoryCalls for LoadedLibraries {
                 handle.as_ptr(),
                 workspace.as_ptr(),
                 preference,
-                v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_DEVICE,
-                v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH,
+                memspace,
+                kind,
                 &raw mut bytes,
             )
         };
@@ -140,21 +164,51 @@ impl MemoryCalls for LoadedLibraries {
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
-        scratch: OpaqueHandle,
+        slot: WorkspaceSlot,
+        memory: OpaqueHandle,
         bytes: i64,
     ) -> Result<(), NativeError> {
-        // SAFETY: the scratch is a live device allocation of at least
-        // `bytes`, which its owner keeps until the descriptor is destroyed.
+        let (memspace, kind) = native_slot(slot);
+        // SAFETY: `memory` is live memory of the slot's memspace, at least
+        // `bytes` long, which its owner keeps until the descriptor is
+        // destroyed or lent other memory for the slot.
         let status = unsafe {
             (self.cutensornet.functions.workspace_set_memory)(
                 handle.as_ptr(),
                 workspace.as_ptr(),
-                v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_DEVICE,
-                v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH,
-                scratch.as_ptr(),
+                memspace,
+                kind,
+                memory.as_ptr(),
                 bytes,
             )
         };
         self.check_cutensornet("cutensornetWorkspaceSetMemory", status)
+    }
+}
+
+/// cuTensorNet's memspace and workspace kind for `slot`.
+fn native_slot(
+    slot: WorkspaceSlot,
+) -> (
+    v2_13::cutensornetMemspace_t,
+    v2_13::cutensornetWorkspaceKind_t,
+) {
+    match slot {
+        WorkspaceSlot::DeviceScratch => (
+            v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_DEVICE,
+            v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH,
+        ),
+        WorkspaceSlot::DeviceCache => (
+            v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_DEVICE,
+            v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_CACHE,
+        ),
+        WorkspaceSlot::HostScratch => (
+            v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_HOST,
+            v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH,
+        ),
+        WorkspaceSlot::HostCache => (
+            v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_HOST,
+            v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_CACHE,
+        ),
     }
 }

@@ -37,6 +37,7 @@ use crate::native_calls::error::{NativeError, combine_execution_and_cleanup, fir
 use crate::native_calls::{
     OpaqueHandle,
     complex::{Complex64Abi, complex_bytes},
+    memory_calls::WorkspaceSlot,
     state_calls::{
         MpsLayout, StateF64Configuration, StateU32Configuration, convert_layout,
         validate_realized_chain,
@@ -86,7 +87,7 @@ impl NativeState {
         let workspace = self.workspace()?;
         let available = self.available_workspace_bytes()?;
         calls.prepare_state(handle, state, available, workspace, stream)?;
-        let bytes = calls.workspace_size(handle, workspace)?;
+        let bytes = calls.workspace_size(handle, workspace, WorkspaceSlot::DeviceScratch)?;
         if bytes <= 0 {
             return Err(NativeError::InvalidNativeResult {
                 reason: format!("the compute's workspace size is {bytes}"),

@@ -1,9 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Tests of the cleanup rules: a cleanup never hides the cause of a
-//! failure, and a failed release skips no other release.
+//! Tests of the native errors: a call to functions the library lacks names
+//! them; a cleanup never hides the cause of a failure, and a failed release
+//! skips no other release.
 
+use crate::LibraryFault;
 use crate::native_calls::error::{NativeError, combine_execution_and_cleanup, first_failure};
 
 fn failed(operation: &'static str) -> NativeError {
@@ -13,6 +15,28 @@ fn failed(operation: &'static str) -> NativeError {
         status: 1,
         message: "out of memory".to_string(),
     }
+}
+
+/// A cuTensorNet without the tensor API still runs the engine; a call to
+/// that API fails naming every function missing, so the user knows what
+/// to install.
+#[test]
+fn a_call_to_missing_functions_names_each_one() {
+    let error = NativeError::missing_functions(
+        "cuTensorNet",
+        &[
+            LibraryFault::MissingRequiredSymbol {
+                symbol: "cutensornetTensorQR",
+            },
+            LibraryFault::MissingRequiredSymbol {
+                symbol: "cutensornetContraction",
+            },
+        ],
+    );
+    assert_eq!(
+        error.to_string(),
+        "cuTensorNet does not export cutensornetTensorQR, cutensornetContraction"
+    );
 }
 
 /// A compute fails, and freeing its scratch then fails too: the caller

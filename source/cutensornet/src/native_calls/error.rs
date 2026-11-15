@@ -5,16 +5,18 @@
 //!
 //! Every user of the native calls, today the engine, must report these
 //! failures, and none of them is its caller's fault: no device, a call that
-//! returned an error status, a size or a result that does not fit, a
-//! workspace larger than the budget, or a native object an earlier failure
-//! left unusable. So they are one type, which each user wraps in its own
-//! error beside the refusals of its contract (`EngineError::Native`).
+//! returned an error status, a function the library lacks, a size or a
+//! result that does not fit, a workspace larger than the budget, or a
+//! native object an earlier failure left unusable. So they are one type,
+//! which each user wraps in its own error beside the refusals of its
+//! contract (`EngineError::Native`).
 //!
 //! When an operation and the cleanup after it both fail, both errors are
 //! kept (`combine_execution_and_cleanup`), so a cleanup never hides the
 //! cause. A cleanup attempts every release and returns the first failure
 //! (`first_failure`), so a failed release leaks nothing else.
 
+use crate::LibraryFault;
 use thiserror::Error;
 
 /// Why a native call, or the work that prepares it or reads its result,
@@ -38,6 +40,15 @@ pub enum NativeError {
     /// it: a defect of the code making it, not of its caller.
     #[error("invalid native call: {reason}")]
     InvalidNativeCall { reason: String },
+
+    /// The loaded library lacks functions a call needs: cuTensorNet's tensor
+    /// API, which discovery does not require, since the engine never calls
+    /// it.
+    #[error("{library} does not export {}", .symbols.join(", "))]
+    MissingNativeFunctions {
+        library: &'static str,
+        symbols: Vec<&'static str>,
+    },
 
     /// A native call succeeded but returned a null handle.
     #[error("{operation} succeeded without returning a {resource}")]
@@ -71,6 +82,23 @@ pub enum NativeError {
         execution: Box<Self>,
         cleanup: Box<Self>,
     },
+}
+
+impl NativeError {
+    /// The failure of a call that needs functions `library` lacks, whose
+    /// lookup found `faults`: each missing function is named.
+    pub(crate) fn missing_functions(library: &'static str, faults: &[LibraryFault]) -> Self {
+        Self::MissingNativeFunctions {
+            library,
+            symbols: faults
+                .iter()
+                .filter_map(|fault| match fault {
+                    LibraryFault::MissingRequiredSymbol { symbol } => Some(*symbol),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
 }
 
 pub(crate) fn combine_execution_and_cleanup<T>(

@@ -123,23 +123,31 @@ pub(crate) fn no_file_of_that_name(candidate: &Path, message: &str) -> bool {
 }
 
 /// Declares a table of function pointers, one row per function:
-/// `required field: Type = symbol` or `optional field: Type = symbol`.
+/// `required field: Type = symbol` or `optional field: Type = symbol`;
+/// and, after the rows, `optional tables { field: Table, }` for tables of
+/// their own that the library may lack as a whole.
 ///
 /// It makes the field (an `Option` when optional), the lookup of the field
 /// by `stringify!(symbol)` ([`FunctionTable`]), and `const _: Type =
 /// declarations::symbol`, which compiles only if `Type` is the symbol's
 /// declared signature. Each missing required symbol is a fault naming it; a
-/// missing optional one is `None`.
+/// missing optional one is `None`. An optional table's field is the table,
+/// or every fault its own lookup found, kept for whoever needs the table to
+/// report; it is never a fault of this table.
 macro_rules! function_table {
     (
         $(#[$attribute:meta])*
         struct $table:ident, declared in $declarations:ident {
             $($need:ident $field:ident: $type:ty = $symbol:ident,)*
         }
+        $(optional tables {
+            $($table_field:ident: $table_type:ty,)*
+        })?
     ) => {
         $(#[$attribute])*
         pub(crate) struct $table {
             $(pub(crate) $field: $crate::libraries::loader::function_table!(@field $need $type),)*
+            $($(pub(crate) $table_field: Result<$table_type, Vec<$crate::LibraryFault>>,)*)?
         }
 
         $(const _: $type = $declarations::$symbol;)*
@@ -157,6 +165,8 @@ macro_rules! function_table {
                 }
                 Ok(Self {
                     $($field: $crate::libraries::loader::function_table!(@take $need $field),)*
+                    $($($table_field: <$table_type as $crate::libraries::loader::FunctionTable>
+                        ::resolve(resolver),)*)?
                 })
             }
         }

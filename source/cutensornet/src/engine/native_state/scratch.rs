@@ -10,8 +10,8 @@
 
 use super::NativeState;
 use crate::engine::policy::MAXIMUM_WORKSPACE_BYTES;
-use crate::native_calls::OpaqueHandle;
 use crate::native_calls::error::NativeError;
+use crate::native_calls::{OpaqueHandle, memory_calls::WorkspaceSlot};
 use std::rc::Rc;
 
 impl NativeState {
@@ -37,9 +37,10 @@ impl NativeState {
             let previous = self.scratch.replace((grown, needed));
             // Only the state's own descriptor can hold the previous buffer:
             // a read's descriptor is new, and attached after this.
-            let attached = self
-                .workspace()
-                .and_then(|own| calls.set_workspace(handle, own, grown, size_i64(needed)?));
+            let attached = self.workspace().and_then(|own| {
+                let bytes = size_i64(needed)?;
+                calls.set_workspace(handle, own, WorkspaceSlot::DeviceScratch, grown, bytes)
+            });
             if let Some((old, _)) = previous {
                 match attached {
                     Ok(()) => calls.free(old)?,
@@ -55,7 +56,13 @@ impl NativeState {
         let (scratch, size) = self
             .scratch
             .expect("the scratch was grown to the call's size");
-        calls.set_workspace(handle, workspace, scratch, size_i64(size)?)
+        calls.set_workspace(
+            handle,
+            workspace,
+            WorkspaceSlot::DeviceScratch,
+            scratch,
+            size_i64(size)?,
+        )
     }
 
     /// The scratch a call may take: the budget, or the larger of the

@@ -59,9 +59,11 @@ flowchart TD
   and its native states share it, so it closes after the last of them.
 - [`NativeState`](src/engine/native_state.rs) computes its cuTensorNet
   state into an MPS only when a read needs it ([Phases](#phases)).
-- [`NativeCalls`](src/native_calls.rs) is every call the engine makes
+- [`NativeCalls`](src/native_calls.rs) is every call the crate makes
   to the CUDA Runtime and cuTensorNet, by kind: the session's, device
-  memory's and the states'. The engine calls nothing else, so it also runs
+  memory's, the states', and the tensor API's (gate splits, QRs,
+  contractions), which the planned GPU site algebra will make. The engine
+  calls nothing else, so it also runs
   in the [host tests](src/tests/engine.rs), which have no GPU. On a GPU, the
   [`LoadedLibraries`](src/libraries.rs) that discovery loaded answer them:
   `CuTensorNetEngine::new` takes them from an `Availability`.
@@ -144,12 +146,13 @@ missing.
   Linux x86-64 the crate still builds, and `discover` reports the platform
   as unsupported.
 - **Failing early, with every cause.** A missing library, dependency or
-  function, or a version other than the audited one, is found before any
-  GPU work and reported with the path, function or version at fault, for
-  every library at once, so an installation is fixed in one pass.
-- **One audited surface.** The functions the engine may call are the rows
-  of one table per library, each checked against NVIDIA's header when the
-  crate compiles ([The bindings](docs/loading.md#the-bindings)).
+  function the engine calls, or a version other than the audited one, is
+  found before any GPU work and reported with the path, function or version
+  at fault, for every library at once, so an installation is fixed in one
+  pass.
+- **One audited surface.** The functions the crate may call are the rows
+  of its libraries' function tables, each checked against NVIDIA's header
+  when the crate compiles ([The bindings](docs/loading.md#the-bindings)).
 - **Open to more libraries.** Each library is one module; adding one changes
   no public type, as the report is a list with an entry per library.
 - **Explicit, no global state.** Nothing happens until `discover` is called,

@@ -8,7 +8,7 @@
 use super::{NativeState, mode};
 use crate::engine::policy::EXPECTATION_HYPER_SAMPLES;
 use crate::native_calls::error::{NativeError, combine_execution_and_cleanup, first_failure};
-use crate::native_calls::{OpaqueHandle, complex::Complex64Abi};
+use crate::native_calls::{OpaqueHandle, complex::Complex64Abi, memory_calls::WorkspaceSlot};
 use num_complex::Complex64;
 use std::{collections::BTreeMap, rc::Rc};
 
@@ -89,7 +89,7 @@ impl NativeState {
         self.query_workspace = Some(query_workspace);
         let available = self.available_workspace_bytes()?;
         calls.prepare_expectation(handle, expectation, available, query_workspace, stream)?;
-        let bytes = calls.workspace_size(handle, query_workspace)?;
+        let bytes = calls.workspace_size(handle, query_workspace, WorkspaceSlot::DeviceScratch)?;
         if bytes < 0 {
             return Err(NativeError::InvalidNativeResult {
                 reason: format!("the expectation's workspace size is {bytes}"),

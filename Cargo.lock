@@ -2086,6 +2086,7 @@ dependencies = [
 name = "qdk_cutensornet"
 version = "0.0.0"
 dependencies = [
+ "dense_linalg",
  "libloading",
  "num-complex",
  "tensornet",

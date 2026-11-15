@@ -8,13 +8,14 @@
 //! order it makes them) runs against these fake libraries, which implement
 //! `NativeCalls` as the loaded libraries do, one file per trait
 //! (`fake_libraries/session_calls.rs`, `fake_libraries/memory_calls.rs`,
-//! `fake_libraries/state_calls.rs`). It secures what a GPU run would
+//! `fake_libraries/state_calls.rs`, `fake_libraries/tensor_calls.rs`). It
+//! secures what a GPU run would
 //! otherwise be the first to show: a call out of cuTensorNet's order,
 //! memory freed while still in use, a read of a stale state. It is test
 //! support, not a test: it sits beside the traits it implements and the
 //! loaded libraries it stands in for, so the engine's modules stay private
 //! to the engine, and it is compiled only with the tests, which live under
-//! `src/tests`. This file holds what the three traits' files share: the
+//! `src/tests`. This file holds what the traits' files share: the
 //! objects the fake keeps, the checks every call goes through, and what a
 //! test sets and reads.
 //!
@@ -42,11 +43,12 @@
 //!   MPS the start of a state no operator has been applied to, with one
 //!   extent and stride table per site. The next compute reads the start
 //!   from those buffers, which must still be allocated;
-//! - a buffer attached to a live workspace as scratch is never freed: the
-//!   descriptor would hold freed memory;
-//! - a compute or an expectation needs the scratch its workspace asked
-//!   for, attached, and no copy still running (`synchronize_copies`, the
-//!   legacy stream), and the source of a copy still running is not freed;
+//! - a buffer lent to a device slot of a live workspace is never freed:
+//!   the descriptor would hold freed memory;
+//! - a compute or an expectation needs memory lent to every slot of its
+//!   workspace that asks for some, at least what the slot asks, and no
+//!   copy still running (`synchronize_copies`, the legacy stream), and the
+//!   source of a copy still running is not freed;
 //!   after a compute, nothing is freed or captured until the engine's
 //!   stream is synchronized;
 //! - a device-to-device copy of a whole computed tensor holds that tensor;
@@ -57,9 +59,11 @@
 //!   is destroyed only once nothing of it is, so a state moved to a fresh
 //!   handle is caught using the old one, and a handle released too early.
 //!
-//! It records the scratch buffers attached to workspaces, so a test can see
-//! how many are allocated during a compute and after it, and asks for
-//! [`WORKSPACE_BYTES`] of scratch unless told another size.
+//! It records the buffers lent to workspaces as device scratch, so a test
+//! can see how many are allocated during a compute and after it. A
+//! workspace asks for [`WORKSPACE_BYTES`] of device scratch and nothing in
+//! its other slots, unless told other sizes. The tensor API's rules are in
+//! `fake_libraries/tensor_calls.rs`.
 //!
 //! A compute truncates as an MPS of the native capacity's bonds must: at
 //! each cut, left to right, whose Schmidt rank exceeds the capacity's
@@ -78,14 +82,17 @@
 //! extents a compute reports and the values an expectation returns can be
 //! set, to test what the engine does with what the library answers.
 
+mod dense_tensor;
 mod memory_calls;
 mod session_calls;
 mod state_calls;
 mod state_vector;
+mod tensor_calls;
 
 use super::{
     OpaqueHandle,
     complex::Complex64Abi,
+    memory_calls::WorkspaceSlot,
     state_calls::{StateF64Configuration, StateU32Configuration},
 };
 use crate::native_calls::error::NativeError;
@@ -97,10 +104,19 @@ use std::{
     ptr::NonNull,
     sync::{Mutex, MutexGuard},
 };
+use tensor_calls::{SizedFor, SvdConfig, TensorShape};
 
-/// The bytes `workspace_memory_size` asks for, unless
+/// The bytes `workspace_size` asks for in the device scratch, unless
 /// [`FakeLibraries::set_workspace_bytes`] says otherwise.
 pub(crate) const WORKSPACE_BYTES: i64 = 1024;
+
+/// Every slot of a workspace descriptor.
+const WORKSPACE_SLOTS: [WorkspaceSlot; 4] = [
+    WorkspaceSlot::DeviceScratch,
+    WorkspaceSlot::DeviceCache,
+    WorkspaceSlot::HostScratch,
+    WorkspaceSlot::HostCache,
+];
 
 #[derive(Default)]
 pub(crate) struct FakeLibraries {
@@ -136,8 +152,12 @@ struct Inner {
     computes: Vec<(usize, usize)>,
     /// The free device memory `memory_info` reports, if not 1 TiB.
     free_memory: Option<usize>,
-    /// The scratch `workspace_size` asks for, if not [`WORKSPACE_BYTES`].
+    /// The device scratch `workspace_size` asks for, if not
+    /// [`WORKSPACE_BYTES`].
     workspace_bytes: Option<i64>,
+    /// The bytes `workspace_size` asks for in each other slot: the device
+    /// cache and both host slots.
+    other_slot_bytes: i64,
     /// The computed MPS each buffer holds, as a compute wrote it or a copy
     /// copied it: the compute's number, and the site.
     mps_tensors: BTreeMap<usize, (usize, usize)>,
@@ -169,10 +189,12 @@ enum Object {
     Stream,
     Handle,
     Buffer(Vec<Complex64Abi>),
-    /// A workspace descriptor, and the scratch attached to it and the
-    /// bytes it lends.
+    /// A workspace descriptor: the memory lent to each slot, by
+    /// [`slot_index`], and the bytes it lends; and the tensor call it was
+    /// last sized for.
     Workspace {
-        scratch: Option<(usize, i64)>,
+        lent: [Option<(usize, i64)>; 4],
+        sized_for: Option<SizedFor>,
     },
     State(FakeState),
     Operator(Vec<(Complex64, Vec<(usize, usize)>)>),
@@ -180,6 +202,22 @@ enum Object {
         state: usize,
         operator: usize,
         prepared: bool,
+    },
+    TensorDescriptor(TensorShape),
+    SvdConfig(SvdConfig),
+    /// An SVD info, and what the last gate split given it truncated.
+    SvdInfo(Option<super::tensor_calls::SvdTruncation>),
+    Network {
+        inputs: [TensorShape; 2],
+        output: TensorShape,
+    },
+    OptimizerInfo {
+        network: usize,
+        optimized: bool,
+    },
+    Plan {
+        network: usize,
+        info: usize,
     },
 }
 
@@ -228,6 +266,24 @@ fn id(handle: OpaqueHandle) -> usize {
 
 fn to_usize(value: i64) -> Result<usize, NativeError> {
     usize::try_from(value).map_err(|_| failed("conversion", "negative value"))
+}
+
+/// Where a workspace's `lent` keeps `slot`.
+fn slot_index(slot: WorkspaceSlot) -> usize {
+    match slot {
+        WorkspaceSlot::DeviceScratch => 0,
+        WorkspaceSlot::DeviceCache => 1,
+        WorkspaceSlot::HostScratch => 2,
+        WorkspaceSlot::HostCache => 3,
+    }
+}
+
+/// Whether `slot` takes device memory: a buffer of the fake.
+fn is_device(slot: WorkspaceSlot) -> bool {
+    matches!(
+        slot,
+        WorkspaceSlot::DeviceScratch | WorkspaceSlot::DeviceCache
+    )
 }
 
 impl FakeLibraries {
@@ -333,9 +389,16 @@ impl FakeLibraries {
         self.lock().expectation_values.extend(values);
     }
 
-    /// Makes every workspace ask for `bytes` of scratch from now on.
+    /// Makes every workspace ask for `bytes` of device scratch from now on.
     pub(crate) fn set_workspace_bytes(&self, bytes: i64) {
         self.lock().workspace_bytes = Some(bytes);
+    }
+
+    /// Makes every workspace ask for `bytes` in each of its other slots
+    /// (the device cache and both host slots) from now on, instead of
+    /// none.
+    pub(crate) fn set_other_workspace_slot_bytes(&self, bytes: i64) {
+        self.lock().other_slot_bytes = bytes;
     }
 
     /// The f64 configurations of every state, in order.
@@ -388,8 +451,9 @@ impl FakeLibraries {
 
 impl Inner {
     /// Fails unless the work about to run may: no copy still running, and
-    /// `workspace` lending live scratch of at least the size it asked for.
-    /// Returns the bytes of the scratch buffer.
+    /// `workspace` lending, in every slot that asks for memory, at least
+    /// what it asks for, live in a device slot. Returns the bytes of the
+    /// device scratch buffer, 0 if none is lent.
     fn lent_scratch(
         &self,
         workspace: OpaqueHandle,
@@ -398,16 +462,39 @@ impl Inner {
         if self.copies_running {
             return Err(failed(operation, "a copy may still be running"));
         }
-        let Some(Object::Workspace {
-            scratch: Some((scratch, lent)),
-        }) = self.objects.get(&id(workspace))
-        else {
-            return Err(failed(operation, "no scratch attached"));
+        let Some(Object::Workspace { lent, .. }) = self.objects.get(&id(workspace)) else {
+            return Err(failed(operation, "no such workspace"));
         };
-        if *lent < self.workspace_bytes.unwrap_or(WORKSPACE_BYTES) {
-            return Err(failed(operation, "less scratch than asked for"));
+        for slot in WORKSPACE_SLOTS {
+            let asked = self.recommended_bytes(slot);
+            if asked <= 0 {
+                continue;
+            }
+            let Some((memory, bytes)) = lent[slot_index(slot)] else {
+                return Err(failed(
+                    operation,
+                    "no memory lent to a slot that asks for it",
+                ));
+            };
+            if bytes < asked {
+                return Err(failed(operation, "less memory lent than a slot asks for"));
+            }
+            if is_device(slot) {
+                self.buffer(memory, operation)?;
+            }
         }
-        Ok(size_of_val(self.buffer(*scratch, operation)?))
+        match lent[slot_index(WorkspaceSlot::DeviceScratch)] {
+            Some((scratch, _)) => Ok(size_of_val(self.buffer(scratch, operation)?)),
+            None => Ok(0),
+        }
+    }
+
+    /// The bytes every workspace asks for in `slot`.
+    fn recommended_bytes(&self, slot: WorkspaceSlot) -> i64 {
+        match slot {
+            WorkspaceSlot::DeviceScratch => self.workspace_bytes.unwrap_or(WORKSPACE_BYTES),
+            _ => self.other_slot_bytes,
+        }
     }
 
     fn live_scratch(&self) -> usize {
