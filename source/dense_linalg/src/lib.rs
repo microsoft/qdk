@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! Dense complex matrices with a checked thin singular value decomposition
-//! (SVD), with the product and thin QR decomposition MPS simulators also
-//! need.
+//! (SVD), with the product, thin QR decomposition and adjoint MPS
+//! simulators also need.
 //!
 //! General SVDs have returned factors that do not give back the matrix,
 //! without reporting a failure, on rank-deficient matrices with repeated

@@ -8,10 +8,9 @@
 //! and QR algorithm: it reduces `W` by reflections to a bidiagonal matrix,
 //! nonzero only on its diagonal and the one above, and finds that matrix's
 //! singular values by iteration. It runs the QR algorithm at every size,
-//! never t4a-faer's default, divide and conquer from size 128: on a
-//! 128 × 128 matrix from an MPS simulation of a polyene's chain, divide and
-//! conquer returned factors that the checks refuse, where the QR
-//! algorithm's pass.
+//! never t4a-faer's default, divide and conquer from size 128, which has
+//! returned factors that the checks refuse where the QR algorithm's pass
+//! ([`crate::svd`]'s header gives the case).
 
 use super::{ColumnMajorSvd, Kernels, PivotedQr};
 use crate::matrix::{Matrix, MatrixRef};

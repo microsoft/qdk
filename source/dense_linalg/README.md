@@ -17,9 +17,7 @@ thin QR decomposition and adjoint they also need, in three parts:
 **The problem.** The matrices met when simulating MPS are rank-deficient most
 of the time, with repeated singular values, and general SVDs have returned
 factors that do not give back the matrix on them, without reporting a
-failure: nalgebra 0.35's and faer 0.24's on degenerate and rank-deficient
-matrices, and t4a-faer's divide and conquer on a 128 × 128 matrix from a
-polyene's chain. A simulator that acts on such values truncates the wrong
+failure ([`svd.rs`](src/svd.rs)'s header gives the cases). A simulator that acts on such values truncates the wrong
 state, silently.
 
 **The approach.** The SVD's rules are the crate's own, written once: a trim
@@ -34,7 +32,18 @@ never trusted unchecked.
 ## The checked SVD
 
 [`Svd::of`](src/svd.rs) answers `a = u·diag(s)·v†` with `r` values,
-`1 ≤ r ≤ min(rows, cols)`, nonincreasing. It guarantees:
+`1 ≤ r ≤ min(rows, cols)`, nonincreasing. Its guarantees and its steps
+name the parts of its algorithm with these terms:
+
+- **The trim:** a column-pivoted QR `a·P = Q·R`, whose rows of `R` of
+  smallest norm are dropped while their joint norm stays within rounding.
+- **`W`:** the adjoint of the kept rows of `R·Pᵀ`, of full rank; the SVD of
+  `a` follows from `W`'s.
+- **The rotations:** one-sided Jacobi rotations of `W`'s columns, LAPACK
+  `zgesvj`'s rules.
+- **The fast route:** the library's bidiagonalization and QR algorithm.
+
+It guarantees:
 
 - **Checked factors:** `u·diag(s)·v†` gives back `a`, and `u` and `v` are
   orthonormal, to the bounds of LAPACK's SVD tests
@@ -50,25 +59,17 @@ never trusted unchecked.
   singular values are too small or too large to store, which the checks
   refuse.
 
-Its steps use these terms:
+It runs these steps:
 
-- **The trim:** a column-pivoted QR `a·P = Q·R`, whose rows of `R` of
-  smallest norm are dropped while their joint norm stays within rounding.
-- **`W`:** the adjoint of the kept rows of `R·Pᵀ`, of full rank; the SVD of
-  `a` follows from `W`'s.
-- **The rotations:** one-sided Jacobi rotations of `W`'s columns, LAPACK
-  `zgesvj`'s rules.
-- **The fast route:** the library's bidiagonalization and QR algorithm.
-
-| Step                   | How                                                                        | Why                                                                                                       |
-| ---------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 1. Zero matrix         | One value, 0, and the first unit vectors.                                  | It has no rank to keep and no largest entry to scale by.                                                  |
-| 2. Wide matrix         | Factored through its adjoint.                                              | The rotated columns are then the shorter side.                                                            |
-| 3. Scaling             | By a power of two when the largest entry is far from 1.                    | The squared norms neither overflow nor underflow; it rounds only entries it takes below the normal range. |
-| 4. Trim                | Drops the rows of `R` of smallest norm, chosen by norm, not by pivot.      | The rest sees full rank; the pivoting does not keep `\|R_ii\|` nonincreasing.                             |
-| 5. Route               | A large `W` far from orthogonal: the fast route; any other: the rotations. | The rotations are fast on nearly orthogonal `W`; the fast route on the rest; its failures fall back.      |
-| 6. Left vectors        | The kept columns of `Q` times `W`'s right singular vectors.                | `Q` is applied by its reflectors, never formed.                                                           |
-| Checks, on each answer | Reconstruction and orthonormality, to LAPACK's bounds.                     | No route is trusted: a library's SVD has answered wrong factors without a failure.                        |
+| Step                   | How                                                                                     | Why                                                                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 1. Zero matrix         | One value, 0, and the first unit vectors.                                               | It has no rank to keep and no largest entry to scale by.                                                                       |
+| 2. Wide matrix         | Factored through its adjoint.                                                           | The rotated columns are then the shorter side.                                                                                 |
+| 3. Scaling             | By a power of two when the largest entry is far from 1.                                 | The squared norms neither overflow nor underflow; it rounds only entries it takes below the normal range.                      |
+| 4. Trim                | Drops the rows of `R` of smallest norm, chosen by norm, not by pivot.                   | The rest sees full rank; the pivoting does not keep `\|R_ii\|` nonincreasing.                                                  |
+| 5. Route               | A large `W` far from orthogonal: the fast route; any other: the rotations.              | The rotations are fast on nearly orthogonal `W`; the fast route on the rest; its failures fall back.                           |
+| 6. Left vectors        | The kept columns of `Q`, applied by its reflectors, times `W`'s right singular vectors. | Cheaper than forming `Q`: the reflectors act on the answer's `r` columns alone, and those after the last kept row are skipped. |
+| Checks, on each answer | Reconstruction and orthonormality, to LAPACK's bounds.                                  | No route is trusted: a library's SVD has answered wrong factors without a failure.                                             |
 
 [`svd.rs`](src/svd.rs)'s header gives the details;
 [`svd/checks.rs`](src/svd/checks.rs) and [`svd/jacobi.rs`](src/svd/jacobi.rs)

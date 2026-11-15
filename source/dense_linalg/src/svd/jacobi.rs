@@ -154,10 +154,11 @@ fn column(m: &[f64], rows: usize, j: usize) -> &[f64] {
 /// `x† y` as `(re, im)`, with four accumulators of each part, so that the
 /// additions do not wait on each other.
 ///
-/// The kernels multiply and add without fused multiply-add, which some
-/// targets lack, so that the rotations round alike on every target. The
-/// library's kernels, which compute the pivoted QR before them, the fast
-/// route and the products, may use it where the target has it.
+/// These loops (`dot`, [`norm_sqr`] and the rotations) multiply and add
+/// without fused multiply-add, which some targets lack, so that the
+/// rotations round alike on every target. The library's steps
+/// ([`Kernels`](crate::kernels::Kernels): the pivoted QR before them, the
+/// fast route and the products) may use it where the target has it.
 fn dot(x: &[f64], y: &[f64]) -> (f64, f64) {
     let len = x.len() / 2;
     let (x_re, x_im) = x.split_at(len);
