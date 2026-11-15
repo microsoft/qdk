@@ -20,6 +20,9 @@
 //! - a gate split takes A·B·G's topology: each input label is shared by
 //!   two inputs and in neither output, or is in one input and one of U's
 //!   or V's other modes, so no label is summed alone;
+//! - U's and V's buffers hold their descriptors' extents before
+//!   truncation, as cuTensorNet asks, since the reduced extent is known
+//!   only once the split has run;
 //! - the singular values' buffer must be live, and an SVD info is read
 //!   only once the stream is synchronized.
 //!
@@ -46,7 +49,7 @@ use crate::native_calls::{
     OpaqueHandle, Stream,
     tensor_calls::{
         ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
-        TensorCalls, TensorModes, TensorOperand,
+        TensorCalls, TensorModes, TensorOperand, UncheckedPathSearch,
     },
 };
 use dense_linalg::{MatrixRef, Qr, Svd};
@@ -220,8 +223,14 @@ impl TensorCalls for FakeLibraries {
         ];
         let u_shape = inner.descriptor(handle, u.descriptor, OPERATION)?.clone();
         let v_shape = inner.descriptor(handle, v.descriptor, OPERATION)?.clone();
-        inner.buffer(id(u.data), OPERATION)?;
-        inner.buffer(id(v.data), OPERATION)?;
+        for (factor, shape) in [(u, &u_shape), (v, &v_shape)] {
+            if inner.buffer(id(factor.data), OPERATION)?.len() < shape.elements()? {
+                return Err(failed(
+                    OPERATION,
+                    "U's or V's buffer is smaller than its descriptor's extents",
+                ));
+            }
+        }
         let sides = Sides::of(&u_shape, &v_shape, OPERATION)?;
         let inputs = [&inputs[0], &inputs[1], &inputs[2]];
         sides.check_gate_split_labels(&inputs, OPERATION)?;
@@ -436,6 +445,7 @@ impl TensorCalls for FakeLibraries {
         network: OpaqueHandle,
         _workspace_limit: u64,
         info: OpaqueHandle,
+        _search: UncheckedPathSearch,
     ) -> Result<(), NativeError> {
         const OPERATION: &str = "find_contraction_path";
         let mut inner = self.call(OPERATION)?;

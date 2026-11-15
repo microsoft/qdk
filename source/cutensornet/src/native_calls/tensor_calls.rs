@@ -96,6 +96,13 @@ pub(crate) trait TensorCalls: MemoryCalls {
     /// factors the result by a truncated SVD into U and V, which are packed
     /// at the reduced extent of their shared mode; `info` reports the
     /// truncation.
+    ///
+    /// U's and V's buffers hold their descriptors' extents as given, before
+    /// truncation, and the singular values' buffer as many doubles as the
+    /// shared mode's extent, since the reduced extent is known only once
+    /// the split has run. The call lowers the shared mode's extent in U's
+    /// and V's descriptors to the reduced extent, which caps the next split
+    /// that reuses them.
     fn gate_split(
         &self,
         handle: OpaqueHandle,
@@ -156,7 +163,13 @@ pub(crate) trait TensorCalls: MemoryCalls {
         workspace_limit: u64,
         info: OpaqueHandle,
     ) -> Result<(), NativeError> {
-        self.find_contraction_path(handle, network, workspace_limit, info)?;
+        self.find_contraction_path(
+            handle,
+            network,
+            workspace_limit,
+            info,
+            UncheckedPathSearch(()),
+        )?;
         let slices = self.contraction_slice_count(handle, info)?;
         if slices > 1 {
             return Err(NativeError::InvalidNativeResult {
@@ -172,13 +185,15 @@ pub(crate) trait TensorCalls: MemoryCalls {
     /// which checks its result: finds a path for `network` within
     /// `workspace_limit` bytes, into `info` and the network, with slicing
     /// disabled; the optimizer's configuration is created and destroyed
-    /// inside.
+    /// inside. Only `optimize_contraction` can call it, since only it holds
+    /// an [`UncheckedPathSearch`].
     fn find_contraction_path(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
         workspace_limit: u64,
         info: OpaqueHandle,
+        search: UncheckedPathSearch,
     ) -> Result<(), NativeError>;
     /// How many slices `info`'s path cuts its network into: 1 if unsliced.
     fn contraction_slice_count(
@@ -217,6 +232,13 @@ pub(crate) trait TensorCalls: MemoryCalls {
         stream: Stream,
     ) -> Result<(), NativeError>;
 }
+
+/// The permission to search a contraction path without the slice check,
+/// which only [`TensorCalls::optimize_contraction`] can build (its field is
+/// private to this module): so every path a caller gets has passed the
+/// check, whatever the order of its calls.
+#[derive(Debug)]
+pub(crate) struct UncheckedPathSearch(());
 
 /// One tensor's modes as a descriptor takes them: the extent and the label
 /// of each mode, first mode fastest. Two tensors' modes of the same label

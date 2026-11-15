@@ -244,6 +244,8 @@ const Q: i32 = 3;
 const P_OUT: i32 = 4;
 const Q_OUT: i32 = 5;
 const S: i32 = 6;
+/// An outer bond of A or B, kept in U or V.
+const OUTER: i32 = 7;
 
 /// A two-site gate applied to two qubits in |0⟩ through the fake: A and B
 /// hold |0⟩ at bond extent 1, so the product θ[p', q'] is the gate's first
@@ -661,16 +663,98 @@ fn a_gate_split_keeps_one_value_whatever_the_cutoff() {
     assert_close(&factors.product(), &matrix([[3.0, 0.0], [0.0, 0.0]]));
 }
 
-/// A product state's θ has rank 1: the split keeps one value, and still
-/// reports the bond it could have had, the smaller side, as cuTensorNet
-/// does.
+/// A caller grows a bond up to the extent the split could have kept, as
+/// cuTensorNet reports it: the smaller side of θ. A product state's θ has
+/// rank 1, yet reports 2; a site with an outer bond of 2 makes θ 4×2 on
+/// the left, or 2×4 on the right, and reports 2 either way.
 #[test]
-fn a_gate_splits_full_extent_is_the_smaller_side_whatever_the_rank() {
-    let factors = GateSplit::of(matrix([[1.0, 1.0], [1.0, 1.0]]), &[SvdSetting::PartitionUs])
+fn a_gate_split_reports_the_smaller_side_as_its_full_extent() {
+    let rank_one = GateSplit::of(matrix([[1.0, 1.0], [1.0, 1.0]]), &[SvdSetting::PartitionUs])
         .split()
         .expect("θ is not zero");
-    assert_eq!(factors.extent, 1, "θ has rank 1");
-    assert_eq!(factors.truncation.full_extent, 2);
+    assert_eq!(rank_one.extent, 1, "θ has rank 1");
+    assert_eq!(rank_one.truncation.full_extent, 2);
+    let (one, zero) = (Complex64::new(1.0, 0.0), Complex64::default());
+    let theta = matrix([[2.0, 1.0], [0.5, -1.5]]);
+    let mut left = GateSplit::of(theta, &[SvdSetting::PartitionUs]);
+    left.operands.a = left
+        .device
+        .operand(&[2, 2, 1], &[OUTER, P, BOND], &values(4, 0.5));
+    left.operands.u = left
+        .device
+        .operand(&[2, 2, 2], &[OUTER, P_OUT, S], &[zero; 8]);
+    left.device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    let tall = left.split().expect("θ is not zero");
+    assert_eq!(tall.truncation.full_extent, 2, "θ is 4×2");
+    let mut right = GateSplit::of(theta, &[SvdSetting::PartitionUs]);
+    right.operands.b = right
+        .device
+        .operand(&[1, 2, 2], &[BOND, Q, OUTER], &[one, zero, zero, one]);
+    right.operands.v = right
+        .device
+        .operand(&[2, 2, 2], &[S, Q_OUT, OUTER], &[zero; 8]);
+    right
+        .device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    let wide = right.split().expect("θ is not zero");
+    assert_eq!(wide.truncation.full_extent, 2, "θ is 2×4");
+}
+
+/// cuTensorNet writes U and V before it knows the reduced extent, so a
+/// caller that sizes their buffers by an earlier split's bond overruns
+/// them on a GPU; the fake refuses it, for U and for V.
+#[test]
+fn a_gate_split_needs_u_and_v_buffers_of_their_descriptors_full_extents() {
+    let zero = Complex64::default();
+    let mut split = GateSplit::of(matrix([[1.0, 1.0], [1.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    let full = split.operands.u.data;
+    let reduced = split.device.buffer(&[zero; 2]);
+    split
+        .device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    split.operands.u.data = reduced;
+    split
+        .split()
+        .expect_err("U's buffer holds the reduced bond only");
+    split.operands.u.data = full;
+    let full = split.operands.v.data;
+    split.operands.v.data = reduced;
+    split
+        .split()
+        .expect_err("V's buffer holds the reduced bond only");
+    split.operands.v.data = full;
+    split
+        .split()
+        .expect("U's and V's buffers hold the full extents");
+}
+
+/// cuTensorNet may write the singular values to their buffer: a caller
+/// that freed it is caught on the fake.
+#[test]
+fn a_gate_split_needs_a_live_singular_values_buffer() {
+    let mut split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    split
+        .device
+        .fake
+        .free(split.operands.singular_values)
+        .expect("the buffer is live");
+    split
+        .split()
+        .expect_err("the singular values' buffer is freed");
+    split.operands.singular_values = split.device.buffer(&[Complex64::default(); 2]);
+    split
+        .device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    split.split().expect("the singular values' buffer is live");
 }
 
 /// cuTensorNet writes the reduced extent into U's and V's descriptors, so a

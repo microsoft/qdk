@@ -20,7 +20,7 @@ use crate::native_calls::{
     OpaqueHandle, Stream,
     tensor_calls::{
         ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
-        TensorCalls, TensorModes, TensorOperand,
+        TensorCalls, TensorModes, TensorOperand, UncheckedPathSearch,
     },
 };
 use std::{ffi::c_void, ptr::NonNull};
@@ -400,6 +400,7 @@ impl TensorCalls for LoadedLibraries {
         network: OpaqueHandle,
         workspace_limit: u64,
         info: OpaqueHandle,
+        _search: UncheckedPathSearch,
     ) -> Result<(), NativeError> {
         let functions = self.tensor_functions()?;
         let mut config = std::ptr::null_mut();
