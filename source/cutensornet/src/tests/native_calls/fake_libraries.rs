@@ -1457,7 +1457,7 @@ fn computed_state_on(
     stream: Stream,
 ) -> Result<(OpaqueHandle, Vec<OpaqueHandle>), crate::NativeError> {
     let fake = &device.fake;
-    let (state, capacity) = prepared_state(device);
+    let (state, capacity) = prepared_state(device, device.workspace);
     device.lend(WorkspaceSlot::DeviceScratch);
     let mut outputs: Vec<OpaqueHandle> = (0..2).map(|_| device.zeros(&[2, 2])).collect();
     fake.synchronize_copies().expect("the copies were queued");
@@ -1473,8 +1473,8 @@ fn computed_state_on(
     Ok((state, outputs))
 }
 
-/// A two-qubit state prepared in `device`'s workspace, and its capacity.
-fn prepared_state(device: &Device) -> (OpaqueHandle, NativeCapacity) {
+/// A two-qubit state prepared in `workspace`, and its capacity.
+fn prepared_state(device: &Device, workspace: OpaqueHandle) -> (OpaqueHandle, NativeCapacity) {
     let fake = &device.fake;
     let state = fake
         .create_state(device.handle, &[2, 2])
@@ -1483,15 +1483,25 @@ fn prepared_state(device: &Device) -> (OpaqueHandle, NativeCapacity) {
     let capacity = NativeCapacity::new(&shape).expect("the extents fit cuTensorNet's");
     fake.finalize_mps(device.handle, state, &capacity)
         .expect("the state is finalized once");
-    fake.prepare_state(
-        device.handle,
-        state,
-        1 << 20,
-        device.workspace,
-        device.stream,
-    )
-    .expect("the state is finalized");
+    fake.prepare_state(device.handle, state, 1 << 20, workspace, device.stream)
+        .expect("the state is finalized");
     (state, capacity)
+}
+
+/// An expectation on a two-qubit state, prepared in `workspace`.
+fn prepared_expectation(device: &Device, workspace: OpaqueHandle) {
+    let (fake, handle) = (&device.fake, device.handle);
+    let state = fake
+        .create_state(handle, &[2, 2])
+        .expect("the handle is live");
+    let operator = fake
+        .create_network_operator(handle, &[2, 2])
+        .expect("the handle is live");
+    let expectation = fake
+        .create_expectation(handle, state, operator)
+        .expect("the state and operator are live");
+    fake.prepare_expectation(handle, expectation, 1 << 20, workspace, device.stream)
+        .expect("the expectation is live");
 }
 
 /// A compute is queued on a stream: a caller that passes a destroyed one is
@@ -2003,6 +2013,40 @@ fn a_new_path_search_needs_the_workspace_sized_again() {
         .expect("the network is prepared for its new path");
 }
 
+/// A path search changes its network's path, not a workspace's sizing for
+/// a call of another kind: a caller that searches a new network's path
+/// between sizing a QR and running it runs the QR without sizing again.
+#[test]
+fn a_path_search_keeps_the_sizing_for_a_qr() {
+    let qr = TensorQr::sized(FakeLibraries::new(), 3);
+    let device = &qr.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    two_networks(device, true);
+    qr.run_on(device.stream)
+        .expect("the path searches were for other networks");
+}
+
+/// A path search changes its own network's path alone: a caller that keeps
+/// one network per shape, and searches a new shape's path between sizing a
+/// workspace for one network and preparing it, prepares it without sizing
+/// again.
+#[test]
+fn a_path_search_keeps_the_sizing_for_another_network() {
+    let ones = [Complex64::new(1.0, 0.0); 2];
+    let contraction = Contraction::sized(
+        FakeLibraries::new(),
+        DOT_PRODUCT_INPUTS,
+        [&ones, &ones],
+        DOT_PRODUCT_OUTPUT,
+    );
+    let device = &contraction.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    two_networks(device, true);
+    contraction
+        .prepare()
+        .expect("the path searches were for other networks");
+}
+
 /// cuTensorNet takes each output mode's extent from the inputs: a caller
 /// whose output names a label no input has is caught on the fake.
 #[test]
@@ -2212,11 +2256,11 @@ fn a_contraction_needs_a_workspace_sized_for_its_path() {
 /// the state without sizing the workspace for the QR again, is caught on
 /// the fake.
 #[test]
-fn a_state_preparation_undoes_a_tensor_calls_sizing() {
+fn a_state_preparation_undoes_the_sizing_for_a_tensor_call() {
     let qr = TensorQr::sized(FakeLibraries::new(), 3);
     let device = &qr.device;
     device.lend(WorkspaceSlot::DeviceScratch);
-    prepared_state(device);
+    prepared_state(device, device.workspace);
     let refused = qr
         .run_on(device.stream)
         .expect_err("the workspace is sized for the state");
@@ -2234,28 +2278,11 @@ fn a_state_preparation_undoes_a_tensor_calls_sizing() {
 /// that runs a QR after preparing an expectation in the QR's workspace,
 /// without sizing it for the QR again, is caught on the fake.
 #[test]
-fn an_expectation_preparation_undoes_a_tensor_calls_sizing() {
+fn an_expectation_preparation_undoes_the_sizing_for_a_tensor_call() {
     let qr = TensorQr::sized(FakeLibraries::new(), 3);
     let device = &qr.device;
     device.lend(WorkspaceSlot::DeviceScratch);
-    let (fake, handle) = (&device.fake, device.handle);
-    let state = fake
-        .create_state(handle, &[2, 2])
-        .expect("the handle is live");
-    let operator = fake
-        .create_network_operator(handle, &[2, 2])
-        .expect("the handle is live");
-    let expectation = fake
-        .create_expectation(handle, state, operator)
-        .expect("the state and operator are live");
-    fake.prepare_expectation(
-        handle,
-        expectation,
-        1 << 20,
-        device.workspace,
-        device.stream,
-    )
-    .expect("the expectation is live");
+    prepared_expectation(device, device.workspace);
     let refused = qr
         .run_on(device.stream)
         .expect_err("the workspace is sized for the expectation");
@@ -2266,6 +2293,42 @@ fn an_expectation_preparation_undoes_a_tensor_calls_sizing() {
     qr.size();
     qr.run_on(device.stream)
         .expect("the workspace is sized for the QR again");
+}
+
+/// cuTensorNet's state preparation sets the sizes of the workspace it is
+/// given alone: a caller that keeps its QR's workspace apart from its
+/// states' runs the QR after preparing a state in the other workspace,
+/// without sizing again.
+#[test]
+fn a_state_preparation_keeps_the_sizing_of_another_workspace() {
+    let qr = TensorQr::sized(FakeLibraries::new(), 3);
+    let device = &qr.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    let states_workspace = device
+        .fake
+        .create_workspace(device.handle)
+        .expect("the handle is live");
+    prepared_state(device, states_workspace);
+    qr.run_on(device.stream)
+        .expect("the preparation sized another workspace");
+}
+
+/// cuTensorNet's expectation preparation sets the sizes of the workspace it
+/// is given alone: a caller that keeps its QR's workspace apart from its
+/// expectations' runs the QR after preparing an expectation in the other
+/// workspace, without sizing again.
+#[test]
+fn an_expectation_preparation_keeps_the_sizing_of_another_workspace() {
+    let qr = TensorQr::sized(FakeLibraries::new(), 3);
+    let device = &qr.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    let expectations_workspace = device
+        .fake
+        .create_workspace(device.handle)
+        .expect("the handle is live");
+    prepared_expectation(device, expectations_workspace);
+    qr.run_on(device.stream)
+        .expect("the preparation sized another workspace");
 }
 
 /// cuTensorNet writes a gate split's report on the split's stream: a

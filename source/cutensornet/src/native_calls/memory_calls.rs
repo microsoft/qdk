@@ -73,8 +73,10 @@ pub(crate) trait MemoryCalls {
     ) -> Result<(), NativeError>;
     fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, NativeError>;
     fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), NativeError>;
-    /// The bytes cuTensorNet recommends for `slot` of `workspace`, for what
-    /// the workspace was last prepared for; 0 when the slot is not needed.
+    /// The bytes cuTensorNet recommends for `slot` of `workspace`, for the
+    /// call the workspace was last sized for (a tensor call's
+    /// `…_workspace_sizes`) or prepared for (a state or an expectation); 0
+    /// when the slot is not needed.
     fn workspace_size(
         &self,
         handle: OpaqueHandle,

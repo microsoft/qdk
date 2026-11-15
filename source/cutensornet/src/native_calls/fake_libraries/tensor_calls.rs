@@ -18,7 +18,10 @@
 //!   state's or an expectation's preparation in that workspace sizes it
 //!   for the state API, as cuTensorNet's does, and a new path search for a
 //!   network, even into the same optimizer info, may find another path:
-//!   either undoes the sizing;
+//!   either undoes the sizing. The reverse is not caught: a state's or an
+//!   expectation's compute does not check that its workspace was last
+//!   prepared for it, so a tensor call's sizing between the preparation
+//!   and the compute passes;
 //! - an optimizer info serves only the network it was created for: its
 //!   path is searched, and a workspace sized, for that network alone;
 //! - a network is prepared only once optimized, in a workspace sized for
