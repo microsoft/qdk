@@ -13,8 +13,10 @@
 //! checked batch, it also makes the refusals [`Batch::checked`] lists,
 //! before anything of the `execute` runs. An unchecked batch costs it no
 //! pass over its instructions. An `execute` that fails, or is dropped
-//! before it answers, leaves the caller's [`Readouts`] as they were, so
-//! the caller never reads part of an answer.
+//! before it answers, has its answer removed from the caller's
+//! [`Readouts`], so the caller never reads part of an answer; unless it
+//! replaced them ([`ShapeFault::ReadoutsReplaced`]), they are as they
+//! were.
 
 use smallvec::SmallVec;
 
@@ -175,7 +177,7 @@ fn refusal(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteRefusal
 /// The caller's `readouts` while they are lent to an `execute` that
 /// appends its answer to them: dropped unkept, it removes the answer, so
 /// that an `execute` that fails, panics or is dropped leaves them as they
-/// were.
+/// were, unless it replaced them.
 struct PendingAnswer<'a> {
     readouts: &'a mut Readouts,
     /// The loan, taken when it ends, on drop.
@@ -198,8 +200,9 @@ impl<'a> PendingAnswer<'a> {
         self.readouts
     }
 
-    /// The readouts the receiver appended.
-    fn appended(&self) -> &[BatchReadouts] {
+    /// The readouts the receiver appended, or `None` when it replaced the
+    /// readouts it was lent.
+    fn appended(&self) -> Option<&[BatchReadouts]> {
         let loan = self.loan.as_ref().expect("the loan ends only on drop");
         self.readouts.appended(loan)
     }
@@ -218,17 +221,21 @@ impl Drop for PendingAnswer<'_> {
     }
 }
 
-/// Whether `answer`, the readouts appended for `batches`, has their shape,
-/// as [`ShapeFault`] states it: `checked_slots` holds each checked batch's
+/// Whether `answer`, the readouts appended for `batches` (`None` when the
+/// receiver replaced the readouts it was lent), has their shape, as
+/// [`ShapeFault`] states it: `checked_slots` holds each checked batch's
 /// readout slots, `None` for an unchecked one.
 fn check_shape(
     batches: &[Batch<'_>],
     checked_slots: &[Option<u32>],
-    answer: &[BatchReadouts],
+    answer: Option<&[BatchReadouts]>,
 ) -> Result<(), ExecuteError> {
     let failed = |shots: &ShotSet, fault: ShapeFault| ExecuteError::Failed {
         shot: first_shot(shots),
         failure: Failure::Part(Box::new(fault)),
+    };
+    let Some(answer) = answer else {
+        return Err(failed(batches[0].shots, ShapeFault::ReadoutsReplaced));
     };
     if answer.len() != batches.len() {
         return Err(failed(

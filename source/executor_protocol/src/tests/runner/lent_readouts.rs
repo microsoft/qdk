@@ -3,7 +3,8 @@
 
 //! What an `execute` through the protocol does with the readouts its
 //! caller lends: it appends its answer after those already there, cannot
-//! clear those, and leaves them as they were when it fails or is dropped.
+//! clear those, fails if it replaces them, and otherwise leaves them as
+//! they were when it fails or is dropped.
 
 use std::cell::RefCell;
 use std::future::poll_fn;
@@ -133,6 +134,25 @@ enum Unruliness {
     /// Replaces the readouts it is lent with new, empty ones, and appends
     /// nothing.
     ReplacesThem,
+    /// Replaces the readouts it is lent with new ones holding copies of
+    /// those it found, then appends its answer.
+    ReplacesThemWithCopies,
+    /// Swaps in [`readouts_from_elsewhere`] for the readouts it is lent,
+    /// as many, then appends its answer.
+    SwapsInOthers,
+}
+
+/// Readouts of one batch, of one row `[One, One]`, which no lender holds.
+fn readouts_from_elsewhere() -> Readouts {
+    let mut readouts = Readouts::new();
+    readouts
+        .push_with_capacity(1, 2)
+        .push_row(
+            &[ReadoutValue::One, ReadoutValue::One],
+            ShotConditions::NONE,
+        )
+        .expect("a row of two values");
+    readouts
 }
 
 /// [`Bits`] breaking the rules of the readouts it is lent, as
@@ -164,6 +184,17 @@ impl Execute for Unruly {
                 *readouts = Readouts::new();
                 return Ok(());
             }
+            Unruliness::ReplacesThemWithCopies => {
+                let found = readouts.to_vec();
+                *readouts = Readouts::new();
+                for batch in found {
+                    readouts.push(batch);
+                }
+            }
+            Unruliness::SwapsInOthers => {
+                let mut others = readouts_from_elsewhere();
+                std::mem::swap(readouts, &mut others);
+            }
             _ => {}
         }
         self.0.execute(batches, seed, readouts).await?;
@@ -177,7 +208,10 @@ impl Execute for Unruly {
                 YieldNow::default().await;
                 Ok(())
             }
-            Unruliness::ClearsFirst | Unruliness::ReplacesThem => Ok(()),
+            Unruliness::ClearsFirst
+            | Unruliness::ReplacesThem
+            | Unruliness::ReplacesThemWithCopies
+            | Unruliness::SwapsInOthers => Ok(()),
         }
     }
 
@@ -355,29 +389,49 @@ fn clearing_the_lent_readouts_keeps_those_the_execute_found() {
     }
 }
 
-/// An executor that replaces the readouts it is lent with new, empty ones,
-/// which no executor may do: a failure, since it appended none after the
-/// readouts the driver had, and the driver's readouts stay readable.
+/// An executor that replaces the readouts it is lent, which no executor
+/// may do: with new, empty ones; with new ones holding copies of those it
+/// found, and its answer after them, so that their count is right; or
+/// with others, as many, swapped in. Each is a failure, named by the
+/// batch's first shot, and its answer is removed: the driver then holds
+/// the replacement's readouts as far as those it had, its own if copied.
 #[test]
-fn an_execute_replacing_the_lent_readouts_with_fewer_is_a_failure() {
+fn an_execute_replacing_the_lent_readouts_is_a_failure() {
+    /// The readouts the driver holds after, from those it held before.
+    type Held = fn(&Readouts) -> Readouts;
     let log = Log::default();
-    let Seen { result, after, .. } = seen(
-        Waits::ForTheAnswer,
-        Unruly(Bits::new(&log), Unruliness::ReplacesThem),
-    );
-    let Some(Err(ExecuteError::Failed {
-        failure: Failure::Part(why),
-        ..
-    })) = result
-    else {
-        panic!("a failure of the part: {result:?}");
-    };
-    assert_eq!(
-        why.downcast_ref::<ShapeFault>(),
-        Some(&ShapeFault::Batches {
-            expected: 1,
-            got: 0
-        })
-    );
-    assert!(after.is_empty());
+    let rows: [(&str, Unruliness, Held); 3] = [
+        ("empty ones", Unruliness::ReplacesThem, |_| Readouts::new()),
+        (
+            "copies, then the answer",
+            Unruliness::ReplacesThemWithCopies,
+            Readouts::clone,
+        ),
+        (
+            "others, swapped in, then the answer",
+            Unruliness::SwapsInOthers,
+            |_| readouts_from_elsewhere(),
+        ),
+    ];
+    for (scene, unruliness, held) in rows {
+        let Seen {
+            before,
+            result,
+            after,
+        } = seen(Waits::ForTheAnswer, Unruly(Bits::new(&log), unruliness));
+        let Some(Err(ExecuteError::Failed {
+            shot,
+            failure: Failure::Part(why),
+        })) = result
+        else {
+            panic!("{scene}: a failure of the part: {result:?}");
+        };
+        assert_eq!(shot, ShotId::new(0), "{scene}");
+        assert_eq!(
+            why.downcast_ref::<ShapeFault>(),
+            Some(&ShapeFault::ReadoutsReplaced),
+            "{scene}"
+        );
+        assert_eq!(after, held(&before), "{scene}: the readouts held after");
+    }
 }

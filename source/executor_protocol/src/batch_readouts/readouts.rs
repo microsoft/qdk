@@ -21,12 +21,13 @@ use super::BatchReadouts;
 /// of [`BatchReadouts`], in the order they were added.
 ///
 /// An `execute` appends one per batch, in the batches' order. Through the
-/// protocol, it cannot change those it found: it reads them as a slice,
-/// and its [`clear`](Self::clear) keeps them. The protocol checks every
-/// answer that crosses a boundary of a chain against its batches, as
-/// [`ShapeFault`](crate::ShapeFault) says, and an `execute` that fails
-/// leaves it as it was. Its owner `clear`s it between `execute`s whose
-/// answers it no longer needs; the memory stays, for the next.
+/// protocol, it cannot change those it found unseen: it reads them as a
+/// slice, its [`clear`](Self::clear) keeps them, and replacing the whole
+/// value fails. The protocol checks every answer that crosses a boundary
+/// of a chain against its batches, as [`ShapeFault`](crate::ShapeFault)
+/// says, and an `execute` that fails leaves it as it was, unless it
+/// replaced it. Its owner `clear`s it between `execute`s whose answers it
+/// no longer needs; the memory stays, for the next.
 #[derive(Default)]
 pub struct Readouts {
     /// The batches' readouts: the first `len` in use, the rest kept, with
@@ -101,10 +102,12 @@ impl Readouts {
         loan
     }
 
-    /// The readouts appended during `loan`: none when the `execute`
-    /// replaced the whole value with one of fewer readouts.
-    pub(crate) fn appended(&self, loan: &Loan) -> &[BatchReadouts] {
-        self.get(loan.start..).unwrap_or_default()
+    /// The readouts appended during `loan`, or `None` when this is not the
+    /// value lent: the `execute` assigned or swapped in another.
+    pub(crate) fn appended(&self, loan: &Loan) -> Option<&[BatchReadouts]> {
+        // Only `lend` sets `found`, so another value holds 0, or the start
+        // of a loan of its own.
+        (self.found == loan.start).then(|| self.get(loan.start..).unwrap_or_default())
     }
 
     /// Ends `loan`, keeping the answer appended during it, or removing it.

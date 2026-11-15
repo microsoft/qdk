@@ -111,16 +111,18 @@ pub trait Execute {
     /// order, a row per shot, in its set's order, of a value per readout
     /// slot. So, `start` being the length of `readouts` before, entry
     /// `start + i` answers `batches[i]`. Called through the protocol, it
-    /// cannot change the readouts it found: it reads them as a slice, and
-    /// [`Readouts::clear`](crate::Readouts::clear) keeps them; only
-    /// assigning a whole new value to `*readouts` would replace them,
-    /// which no executor may do. An `execute` that fails, or is dropped
-    /// before it answers, leaves `readouts` as they were when it is called
-    /// through the protocol, which removes what was appended; a future
-    /// leaked rather than dropped (`std::mem::forget`) keeps its partial
-    /// answer, and the owner of `readouts` can then no longer clear those
-    /// it found. A shot's state is made at its first batch, from the needs
-    /// it was provisioned for and [`seed.shot(id)`](Seed::shot), and kept
+    /// cannot change the readouts it found unseen: it reads them as a
+    /// slice, and [`Readouts::clear`](crate::Readouts::clear) keeps them;
+    /// assigning or swapping in another value for `*readouts` loses them,
+    /// and fails, as
+    /// [`ShapeFault::ReadoutsReplaced`](crate::ShapeFault::ReadoutsReplaced)
+    /// says. Any other `execute` that fails, or one dropped before it
+    /// answers, leaves `readouts` as they were when it is called through
+    /// the protocol, which removes what was appended; a future leaked
+    /// rather than dropped (`std::mem::forget`) keeps its partial answer,
+    /// and the owner of `readouts` can then no longer clear those it
+    /// found. A shot's state is made at its first batch, from the needs it
+    /// was provisioned for and [`seed.shot(id)`](Seed::shot), and kept
     /// until [`end_shots`](Self::end_shots).
     ///
     /// Three rules hold between the part that calls it and the executor:

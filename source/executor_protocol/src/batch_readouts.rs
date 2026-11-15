@@ -333,8 +333,10 @@ impl ReadoutIndex {
 /// The protocol checks every answer that crosses a boundary of a chain,
 /// and makes a failure of it
 /// ([`ExecuteError::Failed`](crate::ExecuteError::Failed), carrying the
-/// fault as [`Failure::Part`](crate::Failure::Part)) for readouts not one
-/// per batch sent (`Batches`, named by the first batch's first shot), for
+/// fault as [`Failure::Part`](crate::Failure::Part)) for readouts lent
+/// to the `execute` that it replaced, by assigning or swapping in another
+/// value (`ReadoutsReplaced`, named by the first batch's first shot), for
+/// readouts not one per batch sent (`Batches`, named likewise), for
 /// a batch's rows not one per shot of it (`Rows`, named by that batch's
 /// first shot), or, for a batch its sender marked
 /// [`checked`](crate::Batch::checked), for rows whose width is not the
@@ -342,7 +344,8 @@ impl ReadoutIndex {
 /// (`Slots`, named by that batch's first shot): that sum costs a pass over
 /// the instructions, which an unchecked batch is spared. So the part above
 /// finds a row for every shot, and, for a checked batch, every slot it
-/// asked for at its index.
+/// asked for at its index, after the readouts it had, unchanged. A
+/// replacement of readouts lent empty is not seen, and loses nothing.
 // The one statement of the protocol's check of an answer's shape: the
 // other docs link here rather than restate it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -355,6 +358,10 @@ pub enum ShapeFault {
         /// The number of values the row held.
         got: usize,
     },
+    /// An `execute` replaced the [`Readouts`] it was lent, by assigning or
+    /// swapping in another value, so that those it found were lost with
+    /// the value replaced.
+    ReadoutsReplaced,
     /// An `execute` appended `got` batches' readouts to the caller's
     /// [`Readouts`], where it was sent `expected` batches.
     Batches {
@@ -392,6 +399,10 @@ impl fmt::Display for ShapeFault {
             Self::RowWidth { expected, got } => write!(
                 f,
                 "a row of {got} readout values, where each row has {expected}"
+            ),
+            Self::ReadoutsReplaced => write!(
+                f,
+                "readouts that replace those lent, losing the readouts found"
             ),
             Self::Batches { expected, got } => {
                 write!(f, "readouts for {got} batches, where {expected} were sent")
