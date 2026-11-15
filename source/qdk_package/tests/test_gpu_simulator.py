@@ -647,6 +647,17 @@ def test_gpu_reset_preserves_distribution():
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gpu_zero_shots_returns_empty_results():
+    """Requesting zero shots must return no results instead of panicking
+    with a division by zero during batch computation."""
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval("operation Main() : Result { use q = Qubit(); H(q); MResetZ(q) }")
+    qir = str(qsharp.compile("Main()"))
+
+    assert run_qir_gpu(qir, shots=0) == []
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 @pytest.mark.parametrize("profile", [TargetProfile.Base, TargetProfile.Adaptive_RI])
 def test_gpu_mx_my_on_eigenstates(profile: TargetProfile):
     """MX/MY are lowered to basis change + MZ on the GPU. On X/Y eigenstates they
