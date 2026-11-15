@@ -291,7 +291,9 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
     ///
     /// Drops no singular value of its own: a projection does not compress
     /// the chain again, so the bonds [`MpsEngine::shape`] reports after it
-    /// may exceed the state's Schmidt ranks.
+    /// may exceed the state's Schmidt ranks. Recompressing was measured
+    /// slower at the same accuracy, on H₂ phase estimation and a polyene's:
+    /// the gates that follow regrow the bonds it shrinks.
     fn project(&self, state: &mut Self::State, site: usize, one: bool) -> Result<f64, Self::Error> {
         let chain = state.chain.get_mut();
         checks::project(chain.sites.len(), site)?;

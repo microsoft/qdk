@@ -117,7 +117,10 @@ the other value's elements, and divides the site by the norm of what it
 kept. It computes the norm as `m · √(Σ |x / m|²)`, with `m` the largest
 modulus, not as `√p`, so the site it hands the algebra, and with it the
 state, has a norm of 1 to rounding, even when `p` is subnormal, and later
-projections stay possible. It truncates nothing, so `W` is unchanged.
+projections stay possible. It truncates nothing, so `W` is unchanged,
+and it does not compress the chain again: recompressing was measured
+slower at the same accuracy, on H₂ phase estimation and a polyene's, as
+the gates that follow regrow the bonds it shrinks.
 
 **An expectation.** An observable `c₀ + Σₖ cₖ Pₖ`, each `Pₖ` a product of
 one-site Paulis, has the value `c₀ + Σₖ cₖ ⟨ψ|Pₖ|ψ⟩ / ‖T_centre‖²`; the
