@@ -105,12 +105,14 @@
 #                  qr-off-<svd> with <svd> gesvd or gesvdj (default
 #                  "qr-on-gesvd")
 #   RELEVANT_CASES relevant's N/chi cases (default "16/128 20/128")
-#   RELEVANT_ENGINES relevant's engines, run in order on each case (default
-#                  "cuda-mps"; "cutensornet cuda-mps" compares the two)
-#   RELEVANT_VARIANT relevant's gate form, seq3-mpo or base (default
-#                  seq3-mpo; base applies the gates one by one, the form
-#                  CuTensorNetEngine runs as it is, without its dev-only
-#                  three-site MPOs)
+#   RELEVANT_ENGINES relevant's runs on each case, in order: engine or
+#                  engine:variant (default "cuda-mps"; for instance
+#                  "cutensornet:base cuda-mps:base cuda-mps" compares the two
+#                  engines)
+#   RELEVANT_VARIANT the gate form of an entry without one, seq3-mpo or
+#                  base (default seq3-mpo; base applies the gates one by
+#                  one, the form CuTensorNetEngine runs as it is, without its
+#                  dev-only three-site MPOs)
 #   BUDGET_SECONDS the session's budget (default 18000, 5 h)
 #   LIMIT_PERCENT  the runs' own limits in percent (default 100)
 #   H2             H2's bytecode JSON (default /data/domingom/h2.bytecode.json)
@@ -384,12 +386,14 @@ polyene_run() {
   # shellcheck disable=SC2086
   run_part "$limit" "$P_LOG" "$BIN/polyene_qpe_prefix" --engine "$engine" --n "$n" --chi "$chi" \
     --order "$order" --variant "$variant" $flags ${reference:+--reference "$reference"}
-  local done_line steps_lines step check counters error key
+  local done_line steps_lines step check counters phases error key
   done_line=$(grep '^POLYENE done ' "$P_LOG" | tail -1)
   steps_lines=$(grep '^POLYENE step ' "$P_LOG" | tail -2)
   step=$(printf '%s\n' "$steps_lines" | tail -1)
   check=$(grep '^POLYENE check ' "$P_LOG" | tail -1)
   counters=$(grep '^POLYENE cuda_mps_counters ' "$P_LOG" | tail -1)
+  # CuTensorNetEngine's phases, printed once at the end of a whole run.
+  phases=$(grep '^POLYENE engine_phases ' "$P_LOG" | tail -1)
   error=$(grep -E '^POLYENE error |panicked' "$P_LOG" | tail -1 | cut -c1-200)
   if [ "$STATUS" = skipped ]; then
     P_VERDICT=skipped
@@ -419,6 +423,7 @@ polyene_run() {
       P_DETAIL="$P_DETAIL $key=$(field "$key" "$counters")"
     done
   fi
+  [ -n "$phases" ] && P_DETAIL="$P_DETAIL phases=${phases#POLYENE engine_phases }"
   [ -n "$check" ] && P_DETAIL="$P_DETAIL largest_gap=$(field largest "$check")"
   [ -n "$error" ] && [ "$P_VERDICT" = error ] && P_DETAIL="$P_DETAIL error=\"$error\""
 }
@@ -531,13 +536,16 @@ steps_table() {
 
 if wanted relevant; then
   for case_ in $RELEVANT_CASES; do
-   for engine in $RELEVANT_ENGINES; do
+   for entry in $RELEVANT_ENGINES; do
+    engine=${entry%%:*}
+    variant=$RELEVANT_VARIANT
+    [ "$entry" != "$engine" ] && variant=${entry#*:}
     n=${case_%/*}
     chi=${case_#*/}
     reference=$(reference_of "$n")
-    name=relevant-n$n-chi$chi-$engine-$RELEVANT_VARIANT
+    name=relevant-n$n-chi$chi-$engine-$variant
     polyene_run "$name" "" interleave-centre "$n" "$chi" "$(box "$(relevant_box "$n")")" \
-      "$reference" "$engine" "$RELEVANT_VARIANT"
+      "$reference" "$engine" "$variant"
     read -r mean bond <<< "$(steps_table "$P_LOG" "$OUT/steps-$name.txt")"
     read -r cpu_seconds cpu_last <<< "$(cpu_prefix "$n" "$chi")"
     end=$(grep '^POLYENE end ' "$P_LOG" | tail -1)
@@ -550,7 +558,7 @@ if wanted relevant; then
         'BEGIN {print (g != "-" && g + 0 <= t + 0) ? "pass" : "fail"}')
     fi
     line="verdict=$P_VERDICT cp_verdict=$cp_verdict step=relevant engine=$engine combo=defaults"
-    line="$line variant=$RELEVANT_VARIANT order=interleave-centre n=$n chi=$chi steps_done=$P_STEPS"
+    line="$line variant=$variant order=interleave-centre n=$n chi=$chi steps_done=$P_STEPS"
     line="$line gpu_seconds=$P_SECONDS cpu_prefix_seconds=$cpu_seconds"
     line="$line gpu_over_cpu=$([ "$P_STEPS" = 32 ] && ratio "$P_SECONDS" "$cpu_seconds" || echo -)"
     line="$line mean_step_seconds=$mean last_step_seconds=$P_LAST cpu_last_step_seconds=$cpu_last"
