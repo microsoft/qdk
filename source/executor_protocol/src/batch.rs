@@ -62,13 +62,16 @@ impl<'a> Batch<'a> {
     /// run naming the receiver
     /// ([`Failure::Panicked`](crate::Failure::Panicked)), and an opcode of
     /// another set may run as another of the receiver's instructions,
-    /// unreported. The checks cost a pass over the batch's instructions,
-    /// which about doubles the protocol's own time per instruction, so a
-    /// chain of parts that keep the protocol's rules sends its batches
-    /// unchecked. A sender may check some batches and not others: all of
-    /// them while a part is developed, or those a part sends that may hold
-    /// what the receiver does not accept, such as a part built from a
-    /// user's description at run time.
+    /// unreported. The checks cost a pass over the batch's instructions at
+    /// each boundary that receives it: little beside an executor that
+    /// simulates each instruction, but more than double the time of a chain
+    /// whose parts do little per instruction, such as a lowering over a
+    /// profiler, while an unchecked batch crosses a boundary at no cost per
+    /// instruction. So a chain of parts that keep the protocol's rules
+    /// sends its batches unchecked. A sender may check some batches and not
+    /// others: all of them while a part is developed, or those a part sends
+    /// that may hold what the receiver does not accept, such as a part
+    /// built from a user's description at run time.
     ///
     /// Checked or not, the chain's fit and admission by `>>`, the refusals
     /// of a run ([`RunRefusal`](crate::RunRefusal)), and the answer's count
