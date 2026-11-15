@@ -8,6 +8,8 @@
 //!
 //! It is as strict as the state calls about what cuTensorNet needs:
 //!
+//! - a tensor descriptor has one extent per mode, every extent at least 1,
+//!   and no mode twice;
 //! - every object (a descriptor, an SVD config or info, a network, an
 //!   optimizer info) belongs to the handle it was created with;
 //! - a gate split, a QR or a contraction runs only in a workspace last
@@ -206,7 +208,9 @@ impl TensorCalls for FakeLibraries {
         };
         inner.sized_for(handle, workspace, call, OPERATION)?;
         inner.lent_scratch(workspace, OPERATION)?;
-        inner.owned(handle, config, OPERATION)?;
+        // The workspace, this handle's, was sized for this config by
+        // `gate_split_workspace_sizes`, which checked the config is the
+        // handle's too.
         let Some(&Object::SvdConfig(settings)) = inner.objects.get(&id(config)) else {
             return Err(failed(OPERATION, "no such SVD config"));
         };

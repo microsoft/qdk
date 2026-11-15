@@ -43,8 +43,9 @@ impl MemoryCalls for LoadedLibraries {
     }
 
     fn free(&self, allocation: OpaqueHandle) -> Result<(), NativeError> {
-        // SAFETY: `NativeState`, which owns every device allocation, frees
-        // each successful cudaMalloc allocation exactly once.
+        // SAFETY: the caller that allocated it (the engine's `NativeState`,
+        // or the tensor API's caller) frees each successful cudaMalloc
+        // allocation exactly once.
         let status = unsafe { (self.cuda_runtime.functions.free)(allocation.as_ptr()) };
         self.check_cuda("cudaFree", status)
     }

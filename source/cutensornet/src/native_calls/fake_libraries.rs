@@ -2,10 +2,11 @@
 // Licensed under the MIT License.
 
 //! [`FakeLibraries`]: cuTensorNet and the CUDA Runtime, simulated on the CPU
-//! for the engine's tests.
+//! for the tests of the native calls' callers (the engine, and the tensor
+//! API's caller).
 //!
-//! CI has no GPU, so the engine's real code (every call it makes, in the
-//! order it makes them) runs against these fake libraries, which implement
+//! CI has no GPU, so the callers' real code (every call they make, in the
+//! order they make them) runs against these fake libraries, which implement
 //! `NativeCalls` as the loaded libraries do, one file per trait
 //! (`fake_libraries/session_calls.rs`, `fake_libraries/memory_calls.rs`,
 //! `fake_libraries/state_calls.rs`, `fake_libraries/tensor_calls.rs`). It
@@ -13,11 +14,11 @@
 //! otherwise be the first to show: a call out of cuTensorNet's order,
 //! memory freed while still in use, a read of a stale state. It is test
 //! support, not a test: it sits beside the traits it implements and the
-//! loaded libraries it stands in for, so the engine's modules stay private
-//! to the engine, and it is compiled only with the tests, which live under
-//! `src/tests`. This file holds what the traits' files share: the
-//! objects the fake keeps, the checks every call goes through, and what a
-//! test sets and reads.
+//! loaded libraries it stands in for, so its callers' tests reach it as
+//! they reach the loaded libraries, and it is compiled only with the tests,
+//! which live under `src/tests`. This file holds what the traits' files
+//! share: the objects the fake keeps, the checks every call goes through,
+//! and what a test sets and reads.
 //!
 //! It keeps what cuTensorNet would keep, by id: buffers, workspaces, states
 //! with the operators applied to them, network operators and expectations. A
@@ -49,7 +50,7 @@
 //!   workspace that asks for some, at least what the slot asks, and no
 //!   copy still running (`synchronize_copies`, the legacy stream), and the
 //!   source of a copy still running is not freed;
-//!   after a compute, nothing is freed or captured until the engine's
+//!   after a compute, nothing is freed or captured until the session's
 //!   stream is synchronized;
 //! - a device-to-device copy of a whole computed tensor holds that tensor;
 //!   a partial copy holds nothing;
@@ -138,8 +139,8 @@ struct Inner {
     /// Whether a copy may still be running on the legacy stream: set by a
     /// copy, cleared by `synchronize_copies`.
     copies_running: bool,
-    /// Whether the engine's stream may still be running a compute: set by
-    /// `compute_state`, cleared by `synchronize_stream`.
+    /// Whether the session's stream may still be running work: set by a
+    /// compute or a tensor call, cleared by `synchronize_stream`.
     stream_busy: bool,
     /// The destination of every device-to-device copy.
     copy_destinations: Vec<usize>,

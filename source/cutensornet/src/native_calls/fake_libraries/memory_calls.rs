@@ -10,7 +10,7 @@ use super::{FakeLibraries, Object, failed, id, is_device, slot_index, to_usize};
 use crate::native_calls::error::NativeError;
 use crate::native_calls::{
     OpaqueHandle,
-    complex::Complex64Abi,
+    complex::{Complex64Abi, complex_bytes},
     memory_calls::{MemoryCalls, WorkspaceSlot},
 };
 
@@ -91,6 +91,8 @@ impl MemoryCalls for FakeLibraries {
         destination: OpaqueHandle,
         source: &[Complex64Abi],
     ) -> Result<(), NativeError> {
+        // The loaded libraries refuse an empty copy before any native call.
+        complex_bytes(source.len(), "complex tensor")?;
         let mut inner = self.call("copy_to_device")?;
         match inner.objects.get_mut(&id(destination)) {
             Some(Object::Buffer(buffer)) if buffer.len() >= source.len() => {
@@ -107,6 +109,8 @@ impl MemoryCalls for FakeLibraries {
         destination: &mut [Complex64Abi],
         source: OpaqueHandle,
     ) -> Result<(), NativeError> {
+        // The loaded libraries refuse an empty copy before any native call.
+        complex_bytes(destination.len(), "complex tensor")?;
         let inner = self.call("copy_to_host")?;
         if inner.stream_busy {
             return Err(failed(

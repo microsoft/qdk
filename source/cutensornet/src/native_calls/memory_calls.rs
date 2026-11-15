@@ -13,7 +13,8 @@
 //! scratch or cache, each lent apart; a slot cuTensorNet recommends 0 bytes
 //! for is left empty. The caller allocates, lends and frees every buffer, so
 //! it decides how much memory it holds: the engine for its states
-//! (`engine/native_state.rs`), which lend only device scratch.
+//! (`engine/native_state.rs`), which lend only device scratch, and the
+//! tensor API's caller for its tensors and workspaces.
 //!
 //! The copies run on CUDA's legacy default stream, which a session's
 //! non-blocking stream does not wait for. A copy to the device may still be
@@ -40,7 +41,8 @@ pub(crate) trait MemoryCalls {
     fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, NativeError>;
     fn free(&self, allocation: OpaqueHandle) -> Result<(), NativeError>;
     /// Copies `source` to the device; the host slice may be reused when it
-    /// returns, but the copy may not have reached the device yet.
+    /// returns, but the copy may not have reached the device yet. An empty
+    /// `source` is refused as an invalid call.
     fn copy_to_device(
         &self,
         destination: OpaqueHandle,
@@ -59,7 +61,7 @@ pub(crate) trait MemoryCalls {
     fn synchronize_copies(&self) -> Result<(), NativeError>;
     /// Copies the first `destination.len()` elements of the device
     /// allocation `source` to the host; the copy has finished when it
-    /// returns.
+    /// returns. An empty `destination` is refused as an invalid call.
     #[allow(
         dead_code,
         reason = "its planned caller, the canonical MPS's CudaAlgebra, is not written yet"

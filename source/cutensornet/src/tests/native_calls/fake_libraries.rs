@@ -4,8 +4,9 @@
 //! Tests of the fake libraries' tensor API, which nothing in the crate
 //! calls yet: the dense maths a caller's tests will be checked against (a
 //! contraction, a gate split, a QR), and the rules the fake holds a caller
-//! to (workspaces, streams, objects' handles and lifetimes, a gate split's
-//! labels), each refused on the fake as a misuse would fail on a GPU.
+//! to (tensor descriptors, workspaces, streams, objects' handles and
+//! lifetimes, a gate split's labels, copies of its results to the host),
+//! each refused on the fake as a misuse would fail on a GPU.
 
 use crate::native_calls::{
     OpaqueHandle, Stream,
@@ -19,6 +20,7 @@ use crate::native_calls::{
     },
 };
 use num_complex::Complex64;
+use std::{cell::RefCell, ptr::NonNull};
 
 /// What every tensor call on the fake needs: a handle, a stream and a
 /// workspace.
@@ -27,6 +29,8 @@ struct Device {
     handle: OpaqueHandle,
     stream: Stream,
     workspace: OpaqueHandle,
+    /// The host memory lent to host slots, kept as long as the device.
+    host_memory: RefCell<Vec<Vec<u8>>>,
 }
 
 impl Device {
@@ -39,6 +43,7 @@ impl Device {
             handle,
             stream,
             workspace,
+            host_memory: RefCell::default(),
         }
     }
 
@@ -83,15 +88,27 @@ impl Device {
             .expect("the workspace is live")
     }
 
-    /// Lends `slot` a buffer of `bytes`.
+    /// Lends `slot` `bytes` of memory where the slot's memory lives: a
+    /// device allocation for a device slot, host memory for a host slot.
     fn lend_bytes(&self, slot: WorkspaceSlot, bytes: i64) {
-        let memory = self
-            .fake
-            .allocate(usize::try_from(bytes).expect("a size is not negative"))
-            .expect("the fake has memory");
+        let size = usize::try_from(bytes).expect("a size is not negative");
+        let memory = match slot {
+            WorkspaceSlot::DeviceScratch | WorkspaceSlot::DeviceCache => {
+                self.fake.allocate(size).expect("the fake has memory")
+            }
+            WorkspaceSlot::HostScratch | WorkspaceSlot::HostCache => self.host(size),
+        };
         self.fake
             .set_workspace(self.handle, self.workspace, slot, memory, bytes)
             .expect("the buffer holds the bytes lent");
+    }
+
+    /// `bytes` of host memory, kept as long as the device.
+    fn host(&self, bytes: usize) -> OpaqueHandle {
+        let mut memory = vec![0_u8; bytes.max(1)];
+        let start = NonNull::from(memory.as_mut_slice()).cast();
+        self.host_memory.borrow_mut().push(memory);
+        start
     }
 
     /// A buffer of zeros for a tensor of `extents`, once the copies are
@@ -308,9 +325,22 @@ impl GateSplit {
             .expect("the copies were queued");
     }
 
-    /// Sizes the workspace for a split under `config`, and lends it what
-    /// it asks for.
+    /// Sizes the workspace for a split under `config`, and lends its device
+    /// scratch what it asks for.
     fn size(&self, config: OpaqueHandle) {
+        self.size_workspace(config);
+        self.device.lend(WorkspaceSlot::DeviceScratch);
+    }
+
+    /// Sizes the workspace for a split under `config`, and lends it
+    /// nothing.
+    fn size_workspace(&self, config: OpaqueHandle) {
+        self.size_under(config)
+            .expect("the descriptors and config are live");
+    }
+
+    /// Sizes the workspace for a split under `config`.
+    fn size_under(&self, config: OpaqueHandle) -> Result<(), crate::NativeError> {
         let Self {
             device, operands, ..
         } = self;
@@ -321,11 +351,12 @@ impl GateSplit {
             u: operands.u.descriptor,
             v: operands.v.descriptor,
         };
-        device
-            .fake
-            .gate_split_workspace_sizes(device.handle, &descriptors, config, device.workspace)
-            .expect("the descriptors and config are live");
-        device.lend(WorkspaceSlot::DeviceScratch);
+        device.fake.gate_split_workspace_sizes(
+            device.handle,
+            &descriptors,
+            config,
+            device.workspace,
+        )
     }
 
     /// Queues the split under `config` on `stream`, in the workspace as
@@ -423,8 +454,73 @@ impl Factors {
 
 /// A QR through the fake of T[i, k, j] (2×2×3) into Q[k, s, i] and R[j, s],
 /// whose descriptors list the modes in another order than the input's: the
-/// matrix's rows are (i, k), its columns j, and Q and R share `extent`.
-/// Returns T, Q and R, each in its own mode order, first mode fastest.
+/// matrix's rows are (i, k), its columns j, and Q and R share an extent.
+struct TensorQr {
+    device: Device,
+    input: TensorOperand,
+    q: TensorOperand,
+    r: TensorOperand,
+    input_values: Vec<Complex64>,
+    shared: usize,
+}
+
+impl TensorQr {
+    /// The QR on `fake` at a shared extent of `extent`, in a workspace
+    /// sized for it, lent nothing yet.
+    fn sized(fake: FakeLibraries, extent: i64) -> Self {
+        let [mode_i, mode_k, mode_j, mode_s] = [1, 2, 3, 4];
+        let device = Device::new(fake);
+        let shared = usize::try_from(extent).expect("an extent is positive");
+        let zero = Complex64::default();
+        let input_values = values(12, 0.5);
+        let input = device.operand(&[2, 2, 3], &[mode_i, mode_k, mode_j], &input_values);
+        let q = device.operand(
+            &[2, extent, 2],
+            &[mode_k, mode_s, mode_i],
+            &vec![zero; 4 * shared],
+        );
+        let r = device.operand(&[3, extent], &[mode_j, mode_s], &vec![zero; 3 * shared]);
+        device
+            .fake
+            .synchronize_copies()
+            .expect("the copies were queued");
+        device
+            .fake
+            .qr_workspace_sizes(
+                device.handle,
+                input.descriptor,
+                q.descriptor,
+                r.descriptor,
+                device.workspace,
+            )
+            .expect("the descriptors are live");
+        Self {
+            device,
+            input,
+            q,
+            r,
+            input_values,
+            shared,
+        }
+    }
+
+    /// Queues the QR on `stream`.
+    fn run_on(&self, stream: Stream) -> Result<(), crate::NativeError> {
+        let device = &self.device;
+        device.fake.tensor_qr(
+            device.handle,
+            self.input,
+            self.q,
+            self.r,
+            device.workspace,
+            stream,
+        )
+    }
+}
+
+/// The QR of [`TensorQr`] at a shared extent of `extent`, its device
+/// scratch lent. Returns T, Q and R, each in its own mode order, first mode
+/// fastest.
 fn qr(extent: i64) -> Result<[Vec<Complex64>; 3], crate::NativeError> {
     qr_on(extent, |device| device.stream)
 }
@@ -434,42 +530,30 @@ fn qr_on(
     extent: i64,
     stream_of: impl FnOnce(&Device) -> Stream,
 ) -> Result<[Vec<Complex64>; 3], crate::NativeError> {
-    let [mode_i, mode_k, mode_j, mode_s] = [1, 2, 3, 4];
-    let device = Device::new(FakeLibraries::new());
-    let shared = usize::try_from(extent).expect("an extent is positive");
-    let zero = Complex64::default();
-    let input_values = values(12, 0.5);
-    let input = device.operand(&[2, 2, 3], &[mode_i, mode_k, mode_j], &input_values);
-    let q = device.operand(
-        &[2, extent, 2],
-        &[mode_k, mode_s, mode_i],
-        &vec![zero; 4 * shared],
-    );
-    let r = device.operand(&[3, extent], &[mode_j, mode_s], &vec![zero; 3 * shared]);
-    device
-        .fake
-        .synchronize_copies()
-        .expect("the copies were queued");
-    device
-        .fake
-        .qr_workspace_sizes(
-            device.handle,
-            input.descriptor,
-            q.descriptor,
-            r.descriptor,
-            device.workspace,
-        )
-        .expect("the descriptors are live");
+    let qr = TensorQr::sized(FakeLibraries::new(), extent);
+    let device = &qr.device;
     device.lend(WorkspaceSlot::DeviceScratch);
-    let stream = stream_of(&device);
-    device
-        .fake
-        .tensor_qr(device.handle, input, q, r, device.workspace, stream)?;
+    qr.run_on(stream_of(device))?;
     Ok([
-        input_values,
-        device.read(q.data, 4 * shared),
-        device.read(r.data, 3 * shared),
+        qr.input_values.clone(),
+        device.read(qr.q.data, 4 * qr.shared),
+        device.read(qr.r.data, 3 * qr.shared),
     ])
+}
+
+/// Lends every slot of `device`'s workspace but the host cache, which asks
+/// for memory too, and checks that `run` is refused until it is lent.
+fn needs_every_slot(device: &Device, run: impl Fn() -> Result<(), crate::NativeError>) {
+    for slot in [
+        WorkspaceSlot::DeviceScratch,
+        WorkspaceSlot::DeviceCache,
+        WorkspaceSlot::HostScratch,
+    ] {
+        device.lend(slot);
+    }
+    run().expect_err("the host cache asks for memory and has none");
+    device.lend(WorkspaceSlot::HostCache);
+    run().expect("every slot is lent");
 }
 
 /// Asserts that `actual` equals `expected` to rounding.
@@ -547,20 +631,24 @@ fn the_fake_contracts_as_the_labels_say() {
 
 /// cuTensorNet may ask for memory in any slot of a workspace (a device
 /// cache, host scratch), and runs a call only once each is lent; a caller
-/// that lends device scratch alone is caught on the fake.
+/// that lends device scratch alone is caught on the fake, whether it
+/// contracts, splits a gate or runs a QR.
 #[test]
 fn a_tensor_call_needs_memory_in_every_slot_that_asks_for_it() {
     let fake = FakeLibraries::new();
     fake.set_other_workspace_slot_bytes(64);
     let contraction = Contraction::dot_product(fake);
-    contraction.device.lend(WorkspaceSlot::DeviceScratch);
-    contraction.device.lend(WorkspaceSlot::DeviceCache);
-    contraction.device.lend(WorkspaceSlot::HostScratch);
-    contraction
-        .contract()
-        .expect_err("the host cache asks for memory and has none");
-    contraction.device.lend(WorkspaceSlot::HostCache);
-    contraction.contract().expect("every slot is lent");
+    needs_every_slot(&contraction.device, || contraction.contract());
+    let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    split.device.fake.set_other_workspace_slot_bytes(64);
+    split.size_workspace(split.config);
+    needs_every_slot(&split.device, || {
+        split.run(split.config, split.device.stream)
+    });
+    let fake = FakeLibraries::new();
+    fake.set_other_workspace_slot_bytes(64);
+    let qr = TensorQr::sized(fake, 3);
+    needs_every_slot(&qr.device, || qr.run_on(qr.device.stream));
 }
 
 /// A caller that lends a slot less than the size query asked for (an old
@@ -647,6 +735,23 @@ fn a_gate_split_drops_the_smallest_values_within_the_cutoffs_weight() {
         .expect("θ is not zero");
     assert_eq!(kept.extent, 2);
     assert!(kept.truncation.discarded_weight.abs() < 1e-12);
+}
+
+/// A cutoff drops a value whose weight is exactly the cutoff's: θ =
+/// diag(3, 1), whose value 1 weighs exactly 0.1 of the total, splits to a
+/// bond of 1 under a cutoff of 0.1.
+#[test]
+fn a_gate_split_drops_a_value_whose_weight_equals_the_cutoff() {
+    let factors = GateSplit::of(
+        matrix([[3.0, 0.0], [0.0, 1.0]]),
+        &[
+            SvdSetting::PartitionUs,
+            SvdSetting::DiscardedWeightCutoff(0.1),
+        ],
+    )
+    .split()
+    .expect("θ is not zero");
+    assert_eq!(factors.extent, 1, "the value 1 weighs the cutoff exactly");
 }
 
 /// A cutoff of 1.0 would drop every value's weight: the split keeps the
@@ -980,6 +1085,157 @@ fn a_contraction_path_cut_into_slices_is_refused() {
         .expect("the path is unsliced");
 }
 
+/// A gate split's U and V share one mode, which no input carries: a caller
+/// that labels A's and B's bond as the shared mode, which the split would
+/// sum and keep at once, is caught on the fake.
+#[test]
+fn a_gate_split_refuses_its_shared_mode_on_an_input() {
+    let theta = matrix([[3.0, 0.0], [0.0, 1.0]]);
+    let with_bond = |bond| {
+        let mut split = GateSplit::of(theta, &[SvdSetting::PartitionUs]);
+        let device = &split.device;
+        split.operands.a = device.operand(&[2, 2], &[P, bond], &values(4, 0.5));
+        split.operands.b = device.operand(&[2, 2], &[bond, Q], &values(4, -0.25));
+        device
+            .fake
+            .synchronize_copies()
+            .expect("the copies were queued");
+        split
+    };
+    with_bond(S)
+        .split()
+        .expect_err("A's and B's bond is labelled as U's and V's shared mode");
+    with_bond(BOND)
+        .split()
+        .expect("A's and B's bond has its own label");
+}
+
+/// A gate split is sized for its config: a caller that sizes it under an
+/// SVD config of another handle is caught on the fake.
+#[test]
+fn a_gate_split_is_sized_under_a_config_of_its_handle() {
+    let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    let fake = &split.device.fake;
+    let other_handle = fake.create_handle().expect("the fake has a device");
+    let foreign = fake
+        .create_svd_config(other_handle)
+        .expect("the other handle is live");
+    split
+        .size_under(foreign)
+        .expect_err("the config belongs to another handle");
+    split
+        .size_under(split.config)
+        .expect("the config belongs to the split's handle");
+}
+
+/// cuTensorNet checks a descriptor's shape when it is created: one extent
+/// per mode.
+#[test]
+fn a_tensor_descriptor_needs_one_extent_per_mode() {
+    let device = Device::new(FakeLibraries::new());
+    let create = |extents: &[i64], modes: &[i32]| {
+        device
+            .fake
+            .create_tensor_descriptor(device.handle, TensorModes { extents, modes })
+    };
+    create(&[2, 3], &[1]).expect_err("two extents for one mode");
+    create(&[2, 3], &[1, 2]).expect("an extent for each mode");
+}
+
+/// A mode of extent 0 holds no element: a caller whose bond was sized to
+/// nothing is caught when it creates the descriptor.
+#[test]
+fn a_tensor_descriptor_refuses_an_extent_below_one() {
+    let device = Device::new(FakeLibraries::new());
+    let create = |extents: &[i64]| {
+        device.fake.create_tensor_descriptor(
+            device.handle,
+            TensorModes {
+                extents,
+                modes: &[1, 2],
+            },
+        )
+    };
+    create(&[2, 0]).expect_err("the second mode has extent 0");
+    create(&[2, 1]).expect("every extent is at least 1");
+}
+
+/// A label names one mode of a tensor: a caller that gives a tensor one
+/// label twice is caught when it creates the descriptor.
+#[test]
+fn a_tensor_descriptor_refuses_a_repeated_mode() {
+    let device = Device::new(FakeLibraries::new());
+    let create = |modes: &[i32]| {
+        device.fake.create_tensor_descriptor(
+            device.handle,
+            TensorModes {
+                extents: &[2, 2, 2],
+                modes,
+            },
+        )
+    };
+    create(&[1, 2, 1]).expect_err("the label 1 names two modes");
+    create(&[1, 2, 3]).expect("every label names one mode");
+}
+
+/// A tensor call writes its output on the session's stream, which a copy
+/// to the host does not wait for: a caller that copies a contraction's
+/// output before synchronizing the stream is caught on the fake.
+#[test]
+fn a_copy_to_the_host_needs_the_stream_synchronized() {
+    let contraction = Contraction::dot_product(FakeLibraries::new());
+    let device = &contraction.device;
+    device.lend(WorkspaceSlot::DeviceScratch);
+    contraction.contract().expect("the network is prepared");
+    let mut output = [Complex64Abi::default()];
+    device
+        .fake
+        .copy_to_host(&mut output, contraction.output)
+        .expect_err("the stream may still be writing the output");
+    device
+        .fake
+        .synchronize_stream(device.stream)
+        .expect("the stream is live");
+    device
+        .fake
+        .copy_to_host(&mut output, contraction.output)
+        .expect("the stream is synchronized");
+    assert_eq!(Complex64::from(output[0]), Complex64::new(2.0, 0.0));
+}
+
+/// No tensor is empty, so the loaded libraries refuse an empty copy before
+/// calling CUDA: a caller that copies nothing is refused on the fake as
+/// well, both ways.
+#[test]
+fn an_empty_copy_is_refused() {
+    let device = Device::new(FakeLibraries::new());
+    let buffer = device.zeros(&[1]);
+    device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    device
+        .fake
+        .copy_to_device(buffer, &[])
+        .expect_err("the copy to the device is empty");
+    device
+        .fake
+        .copy_to_device(buffer, &[Complex64Abi::default()])
+        .expect("the copy to the device holds one element");
+    device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    device
+        .fake
+        .copy_to_host(&mut [], buffer)
+        .expect_err("the copy to the host is empty");
+    device
+        .fake
+        .copy_to_host(&mut [Complex64Abi::default()], buffer)
+        .expect("the copy to the host holds one element");
+}
+
 /// A caller that sizes a workspace for, or prepares, a contraction before
 /// its network's path is optimized is caught on the fake.
 #[test]
@@ -1260,7 +1516,7 @@ fn an_svd_cutoff_outside_zero_to_one_is_refused() {
 fn a_workspace_slot_that_asks_for_nothing_is_lent_nothing() {
     let device = Device::new(FakeLibraries::new());
     let (fake, handle, workspace) = (&device.fake, device.handle, device.workspace);
-    let memory = fake.allocate(64).expect("the fake has memory");
+    let memory = device.host(64);
     fake.set_workspace(handle, workspace, WorkspaceSlot::HostCache, memory, 64)
         .expect_err("the host cache asks for nothing");
     fake.set_other_workspace_slot_bytes(64);

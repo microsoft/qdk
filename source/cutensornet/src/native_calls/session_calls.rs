@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The CUDA and cuTensorNet calls that open and close the engine's
-//! session: select the device, and create, synchronize and release its
-//! stream and its cuTensorNet handle.
+//! The CUDA and cuTensorNet calls that open and close a `DeviceSession`,
+//! the engine's or the tensor API caller's: select the device, and create,
+//! synchronize and release its stream and its cuTensorNet handle.
 
 use super::{OpaqueHandle, Stream};
 use crate::native_calls::error::NativeError;
