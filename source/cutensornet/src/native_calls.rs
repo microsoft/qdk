@@ -27,14 +27,14 @@
 //! method of the trait of its kind, implemented in that trait's file of
 //! each implementation.
 
-pub(super) mod complex;
+pub(crate) mod complex;
 #[cfg(test)]
 pub(crate) mod fake_libraries;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod loaded_libraries;
-pub(super) mod memory_calls;
-pub(super) mod session_calls;
-pub(super) mod state_calls;
+pub(crate) mod memory_calls;
+pub(crate) mod session_calls;
+pub(crate) mod state_calls;
 
 // What the tests under `src/tests` name of these private modules: the size
 // of the engine's buffers, and the configurations the engine sets.

@@ -35,15 +35,15 @@ use super::NativeState;
 use crate::engine::{
     EngineError,
     error::{combine_execution_and_cleanup, first_failure},
-    native_calls::{
-        OpaqueHandle,
-        complex::{Complex64Abi, complex_bytes},
-        state_calls::{
-            MpsLayout, StateF64Configuration, StateU32Configuration, convert_layout,
-            validate_realized_chain,
-        },
-    },
     policy::{DISCARDED_WEIGHT_CUTOFF, RESTART_PERIOD},
+};
+use crate::native_calls::{
+    OpaqueHandle,
+    complex::{Complex64Abi, complex_bytes},
+    state_calls::{
+        MpsLayout, StateF64Configuration, StateU32Configuration, convert_layout,
+        validate_realized_chain,
+    },
 };
 use std::rc::Rc;
 use tensornet::MpsShape;

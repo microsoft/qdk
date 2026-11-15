@@ -51,13 +51,13 @@
 
 use super::{
     EngineError,
-    device_session::DeviceSession,
     error::{combine_execution_and_cleanup, first_failure, report_failed_release},
-    native_calls::{
-        NativeCalls, OpaqueHandle,
-        complex::{Complex64Abi, complex_bytes},
-        state_calls::{MpsLayout, NativeCapacity},
-    },
+};
+use crate::device_session::DeviceSession;
+use crate::native_calls::{
+    NativeCalls, OpaqueHandle,
+    complex::{Complex64Abi, complex_bytes},
+    state_calls::{MpsLayout, NativeCapacity},
 };
 use expectation::{ProductTerm, diagonal_term, normalize_expectation, positive_squared_norm};
 use num_complex::Complex64;

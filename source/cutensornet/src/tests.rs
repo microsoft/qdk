@@ -7,7 +7,7 @@
 //! files that are not libraries, paths that do not exist and a resolver that
 //! hands out stand-in functions (`stand_ins`); the engine runs its real code
 //! against fake libraries, cuTensorNet and the CUDA Runtime simulated on the
-//! CPU (`src/engine/native_calls/fake_libraries.rs`), so its tests run on
+//! CPU (`src/native_calls/fake_libraries.rs`), so its tests run on
 //! every host.
 //! The loader compiles for its tests on any Unix host, so they run off
 //! Linux x86-64 too.
@@ -17,9 +17,11 @@
 //! only, where it is always present. They, and the loader's tests, rely on
 //! the host's system loader.
 
+mod device_session;
 mod discovery;
 mod engine;
 mod libraries;
+mod native_calls;
 #[cfg(unix)]
 mod stand_ins;
 

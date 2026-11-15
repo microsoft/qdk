@@ -4,10 +4,8 @@
 //! `SessionCalls` of the fake libraries: devices, streams and handles.
 
 use super::{FakeLibraries, Object, failed, id};
-use crate::engine::{
-    EngineError,
-    native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls},
-};
+use crate::engine::EngineError;
+use crate::native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls};
 
 impl SessionCalls for FakeLibraries {
     fn device_count(&self) -> Result<i32, EngineError> {

@@ -4,7 +4,8 @@
 //! Tests of the size of a device buffer of complex numbers: an empty one is
 //! the engine's fault, and one too large to size is a resource limit.
 
-use crate::engine::{EngineError, native_calls::complex_bytes};
+use crate::engine::EngineError;
+use crate::native_calls::complex_bytes;
 
 /// No tensor the engine allocates or copies is empty, so asking for an
 /// empty buffer is an invalid call, refused before any native call.

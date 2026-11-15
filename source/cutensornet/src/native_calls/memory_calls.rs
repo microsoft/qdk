@@ -11,7 +11,7 @@
 //! (`CUTENSORNET_WORKSIZE_PREF_RECOMMENDED`: "the most suitable algorithm
 //! will be available for each contraction"). The engine allocates, lends and
 //! frees every buffer, so it decides how much a state holds
-//! (`native_state.rs`).
+//! (`engine/native_state.rs`).
 //!
 //! The copies run on CUDA's legacy default stream, which the engine's
 //! non-blocking stream does not wait for, and may still be running when

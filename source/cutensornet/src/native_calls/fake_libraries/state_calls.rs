@@ -8,13 +8,11 @@ use super::{
     Computed, FakeLibraries, FakeState, Object, failed, id,
     state_vector::{StateVector, truncate},
 };
-use crate::engine::{
-    EngineError,
-    native_calls::{
-        OpaqueHandle, Stream,
-        state_calls::{
-            MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateU32Configuration,
-        },
+use crate::engine::EngineError;
+use crate::native_calls::{
+    OpaqueHandle, Stream,
+    state_calls::{
+        MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateU32Configuration,
     },
 };
 use num_complex::Complex64;

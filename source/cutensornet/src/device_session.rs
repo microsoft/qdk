@@ -11,8 +11,8 @@
 //! all of it. A cuTensorNet handle is the library's context; every native
 //! object (a state, a workspace descriptor, an expectation) belongs to the
 //! handle it was created on, and must be released before it. A state
-//! restarts on a handle of its own (`native_state.rs`), so the session's
-//! handle is the one new states start on.
+//! restarts on a handle of its own (`engine/native_state.rs`), so the
+//! session's handle is the one new states start on.
 //!
 //! `DeviceSession` selects the device, then creates the stream and the
 //! handle, and releases them when dropped, the handle first. It is `!Send`
@@ -21,11 +21,11 @@
 //! so the engine and its states do too. It makes its native calls through
 //! `SessionCalls` (`native_calls/session_calls.rs`).
 
-use super::{
+use crate::engine::{
     EngineError,
     error::{combine_execution_and_cleanup, first_failure, report_failed_release},
-    native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls},
 };
+use crate::native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls};
 use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 /// The engine's CUDA stream and cuTensorNet handle on one device, created

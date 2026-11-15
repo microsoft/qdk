@@ -9,7 +9,8 @@
 //! largest call's; while it grows, the old and the new.
 
 use super::NativeState;
-use crate::engine::{EngineError, native_calls::OpaqueHandle, policy::MAXIMUM_WORKSPACE_BYTES};
+use crate::engine::{EngineError, policy::MAXIMUM_WORKSPACE_BYTES};
+use crate::native_calls::OpaqueHandle;
 use std::rc::Rc;
 
 impl NativeState {

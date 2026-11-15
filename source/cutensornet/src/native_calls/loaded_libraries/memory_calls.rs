@@ -4,18 +4,16 @@
 //! `MemoryCalls` on the loaded libraries: device memory, copies and
 //! cuTensorNet workspaces.
 
-use crate::engine::{
-    EngineError,
-    native_calls::{
-        OpaqueHandle,
-        complex::{Complex64Abi, complex_bytes},
-        memory_calls::MemoryCalls,
-    },
-};
+use crate::engine::EngineError;
 use crate::libraries::{
     LoadedLibraries,
     cuda_runtime::{self, cudart_12},
     cutensornet::v2_13,
+};
+use crate::native_calls::{
+    OpaqueHandle,
+    complex::{Complex64Abi, complex_bytes},
+    memory_calls::MemoryCalls,
 };
 use std::ptr::NonNull;
 

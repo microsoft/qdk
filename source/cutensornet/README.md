@@ -53,13 +53,13 @@ flowchart TD
 - [`CuTensorNetState`](src/engine.rs) is one MPS, as the trait sees it. The
   trait reads a state through a shared reference, but a read may compute it,
   so the state holds its native state in a `RefCell`, borrowed for one call.
-- [`DeviceSession`](src/engine/device_session.rs): the stream is the queue
+- [`DeviceSession`](src/device_session.rs): the stream is the queue
   the device runs the engine's work in, in order, and the handle is
   cuTensorNet's context, on which each native object is created. The engine
   and its native states share it, so it closes after the last of them.
 - [`NativeState`](src/engine/native_state.rs) computes its cuTensorNet
   state into an MPS only when a read needs it ([Phases](#phases)).
-- [`NativeCalls`](src/engine/native_calls.rs) is every call the engine makes
+- [`NativeCalls`](src/native_calls.rs) is every call the engine makes
   to the CUDA Runtime and cuTensorNet, by kind: the session's, device
   memory's and the states'. The engine calls nothing else, so it also runs
   in the [host tests](src/tests/engine.rs), which have no GPU. On a GPU, the
@@ -68,7 +68,10 @@ flowchart TD
 
 The settings the engine fixes, with how each was chosen, are in
 [`src/engine/policy.rs`](src/engine/policy.rs);
-[`src/engine.rs`](src/engine.rs) maps its files.
+[`src/engine.rs`](src/engine.rs) maps its files. `DeviceSession` and
+`NativeCalls` sit at the crate's root, beside `src/engine/`, not in it: the
+engine uses them, and so will a planned GPU site algebra for a canonical MPS,
+so they belong to neither.
 
 ### Phases
 
@@ -226,7 +229,7 @@ component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
 ## Tests
 
 The [engine's tests](src/tests/engine.rs) run in CI, without a GPU, on
-[fake libraries](src/engine/native_calls/fake_libraries.rs) that enforce
+[fake libraries](src/native_calls/fake_libraries.rs) that enforce
 cuTensorNet's call order. The [unit tests](src/tests) drive each way
 discovery fails without NVIDIA's libraries, and
 [`tests/availability.rs`](tests/availability.rs) discovers the audited

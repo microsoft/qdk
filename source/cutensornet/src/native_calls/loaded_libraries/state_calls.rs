@@ -4,17 +4,15 @@
 //! `StateCalls` on the loaded libraries: cuTensorNet's states, network
 //! operators and expectations.
 
-use crate::engine::{
-    EngineError,
-    native_calls::{
-        OpaqueHandle, Stream,
-        complex::Complex64Abi,
-        state_calls::{
-            MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateU32Configuration,
-        },
+use crate::engine::EngineError;
+use crate::libraries::{LoadedLibraries, cutensornet::v2_13};
+use crate::native_calls::{
+    OpaqueHandle, Stream,
+    complex::Complex64Abi,
+    state_calls::{
+        MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateU32Configuration,
     },
 };
-use crate::libraries::{LoadedLibraries, cutensornet::v2_13};
 use std::{ffi::c_void, ptr::NonNull};
 
 impl StateCalls for LoadedLibraries {

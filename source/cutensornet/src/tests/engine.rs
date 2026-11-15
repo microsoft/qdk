@@ -2,23 +2,20 @@
 // Licensed under the MIT License.
 
 //! Tests of the cuTensorNet engine, on fake libraries that simulate the
-//! native API on the CPU (`src/engine/native_calls/fake_libraries.rs`),
+//! native API on the CPU (`src/native_calls/fake_libraries.rs`),
 //! which enforce cuTensorNet's call order and compute each state as a state
 //! vector: the engine's answers, its refusals, the order of its native
 //! calls, its forks, its restarts and its scratch, and that every native
 //! object is released.
 //! Numerical behaviour on a GPU is not tested here.
 
-mod device_session;
-mod native_calls;
-
 use crate::engine::{
     CuTensorNetEngine, CuTensorNetState, DISCARDED_WEIGHT_CUTOFF, EXPECTATION_HYPER_SAMPLES,
     EngineError, RESTART_PERIOD,
-    native_calls::{
-        NativeCalls, StateF64Configuration, StateU32Configuration,
-        fake_libraries::{FakeLibraries, WORKSPACE_BYTES},
-    },
+};
+use crate::native_calls::{
+    NativeCalls, StateF64Configuration, StateU32Configuration,
+    fake_libraries::{FakeLibraries, WORKSPACE_BYTES},
 };
 use num_complex::Complex64;
 use std::sync::Arc;

@@ -5,10 +5,8 @@
 //! workspaces.
 
 use super::{FakeLibraries, Object, WORKSPACE_BYTES, failed, id, to_usize};
-use crate::engine::{
-    EngineError,
-    native_calls::{OpaqueHandle, complex::Complex64Abi, memory_calls::MemoryCalls},
-};
+use crate::engine::EngineError;
+use crate::native_calls::{OpaqueHandle, complex::Complex64Abi, memory_calls::MemoryCalls};
 
 impl MemoryCalls for FakeLibraries {
     fn memory_info(&self) -> Result<(usize, usize), EngineError> {

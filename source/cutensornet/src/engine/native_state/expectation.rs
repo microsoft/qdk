@@ -9,9 +9,9 @@ use super::{NativeState, mode};
 use crate::engine::{
     EngineError,
     error::{combine_execution_and_cleanup, first_failure},
-    native_calls::{OpaqueHandle, complex::Complex64Abi},
     policy::EXPECTATION_HYPER_SAMPLES,
 };
+use crate::native_calls::{OpaqueHandle, complex::Complex64Abi};
 use num_complex::Complex64;
 use std::{collections::BTreeMap, rc::Rc};
 

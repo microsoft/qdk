@@ -96,7 +96,7 @@ pub enum EngineError {
     },
 }
 
-pub(super) fn combine_execution_and_cleanup<T>(
+pub(crate) fn combine_execution_and_cleanup<T>(
     execution: Result<T, EngineError>,
     cleanup: Result<(), EngineError>,
 ) -> Result<T, EngineError> {
@@ -112,7 +112,7 @@ pub(super) fn combine_execution_and_cleanup<T>(
 
 /// The first failure of `releases`, which are all attempted: a failed
 /// release never skips the next, so it leaks nothing but its own object.
-pub(super) fn first_failure(
+pub(crate) fn first_failure(
     releases: impl IntoIterator<Item = Result<(), EngineError>>,
 ) -> Result<(), EngineError> {
     releases.into_iter().fold(Ok(()), Result::and)
@@ -121,7 +121,7 @@ pub(super) fn first_failure(
 /// A release that failed while dropping `what`: written to stderr in debug
 /// builds, and otherwise not reported. Why that is enough is on
 /// `CuTensorNetState`.
-pub(super) fn report_failed_release(what: &str, released: Result<(), EngineError>) {
+pub(crate) fn report_failed_release(what: &str, released: Result<(), EngineError>) {
     #[cfg(debug_assertions)]
     if let Err(error) = released {
         eprintln!("qdk_cutensornet: releasing {what} failed: {error}");

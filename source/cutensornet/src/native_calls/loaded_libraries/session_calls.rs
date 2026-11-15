@@ -4,11 +4,9 @@
 //! `SessionCalls` on the loaded libraries: the device, the stream and the
 //! cuTensorNet handle, through the CUDA Runtime and cuTensorNet.
 
-use crate::engine::{
-    EngineError,
-    native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls},
-};
+use crate::engine::EngineError;
 use crate::libraries::{LoadedLibraries, cuda_runtime::cudart_12};
+use crate::native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls};
 use std::ptr::NonNull;
 
 impl SessionCalls for LoadedLibraries {

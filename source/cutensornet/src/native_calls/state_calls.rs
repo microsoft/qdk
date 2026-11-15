@@ -62,7 +62,7 @@ impl NativeCapacity {
     /// sample reaches it, and it stays |0⟩, a product factor that changes no
     /// probability, expectation or norm; [`logical`](Self::logical) drops it
     /// from the realized chain.
-    pub(in crate::engine) fn new(capacity: &MpsShape) -> Result<Self, EngineError> {
+    pub(crate) fn new(capacity: &MpsShape) -> Result<Self, EngineError> {
         let qubit_count = capacity.site_count();
         let native_count = qubit_count.max(NATIVE_MINIMUM_SITES);
         let bonds = (0..native_count - 1)
@@ -171,7 +171,7 @@ pub(crate) struct MpsLayout {
 impl MpsLayout {
     /// Tables for a compute to fill: per site of `capacity`'s native chain,
     /// an extent and a stride table of the site's rank, zeroed.
-    pub(in crate::engine) fn new(capacity: &NativeCapacity) -> Self {
+    pub(crate) fn new(capacity: &NativeCapacity) -> Self {
         let extents = capacity
             .extents
             .iter()
@@ -190,7 +190,7 @@ impl MpsLayout {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum StateF64Configuration {
     /// The fraction of a cut's squared norm a truncation may discard
-    /// (`policy::DISCARDED_WEIGHT_CUTOFF`).
+    /// (`engine::policy::DISCARDED_WEIGHT_CUTOFF`).
     SvdDiscardedWeightCutoff(f64),
 }
 
@@ -200,9 +200,9 @@ pub(crate) enum StateU32Configuration {
     /// Kept singular values are not rescaled after truncation, so the norm
     /// is the weight actually retained; every read divides by it.
     SvdNormalizationNone,
-    /// cuSOLVER's GESVD, the QR-based SVD (`policy.rs` says why).
+    /// cuSOLVER's GESVD, the QR-based SVD (`engine/policy.rs` says why).
     SvdAlgorithmGesvd,
-    /// The simple-update gauge (`policy.rs` says why).
+    /// The simple-update gauge (`engine/policy.rs` says why).
     MpsGaugeSimple,
 }
 
@@ -327,7 +327,7 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
 /// The extent or stride tables `values` as `usize`s, for an `MpsShape` or
 /// a check; a value that is not positive, or does not fit, is an invalid
 /// native result named by `label`.
-pub(in crate::engine) fn convert_layout(
+pub(crate) fn convert_layout(
     label: &str,
     values: &[Box<[i64]>],
 ) -> Result<Vec<Vec<usize>>, EngineError> {
@@ -359,7 +359,7 @@ pub(in crate::engine) fn convert_layout(
 /// keeps every site a qubit, as the engine's sites are: the capacity's
 /// physical extents are all two, and a chain fits it only with the same.
 /// The demand does not belong to matrix product states in general.
-pub(in crate::engine) fn validate_realized_chain(
+pub(crate) fn validate_realized_chain(
     realized: &MpsShape,
     target: &MpsShape,
 ) -> Result<(), EngineError> {

@@ -20,12 +20,12 @@ use std::mem::{align_of, offset_of, size_of};
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Complex64Abi {
-    pub(in crate::engine) re: f64,
-    pub(in crate::engine) im: f64,
+    pub(crate) re: f64,
+    pub(crate) im: f64,
 }
 
 impl Complex64Abi {
-    pub(in crate::engine) const fn new(re: f64, im: f64) -> Self {
+    pub(crate) const fn new(re: f64, im: f64) -> Self {
         Self { re, im }
     }
 }

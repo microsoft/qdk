@@ -6,7 +6,9 @@
 //! and the handle are created, a failure releases what was created, and
 //! dropping releases the handle before the stream.
 
-use crate::engine::{DeviceSession, EngineError, native_calls::fake_libraries::FakeLibraries};
+use crate::device_session::DeviceSession;
+use crate::engine::EngineError;
+use crate::native_calls::fake_libraries::FakeLibraries;
 use std::sync::Arc;
 
 /// Opening a session on device 0 of a host with one device selects it

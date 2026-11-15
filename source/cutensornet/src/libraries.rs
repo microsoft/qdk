@@ -26,7 +26,7 @@
 //! override variable's, or its default paths), the file loaded and its
 //! functions looked up (`loader`), and its versions probed.
 //! The MPS engine calls the loaded libraries through their tables, in
-//! `engine::native_calls::loaded_libraries`.
+//! `native_calls::loaded_libraries`.
 //!
 //! To bind another library:
 //!
