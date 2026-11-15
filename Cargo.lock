@@ -297,6 +297,8 @@ version = "0.0.0"
 dependencies = [
  "dense_linalg",
  "num-complex",
+ "tensornet",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

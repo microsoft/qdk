@@ -4,17 +4,17 @@
 //! [`SiteAlgebra`]: the backend contract of the canonical-form MPS engine,
 //! the tensor operations it needs, wherever its site tensors live.
 //!
-//! The planned engine will keep a chain of site tensors in canonical
-//! form: one site, the orthogonality centre, holds the state's norm, and
-//! every other site is an isometry towards it. Some of its rules will be
-//! the same on every backend: where the centre moves, which pair a gate
-//! splits, how the retained weight is kept, and the bounds every
-//! truncation stays within (those of [`SiteAlgebra::gate_split`]); what
-//! differs is where the tensors live, which library factors them, and
-//! which values a truncation keeps within those bounds. So the engine is
-//! to be written once over this trait, and a backend implements only its
-//! operations: a gate split and a move of the centre on two neighbouring
-//! sites, and the storage of a site.
+//! The engine ([`CanonicalMpsEngine`](crate::CanonicalMpsEngine)) keeps a
+//! chain of site tensors in canonical form: one site, the orthogonality
+//! centre, holds the state's norm, and every other site is an isometry
+//! towards it. Some of its rules are the same on every backend: where the
+//! centre moves, which pair a gate splits, how the retained weight is
+//! kept, and the bounds every truncation stays within (those of
+//! [`SiteAlgebra::gate_split`]); what differs is where the tensors live,
+//! which library factors them, and which values a truncation keeps within
+//! those bounds. So the engine is written once over this trait, and a
+//! backend implements only its operations: a gate split and a move of the
+//! centre on two neighbouring sites, and the storage of a site.
 //!
 //! # The layout
 //!
@@ -52,7 +52,8 @@ pub trait SiteAlgebra {
     /// Where one site tensor's elements live.
     type Tensor;
 
-    /// Why a call failed. `'static`, so that the planned engine's error
+    /// Why a call failed. `'static`, so that the engine's error
+    /// ([`CanonicalMpsError::Algebra`](crate::CanonicalMpsError::Algebra))
     /// can hold it as its source.
     type Error: std::error::Error + 'static;
 
@@ -177,7 +178,7 @@ pub struct GateSplitOutcome<T> {
     /// The extent of the bond kept.
     pub bond: usize,
     /// The share of the squared singular values kept, in `(0, 1]`: the
-    /// planned engine will multiply the state's retained weight by it.
+    /// engine multiplies the state's retained weight by it.
     pub retained_fraction: f64,
 }
 

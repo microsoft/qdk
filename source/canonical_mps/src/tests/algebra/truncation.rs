@@ -147,13 +147,13 @@ fn tiny_values_truncate_as_at_scale_one() {
 /// The singular values of the zero matrix, which a general SVD gives as
 /// `min(rows, cols)` zeros: one value is kept, zero, with a share of 1 and
 /// no NaN.
-// DISCUSS COMPATIBILITY: the dev line's `qdk_cpu_mps`'s SVD gave the zero
-// matrix one value, zero, so its `Engine::kept` and `kept_rescale` never
-// met an all-zero spectrum (their `0 / 0` would have failed the split with
-// a weight underflow); the planned engine will not reach it either, since
-// its states will have norm 1 and its gates are unitary. We think a total
-// rule is better than a NaN, and a share of 1 agrees with "exactly 1 when
-// every dropped value is zero", so we recommend keeping it.
+// DISCUSS COMPATIBILITY: qdk_cpu_mps's SVD gave the zero matrix one value,
+// zero, so its `Engine::kept` and `kept_rescale` never met an all-zero
+// spectrum (their `0 / 0` would have failed the split with a weight
+// underflow); the engine does not reach it either, since its states have
+// norm 1 and its gates are unitary. We think a total rule is
+// better than a NaN, and a share of 1 agrees with "exactly 1 when every
+// dropped value is zero", so we recommend keeping it.
 #[test]
 #[expect(clippy::float_cmp, reason = "the share is exactly 1")]
 fn the_zero_spectrum_keeps_one_zero_value() {

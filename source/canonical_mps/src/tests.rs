@@ -4,6 +4,7 @@
 //! The crate's tests, one module per module with run-time behaviour.
 
 mod algebra;
+mod engine;
 
 use num_complex::Complex64;
 
