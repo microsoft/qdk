@@ -12,8 +12,8 @@ operations. The crate has two parts:
 
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/algebra.rs), the tensor operations a backend
-  implements, and the host [truncation rule](#the-truncation-rule) for
-  backends that compute the singular values themselves.
+  implements, and a [truncation rule](#the-truncation-rule) that a backend
+  which computes the singular values itself may use.
 - **[The engine](#the-engine-planned)**, which will implement `tensornet`'s
   `MpsEngine` over any `SiteAlgebra`, is planned: it is not in this crate yet.
 
@@ -28,8 +28,8 @@ operations. The crate has two parts:
   failures.
 - **Open to more backends.** A new backend is a new type implementing the
   trait, in its own crate; nothing here changes.
-- **Portable.** The crate depends only on `num-complex`, so it builds for
-  every target the QDK supports, WebAssembly included.
+- **Portable.** The crate depends only on `num-complex`, so it builds on
+  every [platform](#platforms) the QDK supports.
 
 ## The backend contract
 
@@ -83,7 +83,7 @@ factors a site read as a matrix with no copy; the
 
 ### The truncation rule
 
-A backend that has the singular values on the host truncates them with
+A backend that computes the singular values itself may truncate them with
 [`Truncation`](src/algebra/truncation.rs), whose documentation states the
 rule, within the bounds `gate_split`'s contract sets for every backend.
 
@@ -103,3 +103,10 @@ The [unit tests](src/tests) check the truncation rule, and a
 [host test algebra](src/algebra/fake_algebra.rs), built on `dense_linalg`,
 against the contract, since the engine's tests will run on it. Each backend
 checks its own implementation of the contract in its crate.
+
+## Platforms
+
+| Platform               | Builds                                                                                                                             | Tests run |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| Linux, macOS, Windows  | Yes                                                                                                                                | Yes       |
+| WebAssembly (`wasm32`) | Yes, checked by a build and by Clippy for `wasm32-unknown-unknown`, but not in CI, since no WebAssembly package uses the crate yet | No        |

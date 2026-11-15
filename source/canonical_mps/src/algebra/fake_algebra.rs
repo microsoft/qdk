@@ -6,7 +6,7 @@
 //! The engine's rules are tested in CI with no backend crate: the engine
 //! runs on this algebra, whose tensors are vectors and whose maths is
 //! `dense_linalg`'s (its products, its QR, and its SVD, which checks its
-//! own factors). It truncates by the host rule, [`Truncation`]. It is test
+//! own factors). It truncates by the rule of [`Truncation`]. It is test
 //! support, not a test: it sits beside the trait it implements, and is
 //! compiled only with the tests, which live under `src/tests` and check it
 //! against the trait's contract, since the engine's tests stand on its
@@ -44,7 +44,7 @@ impl SiteAlgebra for FakeAlgebra {
         Ok(tensor[..len].to_vec())
     }
 
-    /// The gated pair, one SVD, the host rule's truncation, and the kept
+    /// The gated pair, one SVD, [`Truncation`]'s truncation, and the kept
     /// values, normalised, multiplied into the centre's side.
     fn gate_split(
         &self,

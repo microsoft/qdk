@@ -24,19 +24,21 @@ use dense_linalg::{Matrix, Qr};
 const KNOWN_VALUES: [f64; 4] = [0.8, 0.5, 0.3, 0.1];
 
 /// A gate split, without truncation, of random sites and a random gate,
-/// both sides: the product of the new sites is the gated pair, divided by
-/// its norm.
+/// both sides, with outer extents equal and unequal (so that a row taken
+/// for a column, or one extent for the other, shows): the product of the
+/// new sites is the gated pair, divided by its norm.
 #[test]
 fn a_split_without_truncation_gives_back_the_gated_pair_normalised() {
-    let (l, m, r) = (2, 3, 2);
-    let (a, b) = (random(2 * l, m, 1), random(m, 2 * r, 2));
-    let gate: [Complex64; 16] = random(4, 4, 3).elements().try_into().expect("16 entries");
-    let theta = gated_pair(&a, &b, l, r, &gate);
-    let expected = scaled(&theta, 1.0 / frobenius(&theta));
-    for centre in [CentreSide::Left, CentreSide::Right] {
-        let (left, right, _, _) = split(&a, &b, l, r, gate, 0.0, usize::MAX, centre);
-        let error = distance(&product(&left, &right), &expected);
-        assert!(error < 1e-13, "{centre:?}: {error:e}");
+    for (l, m, r) in [(2, 3, 2), (1, 3, 2), (2, 3, 1)] {
+        let (a, b) = (random(2 * l, m, 1), random(m, 2 * r, 2));
+        let gate: [Complex64; 16] = random(4, 4, 3).elements().try_into().expect("16 entries");
+        let theta = gated_pair(&a, &b, l, r, &gate);
+        let expected = scaled(&theta, 1.0 / frobenius(&theta));
+        for centre in [CentreSide::Left, CentreSide::Right] {
+            let (left, right, _, _) = split(&a, &b, l, r, gate, 0.0, usize::MAX, centre);
+            let error = distance(&product(&left, &right), &expected);
+            assert!(error < 1e-13, "{l}×{m}×{r}, {centre:?}: {error:e}");
+        }
     }
 }
 

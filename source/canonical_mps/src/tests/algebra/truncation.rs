@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The host rule of truncation: the tail below the cutoff, a fraction of
-//! the split's own weight, then what exceeds the cap; never the largest
-//! value; at a cutoff of 0, the zeros and the values whose squares,
-//! against the largest's, underflow; and what is kept, normalised, with
-//! its share of the weight.
+//! The rule of truncation, [`Truncation`]: the tail below the cutoff, a
+//! fraction of the split's own weight, then what exceeds the cap; never
+//! the largest value; at a cutoff of 0, the zeros and the values whose
+//! squares, against the largest's, underflow; and what is kept,
+//! normalised, with its share of the weight; and the arguments it refuses.
 
 use crate::algebra::truncation::Truncation;
 
@@ -167,4 +167,12 @@ fn the_zero_spectrum_keeps_one_zero_value() {
 #[should_panic(expected = "a split keeps at least one value")]
 fn a_cap_of_zero_is_refused() {
     let _ = Truncation::of(&[1.0], 0.0, 0);
+}
+
+/// No singular values: every split has at least one, and the rule refuses
+/// an empty list with a message rather than an index error.
+#[test]
+#[should_panic(expected = "a split has singular values")]
+fn empty_values_are_refused() {
+    let _ = Truncation::of(&[], 0.0, 1);
 }

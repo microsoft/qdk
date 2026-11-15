@@ -1,13 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Truncation`]: which singular values a split keeps, for a backend that
-//! has them on the host, and what that keeps of the split's weight.
+//! [`Truncation`]: which singular values a split keeps, and what that keeps
+//! of the split's weight, for a backend that computes the singular values
+//! itself.
 //!
 //! [`SiteAlgebra::gate_split`](super::SiteAlgebra::gate_split) bounds what
 //! a split may drop; a backend whose library truncates keeps the library's
 //! rule within those bounds. A backend that computes the singular values
-//! itself uses this rule, so that the host backends that use it truncate
+//! itself may use this rule instead, and the backends that use it truncate
 //! alike: it keeps the fewest values that meet the cutoff, within the cap,
 //! and drops a tail whose squares sum to exactly the cutoff's share.
 //!
@@ -41,9 +42,11 @@ impl Truncation {
     ///
     /// # Panics
     ///
-    /// When `max_extent` is 0: a split keeps at least one value.
+    /// When `values` is empty, or `max_extent` is 0: a split keeps at least
+    /// one value.
     #[must_use]
     pub fn of(values: &[f64], cutoff: f64, max_extent: usize) -> Self {
+        assert!(!values.is_empty(), "a split has singular values");
         assert!(max_extent >= 1, "a split keeps at least one value");
         let largest = values[0];
         if largest == 0.0 {

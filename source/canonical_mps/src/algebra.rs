@@ -31,8 +31,8 @@
 //! packed: a site of extents `[left, 2, right]` holds exactly
 //! `left·2·right` elements.
 //!
-//! [`truncation`] holds the rule a host backend may use to truncate a
-//! split.
+//! [`truncation`] holds a rule of truncation that a backend which computes
+//! the singular values itself may use.
 
 pub mod truncation;
 
@@ -77,16 +77,17 @@ pub trait SiteAlgebra {
     /// the result again by one singular value decomposition, truncated as
     /// `call` says, the kept singular values divided by their L2 norm and
     /// absorbed on the side `call.centre` names. With `θ` the gated pair of
-    /// [`GateSplitCall`], the outcome is, to rounding:
+    /// [`GateSplitCall`] and `k` the outcome's `bond` (the call's `bond` is
+    /// the one before the split), the outcome is, to rounding:
     ///
-    /// - `left·right` is `θ`'s SVD truncated to its `bond` largest singular
+    /// - `left·right` is `θ`'s SVD truncated to its `k` largest singular
     ///   values, divided by the norm of those values;
-    /// - `1 ≤ bond ≤ min(max_extent, 2·left_extent, 2·right_extent)`: the
+    /// - `1 ≤ k ≤ min(max_extent, 2·left_extent, 2·right_extent)`: the
     ///   largest value is kept whatever the cutoff;
     /// - the site away from the centre is an isometry: `left`, read as a
-    ///   `(2·left_extent) × bond` matrix, has orthonormal columns when the
+    ///   `(2·left_extent) × k` matrix, has orthonormal columns when the
     ///   centre is on the right, and `right`, read as a
-    ///   `bond × (2·right_extent)` matrix, has orthonormal rows when it is
+    ///   `k × (2·right_extent)` matrix, has orthonormal rows when it is
     ///   on the left;
     /// - the squares of the dropped values sum to at most `cutoff` of the
     ///   squares of all of them, unless `max_extent` cut the bond;
@@ -96,7 +97,8 @@ pub trait SiteAlgebra {
     /// The bond need not be the smallest that meets the cutoff, and a tail
     /// whose squares sum to exactly the cutoff's share may be kept or
     /// dropped: a backend whose library decides these keeps its own rule.
-    /// A host backend uses [`truncation::Truncation`].
+    /// A backend that computes the singular values itself may use
+    /// [`truncation`]'s rule, which stays within these bounds.
     fn gate_split(
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,
@@ -110,8 +112,9 @@ pub trait SiteAlgebra {
     /// applied to the site the centre leaves, the outcome is, to rounding:
     ///
     /// - `left·right` is `A·B`: nothing is truncated;
-    /// - `bond` is `min(bond, 2·left_extent)` when the centre moves right,
-    ///   `min(bond, 2·right_extent)` when it moves left;
+    /// - the outcome's `bond` is `min(call.bond, 2·left_extent)` when the
+    ///   centre moves right, `min(call.bond, 2·right_extent)` when it moves
+    ///   left;
     /// - the site the centre leaves is an isometry, as for
     ///   [`gate_split`](SiteAlgebra::gate_split).
     fn qr_move(
@@ -134,8 +137,9 @@ pub enum CentreSide {
 /// `θ[a, s, t, b] = Σ G[(s, t), (p, q)] · A[a, p, j] · B[j, q, b]`, read as
 /// the column-major `(2·left_extent) × (2·right_extent)` matrix of rows
 /// `a + left_extent·s` and columns `t + 2·b`, is split as `θ ≈ L·R`, with
-/// `L` of extents `[left_extent, 2, bond]` and `R` of extents
-/// `[bond, 2, right_extent]` ([`SiteAlgebra::gate_split`]).
+/// `L` of extents `[left_extent, 2, k]` and `R` of extents
+/// `[k, 2, right_extent]`, `k` the outcome's bond
+/// ([`SiteAlgebra::gate_split`]).
 ///
 /// `θ` is never zero: the caller's states have norm 1, and its gates are
 /// unitary.
@@ -175,7 +179,7 @@ pub struct GateSplitOutcome<T> {
     /// The extent of the bond kept.
     pub bond: usize,
     /// The share of the squared singular values kept, in `(0, 1]`: the
-    /// engine multiplies the state's retained weight by it.
+    /// planned engine will multiply the state's retained weight by it.
     pub retained_fraction: f64,
 }
 
