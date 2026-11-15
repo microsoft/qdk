@@ -72,7 +72,8 @@
 //! the normalization is caught. Its truncation need not be the one
 //! cuTensorNet's sweep finds when several cuts truncate at once; with one,
 //! both are the best. Below the bond, it drops the singular values the
-//! engine's discarded-weight cutoff drops. A call can be made to fail with
+//! state's configured discarded-weight cutoff drops (none if unset, as
+//! cuTensorNet's default is 0). A call can be made to fail with
 //! [`FakeLibraries::fail`], to test cleanup; and the device count, the
 //! extents a compute reports and the values an expectation returns can be
 //! set, to test what the engine does with what the library answers.
@@ -192,6 +193,9 @@ struct FakeState {
     /// The native capacity's bonds, once finalized.
     bonds: Option<Vec<usize>>,
     configurations: usize,
+    /// The discarded-weight cutoff each compute truncates at: the one the
+    /// state was configured with, or cuTensorNet's default, 0.
+    discarded_weight_cutoff: f64,
     /// How many operators the state had at its last prepare.
     prepared_at: Option<usize>,
     /// The last compute, and how many operators the state had then.

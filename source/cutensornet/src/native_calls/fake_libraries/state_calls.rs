@@ -36,6 +36,7 @@ impl StateCalls for FakeLibraries {
                 operators: Vec::new(),
                 bonds: None,
                 configurations: 0,
+                discarded_weight_cutoff: 0.0,
                 prepared_at: None,
                 computed: None,
             }),
@@ -116,6 +117,8 @@ impl StateCalls for FakeLibraries {
             return Err(failed("configure_state_f64", "configured before finalize"));
         }
         state.configurations += 1;
+        let StateF64Configuration::SvdDiscardedWeightCutoff(cutoff) = configuration;
+        state.discarded_weight_cutoff = cutoff;
         inner.f64_configurations.push(configuration);
         Ok(())
     }
@@ -179,7 +182,7 @@ impl StateCalls for FakeLibraries {
         for output in outputs.iter() {
             inner.buffer(id(*output), OPERATION)?;
         }
-        let (sites, start, operators, bonds) = {
+        let (sites, start, operators, bonds, cutoff) = {
             let state = inner.state(state, OPERATION)?;
             if state.prepared_at != Some(state.operators.len()) {
                 return Err(failed(OPERATION, "not prepared since the last operator"));
@@ -192,6 +195,7 @@ impl StateCalls for FakeLibraries {
                 state.start.clone(),
                 state.operators.clone(),
                 bonds,
+                state.discarded_weight_cutoff,
             )
         };
         if outputs.len() != sites || layout.extents.len() != sites {
@@ -209,13 +213,13 @@ impl StateCalls for FakeLibraries {
         for (cut, &bond) in bonds.iter().enumerate() {
             // Only where a value is dropped: the eigenvectors of a nearly
             // rank-one density matrix lose an amplitude of 1e-100.
-            let kept = computed.kept_rank(cut).min(bond);
+            let kept = computed.kept_rank(cut, cutoff).min(bond);
             if kept < computed.rank_above(cut, 1e-20) {
                 truncate(&mut computed, cut, kept);
             }
         }
         let bond = |cut: usize| -> Result<i64, EngineError> {
-            let realized = computed.kept_rank(cut).min(bonds[cut]);
+            let realized = computed.kept_rank(cut, cutoff).min(bonds[cut]);
             i64::try_from(realized).map_err(|_| failed(OPERATION, "bond overflow"))
         };
         for site in 0..sites {

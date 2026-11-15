@@ -49,7 +49,7 @@
 
 pub(crate) mod error;
 mod native_state;
-pub(crate) mod policy;
+mod policy;
 
 pub use error::EngineError;
 
