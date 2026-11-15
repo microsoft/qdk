@@ -31,17 +31,19 @@
 //! ([`FakeLibraries::set_contraction_slices`]), to test the refusal of a
 //! sliced one.
 //!
-//! A gate split's report and outputs follow cuTensorNet's: the reduced
-//! extent is the lowest of the shared mode's extent in U's descriptor, the
-//! count of singular values (the SVD leaves out those of rounding's size),
-//! and the discarded-weight cutoff's rank; the full extent is the smaller
-//! side of the split, whatever the SVD left out. U's and V's descriptors
-//! are given the reduced extent, as cuTensorNet does under a
-//! discarded-weight cutoff; with no cutoff, cuTensorNet keeps the
-//! descriptors and the shared extent, which the fake does not yet model
-//! (an open review question). The fake absorbs the singular values into
-//! U or V only, writes none to their buffer, and refuses a product of A, B
-//! and the gate that is zero, whose singular vectors are arbitrary.
+//! A gate split's report and outputs follow cuTensorNet's. Under a
+//! discarded-weight cutoff (a positive one; 0, the default, sets none), the
+//! reduced extent is the lowest of the shared mode's extent in U's
+//! descriptor, the count of singular values (the SVD leaves out those of
+//! rounding's size) and the cutoff's rank, and U's and V's descriptors are
+//! given it. With no cutoff, the reduced extent is the shared mode's
+//! extent and the descriptors keep it; a split whose SVD gave fewer values
+//! than that extent is refused, since cuTensorNet would complete the
+//! singular vectors, which the fake does not model. The full extent is the
+//! smaller side of the split, whatever the SVD left out. The fake absorbs
+//! the singular values into U or V only, writes none to their buffer, and
+//! refuses a product of A, B and the gate that is zero, whose singular
+//! vectors are arbitrary.
 
 use super::{
     FakeLibraries, Inner, Object,
@@ -268,6 +270,8 @@ impl TensorCalls for FakeLibraries {
         )?;
         inner.write(u.data, &u_tensor, OPERATION)?;
         inner.write(v.data, &v_tensor, OPERATION)?;
+        // With no cutoff, `split` keeps the descriptors' extent or refuses,
+        // so this lowers them only under a cutoff, as cuTensorNet does.
         inner.set_extent(u.descriptor, sides.shared, reduced_extent);
         inner.set_extent(v.descriptor, sides.shared, reduced_extent);
         let full_extent =
@@ -795,10 +799,19 @@ struct Split {
     discarded_weight: f64,
 }
 
+/// Why the fake refuses a split with no cutoff whose SVD left out a value
+/// the shared extent needs: cuTensorNet keeps the extent there, with
+/// singular vectors completing the basis, which `dense_linalg`'s SVD does
+/// not give.
+const EXACT_SPLIT_OF_RANK_DEFICIENT_PAIR: &str = "the fake does not model an exact \
+    split of a rank-deficient pair (with no cutoff, cuTensorNet keeps the \
+    extent and the descriptors); configure a discarded-weight cutoff";
+
 /// Factors the `rows`×`cols` column-major `theta` as `settings` say, into
 /// at most `max_extent` singular values: drops the smallest whose squared
 /// sum is at most the cutoff's fraction of the total, normalizes the kept
-/// ones if asked, and absorbs them into U or V. Fails if `theta` is zero.
+/// ones if asked, and absorbs them into U or V. Fails if `theta` is zero,
+/// or if no cutoff is set and the SVD gave fewer than `max_extent` values.
 fn split(
     theta: &[Complex64],
     rows: usize,
@@ -819,6 +832,9 @@ fn split(
         return Err("the gate split's product is zero");
     }
     let rank = values.len();
+    if settings.cutoff <= 0.0 && rank < max_extent {
+        return Err(EXACT_SPLIT_OF_RANK_DEFICIENT_PAIR);
+    }
     let mut reduced = rank.min(max_extent);
     if settings.cutoff > 0.0 {
         let mut discarded = 0.0;

@@ -246,6 +246,9 @@ const Q_OUT: i32 = 5;
 const S: i32 = 6;
 /// An outer bond of A or B, kept in U or V.
 const OUTER: i32 = 7;
+/// A cutoff that drops only values of rounding's size: the split then
+/// truncates by value, as the canonical MPS always asks.
+const ROUNDING_CUTOFF: SvdSetting = SvdSetting::DiscardedWeightCutoff(1e-12);
 
 /// A two-site gate applied to two qubits in |0⟩ through the fake: A and B
 /// hold |0⟩ at bond extent 1, so the product θ[p', q'] is the gate's first
@@ -665,13 +668,17 @@ fn a_gate_split_keeps_one_value_whatever_the_cutoff() {
 
 /// A caller grows a bond up to the extent the split could have kept, as
 /// cuTensorNet reports it: the smaller side of θ. A product state's θ has
-/// rank 1, yet reports 2; a site with an outer bond of 2 makes θ 4×2 on
-/// the left, or 2×4 on the right, and reports 2 either way.
+/// rank 1, so a cutoff keeps one value, yet it reports 2; a site with an
+/// outer bond of 2 makes θ 4×2 on the left, or 2×4 on the right, and
+/// reports 2 either way.
 #[test]
 fn a_gate_split_reports_the_smaller_side_as_its_full_extent() {
-    let rank_one = GateSplit::of(matrix([[1.0, 1.0], [1.0, 1.0]]), &[SvdSetting::PartitionUs])
-        .split()
-        .expect("θ is not zero");
+    let rank_one = GateSplit::of(
+        matrix([[1.0, 1.0], [1.0, 1.0]]),
+        &[SvdSetting::PartitionUs, ROUNDING_CUTOFF],
+    )
+    .split()
+    .expect("θ is not zero");
     assert_eq!(rank_one.extent, 1, "θ has rank 1");
     assert_eq!(rank_one.truncation.full_extent, 2);
     let (one, zero) = (Complex64::new(1.0, 0.0), Complex64::default());
@@ -705,13 +712,17 @@ fn a_gate_split_reports_the_smaller_side_as_its_full_extent() {
     assert_eq!(wide.truncation.full_extent, 2, "θ is 2×4");
 }
 
-/// cuTensorNet writes U and V before it knows the reduced extent, so a
-/// caller that sizes their buffers by an earlier split's bond overruns
-/// them on a GPU; the fake refuses it, for U and for V.
+/// Under a cutoff, cuTensorNet writes U and V before it knows the reduced
+/// extent, so a caller that sizes their buffers by the bond it expects
+/// overruns them on a GPU; the fake refuses it, for U and for V, even
+/// where the reduced bond (1, for a rank-1 θ) would fit.
 #[test]
 fn a_gate_split_needs_u_and_v_buffers_of_their_descriptors_full_extents() {
     let zero = Complex64::default();
-    let mut split = GateSplit::of(matrix([[1.0, 1.0], [1.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    let mut split = GateSplit::of(
+        matrix([[1.0, 1.0], [1.0, 1.0]]),
+        &[SvdSetting::PartitionUs, ROUNDING_CUTOFF],
+    );
     let full = split.operands.u.data;
     let reduced = split.device.buffer(&[zero; 2]);
     split
@@ -795,16 +806,51 @@ fn a_gate_split_needs_a_live_singular_values_buffer() {
 fn a_gate_split_caps_the_bond_at_its_descriptors_extent_which_it_lowers() {
     let split = GateSplit::of(
         matrix([[1.0, 1.0], [1.0, 1.0]]),
-        &[
-            SvdSetting::PartitionUs,
-            SvdSetting::DiscardedWeightCutoff(0.0),
-        ],
+        &[SvdSetting::PartitionUs, ROUNDING_CUTOFF],
     );
     split.split().expect("θ is not zero");
     split.load(matrix([[3.0, 0.0], [0.0, 1.0]]));
     let capped = split.split().expect("θ is not zero");
     assert_eq!(capped.extent, 1);
     assert!((capped.truncation.discarded_weight - 0.1).abs() < 1e-12);
+}
+
+/// With no cutoff, cuTensorNet keeps the shared extent it is asked for,
+/// completing the singular vectors of a rank-deficient θ, which the fake
+/// does not model: it refuses a product state's θ (rank 1) at extent 2,
+/// and accepts it at a fixed extent of 1.
+#[test]
+fn a_gate_split_with_no_cutoff_refuses_fewer_values_than_its_extent() {
+    let product_state = matrix([[1.0, 1.0], [1.0, 1.0]]);
+    GateSplit::of(product_state, &[SvdSetting::PartitionUs])
+        .split()
+        .expect_err("θ has rank 1, below the extent of 2");
+    let zero = Complex64::default();
+    let mut fixed = GateSplit::of(product_state, &[SvdSetting::PartitionUs]);
+    fixed.operands.u = fixed.device.operand(&[2, 1], &[P_OUT, S], &[zero; 2]);
+    fixed.operands.v = fixed.device.operand(&[1, 2], &[S, Q_OUT], &[zero; 2]);
+    fixed
+        .device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    let factors = fixed.split().expect("θ has rank 1, the extent asked");
+    assert_eq!(factors.extent, 1);
+}
+
+/// With no cutoff, cuTensorNet leaves U's and V's descriptors as they are,
+/// so a caller reusing them splits the next gate at the same extent.
+#[test]
+fn a_gate_split_with_no_cutoff_keeps_its_descriptors_extent() {
+    let split = GateSplit::of(
+        matrix([[2.0, 1.0], [0.5, -1.5]]),
+        &[SvdSetting::PartitionUs],
+    );
+    let first = split.split().expect("θ has full rank");
+    assert_eq!(first.extent, 2);
+    split.load(matrix([[3.0, 0.0], [0.0, 1.0]]));
+    let next = split.split().expect("θ has full rank");
+    assert_eq!(next.extent, 2, "the descriptors keep the extent of 2");
 }
 
 /// A simulator that keeps its state normalized asks the split to scale the
