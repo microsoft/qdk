@@ -74,7 +74,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         }
         for (first, group) in by_first {
             let start = walk.left_environment(first);
-            value += walk.descend(start, first, &group) / norm;
+            value += walk.descend(start, first, &group, norm);
         }
         Ok(value)
     }
@@ -163,10 +163,18 @@ impl<'s, 'h> Walk<'s, 'h> {
         self.left[at - self.low].clone()
     }
 
-    /// The sum of `coefficient · ⟨P…⟩` (unnormalised) over `items`, whose
-    /// factors all lie at or right of `at`, `environment` on `at`'s left
-    /// bond.
-    fn descend(&self, environment: Environment, at: usize, items: &[Term<'_>]) -> Complex64 {
+    /// The sum of `coefficient · ⟨P…⟩ / norm` over `items`, whose factors
+    /// all lie at or right of `at`, `environment` on `at`'s left bond. Each
+    /// contraction is divided by `norm` before its coefficient multiplies
+    /// it, so a large coefficient overflows only when its normalised term
+    /// does.
+    fn descend(
+        &self,
+        environment: Environment,
+        at: usize,
+        items: &[Term<'_>],
+        norm: f64,
+    ) -> Complex64 {
         let mut groups: BTreeMap<(usize, u8), (Pauli, Vec<Term<'_>>)> = BTreeMap::new();
         for &(coefficient, factors) in items {
             let (site, pauli) = factors[0];
@@ -191,7 +199,7 @@ impl<'s, 'h> Walk<'s, 'h> {
             for (coefficient, factors) in group {
                 if factors.len() == 1 {
                     let closing = &self.closing[&(site, key)];
-                    sum += coefficient * close(environment.as_deref(), closing);
+                    sum += coefficient * (close(environment.as_deref(), closing) / norm);
                 } else {
                     continuing.push((coefficient, &factors[1..]));
                 }
@@ -200,7 +208,7 @@ impl<'s, 'h> Walk<'s, 'h> {
                 let plain = self.site(site);
                 let ket = with_pauli(plain, pauli);
                 let next = Some(transfer_left(environment.as_deref(), &ket, plain));
-                sum += self.descend(next, site + 1, &continuing);
+                sum += self.descend(next, site + 1, &continuing, norm);
             }
         }
         sum

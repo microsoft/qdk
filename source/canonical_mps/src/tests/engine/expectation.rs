@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! Expectations: the value of an observable wherever the centre and its
-//! terms lie, terms that share their walk each counted, and an observable
-//! of no terms.
+//! terms lie, terms that share their walk each counted, an observable of
+//! no terms, and a value as large as an `f64` holds.
 
 use super::*;
 use Pauli::{X, Y, Z};
@@ -131,5 +131,28 @@ fn an_observable_without_terms_reads_its_identity_coefficient() {
             .expectation(&state, &observable(identity, &[]))
             .expect("expectation");
         assert_eq!(value, identity, "{name}");
+    }
+}
+
+/// One qubit grown by the gate (1 + 1e-10)·I, which the unitarity check
+/// accepts, read with the observable `f64::MAX`·Z: the normalised value is
+/// `f64::MAX`, finite, and the engine returns it, as it divides each term
+/// by the norm before its coefficient multiplies it.
+#[test]
+fn an_expectation_is_finite_whenever_its_normalised_value_is() {
+    let s = 1.0 + 1e-10;
+    let grow = [real(s), real(0.0), real(0.0), real(s)];
+    let largest = observable(real(0.0), &[(real(f64::MAX), &[(0, Z)])]);
+    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+        let mut state = engine.prepare(&chain(1, 1)).expect("prepare");
+        engine
+            .apply(&mut state, &[0], &grow)
+            .expect("a gate within the unitarity tolerance");
+        let value = engine.expectation(&state, &largest).expect("expectation");
+        assert!(value.is_finite(), "{name}: {value}");
+        assert!(
+            (value.re / f64::MAX - 1.0).abs() < 1e-15 && value.im == 0.0,
+            "{name}: {value}"
+        );
     }
 }
