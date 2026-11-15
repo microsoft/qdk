@@ -52,14 +52,24 @@
 //!   workspace that asks for some, at least what the slot asks, and no
 //!   copy still running (`synchronize_copies`, the legacy stream), and the
 //!   source of a copy still running is not freed;
-//! - after a compute or a tensor call, nothing is freed or captured until
-//!   every stream with work queued is synchronized (the fake does not
-//!   track what a stream's work reads); and a buffer a compute or a tensor
-//!   call wrote is copied to the host (`copy_to_host`), and an SVD info
-//!   reported (`svd_truncation`), only once the stream that wrote it is
-//!   synchronized: another stream's synchronization says nothing of it.
-//!   Other reads of a pending write (a later call's inputs,
-//!   `copy_on_device`'s source) are not checked;
+//! - a compute runs on a live stream, and a stream is synchronized only
+//!   while live;
+//! - after a compute or a tensor call, no buffer is freed (`free`) until
+//!   every stream with work queued is synchronized, since the fake does not
+//!   track what a stream's work reads; and no state is captured
+//!   (`capture_mps`) until then, a cautious choice: the fake knows a
+//!   compute's outputs and could wait for their stream alone;
+//! - a buffer a compute or a tensor call wrote is copied to the host
+//!   (`copy_to_host`), and an SVD info reported (`svd_truncation`), only
+//!   once the stream last queued to write it is synchronized: another
+//!   stream's synchronization says nothing of it. An object written on two
+//!   streams is released by the later one, and the fake does not flag the
+//!   race. Other reads and writes of a pending write are not checked: a
+//!   later call's inputs and outputs, `copy_on_device`'s source and
+//!   destination, `copy_to_device`'s destination;
+//! - a stream destroyed with writes pending keeps them, as its work may
+//!   still run after `cudaStreamDestroy`: no buffer is freed, and no state
+//!   captured, after that;
 //! - a device-to-device copy of a whole computed tensor holds that tensor;
 //!   a partial copy holds nothing;
 //! - every object a call takes a handle for (a workspace, state, network
@@ -149,12 +159,8 @@ struct Inner {
     /// What the work queued on a stream may still be writing (a compute's
     /// outputs, a tensor call's outputs and SVD info), by id, with the
     /// stream of the last call queued to write it: set by the call, cleared
-    /// by `synchronize_stream` on that stream alone. An object written on
-    /// two streams is recorded under the later one, so synchronizing that
-    /// one releases it; the fake does not flag the two writes as a race.
-    /// A stream destroyed with writes pending keeps them, as its work may
-    /// still run after `cudaStreamDestroy`, so nothing is freed or captured
-    /// after that.
+    /// by `synchronize_stream` on that stream alone, and kept when the
+    /// stream is destroyed (the rules on streams, in this file's header).
     pending_writes: BTreeMap<usize, usize>,
     /// The destination of every device-to-device copy.
     copy_destinations: Vec<usize>,
@@ -520,9 +526,11 @@ impl Inner {
         self.pending_writes.contains_key(&object)
     }
 
-    /// Whether any stream may still be running work: the fake does not
-    /// track what a stream's work reads, so a buffer is freed, and a
-    /// compute captured, only once every stream is synchronized.
+    /// Whether any stream may still be running work. `free` needs it, as the
+    /// fake does not track what a stream's work reads; `capture_mps` uses it
+    /// as a cautious choice, since a compute's outputs are known and their
+    /// stream alone could be waited for (the rules on streams, in this
+    /// file's header).
     fn any_stream_busy(&self) -> bool {
         !self.pending_writes.is_empty()
     }

@@ -1147,9 +1147,13 @@ fn a_gate_split_refuses_its_shared_mode_on_an_input() {
             .expect("the copies were queued");
         split
     };
-    with_bond(S)
+    let refused = with_bond(S)
         .split()
         .expect_err("A's and B's bond is labelled as U's and V's shared mode");
+    assert!(
+        refused_for(&refused, "outside a gate split's topology"),
+        "{refused}"
+    );
     with_bond(BOND)
         .split()
         .expect("A's and B's bond has its own label");
@@ -1354,21 +1358,39 @@ fn every_output_of_a_tensor_call_is_read_once_its_stream_is_synchronized() {
 }
 
 /// The fake does not track which buffers a stream's work reads: a caller
-/// that frees a contraction's input before synchronizing the stream, which
-/// a GPU may still be reading, is caught on the fake.
+/// that contracts on two streams and frees an input once only one of them
+/// is synchronized, while a GPU may still be reading it on the other, is
+/// caught on the fake.
 #[test]
 fn a_buffer_is_freed_once_every_stream_is_synchronized() {
     let contraction = Contraction::dot_product(FakeLibraries::new());
     let device = &contraction.device;
+    let second = device.fake.create_stream().expect("the fake has a device");
+    let second_output = device.zeros(&[]);
+    device
+        .fake
+        .synchronize_copies()
+        .expect("the copy was queued");
     contraction.contract().expect("the network is prepared");
+    contraction
+        .contract_buffers(contraction.inputs, second_output, second)
+        .expect("the network is prepared");
     device
         .fake
         .free(contraction.inputs[0])
-        .expect_err("the contraction may still be reading its input");
+        .expect_err("both contractions may still be reading the input");
     device
         .fake
         .synchronize_stream(device.stream)
         .expect("the stream is live");
+    device
+        .fake
+        .free(contraction.inputs[0])
+        .expect_err("the second contraction may still be reading the input");
+    device
+        .fake
+        .synchronize_stream(second)
+        .expect("the second stream is live");
     device
         .fake
         .free(contraction.inputs[0])
@@ -1378,6 +1400,15 @@ fn a_buffer_is_freed_once_every_stream_is_synchronized() {
 /// A two-qubit state computed on `device`'s stream, which is not yet
 /// synchronized, and the compute's output buffers, one per site.
 fn computed_state(device: &Device) -> (OpaqueHandle, Vec<OpaqueHandle>) {
+    computed_state_on(device, device.stream).expect("the state is prepared and its scratch lent")
+}
+
+/// A two-qubit state computed on `stream`, and the compute's output
+/// buffers, one per site; or the compute's refusal.
+fn computed_state_on(
+    device: &Device,
+    stream: Stream,
+) -> Result<(OpaqueHandle, Vec<OpaqueHandle>), crate::NativeError> {
     let fake = &device.fake;
     let state = fake
         .create_state(device.handle, &[2, 2])
@@ -1404,10 +1435,24 @@ fn computed_state(device: &Device) -> (OpaqueHandle, Vec<OpaqueHandle>) {
         device.workspace,
         &mut layout,
         &mut outputs,
-        device.stream,
-    )
-    .expect("the state is prepared and its scratch lent");
-    (state, outputs)
+        stream,
+    )?;
+    Ok((state, outputs))
+}
+
+/// A compute is queued on a stream: a caller that passes a destroyed one is
+/// caught on the fake.
+#[test]
+fn a_compute_runs_on_a_live_stream() {
+    let device = Device::new(FakeLibraries::new());
+    let stream = device.fake.create_stream().expect("the fake has a device");
+    device
+        .fake
+        .destroy_stream(stream)
+        .expect("the stream is live");
+    computed_state_on(&device, stream).expect_err("the compute's stream is destroyed");
+    let device = Device::new(FakeLibraries::new());
+    computed_state_on(&device, device.stream).expect("the compute's stream is live");
 }
 
 /// A compute writes the state's site tensors on its stream: a caller that
@@ -1441,13 +1486,19 @@ fn a_computed_site_is_copied_to_the_host_once_its_stream_is_synchronized() {
         .expect("the stream is synchronized");
 }
 
-/// `capture_mps` reads the computed state, which the fake does not tie to
-/// one stream: a caller that captures a compute before synchronizing every
-/// stream with work queued is caught on the fake.
+/// `capture_mps` waits for every stream, a cautious choice of the fake's
+/// (the rules on streams, in its header): a caller that captures a compute
+/// once its stream is synchronized, while a contraction it queued on
+/// another stream may still run, is caught on the fake.
 #[test]
 fn a_compute_is_captured_once_every_stream_is_synchronized() {
-    let device = Device::new(FakeLibraries::new());
-    let (state, _) = computed_state(&device);
+    let contraction = Contraction::dot_product(FakeLibraries::new());
+    let device = &contraction.device;
+    let second = device.fake.create_stream().expect("the fake has a device");
+    contraction
+        .contract_on(second)
+        .expect("the network is prepared");
+    let (state, _) = computed_state(device);
     device
         .fake
         .capture_mps(device.handle, state)
@@ -1456,6 +1507,14 @@ fn a_compute_is_captured_once_every_stream_is_synchronized() {
         .fake
         .synchronize_stream(device.stream)
         .expect("the stream is live");
+    device
+        .fake
+        .capture_mps(device.handle, state)
+        .expect_err("the contraction on the second stream may still run");
+    device
+        .fake
+        .synchronize_stream(second)
+        .expect("the second stream is live");
     device
         .fake
         .capture_mps(device.handle, state)
@@ -1515,6 +1574,85 @@ fn a_read_waits_only_for_the_stream_that_wrote_it() {
         .fake
         .copy_to_host(&mut values, q.data)
         .expect_err("the QR's stream may still be writing Q");
+}
+
+/// The fake records, for what is written, the stream last queued to write
+/// it: a caller that contracts into one output on two streams and copies it
+/// to the host once only the first stream is synchronized is caught on the
+/// fake.
+#[test]
+fn a_read_waits_for_the_last_stream_that_wrote_it() {
+    let contraction = Contraction::dot_product(FakeLibraries::new());
+    let device = &contraction.device;
+    let second = device.fake.create_stream().expect("the fake has a device");
+    contraction.contract().expect("the first write");
+    contraction.contract_on(second).expect("the second write");
+    device
+        .fake
+        .synchronize_stream(device.stream)
+        .expect("the first stream is live");
+    let mut output = [Complex64Abi::default()];
+    device
+        .fake
+        .copy_to_host(&mut output, contraction.output)
+        .expect_err("the second stream may still be writing the output");
+    device
+        .fake
+        .synchronize_stream(second)
+        .expect("the second stream is live");
+    device
+        .fake
+        .copy_to_host(&mut output, contraction.output)
+        .expect("the last writer is synchronized");
+}
+
+/// CUDA lets a stream's work run on after `cudaStreamDestroy`: a caller
+/// that destroys the stream of a contraction and then frees the
+/// contraction's input is caught on the fake.
+#[test]
+fn a_destroyed_stream_keeps_its_writes_pending() {
+    let contraction = Contraction::dot_product(FakeLibraries::new());
+    let device = &contraction.device;
+    let doomed = device.fake.create_stream().expect("the fake has a device");
+    contraction
+        .contract_on(doomed)
+        .expect("the network is prepared");
+    device
+        .fake
+        .synchronize_stream(device.stream)
+        .expect("the stream is live");
+    device
+        .fake
+        .free(contraction.inputs[0])
+        .expect_err("the contraction may still be reading its input");
+    device
+        .fake
+        .destroy_stream(doomed)
+        .expect("the stream is live");
+    device
+        .fake
+        .free(contraction.inputs[0])
+        .expect_err("the destroyed stream's work may still run");
+}
+
+/// A stream is synchronized while it exists: a caller that synchronizes one
+/// it destroyed is caught on the fake.
+#[test]
+fn a_stream_is_synchronized_only_while_live() {
+    let device = Device::new(FakeLibraries::new());
+    let stream = device.fake.create_stream().expect("the fake has a device");
+    device
+        .fake
+        .synchronize_stream(stream)
+        .expect("the stream is live");
+    device
+        .fake
+        .destroy_stream(stream)
+        .expect("the stream is live");
+    device
+        .fake
+        .synchronize_stream(stream)
+        .expect_err("the stream is destroyed");
 }
 
 /// No tensor is empty, so the loaded libraries refuse an empty copy before
@@ -1998,9 +2136,13 @@ fn a_gate_split_refuses_a_label_outside_its_topology() {
         .fake
         .synchronize_copies()
         .expect("the copies were queued");
-    split
+    let refused = split
         .split()
         .expect_err("the gate's extra label is in no other tensor");
+    assert!(
+        refused_for(&refused, "outside a gate split's topology"),
+        "{refused}"
+    );
 }
 
 /// A gate split, under a cutoff, of A, B and the gate carrying the labels
@@ -2090,6 +2232,44 @@ fn a_gate_split_refuses_a_label_on_all_three_inputs() {
     );
 }
 
+/// A gate split contracts the labels two inputs share: a caller that also
+/// keeps A's and B's bond in U, where the split would sum it and keep it at
+/// once, is caught on the fake.
+#[test]
+fn a_gate_split_refuses_a_contracted_label_kept_in_an_output() {
+    let (a, b) = ([P, BOND], [BOND, Q]);
+    split_with_labels(&a, &b, &GATE, &[P_OUT, S], &[S, Q_OUT])
+        .expect("A's and B's bond is contracted only");
+    let refused = split_with_labels(&a, &b, &GATE, &[P_OUT, BOND, S], &[S, Q_OUT])
+        .expect_err("A's and B's bond is also kept in U");
+    assert!(
+        refused_for(&refused, "outside a gate split's topology"),
+        "{refused}"
+    );
+}
+
+/// U's and V's shared mode is made by the split: a caller that also labels
+/// a mode of A alone with it, which no output could keep, is caught on the
+/// fake.
+#[test]
+fn a_gate_split_refuses_its_shared_mode_on_a_single_input() {
+    let b = [BOND, Q];
+    split_with_labels(
+        &[P, BOND, OUTER],
+        &b,
+        &GATE,
+        &[OUTER, P_OUT, S],
+        &[S, Q_OUT],
+    )
+    .expect("A's outer bond has its own label");
+    let refused = split_with_labels(&[P, BOND, S], &b, &GATE, &[P_OUT, S], &[S, Q_OUT])
+        .expect_err("A's outer bond is labelled as U's and V's shared mode");
+    assert!(
+        refused_for(&refused, "outside a gate split's topology"),
+        "{refused}"
+    );
+}
+
 /// A gate split keeps A's site in U: a caller that puts a label of A alone
 /// (its outer bond) in V is caught on the fake.
 #[test]
@@ -2133,9 +2313,9 @@ fn a_gate_split_keeps_a_label_of_the_gate_alone_on_either_side() {
 }
 
 /// A site of a product state, or one at the chain's end, has bonds of
-/// extent 1, and a gate on a qubit can be 1×1 in a test: a caller whose
-/// every mode, the shared one included, has extent 1 still gets the
-/// product of A, B and the gate, at a reduced and full extent of 1.
+/// extent 1: a caller whose every mode, the gate's too, has extent 1 still
+/// gets the product of A, B and the gate, at a reduced and full extent of
+/// 1.
 #[test]
 fn a_gate_split_takes_modes_of_extent_one() {
     let device = Device::new(FakeLibraries::new());

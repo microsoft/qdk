@@ -174,6 +174,7 @@ impl StateCalls for FakeLibraries {
     ) -> Result<(), NativeError> {
         const OPERATION: &str = "compute_state";
         let mut inner = self.call(OPERATION)?;
+        inner.require(stream, OPERATION, |o| matches!(o, Object::Stream))?;
         inner.owned(handle, state, OPERATION)?;
         inner.owned(handle, workspace, OPERATION)?;
         let scratch_bytes = inner.lent_scratch(workspace, OPERATION)?;

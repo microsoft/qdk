@@ -37,7 +37,7 @@
 //! - the singular values' buffer holds as many doubles as the shared
 //!   mode's extent (counted in the fake's 16-byte elements);
 //! - what a call writes on its stream, its SVD info included, is read as
-//!   the rule on streams in `fake_libraries.rs` says.
+//!   the rules on streams in `fake_libraries.rs` say.
 //!
 //! The fake does not slice: it contracts a network's two inputs at once,
 //! whatever the path. It need not model slicing, since the loaded libraries
