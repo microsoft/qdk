@@ -20,7 +20,7 @@ use crate::native_calls::{
     OpaqueHandle, Stream,
     tensor_calls::{
         ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
-        TensorCalls, TensorModes, TensorOperand, UncheckedPathSearch,
+        TensorCalls, TensorModes, TensorOperand,
     },
 };
 use std::{ffi::c_void, ptr::NonNull};
@@ -394,13 +394,12 @@ impl TensorCalls for LoadedLibraries {
         self.check_cutensornet("cutensornetDestroyContractionOptimizerInfo", status)
     }
 
-    fn find_contraction_path(
+    fn optimize_contraction(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
         workspace_limit: u64,
         info: OpaqueHandle,
-        _search: UncheckedPathSearch,
     ) -> Result<(), NativeError> {
         let functions = self.tensor_functions()?;
         let mut config = std::ptr::null_mut();
@@ -413,6 +412,14 @@ impl TensorCalls for LoadedLibraries {
             "cutensornetCreateContractionOptimizerConfig",
             "contraction optimizer configuration",
         )?;
+        // Slicing is off: a contraction is one `cutensornetNetworkContract`
+        // per call. Slicing trades memory for extra calls (one per slice),
+        // no case needs that trade for a pairwise contraction, and no GPU
+        // run has exercised a sliced path. Should a path still come back
+        // sliced, `contract` passes a null slice group, which contracts
+        // every slice (`cutensornetNetworkContract`'s doc of `sliceGroup`,
+        // `generated/v2_13.rs`: "If set to null, all slices will be
+        // contracted"), so the result stays whole and correct.
         let disable_slicing: i32 = 1;
         // SAFETY: the handle and the config are live, and the value is the
         // attribute's declared `int32_t`.
@@ -446,28 +453,6 @@ impl TensorCalls for LoadedLibraries {
         let destroyed =
             self.check_cutensornet("cutensornetDestroyContractionOptimizerConfig", status);
         combine_execution_and_cleanup(optimized, destroyed)
-    }
-
-    fn contraction_slice_count(
-        &self,
-        handle: OpaqueHandle,
-        info: OpaqueHandle,
-    ) -> Result<i64, NativeError> {
-        let functions = self.tensor_functions()?;
-        let mut slices: i64 = 0;
-        // SAFETY: the handle and the info are live, and `slices` is a
-        // writable value of the attribute's declared `int64_t`.
-        let status = unsafe {
-            (functions.optimizer_info_get_attribute)(
-                handle.as_ptr(),
-                info.as_ptr(),
-                v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_NUM_SLICES,
-                (&raw mut slices).cast(),
-                size_of_val(&slices),
-            )
-        };
-        self.check_cutensornet("cutensornetContractionOptimizerInfoGetAttribute", status)?;
-        Ok(slices)
     }
 
     fn contraction_workspace_sizes(
@@ -549,9 +534,9 @@ impl TensorCalls for LoadedLibraries {
         // SAFETY: the handle, the network, prepared, the workspace and the
         // stream are live; the workspace was sized for the network's path
         // and lent the memory it asked for. The buffers' owners keep them
-        // until the stream is synchronized. A null slice group is every
-        // slice, and the path has one, which `optimize_contraction`
-        // checked; 0 overwrites the output.
+        // until the stream is synchronized. A null slice group contracts
+        // every slice, should the path have several despite the disabled
+        // slicing (`optimize_contraction`); 0 overwrites the output.
         let status = unsafe {
             (functions.network_contract)(
                 handle.as_ptr(),

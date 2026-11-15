@@ -159,56 +159,21 @@ pub(crate) trait TensorCalls: MemoryCalls {
     ) -> Result<OpaqueHandle, NativeError>;
     fn destroy_optimizer_info(&self, info: OpaqueHandle) -> Result<(), NativeError>;
     /// Finds a contraction path for `network` within `workspace_limit`
-    /// bytes, into `info` and the network, unsliced, since
-    /// [`contract`](Self::contract) runs the whole network at once: a path
-    /// the optimizer sliced anyway is refused
-    /// (`NativeError::InvalidNativeResult`), so a contraction is never
-    /// partial.
+    /// bytes, into `info` and the network; the optimizer's configuration is
+    /// created and destroyed inside.
+    ///
+    /// Slicing is disabled, so the path contracts the network in one
+    /// contraction per call: slicing trades memory for one contraction per
+    /// slice, and a pairwise contraction needs no such trade. Should a
+    /// path come back sliced anyway, [`contract`](Self::contract) still
+    /// contracts every slice, so its result stays whole.
     fn optimize_contraction(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
         workspace_limit: u64,
         info: OpaqueHandle,
-    ) -> Result<(), NativeError> {
-        self.find_contraction_path(
-            handle,
-            network,
-            workspace_limit,
-            info,
-            UncheckedPathSearch(()),
-        )?;
-        let slices = self.contraction_slice_count(handle, info)?;
-        if slices > 1 {
-            return Err(NativeError::InvalidNativeResult {
-                reason: format!(
-                    "the contraction optimizer cut the network into {slices} slices, \
-                     but a contraction runs it whole"
-                ),
-            });
-        }
-        Ok(())
-    }
-    /// The search behind [`optimize_contraction`](Self::optimize_contraction),
-    /// which checks its result: finds a path for `network` within
-    /// `workspace_limit` bytes, into `info` and the network, with slicing
-    /// disabled; the optimizer's configuration is created and destroyed
-    /// inside. Only `optimize_contraction` can call it, since only it holds
-    /// an [`UncheckedPathSearch`].
-    fn find_contraction_path(
-        &self,
-        handle: OpaqueHandle,
-        network: OpaqueHandle,
-        workspace_limit: u64,
-        info: OpaqueHandle,
-        search: UncheckedPathSearch,
     ) -> Result<(), NativeError>;
-    /// How many slices `info`'s path cuts its network into: 1 if unsliced.
-    fn contraction_slice_count(
-        &self,
-        handle: OpaqueHandle,
-        info: OpaqueHandle,
-    ) -> Result<i64, NativeError>;
     /// Sizes `workspace` for contracting `network` along `info`'s path.
     fn contraction_workspace_sizes(
         &self,
@@ -226,10 +191,10 @@ pub(crate) trait TensorCalls: MemoryCalls {
         workspace: OpaqueHandle,
     ) -> Result<(), NativeError>;
     /// Queues the contraction of `inputs` into `output` on `stream`, by the
-    /// prepared `network`, whole: its path is unsliced
-    /// ([`optimize_contraction`](Self::optimize_contraction)). The buffers
-    /// are given to the network at each call, so one prepared network
-    /// contracts new buffers of its shapes each time.
+    /// prepared `network`, whole: every slice of its path, should it have
+    /// several ([`optimize_contraction`](Self::optimize_contraction)). The
+    /// buffers are given to the network at each call, so one prepared
+    /// network contracts new buffers of its shapes each time.
     fn contract(
         &self,
         handle: OpaqueHandle,
@@ -240,14 +205,6 @@ pub(crate) trait TensorCalls: MemoryCalls {
         stream: Stream,
     ) -> Result<(), NativeError>;
 }
-
-/// The permission to search a contraction path without the slice check,
-/// which only [`TensorCalls::optimize_contraction`] can build (its field is
-/// private to this module): so every path a caller gets has passed the
-/// check, whatever the order of its calls, as long as implementations keep
-/// the provided `optimize_contraction`.
-#[derive(Debug)]
-pub(crate) struct UncheckedPathSearch(());
 
 /// One tensor's modes as a descriptor takes them: the extent and the label
 /// of each mode, first mode fastest. Two tensors' modes of the same label

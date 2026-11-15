@@ -82,9 +82,8 @@
 //! state's configured discarded-weight cutoff drops (none if unset, as
 //! cuTensorNet's default is 0). A call can be made to fail with
 //! [`FakeLibraries::fail`], to test cleanup; and the device count, the
-//! extents a compute reports, the values an expectation returns and the
-//! slices of a contraction path can be set, to test what the callers do
-//! with what the library answers.
+//! extents a compute reports and the values an expectation returns can be
+//! set, to test what the callers do with what the library answers.
 
 mod dense_tensor;
 mod memory_calls;
@@ -187,8 +186,6 @@ struct Inner {
     /// The values the next expectations return, in order, instead of the
     /// computed state's.
     expectation_values: VecDeque<Complex64>,
-    /// The slices every optimized contraction path reports, if not 1.
-    contraction_slices: Option<i64>,
 }
 
 enum Object {
@@ -405,13 +402,6 @@ impl FakeLibraries {
     /// none.
     pub(crate) fn set_other_workspace_slot_bytes(&self, bytes: i64) {
         self.lock().other_slot_bytes = bytes;
-    }
-
-    /// Makes every contraction path the optimizer finds from now on report
-    /// `slices` slices, as cuTensorNet's would if it sliced despite being
-    /// told not to.
-    pub(crate) fn set_contraction_slices(&self, slices: i64) {
-        self.lock().contraction_slices = Some(slices);
     }
 
     /// The f64 configurations of every state, in order.

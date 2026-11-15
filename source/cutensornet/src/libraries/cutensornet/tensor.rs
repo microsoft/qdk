@@ -53,8 +53,6 @@ crate::libraries::loader::function_table! {
             cutensornetCreateContractionOptimizerInfo,
         required destroy_optimizer_info: DestroyContractionOptimizerInfoFn =
             cutensornetDestroyContractionOptimizerInfo,
-        required optimizer_info_get_attribute: ContractionOptimizerInfoGetAttributeFn =
-            cutensornetContractionOptimizerInfoGetAttribute,
         required optimize: ContractionOptimizeFn = cutensornetContractionOptimize,
         required contraction_sizes: WorkspaceComputeContractionSizesFn =
             cutensornetWorkspaceComputeContractionSizes,
@@ -231,16 +229,6 @@ pub(crate) type ContractionOptimizerConfigSetAttributeFn =
         v2_13::cutensornetContractionOptimizerConfig_t,
         v2_13::cutensornetContractionOptimizerConfigAttributes_t,
         *const c_void,
-        usize,
-    ) -> v2_13::cutensornetStatus_t;
-
-/// Function pointer for `cutensornetContractionOptimizerInfoGetAttribute`.
-pub(crate) type ContractionOptimizerInfoGetAttributeFn =
-    unsafe extern "C" fn(
-        v2_13::cutensornetHandle_t,
-        v2_13::cutensornetContractionOptimizerInfo_t,
-        v2_13::cutensornetContractionOptimizerInfoAttributes_t,
-        *mut c_void,
         usize,
     ) -> v2_13::cutensornetStatus_t;
 

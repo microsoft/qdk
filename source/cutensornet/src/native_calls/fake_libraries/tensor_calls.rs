@@ -34,9 +34,11 @@
 //!   mode's extent (counted in the fake's 16-byte elements), and an SVD
 //!   info is read only once the stream is synchronized.
 //!
-//! The optimizer finds an unsliced path unless told to report slices
-//! ([`FakeLibraries::set_contraction_slices`]), to test the refusal of a
-//! sliced one.
+//! The fake does not slice: it contracts a network's two inputs at once,
+//! whatever the path. It need not model slicing, since the loaded libraries
+//! disable it, and a path cuTensorNet sliced anyway is still contracted
+//! whole (`TensorCalls::optimize_contraction`), so a caller sees the same
+//! result either way.
 //!
 //! A gate split's report and outputs follow cuTensorNet's. Under a
 //! discarded-weight cutoff (any value set, 0 included, asks for a truncation by
@@ -61,7 +63,7 @@ use crate::native_calls::{
     OpaqueHandle, Stream,
     tensor_calls::{
         ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
-        TensorCalls, TensorModes, TensorOperand, UncheckedPathSearch,
+        TensorCalls, TensorModes, TensorOperand,
     },
 };
 use dense_linalg::{MatrixRef, Qr, Svd};
@@ -468,15 +470,14 @@ impl TensorCalls for FakeLibraries {
             })
     }
 
-    fn find_contraction_path(
+    fn optimize_contraction(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
         _workspace_limit: u64,
         info: OpaqueHandle,
-        _search: UncheckedPathSearch,
     ) -> Result<(), NativeError> {
-        const OPERATION: &str = "find_contraction_path";
+        const OPERATION: &str = "optimize_contraction";
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, network, OPERATION)?;
         if inner.optimizer_info(handle, info, OPERATION)?.0 != id(network) {
@@ -493,17 +494,6 @@ impl TensorCalls for FakeLibraries {
             *prepared = false;
         }
         Ok(())
-    }
-
-    fn contraction_slice_count(
-        &self,
-        handle: OpaqueHandle,
-        info: OpaqueHandle,
-    ) -> Result<i64, NativeError> {
-        const OPERATION: &str = "contraction_slice_count";
-        let inner = self.call(OPERATION)?;
-        inner.optimizer_info(handle, info, OPERATION)?;
-        Ok(inner.contraction_slices.unwrap_or(1))
     }
 
     fn contraction_workspace_sizes(

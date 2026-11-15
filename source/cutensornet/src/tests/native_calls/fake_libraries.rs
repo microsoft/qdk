@@ -1130,28 +1130,6 @@ fn a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes() {
     run(&[2, 2, 3], &[QR_I, QR_K, QR_J]).expect("the input's modes are Q's and R's other modes");
 }
 
-/// A contraction runs its network whole: a caller whose path the
-/// optimizer sliced (cuTensorNet slices one that would not fit its
-/// workspace limit) is refused before it can contract one slice alone.
-#[test]
-fn a_contraction_path_cut_into_slices_is_refused() {
-    let device = Device::new(FakeLibraries::new());
-    let (fake, handle) = (&device.fake, device.handle);
-    let network = fake
-        .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
-        .expect("the labels are consistent")
-        .descriptor;
-    let info = fake
-        .create_optimizer_info(handle, network)
-        .expect("the network is live");
-    fake.set_contraction_slices(2);
-    fake.optimize_contraction(handle, network, 1 << 20, info)
-        .expect_err("the path has two slices");
-    fake.set_contraction_slices(1);
-    fake.optimize_contraction(handle, network, 1 << 20, info)
-        .expect("the path is unsliced");
-}
-
 /// A gate split's U and V share one mode, which no input carries: a caller
 /// that labels A's and B's bond as the shared mode, which the split would
 /// sum and keep at once, is caught on the fake.
