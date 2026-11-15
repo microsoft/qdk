@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! Running shots on a chain: the records each shot gets, the run's
-//! refusals, the failures that end it, the checks of each `execute`, and
+//! refusals, the failures that end it, the checks at each boundary, and
 //! what an `execute` does with the readouts its caller lends.
 
 mod boundaries;
@@ -41,6 +41,16 @@ fn runner<D: Drive, E: Execute>(
     let Ok(runner) = composed else {
         panic!("the chain composes");
     };
+    runner
+}
+
+/// The runner of the chain `composed` gave, which must compose, with the
+/// batch checks on.
+fn checked<D: Drive, E: Execute>(
+    composed: Result<Runner<D, E>, crate::CompositionFaults>,
+) -> Runner<D, E> {
+    let mut runner = runner(composed);
+    runner.set_batch_checks(true);
     runner
 }
 
@@ -928,7 +938,7 @@ fn the_parts_are_asked_bottom_up() {
 #[test]
 fn an_instruction_beyond_the_needs_is_refused_before_it_runs() {
     let log = Log::default();
-    let mut runner = runner(
+    let mut runner = checked(
         Driver::new(Program::new(&[("mz", 0), ("x", 5)]).needing(Needs::qubits(2)))
             >> Executor::new(Bits::new(&log)),
     );
@@ -959,7 +969,7 @@ fn an_instruction_beyond_the_needs_is_refused_before_it_runs() {
 fn a_batch_longer_than_the_executor_takes_is_refused_before_it_runs() {
     let log = Log::default();
     let offer = Capabilities::unlimited().max_qubits(64).max_instructions(1);
-    let mut runner = runner(
+    let mut runner = checked(
         Driver::new(Program::new(&[("x", 0), ("mz", 0)]))
             >> Executor::new(Bits::new(&log).offering(offer)),
     );
@@ -985,7 +995,7 @@ fn a_batch_longer_than_the_executor_takes_is_refused_before_it_runs() {
 #[test]
 fn a_later_batchs_refusal_names_it_and_runs_no_batch() {
     let log = Log::default();
-    let mut runner = runner(
+    let mut runner = checked(
         Driver::new(Program::halves(&[("mz", 0)], &[("x", 5)]).needing(Needs::qubits(2)))
             >> Executor::new(Bits::new(&log)),
     );

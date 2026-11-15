@@ -5,7 +5,7 @@
 
 use super::{Composed, kept, limits_below};
 use crate::admission::by_part::ByPart;
-use crate::checked::Checked;
+use crate::checked::{BatchChecks, Checked};
 use crate::panics::{await_part, end_both};
 use crate::{
     Adapt, Batch, Capabilities, Execute, ExecuteError, InstructionSet, Needs, Readouts, RunRefusal,
@@ -51,6 +51,13 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         self.upper.offers_by_part(below, by_part)
     }
 
+    /// Its boundary's, and each half's.
+    fn set_batch_checks(&mut self, checks: BatchChecks) {
+        self.batch_checks = checks;
+        self.upper.set_batch_checks(checks);
+        self.lower.set_batch_checks(checks);
+    }
+
     /// The part below first.
     async fn ready(&mut self) -> Result<(), RunRefusal> {
         await_part(self.lower.ready()).await?;
@@ -71,7 +78,13 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         await_part(self.upper.adapt(
             batches,
             seed,
-            &mut Checked::new(&mut self.lower, part, offer, batch_limits),
+            &mut Checked::new(
+                &mut self.lower,
+                part,
+                offer,
+                batch_limits,
+                self.batch_checks,
+            ),
             readouts,
         ))
         .await

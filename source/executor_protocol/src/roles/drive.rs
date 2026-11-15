@@ -8,6 +8,7 @@ use std::error::Error;
 use std::fmt;
 
 use crate::admission::by_part::ByPart;
+use crate::checked::BatchChecks;
 use crate::{
     Capabilities, Execute, ExecuteError, Failure, InstructionSet, Needs, OpcodeMap, RunRefusal,
     Seed, ShotId, ShotSet,
@@ -81,6 +82,12 @@ pub trait Drive {
     #[doc(hidden)]
     fn end_run(&mut self, run: EndedRun<'_>) {
         let _ = run;
+    }
+
+    /// As [`Execute::set_batch_checks`].
+    #[doc(hidden)]
+    fn set_batch_checks(&mut self, checks: BatchChecks) {
+        let _ = checks;
     }
 
     // Run time.

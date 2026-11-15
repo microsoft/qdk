@@ -26,6 +26,9 @@ pub enum ReadoutValue {
     Missing(ReadoutFailure),
 }
 
+// A byte or two, as its doc promises.
+const _: () = assert!(size_of::<ReadoutValue>() <= 2);
+
 /// A measured bit as a value: `true` is [`ReadoutValue::One`], `false`
 /// [`ReadoutValue::Zero`].
 impl From<bool> for ReadoutValue {

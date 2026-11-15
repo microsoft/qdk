@@ -469,12 +469,6 @@ fn debug_shows_the_rows_by_shot() {
     );
 }
 
-/// A value takes a byte or two, so a batch's rows stay dense.
-#[test]
-fn a_value_is_at_most_two_bytes() {
-    assert!(size_of::<ReadoutValue>() <= 2);
-}
-
 /// A measured bit converts to its value.
 #[test]
 fn a_bit_converts_to_its_value() {

@@ -1,35 +1,38 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The protocol's check of every `execute` a part receives: [`Checked`], the
-//! receiver as the part above calls it.
+//! The protocol's checks of the `execute`s a part receives: [`Checked`],
+//! the receiver as the part above calls it.
 //!
-//! So that no part checks what it is sent, nor what it answers: each
-//! boundary of a chain is crossed through one `Checked`, which refuses a
+//! So that no part checks what it answers, nor, when its runner turns the
+//! batch checks on, what it is sent: each boundary of a chain is crossed
+//! through one `Checked`. It always makes a failure of an answer of the
+//! wrong shape or of a panic (where a panic unwinds: on wasm32, it aborts),
+//! so that the part above gets readouts it can index without a check of
+//! its own. With the batch checks on ([`BatchChecks`]), it also refuses a
 //! batch before anything of it runs (an instruction the receiver does not
 //! accept, a block beyond the shot's, a readout parity the shots' needs do
 //! not use, more instructions than the receiver takes, more readout slots
-//! than a `u32` counts), and makes a failure of an answer of the wrong
-//! shape or of a panic (where a panic unwinds: on wasm32, it aborts), so
-//! that the part above gets readouts it can index without a check of its
-//! own. An `execute` that fails, or is dropped before it answers, leaves
-//! the caller's [`Readouts`] as they were, so the caller never reads part
-//! of an answer.
+//! than a `u32` counts). An `execute` that fails, or is dropped before it
+//! answers, leaves the caller's [`Readouts`] as they were, so the caller
+//! never reads part of an answer.
 
 use smallvec::SmallVec;
 
 use crate::batch_readouts::Loan;
-use crate::instruction_set::instruction::batch_check::{BatchFault, BatchLimits, check_batch};
+use crate::instruction_set::instruction::batch_check::{
+    BatchFault, BatchLimits, check_batch, readout_slots,
+};
 use crate::panics::catch_panic;
 use crate::{
     Batch, BatchReadouts, Capabilities, ChainPart, Execute, ExecuteError, ExecuteRefusal, Failure,
     InstructionSet, Needs, Readouts, Seed, ShapeFault, ShotId, ShotSet,
 };
 
-/// `inner`, the receiver of a boundary, with every `execute` it receives
+/// `inner`, the receiver of a boundary, with the batches it receives
 /// checked against `batch_limits`, which hold the receiver's set as read
-/// before the receiver is provisioned, and its answer checked against the
-/// batches.
+/// before the receiver is provisioned, if `checks` are on, and its answers
+/// checked against the batches always.
 pub(crate) struct Checked<'a, E> {
     inner: &'a mut E,
     /// The part that receives `inner`'s calls, as the admission listed it:
@@ -39,25 +42,41 @@ pub(crate) struct Checked<'a, E> {
     /// provisioned.
     offer: &'a Capabilities,
     batch_limits: &'a BatchLimits,
+    checks: BatchChecks,
 }
 
 impl<'a, E: Execute> Checked<'a, E> {
     /// `inner`, whose calls `part` receives, and whose offer was `offer`
-    /// before any part was provisioned, checked against `batch_limits`,
-    /// built by [`batch_limits`] for it from that offer.
+    /// before any part was provisioned, with its batches checked against
+    /// `batch_limits`, built by [`batch_limits`] for it from that offer, if
+    /// `checks` are on.
     pub(crate) fn new(
         inner: &'a mut E,
         part: &'a ChainPart,
         offer: &'a Capabilities,
         batch_limits: &'a BatchLimits,
+        checks: BatchChecks,
     ) -> Self {
         Self {
             inner,
             part,
             offer,
             batch_limits,
+            checks,
         }
     }
+}
+
+/// Whether the boundaries of a chain check each batch before it runs, as
+/// [`Runner::set_batch_checks`](crate::Runner::set_batch_checks) chose: off
+/// by default.
+///
+/// Code outside the crate cannot name it, because this module is private:
+/// so only the crate overrides the hidden `set_batch_checks` of the roles,
+/// and every boundary a part holds is told.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BatchChecks {
+    pub(crate) on: bool,
 }
 
 impl<E: Execute> Execute for Checked<'_, E> {
@@ -68,9 +87,10 @@ impl<E: Execute> Execute for Checked<'_, E> {
 
     /// The receiver's set as read before the receiver is provisioned (by
     /// the runner's `>>`, or by the provision of the `Composed` holding the
-    /// boundary), which `batch_limits` holds and every batch is checked
-    /// against, not the receiver's answer now: a receiver whose set changes
-    /// later gets batches checked against that set.
+    /// boundary), which `batch_limits` holds and, with the batch checks on,
+    /// every batch is checked against, not the receiver's answer now: a
+    /// receiver whose set changes later gets batches checked against that
+    /// set.
     fn accepts(&self) -> &InstructionSet {
         self.batch_limits.set()
     }
@@ -81,12 +101,13 @@ impl<E: Execute> Execute for Checked<'_, E> {
         self.offer.clone()
     }
 
-    /// Refuses `batches` if any is refused, before any runs; an empty
-    /// `execute` appends no readouts without reaching the receiver. Then
-    /// runs them on the receiver, and makes a failure of its panic (where a
-    /// panic unwinds), or of an answer whose shape is not the batches'. On
-    /// a failure, or when its future is dropped before it answers, the
-    /// receiver's answer is removed from `readouts`.
+    /// With the batch checks on, refuses `batches` if any is refused,
+    /// before any runs; an empty `execute` appends no readouts without
+    /// reaching the receiver. Then runs them on the receiver, and makes a
+    /// failure of its panic (where a panic unwinds), or of an answer whose
+    /// shape is not the batches'. On a failure, or when its future is
+    /// dropped before it answers, the receiver's answer is removed from
+    /// `readouts`.
     async fn execute(
         &mut self,
         batches: &[Batch<'_>],
@@ -98,10 +119,12 @@ impl<E: Execute> Execute for Checked<'_, E> {
         };
         let mut slots: SmallVec<[u32; 4]> = SmallVec::with_capacity(batches.len());
         for (index, batch) in batches.iter().enumerate() {
-            #[cfg(test)]
-            BATCHES_CHECKED.with(|checked| checked.set(checked.get() + 1));
-            let width = check_batch(batch.instructions, self.batch_limits)
-                .map_err(|fault| ExecuteError::Refused(refusal(index, batch, fault)))?;
+            let width = if self.checks.on {
+                check_batch(batch.instructions, self.batch_limits)
+                    .map_err(|fault| ExecuteError::Refused(refusal(index, batch, fault)))?
+            } else {
+                readout_slots(batch.instructions, self.batch_limits)
+            };
             slots.push(width);
         }
         let mut answer = PendingAnswer::new(readouts);
@@ -261,11 +284,4 @@ fn check_shape(
 /// The first of `shots`, in its order.
 fn first_shot(shots: &ShotSet) -> ShotId {
     shots.iter().next().expect("a shot set is never empty")
-}
-
-#[cfg(test)]
-thread_local! {
-    /// How many batches this thread's `Checked`s checked: so the tests see
-    /// that each boundary is checked once, which no answer shows.
-    pub(crate) static BATCHES_CHECKED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }

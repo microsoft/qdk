@@ -9,6 +9,7 @@ use std::error::Error;
 use std::fmt;
 
 use crate::admission::by_part::ByPart;
+use crate::checked::BatchChecks;
 use crate::{
     Batch, Capabilities, Failure, InstructionFault, InstructionSet, Needs, Readouts, RunRefusal,
     Seed, ShotId, ShotSet,
@@ -18,10 +19,14 @@ use crate::{
 ///
 /// It is the part at the bottom of a chain, and the part a driver or an
 /// adapter calls below it: the rest of the chain, composed, is one executor
-/// to the part above. The protocol checks each `execute` it receives: every
-/// instruction against its set and the needs it was provisioned for, each
-/// batch against its most instructions, and the shape of the readouts it
-/// appends; so it runs only what it accepts.
+/// to the part above. The protocol checks the shape of the readouts each
+/// `execute` it receives appends, so the part above can index them. When
+/// the runner turns the batch checks on
+/// ([`Runner::set_batch_checks`](crate::Runner::set_batch_checks)), it also
+/// checks every instruction against its set and the needs it was
+/// provisioned for, and each batch against its most instructions, so it
+/// runs only what it accepts; with them off, the default, it runs what the
+/// part above sends.
 pub trait Execute {
     // Composition time.
 
@@ -44,8 +49,9 @@ pub trait Execute {
     /// The instructions it runs, which the part above must fit.
     ///
     /// Its answer must not change once the part is composed: the fit and
-    /// `bind`'s map are made once, by `>>`, and the set every batch it
-    /// receives is checked against is read once, before it is provisioned.
+    /// `bind`'s map are made once, by `>>`, and the set the batch checks
+    /// hold each batch it receives to is read once, before it is
+    /// provisioned.
     fn accepts(&self) -> &InstructionSet;
 
     /// What it can ever serve, such as its most qubits, which the driver's
@@ -84,6 +90,13 @@ pub trait Execute {
         let offer = self.offers();
         by_part.note_executor_offer(Execute::name(self), &offer);
         offer
+    }
+
+    /// Turns the batch checks of each boundary it holds on or off; by
+    /// default it holds none. Only the crate overrides it.
+    #[doc(hidden)]
+    fn set_batch_checks(&mut self, checks: BatchChecks) {
+        let _ = checks;
     }
 
     // Run time.
@@ -184,6 +197,10 @@ impl<E: Execute + ?Sized> Execute for &mut E {
 
     fn offers_by_part(&mut self, by_part: &mut ByPart) -> Capabilities {
         (**self).offers_by_part(by_part)
+    }
+
+    fn set_batch_checks(&mut self, checks: BatchChecks) {
+        (**self).set_batch_checks(checks);
     }
 
     fn ready(&mut self) -> impl Future<Output = Result<(), RunRefusal>> {

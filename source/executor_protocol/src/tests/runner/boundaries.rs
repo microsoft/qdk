@@ -3,8 +3,8 @@
 
 //! The checks at each boundary of a chain, wherever the brackets go: a
 //! refusal, a shape fault or a panic at a boundary inside a composed part
-//! ends the run as it does at the executor's, and each boundary is checked
-//! once.
+//! ends the run as it does at the executor's, and the batch checks, once
+//! on, reach every boundary.
 
 use std::any::type_name;
 use std::cell::Cell;
@@ -12,17 +12,16 @@ use std::rc::Rc;
 
 use smallvec::smallvec;
 
-use super::{SEED, failed, runner};
-use crate::checked::BATCHES_CHECKED;
+use super::{SEED, checked, failed, runner};
 use crate::tests::fake_parts::{
     Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, Misshape, Misshapen, NamesBelow, Panics,
     PanicsWhen, ParityGates, Profiler, Program, Renamed,
 };
 use crate::{
-    Adapt, Adapter, Argument, BlockType, Capabilities, ChainPart, CompositionFaults, Drive,
-    DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure, Instruction, InstructionDef,
-    InstructionFault, InstructionSet, Needs, ReadoutValue, RunError, Runner, ShapeFault,
-    ShotConditions, ShotId, ShotSet,
+    Adapt, Adapter, Argument, Batch, BlockType, Capabilities, ChainPart, CompositionFaults, Drive,
+    DriveError, Driver, Execute, ExecuteError, ExecuteRefusal, Executor, Failure, Instruction,
+    InstructionDef, InstructionFault, InstructionSet, Needs, OpcodeMap, ReadoutValue, Readouts,
+    RunError, Runner, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
 };
 
 /// A run of a chain in one bracketing: how it failed, what its parts
@@ -41,12 +40,30 @@ fn failed_in_both_brackets<D: Drive<Output: std::fmt::Debug>, A: Adapt, E: Execu
     shots: &ShotSet,
     parts: impl Fn(&Log, &Rc<Cell<usize>>) -> (Driver<D>, Adapter<A>, Executor<E>),
 ) -> [Failed; 2] {
+    in_both_brackets(shots, false, parts)
+}
+
+/// As [`failed_in_both_brackets`], with the batch checks on.
+fn refused_in_both_brackets<D: Drive<Output: std::fmt::Debug>, A: Adapt, E: Execute>(
+    shots: &ShotSet,
+    parts: impl Fn(&Log, &Rc<Cell<usize>>) -> (Driver<D>, Adapter<A>, Executor<E>),
+) -> [Failed; 2] {
+    in_both_brackets(shots, true, parts)
+}
+
+/// The failures [`failed_in_both_brackets`] gives, with the batch checks
+/// on if `batch_checks`.
+fn in_both_brackets<D: Drive<Output: std::fmt::Debug>, A: Adapt, E: Execute>(
+    shots: &ShotSet,
+    batch_checks: bool,
+    parts: impl Fn(&Log, &Rc<Cell<usize>>) -> (Driver<D>, Adapter<A>, Executor<E>),
+) -> [Failed; 2] {
     let new = || (Log::default(), Rc::new(Cell::new(0)));
     let (log, counted) = new();
     let (driver, adapter, executor) = parts(&log, &counted);
     let left = Failed {
         brackets: "the adapter with the driver",
-        error: failed(runner((driver >> adapter) >> executor).run(shots, SEED)),
+        error: failed_run((driver >> adapter) >> executor, shots, batch_checks),
         log,
         counted,
     };
@@ -54,11 +71,23 @@ fn failed_in_both_brackets<D: Drive<Output: std::fmt::Debug>, A: Adapt, E: Execu
     let (driver, adapter, executor) = parts(&log, &counted);
     let right = Failed {
         brackets: "the adapter with the executor",
-        error: failed(runner(driver >> (adapter >> executor)).run(shots, SEED)),
+        error: failed_run(driver >> (adapter >> executor), shots, batch_checks),
         log,
         counted,
     };
     [left, right]
+}
+
+/// The failure of the run of `shots` on the chain `composed` makes,
+/// with the batch checks on if `batch_checks`.
+fn failed_run<D: Drive<Output: std::fmt::Debug>, E: Execute>(
+    composed: Result<Runner<D, E>, CompositionFaults>,
+    shots: &ShotSet,
+    batch_checks: bool,
+) -> DriveError {
+    let mut runner = runner(composed);
+    runner.set_batch_checks(batch_checks);
+    failed(runner.run(shots, SEED))
 }
 
 /// Measures qubit 0 after flipping it: one batch of two instructions,
@@ -73,7 +102,7 @@ fn flip_and_measure() -> Driver<Program> {
 /// of it runs.
 #[test]
 fn an_adapters_instruction_beyond_the_needs_is_refused_before_it_runs() {
-    for run in failed_in_both_brackets(&ShotSet::ids([4, 2]), |log, _| {
+    for run in refused_in_both_brackets(&ShotSet::ids([4, 2]), |log, _| {
         (
             flip_and_measure(),
             Adapter::new(Misbehaving::new(Misbehaviour::SendsBeyondTheNeeds)),
@@ -111,14 +140,14 @@ fn an_adapters_instruction_beyond_the_needs_is_refused_before_it_runs() {
 fn an_adapters_batch_longer_than_the_executor_takes_is_refused_before_it_runs() {
     let offer = Capabilities::unlimited().max_qubits(64).max_instructions(4);
     let triples = || Adapter::new(Misbehaving::new(Misbehaviour::TriplesEachBatch));
-    let alone = failed_in_both_brackets(&ShotSet::ids(0..2), |log, _| {
+    let alone = refused_in_both_brackets(&ShotSet::ids(0..2), |log, _| {
         (
             flip_and_measure(),
             triples(),
             Executor::new(Bits::new(log).offering(offer.clone())),
         )
     });
-    let profiled = failed_in_both_brackets(&ShotSet::ids(0..2), |log, counted| {
+    let profiled = refused_in_both_brackets(&ShotSet::ids(0..2), |log, counted| {
         (
             flip_and_measure(),
             triples() >> Adapter::new(Profiler::new(counted, log)),
@@ -156,7 +185,7 @@ fn an_adapters_batch_longer_than_the_executor_takes_is_refused_before_it_runs() 
 #[test]
 fn a_drivers_batch_longer_than_the_offer_below_an_adapter_is_refused_above_it() {
     let offer = Capabilities::unlimited().max_qubits(64).max_instructions(1);
-    for run in failed_in_both_brackets(&ShotSet::ids(0..2), |log, counted| {
+    for run in refused_in_both_brackets(&ShotSet::ids(0..2), |log, counted| {
         (
             flip_and_measure(),
             Adapter::new(Profiler::new(counted, log)),
@@ -206,7 +235,7 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused_before_it_run
         arguments: smallvec![],
         select: None,
     };
-    for run in failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
+    for run in refused_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
         (
             Driver::new(Program::sending(
                 wide.clone(),
@@ -245,7 +274,7 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused_before_it_run
 /// refused at the driver's boundary, before the profiler counts any.
 #[test]
 fn a_drivers_instruction_beyond_its_needs_is_refused_above_an_adapter() {
-    for run in failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
+    for run in refused_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
         (
             Driver::new(Program::new(&[("mz", 0), ("x", 1)]).needing(Needs::qubits(1))),
             Adapter::new(Profiler::new(counted, log)),
@@ -320,7 +349,7 @@ fn parity_refused(error: &DriveError, shot: u32) -> bool {
 /// never checked that the parts below resolve them.
 #[test]
 fn a_drivers_readout_parity_its_needs_do_not_use_is_refused_above_an_adapter() {
-    for run in failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
+    for run in refused_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
         (
             flip_on_a_parity(Needs::qubits(1)),
             Adapter::new(Profiler::on(ParityGates::set(), counted, log)),
@@ -349,7 +378,7 @@ fn a_drivers_readout_parity_its_needs_do_not_use_is_refused_above_an_adapter() {
 /// refused before the executor runs it.
 #[test]
 fn an_adapters_readout_parity_its_needs_below_do_not_use_is_refused_before_it_runs() {
-    for run in failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, _| {
+    for run in refused_in_both_brackets(&ShotSet::ids([5, 3]), |log, _| {
         (
             flip_on_a_parity(Needs::qubits(1).with_readout_parity()),
             Adapter::new(ForwardsParity::on(ParityGates::set(), log)),
@@ -396,9 +425,10 @@ fn a_readout_parity_the_needs_use_crosses_every_boundary() {
 /// A driver flipping and measuring qubit 0 in `CoinGates`, over bits
 /// whose `accepts` answers [`ParityGates`] once provisioned, in which
 /// `x` is `x_if` and `mz` is past the set's end, directly and through an
-/// adapter in both bracketings: each run checks the batch against the set
-/// read before the bits were provisioned, so it runs and reads 1, and the
-/// adapter reads that set as the one below it accepts.
+/// adapter in both bracketings, with the batch checks on: each run checks
+/// the batch against the set read before the bits were provisioned, so it
+/// runs and reads 1, and the adapter reads that set as the one below it
+/// accepts.
 #[test]
 fn every_batch_is_checked_against_the_set_read_before_provision() {
     let log = Log::default();
@@ -406,9 +436,9 @@ fn every_batch_is_checked_against_the_set_read_before_provision() {
     let bits = || Executor::new(Bits::new(&log).accepting_once_provisioned(ParityGates::set()));
     let shots = ShotSet::ids([5, 3]);
     let runs = [
-        runner(flip_and_measure() >> bits()).run(&shots, SEED),
-        runner((flip_and_measure() >> names_below()) >> bits()).run(&shots, SEED),
-        runner(flip_and_measure() >> (names_below() >> bits())).run(&shots, SEED),
+        checked(flip_and_measure() >> bits()).run(&shots, SEED),
+        checked((flip_and_measure() >> names_below()) >> bits()).run(&shots, SEED),
+        checked(flip_and_measure() >> (names_below() >> bits())).run(&shots, SEED),
     ];
     for (i, run) in runs.into_iter().enumerate() {
         let records = run.unwrap_or_else(|error| panic!("bracketing {i}: {error:?}"));
@@ -598,7 +628,7 @@ fn a_panic_tells_two_parts_of_one_name_apart_by_position() {
 /// An adapter that reads the name of the part below it, over an executor
 /// or over an adapter, each named as a part built at run time is,
 /// bracketed both ways: it reads that part's name, though the protocol
-/// checks each `execute` it sends.
+/// checks each answer to the `execute`s it sends.
 #[test]
 fn an_adapter_reads_the_name_of_the_part_below() {
     let log = Log::default();
@@ -629,38 +659,163 @@ fn an_adapter_reads_the_name_of_the_part_below() {
     );
 }
 
-/// How many batches the `Checked`s of the chain `composed` checked in a
-/// run of two shots of one batch.
-fn batches_checked<D: Drive, E: Execute>(
-    composed: Result<Runner<D, E>, CompositionFaults>,
-) -> usize {
-    let mut runner = runner(composed);
-    BATCHES_CHECKED.with(|checked| checked.set(0));
-    runner
-        .run(&ShotSet::ids(0..2), SEED)
-        .expect("the run succeeds");
-    BATCHES_CHECKED.with(Cell::get)
+/// An adapter of a chain whose one faulty part sends an instruction
+/// beyond the needs: a profiler, or, if it is that part, an adapter
+/// adding an `x` on qubit 9 beyond the one qubit it passes down.
+enum Stage {
+    Counts(Profiler),
+    Faulty(Misbehaving),
 }
 
-/// A driver, two profilers at most and bits, in every bracketing: each
-/// boundary's batch is checked once, so a chain of `n` boundaries checks
-/// `n` batches.
+impl Adapt for Stage {
+    fn accepts(&self) -> &InstructionSet {
+        match self {
+            Self::Counts(profiler) => profiler.accepts(),
+            Self::Faulty(faulty) => faulty.accepts(),
+        }
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.accepts()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        match self {
+            Self::Counts(profiler) => profiler.bind(below),
+            Self::Faulty(faulty) => faulty.bind(below),
+        }
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut Readouts,
+    ) -> Result<(), ExecuteError> {
+        match self {
+            Self::Counts(profiler) => profiler.adapt(batches, seed, below, readouts).await,
+            Self::Faulty(faulty) => faulty.adapt(batches, seed, below, readouts).await,
+        }
+    }
+}
+
+/// The parts of a chain of a driver, up to two adapters and bits, of
+/// which one sends an instruction beyond the needs: the driver, an `x` on
+/// qubit 5 while needing two qubits, if `faulty` is 0, or else the
+/// adapter at that position. Each other adapter counts the instructions
+/// it receives, the first into `counted[0]`.
+struct Parts {
+    faulty: usize,
+    counted: [Rc<Cell<usize>>; 2],
+    log: Log,
+}
+
+impl Parts {
+    fn new(faulty: usize) -> Self {
+        Self {
+            faulty,
+            counted: [Rc::new(Cell::new(0)), Rc::new(Cell::new(0))],
+            log: Log::default(),
+        }
+    }
+
+    fn d(&self) -> Driver<Program> {
+        if self.faulty == 0 {
+            Driver::new(Program::new(&[("mz", 0), ("x", 5)]).needing(Needs::qubits(2)))
+        } else {
+            flip_and_measure()
+        }
+    }
+
+    /// The adapter at `position`, 1 or 2 from the top.
+    fn p(&self, position: usize) -> Adapter<Stage> {
+        Adapter::new(if self.faulty == position {
+            Stage::Faulty(Misbehaving::new(Misbehaviour::SendsBeyondTheNeeds))
+        } else {
+            Stage::Counts(Profiler::new(&self.counted[position - 1], &self.log))
+        })
+    }
+
+    fn e(&self) -> Executor<Bits> {
+        Executor::new(Bits::new(&self.log))
+    }
+
+    /// What the part below the faulty one received: the instructions the
+    /// adapter below counted, or the bits' `execute`s.
+    fn received_below(&self, adapters: usize) -> usize {
+        if self.faulty < adapters {
+            self.counted[self.faulty].get()
+        } else {
+            self.log.count("Bits execute")
+        }
+    }
+}
+
+/// The chain `chain` makes, of `adapters` adapters, with each of its
+/// parts above a boundary faulty in turn: with the batch checks on, the
+/// faulty batch is refused, and the part below receives nothing; with
+/// them off, as by default, it reaches the bits, which panic on it.
+fn each_boundary_checks_its_batch<D: Drive<Output: std::fmt::Debug>, E: Execute>(
+    brackets: &str,
+    adapters: usize,
+    chain: impl Fn(&Parts) -> Result<Runner<D, E>, CompositionFaults>,
+) {
+    let shots = ShotSet::ids(0..2);
+    for faulty in 0..=adapters {
+        let parts = Parts::new(faulty);
+        let error = failed(checked(chain(&parts)).run(&shots, SEED));
+        assert!(
+            matches!(
+                error.failure,
+                Failure::Refused(ExecuteRefusal::Instruction {
+                    fault: InstructionFault::BlockBeyondNeeds { .. },
+                    ..
+                })
+            ),
+            "{brackets}, part {faulty} faulty, checks on: {error:?}"
+        );
+        assert_eq!(
+            parts.received_below(adapters),
+            0,
+            "{brackets}, part {faulty} faulty, checks on: the part below received nothing"
+        );
+        let parts = Parts::new(faulty);
+        let error = failed(runner(chain(&parts)).run(&shots, SEED));
+        let bits = ChainPart::new(adapters + 1, type_name::<Bits>());
+        assert!(
+            matches!(&error.failure, Failure::Panicked { part, .. } if *part == bits),
+            "{brackets}, part {faulty} faulty, checks off: {error:?}"
+        );
+        assert!(
+            parts.received_below(adapters) > 0,
+            "{brackets}, part {faulty} faulty, checks off: the part below received it"
+        );
+    }
+}
+
+/// A driver, two adapters at most and bits, in every bracketing, with each
+/// part above a boundary sending an instruction beyond the needs in turn:
+/// the batch checks, once on, refuse it at the boundary below that part,
+/// wherever the brackets go, and they are off by default.
 #[test]
-fn each_boundary_is_checked_once_wherever_the_brackets_go() {
-    let counted = Rc::new(Cell::new(0));
-    let log = Log::default();
-    let d = flip_and_measure;
-    let p = || Adapter::new(Profiler::new(&counted, &log));
-    let e = || Executor::new(Bits::new(&log));
-    let checked = [
-        batches_checked(d() >> e()),
-        batches_checked((d() >> p()) >> e()),
-        batches_checked(d() >> (p() >> e())),
-        batches_checked(((d() >> p()) >> p()) >> e()),
-        batches_checked(d() >> (p() >> (p() >> e()))),
-        batches_checked((d() >> (p() >> p())) >> e()),
-        batches_checked(d() >> ((p() >> p()) >> e())),
-        batches_checked((d() >> p()) >> (p() >> e())),
-    ];
-    assert_eq!(checked, [1, 2, 2, 3, 3, 3, 3, 3]);
+fn the_batch_checks_reach_every_boundary_wherever_the_brackets_go() {
+    each_boundary_checks_its_batch("d>>e", 0, |c| c.d() >> c.e());
+    each_boundary_checks_its_batch("(d>>p)>>e", 1, |c| (c.d() >> c.p(1)) >> c.e());
+    each_boundary_checks_its_batch("d>>(p>>e)", 1, |c| c.d() >> (c.p(1) >> c.e()));
+    each_boundary_checks_its_batch("((d>>p)>>p)>>e", 2, |c| {
+        ((c.d() >> c.p(1)) >> c.p(2)) >> c.e()
+    });
+    each_boundary_checks_its_batch("d>>(p>>(p>>e))", 2, |c| {
+        c.d() >> (c.p(1) >> (c.p(2) >> c.e()))
+    });
+    each_boundary_checks_its_batch("(d>>(p>>p))>>e", 2, |c| {
+        (c.d() >> (c.p(1) >> c.p(2))) >> c.e()
+    });
+    each_boundary_checks_its_batch("d>>((p>>p)>>e)", 2, |c| {
+        c.d() >> ((c.p(1) >> c.p(2)) >> c.e())
+    });
+    each_boundary_checks_its_batch("(d>>p)>>(p>>e)", 2, |c| {
+        (c.d() >> c.p(1)) >> (c.p(2) >> c.e())
+    });
 }

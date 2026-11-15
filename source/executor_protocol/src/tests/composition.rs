@@ -288,7 +288,8 @@ fn provisioned<D: Drive, E: Execute>(
 }
 
 /// What `composed` logs over two runs, in order, of entries containing
-/// `containing`.
+/// `containing`, with the batch checks on, so that each boundary holds
+/// the batches to the limits it read.
 fn logged_over_two_runs<D: Drive, E: Execute>(
     composed: Result<Runner<D, E>, CompositionFaults>,
     log: &Log,
@@ -297,6 +298,7 @@ fn logged_over_two_runs<D: Drive, E: Execute>(
     let Ok(mut runner) = composed else {
         panic!("the chain composes");
     };
+    runner.set_batch_checks(true);
     for _ in 0..2 {
         runner
             .run(&ShotSet::ids(0..4), SEED)
@@ -421,10 +423,10 @@ fn every_part_is_provisioned_for_the_needs_read_before_the_drivers_provision() {
 
 /// Two adapters whose offers narrow from 2 instructions a batch to 1 once
 /// provisioned, which their rule forbids, over bits, under a program
-/// sending batches of 2, in each of the five bracketings: every boundary
-/// checks each batch against the offer read before any part was
-/// provisioned, and the upper adapter is told that offer, so the run
-/// succeeds alike.
+/// sending batches of 2, in each of the five bracketings: with the batch
+/// checks on, every boundary checks each batch against the offer read
+/// before any part was provisioned, and the upper adapter is told that
+/// offer, so the run succeeds alike.
 #[test]
 fn every_boundary_answers_the_offer_read_before_any_part_is_provisioned() {
     fn program() -> Driver<Program> {
