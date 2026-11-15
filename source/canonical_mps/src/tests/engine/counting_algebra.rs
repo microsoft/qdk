@@ -1,29 +1,31 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`CountingAlgebra`]: [`FakeAlgebra`], counting the engine's calls, for
-//! the tests that pin how many splits, moves of the centre, reads and
-//! duplicates an operation takes.
+//! [`CountingAlgebra`]: [`FakeAlgebra`], counting the engine's calls and
+//! recording what it uploads, for the tests that pin how many moves of the
+//! centre, reads and duplicates an operation takes, and what the engine
+//! hands the algebra.
 
 use crate::algebra::fake_algebra::FakeAlgebra;
 use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
 use num_complex::Complex64;
 use std::borrow::Cow;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::convert::Infallible;
 use std::rc::Rc;
 
-/// How many calls of each counted method a [`CountingAlgebra`] answered.
+/// How many calls of each counted method a [`CountingAlgebra`] answered,
+/// and the values of each upload, in order.
 #[derive(Default)]
 pub(super) struct Counts {
-    pub(super) gate_splits: Cell<usize>,
     pub(super) qr_moves: Cell<usize>,
     pub(super) reads: Cell<usize>,
     pub(super) duplicates: Cell<usize>,
+    pub(super) uploads: RefCell<Vec<Vec<Complex64>>>,
 }
 
-/// [`FakeAlgebra`], counting its gate splits, moves of the centre, reads
-/// and duplicates into the [`Counts`] it shares with the test.
+/// [`FakeAlgebra`], counting its moves of the centre, reads and duplicates,
+/// and recording its uploads, into the [`Counts`] it shares with the test.
 #[derive(Clone)]
 pub(super) struct CountingAlgebra(Rc<Counts>);
 
@@ -44,6 +46,7 @@ impl SiteAlgebra for CountingAlgebra {
     type Error = Infallible;
 
     fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error> {
+        self.0.uploads.borrow_mut().push(values.to_vec());
         FakeAlgebra.upload(values)
     }
 
@@ -65,7 +68,6 @@ impl SiteAlgebra for CountingAlgebra {
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,
     ) -> Result<GateSplitOutcome<Self::Tensor>, Self::Error> {
-        count(&self.0.gate_splits);
         FakeAlgebra.gate_split(call)
     }
 

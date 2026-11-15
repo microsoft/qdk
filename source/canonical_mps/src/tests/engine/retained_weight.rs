@@ -83,9 +83,9 @@ fn a_rare_value_reads_its_probability_after_many_truncations() {
 }
 
 /// 1,020 rounds of a pair truncated to a bond of 1 (a retained weight of
-/// 2⁻¹⁰²⁰, about 8.9e-308), then ⟨1000·Z₀⟩: the read gives ±1000, as the
-/// kept part of each split holds the squared norm of the whole block, not
-/// more, so the state's norm stays about 1 however small the weight.
+/// 2⁻¹⁰²⁰, about 8.9e-308), then ⟨1000·Z₀⟩: the read gives ±1000, as each
+/// split normalises the values it keeps, so the state's norm stays about 1
+/// however small the weight.
 #[test]
 fn an_expectation_after_many_truncations_reads_its_value() {
     let z = PauliSum::new(
@@ -169,9 +169,40 @@ fn projections_on_values_of_subnormal_probability_are_accepted() {
     }
 }
 
+/// Three sites in cos(0.55)·|000⟩ + sin(0.55)·|101⟩, the middle one's bonds
+/// carrying the ends' correlation, then the middle site turned so that
+/// P(One) is 1e-200: a projection on One keeps two nonzero elements, and
+/// the site the engine uploads in their place has a squared norm of 1
+/// within 1e-12, as `gate_split`'s contract promises every algebra of the
+/// states it is handed.
+#[test]
+fn a_projection_hands_the_algebra_a_site_of_norm_one() {
+    let theta = 2.0 * 1e-100_f64.asin();
+    for fuse in [true, false] {
+        let (algebra, counts) = CountingAlgebra::new();
+        let engine = CanonicalMpsEngine::new(algebra).with_fusion(fuse);
+        let mut state = engine.prepare(&chain(3, 2)).expect("prepare");
+        engine.apply(&mut state, &[0], &ry(1.1)).expect("apply");
+        for pair in [[0, 1], [1, 2], [0, 1]] {
+            engine.apply(&mut state, &pair, &cnot()).expect("apply");
+        }
+        engine.apply(&mut state, &[1], &ry(theta)).expect("apply");
+        let p = engine
+            .project(&mut state, 1, true)
+            .expect("a possible value");
+        assert!((p / 1e-200 - 1.0).abs() < 1e-9, "fused {fuse}: {p:e}");
+        let uploads = counts.uploads.borrow();
+        let site = uploads.last().expect("the projected site's upload");
+        let kept = site.iter().filter(|x| x.norm() > 0.0).count();
+        assert!(kept > 1, "fused {fuse}: {kept} elements kept");
+        let norm: f64 = site.iter().map(Complex64::norm_sqr).sum();
+        assert!((norm - 1.0).abs() < 1e-12, "fused {fuse}: {norm}");
+    }
+}
+
 /// Two sites, each turned so that P(One) is 1e-200, the first projected on
-/// One: the projection renormalises what it kept, so the norm does not
-/// shrink with `p`, and the second site's P(One) still reads 1e-200 (left
+/// One: the projection renormalises what it kept, so the state's norm is 1
+/// to rounding, and the second site's P(One) still reads 1e-200 (left
 /// unnormalised, the state's squared norm would be 1e-200, and the second
 /// value's weight, 1e-400, would underflow to zero).
 #[test]

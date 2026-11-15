@@ -4,7 +4,8 @@
 //! What the engine's splits discard: the tail below the engine's cutoff,
 //! a fraction of the split's own weight, which leaves the retained weight,
 //! and what exceeds the capacity's bond. The rule of a split's truncation
-//! itself is `truncation.rs`'s, tested there.
+//! itself is `algebra::truncation`'s (`src/algebra/truncation.rs`), tested
+//! in `src/tests/algebra/truncation.rs`.
 
 use super::*;
 

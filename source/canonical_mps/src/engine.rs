@@ -43,8 +43,9 @@
 //! - [`policy`]: the default cutoff, with its reason;
 //! - [`error`]: why an operation was refused or failed.
 //!
-//! Each method of the contract, here, first calls its `tensornet::checks`
-//! function, so the algebra never sees a refused call, then calls its part.
+//! Each method the contract checks, here, first calls its
+//! `tensornet::checks` function, so the algebra never sees a refused call,
+//! then calls its part.
 
 mod canonical_form;
 mod chain;
@@ -283,8 +284,8 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
 
     /// Reads `p` from the value's own weight at the centre site, not as one
     /// minus the other's, and divides the site by the norm of what it kept,
-    /// computed scaled rather than as `√p`, so the state's norm does not
-    /// shrink with `p`, however few digits `p` holds.
+    /// computed scaled rather than as `√p`, so the state's norm is 1 to
+    /// rounding, however few digits `p` holds.
     ///
     /// Drops no singular value of its own: a projection does not compress
     /// the chain again, so the bonds [`MpsEngine::shape`] reports after it
