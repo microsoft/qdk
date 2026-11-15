@@ -59,6 +59,11 @@ pub type Blocks = SmallVec<[u32; 3]>;
 /// instructions allocate nothing.
 pub type Arguments = SmallVec<[Argument; 3]>;
 
+// The instruction's size sets how fast a batch runs, as the crate's bench
+// measures; smallvec's `union` feature, on in `Cargo.toml`, saves 16 bytes.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(size_of::<Instruction>() == 128);
+
 impl InstructionSet {
     /// The instruction `mnemonic` on `blocks`, with its arguments by
     /// parameter name (`&[]` for none), checked against this set: as an

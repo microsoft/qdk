@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Building an instruction by name, its flag patterns, its `pauli`
-//! arguments, and copying it.
+//! Building an instruction by name, its readout parities, its flag
+//! patterns, its `pauli` arguments, and copying it.
 
 use crate::tests::allocations;
 use crate::{
@@ -206,6 +206,61 @@ fn recent_is_the_unflipped_parity_of_one_readout() {
     assert!(!parity.flip());
 }
 
+/// A parity reads back the readouts and the flip it was built with, and
+/// compares and prints by them: from none, the constant `flip`, through
+/// a code's logical readout of five, to more than five.
+#[test]
+fn readout_parity_reads_compares_and_prints_by_its_readouts_and_flip() {
+    let parity_of = |back: &[u32], flip: bool| match Argument::parity(back.iter().copied(), flip) {
+        Argument::Bit(Bit::Parity(parity)) => parity,
+        other => panic!("a readout parity, not {other:?}"),
+    };
+    for back in [
+        &[][..],
+        &[1],
+        &[1, 2, 3, 4, 5],
+        &[1, 2, 3, 4, 5, 6],
+        &[9, 2, 7, 4, 5, 6, 3, 8],
+    ] {
+        for flip in [false, true] {
+            let row = format!("{back:?}, flip {flip}");
+            let parity = parity_of(back, flip);
+            assert_eq!(parity.back(), back, "{row}");
+            assert_eq!(parity.flip(), flip, "{row}");
+            assert_eq!(
+                format!("{parity:?}"),
+                format!("ReadoutParity {{ flip: {flip}, back: {back:?} }}"),
+                "{row}"
+            );
+            assert_eq!(parity, parity_of(back, flip), "{row}");
+            assert_eq!(parity.clone(), parity, "{row}");
+            assert_ne!(parity, parity_of(back, !flip), "{row}");
+            if let Some((last, rest)) = back.split_last() {
+                let other = [rest, &[last + 1]].concat();
+                assert_ne!(parity, parity_of(&other, flip), "{row}");
+                assert_ne!(parity, parity_of(rest, flip), "{row}");
+            }
+        }
+    }
+}
+
+/// A QEC correction's parity, of up to five readouts, is held inline, so
+/// building one allocates nothing; a sixth readout is the first one that
+/// does.
+#[test]
+fn readout_parity_of_up_to_five_readouts_allocates_nothing() {
+    for (count, allocates) in [(0, false), (1, false), (5, false), (6, true), (8, true)] {
+        let built = allocations(|| {
+            std::hint::black_box(Argument::parity(1..=count, false));
+        });
+        assert_eq!(
+            built > 0,
+            allocates,
+            "{count} readouts: {built} allocations"
+        );
+    }
+}
+
 fn m() -> crate::Instruction {
     gates().instruction("m", [0], &[]).expect("a measurement")
 }
@@ -359,22 +414,20 @@ fn pauli_text_reads_back_as_the_same_pauli() {
 }
 
 /// A part forwards instructions by copying them: with up to three blocks
-/// and three arguments, held inline, and its text and Pauli shared, a copy
-/// allocates nothing.
+/// and three arguments, held inline, and its text, Pauli and a readout
+/// parity of more than five readouts shared, a copy allocates nothing.
 #[test]
 fn copying_an_instruction_of_up_to_three_blocks_and_arguments_allocates_nothing() {
-    let instruction = Instruction {
-        opcode: Opcode::__from_macro(0),
-        blocks: smallvec![0, 1, 2],
-        arguments: smallvec![
-            Argument::Text("label".into()),
-            pauli("X_0 Z_2"),
-            Argument::recent(1),
-        ],
-        select: None,
-    };
-    let copies = allocations(|| {
-        std::hint::black_box(instruction.clone());
-    });
-    assert_eq!(copies, 0);
+    for parity in [Argument::recent(1), Argument::parity(1..=8, true)] {
+        let instruction = Instruction {
+            opcode: Opcode::__from_macro(0),
+            blocks: smallvec![0, 1, 2],
+            arguments: smallvec![Argument::Text("label".into()), pauli("X_0 Z_2"), parity],
+            select: None,
+        };
+        let copies = allocations(|| {
+            std::hint::black_box(instruction.clone());
+        });
+        assert_eq!(copies, 0, "{instruction:?}");
+    }
 }

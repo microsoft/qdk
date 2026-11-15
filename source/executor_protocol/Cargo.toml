@@ -9,7 +9,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-smallvec = { workspace = true }
+# `union` lays a small vector's inline items over its heap pointer with no
+# tag word, which keeps an instruction at 128 bytes rather than 144.
+smallvec = { workspace = true, features = ["union"] }
 
 [lints]
 workspace = true
