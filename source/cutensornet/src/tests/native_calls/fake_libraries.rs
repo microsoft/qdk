@@ -1034,6 +1034,33 @@ fn a_gate_split_with_no_cutoff_refuses_fewer_values_than_its_extent() {
     assert_eq!(factors.extent, 1);
 }
 
+/// With no cutoff set, cuTensorNet keeps the shared extent it is asked for,
+/// below θ's rank too, and reports the weight that extent drops: a
+/// simulator that caps its bond at a fixed extent gets the largest singular
+/// values' part of θ, and descriptors still at that extent.
+#[test]
+fn a_gate_split_with_no_cutoff_truncates_at_its_extent() {
+    let zero = Complex64::default();
+    let mut split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    split.operands.u = split.device.operand(&[2, 1], &[P_OUT, S], &[zero; 2]);
+    split.operands.v = split.device.operand(&[1, 2], &[S, Q_OUT], &[zero; 2]);
+    split
+        .device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    let capped = split.split().expect("θ has full rank");
+    assert_eq!(capped.extent, 1, "the extent asked");
+    assert!(
+        (capped.truncation.discarded_weight - 0.1).abs() < 1e-12,
+        "{:?}",
+        capped.truncation
+    );
+    assert_close(&capped.product(), &matrix([[3.0, 0.0], [0.0, 0.0]]));
+    let next = split.split().expect("θ has full rank");
+    assert_eq!(next.extent, 1, "the descriptors keep the extent of 1");
+}
+
 /// A cutoff of 0, as a simulator asking for no loss sets it, still asks
 /// for a truncation by value: a product state's θ splits to bond 1, and
 /// the descriptors are lowered to it, so the next split is capped there.
@@ -2011,6 +2038,46 @@ fn a_new_path_search_needs_the_workspace_sized_again() {
     contraction
         .contract()
         .expect("the network is prepared for its new path");
+}
+
+/// A new path search changes the path every workspace sized for the network
+/// was sized for: a caller that keeps two workspaces sized for one network,
+/// searches its path again and prepares it in either without sizing that
+/// one again is caught on the fake.
+#[test]
+fn a_new_path_search_needs_every_workspace_sized_again() {
+    let contraction = Contraction::dot_product(FakeLibraries::new());
+    let device = &contraction.device;
+    let (fake, handle) = (&device.fake, device.handle);
+    let network = contraction.network.descriptor;
+    let second = fake.create_workspace(handle).expect("the handle is live");
+    fake.contraction_workspace_sizes(handle, network, contraction.info, second)
+        .expect("the path is optimized");
+    let bytes = fake
+        .workspace_size(handle, second, WorkspaceSlot::DeviceScratch)
+        .expect("the workspace is live");
+    let memory = fake
+        .allocate(usize::try_from(bytes).expect("a size is not negative"))
+        .expect("the fake has memory");
+    fake.set_workspace(handle, second, WorkspaceSlot::DeviceScratch, memory, bytes)
+        .expect("the buffer holds the bytes lent");
+    fake.optimize_contraction(handle, network, 1 << 20, contraction.info)
+        .expect("the info is the network's");
+    for workspace in [device.workspace, second] {
+        let refused = fake
+            .prepare_contraction(handle, network, workspace)
+            .expect_err("the workspace is sized for the earlier search's path");
+        assert!(
+            refused_for(&refused, "not sized for this call"),
+            "{refused}"
+        );
+    }
+    for workspace in [device.workspace, second] {
+        fake.contraction_workspace_sizes(handle, network, contraction.info, workspace)
+            .expect("the path is optimized");
+        fake.prepare_contraction(handle, network, workspace)
+            .expect("the workspace is sized for the new path");
+    }
 }
 
 /// A path search changes its network's path, not a workspace's sizing for

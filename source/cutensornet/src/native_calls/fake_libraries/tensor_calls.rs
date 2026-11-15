@@ -61,7 +61,10 @@
 //! given it. With no cutoff set, the reduced extent is the shared mode's extent
 //! and the descriptors keep it; a split whose SVD gave fewer values than that
 //! extent is refused, since cuTensorNet would complete the singular vectors,
-//! which the fake does not model. The full extent is θ's smaller side,
+//! which the fake does not model. The fake squares the singular values
+//! unscaled for the weights and the normalization, so it models splits
+//! whose singular values' squares neither overflow nor underflow an f64, as
+//! a normalized state's do. The full extent is θ's smaller side,
 //! whatever the SVD left out. The fake absorbs the singular values into
 //! U or V only, writes none to their buffer, and refuses a product of A, B and
 //! the gate that is zero, whose singular vectors are arbitrary.
