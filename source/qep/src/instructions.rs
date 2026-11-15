@@ -59,11 +59,10 @@ macro_rules! define_instructions {
         }
 
         /// Parses wire operands using the canonical instruction's parameter types.
-        pub(crate) fn parse_instruction(
+        pub(crate) fn parse_instruction<'a>(
             name: &str,
-            arguments: &[&str],
+            mut arguments: impl Iterator<Item = &'a str>,
         ) -> Result<QuantumBackendInstruction, String> {
-            let mut arguments = arguments.iter();
             let instruction = match name {
                 $($name => QuantumBackendInstruction {
                     instruction_name: $name,

@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 use crate::{
-    QuantumBackend,
+    QuantumBackend, QuantumBackendInstruction,
     interface::Driver,
-    serde::{deserialize_batch, read_message, serialize_result, write_message},
+    serde::{deserialize_batch_into, read_message, serialize_result, write_message},
 };
 use std::io::{self, BufReader, Read, Stdin, Stdout, Write};
 
@@ -13,6 +13,8 @@ pub struct StdioDriver<B, R, W> {
     backend: B,
     instruction_stream: BufReader<R>,
     result_stream: W,
+    message: String,
+    instructions: Vec<QuantumBackendInstruction>,
 }
 
 impl<B: QuantumBackend, R: Read, W: Write> StdioDriver<B, R, W> {
@@ -22,16 +24,18 @@ impl<B: QuantumBackend, R: Read, W: Write> StdioDriver<B, R, W> {
             backend,
             instruction_stream: BufReader::new(instruction_stream),
             result_stream,
+            message: String::new(),
+            instructions: Vec::new(),
         }
     }
 
     /// Executes and replies to one batch, returning false on clean instruction EOF.
     pub fn process_next_batch(&mut self) -> Result<bool, String> {
-        let Some(message) = read_message(&mut self.instruction_stream)? else {
+        if !read_message(&mut self.instruction_stream, &mut self.message)? {
             return Ok(false);
-        };
-        let instructions = deserialize_batch(&message)?;
-        let result = self.backend.execute_batch(&instructions)?;
+        }
+        deserialize_batch_into(&self.message, &mut self.instructions)?;
+        let result = self.backend.execute_batch(&self.instructions)?;
         write_message(&mut self.result_stream, &serialize_result(&result)?)?;
         Ok(true)
     }

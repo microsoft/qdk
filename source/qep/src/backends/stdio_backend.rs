@@ -3,7 +3,7 @@
 
 use crate::{
     BatchResult, QuantumBackend, QuantumBackendInstruction,
-    serde::{deserialize_result, read_message, serialize_batch, write_message},
+    serde::{deserialize_result, read_message, serialize_batch_into, write_message},
 };
 use std::io::{self, BufReader, Read, Stdin, Stdout, Write};
 
@@ -11,6 +11,7 @@ use std::io::{self, BufReader, Read, Stdin, Stdout, Write};
 pub struct StdioBackend<W, R> {
     instruction_stream: W,
     result_stream: BufReader<R>,
+    message: String,
 }
 
 impl<W: Write, R: Read> StdioBackend<W, R> {
@@ -19,6 +20,7 @@ impl<W: Write, R: Read> StdioBackend<W, R> {
         Self {
             instruction_stream,
             result_stream: BufReader::new(result_stream),
+            message: String::new(),
         }
     }
 }
@@ -37,10 +39,11 @@ impl<W: Write, R: Read> QuantumBackend for StdioBackend<W, R> {
         &mut self,
         instructions: &[QuantumBackendInstruction],
     ) -> Result<BatchResult, String> {
-        let message = serialize_batch(instructions)?;
-        write_message(&mut self.instruction_stream, &message)?;
-        let response = read_message(&mut self.result_stream)?
-            .ok_or_else(|| "Result stream closed before returning a batch result".to_string())?;
-        deserialize_result(&response)
+        serialize_batch_into(instructions, &mut self.message)?;
+        write_message(&mut self.instruction_stream, &self.message)?;
+        if !read_message(&mut self.result_stream, &mut self.message)? {
+            return Err("Result stream closed before returning a batch result".into());
+        }
+        deserialize_result(&self.message)
     }
 }

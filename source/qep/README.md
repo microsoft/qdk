@@ -90,6 +90,11 @@ positions, for example `["rz(1,-0.125)","mz_store(1,7)","read_result(7)"]`.
 An ordered result list is a quoted string using `0` for Zero, `1` for One, and
 `2` for Error: `"0102"`. Empty batches and results are `[]` and `""`.
 
+Batch serialization writes directly into a reusable message buffer. The driver
+reuses its message and instruction buffers, parsing JSON strings without
+per-instruction string or argument-vector allocations. JSON escapes remain
+supported through the JSON decoder's scratch buffer.
+
 The protocol is synchronous: each batch, including a result-free batch, receives
 one result message before the next batch is sent. Reserve the protocol streams
 for these messages; send diagnostics elsewhere. Invalid messages, truncated
