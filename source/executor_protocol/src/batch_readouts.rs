@@ -344,8 +344,9 @@ impl ReadoutIndex {
 /// (`Slots`, named by that batch's first shot): that sum costs a pass over
 /// the instructions, which an unchecked batch is spared. So the part above
 /// finds a row for every shot, and, for a checked batch, every slot it
-/// asked for at its index, after the readouts it had, unchanged. A
-/// replacement of readouts lent empty is not seen, and loses nothing.
+/// asked for at its index, after the readouts it had, unchanged. Every
+/// replacement is reported, whatever the values hold: of readouts lent
+/// empty too, and by readouts lent to an earlier `execute`, swapped back.
 // The one statement of the protocol's check of an answer's shape: the
 // other docs link here rather than restate it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -359,8 +360,8 @@ pub enum ShapeFault {
         got: usize,
     },
     /// An `execute` replaced the [`Readouts`] it was lent, by assigning or
-    /// swapping in another value, so that those it found were lost with
-    /// the value replaced.
+    /// swapping in another value, so that those it found, if any, were
+    /// lost with the value replaced.
     ReadoutsReplaced,
     /// An `execute` appended `got` batches' readouts to the caller's
     /// [`Readouts`], where it was sent `expected` batches.
@@ -402,7 +403,7 @@ impl fmt::Display for ShapeFault {
             ),
             Self::ReadoutsReplaced => write!(
                 f,
-                "readouts that replace those lent, losing the readouts found"
+                "readouts that replace those lent, losing any readouts found"
             ),
             Self::Batches { expected, got } => {
                 write!(f, "readouts for {got} batches, where {expected} were sent")

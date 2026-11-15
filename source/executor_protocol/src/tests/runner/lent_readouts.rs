@@ -39,24 +39,39 @@ struct Seen {
     after: Readouts,
 }
 
-/// A driver that lends readouts already holding a batch of its own to one
-/// `execute` of `x` and `mz` on qubit 0 for every shot, waits for it as
-/// [`Waits`] says, and records what it saw; it ends the run with no error
-/// whatever the `execute` gave.
+/// A driver that lends readouts, `found`, to one `execute` of `x` and `mz`
+/// on qubit 0 for every shot, waits for it as [`Waits`] says, and records
+/// what it saw; it ends the run with no error whatever the `execute` gave.
 struct Lender {
     instructions: Vec<Instruction>,
+    found: Readouts,
     waits: Waits,
     seen: Rc<RefCell<Option<Seen>>>,
 }
 
 impl Lender {
-    fn new(waits: Waits, seen: &Rc<RefCell<Option<Seen>>>) -> Self {
+    fn new(found: Readouts, waits: Waits, seen: &Rc<RefCell<Option<Seen>>>) -> Self {
         Self {
             instructions: vec![coin_gate("x", 0), coin_gate("mz", 0)],
+            found,
             waits,
             seen: Rc::clone(seen),
         }
     }
+}
+
+/// Readouts holding a batch of a [`Lender`]'s own, of one row
+/// `[Zero, One]`.
+fn a_batch_of_its_own() -> Readouts {
+    let mut readouts = Readouts::new();
+    readouts
+        .push_with_capacity(1, 2)
+        .push_row(
+            &[ReadoutValue::Zero, ReadoutValue::One],
+            ShotConditions::NONE,
+        )
+        .expect("a row of two values");
+    readouts
 }
 
 impl Drive for Lender {
@@ -83,14 +98,7 @@ impl Drive for Lender {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<()>, DriveError> {
-        let mut readouts = Readouts::new();
-        readouts
-            .push_with_capacity(1, 2)
-            .push_row(
-                &[ReadoutValue::Zero, ReadoutValue::One],
-                ShotConditions::NONE,
-            )
-            .expect("a row of two values");
+        let mut readouts = std::mem::take(&mut self.found);
         let before = readouts.clone();
         let batch = Batch::new(shots, &self.instructions);
         let result = {
@@ -121,7 +129,7 @@ impl Drive for Lender {
 }
 
 /// How an [`Unruly`] executor breaks the rules of the readouts it is lent.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum Unruliness {
     /// Appends its answer, then fails.
     FailsAfterAppending,
@@ -142,6 +150,10 @@ enum Unruliness {
     SwapsInOthers,
     /// As `SwapsInOthers` at its first `execute`, then obeys.
     SwapsInOthersOnce,
+    /// Swaps the readouts it is lent with those it stashed, then appends
+    /// its answer: the stash, shared by the executors given it, starts as
+    /// [`readouts_from_elsewhere`], then holds the readouts lent last.
+    SwapsInTheStashed(Rc<RefCell<Readouts>>),
     /// Breaks no rule: appends its answer.
     Obeys,
 }
@@ -182,7 +194,7 @@ impl Execute for Unruly {
         seed: Seed,
         readouts: &mut Readouts,
     ) -> Result<(), ExecuteError> {
-        match self.1 {
+        match &self.1 {
             Unruliness::ClearsFirst => readouts.clear(),
             Unruliness::ReplacesThem => {
                 *readouts = Readouts::new();
@@ -204,6 +216,9 @@ impl Execute for Unruly {
                 std::mem::swap(readouts, &mut others);
                 self.1 = Unruliness::Obeys;
             }
+            Unruliness::SwapsInTheStashed(stash) => {
+                std::mem::swap(readouts, &mut stash.borrow_mut());
+            }
             _ => {}
         }
         self.0.execute(batches, seed, readouts).await?;
@@ -222,6 +237,7 @@ impl Execute for Unruly {
             | Unruliness::ReplacesThemWithCopies
             | Unruliness::SwapsInOthers
             | Unruliness::SwapsInOthersOnce
+            | Unruliness::SwapsInTheStashed(_)
             | Unruliness::Obeys => Ok(()),
         }
     }
@@ -294,20 +310,31 @@ impl Adapt for RetriesAfterAFailure {
     }
 }
 
-/// What a [`Lender`] waiting as `waits` saw, on 3 shots, on the chain
-/// `below` composes it into.
-fn seen_on<D: Drive, E: Execute>(
+/// What a [`Lender`] lending `found` and waiting as `waits` saw, on 3
+/// shots, on the chain `below` composes it into.
+fn seen_lending<D: Drive, E: Execute>(
+    found: Readouts,
     waits: Waits,
     below: impl FnOnce(Driver<Lender>) -> Result<Runner<D, E>, CompositionFaults>,
 ) -> Seen {
     let seen = Rc::new(RefCell::new(None));
-    runner(below(Driver::new(Lender::new(waits, &seen))))
+    runner(below(Driver::new(Lender::new(found, waits, &seen))))
         .run(&ShotSet::ids(0..3), SEED)
         .expect("the lender ends the run with no error");
     seen.take().expect("the lender ran")
 }
 
-/// What a [`Lender`] waiting as `waits` saw, on 3 shots above `executor`.
+/// What a [`Lender`] lending a batch of its own and waiting as `waits`
+/// saw, on 3 shots, on the chain `below` composes it into.
+fn seen_on<D: Drive, E: Execute>(
+    waits: Waits,
+    below: impl FnOnce(Driver<Lender>) -> Result<Runner<D, E>, CompositionFaults>,
+) -> Seen {
+    seen_lending(a_batch_of_its_own(), waits, below)
+}
+
+/// What a [`Lender`] lending a batch of its own and waiting as `waits`
+/// saw, on 3 shots above `executor`.
 fn seen<E: Execute>(waits: Waits, executor: E) -> Seen {
     seen_on(waits, |lender| lender >> Executor::new(executor))
 }
@@ -446,12 +473,13 @@ fn a_row_per_shot_of(value: ReadoutValue) -> Readouts {
 
 /// An executor that replaces the readouts it is lent, which no executor
 /// may do: with new, empty ones; with new ones holding copies of those it
-/// found, and its answer after them, so that their count is right; with
-/// others, as many, swapped in; or swapping in others once, below an
-/// adapter that recovers from the failure by clearing and sending again,
-/// and answers. Each is a failure, named by the batch's first shot, and
-/// its answer is removed: the driver then holds the replacement's readouts
-/// as far as those it had, its own if copied.
+/// found, and its answer after them, so that their count is right, also
+/// when it found none; with others, as many, swapped in; with those lent
+/// at its previous `execute`, as many, swapped back; or swapping in others
+/// once, below an adapter that recovers from the failure by clearing and
+/// sending again, and answers. Each is a failure, named by the batch's
+/// first shot, and its answer is removed: the driver then holds the
+/// replacement's readouts as far as those it had, its own if copied.
 #[test]
 fn an_execute_replacing_the_lent_readouts_is_a_failure() {
     /// The readouts the driver holds after, from those it held before.
@@ -459,7 +487,7 @@ fn an_execute_replacing_the_lent_readouts_is_a_failure() {
     let log = Log::default();
     let counted = Rc::default();
     let unruly = |unruliness| seen(Waits::ForTheAnswer, Unruly(Bits::new(&log), unruliness));
-    let rows: [(&str, Seen, Held); 4] = [
+    let rows: [(&str, Seen, Held); 6] = [
         ("empty ones", unruly(Unruliness::ReplacesThem), |_| {
             Readouts::new()
         }),
@@ -469,9 +497,31 @@ fn an_execute_replacing_the_lent_readouts_is_a_failure() {
             Readouts::clone,
         ),
         (
+            "copies of none, lent empty, then the answer",
+            seen_lending(Readouts::new(), Waits::ForTheAnswer, |lender| {
+                lender >> Executor::new(Unruly(Bits::new(&log), Unruliness::ReplacesThemWithCopies))
+            }),
+            Readouts::clone,
+        ),
+        (
             "others, swapped in, then the answer",
             unruly(Unruliness::SwapsInOthers),
             |_| readouts_from_elsewhere(),
+        ),
+        (
+            "those lent at the run before, swapped back, then the answer",
+            {
+                let stash = Rc::new(RefCell::new(readouts_from_elsewhere()));
+                let run_before = unruly(Unruliness::SwapsInTheStashed(Rc::clone(&stash)));
+                assert!(
+                    matches!(run_before.result, Some(Err(ExecuteError::Failed { .. }))),
+                    "the run before, swapping in others, fails"
+                );
+                unruly(Unruliness::SwapsInTheStashed(stash))
+            },
+            // The driver holds the readouts it lent at the run before,
+            // which held a batch like the one it holds now.
+            Readouts::clone,
         ),
         (
             "others, swapped in, below an adapter that recovers",
