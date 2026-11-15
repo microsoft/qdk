@@ -491,11 +491,8 @@ static uint64_t read_operation_count(const char *path) {
     return (uint64_t)count;
 }
 
-/* Profiles one shot on a random semiprime, saves JSON, and reports time per operation. */
-static void profile_shors_shot(int bit_len) {
-    char path[64];
-    int length = snprintf(path, sizeof(path), "source/qep/profile_viewer/profiles/shor_c_%d.json", bit_len);
-    if (length < 0 || (size_t)length >= sizeof(path)) fail("could not format profile path");
+/* Runs one random-semiprime shot, optionally profiling locally and saving JSON. */
+static void run_random_shors_shot(int bit_len, bool profile) {
     gmp_randstate_t random;
     gmp_randinit_mt(random);
     gmp_randseed_ui(random, (unsigned long)time(NULL));
@@ -506,21 +503,29 @@ static void profile_shors_shot(int bit_len) {
     mpz_mul(number, p, q);
     mpz_set_ui(generator, 2);
     gmp_randclear(random);
-    gmp_printf("Profiling %Zd = %Zd * %Zd (%d-bit primes), generator=2\n", number, p, q, bit_len / 2);
-    qdk_init("counting_profiler");
+    gmp_printf("%s %Zd = %Zd * %Zd (%d-bit primes), generator=2\n",
+               profile ? "Profiling" : "Running", number, p, q, bit_len / 2);
+    if (profile) qdk_init("counting_profiler");
     struct timespec start, end;
     if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) fail("could not start profiling timer");
     shors_shot(factor, number, generator);
     if (clock_gettime(CLOCK_MONOTONIC, &end) != 0) fail("could not stop profiling timer");
     double elapsed_ns = (double)(end.tv_sec - start.tv_sec) * 1e9 +
                         (double)(end.tv_nsec - start.tv_nsec);
-    qdk_save_profile(path);
-    uint64_t count = read_operation_count(path);
-    if (count == 0) fail("profile counted no operations");
-    puts("Profiling measurements are bogus; the factorization result is ignored.");
-    printf("Total operations count: %" PRIu64 "\n", count);
-    printf("Profiling time: %.9f s\n", elapsed_ns / 1e9);
-    printf("Profiling speed: %.3f ns/op\n", elapsed_ns / (double)count);
+    if (profile) {
+        char path[64];
+        int length = snprintf(path, sizeof(path), "source/qep/profile_viewer/profiles/shor_c_%d.json", bit_len);
+        if (length < 0 || (size_t)length >= sizeof(path)) fail("could not format profile path");
+        qdk_save_profile(path);
+        uint64_t count = read_operation_count(path);
+        if (count == 0) fail("profile counted no operations");
+        puts("Profiling measurements are bogus; the factorization result is ignored.");
+        printf("Total operations count: %" PRIu64 "\n", count);
+        printf("Profiling time: %.9f s\n", elapsed_ns / 1e9);
+        printf("Profiling speed: %.3f ns/op\n", elapsed_ns / (double)count);
+    } else {
+        printf("Shot time: %.9f s\n", elapsed_ns / 1e9);
+    }
     mpz_clears(p, q, number, generator, factor, NULL);
 }
 
@@ -533,6 +538,9 @@ static void profile_shors_shot(int bit_len) {
                       Save to source/qep/profile_viewer/profiles/shor_c_<bitlen>.json
                       and print operation count, elapsed
                       shot time, and ns/op. Bogus profiling measurements are ignored.
+   --run-random <bitlen> Run the same random-semiprime shot using the default streaming
+                      backend, without initialization or saving a profile.
+                      Use dedicated protocol descriptors to keep stdout logs separate.
    Profiling timing excludes initialization, prime generation, and saving the file. */
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--self-test") == 0) {
@@ -540,7 +548,7 @@ int main(int argc, char **argv) {
         self_test();
         return EXIT_SUCCESS;
     }
-    if (argc != 3) fail("usage: shor --self-test | --factor <number> | --profile <bitlen>");
+    if (argc != 3) fail("usage: shor --self-test | --factor <number> | --profile <bitlen> | --run-random <bitlen>");
     if (strcmp(argv[1], "--factor") == 0) {
         mpz_t number, factor, cofactor;
         mpz_inits(number, factor, cofactor, NULL);
@@ -562,7 +570,7 @@ int main(int argc, char **argv) {
         mpz_clears(number, factor, cofactor, NULL);
         return EXIT_SUCCESS;
     }
-    if (strcmp(argv[1], "--profile") == 0) {
+    if (strcmp(argv[1], "--profile") == 0 || strcmp(argv[1], "--run-random") == 0) {
         char *parsed_end = NULL;
         errno = 0;
         long parsed = strtol(argv[2], &parsed_end, 10);
@@ -570,8 +578,8 @@ int main(int argc, char **argv) {
             parsed < 4 || parsed > MAX_BITS || parsed % 2 != 0) {
             fail("bit length must be an even integer in [4, 2048]");
         }
-        profile_shors_shot((int)parsed);
+        run_random_shors_shot((int)parsed, strcmp(argv[1], "--profile") == 0);
         return EXIT_SUCCESS;
     }
-    fail("usage: shor --self-test | --factor <number> | --profile <bitlen>");
+    fail("usage: shor --self-test | --factor <number> | --profile <bitlen> | --run-random <bitlen>");
 }

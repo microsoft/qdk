@@ -200,7 +200,7 @@ gfortran -std=f2008 -Wall -Wextra -Werror -Isource/qep_interop/include source/qe
 
 [examples/shor.c](examples/shor.c) and [examples/shor.f90](examples/shor.f90)
 port [the Q# Shor sample](../../samples/algorithms/Shor.qs) to the interop API.
-The C example provides explicit self-test, factorization, and profiling modes.
+The C example provides explicit self-test, factorization, profiling, and random-shot modes.
 Profiling uses `counting_profiler`; its measurement results are bogus, so the
 factorization result is ignored rather than retried. The Fortran example
 uses `sparse_sim` and defaults to factoring **187 = 11 \* 17**.
@@ -229,6 +229,11 @@ The C CLI accepts exactly one of these modes:
 - `--self-test`: run arithmetic regression tests on `sparse_sim`, with no other arguments.
 - `--factor <number>`: factor the required decimal integer in `[4, 2^2048)` on `sparse_sim`.
 - `--profile <bitlen>`: profile one shot using an even bit length from 4 to 2048.
+- `--run-random <bitlen>`: run the same random-semiprime shot with the same bit-length
+  constraints, without calling `qdk_init()` or saving a profile. Instructions stream
+  to an external backend by default; only elapsed shot time is reported locally.
+  Use `QDK_INSTRUCTION_FD` and `QDK_RESULT_FD` to keep the example's stdout logs
+  separate from the protocol. The shot's factorization result is not retried.
 
 Supporting large integers does not make generic 2048-bit quantum simulation
 practical. Use profiling mode for large circuits, and expect very long runtimes:
