@@ -17,17 +17,22 @@ mod t4a_faer;
 
 use crate::matrix::{Matrix, MatrixRef};
 use crate::qr::Qr;
-use crate::svd::ColumnMajorSvd;
 use num_complex::Complex64;
 
 /// The implementation of [`Kernels`] the public API computes with.
 pub(crate) type Shipped = self::t4a_faer::T4aFaer;
 
+/// An SVD as column-major arrays, `(U, S, V)` with `W = U·diag(S)·V†`,
+/// the values nonincreasing: `U` is `rows × r` and `V` is `cols × r`,
+/// `W` being `rows × cols`. Both routes answer one: the fast route
+/// ([`Kernels::tall_svd`]) and the rotations.
+pub(crate) type ColumnMajorSvd = (Vec<Complex64>, Vec<f64>, Vec<Complex64>);
+
 /// The steps a linear algebra library computes for the crate, each on the
 /// calling thread.
 pub(crate) trait Kernels {
     /// What [`Kernels::q_kept_times`] needs of a column-pivoted QR to apply
-    /// its `Q`: its reflectors, or `Q` itself.
+    /// its `Q` (for instance, its reflectors).
     type Q;
 
     /// The product `a·b`; `a.cols()` equals `b.rows()`.
@@ -58,7 +63,8 @@ pub(crate) trait Kernels {
 }
 
 /// A column-pivoted QR decomposition `A·P = Q·R` of a `rows × cols`
-/// matrix `A`, thin: `R` is `min(rows, cols) × cols`, upper trapezoidal.
+/// matrix `A`, thin: `R` is `min(rows, cols) × cols`, upper trapezoidal
+/// (upper triangular when square or tall).
 pub(crate) struct PivotedQr<Q> {
     /// `R`.
     pub(crate) r: Matrix,

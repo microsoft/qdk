@@ -71,7 +71,8 @@ const SHAPES: [(usize, usize); 4] = [(6, 4), (4, 6), (5, 5), (1, 3)];
 /// Checks that [`Svd::of`] gives a thin SVD of `a`, as [`check_svd_of`]
 /// does, and returns its values.
 fn check_svd(a: &Matrix) -> Vec<f64> {
-    check_svd_of(a, Svd::of(a.view()).expect("SVD"))
+    let svd = Svd::of(a.view()).expect("a finite, nonempty matrix has a checked SVD");
+    check_svd_of(a, svd)
 }
 
 /// Checks that `svd` is a thin SVD of `a`, with `r` values,

@@ -7,7 +7,7 @@ use super::{SHAPES, adjoint, distance, identity, matrix, naive_product};
 use crate::Qr;
 
 /// A thin QR gives back its matrix, with orthonormal columns in `Q` and
-/// `R` upper triangular, on tall, wide, square and single-row shapes.
+/// `R` upper trapezoidal, on tall, wide, square and single-row shapes.
 #[test]
 fn decomposes_by_qr() {
     for (seed, &(rows, cols)) in (1..).zip(&SHAPES) {

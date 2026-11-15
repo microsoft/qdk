@@ -69,7 +69,7 @@ pub(crate) mod jacobi;
 
 use self::checks::checked;
 use self::jacobi::{MAX_SWEEPS, one_sided};
-use crate::kernels::{Kernels, Shipped};
+use crate::kernels::{ColumnMajorSvd, Kernels, Shipped};
 use crate::matrix::{Matrix, MatrixRef};
 use num_complex::Complex64;
 
@@ -144,19 +144,14 @@ pub enum SvdError {
 /// The smallest kept rank whose `W` may go to the fast route: below it,
 /// giving every `W` to t4a-faer's QR algorithm saved at most 3% of an SVD's
 /// time, and cost 1.1 to 1.3 times the rotations' on small graded and
-/// rank-deficient matrices (measured).
+/// rank-deficient matrices (measured with t4a-faer on aarch64).
 pub(crate) const FAST_ROUTE_MIN_RANK: usize = 32;
 
 /// The smallest mean fraction `1 − |R_ii|²/‖R_i‖²` of the kept rows of `R`
 /// whose `W` goes to the fast route: below it, as on the matrices of an MPS
 /// simulation of H₂, the rotations end within five sweeps and are as fast
-/// (measured).
+/// (measured with t4a-faer on aarch64).
 pub(crate) const FAST_ROUTE_MIN_OFF_DIAGONAL: f64 = 0.1;
-
-/// An SVD as column-major arrays, `(U, S, V)` with `W = U·diag(S)·V†`,
-/// the values nonincreasing: `U` is `rows × r` and `V` is `cols × r`,
-/// `W` being `rows × cols`. Both routes answer one.
-pub(crate) type ColumnMajorSvd = (Vec<Complex64>, Vec<f64>, Vec<Complex64>);
 
 /// The fast route, a thin SVD of a tall matrix, as [`Kernels::tall_svd`]
 /// states it.

@@ -34,7 +34,7 @@
 //!
 //! [`SvdError::DidNotConverge`]: crate::SvdError::DidNotConverge
 
-use super::ColumnMajorSvd;
+use crate::kernels::ColumnMajorSvd;
 use num_complex::Complex64;
 
 /// The sweeps the rotations allow, after which they report a failure:

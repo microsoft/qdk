@@ -318,6 +318,25 @@ mod trim {
         }
     }
 
+    /// An 8 × 5 diagonal matrix of four values of 1 and one of `8ε`, the
+    /// trim's tolerance exactly (`8ε = 2⁻⁴⁹`, so the rows' norms and their
+    /// squares are exact): a joint norm equal to the tolerance is within
+    /// it, and the value is left out.
+    #[test]
+    fn leaves_out_a_value_whose_norm_equals_the_tolerance() {
+        let tolerance = 8.0 * f64::EPSILON;
+        let a = Matrix::from_fn(8, 5, |i, j| {
+            let value = match (i == j, i < 4) {
+                (false, _) => 0.0,
+                (true, true) => 1.0,
+                (true, false) => tolerance,
+            };
+            Complex64::new(value, 0.0)
+        });
+        let values = check_svd(&a);
+        assert_eq!(values.len(), 4, "{values:?}");
+    }
+
     /// A 6 × 5 matrix whose pivoted QR has a first row of norm 1 and a
     /// second, larger, of norm `0.9·√3`: columns `e₀`, three of `0.9·e₁`,
     /// and a small `s·e₂`. The trim's tolerance is `6ε` times the largest
@@ -512,20 +531,20 @@ mod routes {
     use super::super::{check_svd, check_svd_of, matrix};
     use crate::{
         Matrix, SvdError,
-        kernels::Shipped,
+        kernels::{ColumnMajorSvd, Shipped},
         svd::{
-            ColumnMajorSvd,
             checks::checked,
             jacobi::{MAX_SWEEPS, one_sided},
             trimmed_thin_svd,
         },
     };
     use num_complex::Complex64;
+    use std::cell::Cell;
 
     /// Full-rank matrices of rank 32 and more, far from orthogonal, as the
-    /// splits of deep circuits are: the SVD factors them by the fast route
-    /// rather than by rotations, and gives an SVD, tall, square or wide,
-    /// real or complex, with one value per column of the smaller side.
+    /// splits of deep circuits are, the matrices the route sends to the
+    /// fast route today: the SVD gives an SVD, tall, square or wide, real
+    /// or complex, with one value per column of the smaller side.
     #[test]
     fn decomposes_full_rank_matrices_far_from_orthogonal() {
         for (rows, cols, seed) in [(32, 32, 1), (64, 64, 2), (96, 48, 3), (48, 96, 4)] {
@@ -546,8 +565,13 @@ mod routes {
     #[test]
     fn falls_back_to_the_rotations_when_the_fast_route_fails() {
         let a = matrix(64, 64, 2);
-        let fails = |_: usize, _: usize, _: &[Complex64]| None;
+        let calls = Cell::new(0);
+        let fails = |_: usize, _: usize, _: &[Complex64]| {
+            calls.set(calls.get() + 1);
+            None
+        };
         let svd = trimmed_thin_svd::<Shipped>(a.view(), &fails).expect("the rotations answer");
+        assert!(calls.get() > 0, "the 64 × 64 matrix goes to the fast route");
         assert_eq!(check_svd_of(&a, svd).len(), 64);
     }
 
@@ -598,11 +622,14 @@ mod routes {
     fn falls_back_to_the_rotations_when_the_fast_route_is_not_finite() {
         let a = matrix(64, 64, 2);
         for (factor, imaginary) in [(0, false), (0, true), (1, false), (2, false), (2, true)] {
+            let calls = Cell::new(0);
             let spoiled = |rows: usize, cols: usize, w: &[Complex64]| {
+                calls.set(calls.get() + 1);
                 spoiled(rows, cols, w, factor, imaginary)
             };
             let svd = trimmed_thin_svd::<Shipped>(a.view(), &spoiled)
                 .unwrap_or_else(|| panic!("factor {factor}, imaginary {imaginary}"));
+            assert!(calls.get() > 0, "the 64 × 64 matrix goes to the fast route");
             assert_eq!(check_svd_of(&a, svd).len(), 64);
         }
     }

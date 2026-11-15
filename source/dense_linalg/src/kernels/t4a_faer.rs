@@ -13,10 +13,9 @@
 //! conquer returned factors that the checks refuse, where the QR
 //! algorithm's pass.
 
-use super::{Kernels, PivotedQr};
+use super::{ColumnMajorSvd, Kernels, PivotedQr};
 use crate::matrix::{Matrix, MatrixRef};
 use crate::qr::Qr;
-use crate::svd::ColumnMajorSvd;
 use num_complex::Complex64;
 use t4a_faer::{
     Accum, Auto, Conj, MatMut, MatRef, Par, ParShape,

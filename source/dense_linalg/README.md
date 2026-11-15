@@ -4,13 +4,15 @@ The QDK's matrix product state (MPS) simulators truncate a state by the
 singular values of small dense complex matrices, many thousands of times per
 run, and keep the singular vectors as an orthonormal basis. This crate gives
 them a singular value decomposition (SVD) they can trust, with the product,
-QR decomposition and adjoint it needs:
+thin QR decomposition and adjoint they also need, in three parts:
 
 - **[The checked SVD](#the-checked-svd):** [`Svd::of`](src/svd.rs) either
   answers factors checked against the matrix, or reports a failure
   ([`SvdError`](src/svd.rs)).
 - **[Matrices, product and QR](#matrices-product-and-qr):**
   [`Matrix`, `MatrixRef`](src/matrix.rs) and [`Qr`](src/qr.rs).
+- **[The linear algebra library](#the-linear-algebra-library):** t4a-faer,
+  behind the crate-private trait [`Kernels`](src/kernels.rs).
 
 **The problem.** The matrices met when simulating MPS are rank-deficient most
 of the time, with repeated singular values, and general SVDs have returned
@@ -58,15 +60,15 @@ Its steps use these terms:
   `zgesvj`'s rules.
 - **The fast route:** the library's bidiagonalization and QR algorithm.
 
-| Step                   | How                                                                        | Why                                                                                                  |
-| ---------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| 1. Zero matrix         | One value, 0, and the first unit vectors.                                  | It has no rank to keep and no largest entry to scale by.                                             |
-| 2. Wide matrix         | Factored through its adjoint.                                              | The rotated columns are then the shorter side.                                                       |
-| 3. Scaling             | By a power of two when the largest entry is far from 1.                    | The squared norms neither overflow nor underflow; it rounds no normal entry.                         |
-| 4. Trim                | Drops the rows of `R` of smallest norm, chosen by norm, not by pivot.      | The rest sees full rank; the pivoting does not keep `\|R_ii\|` nonincreasing.                        |
-| 5. Route               | A large `W` far from orthogonal: the fast route; any other: the rotations. | The rotations are fast on nearly orthogonal `W`; the fast route on the rest; its failures fall back. |
-| 6. Left vectors        | The kept columns of `Q` times `W`'s right singular vectors.                | `Q` is applied by its reflectors, never formed.                                                      |
-| Checks, on each answer | Reconstruction and orthonormality, to LAPACK's bounds.                     | No route is trusted: a library's SVD has answered wrong factors without a failure.                   |
+| Step                   | How                                                                        | Why                                                                                                       |
+| ---------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 1. Zero matrix         | One value, 0, and the first unit vectors.                                  | It has no rank to keep and no largest entry to scale by.                                                  |
+| 2. Wide matrix         | Factored through its adjoint.                                              | The rotated columns are then the shorter side.                                                            |
+| 3. Scaling             | By a power of two when the largest entry is far from 1.                    | The squared norms neither overflow nor underflow; it rounds only entries it takes below the normal range. |
+| 4. Trim                | Drops the rows of `R` of smallest norm, chosen by norm, not by pivot.      | The rest sees full rank; the pivoting does not keep `\|R_ii\|` nonincreasing.                             |
+| 5. Route               | A large `W` far from orthogonal: the fast route; any other: the rotations. | The rotations are fast on nearly orthogonal `W`; the fast route on the rest; its failures fall back.      |
+| 6. Left vectors        | The kept columns of `Q` times `W`'s right singular vectors.                | `Q` is applied by its reflectors, never formed.                                                           |
+| Checks, on each answer | Reconstruction and orthonormality, to LAPACK's bounds.                     | No route is trusted: a library's SVD has answered wrong factors without a failure.                        |
 
 [`svd.rs`](src/svd.rs)'s header gives the details;
 [`svd/checks.rs`](src/svd/checks.rs) and [`svd/jacobi.rs`](src/svd/jacobi.rs)

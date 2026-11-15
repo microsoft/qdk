@@ -8,12 +8,13 @@ use crate::matrix::{Matrix, MatrixRef};
 
 /// A thin QR decomposition `a = q·r`: with `k = min(rows, cols)`, `q` is
 /// `rows × k` with orthonormal columns and `r` is `k × cols`, upper
-/// triangular.
+/// trapezoidal (upper triangular when square or tall).
 #[derive(Clone, Debug)]
 pub struct Qr {
     /// The factor with orthonormal columns.
     pub q: Matrix,
-    /// The upper-triangular factor.
+    /// The upper-trapezoidal factor (upper triangular when square or
+    /// tall).
     pub r: Matrix,
 }
 

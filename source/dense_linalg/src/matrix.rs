@@ -92,7 +92,7 @@ impl Matrix {
         &self.elements
     }
 
-    /// The elements, column-major.
+    /// The elements, column-major, moved out of the matrix.
     #[must_use]
     pub fn into_elements(self) -> Vec<Complex64> {
         self.elements
