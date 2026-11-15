@@ -5,7 +5,7 @@
 //! driver that calls its executor itself:
 //!
 //! - D: one driver on four chains, batches of 1 to 10 000 instructions;
-//! - C: the batch checks, a boundary's cost without them, and building an
+//! - C: a batch's checks, a boundary's cost without them, and building an
 //!   instruction by name;
 //! - F: a lowering adapter, each logical instruction sent as three physical;
 //! - W: an executor that answers from a worker thread: the time of a call.
@@ -15,10 +15,11 @@
 //! what the program holds (or, in F, answer what the direct call answers,
 //! and its composing must compose). It runs once untimed before it is
 //! timed, and keeps the best of 7. W has no untimed run, and keeps the best
-//! of up to 5 runs' median call. D, F and W run with the batch checks off,
-//! the runner's default, or on with `--batch-checks`
-//! ([`Runner::set_batch_checks`]); C runs both. Run it with
-//! `cargo run --release --example bench [D|C|F|W] [--batch-checks]`.
+//! of up to 5 runs' median call. D, F and W send every batch unchecked, the
+//! default, or [`checked`](Batch::checked) with `--checked`; C runs both.
+//! D, C and W draw the common mix, or the parity-heavy one with
+//! `--parity-heavy`. Run it with `cargo run --release --example bench`,
+//! followed by at most one of `D`, `C`, `F` and `W`, and the flags.
 
 use std::fmt::Debug;
 use std::future::poll_fn;
@@ -36,8 +37,9 @@ use executor_protocol::{
 };
 
 instruction_set! {
-    /// The gates of the mix: QIR's, without measurements, whose draws cost
-    /// the same on every chain.
+    /// The gates of the mixes: QIR's, without measurements, whose draws
+    /// cost the same on every chain, and an `x` a readout parity controls,
+    /// a feed-forward correction.
     pub MixGates {
         CCX = ccx(qubit, qubit, qubit),
         CX = cx(qubit, qubit),
@@ -50,13 +52,16 @@ instruction_set! {
         X = x(qubit),
         SWAP = swap(qubit, qubit),
         RESET = reset(qubit),
+        X_IF = x_if(qubit; c: Bit),
     }
 }
 
-/// The mix: each gate of `MixGates`, its qubits and its weight, as in QIR
-/// programs (two-qubit gates and single-qubit rotations most). A gate's
+/// The gates of the mixes: each gate of `MixGates`, its qubits and its
+/// weight in the parity-heavy mix. Each gate but `x_if` weighs as in QIR
+/// programs (two-qubit gates and single-qubit rotations most); `x_if`
+/// makes one instruction in five, and none in the common mix. A gate's
 /// place here is its place in a [`Profile`]'s counts.
-const MIX: [(Opcode, usize, u64); 11] = [
+const MIX: [(Opcode, usize, u64); 12] = [
     (MixGates::CX, 2, 30),
     (MixGates::H, 1, 15),
     (MixGates::RZ, 1, 15),
@@ -68,7 +73,34 @@ const MIX: [(Opcode, usize, u64); 11] = [
     (MixGates::CCX, 3, 3),
     (MixGates::RESET, 1, 2),
     (MixGates::SWAP, 2, 5),
+    (MixGates::X_IF, 1, 25),
 ];
+
+/// The mix D, C and W draw.
+#[derive(Clone, Copy)]
+enum Mix {
+    /// The gates of QIR programs, with no argument but `rz`'s angle.
+    Common,
+    /// The common mix and, for one instruction in five, an `x_if` on the
+    /// parity of two of the shot's readouts, as a code's rounds send when
+    /// they correct their data qubits by feed-forward. A repetition code's
+    /// round on `d` data qubits sends about `4d` instructions (each of
+    /// `d - 1` syndrome qubits reset, two `cx`, read) and up to `d`
+    /// corrections, each the parity of the two syndromes beside a data
+    /// qubit.
+    ParityHeavy,
+}
+
+impl Mix {
+    /// The weight in this mix of `MIX`'s gate at `place`.
+    fn weight(self, place: usize) -> u64 {
+        let (opcode, _, weight) = MIX[place];
+        match self {
+            Mix::Common if opcode == MixGates::X_IF => 0,
+            _ => weight,
+        }
+    }
+}
 
 /// The qubits the mix draws from.
 const QUBITS: u32 = 100;
@@ -109,18 +141,28 @@ const TINY: Size = Size {
 /// The sections, by the names `main` takes.
 const SECTIONS: [&str; 4] = ["D", "C", "F", "W"];
 
-/// The flag that turns the batch checks on.
-const BATCH_CHECKS: &str = "--batch-checks";
+/// The flag that sends every batch checked.
+const CHECKED: &str = "--checked";
+
+/// The flag that draws the parity-heavy mix.
+const PARITY_HEAVY: &str = "--parity-heavy";
 
 fn main() {
     let (flags, sections): (Vec<String>, Vec<String>) = std::env::args()
         .skip(1)
         .partition(|arg| arg.starts_with("--"));
-    let batch_checks = flags.iter().any(|flag| flag == BATCH_CHECKS);
-    let unknown = flags.iter().find(|flag| *flag != BATCH_CHECKS);
+    let checked = flags.iter().any(|flag| flag == CHECKED);
+    let mix = if flags.iter().any(|flag| flag == PARITY_HEAVY) {
+        Mix::ParityHeavy
+    } else {
+        Mix::Common
+    };
+    let unknown = flags
+        .iter()
+        .find(|flag| ![CHECKED, PARITY_HEAVY].contains(&flag.as_str()));
     let only = sections.first();
     if let Some(flag) = unknown {
-        eprintln!("no flag {flag:?}: the one flag is {BATCH_CHECKS}");
+        eprintln!("no flag {flag:?}: the flags are {CHECKED} and {PARITY_HEAVY}");
         std::process::exit(2);
     }
     if let Some(only) = only
@@ -129,35 +171,40 @@ fn main() {
         eprintln!("no section {only:?}: the sections are D, C, F and W, one at most");
         std::process::exit(2);
     }
-    run(&FULL, only.map(String::as_str), batch_checks);
+    run(&FULL, only.map(String::as_str), checked, mix);
 }
 
-/// Runs the sections, or only the one named `only`, with the batch checks
-/// on if `batch_checks` (C runs both).
-fn run(size: &Size, only: Option<&str>, batch_checks: bool) {
+/// Runs the sections, or only the one named `only`, each batch
+/// [`checked`](Batch::checked) if `checked` (C runs both), D, C and W on
+/// `mix`.
+fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix) {
     let wants = |section: &str| only.is_none_or(|only| only == section);
     println!(
-        "{} instructions of a seeded gate mix, best of {}; an instruction is {} bytes; batch checks {}",
+        "{} instructions of the {} mix, best of {}; an instruction is {} bytes; batches {}",
         size.instructions,
+        match mix {
+            Mix::Common => "common",
+            Mix::ParityHeavy => "parity-heavy",
+        },
         size.repeats,
         size_of::<Instruction>(),
-        if batch_checks { "on" } else { "off" }
+        if checked { "checked" } else { "unchecked" }
     );
     if wants("D") || wants("C") || wants("W") {
-        let draws = draws(size.instructions);
+        let draws = draws(size.instructions, mix);
         let program = build(&draws);
         if wants("D") {
-            chains_bench(size, &program, batch_checks);
+            chains_bench(size, &program, checked);
         }
         if wants("C") {
             checks_bench(size, &draws, &program);
         }
         if wants("W") {
-            worker_bench(size, &program, batch_checks);
+            worker_bench(size, &program, checked);
         }
     }
     if wants("F") {
-        lowering_bench(size, batch_checks);
+        lowering_bench(size, checked);
     }
 }
 
@@ -180,7 +227,7 @@ enum Chain {
 
 /// D: each chain, per batch size, in ns per instruction and, beside each
 /// chain, its cost per `execute` over the direct call.
-fn chains_bench(size: &Size, program: &[Instruction], batch_checks: bool) {
+fn chains_bench(size: &Size, program: &[Instruction], checked: bool) {
     println!("\nD. one driver on four chains, ns/instr (overhead per call vs direct)");
     println!(
         "  ≫P = Driver ≫ Executor(profiler); ≫F≫P with an adapter that forwards; ≫F≫F≫P with two"
@@ -193,7 +240,7 @@ fn chains_bench(size: &Size, program: &[Instruction], batch_checks: bool) {
     for batch in [1, 10, 100, 1_000, 10_000] {
         let time = |chain| {
             best(size.repeats, &expected, || {
-                run_chain(program, batch, chain, batch_checks)
+                run_chain(program, batch, chain, checked)
             })
         };
         let direct = time(Chain::Direct);
@@ -215,42 +262,32 @@ fn chains_bench(size: &Size, program: &[Instruction], batch_checks: bool) {
     }
 }
 
-/// Sends `program` down `chain`, `batch` instructions per `execute`, with
-/// the batch checks on if `batch_checks`, and returns what the executor
+/// Sends `program` down `chain`, `batch` instructions per `execute`, each
+/// [`checked`](Batch::checked) if `checked`, and returns what the executor
 /// counted.
-fn run_chain(program: &[Instruction], batch: usize, chain: Chain, batch_checks: bool) -> Profile {
+fn run_chain(program: &[Instruction], batch: usize, chain: Chain, checked: bool) -> Profile {
     let mut profiler = Profiler::new(Capabilities::unlimited());
-    let in_batches = ProgramInBatches::new(MixGates::set(), program, QUBITS, batch);
+    let in_batches =
+        ProgramInBatches::new(MixGates::set(), program, QUBITS, batch).checked_if(checked);
     let received = match chain {
         Chain::Direct => {
             // The chain's executor is sent no batch: `Direct` sends past it.
             let unused = Profiler::new(Capabilities::unlimited());
-            run_once(
-                Driver::new(Direct(in_batches, &mut profiler)) >> Executor::new(unused),
-                batch_checks,
-            )
+            run_once(Driver::new(Direct(in_batches, &mut profiler)) >> Executor::new(unused))
         }
-        Chain::Bare => run_once(
-            Driver::new(in_batches) >> Executor::new(&mut profiler),
-            batch_checks,
-        ),
+        Chain::Bare => run_once(Driver::new(in_batches) >> Executor::new(&mut profiler)),
         Chain::OneAdapter => run_once(
             Driver::new(in_batches) >> Adapter::new(Forward::new()) >> Executor::new(&mut profiler),
-            batch_checks,
         ),
         Chain::TwoAdapters => run_once(
             Driver::new(in_batches)
                 >> Adapter::new(Forward::new())
                 >> Adapter::new(Forward::new())
                 >> Executor::new(&mut profiler),
-            batch_checks,
         ),
         Chain::Limited(most) => {
             profiler.offer = Capabilities::unlimited().max_instructions(most);
-            run_once(
-                Driver::new(in_batches) >> Executor::new(&mut profiler),
-                batch_checks,
-            )
+            run_once(Driver::new(in_batches) >> Executor::new(&mut profiler))
         }
     };
     black_box(received);
@@ -259,7 +296,7 @@ fn run_chain(program: &[Instruction], batch: usize, chain: Chain, batch_checks: 
 
 // ------------------------------------------------------------- C: checks
 
-/// C: what the batch checks cost, and a boundary without them, by
+/// C: what a batch's checks cost, and a boundary without them, by
 /// difference, since they run inside the protocol; and building an
 /// instruction by name, which checks it too. A boundary's cost without the
 /// checks is its cost per call (the answer's shape check, the catch of a
@@ -268,9 +305,9 @@ fn run_chain(program: &[Instruction], batch: usize, chain: Chain, batch_checks: 
 fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
     println!("\nC. the checks, ns/instr (per call, where given)");
     let expected = Profile::of(program);
-    let time = |batch, chain, batch_checks| {
+    let time = |batch, chain, checked| {
         best(size.repeats, &expected, || {
-            run_chain(program, batch, chain, batch_checks)
+            run_chain(program, batch, chain, checked)
         })
     };
     let n = program.len();
@@ -279,18 +316,18 @@ fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
     let boundary = unchecked - time(large, Chain::Direct, false);
     let checked = time(large, Chain::Bare, true) - unchecked;
     println!(
-        "  a boundary, batch checks off, batch {large} (≫P minus direct)   {:>6.2}",
+        "  a boundary, batches unchecked, batch {large} (≫P minus direct) {:>6.2}",
         per(boundary, n)
     );
     println!(
-        "  the batch checks, batch {large} (≫P, on minus off)              {:>6.2}",
+        "  a batch's checks, batch {large} (≫P, checked minus unchecked)  {:>6.2}",
         per(checked, n)
     );
     let most = u32::try_from(large).expect("a small limit");
     for batch in [1, large] {
         let limited = time(batch, Chain::Limited(most), true) - time(batch, Chain::Bare, true);
         println!(
-            "  max_instructions {most} offered, checks on, batch {batch:>5} (minus unlimited) {:>6.2} ({:.1} ns)",
+            "  max_instructions {most} offered, checked, batch {batch:>5} (minus unlimited) {:>6.2} ({:.1} ns)",
             per(limited, n),
             per(limited, n.div_ceil(batch))
         );
@@ -348,7 +385,7 @@ instruction_set! {
 
 /// F: a lowering adapter's cost per physical instruction, against the
 /// physical program sent directly to the same executor.
-fn lowering_bench(size: &Size, batch_checks: bool) {
+fn lowering_bench(size: &Size, checked: bool) {
     let logical_gate = |mnemonic: &str, qubits: &[u32]| {
         LogicalGates::set()
             .instruction(mnemonic, qubits.iter().copied(), &[])
@@ -372,14 +409,11 @@ fn lowering_bench(size: &Size, batch_checks: bool) {
     // The physical program, as the lowering sends it, for the baseline.
     let mut recorder = Sink::recording();
     run_once(
-        Driver::new(ProgramInBatches::new(
-            LogicalGates::set(),
-            &logical,
-            2,
-            logical.len(),
-        )) >> Adapter::new(Repetition3::new())
+        Driver::new(
+            ProgramInBatches::new(LogicalGates::set(), &logical, 2, logical.len())
+                .checked_if(checked),
+        ) >> Adapter::new(Repetition3::new())
             >> Executor::new(&mut recorder),
-        batch_checks,
     );
     let physical = recorder.record.expect("a recording sink");
     let compose = compose_time(size.repeats, || {
@@ -409,27 +443,21 @@ fn lowering_bench(size: &Size, batch_checks: bool) {
         let bare = best(size.repeats, &direct_answer, || {
             let mut sink = Sink::new();
             let received = run_once(
-                Driver::new(ProgramInBatches::new(
-                    PhysicalGates::set(),
-                    &physical,
-                    6,
-                    3 * batch,
-                )) >> Executor::new(&mut sink),
-                batch_checks,
+                Driver::new(
+                    ProgramInBatches::new(PhysicalGates::set(), &physical, 6, 3 * batch)
+                        .checked_if(checked),
+                ) >> Executor::new(&mut sink),
             );
             (sink.seen, received.values)
         });
         let lowered = best(size.repeats, &lowered_answer, || {
             let mut sink = Sink::new();
             let received = run_once(
-                Driver::new(ProgramInBatches::new(
-                    LogicalGates::set(),
-                    &logical,
-                    2,
-                    batch,
-                )) >> Adapter::new(Repetition3::new())
+                Driver::new(
+                    ProgramInBatches::new(LogicalGates::set(), &logical, 2, batch)
+                        .checked_if(checked),
+                ) >> Adapter::new(Repetition3::new())
                     >> Executor::new(&mut sink),
-                batch_checks,
             );
             (sink.seen, received.values)
         });
@@ -472,11 +500,9 @@ fn compose_time<'p>(
 fn sink_direct(physical: &[Instruction], batch: usize) -> (u64, Vec<ReadoutValue>) {
     let mut sink = Sink::new();
     let in_batches = ProgramInBatches::new(PhysicalGates::set(), physical, 6, batch);
-    // The batch checks see no batch: `Direct` sends past the chain.
-    let received = run_once(
-        Driver::new(Direct(in_batches, &mut sink)) >> Executor::new(Sink::new()),
-        false,
-    );
+    // No boundary sees a batch: `Direct` sends past the chain.
+    let received =
+        run_once(Driver::new(Direct(in_batches, &mut sink)) >> Executor::new(Sink::new()));
     (sink.seen, received.values)
 }
 
@@ -568,13 +594,12 @@ impl Adapt for Repetition3 {
                 lower(instruction, self.opcodes, lowered);
             }
         }
+        // Each checked if the batch it lowers was, as `Adapt`'s guideline
+        // says.
         let sent: Vec<Batch<'_>> = batches
             .iter()
             .zip(&self.lowered)
-            .map(|(batch, lowered)| Batch {
-                shots: batch.shots,
-                instructions: lowered,
-            })
+            .map(|(batch, lowered)| Batch::new(batch.shots, lowered).checked_if(batch.is_checked()))
             .collect();
         self.physical_readouts.clear();
         below
@@ -689,7 +714,7 @@ impl Execute for Sink {
 /// beside the same call answered on this thread. Each call's time holds a
 /// clock read before and after it, whose cost the section prints, so the
 /// columns compare above that floor (batch 1 is near it).
-fn worker_bench(size: &Size, program: &[Instruction], batch_checks: bool) {
+fn worker_bench(size: &Size, program: &[Instruction], checked: bool) {
     let repeats = size.repeats.min(5);
     println!("\nW. an executor answering from a worker thread, median call, µs, best of {repeats}");
     println!(
@@ -705,23 +730,19 @@ fn worker_bench(size: &Size, program: &[Instruction], batch_checks: bool) {
         let expected = Profile::of(program);
         let worker = median_call(repeats, || {
             let mut worker = FromWorker::spawn();
-            let mut in_batches = ProgramInBatches::new(MixGates::set(), program, QUBITS, batch);
+            let mut in_batches =
+                ProgramInBatches::new(MixGates::set(), program, QUBITS, batch).checked_if(checked);
             in_batches.timed = true;
-            let received = run_once(
-                Driver::new(in_batches) >> Executor::new(&mut worker),
-                batch_checks,
-            );
+            let received = run_once(Driver::new(in_batches) >> Executor::new(&mut worker));
             assert_eq!(worker.finish(), expected, "the worker counted the program");
             received.call_times
         });
         let here = median_call(repeats, || {
             let mut profiler = Profiler::new(Capabilities::unlimited());
-            let mut in_batches = ProgramInBatches::new(MixGates::set(), program, QUBITS, batch);
+            let mut in_batches =
+                ProgramInBatches::new(MixGates::set(), program, QUBITS, batch).checked_if(checked);
             in_batches.timed = true;
-            let received = run_once(
-                Driver::new(in_batches) >> Executor::new(&mut profiler),
-                batch_checks,
-            );
+            let received = run_once(Driver::new(in_batches) >> Executor::new(&mut profiler));
             assert_eq!(
                 profiler.profile, expected,
                 "the profiler counted the program"
@@ -857,8 +878,9 @@ impl Execute for FromWorker {
 // ---------------------------------------------------------------- parts
 
 /// A driver that sends its program below, `batch` instructions per
-/// `execute`, one shot, and returns every readout and, when `timed`, the
-/// time of each call.
+/// `execute`, one shot, each batch [`checked`](Batch::checked) when
+/// `checked`, and returns every readout and, when `timed`, the time of each
+/// call.
 struct ProgramInBatches<'p> {
     set: InstructionSet,
     /// The map `bind` must get, the set's own: the program goes below as
@@ -867,6 +889,7 @@ struct ProgramInBatches<'p> {
     program: &'p [Instruction],
     qubits: u32,
     batch: usize,
+    checked: bool,
     timed: bool,
 }
 
@@ -885,8 +908,15 @@ impl<'p> ProgramInBatches<'p> {
             program,
             qubits,
             batch,
+            checked: false,
             timed: false,
         }
+    }
+
+    /// The same driver, sending each batch checked if `on`.
+    fn checked_if(mut self, on: bool) -> Self {
+        self.checked = on;
+        self
     }
 
     /// Sends the program to `target`.
@@ -903,10 +933,7 @@ impl<'p> ProgramInBatches<'p> {
         let mut readouts = Readouts::new();
         for chunk in self.program.chunks(self.batch) {
             let start = self.timed.then(Instant::now);
-            let batches = [Batch {
-                shots,
-                instructions: black_box(chunk),
-            }];
+            let batches = [Batch::new(shots, black_box(chunk)).checked_if(self.checked)];
             readouts.clear();
             target.execute(&batches, seed, &mut readouts).await?;
             if let Some(start) = start {
@@ -929,8 +956,12 @@ impl Drive for ProgramInBatches<'_> {
         assert!(below == self.identity, "the receiver's set is the driver's");
     }
 
+    /// Its qubits, and readout parities, which the parity-heavy mix's
+    /// corrections use: a checked batch's corrections are refused unless
+    /// the shots' needs use them, and the other programs hold none, so
+    /// their checks cost the same.
     fn needs(&self) -> Needs {
-        Needs::qubits(self.qubits)
+        Needs::qubits(self.qubits).with_readout_parity()
     }
 
     async fn drive(
@@ -1080,6 +1111,7 @@ const fn gate_index(opcode: Opcode) -> usize {
         MixGates::CCX => 8,
         MixGates::RESET => 9,
         MixGates::SWAP => 10,
+        MixGates::X_IF => 11,
         _ => panic!("the driver sends only instructions of MixGates"),
     }
 }
@@ -1129,14 +1161,11 @@ fn no_readouts(shots: usize) -> BatchReadouts {
 
 // --------------------------------------------------------------- harness
 
-/// Runs the composed chain on one shot, with the batch checks on if
-/// `batch_checks`, and returns its driver's output.
+/// Runs the composed chain on one shot, and returns its driver's output.
 fn run_once<D: Drive<Output = Received>, E: Execute>(
     chain: Result<Runner<D, E>, CompositionFaults>,
-    batch_checks: bool,
 ) -> Received {
     let mut runner = chain.expect("the chain composes");
-    runner.set_batch_checks(batch_checks);
     let mut outputs = runner
         .run(&ShotSet::ids([0]), SEED)
         .expect("the chain runs one shot");
@@ -1164,24 +1193,30 @@ fn per(seconds: f64, items: usize) -> f64 {
     seconds * 1e9 / items as f64
 }
 
-/// One instruction of the mix, drawn: its gate in `MIX`, its qubits (the
-/// first ones its gate takes, all different) and its angle.
+/// One instruction of a mix, drawn: its gate in `MIX`, its qubits (the
+/// first ones its gate takes, all different), its angle, and, for an
+/// `x_if`, the readouts of its parity, each counted back from the shot's
+/// latest.
 struct Draw {
     gate: usize,
     qubits: [u32; 3],
     theta: f64,
+    back: Option<[u32; 2]>,
 }
 
-/// `n` draws of the mix, from a fixed seed.
-fn draws(n: usize) -> Vec<Draw> {
-    let total: u64 = MIX.iter().map(|&(_, _, weight)| weight).sum();
+/// How far back a parity's readouts are drawn from: a round's syndromes.
+const LOOKBACK: u32 = 16;
+
+/// `n` draws of `mix`, from a fixed seed.
+fn draws(n: usize, mix: Mix) -> Vec<Draw> {
+    let total: u64 = (0..MIX.len()).map(|place| mix.weight(place)).sum();
     let mut stream = Stream(SEED);
     (0..n)
         .map(|_| {
             let mut pick = stream.next() % total;
-            let gate = MIX
-                .iter()
-                .position(|&(_, _, weight)| {
+            let gate = (0..MIX.len())
+                .position(|place| {
+                    let weight = mix.weight(place);
                     let here = pick < weight;
                     pick = pick.wrapping_sub(weight);
                     here
@@ -1198,10 +1233,17 @@ fn draws(n: usize) -> Vec<Draw> {
                 };
             }
             let theta = f64::from(stream.below(1 << 30)) / f64::from(1u32 << 30);
+            // Drawn for an `x_if` alone, so that the common mix's draws
+            // stay those of the bench before the parity-heavy mix.
+            let back = (MIX[gate].0 == MixGates::X_IF).then(|| {
+                let first = 1 + stream.below(LOOKBACK - 1);
+                [first, first + 1]
+            });
             Draw {
                 gate,
                 qubits,
                 theta,
+                back,
             }
         })
         .collect()
@@ -1219,7 +1261,12 @@ fn build_one(set: &InstructionSet, draw: &Draw) -> Instruction {
     let (opcode, arity, _) = MIX[draw.gate];
     let mnemonic = set.mnemonic(opcode).expect("a gate of MixGates");
     let theta = [("theta", Argument::from(draw.theta))];
-    let arguments: &[(&str, Argument)] = if opcode == MixGates::RZ { &theta } else { &[] };
+    let parity = draw.back.map(|back| [("c", Argument::parity(back, false))]);
+    let arguments: &[(&str, Argument)] = match (opcode, &parity) {
+        (MixGates::RZ, _) => &theta,
+        (MixGates::X_IF, Some(parity)) => parity,
+        _ => &[],
+    };
     set.instruction(mnemonic, draw.qubits[..arity].iter().copied(), arguments)
         .expect("an instruction of MixGates")
 }
@@ -1246,12 +1293,14 @@ impl Stream {
 mod tests {
     use super::*;
 
-    /// Every section, at a tiny size, with the batch checks off and on:
-    /// each variant must count, or answer, what the direct call does, so
-    /// the tables compare the same work.
+    /// Every section, at a tiny size, on each mix, with its batches
+    /// unchecked and checked: each variant must count, or answer, what the
+    /// direct call does, so the tables compare the same work.
     #[test]
     fn every_variant_does_the_same_work_at_a_tiny_size() {
-        run(&TINY, None, false);
-        run(&TINY, None, true);
+        for mix in [Mix::Common, Mix::ParityHeavy] {
+            run(&TINY, None, false, mix);
+            run(&TINY, None, true, mix);
+        }
     }
 }

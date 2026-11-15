@@ -138,10 +138,7 @@ impl Drive for CoinCopy {
         below: &mut impl Execute,
     ) -> Result<Vec<Vec<ReadoutValue>>, DriveError> {
         // First, every shot tosses its coin.
-        let toss = Batch {
-            shots,
-            instructions: &self.sequences[0],
-        };
+        let toss = Batch::new(shots, &self.sequences[0]);
         let mut readouts = Readouts::new();
         below.execute(&[toss], seed, &mut readouts).await?;
         let coin = &readouts[0];
@@ -161,10 +158,7 @@ impl Drive for CoinCopy {
         }
         let batches: Vec<Batch<'_>> = sides
             .iter()
-            .map(|(_, shots, sequence)| Batch {
-                shots,
-                instructions: sequence,
-            })
+            .map(|(_, shots, sequence)| Batch::new(shots, sequence))
             .collect();
         // The same seed: each part keeps a shot's stream from its first
         // batch until the shot ends. The sides' readouts are appended
@@ -239,7 +233,7 @@ impl Adapt for BitFlip {
         let map = self.below.as_ref().expect("`>>` binds before any run");
         // Apart from the executor's streams, which draw from `seed` itself.
         let own = seed.derive("bit_flip");
-        let mut sent: Vec<(ShotSet, Vec<Instruction>)> = Vec::new();
+        let mut sent: Vec<(ShotSet, Vec<Instruction>, bool)> = Vec::new();
         for batch in batches {
             for (j, id) in batch.shots.iter().enumerate() {
                 let stream = self
@@ -259,14 +253,15 @@ impl Adapt for BitFlip {
                     instructions.push(mapped);
                 }
                 let shot = batch.shots.select(&[j]).expect("a position of the batch");
-                sent.push((shot, instructions));
+                sent.push((shot, instructions, batch.is_checked()));
             }
         }
         let one_each: Vec<Batch<'_>> = sent
             .iter()
-            .map(|(shots, instructions)| Batch {
-                shots,
-                instructions,
+            .map(|(shots, instructions, checked)| {
+                // Checked if the batch it came from was, as `Adapt`'s
+                // guideline says.
+                Batch::new(shots, instructions).checked_if(*checked)
             })
             .collect();
         self.one_each.clear();
@@ -360,7 +355,7 @@ impl Execute for Bits {
                 let mut row = Vec::with_capacity(reads);
                 for instruction in batch.instructions {
                     // Below the shot's qubits, as the parts above send them;
-                    // the batch checks, when on, refuse any other.
+                    // a checked batch's checks refuse any other.
                     let qubit = instruction.blocks[0] as usize;
                     match instruction.opcode {
                         CoinGates::H => bits[qubit] = stream.chance(500),
