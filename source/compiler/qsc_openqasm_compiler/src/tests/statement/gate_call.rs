@@ -618,20 +618,20 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           store i1 %var_119, ptr %var_58
           br label %block_9
         block_9:
-          %var_121 = load i1, ptr %var_58
-          br i1 %var_121, label %block_10, label %block_11
+          %var_122 = load i1, ptr %var_58
+          br i1 %var_122, label %block_10, label %block_11
         block_10:
           %var_68 = load i64, ptr %var_54
           %var_69 = add i64 %var_68, 1
           store i64 %var_69, ptr %var_67
           br label %block_12
         block_11:
-          %var_122 = load i64, ptr %var_54
-          store i64 %var_122, ptr %var_67
+          %var_123 = load i64, ptr %var_54
+          store i64 %var_123, ptr %var_67
           br label %block_12
         block_12:
-          %var_124 = load i64, ptr %var_67
-          store i64 %var_124, ptr %var_16
+          %var_125 = load i64, ptr %var_67
+          store i64 %var_125, ptr %var_16
           br label %block_13
         block_13:
           %var_70 = load i64, ptr %var_16

@@ -196,7 +196,7 @@ fn programs_with_includes_can_be_parsed() -> miette::Result<(), Vec<Report>> {
     ];
 
     let res = parse_all("source0.qasm", all_sources)?;
-    assert!(res.source.includes().len() == 1);
+    assert_eq!(res.source.includes().len(), 1);
     Ok(())
 }
 
@@ -216,8 +216,8 @@ fn programs_with_includes_with_includes_can_be_parsed() -> miette::Result<(), Ve
     ];
 
     let res = parse_all("source0.qasm", all_sources)?;
-    assert!(res.source.includes().len() == 1);
-    assert!(res.source.includes()[0].includes().len() == 1);
+    assert_eq!(res.source.includes().len(), 1);
+    assert_eq!(res.source.includes()[0].includes().len(), 1);
     Ok(())
 }
 

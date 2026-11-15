@@ -15,3 +15,6 @@ thiserror = { workspace = true }
 expect-test = { workspace = true }
 indoc = { workspace = true }
 miette = { workspace = true, features = ["fancy-no-syscall"] }
+
+# Preserve this crate's lint policy without inheriting the workspace Clippy lints.
+[lints]

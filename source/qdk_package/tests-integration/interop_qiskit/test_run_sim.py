@@ -169,3 +169,32 @@ def test_simulting_with_unbound_param_raises():
     except Exception as ex:
         additional_info = generate_repro_information(circuit, backend)
         raise RuntimeError(additional_info) from ex
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("backend_options", [False, True])
+def test_zero_seed_is_reproducible(backend_options) -> None:
+    circuit = QuantumCircuit(8, 8)
+    circuit.h(range(8))
+    circuit.measure(range(8), range(8))
+    options = {"seed": 0, "shots": 64}
+    backend = QSharpBackend(**options) if backend_options else QSharpBackend()
+    run_options = {} if backend_options else options
+
+    first = backend.run(circuit, **run_options).result().get_counts()
+    second = backend.run(circuit, **run_options).result().get_counts()
+    assert first == second
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("backend_options", [False, True])
+def test_zero_shots_returns_empty_counts(backend_options) -> None:
+    circuit = QuantumCircuit(1, 1)
+    circuit.measure(0, 0)
+    backend = QSharpBackend(shots=0) if backend_options else QSharpBackend()
+    run_options = {} if backend_options else {"shots": 0}
+
+    result = backend.run(circuit, **run_options).result()
+    assert result.get_counts() == {}
+    assert result.data(0)["probabilities"] == {}
+    assert result.results[0].shots == 0

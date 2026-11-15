@@ -5791,10 +5791,15 @@ fn create_branch_call(
         &mut statements,
         assigner,
     );
+    // Prefix materialization and later passes mutate nested argument nodes.
+    // Each leaf owns its complete argument tree, including block-local
+    // bindings, so a later iteration's in-place mutation cannot leak into
+    // sibling branches of the dispatch.
+    let args_id = crate::cloner::clone_expr_within_package(package, orig_args.id, assigner);
     let args = build_specialized_call_args(
         udts,
         package,
-        orig_args.id,
+        args_id,
         &input,
         &[param],
         &captures,

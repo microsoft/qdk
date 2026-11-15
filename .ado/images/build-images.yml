@@ -56,7 +56,7 @@ parameters:
   - name: UBI8_IMAGE_TAG
     displayName: Tag for the UBI8 image
     type: string
-    default: "8.10-1793091705"
+    default: "8.10-1794418922"
   - name: qdkBaseTag
     displayName: Tag for the qdk-base container image
     type: string
@@ -70,7 +70,7 @@ variables:
   - name: CARGO_TERM_COLOR
     value: always
   - name: RUST_TOOLCHAIN_VERSION
-    value: "1.95"
+    value: "1.99"
   - name: UBI_REGISTRY
     value: "registry.access.redhat.com"
   - name: UBI_TAG
@@ -201,7 +201,7 @@ extends:
                           command: download
                           feed: "AzureQuantum/azure-quantum"
                           packageName: "python-source"
-                          packageVersion: "3.15.1"
+                          packageVersion: "3.15.2"
                           directory: "$(Pipeline.Workspace)/python-src"
 
                       # Need to copy the LLVM and Python source into the container before building it

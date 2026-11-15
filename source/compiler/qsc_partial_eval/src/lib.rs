@@ -371,7 +371,7 @@ impl<'a> PartialEvaluator<'a> {
             }
             PatKind::Tuple(pats) => {
                 let tuple = value.unwrap_tuple();
-                assert!(pats.len() == tuple.len());
+                assert_eq!(pats.len(), tuple.len());
                 for (pat_id, value) in pats.iter().zip(tuple.iter()) {
                     self.bind_value_to_pat(mutability, *pat_id, value.clone());
                 }
@@ -2196,6 +2196,8 @@ impl<'a> PartialEvaluator<'a> {
             }
             .map_err(std::convert::Into::into),
             "__quantum__qis__m__body" => Ok(self.measure_qubit(builder::m_decl(), &args_value)),
+            "__quantum__qis__mx__body" => Ok(self.measure_qubit(builder::mx_decl(), &args_value)),
+            "__quantum__qis__my__body" => Ok(self.measure_qubit(builder::my_decl(), &args_value)),
             "__quantum__qis__mresetz__body" => {
                 Ok(self.measure_qubit(builder::mresetz_decl(), &args_value))
             }
@@ -5797,6 +5799,13 @@ fn eval_un_op_with_literals(un_op: UnOp, value: Value) -> Value {
                     global.type_args,
                 )
             }
+            // An empty tuple is the placeholder that partial evaluation
+            // produces for a value it cannot resolve at compile time, e.g. an
+            // element of an array of dynamic callables. Propagate it upward:
+            // computing or passing around an unresolved callable is not an
+            // error; only directly calling one is, which `eval_expr_call`
+            // reports.
+            Value::Tuple(inner, None) if inner.is_empty() => Value::Tuple(inner, None),
             _ => panic!("value should be callable"),
         },
         UnOp::Pos | UnOp::Unwrap => value,

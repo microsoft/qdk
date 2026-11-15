@@ -747,3 +747,23 @@ def test_dynamic_rotation_angle():
     assert count_1 > 1400, f"Expected ~15% '1' results, got {count_1}"
     assert count_0 > 8400, f"Expected ~85% '0' results, got {count_0}"
     assert count_0 + count_1 == 10_000, "All shots should produce a result"
+
+
+# X maps |-i> to |i> (up to phase), so after correcting on the first MY result
+# the second MY is always Zero. MX/MY are lowered to basis change + MZ on the GPU.
+MY_CORRECTION_QSHARP = """{
+    use q = Qubit();
+    H(q);
+    if MY(q) == One { X(q); }
+    let r = MY(q);
+    Reset(q);
+    r
+}"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_branch_on_my_result():
+    qsharp.init(target_profile=TargetProfile.Adaptive_RIF)
+    qir = str(qsharp.compile(MY_CORRECTION_QSHARP))
+    results = run_shots(qir, shots=100)
+    assert {map_result_list_to_str(r) for r in results["shot_results"]} == {"0"}

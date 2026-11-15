@@ -144,7 +144,7 @@ pub(crate) fn map_variable_use_in_block(
 ) {
     let mut reverse_deep_map = populate_reverse_deep_map(var_map);
 
-    let instrs = block.0.drain(..).collect::<Vec<_>>();
+    let instrs = std::mem::take(&mut block.0);
 
     for mut instr in instrs {
         match &mut instr {

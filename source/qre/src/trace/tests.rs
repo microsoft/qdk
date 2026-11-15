@@ -385,7 +385,7 @@ fn estimate_with_graph_ignores_base_error_for_some_traces() {
 
     assert_eq!(collection.total_jobs(), 1);
     assert_eq!(collection.successful_estimates(), 1);
-    assert!(collection.errors().is_empty());
+    assert_eq!(collection.errors().len(), 0);
 }
 
 #[test]

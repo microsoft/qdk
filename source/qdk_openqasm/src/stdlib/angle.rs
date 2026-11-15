@@ -7,7 +7,6 @@ pub(crate) mod tests;
 use num_bigint::BigInt;
 
 use crate::convert::safe_u64_to_f64;
-use core::f64;
 use std::convert::TryInto;
 use std::f64::consts::TAU;
 use std::fmt;
