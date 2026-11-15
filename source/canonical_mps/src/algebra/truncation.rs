@@ -7,12 +7,14 @@
 //! [`SiteAlgebra::gate_split`](super::SiteAlgebra::gate_split) bounds what
 //! a split may drop; a backend whose library truncates keeps the library's
 //! rule within those bounds. A backend that computes the singular values
-//! itself uses this rule, so that every host backend truncates alike: it
-//! keeps the fewest values that meet the cutoff, within the cap, and drops
-//! a tail whose squares sum to exactly the cutoff's share.
+//! itself uses this rule, so that the host backends that use it truncate
+//! alike: it keeps the fewest values that meet the cutoff, within the cap,
+//! and drops a tail whose squares sum to exactly the cutoff's share.
 //!
-//! Every sum is of the values divided by the largest, at least 1, so none
-//! underflows however small the values are.
+//! Every square is of a value divided by the largest, so every sum is at
+//! least 1 and none underflows however small the values are. A value
+//! below about 1e-162 of the largest has a square that underflows to zero,
+//! so it counts as zero: a cutoff of 0 drops it.
 
 /// Which singular values a split keeps, from [`Truncation::of`].
 #[derive(Clone, Debug, PartialEq)]
@@ -30,7 +32,9 @@ impl Truncation {
     /// nonincreasing) at `cutoff` (in `[0, 1)`) and `max_extent`: drop the
     /// longest tail whose squares sum to at most `cutoff` of the squares of
     /// all of them, but never the first value, then keep at most
-    /// `max_extent` values.
+    /// `max_extent` values. The squares are of the values divided by the
+    /// largest, so a cutoff of 0 drops the zeros and the values below
+    /// about 1e-162 of the largest, whose squares underflow.
     ///
     /// The values of the zero matrix, all zero, keep one value, zero, and
     /// a retained fraction of 1.

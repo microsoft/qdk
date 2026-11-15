@@ -2,11 +2,13 @@
 
 The `canonical_mps` crate is for simulators that run matrix product states
 (MPS) in canonical form on more than one backend, the CPU or a GPU library.
-The engine's rules (where the orthogonality centre moves, how a two-site gate
-is split and truncated, what weight a truncation keeps) are the same on every
-backend; only where the tensors live and which library factors them differ.
-So the engine is written once, over a small contract, and a backend writes
-only the contract's tensor operations. The crate has two parts:
+Some of the engine's rules are the same on every backend: where the
+orthogonality centre moves, which pair a gate splits, how the retained
+weight is kept, and the bounds every truncation stays within. What differs
+is where the tensors live, which library factors them, and which values a
+truncation keeps within those bounds. So the engine is to be written once,
+over a small contract, and a backend writes only the contract's tensor
+operations. The crate has two parts:
 
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/algebra.rs), the tensor operations a backend
@@ -18,10 +20,10 @@ only the contract's tensor operations. The crate has two parts:
 **Why this approach.**
 
 - **One implementation of the rules.** The centre's moves, the truncation's
-  bookkeeping and the checks of every call belong to the engine alone, so
-  every backend runs them alike, and a fix reaches every backend.
+  bookkeeping and the checks of every call will belong to the engine alone,
+  so every backend will run them alike, and a fix will reach every backend.
 - **Small backends.** A backend writes seven operations, on two neighbouring
-  sites or on small host matrices; it checks no argument, since the engine
+  sites or on small host matrices; it checks no argument, since its caller
   checks every one before it calls, and reports only its own failures.
 - **Open to more backends.** A new backend is a new type implementing the
   trait, in its own crate; nothing here changes.
@@ -46,8 +48,12 @@ The contract's documentation uses these terms of MPS simulation:
   state's reads and truncations at the centre are local.
 - **Gated pair:** the tensor `θ` of two neighbouring sites contracted over
   their bond, with a two-qubit gate applied.
+- **Truncation, cutoff, cap:** a split factors `θ` by an SVD and keeps
+  only its largest singular values, which truncates the bond between the
+  pair. The **cutoff** is the share of the squared singular values a
+  split may drop; the **cap** is the largest bond it may keep.
 - **Retained fraction:** the share of the squared singular values a split
-  keeps; the engine multiplies the state's retained weight by it.
+  keeps; the engine will multiply the state's retained weight by it.
 
 ### The operations
 
@@ -64,7 +70,7 @@ is for.
 | `gate_split` | `θ` factored by one SVD, truncated as the call says, the kept values normalised and absorbed on the centre's side, the other side an isometry; the bond and retained fraction | a two-qubit gate on neighbouring qubits, with the centre on the pair                                        |
 | `qr_move`    | the centre moved across a bond, exactly, by one QR of the site it leaves, a one-site gate applied to that site first                                                          | bringing the centre to a gate or a read without truncating, and applying a pending one-site gate on the way |
 | `multiply`   | the product of two small host matrices                                                                                                                                        | the reads' contractions on the host                                                                         |
-| `svd`        | the thin SVD of a small host matrix, accurate on rank-deficient matrices                                                                                                      | factoring an operator on several qubits into one tensor per site; it trusts the values                      |
+| `svd`        | the thin SVD of a small host matrix, accurate on rank-deficient matrices                                                                                                      | factoring an operator on several qubits into one tensor per site; it will trust the values                  |
 
 [`GateSplitCall`](src/algebra.rs) and [`QrMoveCall`](src/algebra.rs) define
 each operation's inputs exactly, and
@@ -76,24 +82,15 @@ backend can answer `multiply` and `svd` with its product and its
 
 ### The layout
 
-Every tensor holds complex doubles, its first mode fastest (Fortran order):
-the element `(a, s, b)` of a site of extents `[left, 2, right]` is at
-`a + left·(s + 2·b)`. A site read as a matrix is the column-major
-`(2·left) × right` matrix of rows `a + left·s`, or the `left × (2·right)`
-matrix of columns `s + 2·b`, over the same elements, so a backend factors a
-site with no copy. Outputs are packed: a site of extents `[left, 2, right]`
-holds exactly `left·2·right` elements.
+Every tensor holds complex doubles, its first mode fastest, so a backend
+factors a site read as a matrix with no copy; the
+[module's documentation](src/algebra.rs) gives the layout in full.
 
 ### The truncation rule
 
-`gate_split`'s contract bounds what a split may drop: at most `cutoff` of
-the squared singular values, unless the cap cut the bond, and never the
-largest. A backend whose library truncates keeps the library's rule within
-those bounds. A backend that has the singular values on the host uses
-[`Truncation`](src/algebra/truncation.rs), so that every host backend
-truncates alike: it keeps the fewest values that meet the cutoff, within the
-cap, and returns them normalised with the retained fraction, computed
-without underflow however small the values are.
+A backend that has the singular values on the host truncates them with
+[`Truncation`](src/algebra/truncation.rs), whose documentation states the
+rule, within the bounds `gate_split`'s contract sets for every backend.
 
 ## The engine (planned)
 

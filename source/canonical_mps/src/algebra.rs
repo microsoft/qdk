@@ -4,19 +4,22 @@
 //! [`SiteAlgebra`]: the backend contract of the canonical-form MPS engine,
 //! the tensor operations it needs, wherever its site tensors live.
 //!
-//! The engine keeps a chain of site tensors in canonical form: one site,
-//! the orthogonality centre, holds the state's norm, and every other site is
-//! an isometry towards it. Its rules (where the centre moves, which pair a
-//! gate splits, what weight a truncation keeps) are the same on every
-//! backend; what differs is where the tensors live and which library
-//! factors them. So the engine is written once over this trait, and a
-//! backend implements only its operations: a gate split and a move of the
-//! centre on two neighbouring sites, the storage of a site, and a product
-//! and an SVD of small host matrices for the engine's reads.
+//! The planned engine will keep a chain of site tensors in canonical
+//! form: one site, the orthogonality centre, holds the state's norm, and
+//! every other site is an isometry towards it. Some of its rules will be
+//! the same on every backend: where the centre moves, which pair a gate
+//! splits, how the retained weight is kept, and the bounds every
+//! truncation stays within (those of [`SiteAlgebra::gate_split`]); what
+//! differs is where the tensors live, which library factors them, and
+//! which values a truncation keeps within those bounds. So the engine is
+//! to be written once over this trait, and a backend implements only its
+//! operations: a gate split and a move of the centre on two neighbouring
+//! sites, the storage of a site, and a product and an SVD of small host
+//! matrices for the engine's reads and its factoring of operators.
 //!
-//! The engine checks every argument before it calls the backend, so an
-//! implementation computes, and reports only its own failures, in its
-//! [`SiteAlgebra::Error`].
+//! An implementation may assume every argument is valid: the caller checks
+//! them before it calls. So it computes, and reports only its own
+//! failures, in its [`SiteAlgebra::Error`].
 //!
 //! # The layout
 //!
@@ -31,8 +34,8 @@
 //!
 //! The host matrices of [`SiteAlgebra::multiply`] and [`SiteAlgebra::svd`]
 //! are `dense_linalg`'s [`Matrix`] and [`MatrixRef`], column-major like
-//! the sites; [`truncation`] holds the rule host backends use to truncate
-//! a split.
+//! the sites; [`truncation`] holds the rule a host backend may use to
+//! truncate a split.
 
 pub mod truncation;
 
@@ -47,15 +50,15 @@ use std::borrow::Cow;
 /// a site tensor, a gate split and a move of the orthogonality centre on
 /// two neighbouring sites, and a product and an SVD of host matrices.
 ///
-/// The engine has checked every argument (extents, lengths, the call's
+/// The caller has checked every argument (extents, lengths, the call's
 /// settings) before it calls, so an implementation reports only what fails
 /// in its own computation. Tensors follow the [module's layout](self).
 pub trait SiteAlgebra {
     /// Where one site tensor's elements live.
     type Tensor;
 
-    /// Why a call failed. `'static`, so that the engine's error can hold it
-    /// as its source.
+    /// Why a call failed. `'static`, so that the planned engine's error
+    /// can hold it as its source.
     type Error: std::error::Error + 'static;
 
     /// A new tensor holding `values`.
@@ -132,8 +135,8 @@ pub trait SiteAlgebra {
     /// matrix gives one value, zero.
     ///
     /// It must be accurate on rank-deficient matrices, with repeated and
-    /// zero singular values: the engine factors states whose Schmidt rank
-    /// is below the matrix's size all the time, and trusts the values.
+    /// zero singular values: the engine will factor states whose Schmidt
+    /// rank is below the matrix's size all the time, and trust the values.
     fn svd(&self, a: MatrixRef<'_>) -> Result<Svd, Self::Error>;
 }
 
@@ -154,7 +157,7 @@ pub enum CentreSide {
 /// `L` of extents `[left_extent, 2, bond]` and `R` of extents
 /// `[bond, 2, right_extent]` ([`SiteAlgebra::gate_split`]).
 ///
-/// `θ` is never zero: the engine's states have norm 1, and its gates are
+/// `θ` is never zero: the caller's states have norm 1, and its gates are
 /// unitary.
 pub struct GateSplitCall<'t, T> {
     /// `A`, of extents `[left_extent, 2, bond]`.
@@ -174,7 +177,9 @@ pub struct GateSplitCall<'t, T> {
     /// cap.
     pub max_extent: usize,
     /// The share of the squared singular values the split may drop, in
-    /// `[0, 1)`; 0 drops only zeros.
+    /// `[0, 1)`; 0 drops the zeros, and may drop values so small, against
+    /// the largest, that their squares underflow ([`truncation`] drops
+    /// those below about 1e-162 of the largest).
     pub cutoff: f64,
     /// The site that absorbs the singular values, and so holds the centre
     /// afterwards.

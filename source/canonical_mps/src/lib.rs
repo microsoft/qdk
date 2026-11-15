@@ -1,11 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A matrix product state (MPS) engine in canonical form, written once over
-//! the tensor operations of a backend, so that each backend (the CPU, a GPU
-//! library) writes only those operations, and every backend runs the same
-//! rules: where the orthogonality centre moves, how a two-site gate is split
-//! and truncated, and how the retained weight is kept.
+//! A matrix product state (MPS) engine in canonical form, to be written
+//! once over the tensor operations of a backend, so that each backend (the
+//! CPU, a GPU library) writes only those operations, and every backend
+//! runs the same rules: where the orthogonality centre moves, which pair a
+//! gate splits, how the retained weight is kept, and the bounds every
+//! truncation stays within.
 //!
 //! - [`algebra`]: the backend contract. [`SiteAlgebra`](algebra::SiteAlgebra)
 //!   is what a backend implements: a site tensor's storage, a gate split, a

@@ -3,8 +3,9 @@
 
 //! The host rule of truncation: the tail below the cutoff, a fraction of
 //! the split's own weight, then what exceeds the cap; never the largest
-//! value, nothing but zeros at a cutoff of 0, and what is kept, normalised,
-//! with its share of the weight.
+//! value; at a cutoff of 0, the zeros and the values whose squares,
+//! against the largest's, underflow; and what is kept, normalised, with
+//! its share of the weight.
 
 use crate::algebra::truncation::Truncation;
 
@@ -45,7 +46,7 @@ fn cuts_off_the_tail_below_the_cutoff() {
 // COMPATIBILITY NOTE: this behavior was present in qdk_cpu_mps's
 // `Engine::kept` (a tail is dropped while its squares sum to at most the
 // cutoff's share), hence we keep it: it is what makes a cutoff of 0 drop
-// zeros and only zeros.
+// the zeros.
 #[test]
 fn a_tail_equal_to_the_cutoffs_share_is_discarded() {
     let h = std::f64::consts::FRAC_1_SQRT_2;
@@ -59,6 +60,23 @@ fn a_tail_equal_to_the_cutoffs_share_is_discarded() {
 fn a_cutoff_of_zero_discards_only_zeros() {
     let truncation = Truncation::of(&[1.0, 1e-10, 0.0, 0.0], 0.0, usize::MAX);
     assert_eq!(truncation.normalised_values.len(), 2);
+}
+
+/// A cutoff of zero after a value of 1: a value of 1e-161, whose square is
+/// a subnormal, is kept; one of 1e-163, whose square underflows to zero,
+/// counts as zero and is dropped, with a share of exactly 1.
+// COMPATIBILITY NOTE: this behavior was present in qdk_cpu_mps's
+// `Engine::kept` (its squares are of the values divided by the largest, so
+// those below about 1e-162 of it underflow), hence we keep it: no Schmidt
+// weight that small changes a simulation's result.
+#[test]
+#[expect(clippy::float_cmp, reason = "the share is exactly 1")]
+fn a_cutoff_of_zero_drops_values_whose_squares_underflow() {
+    let kept = Truncation::of(&[1.0, 1e-161], 0.0, usize::MAX);
+    assert_eq!(kept.normalised_values.len(), 2, "1e-161");
+    let dropped = Truncation::of(&[1.0, 1e-163], 0.0, usize::MAX);
+    assert_eq!(dropped.normalised_values, [1.0], "1e-163");
+    assert_eq!(dropped.retained_fraction, 1.0, "1e-163");
 }
 
 /// The Schmidt weights 0.81, 0.09, 0.09 and 0.01 (two pairs, each 0.9 and
@@ -85,13 +103,20 @@ fn the_retained_fraction_is_the_kept_share_of_the_squares() {
 
 /// Values 0.8, 0.6 and two zeros, which a cutoff of 0.1 drops: the share
 /// kept is exactly 1, so the state's retained weight does not move by a
-/// rounding error at every split that drops only zeros.
+/// rounding error at every split that drops only zeros. So too with values
+/// 1, four of 2⁻²⁷ and a zero at a cutoff of 0, where the kept squares,
+/// summed from the smallest, would round to 1 + 2⁻⁵².
 #[test]
 #[expect(clippy::float_cmp, reason = "the share is exactly 1")]
 fn the_retained_fraction_is_exactly_one_when_only_zeros_are_dropped() {
     let truncation = Truncation::of(&[0.8, 0.6, 0.0, 0.0], 0.1, usize::MAX);
-    assert_eq!(truncation.normalised_values.len(), 2);
-    assert_eq!(truncation.retained_fraction, 1.0);
+    assert_eq!(truncation.normalised_values.len(), 2, "two zeros dropped");
+    assert_eq!(truncation.retained_fraction, 1.0, "two zeros dropped");
+    let small = 2f64.powi(-27);
+    let values = [1.0, small, small, small, small, 0.0];
+    let truncation = Truncation::of(&values, 0.0, usize::MAX);
+    assert_eq!(truncation.normalised_values.len(), 5, "small values kept");
+    assert_eq!(truncation.retained_fraction, 1.0, "small values kept");
 }
 
 /// Values 3, 2 and 1, all kept: the kept values come back divided by their
@@ -125,10 +150,10 @@ fn tiny_values_truncate_as_at_scale_one() {
 // DISCUSS COMPATIBILITY: qdk_cpu_mps's SVD gave the zero matrix one value,
 // zero, so its `Engine::kept` and `kept_rescale` never met an all-zero
 // spectrum (their `0 / 0` would have failed the split with a weight
-// underflow); the engine cannot reach it either, since its states have norm
-// 1 and its gates are unitary. We think a total rule is better than a NaN,
-// and a share of 1 agrees with "exactly 1 when every dropped value is zero",
-// so we recommend keeping it.
+// underflow); the planned engine will not reach it either, since its states
+// will have norm 1 and its gates are unitary. We think a total rule is
+// better than a NaN, and a share of 1 agrees with "exactly 1 when every
+// dropped value is zero", so we recommend keeping it.
 #[test]
 #[expect(clippy::float_cmp, reason = "the share is exactly 1")]
 fn the_zero_spectrum_keeps_one_zero_value() {

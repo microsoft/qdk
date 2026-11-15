@@ -74,6 +74,18 @@ fn a_split_reports_the_share_of_the_squares_it_kept() {
     assert!((fraction - expected).abs() < 1e-14, "{fraction}");
 }
 
+/// [`known_split`]'s pair at a cutoff of 0.1 and no cap: the squares sum to
+/// 0.99, so the split may drop 0.099 of them; it drops the 0.01 of the
+/// smallest value and keeps three, a share of 0.98 / 0.99.
+#[test]
+fn a_split_drops_the_tail_within_the_cutoff() {
+    let (a, b, _, _) = known_split();
+    let (gate, centre) = (identity_gate(), CentreSide::Left);
+    let (_, _, bond, fraction) = split(&a, &b, 2, 2, gate, 0.1, usize::MAX, centre);
+    assert_eq!(bond, 3);
+    assert!((fraction - 0.98 / 0.99).abs() < 1e-14, "{fraction}");
+}
+
 /// Random pairs split with and without a cap, both sides: the site away
 /// from the centre is an isometry.
 #[test]
@@ -95,7 +107,7 @@ fn the_side_away_from_the_centre_is_an_isometry() {
 /// and none and cutoffs from 0 to just below 1: the bond is at least 1,
 /// and at most the cap and both sides of the gated pair.
 #[test]
-fn a_split_s_bond_lies_between_one_and_its_bounds() {
+fn the_bond_of_a_split_lies_between_one_and_its_bounds() {
     for (l, m, r) in [(1, 2, 1), (1, 2, 4), (4, 2, 1), (2, 4, 2)] {
         let (a, b) = (random(2 * l, m, 7), random(m, 2 * r, 8));
         let gate: [Complex64; 16] = random(4, 4, 9).elements().try_into().expect("16 entries");
@@ -158,7 +170,7 @@ fn a_move_of_the_centre_leaves_an_isometry_behind() {
 /// becomes the smaller of the bond and that side, 2 to the right and 4 to
 /// the left.
 #[test]
-fn a_move_of_the_centre_s_bond_is_at_most_the_leaving_site_s_side() {
+fn the_bond_after_a_move_is_at_most_the_leaving_sites_side() {
     for m in [1, 2, 3] {
         let (a, b) = (random(2, m, 16), random(m, 4, 17));
         let (_, _, bond) = move_centre(&a, &b, 1, 2, None, CentreSide::Right);
