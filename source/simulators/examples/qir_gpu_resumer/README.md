@@ -3,17 +3,44 @@
 > **Prototype, not for merging.** This example exists to support the review of
 > `QirMachine`; nothing here is a proposed change to the QDK.
 
-`QirGpuResumer` ([`gpu_resumer.rs`](gpu_resumer.rs),
-[`kernels.wgsl`](kernels.wgsl)) is a [`QirResumer`](../../src/qir/resumer.rs)
-that keeps every shot's state vector on a GPU through wgpu. The
-[`QirMachine`](../../src/qir/machine.rs) runs each shot's classical part and
-hands the resumer batches of quantum calls; the resumer runs them on the GPU
-and returns the measurement outcomes. It stands in for the current GPU
-simulator ([`gpu_full_state_simulator`](../../src/gpu_full_state_simulator/)),
-to test two claims.
+[`QirMachine`](../../src/qir/machine.rs) and
+[`QirResumer`](../../src/qir/resumer.rs) can be the core of every simulator
+the QDK runs QIR programs on: the machine runs a program's classical part
+(branches, arithmetic on measured values, records) once for every target, and
+each simulator keeps only its quantum part, as a resumer that runs the
+machine's batches of quantum calls. Rebuilt this way, the GPU simulator loses
+its second implementation of the classical semantics, the 1,338 interpreter
+lines of its WGSL shader, and gets faster: this prototype is 6.5–7.8× faster
+than the current GPU simulator on the bench program, noiseless. The one gap
+measured, repetition codes at d = 9 (2.2–2.8× slower), comes from how the
+machine batches quantum calls; an opt-in batching policy of `QirMachine`, a
+small API change not built yet, is expected to remove most of it. On the CPU,
+the same machine runs today's test programs with the records of today's
+interpreter, at its speed.
 
-**1. It removes the GPU's second implementation of the classical part.** The
-current simulator interprets the Adaptive Profile bytecode inside its WGSL
+The evidence, for each simulator that `run_qir` offers and for the new MPS
+one:
+
+| Simulator                             | Its resumer                                                   | Same results as today                                                                                                                                                                                                                   | Speed against today's path                                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| CPU full state (`cpu`)                | [`QirSimulatorResumer`](../qir_resumers/simulator_resumer.rs) | every shot of the 244 cases of `run_shot`'s Python tests records what `run_shot` records ([the compatibility test](../../tests/run_shot_compatibility/main.rs))                                                                         | the same: 0.98–1.01× `run_shot`'s time per shot on those cases ([the benchmark](../../benches/qir_machine.rs))                  |
+| Stabilizer (`stabilizer`, `clifford`) | the same resumer                                              | the same, on the 238 of those cases that the tests run on it                                                                                                                                                                            | not measured; the classical part alone (on a simulator that does nothing) costs the resumer 0.83–0.87× what it costs `run_shot` |
+| GPU (`gpu`)                           | `QirGpuResumer`, this example                                 | agrees with the current simulator and with the CPU resumer ([Correctness evidence](#correctness-evidence))                                                                                                                              | faster on the bench program, slower on the repetition code at d = 9 ([Performance on the GPU](#performance-on-the-gpu))         |
+| MPS (new, not in the QDK yet)         | `MpsResumer`, on the branch `domingom/mps-method-m1b`         | on a development branch: passes the resumer conformance kit; meets those tests' expectations on their noiseless programs but one, which checks for loss and is refused; H₂'s phase estimation, its readout within 10⁻⁹ of the exact one | no current path to compare: written on the machine from the start                                                               |
+
+The GPU numbers were measured on one GPU, a Qualcomm Adreno X1-85 under WSL,
+through wgpu's GL backend, which is not a native backend of the current
+simulator ([Platform](#platform-and-what-it-costs-the-current-simulator)).
+
+`QirGpuResumer` ([`gpu_resumer.rs`](gpu_resumer.rs),
+[`kernels.wgsl`](kernels.wgsl)) is the resumer that keeps every shot's state
+vector on a GPU through wgpu: it runs the machine's batches there and returns
+the measurement outcomes. It stands in for the current GPU simulator
+([`gpu_full_state_simulator`](../../src/gpu_full_state_simulator/)).
+
+## The duplication removed
+
+The current simulator interprets the Adaptive Profile bytecode inside its WGSL
 shader: a second implementation of what `QirMachine` does, which must track
 it. Measured on `main`'s files:
 
@@ -38,21 +65,24 @@ WGSL 839); about 510 of the Rust lines are measurement scaffolding (the
 and `state_after` modes), and the rest includes work the current simulator's
 adaptive path does not do (it runs one operation per round): fusing gates
 into passes and blocks, and grouping shots with equal batches. The resumer
-also lacks features the current simulator has (missing for production,
-below). The gain is one implementation of the classical semantics instead of
-two.
+also lacks features the current simulator has
+([What is missing for production](#what-is-missing-for-production)). The
+gain is one implementation of the classical semantics instead of two.
 
-**2. It is faster on the bench program, and slower on larger repetition
-codes.** The bench program is n qubits, 8 rounds of Rx on every qubit, a CZ
+## Performance on the GPU
+
+The resumer is faster on the bench program, and slower on larger repetition
+codes. The bench program is n qubits, 8 rounds of Rx on every qubit, a CZ
 chain, `MResetZ` on qubit 0 and a conditional X, then `ResetAll`. The
 repetition codes have d data qubits and d−1 ancillas, and 8 rounds of
 syndrome extraction with a decoder that applies X corrections. The slowdown
 comes from how `QirMachine` builds batches; an opt-in batching policy, not
-built, should remove most of it (below).
+built, is expected to remove most of it
+([Closing the gap](#closing-the-gap-a-batching-policy)).
 
 Both simulators run the same compiled program, with the same shots, seed and
-noise, timed alike in one process by the `compare` mode (how to run it,
-below):
+noise, timed alike in one process by the `compare` mode
+([How to run it](#how-to-run-it)):
 
 - **Scope:** each time is one call that runs every shot and returns its
   results (the current simulator's own result arrays, the resumer's output
@@ -93,10 +123,11 @@ median, the repetition codes' kept ratios are 1.01× and 0.95× at d = 7, and
 which runs the reset) the resumer is 73× faster at 12 × 1024 and 164× at
 22 × 4 with the reset kept, and 111× and 229× with it dropped.
 
-**Where it is slower: repetition codes.** It breaks even at d = 7 and is 2.2×
-(noiseless) to 2.8× (noisy) slower at d = 9. Smaller codes favour it: at
-p = 10⁻², 1024 shots, it is 6.1× faster at d = 3 and 4.5× at d = 5 (reset
-kept). Each syndrome bit a branch reads ends a round of the resumer, so d = 9
+### Where it is slower: repetition codes
+
+It breaks even at d = 7 and is 2.2× (noiseless) to 2.8× (noisy) slower at
+d = 9. Smaller codes favour it: at p = 10⁻², 1024 shots, it is 6.1× faster
+at d = 3 and 4.5× at d = 5 (reset kept). Each syndrome bit a branch reads ends a round of the resumer, so d = 9
 takes 65 rounds per chunk of 128 shots, about 3.7 passes each, and the run
 costs about 2.6 ms per pass over a 17-qubit chunk here; under noise, shots
 with different syndromes also form more groups, each with its own passes.
@@ -104,22 +135,10 @@ The current simulator runs one host round per quantum operation (below), 274
 per batch of 128 shots at d = 9, at about 1 ms each. Why the resumer's passes
 cost more per round at this size was not investigated.
 
-**Closing that gap: a batching policy.** The rounds come from how
-`QirMachine` builds a batch, not from the resumer's design. Today it has one
-policy: a batch holds every quantum call up to the first branch on a
-measurement result, so the batch is as long as it can be without knowing an
-outcome, and the branch ends the round. A second, opt-in policy, chosen by
-the resumer, would let `QirMachine` also put a simple result-conditioned call
-in the batch (for instance "apply X to qubit 3 if results 5 and 6 read 1"),
-and the resumer would evaluate the condition per shot on the GPU without
-ending the round. The decoder's corrections, each conditioned on two
-syndrome bits, would then join the batch, and d = 9 could take one round per
-chunk instead of 65. The default policy stays
-today's; a resumer that cannot evaluate conditions never sees one. It needs a
-small API change in `QirMachine` (estimated below); not built.
+### Few shots
 
-**Few shots.** With one shot the ratio is larger, and it measures fixed
-latency, not simulation: 36× at 20 × 1 (25× under noise) and 26× at 12 × 1
+With one shot the ratio is larger, and it measures fixed latency, not
+simulation: 36× at 20 × 1 (25× under noise) and 26× at 12 × 1
 (17×), reset kept, best of 5 (35× and 25×, 21× and 16× at the median). The
 current simulator runs one host round per quantum operation: it submits its
 classical, prepare and execute kernels, then reads back how many shots have
@@ -127,9 +146,10 @@ ended. The 20-qubit bench program takes 342 such rounds (about 3.3 ms each on
 this platform, 1.15 s in all); the resumer takes one readback per round of
 measurements, 8 here.
 
-**Platform, and what it costs the current simulator.** Every number above
-was measured on one GPU, a Qualcomm Adreno X1-85 in WSL (Windows Subsystem
-for Linux), through wgpu's GL backend on Mesa's d3d12 Gallium driver, with
+### Platform, and what it costs the current simulator
+
+Every GPU number in this README was measured on one GPU, a Qualcomm Adreno
+X1-85 in WSL (Windows Subsystem for Linux), through wgpu's GL backend on Mesa's d3d12 Gallium driver, with
 f32 amplitudes, on cores shared with other work. That is not the current
 simulator's native backend (DX12, Vulkan or Metal), and it pays there:
 
@@ -142,6 +162,23 @@ simulator's native backend (DX12, Vulkan or Metal), and it pays there:
 
 None of these was measured on a native backend; on a discrete GPU, or another
 backend, the ratios may differ either way.
+
+## Closing the gap: a batching policy
+
+The repetition codes' rounds come from how `QirMachine` builds a batch, not
+from the resumer's design. Today it has one policy: a batch holds every quantum call up to the first branch on a
+measurement result, so the batch is as long as it can be without knowing an
+outcome, and the branch ends the round. A second, opt-in policy, chosen by
+the resumer, would let `QirMachine` also put a simple result-conditioned call
+in the batch (for instance "apply X to qubit 3 if results 5 and 6 read 1"),
+and the resumer would evaluate the condition per shot on the GPU without
+ending the round. The decoder's corrections, each conditioned on two
+syndrome bits, would then join the batch, and d = 9 could take one round per
+chunk instead of 65. The default policy stays today's; a resumer that cannot
+evaluate conditions never sees one. It needs a small API change in
+`QirMachine`
+([estimated with the other missing work](#what-is-missing-for-production));
+not built, so its gain is expected, not measured.
 
 ## How it works
 
@@ -170,6 +207,68 @@ dropped):
   closing `ResetAll`; 1.17–1.36× on the bench program at the table's sizes).
 
 `QirMachine` takes about 2 ms of a 64 ms run at 12 × 1024 (3%).
+
+## Findings on the current simulator
+
+These are in `main`'s code, not in this branch's changes; neither is covered
+by a test there.
+
+- **Noise set before the program is dropped.** `set_program` switches the
+  context to its adaptive mode by replacing it (`GpuContext::swith_to_adaptive`
+  in `gpu_context.rs`), which keeps the noise tables but clears the noise
+  configuration, so the shots run noiseless.
+- **Noise on measurements fails every shot.** With depolarizing noise on
+  `MResetZ`, every shot of the adaptive path ends with error code 2, from Rust
+  and from Python; noise on gates alone runs.
+  `qdk_simulators::run_adaptive_shots_sync`, which `run_qir(type="gpu")` uses,
+  sets noise then program on an adaptive context, so it should fail alike (not
+  run). Seen on the GL backend only.
+
+**Changes to the current simulator on this branch** (marked `SPIKE:`), all
+included in its numbers above:
+
+- `gpu_context.rs`: the compiled shader was never marked clean, so every run
+  recompiled it, which takes most of the first run's 11.5–14.4 s; it now is.
+  On a GL adapter buffers are capped at 128 MiB.
+- `gpu_resources.rs`: `QDK_GPU_ALLOW_GL` accepts a GL adapter, with GL's
+  binding limits; `QDK_GPU_STRIP_DX12` strips the shader's DX12-only sections
+  there. Both files and the shader also gained debug switches (`QDK_GPU_TRACE`,
+  `QDK_GPU_TRACE_STOP`, `QDK_GPU_DUMP_WGSL`), off by default.
+
+## What is missing for production
+
+Estimates, not built:
+
+| Item                                                                      | Estimate             |
+| ------------------------------------------------------------------------- | -------------------- |
+| Qubit loss (loss noise, `PeekLoss`): refused today                        | 2–3 days             |
+| Idle noise: refused today                                                 | about 1 day          |
+| Heavily divergent shots: each group of equal batches costs its passes     | 1–2 weeks            |
+| States over 128 MiB (more than 24 qubits)                                 | about 1 week         |
+| Python integration (`run_qir` on the resumer)                             | 2–3 days             |
+| Batching policy with conditional calls (opt-in), for the repetition codes | 2–4 days, API change |
+| Other backends (Vulkan, DX12, Metal) and devices                          | not estimated        |
+
+## Correctness evidence
+
+- The `QirResumer` conformance kit passes on the default strategy, with
+  failing shots, and with one pass per gate and one shot per chunk.
+- The `run_shot` corpus: its 238 noiseless cases at 2,000 shots agree with
+  what their tests expect and with the CPU resumer (largest z 2.62); with
+  noise support, 241 of its 244 cases pass and the 3 with qubit loss are
+  refused.
+- The adaptive GPU tests' 9 programs agree with what their tests expect, and
+  with the CPU, as do the bench programs at 4 and 12 qubits.
+- The state vector after random batches of every gate kind, at 5 to 22 qubits
+  and for 6 strategies, matches an f64 reference: 1 − fidelity about 10⁻¹²,
+  largest amplitude difference about 5·10⁻⁷, threshold 10⁻⁵ (`state` mode).
+- Under noise, every configuration agrees with the CPU resumer (largest z
+  3.12): depolarizing p = 10⁻² on the bench at 12 qubits, repetition codes
+  d = 5, 7, 9 and `TeleportedTNoiseReporting`; correlated noise; readout noise;
+  and five kinds of fault forced with probability 1 (`tx`: X after every T;
+  `hy`, `mzx`, `cxzz`, `cxxy` alike) on 8 programs each.
+- Against the current simulator, under gate noise p = 10⁻²: the repetition
+  codes d = 3 and 5 and the bench at 12 qubits agree (z ≤ 1.8, 1024 shots).
 
 ## How to run it
 
@@ -207,15 +306,17 @@ $BIN state,5:3:205,12:4:300                    # STATE ...: ok (each line), PASS
 `corpus` runs the `run_shot` compatibility corpus at 2,000 shots against the
 CPU resumer; the 3 skipped cases use qubit loss. `noisy` compares against the
 CPU resumer under the same noise; a line ends `ok` when z ≤ 5. These sizes are
-reduced; the evidence below used, under `p1e-2`, `bench_12:1024`,
-`rep_5:1024`, `rep_7:300`, `rep_9:64` and `TeleportedTNoiseReporting:256`
+reduced; the [correctness evidence](#correctness-evidence) used, under
+`p1e-2`, `bench_12:1024`, `rep_5:1024`, `rep_7:300`, `rep_9:64` and
+`TeleportedTNoiseReporting:256`
 (its CPU reference takes about 5 minutes), and `state` at 5 to 22 qubits.
 
 **Comparison with the current simulator.** Each configuration is
 `<qubits>:<shots>[:<p>[:gates]]`, or a program name (`rep_7`, `rep_9`) in
 place of `<qubits>`; `gates` puts the noise on gates and moves only, and
-without it the noise is also on measurements. The table above is this
-command, about 7 minutes:
+without it the noise is also on measurements. The table of
+[Performance on the GPU](#performance-on-the-gpu) is this command, about 7
+minutes:
 
 ```sh
 $BIN compare,$P,12:1024:0,12:1024:1e-3:gates,16:256:0,16:256:1e-3:gates,20:16:0,20:16:1e-3:gates,22:4:0,22:4:1e-3:gates,20:1:0,20:1:1e-3:gates,12:1:0,12:1:1e-3:gates,rep_7:1024:0,rep_7:1024:1e-3:gates,rep_9:256:0,rep_9:256:1e-3:gates
@@ -260,66 +361,5 @@ python3 source/simulators/examples/qir_gpu_resumer/bench_current.py rep,3,8,256,
 ```
 
 It sets the noise after the program: `GpuSimulator.set_program` forgets a
-noise configuration set before it (findings, below).
-
-## Findings on the current simulator
-
-These are in `main`'s code, not in this branch's changes; neither is covered
-by a test there.
-
-- **Noise set before the program is dropped.** `set_program` switches the
-  context to its adaptive mode by replacing it (`GpuContext::swith_to_adaptive`
-  in `gpu_context.rs`), which keeps the noise tables but clears the noise
-  configuration, so the shots run noiseless.
-- **Noise on measurements fails every shot.** With depolarizing noise on
-  `MResetZ`, every shot of the adaptive path ends with error code 2, from Rust
-  and from Python; noise on gates alone runs.
-  `qdk_simulators::run_adaptive_shots_sync`, which `run_qir(type="gpu")` uses,
-  sets noise then program on an adaptive context, so it should fail alike (not
-  run). Seen on the GL backend only.
-
-**Changes to the current simulator on this branch** (marked `SPIKE:`), all
-included in its numbers above:
-
-- `gpu_context.rs`: the compiled shader was never marked clean, so every run
-  recompiled it, which takes most of the first run's 11.5–14.4 s; it now is.
-  On a GL adapter buffers are capped at 128 MiB.
-- `gpu_resources.rs`: `QDK_GPU_ALLOW_GL` accepts a GL adapter, with GL's
-  binding limits; `QDK_GPU_STRIP_DX12` strips the shader's DX12-only sections
-  there. Both files and the shader also gained debug switches (`QDK_GPU_TRACE`,
-  `QDK_GPU_TRACE_STOP`, `QDK_GPU_DUMP_WGSL`), off by default.
-
-## Correctness evidence
-
-- The `QirResumer` conformance kit passes on the default strategy, with
-  failing shots, and with one pass per gate and one shot per chunk.
-- The `run_shot` corpus: its 238 noiseless cases at 2,000 shots agree with
-  what their tests expect and with the CPU resumer (largest z 2.62); with
-  noise support, 241 of its 244 cases pass and the 3 with qubit loss are
-  refused.
-- The adaptive GPU tests' 9 programs agree with what their tests expect, and
-  with the CPU, as do the bench programs at 4 and 12 qubits.
-- The state vector after random batches of every gate kind, at 5 to 22 qubits
-  and for 6 strategies, matches an f64 reference: 1 − fidelity about 10⁻¹²,
-  largest amplitude difference about 5·10⁻⁷, threshold 10⁻⁵ (`state` mode).
-- Under noise, every configuration agrees with the CPU resumer (largest z
-  3.12): depolarizing p = 10⁻² on the bench at 12 qubits, repetition codes
-  d = 5, 7, 9 and `TeleportedTNoiseReporting`; correlated noise; readout noise;
-  and five kinds of fault forced with probability 1 (`tx`: X after every T;
-  `hy`, `mzx`, `cxzz`, `cxxy` alike) on 8 programs each.
-- Against the current simulator, under gate noise p = 10⁻²: the repetition
-  codes d = 3 and 5 and the bench at 12 qubits agree (z ≤ 1.8, 1024 shots).
-
-## What is missing for production
-
-Estimates, not built:
-
-| Item                                                                      | Estimate             |
-| ------------------------------------------------------------------------- | -------------------- |
-| Qubit loss (loss noise, `PeekLoss`): refused today                        | 2–3 days             |
-| Idle noise: refused today                                                 | about 1 day          |
-| Heavily divergent shots: each group of equal batches costs its passes     | 1–2 weeks            |
-| States over 128 MiB (more than 24 qubits)                                 | about 1 week         |
-| Python integration (`run_qir` on the resumer)                             | 2–3 days             |
-| Batching policy with conditional calls (opt-in), for the repetition codes | 2–4 days, API change |
-| Other backends (Vulkan, DX12, Metal) and devices                          | not estimated        |
+noise configuration set before it
+([Findings](#findings-on-the-current-simulator)).
