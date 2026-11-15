@@ -48,7 +48,7 @@ fn all_instruction_shapes() -> Result<(), String> {
     for id in 0..OPERATION_COUNT {
         let name = instruction_id_to_name(id);
         let arguments = match name {
-            "ccx" => "1,2,3",
+            "ccx" | "and_adj" => "1,2,3",
             "rx" | "ry" | "rz" => "1,-1.25e-12",
             "rxx" | "ryy" | "rzz" => "1,2,-1.25e-12",
             "cx" | "cy" | "cz" | "swap" | "mz_store" | "mz_store_reset" => "1,2",

@@ -21,6 +21,12 @@ interface
         integer(c_size_t), value :: control0, control1, target
     end subroutine qdk_ccx
 
+    ! Uncomputes an AND target to zero; measurement feedback stays in the backend.
+    subroutine qdk_and_adj(control0, control1, target) bind(C, name="qdk_and_adj")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: control0, control1, target
+    end subroutine qdk_and_adj
+
     ! Applies a controlled X gate.
     subroutine qdk_cx(control, target) bind(C, name="qdk_cx")
         use, intrinsic :: iso_c_binding, only: c_size_t

@@ -253,6 +253,19 @@ pub extern "C" fn qdk_ccx(control0: usize, control1: usize, target: usize) {
     );
 }
 
+/// Uncomputes an AND target to zero using backend-local measurement feedback.
+#[unsafe(no_mangle)]
+pub extern "C" fn qdk_and_adj(control0: usize, control1: usize, target: usize) {
+    instruction(
+        "and_adj",
+        smallvec![
+            Parameter::QubitId(control0),
+            Parameter::QubitId(control1),
+            Parameter::QubitId(target)
+        ],
+    );
+}
+
 /// Applies a controlled X gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_cx(control: usize, target: usize) {
@@ -472,6 +485,7 @@ mod tests {
             // SAFETY: In default stdio mode, the path is ignored, including null.
             unsafe { qdk_save_profile(std::ptr::null()) };
             qdk_x(5);
+            qdk_and_adj(1, 2, 3);
             // SAFETY: In stdio mode, the path is ignored and no batch is flushed.
             unsafe { qdk_save_profile(std::ptr::null()) };
             assert_eq!(qdk_mz(5), 1);
@@ -513,7 +527,11 @@ mod tests {
         assert!(output.status.success(), "{stderr}");
         assert_eq!(
             batches,
-            [r#"["x(5)","mz(5)"]"#, r#"["mz(7)"]"#, r#"["mz_reset(8)"]"#,]
+            [
+                r#"["x(5)","and_adj(1,2,3)","mz(5)"]"#,
+                r#"["mz(7)"]"#,
+                r#"["mz_reset(8)"]"#,
+            ]
         );
         let guidance = "qep_interop: do not call qdk_save_profile() in stdio mode; use a profiler listening on the other end of the instruction stream";
         assert_eq!(stderr.lines().collect::<Vec<_>>(), [guidance, guidance]);
@@ -558,6 +576,7 @@ mod tests {
             instructions: Arc::clone(&recorded),
         });
         qdk_ccx(1, 2, 3);
+        qdk_and_adj(1, 2, 3);
         qdk_cx(1, 2);
         qdk_cy(1, 2);
         qdk_cz(1, 2);
@@ -593,6 +612,7 @@ mod tests {
 
         let expected = [
             ("ccx", smallvec![QubitId(1), QubitId(2), QubitId(3)]),
+            ("and_adj", smallvec![QubitId(1), QubitId(2), QubitId(3)]),
             ("cx", smallvec![QubitId(1), QubitId(2)]),
             ("cy", smallvec![QubitId(1), QubitId(2)]),
             ("cz", smallvec![QubitId(1), QubitId(2)]),

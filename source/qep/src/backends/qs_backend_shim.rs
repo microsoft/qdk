@@ -218,6 +218,17 @@ impl<B: Backend> QsBackendShim<B> {
             ("read_result", &[ResultId(result)]) => {
                 return self.read_result(result).map(Some);
             }
+            ("and_adj", &[QubitId(ctl0), QubitId(ctl1), QubitId(target)]) => {
+                let ctl0 = self.qubit(ctl0)?;
+                let ctl1 = self.qubit(ctl1)?;
+                let target = self.qubit(target)?;
+                self.backend.h(target)?;
+                let result = Self::result_value(self.backend.mresetz(target)?)?;
+                if result == QuantumBackendResult::One {
+                    self.backend.cz(ctl0, ctl1)?;
+                }
+                Ok(())
+            }
             _ => {
                 return Err(format!(
                     "Unsupported or malformed QIR instruction: {instruction:?}"

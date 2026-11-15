@@ -31,7 +31,7 @@ class QREProfiler:
         """Returns profiler that counts instructions."""
         gate_names = (  # noqa: SIM905
             "ccx cx cy cz rx rxx ry ryy rz rzz h s sadj sx t tadj x y z swap "
-            "reset mz_store mz_store_reset read_result mz mz_reset"
+            "reset mz_store mz_store_reset read_result mz mz_reset and_adj"
         ).split()
         profiler = SequentialCountingProfiler(
             physical_qubits_per_logical=1,

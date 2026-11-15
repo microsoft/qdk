@@ -112,6 +112,12 @@ define_instructions! {
     (READ_RESULT, 23, "read_result", [ResultId(_)]),  // returns Result.
     (MZ, 24, "mz", [QubitId(_)]),  // returns Result.
     (MZ_RESET, 25, "mz_reset", [QubitId(_)]),  // returns Result.
+
+    // New quantum instructions beyond what we currently support in QIR.
+
+    // Adjoint AND from https://arxiv.org/abs/1709.06648.
+    // Equivalent to CCNOT, assuming after application target qubit is 0.
+    (AND_ADJ, 26, "and_adj", [QubitId(_), QubitId(_), QubitId(_)]),
 }
 
 #[cfg(test)]

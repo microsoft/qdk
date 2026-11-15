@@ -21,6 +21,7 @@ void qdk_save_profile(const char *path);
 
 /* Quantum instructions not returning result. Rotation angles are in radians. */
 void qdk_ccx(size_t control0, size_t control1, size_t target);
+void qdk_and_adj(size_t control0, size_t control1, size_t target);
 void qdk_cx(size_t control, size_t target);
 void qdk_cy(size_t control, size_t target);
 void qdk_cz(size_t control, size_t target);

@@ -102,14 +102,6 @@ void inc_by_i(
     }
 }
 
-/* Ports the adaptive Adjoint AND, including its measurement correction. */
-static void uncompute_and(size_t a, size_t b, size_t target) {
-    qdk_h(target);
-    size_t result = qdk_mz_reset(target);
-    if (result > 1) fail("backend returned a measurement error");
-    if (result == 1) qdk_cz(a, b);
-}
-
 /* Ports AND or ApplyOrAssuming0Target and its adjoint on a clean target. */
 static void comparison_step(size_t a, size_t b, size_t target, bool is_and, bool adjoint) {
     if (!is_and) {
@@ -117,7 +109,7 @@ static void comparison_step(size_t a, size_t b, size_t target, bool is_and, bool
         qdk_x(b);
     }
     if (adjoint && !is_and) qdk_x(target);
-    if (adjoint) uncompute_and(a, b, target);
+    if (adjoint) qdk_and_adj(a, b, target);
     else qdk_ccx(a, b, target);
     if (!adjoint && !is_and) qdk_x(target);
     if (!is_and) {
