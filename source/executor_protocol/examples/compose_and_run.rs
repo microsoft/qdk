@@ -359,13 +359,14 @@ impl Execute for Bits {
                     .or_insert_with(|| (vec![false; qubits], Stream(seed.shot(id))));
                 let mut row = Vec::with_capacity(reads);
                 for instruction in batch.instructions {
-                    // Below the shot's qubits: the protocol checked it.
+                    // Below the shot's qubits, as the parts above send them;
+                    // the batch checks, when on, refuse any other.
                     let qubit = instruction.blocks[0] as usize;
                     match instruction.opcode {
                         CoinGates::H => bits[qubit] = stream.chance(500),
                         CoinGates::X => bits[qubit] = !bits[qubit],
                         CoinGates::MZ => row.push(bits[qubit].into()),
-                        _ => unreachable!("the protocol checked: an instruction of the set"),
+                        _ => unreachable!("the parts above send only instructions of the set"),
                     }
                 }
                 rows.push_row(&row, ShotConditions::NONE)
