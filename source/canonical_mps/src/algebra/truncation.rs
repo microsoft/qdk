@@ -9,8 +9,9 @@
 //! a split may drop; a backend whose library truncates keeps the library's
 //! rule within those bounds. A backend that computes the singular values
 //! itself may use this rule instead, and the backends that use it truncate
-//! alike: it keeps the fewest values that meet the cutoff, within the cap,
-//! and drops a tail whose squares sum to exactly the cutoff's share.
+//! alike: it drops the longest tail whose squares sum to at most the
+//! cutoff's share, a tail of exactly that share included, so it keeps the
+//! fewest values that meet the cutoff, then at most the cap.
 //!
 //! Every square is of a value divided by the largest, so every sum is at
 //! least 1 and none underflows however small the values are. A value so

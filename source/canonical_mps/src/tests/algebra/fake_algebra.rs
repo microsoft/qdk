@@ -359,9 +359,13 @@ fn frobenius(m: &Matrix) -> f64 {
 }
 
 /// The largest difference between two matrices of one shape, element by
-/// element.
+/// element; infinite when any difference is not finite (a NaN, which
+/// `f64::max` would skip), so that no tolerance accepts it.
 fn distance(a: &Matrix, b: &Matrix) -> f64 {
     assert_eq!((a.rows(), a.cols()), (b.rows(), b.cols()), "one shape");
     let pairs = a.elements().iter().zip(b.elements());
-    pairs.map(|(x, y)| (x - y).norm()).fold(0.0, f64::max)
+    pairs
+        .map(|(x, y)| (x - y).norm())
+        .map(|d| if d.is_finite() { d } else { f64::INFINITY })
+        .fold(0.0, f64::max)
 }
