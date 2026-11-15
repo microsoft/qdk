@@ -172,20 +172,20 @@ fn the_cutoff_applies_to_a_routes_splits() {
 #[test]
 fn a_route_carries_the_centre_without_a_qr() {
     for fuses in [true, false] {
-        let (algebra, counts) = CountingAlgebra::new();
+        let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(fuses);
         let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
         for site in 0..6 {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
         }
         engine.probability_of_one(&state, 3).expect("P(One)");
-        let before = counts.qr_moves.get();
+        let before = calls.qr_moves.get();
         engine.apply(&mut state, &[0, 4], &cnot()).expect("apply");
         assert_eq!(
             state.split_statistics().swaps(),
             6,
             "fuses {fuses}: a route"
         );
-        assert_eq!(counts.qr_moves.get(), before, "fuses {fuses}");
+        assert_eq!(calls.qr_moves.get(), before, "fuses {fuses}");
     }
 }

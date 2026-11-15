@@ -41,19 +41,26 @@ fn a_fork_splits_a_pending_pair_once() {
     }
 }
 
-/// A gate on sites 1 and 2 of 4, left pending with the centre on site 1,
-/// then a read of site 2: the read splits the pair toward site 2, which
-/// leaves the centre there, so the centre makes no move.
+/// A gate on sites 1 and 2 of 4, left pending, then a read of either of
+/// its sites: with the centre on site 1, a read of site 2; with the centre
+/// on site 2, where a read of site 3 had left it, a read of site 1. The
+/// read splits the pair toward the site it reads, which leaves the centre
+/// there, so the centre makes no move.
 #[test]
 fn a_read_splits_a_pending_pair_toward_its_site() {
-    let engine = Engine::new(FakeAlgebra);
-    let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
-    engine.apply(&mut state, &[1, 2], &cnot()).expect("apply");
-    let moves = state.split_statistics().centre_moves();
-    engine.probability_of_one(&state, 2).expect("P(One)");
-    let statistics = state.split_statistics();
-    assert_eq!(statistics.splits(), 1, "precondition, the pair's split");
-    assert_eq!(statistics.centre_moves(), moves);
+    for (first_read, read) in [(None, 2), (Some(3), 1)] {
+        let engine = Engine::new(FakeAlgebra);
+        let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
+        if let Some(site) = first_read {
+            engine.probability_of_one(&state, site).expect("P(One)");
+        }
+        engine.apply(&mut state, &[1, 2], &cnot()).expect("apply");
+        let moves = state.split_statistics().centre_moves();
+        engine.probability_of_one(&state, read).expect("P(One)");
+        let statistics = state.split_statistics();
+        assert_eq!(statistics.splits(), 1, "precondition, the pair's split");
+        assert_eq!(statistics.centre_moves(), moves, "a read of site {read}");
+    }
 }
 
 /// A gate on sites 1 and 2 of 4, left pending with the centre on site 2,
@@ -181,7 +188,7 @@ fn fuses_a_gate_into_the_pair_a_route_returns_on() {
 #[test]
 fn an_unfused_gate_leaves_the_centre_on_the_side_it_came_from() {
     for (end, expected) in [(0, 2), (5, 2), (2, 0), (3, 0)] {
-        let (algebra, counts) = CountingAlgebra::new();
+        let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(false);
         let mut state = engine.prepare(&chain(6, 4)).expect("prepare");
         for site in 0..6 {
@@ -189,10 +196,10 @@ fn an_unfused_gate_leaves_the_centre_on_the_side_it_came_from() {
         }
         engine.probability_of_one(&state, end).expect("P(One)");
         engine.apply(&mut state, &[2, 3], &cnot()).expect("apply");
-        let before = counts.qr_moves.get();
+        let before = calls.qr_moves.get();
         engine.probability_of_one(&state, end).expect("P(One)");
         assert_eq!(
-            counts.qr_moves.get() - before,
+            calls.qr_moves.get() - before,
             expected,
             "back to site {end}"
         );

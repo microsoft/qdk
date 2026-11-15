@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`CountingAlgebra`]: [`FakeAlgebra`], counting the engine's calls and
-//! recording what it uploads, for the tests that pin how many moves of the
-//! centre, reads and duplicates an operation takes, and what the engine
-//! hands the algebra.
+//! [`SpyAlgebra`]: a spy on [`FakeAlgebra`], which counts the engine's
+//! calls and records what it uploads, for the tests that pin how many moves
+//! of the centre, reads and duplicates an operation takes, and what the
+//! engine hands the algebra.
 
 use crate::algebra::fake_algebra::FakeAlgebra;
 use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
@@ -14,26 +14,27 @@ use std::cell::{Cell, RefCell};
 use std::convert::Infallible;
 use std::rc::Rc;
 
-/// How many calls of each counted method a [`CountingAlgebra`] answered,
+/// How many calls of each counted method a [`SpyAlgebra`] answered,
 /// and the values of each upload, in order.
 #[derive(Default)]
-pub(super) struct Counts {
+pub(super) struct SpiedCalls {
     pub(super) qr_moves: Cell<usize>,
     pub(super) reads: Cell<usize>,
     pub(super) duplicates: Cell<usize>,
     pub(super) uploads: RefCell<Vec<Vec<Complex64>>>,
 }
 
-/// [`FakeAlgebra`], counting its moves of the centre, reads and duplicates,
-/// and recording its uploads, into the [`Counts`] it shares with the test.
+/// A spy: [`FakeAlgebra`], counting its moves of the centre, reads and
+/// duplicates, and recording its uploads, into the [`SpiedCalls`] it shares
+/// with the test.
 #[derive(Clone)]
-pub(super) struct CountingAlgebra(Rc<Counts>);
+pub(super) struct SpyAlgebra(Rc<SpiedCalls>);
 
-impl CountingAlgebra {
-    /// The algebra, and the counts it adds to.
-    pub(super) fn new() -> (Self, Rc<Counts>) {
-        let counts = Rc::new(Counts::default());
-        (Self(Rc::clone(&counts)), counts)
+impl SpyAlgebra {
+    /// The spy, and the record of the calls it answers.
+    pub(super) fn new() -> (Self, Rc<SpiedCalls>) {
+        let calls = Rc::new(SpiedCalls::default());
+        (Self(Rc::clone(&calls)), calls)
     }
 }
 
@@ -41,7 +42,7 @@ fn count(counter: &Cell<usize>) {
     counter.set(counter.get() + 1);
 }
 
-impl SiteAlgebra for CountingAlgebra {
+impl SiteAlgebra for SpyAlgebra {
     type Tensor = Vec<Complex64>;
     type Error = Infallible;
 

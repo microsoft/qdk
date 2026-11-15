@@ -174,8 +174,8 @@ impl<T> Chain<T> {
 /// [`CanonicalMpsEngine`](super::CanonicalMpsEngine)), which
 /// [`MpsEngine::shape`](tensornet::MpsEngine::shape) no longer shows once
 /// the route is undone: the larger of the two figures is the largest bond
-/// the state held. The splits and the moves of the centre are what the
-/// engine's time scales with: each is one call of the backend.
+/// the state held. The splits and the moves of the centre count the
+/// backend's factorisations (`gate_split`, `qr_move`), one call each.
 ///
 /// With fusion, a pair left pending counts when it is split, under its last
 /// two-site operation: as transient if that was an outbound SWAP, at rest

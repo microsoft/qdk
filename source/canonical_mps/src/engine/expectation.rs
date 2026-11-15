@@ -5,13 +5,15 @@
 //! walk.
 //!
 //! A simulator estimates observables between gates; a chemistry reading
-//! holds hundreds of Pauli strings on two to four sites each, so reading
-//! the sites once per term would read them many times over. With the
-//! centre on a site, the sites left of it contract to the identity from
-//! the left and those right of it from the right, so a term needs only the
-//! sites between its own and the centre; and the expectation divides by
-//! the squared norm at the centre, so a gate's drift from norm 1 does not
-//! reach it. The terms are evaluated together:
+//! holds hundreds of Pauli strings that share their sites, so reading the
+//! sites once per term would read them many times over. With the centre
+//! on a site, the sites left of it contract to the identity from the left
+//! and those right of it from the right, so a term needs only the sites
+//! between its own and the centre; and the expectation divides by the
+//! squared norm at the centre. So a gate's drift from norm 1, within the
+//! unitarity check's tolerance, divides out on the centre's site; elsewhere
+//! it shifts the value by at most that order. The terms are evaluated
+//! together:
 //!
 //! - the sites between the terms and the centre are read once each, on the
 //!   host ([`HostSite`]), with their pending gates applied, whatever the
@@ -121,7 +123,8 @@ impl<'s, 'h> Walk<'s, 'h> {
             .expect("a term");
         for at in low..=high {
             // Left of the centre the sites are left-canonical: the
-            // environment from the left stays the identity.
+            // environment from the left stays the identity. Beyond the last
+            // term's first site, the environment is never read.
             let environment = if at <= centre || at > last_first {
                 None
             } else {

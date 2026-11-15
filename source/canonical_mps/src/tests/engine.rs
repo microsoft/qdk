@@ -5,15 +5,15 @@
 //! of the engine's own promises, on [`FakeAlgebra`]. This file holds what
 //! several areas share: the engine with and without fusion, gates and
 //! observables, and a circuit run on the engine and on the exact
-//! reference. Two algebras wrap [`FakeAlgebra`] for the tests that need
-//! more than its answers: [`CountingAlgebra`] counts the engine's calls,
-//! and [`FailingAlgebra`] fails the call a test chooses.
+//! reference. Two stand-ins wrap [`FakeAlgebra`] for the tests that need
+//! more than its answers: the spy [`SpyAlgebra`] counts the engine's calls
+//! and records its uploads, and the fake [`FailingFakeAlgebra`] fails the
+//! call a test chooses.
 
 mod chain;
 mod conformance;
-mod counting_algebra;
 mod expectation;
-mod failing_algebra;
+mod failing_fake_algebra;
 mod failures;
 mod fusion;
 mod reads;
@@ -21,6 +21,7 @@ mod refusals;
 mod retained_weight;
 mod routing;
 mod sampling;
+mod spy_algebra;
 mod statistics;
 mod truncation;
 
@@ -28,9 +29,9 @@ use crate::algebra::fake_algebra::FakeAlgebra;
 use crate::{
     CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, DEFAULT_CUTOFF, SplitStatistics,
 };
-use counting_algebra::CountingAlgebra;
-use failing_algebra::FailingAlgebra;
+use failing_fake_algebra::FailingFakeAlgebra;
 use num_complex::Complex64;
+use spy_algebra::SpyAlgebra;
 use tensornet::{
     MpsEngine, MpsEngineError, MpsShape, Pauli, PauliSum, PauliTerm, Refusal,
     reference::{ExactReference, ReferenceState},

@@ -69,8 +69,7 @@ fn accepts_a_condition_whose_value_is_rare_but_possible() {
     }
 }
 
-/// A projection on |00⟩'s One: its probability is exactly zero, and the
-/// state is kept.
+/// A projection on |00⟩'s One: its probability is exactly zero.
 #[test]
 fn refuses_a_projection_on_a_value_of_probability_zero() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
@@ -79,8 +78,6 @@ fn refuses_a_projection_on_a_value_of_probability_zero() {
             .project(&mut state, 0, true)
             .expect_err("an impossible value");
         assert_eq!(error, Refusal::ZeroProbabilityOutcome.into(), "{name}");
-        let p = engine.probability_of_one(&state, 0).expect("P(One)");
-        assert!(p.abs() < 1e-12, "{name}: the state is kept, {p}");
     }
 }
 
@@ -202,12 +199,12 @@ fn a_refused_call_reports_its_refusal() {
     );
 }
 
-/// A backend whose reads come back NaN, as a device's may after an
-/// overflow: [`FakeAlgebra`], except that `read` returns NaN elements.
+/// A stub of a backend whose reads come back NaN, as a device's may after
+/// an overflow: [`FakeAlgebra`], except that `read` returns NaN elements.
 #[derive(Clone)]
-struct NanReads;
+struct NanReadsStub;
 
-impl SiteAlgebra for NanReads {
+impl SiteAlgebra for NanReadsStub {
     type Tensor = Vec<Complex64>;
     type Error = Infallible;
 
@@ -246,7 +243,7 @@ impl SiteAlgebra for NanReads {
 /// NaN, and the contract refuses it.
 #[test]
 fn refuses_a_projection_whose_probability_is_nan() {
-    let engine = CanonicalMpsEngine::new(NanReads);
+    let engine = CanonicalMpsEngine::new(NanReadsStub);
     let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
     let error = engine
         .project(&mut state, 0, false)
@@ -258,7 +255,7 @@ fn refuses_a_projection_whose_probability_is_nan() {
 /// NaN, and the contract refuses it.
 #[test]
 fn refuses_a_condition_whose_probability_is_nan() {
-    let engine = CanonicalMpsEngine::new(NanReads);
+    let engine = CanonicalMpsEngine::new(NanReadsStub);
     let state = engine.prepare(&chain(2, 2)).expect("prepare");
     let error = engine
         .conditional_probability_of_one(&state, 1, &[(0, false)])

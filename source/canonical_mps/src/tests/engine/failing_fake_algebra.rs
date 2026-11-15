@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`FailingAlgebra`]: [`FakeAlgebra`], except that the calls of one
-//! method fail, for the tests of what the engine does when its backend
-//! fails, since no input makes the test algebra itself fail.
+//! [`FailingFakeAlgebra`]: a fake, [`FakeAlgebra`] except that the calls of
+//! one method fail, for the tests of what the engine does when its backend
+//! fails, since no input makes [`FakeAlgebra`] itself fail.
 
 use crate::algebra::fake_algebra::FakeAlgebra;
 use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
@@ -22,23 +22,23 @@ pub(super) enum Method {
     QrMove,
 }
 
-/// The failure of a [`FailingAlgebra`]'s call: the method that failed.
+/// The failure of a [`FailingFakeAlgebra`]'s call: the method that failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("the test algebra's {0:?} failed")]
+#[error("the failing fake algebra's {0:?} failed")]
 pub(super) struct AlgebraFailure(pub(super) Method);
 
 /// [`FakeAlgebra`], except that the call of `method` numbered `failing`
 /// (from 0) fails, or every call of it when `failing` is `None`; `asked`
 /// counts the calls of `method` asked of it.
 #[derive(Clone)]
-pub(super) struct FailingAlgebra {
+pub(super) struct FailingFakeAlgebra {
     method: Method,
     failing: Option<usize>,
     asked: Rc<Cell<usize>>,
 }
 
-impl FailingAlgebra {
-    /// An algebra on which every call of `method` fails.
+impl FailingFakeAlgebra {
+    /// A fake on which every call of `method` fails.
     pub(super) fn every(method: Method) -> Self {
         Self {
             method,
@@ -47,9 +47,9 @@ impl FailingAlgebra {
         }
     }
 
-    /// An algebra on which the call of `method` numbered `failing` fails,
-    /// and the count of the calls of `method` asked of it.
-    pub(super) fn the(method: Method, failing: usize) -> (Self, Rc<Cell<usize>>) {
+    /// A fake on which the call of `method` numbered `failing` (from 0)
+    /// fails, and the count of the calls of `method` asked of it.
+    pub(super) fn on_call(method: Method, failing: usize) -> (Self, Rc<Cell<usize>>) {
         let asked = Rc::new(Cell::new(0));
         let algebra = Self {
             method,
@@ -74,14 +74,14 @@ impl FailingAlgebra {
     }
 }
 
-/// The test algebra's answer, which never fails.
+/// [`FakeAlgebra`]'s answer, which never fails.
 fn fake<T>(answer: Result<T, std::convert::Infallible>) -> T {
     match answer {
         Ok(answer) => answer,
     }
 }
 
-impl SiteAlgebra for FailingAlgebra {
+impl SiteAlgebra for FailingFakeAlgebra {
     type Tensor = Vec<Complex64>;
     type Error = AlgebraFailure;
 

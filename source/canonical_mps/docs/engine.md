@@ -108,7 +108,9 @@ gate applied, and
 `P(b) = w_b / (w₀ + w₁)`.
 
 Each value's probability is read from its own weight, so a value of weight
-exactly zero reads exactly 0, and a gate's drift from norm 1 divides out.
+exactly zero reads exactly 0. A gate may drift from norm 1 within the
+unitarity check's tolerance; on the centre's site it divides out, elsewhere
+it shifts reads by at most that order.
 
 **A projection.** It returns `p = P(b)`, refuses `p` of zero or NaN, zeroes
 the other value's elements, and divides the site by the norm of what it
@@ -119,11 +121,12 @@ projections stay possible. It truncates nothing, so `W` is unchanged.
 
 **An expectation.** An observable `c₀ + Σₖ cₖ Pₖ`, each `Pₖ` a product of
 one-site Paulis, has the value `c₀ + Σₖ cₖ ⟨ψ|Pₖ|ψ⟩ / ‖T_centre‖²`; the
-division takes out a gate's drift from norm 1. The sites left of the centre
-are isometries from the left, so the environment on any bond left of the
-centre is the identity, and likewise from the right; a term's contraction
-runs only over the sites between its own and the centre. The terms are
-evaluated together:
+division takes out a gate's drift on the centre's site, and a drift
+elsewhere shifts the value by at most the order of the unitarity check's
+tolerance. The sites left of the centre are isometries from the left, so
+the environment on any bond left of the centre is the identity, and
+likewise from the right; a term's contraction runs only over the sites
+between its own and the centre. The terms are evaluated together:
 
 - the sites between the terms and the centre are read once each, whatever
   the number of terms;

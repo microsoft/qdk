@@ -2,8 +2,10 @@
 // Licensed under the MIT License.
 
 //! The weight a truncated state keeps: projections leave it, reads divide
-//! out the norm so that many truncations and a gate's drift do not reach
-//! them, and a truncation fails before the weight underflows.
+//! out the norm so that many truncations and a gate's drift on the centre's
+//! site do not reach them, a drift elsewhere shifts them by at most the
+//! unitarity check's tolerance, and a truncation fails before the weight
+//! underflows.
 
 use super::*;
 
@@ -103,20 +105,68 @@ fn an_expectation_after_many_truncations_reads_its_value() {
     }
 }
 
-/// A one-site gate (1 + 1e-10)·I, which the unitarity check accepts but
-/// which scales the state's norm: ⟨Z⟩ on the state it leaves reads 1 within
-/// 1e-12, as the expectation divides by the squared norm at the centre.
+/// A site turned by 0.9, then a one-site gate (1 + 1e-10)·I on it, the
+/// centre, which the unitarity check accepts but which scales the state's
+/// norm: P(One) reads sin²(0.45) and ⟨Z⟩ reads cos(0.9), each within 1e-12,
+/// as both reads divide by the weight at the centre.
 #[test]
-fn an_expectation_divides_out_a_gates_drift() {
+fn reads_divide_out_a_gates_drift_on_the_centres_site() {
     let s = 1.0 + 1e-10;
     let grow = [real(s), real(0.0), real(0.0), real(s)];
     for (engine, name) in both_fusions_and_cutoffs() {
         let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+        engine.apply(&mut state, &[0], &ry(0.9)).expect("apply");
         engine
             .apply(&mut state, &[0], &grow)
             .expect("a gate within the unitarity tolerance");
+        let p = engine.probability_of_one(&state, 0).expect("P(One)");
+        let expected = 0.45f64.sin().powi(2);
+        assert!((p - expected).abs() < 1e-12, "{name}: {p} vs {expected}");
         let value = engine.expectation(&state, &z_string(&[0])).expect("⟨Z⟩");
-        assert!((value - real(1.0)).norm() < 1e-12, "{name}: {value}");
+        let expected = real(0.9f64.cos());
+        assert!((value - expected).norm() < 1e-12, "{name}: {value}");
+    }
+}
+
+/// A 6-site circuit with the centre on site 0, then on each other site a
+/// gate diag(1, 1 + d), with d as large as the unitarity check's tolerance
+/// τ accepts, left pending off the centre: P(One) of site 0 and an
+/// expectation stay within 2τ per drifting gate (times the observable's
+/// coefficients) of the exact reference, which divides by the whole norm,
+/// as each such gate leaves the environment the reads take for the
+/// identity within τ of it.
+#[test]
+fn a_gates_drift_off_the_centre_shifts_reads_by_at_most_the_tolerances_order() {
+    let tolerance = tensornet::checks::UNITARITY_TOLERANCE;
+    // M·M† − I = diag(0, 2d + d²), whose entries sum to τ at most.
+    let d = 0.99 * ((1.0 + tolerance).sqrt() - 1.0);
+    let drift = [real(1.0), real(0.0), real(0.0), real(1.0 + d)];
+    let reference = ExactReference::new();
+    let observable = mixed_string();
+    let coefficients = Complex64::new(0.5, -1.0).norm();
+    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+        let (mut state, mut exact_state) = circuit(&engine, 6);
+        engine.probability_of_one(&state, 0).expect("P(One)");
+        for site in 1..6 {
+            engine.apply(&mut state, &[site], &drift).expect("a drift");
+            reference
+                .apply(&mut exact_state, &[site], &drift)
+                .expect("a drift");
+        }
+        let bound = 2.0 * 5.0 * tolerance;
+        let p = engine.probability_of_one(&state, 0).expect("P(One)");
+        let q = reference
+            .probability_of_one(&exact_state, 0)
+            .expect("P(One)");
+        assert!((p - q).abs() < bound, "{name}: {p} vs {q}");
+        let value = engine.expectation(&state, &observable).expect("⟨O⟩");
+        let exact_value = reference
+            .expectation(&exact_state, &observable)
+            .expect("⟨O⟩");
+        assert!(
+            (value - exact_value).norm() < bound * coefficients,
+            "{name}: {value} vs {exact_value}"
+        );
     }
 }
 
@@ -179,7 +229,7 @@ fn projections_on_values_of_subnormal_probability_are_accepted() {
 fn a_projection_hands_the_algebra_a_site_of_norm_one() {
     let theta = 2.0 * 1e-100_f64.asin();
     for fuse in [true, false] {
-        let (algebra, counts) = CountingAlgebra::new();
+        let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(fuse);
         let mut state = engine.prepare(&chain(3, 2)).expect("prepare");
         engine.apply(&mut state, &[0], &ry(1.1)).expect("apply");
@@ -191,7 +241,7 @@ fn a_projection_hands_the_algebra_a_site_of_norm_one() {
             .project(&mut state, 1, true)
             .expect("a possible value");
         assert!((p / 1e-200 - 1.0).abs() < 1e-9, "fused {fuse}: {p:e}");
-        let uploads = counts.uploads.borrow();
+        let uploads = calls.uploads.borrow();
         let site = uploads.last().expect("the projected site's upload");
         let kept = site.iter().filter(|x| x.norm() > 0.0).count();
         assert!(kept > 1, "fused {fuse}: {kept} elements kept");

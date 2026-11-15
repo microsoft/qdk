@@ -14,7 +14,7 @@
 //!
 //! **The canonical form.** The state of `n` qubits is a chain of `n` site
 //! tensors, one per qubit, neighbours sharing a bond. Every site but one is
-//! an isometry towards the one left, the orthogonality centre (the centre,
+//! an isometry towards the remaining one, the orthogonality centre (the centre,
 //! below), which holds the state's norm. With the centre on a site, the
 //! rest of the chain drops out of any read of that site, and a gate on two
 //! neighbours, one of them the centre, changes only those two. So a read or
@@ -85,10 +85,11 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// [`MpsEngine::retained_weight`] reports. A split that would take that
 /// weight below the smallest normal `f64` fails with
 /// [`CanonicalMpsError::WeightUnderflow`]: the contract keeps the weight
-/// above zero, because callers divide by it. The reads divide by the
-/// squared norm at the centre, so a gate's drift from norm 1 does not reach
-/// them. A projection divides its site by the norm of what it kept, and
-/// leaves the retained weight unchanged.
+/// above zero, because callers divide by it. A gate may drift from norm 1
+/// within the unitarity check's tolerance; on the centre's site it divides
+/// out, as the reads divide by the squared norm at the centre, elsewhere it
+/// shifts reads by at most that order. A projection divides its site by the
+/// norm of what it kept, and leaves the retained weight unchanged.
 ///
 /// **Routing (`swap-back-2x`).** A gate on sites `low < high` that are not
 /// neighbours moves the site at `high` down to `low + 1` by SWAPs on
@@ -115,7 +116,8 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// operation (a two-site gate on another pair, or any read or fork) splits
 /// the pair, by one [`gate_split`](SiteAlgebra::gate_split) for all of
 /// them. A one-site gate on another site waits on its site until the next
-/// split or move of the centre across it, or a read of it, applies it.
+/// split or move of the centre across it, or a projection of it, applies
+/// it; a read sees it applied.
 /// Fusion moves where the truncations fall, so a truncated run's values
 /// may differ from those of a run with one split per gate, within the
 /// truncation error; without truncation they agree to rounding.
@@ -144,7 +146,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     /// The same engine, whose splits each keep their largest singular value
     /// and drop values whose squares sum to at most `cutoff` times the sum
     /// of all their squares, unless the capacity's bond, which a split at
-    /// rest keeps at most (Routing on [`CanonicalMpsEngine`]), cuts more.
+    /// rest keeps at most (Truncation on [`CanonicalMpsEngine`]), cuts more.
     /// These are the bounds of [`SiteAlgebra::gate_split`]'s contract;
     /// which values a split drops within them is the algebra's to choose,
     /// and an algebra that truncates by [`Truncation`] drops the longest

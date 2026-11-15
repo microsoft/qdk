@@ -8,7 +8,7 @@
 //! conditional probability forks once, and an expectation contracts only
 //! between the observable and the centre, reading each site once.
 
-use super::counting_algebra::Counts;
+use super::spy_algebra::SpiedCalls;
 use super::*;
 use std::rc::Rc;
 
@@ -44,6 +44,23 @@ fn a_projection_makes_its_value_certain() {
         engine.project(&mut state, 2, true).expect("project");
         let p = engine.probability_of_one(&state, 2).expect("P(One)");
         assert!((p - 1.0).abs() < 1e-12, "{name}: {p}");
+    }
+}
+
+/// A turn of site 0 by 0.9, which waits pending on the site, the centre,
+/// then a measurement of it that draws One: the projection applies the
+/// turn first, so it returns the turn's P(One), sin²(0.45), and only once,
+/// so the site reads One with certainty after it.
+#[test]
+fn a_projection_applies_the_sites_pending_gate_once() {
+    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+        let mut state = engine.prepare(&chain(3, 2)).expect("prepare");
+        engine.apply(&mut state, &[0], &ry(0.9)).expect("apply");
+        let p = engine.project(&mut state, 0, true).expect("project");
+        let expected = 0.45f64.sin().powi(2);
+        assert!((p - expected).abs() < 1e-12, "{name}: {p} vs {expected}");
+        let after = engine.probability_of_one(&state, 0).expect("P(One)");
+        assert!((after - 1.0).abs() < 1e-12, "{name}: {after}");
     }
 }
 
@@ -184,16 +201,16 @@ fn moving_the_centre_shrinks_a_bond_above_twice_its_neighbours() {
     }
 }
 
-/// An engine counting its algebra's calls, and a chain of `sites` sites,
-/// each turned and entangled with the next, prepared on it.
-fn counted_entangled_chain(
+/// An engine on a spy algebra, a chain of `sites` sites prepared on it,
+/// each turned and entangled with the next, and the spy's record of calls.
+fn spied_entangled_chain(
     sites: usize,
 ) -> (
-    CanonicalMpsEngine<CountingAlgebra>,
-    CanonicalMpsState<CountingAlgebra>,
-    Rc<Counts>,
+    CanonicalMpsEngine<SpyAlgebra>,
+    CanonicalMpsState<SpyAlgebra>,
+    Rc<SpiedCalls>,
 ) {
-    let (algebra, counts) = CountingAlgebra::new();
+    let (algebra, calls) = SpyAlgebra::new();
     let engine = CanonicalMpsEngine::new(algebra);
     let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
     for site in 0..sites {
@@ -204,17 +221,17 @@ fn counted_entangled_chain(
             .apply(&mut state, &[cut, cut + 1], &cnot())
             .expect("apply");
     }
-    (engine, state, counts)
+    (engine, state, calls)
 }
 
 /// The sites an expectation of `observable` reads on a chain of `sites`
 /// entangled sites whose centre a read has left on `centre`.
 fn expectation_reads(sites: usize, centre: usize, observable: &PauliSum) -> usize {
-    let (engine, state, counts) = counted_entangled_chain(sites);
+    let (engine, state, calls) = spied_entangled_chain(sites);
     engine.probability_of_one(&state, centre).expect("P(One)");
-    let before = counts.reads.get();
+    let before = calls.reads.get();
     engine.expectation(&state, observable).expect("expectation");
-    counts.reads.get() - before
+    calls.reads.get() - before
 }
 
 /// A Z read next to the centre, at either end of a chain of 12 sites or of
@@ -235,9 +252,11 @@ fn an_expectation_contracts_only_between_the_observable_and_the_centre() {
     );
 }
 
-/// A chemistry reading holds many terms on a few neighbouring sites: six
-/// terms of one to three factors on sites 1 to 3, the centre on site 0,
-/// read each of the sites 0 to 3 once, as a single Z on site 3 does.
+/// A chemistry reading holds many Pauli strings that share their sites:
+/// six terms of one to three factors on sites 1 to 3, the centre on site
+/// 0, read each of the sites 0 to 3 once, as a single Z on site 3 does;
+/// with the centre on site 4 and terms on both sides of it, on sites 2 to
+/// 6, each of those sites is read once, as a single Z₂Z₆ does.
 #[test]
 fn an_expectation_reads_each_site_once_whatever_its_terms() {
     let term = |factors| PauliTerm::new(real(0.5), factors).expect("a term");
@@ -255,6 +274,20 @@ fn an_expectation_reads_each_site_once_whatever_its_terms() {
     .expect("an observable");
     assert_eq!(expectation_reads(8, 0, &reading), 4, "the reading");
     assert_eq!(expectation_reads(8, 0, &z_string(&[3])), 4, "one Z");
+    let around = PauliSum::new(
+        real(0.1),
+        vec![
+            term(vec![(2, Pauli::Z)]),
+            term(vec![(6, Pauli::Z)]),
+            term(vec![(3, Pauli::X), (5, Pauli::X)]),
+            term(vec![(2, Pauli::Y), (3, Pauli::Y)]),
+            term(vec![(5, Pauli::Z), (6, Pauli::Z)]),
+            term(vec![(2, Pauli::Z), (4, Pauli::Z), (6, Pauli::Z)]),
+        ],
+    )
+    .expect("an observable");
+    assert_eq!(expectation_reads(8, 4, &around), 5, "around the centre");
+    assert_eq!(expectation_reads(8, 4, &z_string(&[2, 6])), 5, "one Z₂Z₆");
 }
 
 /// Grouped shots read a site's probability given the values drawn on
@@ -263,23 +296,23 @@ fn an_expectation_reads_each_site_once_whatever_its_terms() {
 /// that one fork.
 #[test]
 fn a_conditional_probability_forks_once_for_all_its_conditions() {
-    let (engine, state, counts) = counted_entangled_chain(6);
+    let (engine, state, calls) = spied_entangled_chain(6);
     engine.fork(&state).expect("fork");
-    let one_fork = counts.duplicates.get();
+    let one_fork = calls.duplicates.get();
     assert!(one_fork > 0, "a fork duplicates the sites");
     engine
         .conditional_probability_of_one(&state, 5, &[(1, true), (3, false)])
         .expect("possible conditions");
-    assert_eq!(counts.duplicates.get() - one_fork, one_fork);
+    assert_eq!(calls.duplicates.get() - one_fork, one_fork);
 }
 
 /// Without conditions, a conditional probability reads the state itself:
 /// it duplicates nothing.
 #[test]
 fn a_conditional_probability_without_conditions_forks_nothing() {
-    let (engine, state, counts) = counted_entangled_chain(6);
+    let (engine, state, calls) = spied_entangled_chain(6);
     engine
         .conditional_probability_of_one(&state, 5, &[])
         .expect("P(One)");
-    assert_eq!(counts.duplicates.get(), 0);
+    assert_eq!(calls.duplicates.get(), 0);
 }
