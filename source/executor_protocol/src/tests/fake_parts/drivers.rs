@@ -102,8 +102,8 @@ pub(crate) struct Program {
     needs_once_provisioned: Option<Needs>,
     /// Whether it ends its shots below once it has their readouts.
     ends_its_shots: bool,
-    /// Whether its batches are checked.
-    checked: bool,
+    /// Whether each of its batches is checked, by sequence.
+    checked: Vec<bool>,
 }
 
 impl Program {
@@ -140,7 +140,7 @@ impl Program {
             needs: Needs::qubits(qubits),
             needs_once_provisioned: None,
             ends_its_shots: true,
-            checked: false,
+            checked: vec![false; texts.len()],
         }
     }
 
@@ -157,7 +157,7 @@ impl Program {
             needs,
             needs_once_provisioned: None,
             ends_its_shots: true,
-            checked: false,
+            checked: vec![false],
         }
     }
 
@@ -169,7 +169,15 @@ impl Program {
 
     /// This program, its batches checked.
     pub(crate) fn with_checked_batches(mut self) -> Self {
-        self.checked = true;
+        self.checked.fill(true);
+        self
+    }
+
+    /// This program of [`halves`](Self::halves), its first half's batch
+    /// checked if `first`, its second's if `second`.
+    pub(crate) fn with_checked_halves(mut self, first: bool, second: bool) -> Self {
+        assert_eq!(self.checked.len(), 2, "a program of halves");
+        self.checked = vec![first, second];
         self
     }
 
@@ -231,8 +239,10 @@ impl Drive for Program {
         };
         let batches: Vec<Batch<'_>> = parts
             .iter()
-            .zip(&self.sequences)
-            .map(|(shots, instructions)| Batch::new(shots, instructions).checked_if(self.checked))
+            .zip(self.sequences.iter().zip(&self.checked))
+            .map(|(shots, (instructions, &checked))| {
+                Batch::new(shots, instructions).checked_if(checked)
+            })
             .collect();
         let mut readouts = Readouts::new();
         below.execute(&batches, seed, &mut readouts).await?;

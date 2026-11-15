@@ -18,14 +18,13 @@ use crate::{
 ///
 /// It is the part at the bottom of a chain, and the part a driver or an
 /// adapter calls below it: the rest of the chain, composed, is one executor
-/// to the part above. The protocol checks that each `execute` it receives
-/// appends a readouts per batch and a row per shot, so the part above can
-/// index them. For a batch its sender marked
-/// [`checked`](crate::Batch::checked), it also checks every instruction
-/// against its set and the needs it was provisioned for, the batch against
-/// its most instructions, and each row of the answer for a value per
-/// readout slot, so it runs only what it accepts; an unchecked batch, the
-/// default, it runs as the part above sends it.
+/// to the part above. The protocol checks the shape of each answer, as
+/// [`ShapeFault`](crate::ShapeFault) says, so the part above can index it.
+/// A batch its sender marked [`checked`](crate::Batch::checked) it also
+/// checks as that method says, against the executor's set and the needs it
+/// was provisioned for, so the executor runs only what it accepts; an
+/// unchecked batch, the default, the executor runs as the part above sends
+/// it.
 pub trait Execute {
     // Composition time.
 
@@ -117,11 +116,12 @@ pub trait Execute {
     /// assigning a whole new value to `*readouts` would replace them,
     /// which no executor may do. An `execute` that fails, or is dropped
     /// before it answers, leaves `readouts` as they were when it is called
-    /// through the protocol, which removes what was appended. A shot's
-    /// state is made at
-    /// its first batch, from the needs it was provisioned for and
-    /// [`seed.shot(id)`](Seed::shot), and kept until
-    /// [`end_shots`](Self::end_shots).
+    /// through the protocol, which removes what was appended; a future
+    /// leaked rather than dropped (`std::mem::forget`) keeps its partial
+    /// answer, and the owner of `readouts` can then no longer clear those
+    /// it found. A shot's state is made at its first batch, from the needs
+    /// it was provisioned for and [`seed.shot(id)`](Seed::shot), and kept
+    /// until [`end_shots`](Self::end_shots).
     ///
     /// Three rules hold between the part that calls it and the executor:
     ///

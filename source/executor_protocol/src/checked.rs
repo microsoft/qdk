@@ -8,17 +8,13 @@
 //! batch its sender marked [`checked`](Batch::checked): each boundary of a
 //! chain is crossed through one `Checked`. It always makes a failure of a
 //! panic (where a panic unwinds: on wasm32, it aborts), and of an answer
-//! whose count of readouts, or of rows in a readouts, is not the batches',
-//! so that the part above can index an answer's readouts and rows without
-//! a check of its own. For a checked batch, it also refuses the batch
-//! before anything of it runs (an instruction the receiver does not
-//! accept, a block beyond the shot's, a readout parity the shots' needs do
-//! not use, more instructions than the receiver takes, more readout slots
-//! than a `u32` counts), and makes a failure of an answer whose rows do not
-//! hold a value per readout slot. An unchecked batch costs it no pass over
-//! its instructions. An `execute` that fails, or is dropped before it
-//! answers, leaves the caller's [`Readouts`] as they were, so the caller
-//! never reads part of an answer.
+//! whose shape is not the batches', as [`ShapeFault`] says, so that the
+//! part above can index an answer without a check of its own. For a
+//! checked batch, it also makes the refusals [`Batch::checked`] lists,
+//! before anything of the `execute` runs. An unchecked batch costs it no
+//! pass over its instructions. An `execute` that fails, or is dropped
+//! before it answers, leaves the caller's [`Readouts`] as they were, so
+//! the caller never reads part of an answer.
 
 use smallvec::SmallVec;
 
@@ -102,9 +98,9 @@ impl<E: Execute> Execute for Checked<'_, E> {
         let Some(first) = batches.first() else {
             return Ok(());
         };
-        let mut slots: SmallVec<[Option<u32>; 4]> = SmallVec::with_capacity(batches.len());
+        let mut checked_slots: SmallVec<[Option<u32>; 4]> = SmallVec::with_capacity(batches.len());
         for (index, batch) in batches.iter().enumerate() {
-            slots.push(if batch.is_checked() {
+            checked_slots.push(if batch.is_checked() {
                 Some(
                     check_batch(batch.instructions, self.batch_limits)
                         .map_err(|fault| ExecuteError::Refused(refusal(index, batch, fault)))?,
@@ -124,7 +120,7 @@ impl<E: Execute> Execute for Checked<'_, E> {
                 },
             }),
         };
-        ran.and_then(|()| check_shape(batches, &slots, answer.appended()))?;
+        ran.and_then(|()| check_shape(batches, &checked_slots, answer.appended()))?;
         answer.keep();
         Ok(())
     }
@@ -182,7 +178,8 @@ fn refusal(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteRefusal
 /// were.
 struct PendingAnswer<'a> {
     readouts: &'a mut Readouts,
-    loan: Loan,
+    /// The loan, taken when it ends, on drop.
+    loan: Option<Loan>,
     kept: bool,
 }
 
@@ -191,7 +188,7 @@ impl<'a> PendingAnswer<'a> {
         let loan = readouts.lend();
         Self {
             readouts,
-            loan,
+            loan: Some(loan),
             kept: false,
         }
     }
@@ -203,7 +200,8 @@ impl<'a> PendingAnswer<'a> {
 
     /// The readouts the receiver appended.
     fn appended(&self) -> &[BatchReadouts] {
-        self.readouts.appended(self.loan)
+        let loan = self.loan.as_ref().expect("the loan ends only on drop");
+        self.readouts.appended(loan)
     }
 
     /// Keeps the answer, once checked.
@@ -214,18 +212,18 @@ impl<'a> PendingAnswer<'a> {
 
 impl Drop for PendingAnswer<'_> {
     fn drop(&mut self) {
-        self.readouts.end_loan(self.loan, self.kept);
+        if let Some(loan) = self.loan.take() {
+            self.readouts.end_loan(loan, self.kept);
+        }
     }
 }
 
-/// Whether `answer`, the readouts appended for `batches`, has their shape:
-/// a readouts per batch, a row per shot, and, for each checked batch, whose
-/// instructions have `slots` readout slots (`None` for an unchecked one), a
-/// value per slot. A failure of the batch's first shot if not; of the first
-/// batch's, for a count of readouts that is not the batches'.
+/// Whether `answer`, the readouts appended for `batches`, has their shape,
+/// as [`ShapeFault`] states it: `checked_slots` holds each checked batch's
+/// readout slots, `None` for an unchecked one.
 fn check_shape(
     batches: &[Batch<'_>],
-    slots: &[Option<u32>],
+    checked_slots: &[Option<u32>],
     answer: &[BatchReadouts],
 ) -> Result<(), ExecuteError> {
     let failed = |shots: &ShotSet, fault: ShapeFault| ExecuteError::Failed {
@@ -241,7 +239,8 @@ fn check_shape(
             },
         ));
     }
-    for (batch, ((sent, &expected), readouts)) in batches.iter().zip(slots).zip(answer).enumerate()
+    for (batch, ((sent, &expected), readouts)) in
+        batches.iter().zip(checked_slots).zip(answer).enumerate()
     {
         if readouts.shots() != sent.shots.len() {
             return Err(failed(

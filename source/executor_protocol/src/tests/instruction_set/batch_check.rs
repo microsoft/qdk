@@ -7,7 +7,7 @@
 //! writes them on its hot path, sent by a driver straight to an executor.
 
 use crate::{
-    Argument, Batch, BatchReadouts, BlockOperand, BlockType, Capabilities, Drive, DriveError,
+    Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, Capabilities, Drive, DriveError,
     Driver, Execute, ExecuteError, ExecuteRefusal, Executor, Failure, Instruction, InstructionDef,
     InstructionFault, InstructionSet, Needs, Opcode, OpcodeMap, ParameterKind, ReadoutValue,
     Readouts, RunError, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
@@ -375,7 +375,9 @@ fn first_refused_instruction_is_reported_at_its_position() {
 
 /// An instruction its set does not declare, or whose arguments or flag
 /// patterns its instruction does not take, is refused; the same
-/// instruction, with what it takes, runs.
+/// instruction, with what it takes, runs. A readout parity, even of no
+/// readout, is taken only when the shots' needs use one; a bit known when
+/// written, whatever the needs.
 #[test]
 #[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn an_instruction_its_set_does_not_take_is_refused() {
@@ -478,6 +480,24 @@ fn an_instruction_its_set_does_not_take_is_refused() {
             vec![cond_x(Argument::recent(1))],
             qubit().with_readout_parity(),
             Ok(0),
+        ),
+        (
+            "`cond_x` on a bit known when written, the needs using no parity",
+            vec![cond_x(Argument::Bit(Bit::Value(true)))],
+            qubit(),
+            Ok(0),
+        ),
+        (
+            "`cond_x` on the parity of no readout, the needs using none",
+            vec![cond_x(Argument::parity([], true))],
+            qubit(),
+            refused_at(
+                0,
+                InstructionFault::ParityNotProvisioned {
+                    mnemonic: "cond_x".into(),
+                    parameter: "c".into(),
+                },
+            ),
         ),
         (
             "`cond_x` counting back 0 readouts, as when built by name",

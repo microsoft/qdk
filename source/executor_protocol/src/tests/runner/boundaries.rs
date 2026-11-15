@@ -4,7 +4,8 @@
 //! The checks at each boundary of a chain, wherever the brackets go: a
 //! refusal, a shape fault or a panic at a boundary inside a composed part
 //! ends the run as it does at the executor's, and a checked batch is
-//! checked at every boundary it crosses.
+//! checked at every boundary it crosses, beside unchecked ones of its
+//! `execute`.
 
 use std::any::type_name;
 use std::cell::Cell;
@@ -677,4 +678,95 @@ fn a_checked_batch_is_checked_at_every_boundary_wherever_the_brackets_go() {
     each_boundary_checks_its_batch("(d>>p)>>(p>>e)", 2, |c| {
         (c.d() >> c.p(1)) >> (c.p(2) >> c.e())
     });
+}
+
+/// How a run of [`each_batch_of_an_execute_is_checked_as_its_sender_chose`]
+/// ends.
+enum Outcome {
+    /// It gives a record per shot.
+    Runs,
+    /// The `execute` is refused.
+    Refused(ExecuteRefusal),
+    /// The answer is misshapen, a failure of shot 9.
+    Misshapen(ShapeFault),
+}
+
+/// Two batches of one `execute`, on shots 4 and 2 a measure of qubit 0,
+/// on shots 9 and 7 a flip and a measure, one checked and the other not,
+/// to bits that take one instruction a batch, or to an executor answering
+/// a value more in each row of the second batch: each batch is checked as
+/// its sender chose. The unchecked batch's fault goes unreported, and the
+/// run gives a record per shot; the checked one's names batch 1 and its
+/// first shot, 9.
+#[test]
+fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
+    let shots = ShotSet::ids([4, 2, 9, 7]);
+    let program = |first, second| {
+        Driver::new(
+            Program::halves(&[("mz", 0)], &[("x", 0), ("mz", 0)])
+                .with_checked_halves(first, second),
+        )
+    };
+    let log = Log::default();
+    let one_instruction = || {
+        Executor::new(
+            Bits::new(&log).offering(Capabilities::unlimited().max_qubits(64).max_instructions(1)),
+        )
+    };
+    let wider = || Executor::new(Misshapen(Misshape::ExtraValue));
+    let records = |run: Result<Vec<_>, RunError>| run.map(|records| records.len());
+    let rows: [(&str, Result<usize, RunError>, Outcome); 4] = [
+        (
+            "a batch longer than the bits take, unchecked, after a checked one",
+            records(runner(program(true, false) >> one_instruction()).run(&shots, SEED)),
+            Outcome::Runs,
+        ),
+        (
+            "a batch longer than the bits take, checked, after an unchecked one",
+            records(runner(program(false, true) >> one_instruction()).run(&shots, SEED)),
+            Outcome::Refused(ExecuteRefusal::TooManyInstructions {
+                shot: ShotId::new(9),
+                batch: 1,
+                max: 1,
+                got: 2,
+            }),
+        ),
+        (
+            "a value more in each row of the unchecked batch, after a checked one",
+            records(runner(program(true, false) >> wider()).run(&shots, SEED)),
+            Outcome::Runs,
+        ),
+        (
+            "a value more in each row of the checked batch, after an unchecked one",
+            records(runner(program(false, true) >> wider()).run(&shots, SEED)),
+            Outcome::Misshapen(ShapeFault::Slots {
+                batch: 1,
+                expected: 1,
+                got: 2,
+            }),
+        ),
+    ];
+    for (row, run, outcome) in rows {
+        match outcome {
+            Outcome::Runs => {
+                assert_eq!(run.expect(row), 4, "{row}: a record per shot");
+            }
+            Outcome::Refused(refusal) => {
+                let error = failed(run);
+                assert_eq!(error.shot, refusal.shot(), "{row}");
+                assert!(
+                    matches!(&error.failure, Failure::Refused(got) if *got == refusal),
+                    "{row}: {error:?}"
+                );
+            }
+            Outcome::Misshapen(fault) => {
+                let error = failed(run);
+                assert_eq!(error.shot, ShotId::new(9), "{row}");
+                let Failure::Part(got) = &error.failure else {
+                    panic!("{row}: the part's error, not {:?}", error.failure);
+                };
+                assert_eq!(got.downcast_ref::<ShapeFault>(), Some(&fault), "{row}");
+            }
+        }
+    }
 }

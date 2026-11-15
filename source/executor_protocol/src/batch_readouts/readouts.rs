@@ -22,11 +22,11 @@ use super::BatchReadouts;
 ///
 /// An `execute` appends one per batch, in the batches' order. Through the
 /// protocol, it cannot change those it found: it reads them as a slice,
-/// and its [`clear`](Self::clear) keeps them. The protocol checks, on
-/// every answer that crosses a boundary of a chain, that it appended one
-/// per batch of the batches' shape, and an `execute` that fails leaves it
-/// as it was. Its owner `clear`s it between `execute`s whose answers it no
-/// longer needs; the memory stays, for the next.
+/// and its [`clear`](Self::clear) keeps them. The protocol checks every
+/// answer that crosses a boundary of a chain against its batches, as
+/// [`ShapeFault`](crate::ShapeFault) says, and an `execute` that fails
+/// leaves it as it was. Its owner `clear`s it between `execute`s whose
+/// answers it no longer needs; the memory stays, for the next.
 #[derive(Default)]
 pub struct Readouts {
     /// The batches' readouts: the first `len` in use, the rest kept, with
@@ -39,8 +39,8 @@ pub struct Readouts {
 }
 
 /// A lending of [`Readouts`] to an `execute`, from [`Readouts::lend`] to
-/// [`Readouts::end_loan`].
-#[derive(Clone, Copy)]
+/// [`Readouts::end_loan`], which takes it: not `Copy`, so that each loan
+/// is ended once.
 pub(crate) struct Loan {
     /// The readouts the `execute` found: its answer starts there.
     start: usize,
@@ -103,11 +103,15 @@ impl Readouts {
 
     /// The readouts appended during `loan`: none when the `execute`
     /// replaced the whole value with one of fewer readouts.
-    pub(crate) fn appended(&self, loan: Loan) -> &[BatchReadouts] {
+    pub(crate) fn appended(&self, loan: &Loan) -> &[BatchReadouts] {
         self.get(loan.start..).unwrap_or_default()
     }
 
     /// Ends `loan`, keeping the answer appended during it, or removing it.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "taking the loan is what ends it once"
+    )]
     pub(crate) fn end_loan(&mut self, loan: Loan, keep_answer: bool) {
         if !keep_answer {
             self.len = self.len.min(loan.start);

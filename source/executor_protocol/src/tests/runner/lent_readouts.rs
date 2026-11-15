@@ -322,32 +322,36 @@ fn a_failed_or_dropped_execute_leaves_the_lent_readouts_as_they_were() {
 fn clearing_the_lent_readouts_keeps_those_the_execute_found() {
     let log = Log::default();
     let counted = Rc::default();
-    let cleared = [
-        seen(
-            Waits::ForTheAnswer,
-            Unruly(Bits::new(&log), Unruliness::ClearsFirst),
-        ),
-        seen_on(Waits::ForTheAnswer, |lender| {
-            lender
-                >> Adapter::new(Retries(Profiler::new(&counted, &log)))
-                >> Executor::new(Bits::new(&log))
-        }),
-    ];
     for (
-        case,
+        scene,
         Seen {
             before,
             result,
             mut after,
         },
-    ) in cleared.into_iter().enumerate()
-    {
-        assert!(matches!(result, Some(Ok(()))), "case {case}: {result:?}");
-        assert_eq!(after.len(), 2, "case {case}");
-        assert_eq!(after[0], before[0], "case {case}: the driver's batch");
-        assert_eq!(after[1].shots(), 3, "case {case}: the answer");
+    ) in [
+        (
+            "an executor clearing what it is lent",
+            seen(
+                Waits::ForTheAnswer,
+                Unruly(Bits::new(&log), Unruliness::ClearsFirst),
+            ),
+        ),
+        (
+            "an adapter clearing the answer below to send again",
+            seen_on(Waits::ForTheAnswer, |lender| {
+                lender
+                    >> Adapter::new(Retries(Profiler::new(&counted, &log)))
+                    >> Executor::new(Bits::new(&log))
+            }),
+        ),
+    ] {
+        assert!(matches!(result, Some(Ok(()))), "{scene}: {result:?}");
+        assert_eq!(after.len(), 2, "{scene}");
+        assert_eq!(after[0], before[0], "{scene}: the driver's batch");
+        assert_eq!(after[1].shots(), 3, "{scene}: the answer");
         after.clear();
-        assert!(after.is_empty(), "case {case}: the driver's clear");
+        assert!(after.is_empty(), "{scene}: the driver's clear");
     }
 }
 

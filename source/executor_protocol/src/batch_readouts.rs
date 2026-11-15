@@ -15,18 +15,8 @@
 //! gave [`with_capacity`](BatchReadouts::with_capacity), and
 //! [`push_row`](BatchReadouts::push_row) refuses any other width
 //! ([`ShapeFault::RowWidth`]). That the readouts match their batch is not
-//! checked here, since it needs the batch: the protocol checks every answer
-//! that crosses a boundary of a chain, and makes a failure of the batch
-//! ([`ExecuteError::Failed`](crate::ExecuteError::Failed), named by its
-//! first shot) of readouts not one per batch sent ([`ShapeFault::Batches`],
-//! named by the first batch's first shot), of rows not one per shot of the
-//! batch ([`ShapeFault::Rows`]), or, for a batch its sender marked
-//! [`checked`](crate::Batch::checked), of an R that is not the batch's
-//! readout slots, the sum of its instructions' outcomes and flags
-//! ([`ShapeFault::Slots`]): that sum costs a pass over the instructions,
-//! which an unchecked batch is spared. So the part above finds a row for
-//! every shot, and, for a checked batch, every slot it asked for at its
-//! index.
+//! checked here, since it needs the batch: the protocol checks it on every
+//! answer that crosses a boundary of a chain, as [`ShapeFault`] says.
 //!
 //! The rows are dense: every value of the batch in one buffer, a byte or
 //! two each, so a shot's row is a slice; and the shots' conditions are kept
@@ -54,12 +44,10 @@ pub use shot_conditions::ShotConditions;
 ///
 /// Every row has exactly R values, R being the width given to
 /// [`with_capacity`](Self::with_capacity) (`push_row` refuses others);
-/// the protocol checks, on every answer crossing a boundary of a chain,
-/// that it has a row per shot of its batch, and, for a
-/// [`checked`](crate::Batch::checked) batch, that R is the batch's readout
-/// slots; slot k is the same readout on every shot; and a lost
-/// value is [`ReadoutValue::Missing`]. A shot is read by its position in
-/// the batch's shot set, as `row(i)`.
+/// slot k is the same readout on every shot; and a lost value is
+/// [`ReadoutValue::Missing`]. The protocol checks them against their batch
+/// as [`ShapeFault`] says. A shot is read by its position in the batch's
+/// shot set, as `row(i)`.
 #[derive(Clone)]
 pub struct BatchReadouts {
     /// R, the number of values in each row.
@@ -96,7 +84,9 @@ impl BatchReadouts {
     /// # Panics
     ///
     /// When the room for `shots` rows exceeds `isize::MAX` bytes, as
-    /// [`Vec::with_capacity`] does.
+    /// [`Vec::with_capacity`] does; or, at the first shot with conditions
+    /// ([`push_row`](Self::push_row)), when the room for `shots` shots'
+    /// conditions does.
     #[must_use]
     pub fn with_capacity(shots: usize, readouts: u32) -> Self {
         Self {
@@ -142,6 +132,12 @@ impl BatchReadouts {
     ///
     /// [`ShapeFault::RowWidth`] when `values` does not hold exactly
     /// [`readouts`](Self::readouts) values; nothing is added then.
+    ///
+    /// # Panics
+    ///
+    /// At the first shot with conditions, when the room for the conditions
+    /// of the shots given to [`with_capacity`](Self::with_capacity) exceeds
+    /// `isize::MAX` bytes.
     pub fn push_row(
         &mut self,
         values: &[ReadoutValue],
@@ -330,10 +326,25 @@ impl ReadoutIndex {
 
 /// Why readouts do not have their expected shape: a row pushed with
 /// another width than the one given to [`BatchReadouts::with_capacity`]
-/// (`RowWidth`, from [`BatchReadouts::push_row`]); or, found by the
-/// protocol's check of an answer crossing a boundary of a chain, readouts
-/// that do not match the batches sent (`Batches`, `Rows`, `Slots`), each
-/// carried as the batch's [`Failure::Part`](crate::Failure::Part).
+/// (`RowWidth`, from [`BatchReadouts::push_row`]); or readouts that do
+/// not match the batches sent, found by the protocol's check of the
+/// answer.
+///
+/// The protocol checks every answer that crosses a boundary of a chain,
+/// and makes a failure of it
+/// ([`ExecuteError::Failed`](crate::ExecuteError::Failed), carrying the
+/// fault as [`Failure::Part`](crate::Failure::Part)) for readouts not one
+/// per batch sent (`Batches`, named by the first batch's first shot), for
+/// a batch's rows not one per shot of it (`Rows`, named by that batch's
+/// first shot), or, for a batch its sender marked
+/// [`checked`](crate::Batch::checked), for rows whose width is not the
+/// batch's readout slots, the sum of its instructions' outcomes and flags
+/// (`Slots`, named by that batch's first shot): that sum costs a pass over
+/// the instructions, which an unchecked batch is spared. So the part above
+/// finds a row for every shot, and, for a checked batch, every slot it
+/// asked for at its index.
+// The one statement of the protocol's check of an answer's shape: the
+// other docs link here rather than restate it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ShapeFault {

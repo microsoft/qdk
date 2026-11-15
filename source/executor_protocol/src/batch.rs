@@ -33,9 +33,10 @@ pub struct Batch<'a> {
 
 impl<'a> Batch<'a> {
     /// `instructions`, run in order on each of `shots`, unchecked: the
-    /// receiver runs them as sent, and its answer is checked for what costs
-    /// nothing per instruction, a readouts for each batch and a row for
-    /// each shot. Mark it [`checked`](Self::checked) for the rest.
+    /// receiver runs them as sent, and its answer's shape is checked only
+    /// for what costs nothing per instruction, as
+    /// [`ShapeFault`](crate::ShapeFault) says. Mark it
+    /// [`checked`](Self::checked) for the rest.
     #[must_use]
     pub const fn new(shots: &'a ShotSet, instructions: &'a [Instruction]) -> Self {
         Self {
@@ -54,8 +55,8 @@ impl<'a> Batch<'a> {
     /// block beyond the shots' blocks of its type, or given twice by one
     /// instruction, a readout parity the shots' needs do not use, more
     /// instructions than the receiver takes, or more readout slots than a
-    /// `u32` counts; and it checks that each row of the answer holds a
-    /// value per readout slot.
+    /// `u32` counts; and it checks the width of the answer's rows
+    /// ([`ShapeFault::Slots`](crate::ShapeFault::Slots)).
     ///
     /// An unchecked batch runs as sent. A faulty one is then not reported
     /// as its sender's fault: the receiver may panic on it, failing the
@@ -75,7 +76,8 @@ impl<'a> Batch<'a> {
     ///
     /// Checked or not, the chain's fit and admission by `>>`, the refusals
     /// of a run ([`RunRefusal`](crate::RunRefusal)), and the answer's count
-    /// of readouts and rows are checked.
+    /// of readouts and of rows ([`ShapeFault`](crate::ShapeFault)) are
+    /// checked.
     #[must_use]
     pub const fn checked(self) -> Self {
         self.checked_if(true)
