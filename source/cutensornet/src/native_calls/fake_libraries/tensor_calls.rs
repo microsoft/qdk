@@ -16,8 +16,16 @@
 //! - a plan needs an optimized path of its network and a workspace sized
 //!   for both; a network outlives its optimizer infos and plans, and an
 //!   optimizer info its plans;
+//! - a gate split, a QR or a contraction runs on a live stream;
+//! - a gate split takes A·B·G's topology: each input label is shared by
+//!   two inputs and in neither output, or is in one input and one of U's
+//!   or V's other modes, so no label is summed alone;
 //! - the singular values' buffer must be live, and an SVD info is read
 //!   only once the stream is synchronized.
+//!
+//! The optimizer finds an unsliced path unless told to report slices
+//! ([`FakeLibraries::set_contraction_slices`]), to test the refusal of a
+//! sliced one.
 //!
 //! A gate split's report and outputs follow cuTensorNet's: the reduced
 //! extent is the lowest of the shared mode's extent in U's descriptor, the
@@ -171,10 +179,11 @@ impl TensorCalls for FakeLibraries {
         config: OpaqueHandle,
         info: OpaqueHandle,
         workspace: OpaqueHandle,
-        _stream: Stream,
+        stream: Stream,
     ) -> Result<(), NativeError> {
         const OPERATION: &str = "gate_split";
         let mut inner = self.call(OPERATION)?;
+        inner.require(stream, OPERATION, |o| matches!(o, Object::Stream))?;
         let GateSplitOperands {
             a,
             b,
@@ -214,7 +223,9 @@ impl TensorCalls for FakeLibraries {
         inner.buffer(id(u.data), OPERATION)?;
         inner.buffer(id(v.data), OPERATION)?;
         let sides = Sides::of(&u_shape, &v_shape, OPERATION)?;
-        let (theta, rows, cols) = sides.matrix(&[&inputs[0], &inputs[1], &inputs[2]], OPERATION)?;
+        let inputs = [&inputs[0], &inputs[1], &inputs[2]];
+        sides.check_gate_split_labels(&inputs, OPERATION)?;
+        let (theta, rows, cols) = sides.matrix(&inputs, OPERATION)?;
         let Split {
             left,
             right,
@@ -279,10 +290,11 @@ impl TensorCalls for FakeLibraries {
         q: TensorOperand,
         r: TensorOperand,
         workspace: OpaqueHandle,
-        _stream: Stream,
+        stream: Stream,
     ) -> Result<(), NativeError> {
         const OPERATION: &str = "tensor_qr";
         let mut inner = self.call(OPERATION)?;
+        inner.require(stream, OPERATION, |o| matches!(o, Object::Stream))?;
         let call = SizedFor::Qr {
             descriptors: [input, q, r].map(|operand| id(operand.descriptor)),
         };
@@ -409,14 +421,14 @@ impl TensorCalls for FakeLibraries {
         })
     }
 
-    fn optimize_contraction(
+    fn find_contraction_path(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
         _workspace_limit: u64,
         info: OpaqueHandle,
     ) -> Result<(), NativeError> {
-        const OPERATION: &str = "optimize_contraction";
+        const OPERATION: &str = "find_contraction_path";
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, network, OPERATION)?;
         if inner.optimizer_info(handle, info, OPERATION)?.0 != id(network) {
@@ -429,6 +441,17 @@ impl TensorCalls for FakeLibraries {
             *optimized = true;
         }
         Ok(())
+    }
+
+    fn contraction_slice_count(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+    ) -> Result<i64, NativeError> {
+        const OPERATION: &str = "contraction_slice_count";
+        let inner = self.call(OPERATION)?;
+        inner.optimizer_info(handle, info, OPERATION)?;
+        Ok(inner.contraction_slices.unwrap_or(1))
     }
 
     fn contraction_workspace_sizes(
@@ -487,10 +510,11 @@ impl TensorCalls for FakeLibraries {
         inputs: [OpaqueHandle; 2],
         output: OpaqueHandle,
         workspace: OpaqueHandle,
-        _stream: Stream,
+        stream: Stream,
     ) -> Result<(), NativeError> {
         const OPERATION: &str = "contract";
         let mut inner = self.call(OPERATION)?;
+        inner.require(stream, OPERATION, |o| matches!(o, Object::Stream))?;
         inner.owned(handle, plan, OPERATION)?;
         let Some(&Object::Plan { network, info }) = inner.objects.get(&id(plan)) else {
             return Err(failed(OPERATION, "no such plan"));
@@ -648,6 +672,38 @@ impl Sides {
             left: left.free_modes(shared),
             right: right.free_modes(shared),
         })
+    }
+
+    /// Fails unless every label of a gate split's `inputs` (A, B and the
+    /// gate) is either shared by two of them and in neither output, or in
+    /// one of them and one output's other modes: no label is summed alone,
+    /// and none is both contracted and kept.
+    fn check_gate_split_labels(
+        &self,
+        inputs: &[&DenseTensor],
+        operation: &'static str,
+    ) -> Result<(), NativeError> {
+        let kept = |mode: &i32| self.left.0.contains(mode) || self.right.0.contains(mode);
+        for input in inputs {
+            for mode in &input.modes {
+                let count = inputs
+                    .iter()
+                    .filter(|other| other.modes.contains(mode))
+                    .count();
+                let fits = match count {
+                    1 => kept(mode),
+                    2 => !kept(mode) && *mode != self.shared,
+                    _ => false,
+                };
+                if !fits {
+                    return Err(failed(
+                        operation,
+                        "an input label is outside a gate split's topology",
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The contraction of `inputs` as a column-major matrix, its rows the

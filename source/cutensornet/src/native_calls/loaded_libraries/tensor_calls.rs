@@ -395,7 +395,7 @@ impl TensorCalls for LoadedLibraries {
         self.check_cutensornet("cutensornetDestroyContractionOptimizerInfo", status)
     }
 
-    fn optimize_contraction(
+    fn find_contraction_path(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
@@ -413,22 +413,61 @@ impl TensorCalls for LoadedLibraries {
             "cutensornetCreateContractionOptimizerConfig",
             "contraction optimizer configuration",
         )?;
-        // SAFETY: the handle, the network, the config and the info are live.
+        let disable_slicing: i32 = 1;
+        // SAFETY: the handle and the config are live, and the value is the
+        // attribute's declared `int32_t`.
         let status = unsafe {
-            (functions.optimize)(
+            (functions.optimizer_config_set_attribute)(
                 handle.as_ptr(),
-                network.as_ptr(),
                 config.as_ptr(),
-                workspace_limit,
-                info.as_ptr(),
+                v2_13::cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SLICER_DISABLE_SLICING,
+                (&raw const disable_slicing).cast(),
+                size_of_val(&disable_slicing),
             )
         };
-        let optimized = self.check_cutensornet("cutensornetContractionOptimize", status);
+        let optimized = self
+            .check_cutensornet("cutensornetContractionOptimizerConfigSetAttribute", status)
+            .and_then(|()| {
+                // SAFETY: the handle, the network, the config and the info
+                // are live.
+                let status = unsafe {
+                    (functions.optimize)(
+                        handle.as_ptr(),
+                        network.as_ptr(),
+                        config.as_ptr(),
+                        workspace_limit,
+                        info.as_ptr(),
+                    )
+                };
+                self.check_cutensornet("cutensornetContractionOptimize", status)
+            });
         // SAFETY: the config was created above, and is destroyed once.
         let status = unsafe { (functions.destroy_optimizer_config)(config.as_ptr()) };
         let destroyed =
             self.check_cutensornet("cutensornetDestroyContractionOptimizerConfig", status);
         combine_execution_and_cleanup(optimized, destroyed)
+    }
+
+    fn contraction_slice_count(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+    ) -> Result<i64, NativeError> {
+        let functions = self.tensor_functions()?;
+        let mut slices: i64 = 0;
+        // SAFETY: the handle and the info are live, and `slices` is a
+        // writable value of the attribute's declared `int64_t`.
+        let status = unsafe {
+            (functions.optimizer_info_get_attribute)(
+                handle.as_ptr(),
+                info.as_ptr(),
+                v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_NUM_SLICES,
+                (&raw mut slices).cast(),
+                size_of_val(&slices),
+            )
+        };
+        self.check_cutensornet("cutensornetContractionOptimizerInfoGetAttribute", status)?;
+        Ok(slices)
     }
 
     fn contraction_workspace_sizes(
@@ -499,8 +538,8 @@ impl TensorCalls for LoadedLibraries {
         // live; the inputs and the output hold their network tensors'
         // extents, and the workspace was sized for this plan and lent the
         // memory it asked for. Their owners keep them until the stream is
-        // synchronized. Slice 0 is the whole contraction: the optimizer
-        // was not asked to slice.
+        // synchronized. Slice 0 is the whole contraction: the plan's path
+        // is unsliced, which `optimize_contraction` checked.
         let status = unsafe {
             (functions.contraction)(
                 handle.as_ptr(),

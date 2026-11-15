@@ -154,8 +154,9 @@ impl MemoryCalls for FakeLibraries {
         Ok(inner.recommended_bytes(slot))
     }
 
-    /// Refuses memory for a slot that asks for none, as cuTensorNet does on
-    /// an A100 (status 7, an invalid workspace).
+    /// Refuses memory, of any size, for a slot that asks for none. The
+    /// evidence is narrower: on an A100, cuTensorNet refuses a zero-size
+    /// workspace with a pointer (status 7, an invalid workspace).
     fn set_workspace(
         &self,
         handle: OpaqueHandle,

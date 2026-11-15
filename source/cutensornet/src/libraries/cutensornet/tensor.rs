@@ -10,6 +10,13 @@
 //! looked up as one optional table, [`CuTensorNetTensorFunctions`]: a
 //! cuTensorNet that lacks them is still usable through the state API, and
 //! whoever needs them reports every missing one.
+//!
+//! The pairwise contractions use the network-descriptor API
+//! (`cutensornetCreateNetworkDescriptor`, `cutensornetCreateContractionPlan`,
+//! `cutensornetContraction` and their destroys), which cuTensorNet 2.9
+//! deprecated in favour of its network API (`cutensornetCreateNetwork`,
+//! `cutensornetNetworkContract`, …). 2.13, the release the bindings were
+//! audited against, still exports it.
 
 use super::v2_13;
 use crate::libraries::cuda_runtime::cudart_12;
@@ -44,10 +51,14 @@ crate::libraries::loader::function_table! {
             cutensornetCreateContractionOptimizerConfig,
         required destroy_optimizer_config: DestroyContractionOptimizerConfigFn =
             cutensornetDestroyContractionOptimizerConfig,
+        required optimizer_config_set_attribute: ContractionOptimizerConfigSetAttributeFn =
+            cutensornetContractionOptimizerConfigSetAttribute,
         required create_optimizer_info: CreateContractionOptimizerInfoFn =
             cutensornetCreateContractionOptimizerInfo,
         required destroy_optimizer_info: DestroyContractionOptimizerInfoFn =
             cutensornetDestroyContractionOptimizerInfo,
+        required optimizer_info_get_attribute: ContractionOptimizerInfoGetAttributeFn =
+            cutensornetContractionOptimizerInfoGetAttribute,
         required optimize: ContractionOptimizeFn = cutensornetContractionOptimize,
         required contraction_sizes: WorkspaceComputeContractionSizesFn =
             cutensornetWorkspaceComputeContractionSizes,
@@ -202,6 +213,26 @@ pub(crate) type CreateContractionOptimizerConfigFn =
 pub(crate) type DestroyContractionOptimizerConfigFn =
     unsafe extern "C" fn(
         v2_13::cutensornetContractionOptimizerConfig_t,
+    ) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetContractionOptimizerConfigSetAttribute`.
+pub(crate) type ContractionOptimizerConfigSetAttributeFn =
+    unsafe extern "C" fn(
+        v2_13::cutensornetHandle_t,
+        v2_13::cutensornetContractionOptimizerConfig_t,
+        v2_13::cutensornetContractionOptimizerConfigAttributes_t,
+        *const c_void,
+        usize,
+    ) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetContractionOptimizerInfoGetAttribute`.
+pub(crate) type ContractionOptimizerInfoGetAttributeFn =
+    unsafe extern "C" fn(
+        v2_13::cutensornetHandle_t,
+        v2_13::cutensornetContractionOptimizerInfo_t,
+        v2_13::cutensornetContractionOptimizerInfoAttributes_t,
+        *mut c_void,
+        usize,
     ) -> v2_13::cutensornetStatus_t;
 
 /// Function pointer for `cutensornetCreateContractionOptimizerInfo`.

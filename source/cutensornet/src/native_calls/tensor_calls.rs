@@ -26,8 +26,8 @@
 //! The tensor API is not required to open the libraries, since the engine
 //! never calls it:
 //! [`check_tensor_functions`](TensorCalls::check_tensor_functions) names
-//! each function a loaded cuTensorNet lacks, and every other method
-//! fails with the same error there.
+//! each function the library lacks; when any is missing, every other
+//! method fails with the same error.
 
 use super::{OpaqueHandle, Stream, memory_calls::MemoryCalls};
 use crate::native_calls::error::NativeError;
@@ -131,15 +131,46 @@ pub(crate) trait TensorCalls: MemoryCalls {
     ) -> Result<OpaqueHandle, NativeError>;
     fn destroy_optimizer_info(&self, info: OpaqueHandle) -> Result<(), NativeError>;
     /// Finds a contraction path for `network` within `workspace_limit`
-    /// bytes, into `info`; the optimizer's configuration is created and
-    /// destroyed inside.
+    /// bytes, into `info`, unsliced, since [`contract`](Self::contract)
+    /// runs the whole network at once: a path the optimizer sliced anyway
+    /// is refused (`NativeError::InvalidNativeResult`), so a contraction is
+    /// never partial.
     fn optimize_contraction(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
         workspace_limit: u64,
         info: OpaqueHandle,
+    ) -> Result<(), NativeError> {
+        self.find_contraction_path(handle, network, workspace_limit, info)?;
+        let slices = self.contraction_slice_count(handle, info)?;
+        if slices > 1 {
+            return Err(NativeError::InvalidNativeResult {
+                reason: format!(
+                    "the contraction optimizer cut the network into {slices} slices, \
+                     but a contraction runs it whole"
+                ),
+            });
+        }
+        Ok(())
+    }
+    /// The search behind [`optimize_contraction`](Self::optimize_contraction),
+    /// which checks its result: finds a path for `network` within
+    /// `workspace_limit` bytes, into `info`, with slicing disabled; the
+    /// optimizer's configuration is created and destroyed inside.
+    fn find_contraction_path(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        workspace_limit: u64,
+        info: OpaqueHandle,
     ) -> Result<(), NativeError>;
+    /// How many slices `info`'s path cuts its network into: 1 if unsliced.
+    fn contraction_slice_count(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+    ) -> Result<i64, NativeError>;
     /// Sizes `workspace` for contracting `network` along `info`'s path.
     fn contraction_workspace_sizes(
         &self,
@@ -159,7 +190,8 @@ pub(crate) trait TensorCalls: MemoryCalls {
     ) -> Result<OpaqueHandle, NativeError>;
     fn destroy_contraction_plan(&self, plan: OpaqueHandle) -> Result<(), NativeError>;
     /// Queues the contraction of `inputs` into `output` on `stream`, by
-    /// `plan`.
+    /// `plan`, whole: its path is unsliced
+    /// ([`optimize_contraction`](Self::optimize_contraction)).
     fn contract(
         &self,
         handle: OpaqueHandle,
@@ -225,7 +257,7 @@ pub(crate) enum SvdSetting {
     /// The singular values are absorbed into V.
     PartitionSv,
     /// The smallest singular values are dropped while their squared sum is
-    /// at most this fraction of the total.
+    /// at most this fraction of the total, and at least one is kept.
     DiscardedWeightCutoff(f64),
 }
 
