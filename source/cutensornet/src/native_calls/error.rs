@@ -41,9 +41,9 @@ pub enum NativeError {
     #[error("invalid native call: {reason}")]
     InvalidNativeCall { reason: String },
 
-    /// The loaded library lacks functions a call needs: cuTensorNet's tensor
-    /// API, which discovery does not require, since the engine never calls
-    /// it.
+    /// The loaded library lacks functions a call needs, which discovery did
+    /// not require: today cuTensorNet's tensor API, which the engine never
+    /// calls.
     #[error("{library} does not export {}", .symbols.join(", "))]
     MissingNativeFunctions {
         library: &'static str,
@@ -101,6 +101,8 @@ impl NativeError {
     }
 }
 
+/// `execution`'s result, unless `cleanup` failed: both failures are kept, so
+/// a cleanup never hides the cause.
 pub(crate) fn combine_execution_and_cleanup<T>(
     execution: Result<T, NativeError>,
     cleanup: Result<(), NativeError>,

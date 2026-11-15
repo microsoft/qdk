@@ -5,10 +5,10 @@
 //!
 //! None needs a GPU or NVIDIA's libraries: the loader is driven through
 //! files that are not libraries, paths that do not exist and a resolver that
-//! hands out stand-in functions (`stand_ins`); the engine runs its real code
-//! against fake libraries, cuTensorNet and the CUDA Runtime simulated on the
-//! CPU (`src/native_calls/fake_libraries.rs`), so its tests run on
-//! every host.
+//! hands out stand-in functions (`stand_ins`); the engine, and the tensor
+//! API's calls, run against fake libraries, cuTensorNet and the CUDA Runtime
+//! simulated on the CPU (`src/native_calls/fake_libraries.rs`), so their
+//! tests run on every host.
 //! The loader compiles for its tests on any Unix host, so they run off
 //! Linux x86-64 too.
 //!

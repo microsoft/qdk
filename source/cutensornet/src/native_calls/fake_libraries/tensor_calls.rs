@@ -15,10 +15,15 @@
 //! - a gate split, a QR or a contraction runs only in a workspace last
 //!   sized for that same call (the same descriptors and config, or the
 //!   same network and path), and lent what each of its slots asks for;
+//! - an optimizer info serves only the network it was created for: its
+//!   path is searched, and a workspace sized, for that network alone;
 //! - a network is prepared only once optimized, in a workspace sized for
 //!   its path, and contracted only once prepared; it outlives its optimizer
 //!   infos;
 //! - a gate split, a QR or a contraction runs on a live stream;
+//! - a gate split's shared extent does not exceed the smaller side of its
+//!   matrix θ, and a QR's equals the smaller side of its matrix;
+//! - a QR's input carries exactly Q's and R's other modes;
 //! - a gate split takes A·B·G's topology: each input label is shared by
 //!   two inputs and in neither output, or is in one input and one of U's
 //!   or V's other modes, so no label is summed alone;
@@ -41,8 +46,8 @@
 //! given it. With no cutoff set, the reduced extent is the shared mode's extent
 //! and the descriptors keep it; a split whose SVD gave fewer values than that
 //! extent is refused, since cuTensorNet would complete the singular vectors,
-//! which the fake does not model. The full extent is the smaller side of the
-//! split, whatever the SVD left out. The fake absorbs the singular values into
+//! which the fake does not model. The full extent is θ's smaller side,
+//! whatever the SVD left out. The fake absorbs the singular values into
 //! U or V only, writes none to their buffer, and refuses a product of A, B and
 //! the gate that is zero, whose singular vectors are arbitrary.
 
@@ -250,6 +255,12 @@ impl TensorCalls for FakeLibraries {
         let inputs = [&inputs[0], &inputs[1], &inputs[2]];
         sides.check_gate_split_labels(&inputs, OPERATION)?;
         let (theta, rows, cols) = sides.matrix(&inputs, OPERATION)?;
+        if to_usize(sides.shared_extent)? > rows.min(cols) {
+            return Err(failed(
+                OPERATION,
+                "the shared extent exceeds the split's smaller side",
+            ));
+        }
         let Split {
             left,
             right,
@@ -853,7 +864,11 @@ fn split(
             .count();
         reduced = reduced.min((rank - dropped).max(1));
     }
-    let discarded_weight = squares[reduced..].iter().sum::<f64>() / total;
+    // A fold from +0.0: the sum of no squares would be -0.0.
+    let discarded_weight = squares[reduced..]
+        .iter()
+        .fold(0.0, |sum, square| sum + square)
+        / total;
     let mut kept = values[..reduced].to_vec();
     if settings.normalized {
         let norm = kept.iter().map(|value| value * value).sum::<f64>().sqrt();

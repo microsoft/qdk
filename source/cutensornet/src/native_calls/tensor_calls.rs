@@ -97,6 +97,13 @@ pub(crate) trait TensorCalls: MemoryCalls {
     /// at the reduced extent of their shared mode; `info` reports the
     /// truncation.
     ///
+    /// The shared mode's extent in U's and V's descriptors "shall not
+    /// exceed the minimum of m (row dimension) and n (column dimension) of
+    /// the smallest equivalent matrix SVD problem" (cuTensorNet's
+    /// `cutensornetGateSplit`): at most the smaller side of the product of
+    /// A, B and the gate as a matrix, its rows U's other modes and its
+    /// columns V's, and perhaps less (see [`SvdTruncation::full_extent`]).
+    ///
     /// U's and V's buffers hold their descriptors' extents as given, before
     /// truncation, and the singular values' buffer as many doubles as the
     /// shared mode's extent, since the reduced extent is known only once
@@ -316,7 +323,10 @@ pub(crate) struct SvdTruncation {
     /// The extent of the shared mode as U and V hold it.
     pub(crate) reduced_extent: i64,
     /// The extent of the shared mode without truncation: the smaller side
-    /// of the split.
+    /// of the smallest equivalent matrix SVD problem. The fake libraries
+    /// report the smaller side of the product as a matrix; under
+    /// `CUTENSORNET_GATE_SPLIT_ALGO_REDUCED`, cuTensorNet may report less,
+    /// which no GPU run has checked yet.
     pub(crate) full_extent: i64,
     /// The squared sum of the dropped singular values over that of all.
     pub(crate) discarded_weight: f64,

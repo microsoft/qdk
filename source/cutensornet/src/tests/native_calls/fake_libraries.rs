@@ -452,6 +452,11 @@ impl Factors {
     }
 }
 
+// The labels of the QR's input modes i, k and j.
+const QR_I: i32 = 1;
+const QR_K: i32 = 2;
+const QR_J: i32 = 3;
+
 /// A QR through the fake of T[i, k, j] (2×2×3) into Q[k, s, i] and R[j, s],
 /// whose descriptors list the modes in another order than the input's: the
 /// matrix's rows are (i, k), its columns j, and Q and R share an extent.
@@ -468,12 +473,27 @@ impl TensorQr {
     /// The QR on `fake` at a shared extent of `extent`, in a workspace
     /// sized for it, lent nothing yet.
     fn sized(fake: FakeLibraries, extent: i64) -> Self {
-        let [mode_i, mode_k, mode_j, mode_s] = [1, 2, 3, 4];
+        Self::sized_with_input(fake, extent, &[2, 2, 3], &[QR_I, QR_K, QR_J])
+    }
+
+    /// As [`sized`](Self::sized), with an input of `input_extents` and
+    /// `input_modes` instead of T[i, k, j].
+    fn sized_with_input(
+        fake: FakeLibraries,
+        extent: i64,
+        input_extents: &[i64],
+        input_modes: &[i32],
+    ) -> Self {
+        let [mode_i, mode_k, mode_j, mode_s] = [QR_I, QR_K, QR_J, 4];
         let device = Device::new(fake);
         let shared = usize::try_from(extent).expect("an extent is positive");
         let zero = Complex64::default();
-        let input_values = values(12, 0.5);
-        let input = device.operand(&[2, 2, 3], &[mode_i, mode_k, mode_j], &input_values);
+        let elements = input_extents
+            .iter()
+            .map(|&extent| usize::try_from(extent).expect("an extent is positive"))
+            .product();
+        let input_values = values(elements, 0.5);
+        let input = device.operand(input_extents, input_modes, &input_values);
         let q = device.operand(
             &[2, extent, 2],
             &[mode_k, mode_s, mode_i],
@@ -882,6 +902,37 @@ fn a_gate_split_needs_a_singular_values_buffer_of_the_shared_extent() {
     split.split().expect("the buffer holds 4 doubles");
 }
 
+/// cuTensorNet's shared extent "shall not exceed" the smaller side of the
+/// split: a caller that sizes U and V at its bond cap without clamping it
+/// to θ's sides is caught on the fake. A 2×2 θ splits at an extent of 2,
+/// and is refused at 3, under a cutoff that would otherwise reduce it.
+#[test]
+fn a_gate_split_needs_a_shared_extent_within_the_smaller_side() {
+    let theta = matrix([[2.0, 1.0], [0.5, -1.5]]);
+    let settings = [SvdSetting::PartitionUs, ROUNDING_CUTOFF];
+    GateSplit::of(theta, &settings)
+        .split()
+        .expect("the shared extent is the smaller side");
+    let zero = Complex64::default();
+    let mut above = GateSplit::of(theta, &settings);
+    let device = &above.device;
+    above.operands.u = device.operand(&[2, 3], &[P_OUT, S], &[zero; 6]);
+    above.operands.v = device.operand(&[3, 2], &[S, Q_OUT], &[zero; 6]);
+    device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    let error = above
+        .split()
+        .expect_err("the shared extent of 3 exceeds θ's 2×2");
+    assert!(
+        error
+            .to_string()
+            .contains("exceeds the split's smaller side"),
+        "{error}"
+    );
+}
+
 /// cuTensorNet may write the singular values to their buffer: a caller
 /// that freed it is caught on the fake.
 #[test]
@@ -1061,6 +1112,22 @@ fn a_qrs_q_has_orthonormal_columns() {
 #[test]
 fn a_qr_needs_the_shared_extent_to_be_the_smaller_side() {
     qr(4).expect_err("Q and R share 4, the larger side");
+}
+
+/// cuTensorNet's QR splits its input's modes between Q and R, and sums
+/// none: a caller whose input carries a mode that neither Q nor R keeps
+/// (a bond left on the input) is caught on the fake rather than summed.
+#[test]
+fn a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes() {
+    const ELSEWHERE: i32 = 9;
+    let run = |extents: &[i64], modes: &[i32]| {
+        let qr = TensorQr::sized_with_input(FakeLibraries::new(), 3, extents, modes);
+        qr.device.lend(WorkspaceSlot::DeviceScratch);
+        qr.run_on(qr.device.stream)
+    };
+    run(&[2, 2, 3, 2], &[QR_I, QR_K, QR_J, ELSEWHERE])
+        .expect_err("the input carries a mode neither Q nor R keeps");
+    run(&[2, 2, 3], &[QR_I, QR_K, QR_J]).expect("the input's modes are Q's and R's other modes");
 }
 
 /// A contraction runs its network whole: a caller whose path the
@@ -1259,6 +1326,53 @@ fn a_contraction_needs_an_optimized_path() {
         .expect("the path is optimized");
     fake.prepare_contraction(handle, network, workspace)
         .expect("the workspace is sized for the path");
+}
+
+/// Two dot-product networks on one handle, each with its optimizer info;
+/// `optimized` says whether each info's path is searched.
+fn two_networks(device: &Device, optimized: bool) -> [(OpaqueHandle, OpaqueHandle); 2] {
+    let (fake, handle) = (&device.fake, device.handle);
+    [(); 2].map(|()| {
+        let network = fake
+            .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
+            .expect("the labels are consistent")
+            .descriptor;
+        let info = fake
+            .create_optimizer_info(handle, network)
+            .expect("the network is live");
+        if optimized {
+            fake.optimize_contraction(handle, network, 1 << 20, info)
+                .expect("the info is the network's");
+        }
+        (network, info)
+    })
+}
+
+/// A caller that caches a path per shape and searches one network's path
+/// into another's optimizer info, mixing up two cache entries, is caught
+/// on the fake.
+#[test]
+fn a_contraction_path_is_searched_with_an_info_of_its_network() {
+    let device = Device::new(FakeLibraries::new());
+    let (fake, handle) = (&device.fake, device.handle);
+    let [(first, first_info), (_, second_info)] = two_networks(&device, false);
+    fake.optimize_contraction(handle, first, 1 << 20, second_info)
+        .expect_err("the info is the second network's");
+    fake.optimize_contraction(handle, first, 1 << 20, first_info)
+        .expect("the info is the first network's");
+}
+
+/// A caller that sizes a workspace for one network with the optimized path
+/// of another, mixing up two cache entries, is caught on the fake.
+#[test]
+fn a_contraction_workspace_is_sized_with_an_info_of_its_network() {
+    let device = Device::new(FakeLibraries::new());
+    let (fake, handle, workspace) = (&device.fake, device.handle, device.workspace);
+    let [(first, first_info), (_, second_info)] = two_networks(&device, true);
+    fake.contraction_workspace_sizes(handle, first, second_info, workspace)
+        .expect_err("the info is the second network's");
+    fake.contraction_workspace_sizes(handle, first, first_info, workspace)
+        .expect("the info is the first network's");
 }
 
 /// cuTensorNet prepares a network in the workspace sized for its path: a

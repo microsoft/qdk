@@ -233,7 +233,9 @@ component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
 
 The [engine's tests](src/tests/engine.rs) run in CI, without a GPU, on
 [fake libraries](src/native_calls/fake_libraries.rs) that enforce
-cuTensorNet's call order. The [unit tests](src/tests) drive each way
+cuTensorNet's call order, and the fake libraries'
+[own tests](src/tests/native_calls/fake_libraries.rs) pin how they simulate
+cuTensorNet's tensor API. The [unit tests](src/tests) drive each way
 discovery fails without NVIDIA's libraries, and
 [`tests/availability.rs`](tests/availability.rs) discovers the audited
 libraries where they are installed.

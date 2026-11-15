@@ -21,12 +21,14 @@
 //! and what a test sets and reads.
 //!
 //! It keeps what cuTensorNet would keep, by id: buffers, workspaces, states
-//! with the operators applied to them, network operators and expectations. A
+//! with the operators applied to them, network operators and expectations,
+//! and the tensor API's objects (`fake_libraries/tensor_calls.rs`). A
 //! compute replays a state's operators on a state vector
 //! (`fake_libraries/state_vector.rs`), reading each matrix from its buffer at
 //! that moment, as the library reads it at compute time; reads use the computed
-//! state. It is strict about the order the engine calls in, so a wrong order
-//! fails a test instead of passing silently:
+//! state. It is strict about the order its callers call in, so a wrong order
+//! fails a test instead of passing silently; for the state API (the rule on
+//! buffers lent to a workspace holds for the tensor API too):
 //!
 //! - `finalize_mps` once per state, before any configuration or prepare;
 //! - a compute needs a prepare since the last operator, and scratch
