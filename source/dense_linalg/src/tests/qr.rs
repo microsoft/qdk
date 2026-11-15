@@ -34,11 +34,24 @@ fn decomposes_by_qr() {
     }
 }
 
-/// The zero matrix, which has no largest entry to scale by, is its own `R`.
+/// The zero matrix, which has no largest entry to scale by, decomposes
+/// with `R = 0`.
 #[test]
 fn decomposes_the_zero_matrix() {
     for &(rows, cols) in &SHAPES {
         check_qr(&Matrix::new(rows, cols, vec![c(0.0, 0.0); rows * cols]));
+    }
+}
+
+/// A matrix without elements has empty factors of the thin shapes, even
+/// with a dimension of `2⁶³` (`2³¹` on 32 bits), which no matrix with
+/// elements can have.
+#[test]
+fn decomposes_an_empty_matrix_of_any_size() {
+    let huge = 1 << (usize::BITS - 1);
+    for (rows, cols) in [(huge, 0), (0, huge), (3, 0), (0, 3)] {
+        let Qr { q, r } = Qr::of(Matrix::new(rows, cols, Vec::new()).view());
+        assert_eq!((q.rows(), q.cols(), r.rows(), r.cols()), (rows, 0, 0, cols));
     }
 }
 

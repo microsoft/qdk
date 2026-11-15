@@ -21,7 +21,8 @@ pub struct Qr {
 
 impl Qr {
     /// The thin QR decomposition of `a`, to rounding, by Householder
-    /// reflections. It cannot fail, and checks nothing.
+    /// reflections. It cannot fail, and checks nothing. A matrix without
+    /// elements, of any shape, has empty factors.
     ///
     /// It answers at any scale, down to subnormal entries, short of a
     /// matrix whose `r` is too large to store: a matrix whose largest entry
@@ -36,19 +37,26 @@ impl Qr {
     /// [`Svd::of`]: crate::Svd::of
     #[must_use]
     pub fn of(a: MatrixRef<'_>) -> Self {
+        let (rows, cols) = (a.rows(), a.cols());
+        if a.elements().is_empty() {
+            // `q` and `r` are empty too. Answered here, not by the library,
+            // which may size its work by a dimension, here up to
+            // `usize::MAX` with no element to bound it.
+            let k = rows.min(cols);
+            return Self {
+                q: Matrix::new(rows, k, Vec::new()),
+                r: Matrix::new(k, cols, Vec::new()),
+            };
+        }
         let Some(scaling) = PowerOfTwoScaling::of(a.elements()) else {
             return Shipped::qr(a);
         };
-        let scaled = scaling.scaled(Matrix::new(a.rows(), a.cols(), a.elements().to_vec()));
+        let scaled = scaling.scaled(Matrix::new(rows, cols, a.elements().to_vec()));
         let Qr { q, r } = Shipped::qr(scaled.view());
         // 2⁻ᵉ·a = q·r', so a = q·(2ᵉ·r').
-        let (rows, cols) = (r.rows(), r.cols());
+        let k = r.rows();
         let elements = r.into_elements().into_iter();
-        let r = Matrix::new(
-            rows,
-            cols,
-            elements.map(|x| scaling.scaled_back(x)).collect(),
-        );
+        let r = Matrix::new(k, cols, elements.map(|x| scaling.scaled_back(x)).collect());
         Qr { q, r }
     }
 }

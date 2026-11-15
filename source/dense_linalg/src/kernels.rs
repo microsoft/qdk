@@ -5,11 +5,12 @@
 //! algebra library provides, so that the library is one file.
 //!
 //! The SVD's rules are the crate's own and computed once, on top of these
-//! steps: the checks, the trim's choice of rows, the scaling, the one-sided
-//! Jacobi rotations and the rule that routes a matrix to the fast route.
-//! A library brings only what it computes faster or better than code
-//! written here: the product, the thin QR, the column-pivoted QR and the
-//! application of its `Q`, and the fast route's SVD.
+//! steps: the checks, the trim's choice of rows, the scaling (the thin
+//! QR's too), the one-sided Jacobi rotations and the rule that routes a
+//! matrix to the fast route. A library brings only what it computes faster
+//! or better than code written here: the product, the thin QR, the
+//! column-pivoted QR and the application of its `Q`, and the fast route's
+//! SVD.
 //!
 //! [`Shipped`] is the implementation the public API computes with.
 
@@ -35,10 +36,14 @@ pub(crate) trait Kernels {
     /// its `Q` (for instance, its reflectors).
     type Q;
 
-    /// The product `a·b`; `a.cols()` equals `b.rows()`.
+    /// The product `a·b`; `a.cols()` equals `b.rows()`, and the product's
+    /// element count fits `usize`.
     fn product(a: MatrixRef<'_>, b: MatrixRef<'_>) -> Matrix;
 
-    /// The thin QR decomposition of `a`, as [`Qr::of`] states it.
+    /// The thin QR decomposition of `a`, to rounding, at the scales the
+    /// library handles ([`Qr::of`] scales the others). `a` has elements, so
+    /// its dimensions are at most its element count: [`Qr::of`] answers an
+    /// empty matrix itself.
     fn qr(a: MatrixRef<'_>) -> Qr;
 
     /// The column-pivoted QR decomposition `a·P = Q·R` of `a`, thin.

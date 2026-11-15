@@ -28,8 +28,8 @@ tests, on every answer. A linear algebra library brings only the steps it
 computes faster (the products and the QR decompositions, and a fast route
 for large full-rank matrices), behind one crate-private trait, so that the
 library is one file. The SVD checks every answer it gives, the fast route's
-included; the product and the thin QR are the library's, to rounding, and
-not checked.
+included; the product and the thin QR (scaled as the SVD's input is) are
+the library's, to rounding, and not checked.
 
 ## The checked SVD
 

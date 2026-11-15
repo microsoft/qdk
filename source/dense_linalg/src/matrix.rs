@@ -50,9 +50,13 @@ impl Matrix {
         mut element: impl FnMut(usize, usize) -> Complex64,
     ) -> Self {
         let mut elements = Vec::with_capacity(element_count(rows, cols));
-        for j in 0..cols {
-            for i in 0..rows {
-                elements.push(element(i, j));
+        // Without rows, the columns, up to `usize::MAX` of them, hold
+        // nothing to visit.
+        if rows > 0 {
+            for j in 0..cols {
+                for i in 0..rows {
+                    elements.push(element(i, j));
+                }
             }
         }
         Self::new(rows, cols, elements)
@@ -62,7 +66,9 @@ impl Matrix {
     ///
     /// # Panics
     ///
-    /// When `a.cols()` differs from `b.rows()`.
+    /// When `a.cols()` differs from `b.rows()`, or when `a.rows()·b.cols()`
+    /// overflows `usize`, as [`Matrix::new`] would for the product's shape
+    /// (empty operands can have such dimensions: `2⁶³ × 0` times `0 × 2`).
     #[must_use]
     pub fn product(a: MatrixRef<'_>, b: MatrixRef<'_>) -> Self {
         assert_eq!(
@@ -74,6 +80,9 @@ impl Matrix {
             b.rows(),
             b.cols()
         );
+        // Before the library counts the product's elements, so that the
+        // panic is the crate's, naming the shape.
+        element_count(a.rows(), b.cols());
         Shipped::product(a, b)
     }
 

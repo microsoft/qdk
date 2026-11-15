@@ -79,6 +79,38 @@ fn multiplies_only_matching_shapes() {
     let _ = Matrix::product(a.view(), a.view());
 }
 
+/// Two empty matrices, `2⁶³ × 0` and `0 × 2` on a 64-bit target, have a
+/// product of more elements than `usize` counts: the product panics as
+/// `Matrix::new` does for that shape.
+#[test]
+#[should_panic(expected = "× 2 matrix has more elements than `usize` counts")]
+fn a_product_whose_element_count_overflows_is_refused() {
+    let huge = 1 << (usize::BITS - 1);
+    let _ = Matrix::product(MatrixRef::new(huge, 0, &[]), MatrixRef::new(0, 2, &[]));
+}
+
+/// The product of matrices without elements is empty, whatever their
+/// dimensions: `0 × 2⁶³` times `2⁶³ × 0` is `0 × 0`, and `2⁶³ × 0` times
+/// `0 × 0` is `2⁶³ × 0`.
+#[test]
+fn an_empty_product_of_any_size_is_empty() {
+    let huge = 1 << (usize::BITS - 1);
+    let empty = |rows, cols| MatrixRef::new(rows, cols, &[]);
+    let product = Matrix::product(empty(0, huge), empty(huge, 0));
+    assert_eq!((product.rows(), product.cols()), (0, 0));
+    let product = Matrix::product(empty(huge, 0), empty(0, 0));
+    assert_eq!((product.rows(), product.cols()), (huge, 0));
+}
+
+/// A matrix with no rows has nothing in its columns: built element by
+/// element, `0 × 2⁶³` returns at once, without visiting them.
+#[test]
+fn from_fn_visits_no_column_of_a_matrix_without_rows() {
+    let huge = 1 << (usize::BITS - 1);
+    let empty = Matrix::from_fn(0, huge, |_, _| unreachable!("no element"));
+    assert_eq!((empty.rows(), empty.cols()), (0, huge));
+}
+
 /// The adjoint of a 2 × 3 matrix is its conjugate transpose, 3 × 2.
 #[test]
 fn the_adjoint_is_the_conjugate_transpose() {
@@ -93,4 +125,13 @@ fn the_adjoint_is_the_conjugate_transpose() {
             );
         }
     }
+}
+
+/// The adjoint of a matrix without elements is empty, and returns at once
+/// even for `2⁶³ × 0`, whose adjoint has `2⁶³` empty columns.
+#[test]
+fn the_adjoint_of_an_empty_matrix_of_any_size_is_empty() {
+    let huge = 1 << (usize::BITS - 1);
+    let adjoint = MatrixRef::new(huge, 0, &[]).adjoint();
+    assert_eq!((adjoint.rows(), adjoint.cols()), (0, huge));
 }
