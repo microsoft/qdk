@@ -8,10 +8,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# matrixmultiply is nalgebra's own product kernel, already in the workspace;
-# `cgemm` adds its complex kernel and no crate.
-matrixmultiply = { version = "0.3", features = ["cgemm"] }
-nalgebra = { workspace = true }
 num-complex = { workspace = true }
 # t4a-faer is this crate's alone: removing the crate removes it from the
 # workspace. Pinned to one version: its owner publishes semver-major
@@ -20,10 +16,6 @@ num-complex = { workspace = true }
 # Its library is named `faer`; renamed so that code never reads as faer's.
 t4a_faer = { package = "t4a-faer", version = "=0.31.0", default-features = false, features = ["std", "linalg"] }
 thiserror = { workspace = true }
-
-[features]
-# Computes with nalgebra rather than t4a-faer, to compare the two.
-kernels-nalgebra = []
 
 [lints]
 workspace = true

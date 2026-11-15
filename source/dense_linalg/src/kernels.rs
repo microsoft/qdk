@@ -13,9 +13,6 @@
 //!
 //! [`Shipped`] is the implementation the public API computes with.
 
-#[cfg(feature = "kernels-nalgebra")]
-pub(crate) mod nalgebra;
-#[cfg(not(feature = "kernels-nalgebra"))]
 mod t4a_faer;
 
 use crate::matrix::{Matrix, MatrixRef};
@@ -24,12 +21,7 @@ use crate::svd::ColumnMajorSvd;
 use num_complex::Complex64;
 
 /// The implementation of [`Kernels`] the public API computes with.
-#[cfg(not(feature = "kernels-nalgebra"))]
 pub(crate) type Shipped = self::t4a_faer::T4aFaer;
-
-/// The implementation of [`Kernels`] the public API computes with.
-#[cfg(feature = "kernels-nalgebra")]
-pub(crate) type Shipped = self::nalgebra::Nalgebra;
 
 /// The steps a linear algebra library computes for the crate, each on the
 /// calling thread.

@@ -539,8 +539,6 @@ dependencies = [
 name = "dense_linalg"
 version = "0.0.0"
 dependencies = [
- "matrixmultiply",
- "nalgebra",
  "num-complex",
  "t4a-faer",
  "thiserror 2.0.20",

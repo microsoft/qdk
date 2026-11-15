@@ -8,9 +8,6 @@
 //!
 //! [`Kernels`]: crate::kernels::Kernels
 
-#[cfg(feature = "kernels-nalgebra")]
-mod bidiagonal_qr;
-
 use super::{SHAPES, adjoint, check_svd_of, distance, identity, matrix, naive_product};
 use crate::{
     Matrix, Svd,

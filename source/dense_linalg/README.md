@@ -100,9 +100,7 @@ assert!((svd.singular_values[0] - 5.0).abs() < 1e-14);
 The crate computes its products, QR decompositions and fast route with
 t4a-faer, a fork of faer, through the crate-private trait
 [`Kernels`](src/kernels.rs); [`kernels/t4a_faer.rs`](src/kernels/t4a_faer.rs)
-is its implementation. The feature `kernels-nalgebra` computes with
-[`kernels/nalgebra.rs`](src/kernels/nalgebra.rs) instead, on nalgebra, for
-comparison. t4a-faer is pinned to one version
+is its implementation. t4a-faer is pinned to one version
 ([`Cargo.toml`](Cargo.toml) says why), built without threads, and runs its
 QR algorithm at every size, never its divide and conquer.
 
