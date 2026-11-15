@@ -17,7 +17,6 @@ from typing import TypeVar
 from qdk.qre._application import Application
 from qdk.qre._qre import Trace, trace_fds
 
-
 _Result = TypeVar("_Result")
 
 
@@ -79,7 +78,7 @@ class QspApplication(Application[None]):
                 "interop archive. Run `cargo build --release -p qep_interop` "
                 "from the repository root."
             )
-        executable = source.with_name(f"{source.stem}_qsp")
+        executable = source.with_name(f"{source.stem}.exe")
         libraries = ["-ldl", "-lpthread", "-lm"] if sys.platform == "linux" else []
         is_c = source.suffix == ".c"
         compiler = os.environ.get("CC", "cc") if is_c else os.environ.get("CXX", "c++")
@@ -135,7 +134,9 @@ class QspApplication(Application[None]):
                 os.fdopen(instruction_write, "wb", buffering=0)
             )
             result_read, result_write = os.pipe()
-            child_results = pipes.enter_context(os.fdopen(result_read, "rb", buffering=0))
+            child_results = pipes.enter_context(
+                os.fdopen(result_read, "rb", buffering=0)
+            )
             results = pipes.enter_context(os.fdopen(result_write, "wb", buffering=0))
             with subprocess.Popen(
                 [str(compiled_exe), *self.args],
