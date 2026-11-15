@@ -506,6 +506,12 @@ fn an_instruction_its_set_does_not_take_is_refused() {
             ),
         ),
         (
+            "`cond_x` on the parity of no readout, the needs using parities",
+            vec![cond_x(Argument::parity([], true))],
+            qubit().with_readout_parity(),
+            Ok(0),
+        ),
+        (
             "`cond_x` counting back 0 readouts, as when built by name",
             vec![cond_x(Argument::recent(0))],
             qubit().with_readout_parity(),
@@ -515,6 +521,12 @@ fn an_instruction_its_set_does_not_take_is_refused() {
                     mnemonic: "cond_x".into(),
                 },
             ),
+        ),
+        (
+            "`cond_x` counting back six readouts, none 0, spilled to the heap",
+            vec![cond_x(Argument::parity([1, 2, 3, 4, 5, 6], false))],
+            qubit().with_readout_parity(),
+            Ok(0),
         ),
         (
             "`cond_x` counting back 0 readouts last of six, spilled to the heap",

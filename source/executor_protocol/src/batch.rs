@@ -78,8 +78,8 @@ impl<'a> Batch<'a> {
     /// of a run ([`RunRefusal`](crate::RunRefusal)), the batch's count of
     /// instructions against the most the receiver takes (an
     /// [`ExecuteRefusal`](crate::ExecuteRefusal)), and the answer's count
-    /// of readouts and of rows ([`ShapeFault`](crate::ShapeFault)) are
-    /// checked.
+    /// of readouts and of rows, and a replacement of the readouts lent
+    /// ([`ShapeFault`](crate::ShapeFault)), are checked.
     #[must_use]
     pub const fn checked(self) -> Self {
         self.checked_if(true)

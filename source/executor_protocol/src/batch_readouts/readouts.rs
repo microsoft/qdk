@@ -35,9 +35,9 @@ pub struct Readouts {
     /// their memory, for the next ones added.
     batches: Vec<BatchReadouts>,
     len: usize,
-    /// While it is lent to an `execute` through the protocol, the readouts
-    /// that `execute` found, which `clear` keeps; 0 otherwise.
-    found: usize,
+    /// While it is lent to an `execute` through the protocol, the count of
+    /// readouts that `execute` found, which `clear` keeps; 0 otherwise.
+    found_len: usize,
 }
 
 /// A lending of [`Readouts`] to an `execute`, from [`Readouts::lend`] to
@@ -46,9 +46,9 @@ pub struct Readouts {
 pub(crate) struct Loan {
     /// The readouts the `execute` found: its answer starts there.
     start: usize,
-    /// What `found` was before, restored when the loan ends: the start of
-    /// the loan this one is nested in, if any.
-    outer: usize,
+    /// What `found_len` was before, restored when the loan ends: the start
+    /// of the loan this one is nested in, if any.
+    outer_found_len: usize,
 }
 
 impl Readouts {
@@ -62,7 +62,7 @@ impl Readouts {
     /// protocol, it removes only the readouts that `execute` added, never
     /// those it found.
     pub fn clear(&mut self) {
-        self.len = self.found;
+        self.len = self.found_len;
     }
 
     /// Adds the next batch's readouts, with no rows yet, of `readouts`
@@ -97,19 +97,19 @@ impl Readouts {
     pub(crate) fn lend(&mut self) -> Loan {
         let loan = Loan {
             start: self.len,
-            outer: self.found,
+            outer_found_len: self.found_len,
         };
-        self.found = self.len;
+        self.found_len = self.len;
         loan
     }
 
     /// The readouts appended during `loan`, or `None` when this is not the
     /// value lent: the `execute` assigned or swapped in another.
     pub(crate) fn appended(&self, loan: &Loan) -> Option<&[BatchReadouts]> {
-        // `lend` sets `found`, and `end_loan` restores it only on the value
-        // it lent, so another value holds 0, or the start of a loan of its
-        // own.
-        (self.found == loan.start).then(|| self.get(loan.start..).unwrap_or_default())
+        // `lend` sets `found_len`, and `end_loan` restores it only on the
+        // value it lent, so another value holds 0, or the start of a loan of
+        // its own.
+        (self.found_len == loan.start).then(|| self.get(loan.start..).unwrap_or_default())
     }
 
     /// Ends `loan`, keeping the answer appended during it, or removing it.
@@ -124,8 +124,8 @@ impl Readouts {
         if !keep_answer {
             self.len = self.len.min(loan.start);
         }
-        if self.found == loan.start {
-            self.found = loan.outer;
+        if self.found_len == loan.start {
+            self.found_len = loan.outer_found_len;
         }
     }
 }
@@ -153,7 +153,7 @@ impl Clone for Readouts {
         Self {
             batches: self.to_vec(),
             len: self.len,
-            found: 0,
+            found_len: 0,
         }
     }
 }

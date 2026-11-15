@@ -5,7 +5,7 @@
 //! no executor writes them: the count of its instructions
 //! ([`check_instruction_count`]), on every batch an executor receives, so
 //! that none receives more than it says it takes; and its instructions
-//! ([`check_batch`]), on every batch its sender marked checked, so that
+//! ([`check_instructions`]), on every batch its sender marked checked, so that
 //! none runs such a batch's instruction its set does not declare, a block
 //! its shots do not have, or a readout parity its shots were not
 //! provisioned for. The second also gives the batch's readout slots, which
@@ -44,7 +44,7 @@ pub(crate) fn check_instruction_count(
 /// the sum of its instructions', so that the answer's width can be
 /// checked, or the first fault. Their count is
 /// [`check_instruction_count`]'s.
-pub(crate) fn check_batch(
+pub(crate) fn check_instructions(
     instructions: &[Instruction],
     limits: &BatchLimits,
 ) -> Result<u32, BatchFault> {

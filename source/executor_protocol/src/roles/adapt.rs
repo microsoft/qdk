@@ -68,10 +68,10 @@ pub trait Adapt {
     /// What it offers above, given what is offered `below`; by default the
     /// same. The admission checks the needs of the part above against it,
     /// and each batch the part above sends it is checked against its most
-    /// instructions. Where an offer cannot be exact, such as for
-    /// two block types drawn from one pool below, the admission still
-    /// checks what [`needs_below`](Self::needs_below) passes down against
-    /// the executor's own offer.
+    /// instructions. Where an offer cannot be exact, such as for two block
+    /// types drawn from one pool below, the admission still checks what
+    /// [`needs_below`](Self::needs_below) passes down against the
+    /// executor's own offer.
     ///
     /// Its most shots and whether a run may fix its seed can lower the
     /// run's limits, such as for a job queue, but never raise them: each

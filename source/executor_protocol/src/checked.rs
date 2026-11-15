@@ -24,7 +24,7 @@ use smallvec::SmallVec;
 
 use crate::batch_readouts::Loan;
 use crate::instruction_set::instruction::batch_check::{
-    BatchFault, BatchLimits, check_batch, check_instruction_count,
+    BatchFault, BatchLimits, check_instruction_count, check_instructions,
 };
 use crate::panics::catch_panic;
 use crate::{
@@ -115,7 +115,10 @@ impl<E: Execute> Execute for Checked<'_, E> {
             check_instruction_count(batch.instructions, self.batch_limits).map_err(refused)?;
             if any_checked {
                 checked_slots.push(if batch.is_checked() {
-                    Some(check_batch(batch.instructions, self.batch_limits).map_err(refused)?)
+                    Some(
+                        check_instructions(batch.instructions, self.batch_limits)
+                            .map_err(refused)?,
+                    )
                 } else {
                     None
                 });
@@ -190,9 +193,8 @@ fn refusal(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteRefusal
 /// were, unless it replaced them.
 struct PendingAnswer<'a> {
     readouts: &'a mut Readouts,
-    /// The loan, taken when it ends, on drop.
+    /// The loan, taken when it ends: kept, or on drop, unkept.
     loan: Option<Loan>,
-    kept: bool,
 }
 
 impl<'a> PendingAnswer<'a> {
@@ -201,7 +203,6 @@ impl<'a> PendingAnswer<'a> {
         Self {
             readouts,
             loan: Some(loan),
-            kept: false,
         }
     }
 
@@ -213,20 +214,25 @@ impl<'a> PendingAnswer<'a> {
     /// The readouts the receiver appended, or `None` when it replaced the
     /// readouts it was lent.
     fn appended(&self) -> Option<&[BatchReadouts]> {
-        let loan = self.loan.as_ref().expect("the loan ends only on drop");
+        let loan = self
+            .loan
+            .as_ref()
+            .expect("the loan ends when kept or dropped");
         self.readouts.appended(loan)
     }
 
-    /// Keeps the answer, once checked.
+    /// Keeps the answer, once checked, ending the loan.
     fn keep(mut self) {
-        self.kept = true;
+        if let Some(loan) = self.loan.take() {
+            self.readouts.end_loan(loan, true);
+        }
     }
 }
 
 impl Drop for PendingAnswer<'_> {
     fn drop(&mut self) {
         if let Some(loan) = self.loan.take() {
-            self.readouts.end_loan(loan, self.kept);
+            self.readouts.end_loan(loan, false);
         }
     }
 }

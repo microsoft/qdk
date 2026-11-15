@@ -724,7 +724,7 @@ fn refuses_a_seed<D: Drive<Output: std::fmt::Debug>, E: Execute>(
 /// A chain is seedable only if every part is, in every bracketing: a seeded
 /// run on one that is not is refused before any part is asked or runs, and
 /// a run with no seed runs. So an adapter may make a chain not seedable,
-/// but not seedable.
+/// but cannot make a chain that is not seedable seedable.
 #[test]
 fn a_seeded_run_is_refused_unless_every_part_is_seedable() {
     let log = Log::default();

@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! The executor's role, [`Execute`], and what an `execute` returns when it
-//! appends no readouts: [`ExecuteError`], with [`ExecuteRefusal`] when
-//! nothing of it ran.
+//! gives no answer: [`ExecuteError`], with [`ExecuteRefusal`] when nothing
+//! of it ran.
 
 use std::error::Error;
 use std::fmt;
@@ -212,8 +212,9 @@ impl<E: Execute + ?Sized> Execute for &mut E {
     }
 }
 
-/// What an `execute` returns when it appends no readouts: it was refused,
-/// and nothing of it ran, or it failed for a shot.
+/// What an `execute` returns when it gives no answer: it was refused, and
+/// nothing of it ran, or it failed for a shot. Through the protocol, the
+/// readouts it was lent are then as they were, unless it replaced them.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ExecuteError {
