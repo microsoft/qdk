@@ -100,9 +100,10 @@ pub(crate) trait TensorCalls: MemoryCalls {
     /// U's and V's buffers hold their descriptors' extents as given, before
     /// truncation, and the singular values' buffer as many doubles as the
     /// shared mode's extent, since the reduced extent is known only once
-    /// the split has run. The call lowers the shared mode's extent in U's
-    /// and V's descriptors to the reduced extent, which caps the next split
-    /// that reuses them.
+    /// the split has run. Under a discarded-weight cutoff, the call lowers
+    /// the shared mode's extent in U's and V's descriptors to the reduced
+    /// extent, which caps the next split that reuses them; otherwise U's
+    /// and V's descriptors keep their extents.
     fn gate_split(
         &self,
         handle: OpaqueHandle,
@@ -236,7 +237,8 @@ pub(crate) trait TensorCalls: MemoryCalls {
 /// The permission to search a contraction path without the slice check,
 /// which only [`TensorCalls::optimize_contraction`] can build (its field is
 /// private to this module): so every path a caller gets has passed the
-/// check, whatever the order of its calls.
+/// check, whatever the order of its calls, as long as implementations keep
+/// the provided `optimize_contraction`.
 #[derive(Debug)]
 pub(crate) struct UncheckedPathSearch(());
 

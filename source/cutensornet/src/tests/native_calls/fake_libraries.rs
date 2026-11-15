@@ -735,6 +735,37 @@ fn a_gate_split_needs_u_and_v_buffers_of_their_descriptors_full_extents() {
         .expect("U's and V's buffers hold the full extents");
 }
 
+/// cuTensorNet may write the singular values to their buffer, as many as
+/// the shared mode's extent: a caller that sized it by an earlier, smaller
+/// bond is caught on the fake. Two sites with outer bonds of 2 make θ 4×4,
+/// split at a shared extent of 4.
+#[test]
+fn a_gate_split_needs_a_singular_values_buffer_of_the_shared_extent() {
+    const OUTER_RIGHT: i32 = 8;
+    let zero = Complex64::default();
+    let mut split = GateSplit::of(
+        matrix([[2.0, 1.0], [0.5, -1.5]]),
+        &[SvdSetting::PartitionUs],
+    );
+    let device = &split.device;
+    split.operands.a = device.operand(&[2, 2, 1], &[OUTER, P, BOND], &values(4, 0.5));
+    split.operands.b = device.operand(&[1, 2, 2], &[BOND, Q, OUTER_RIGHT], &values(4, -0.25));
+    split.operands.u = device.operand(&[2, 2, 4], &[OUTER, P_OUT, S], &[zero; 16]);
+    split.operands.v = device.operand(&[4, 2, 2], &[S, Q_OUT, OUTER_RIGHT], &[zero; 16]);
+    let bond_two = device.buffer(&[zero; 1]);
+    let bond_four = device.buffer(&[zero; 2]);
+    device
+        .fake
+        .synchronize_copies()
+        .expect("the copies were queued");
+    split.operands.singular_values = bond_two;
+    split
+        .split()
+        .expect_err("the buffer holds 2 doubles of the 4 the split may write");
+    split.operands.singular_values = bond_four;
+    split.split().expect("the buffer holds 4 doubles");
+}
+
 /// cuTensorNet may write the singular values to their buffer: a caller
 /// that freed it is caught on the fake.
 #[test]
@@ -757,12 +788,18 @@ fn a_gate_split_needs_a_live_singular_values_buffer() {
     split.split().expect("the singular values' buffer is live");
 }
 
-/// cuTensorNet writes the reduced extent into U's and V's descriptors, so a
-/// caller that reuses them for the next gate has that gate's bond capped
-/// there, until it resets them.
+/// Under a discarded-weight cutoff, cuTensorNet writes the reduced extent
+/// into U's and V's descriptors, so a caller that reuses them for the next
+/// gate has that gate's bond capped there, until it resets them.
 #[test]
 fn a_gate_split_caps_the_bond_at_its_descriptors_extent_which_it_lowers() {
-    let split = GateSplit::of(matrix([[1.0, 1.0], [1.0, 1.0]]), &[SvdSetting::PartitionUs]);
+    let split = GateSplit::of(
+        matrix([[1.0, 1.0], [1.0, 1.0]]),
+        &[
+            SvdSetting::PartitionUs,
+            SvdSetting::DiscardedWeightCutoff(0.0),
+        ],
+    );
     split.split().expect("θ is not zero");
     split.load(matrix([[3.0, 0.0], [0.0, 1.0]]));
     let capped = split.split().expect("θ is not zero");

@@ -23,8 +23,9 @@
 //! - U's and V's buffers hold their descriptors' extents before
 //!   truncation, as cuTensorNet asks, since the reduced extent is known
 //!   only once the split has run;
-//! - the singular values' buffer must be live, and an SVD info is read
-//!   only once the stream is synchronized.
+//! - the singular values' buffer holds as many doubles as the shared
+//!   mode's extent (counted in the fake's 16-byte elements), and an SVD
+//!   info is read only once the stream is synchronized.
 //!
 //! The optimizer finds an unsliced path unless told to report slices
 //! ([`FakeLibraries::set_contraction_slices`]), to test the refusal of a
@@ -34,8 +35,11 @@
 //! extent is the lowest of the shared mode's extent in U's descriptor, the
 //! count of singular values (the SVD leaves out those of rounding's size),
 //! and the discarded-weight cutoff's rank; the full extent is the smaller
-//! side of the split, whatever the SVD left out; U's and V's descriptors
-//! are given the reduced extent. The fake absorbs the singular values into
+//! side of the split, whatever the SVD left out. U's and V's descriptors
+//! are given the reduced extent, as cuTensorNet does under a
+//! discarded-weight cutoff; with no cutoff, cuTensorNet keeps the
+//! descriptors and the shared extent, which the fake does not yet model
+//! (an open review question). The fake absorbs the singular values into
 //! U or V only, writes none to their buffer, and refuses a product of A, B
 //! and the gate that is zero, whose singular vectors are arbitrary.
 
@@ -209,7 +213,6 @@ impl TensorCalls for FakeLibraries {
         if !matches!(inner.objects.get(&id(info)), Some(Object::SvdInfo(_))) {
             return Err(failed(OPERATION, "no such SVD info"));
         }
-        inner.buffer(id(singular_values), OPERATION)?;
         let Some(partition) = settings.partition else {
             return Err(failed(
                 OPERATION,
@@ -232,6 +235,13 @@ impl TensorCalls for FakeLibraries {
             }
         }
         let sides = Sides::of(&u_shape, &v_shape, OPERATION)?;
+        let doubles = 2 * inner.buffer(id(singular_values), OPERATION)?.len();
+        if doubles < to_usize(sides.shared_extent)? {
+            return Err(failed(
+                OPERATION,
+                "the singular values' buffer is smaller than the shared extent",
+            ));
+        }
         let inputs = [&inputs[0], &inputs[1], &inputs[2]];
         sides.check_gate_split_labels(&inputs, OPERATION)?;
         let (theta, rows, cols) = sides.matrix(&inputs, OPERATION)?;
