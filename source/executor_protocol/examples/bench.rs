@@ -180,11 +180,13 @@ fn main() {
 /// `mix`.
 fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix) {
     let wants = |section: &str| only.is_none_or(|only| only == section);
-    println!(
-        "an instruction is {} bytes; batches {}",
-        size_of::<Instruction>(),
-        if checked { "checked" } else { "unchecked" }
-    );
+    println!("an instruction is {} bytes", size_of::<Instruction>());
+    if wants("D") || wants("F") || wants("W") {
+        println!(
+            "D, F and W: batches {}",
+            if checked { "checked" } else { "unchecked" }
+        );
+    }
     if wants("D") || wants("C") || wants("F") {
         println!("D, C and F: the best of {} runs", size.repeats);
     }
@@ -328,13 +330,18 @@ fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
         per(checked, n)
     );
     let most = u32::try_from(large).expect("a small limit");
-    for batch in [1, large] {
-        let limited = time(batch, Chain::Limited(most), true) - time(batch, Chain::Bare, true);
-        println!(
-            "  max_instructions {most} offered, checked, batch {batch:>5} (minus unlimited) {:>6.2} ({:.1} ns)",
-            per(limited, n),
-            per(limited, n.div_ceil(batch))
-        );
+    // The count is made on every batch, checked or not.
+    for checked in [false, true] {
+        let kind = if checked { "checked" } else { "unchecked" };
+        for batch in [1, large] {
+            let limited =
+                time(batch, Chain::Limited(most), checked) - time(batch, Chain::Bare, checked);
+            println!(
+                "  max_instructions {most} offered, {kind:>9}, batch {batch:>5} (minus unlimited) {:>6.2} ({:.1} ns)",
+                per(limited, n),
+                per(limited, n.div_ceil(batch))
+            );
+        }
     }
     // Into one buffer, reused, so that the row times building, not
     // allocating and freeing a program of instructions (their size printed

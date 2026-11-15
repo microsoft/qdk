@@ -31,24 +31,25 @@ const SEED: u64 = 1;
 
 // ------------------------------------------------------------------ the run
 
-/// The three parts, composed: `coin`, under 20% bit-flip noise, on bits.
+/// The three parts, composed: `coin`, under 20% bit-flip noise, on `bits`
+/// (a [`Bits`], or a borrow of one, to read what it counted after a run).
 ///
 /// After each run, the runner ends every shot of the run on every part, so
 /// the parts free its state and a rerun with the same seed starts it
 /// afresh; the driver need not end them.
-fn coin_runner(coin: CoinCopy) -> Runner<Composed<CoinCopy, BitFlip>, Bits> {
+fn coin_runner<E: Execute>(coin: CoinCopy, bits: E) -> Runner<Composed<CoinCopy, BitFlip>, E> {
     // Each part is wrapped in the role it plays (`Driver`, `Adapter`,
     // `Executor`), which `>>` needs to pick the join. `>>` joins the driver
     // and the adapter into one driver, a `Composed`. Each `>>` checks that
     // what is sent across it fits what is accepted; the last one, onto the
     // executor, also checks that the executor offers what the driver
     // needs, and gives the runner or every fault of the chain.
-    let runner = Driver::new(coin) >> Adapter::new(BitFlip::new(200)) >> Executor::new(Bits::new());
+    let runner = Driver::new(coin) >> Adapter::new(BitFlip::new(200)) >> Executor::new(bits);
     runner.expect("the parts compose: they all send and accept CoinGates")
 }
 
 fn main() {
-    let mut runner = coin_runner(CoinCopy::new());
+    let mut runner = coin_runner(CoinCopy::new(), Bits::new());
 
     let shots = ShotSet::ids(0..12);
     let values = runner.run(&shots, SEED).expect("the chain runs 12 shots");
@@ -68,7 +69,7 @@ fn main() {
 
     // While a part of the chain is developed, the driver may send every
     // batch checked: each boundary checks it before it runs, at a cost.
-    let checked = coin_runner(CoinCopy::new().checked())
+    let checked = coin_runner(CoinCopy::new().checked(), Bits::new())
         .run(&shots, SEED)
         .expect("the chain runs 12 checked shots");
     let same = checked == values;
@@ -322,13 +323,18 @@ impl Adapt for BitFlip {
 /// the shot's stream, `x` flips it, and `mz` reads it. It runs at most
 /// 1000 shots in one run, and resolves no readout parity (an argument
 /// that is the parity of earlier readouts, `Bit::Parity`): the coin's
-/// instructions take none.
+/// instructions take none. It counts the batches it receives, checked and
+/// unchecked, which shows whether a sender's checks reach it.
 struct Bits {
     set: InstructionSet,
     /// The qubits each shot needs, from `provision`.
     qubits: usize,
     /// Each running shot's bits and stream, until it ends.
     shots: BTreeMap<ShotId, (Vec<bool>, Stream)>,
+    /// The batches it received [`checked`](Batch::checked).
+    checked_batches: usize,
+    /// The batches it received unchecked.
+    unchecked_batches: usize,
 }
 
 impl Bits {
@@ -337,6 +343,8 @@ impl Bits {
             set: CoinGates::set(),
             qubits: 0,
             shots: BTreeMap::new(),
+            checked_batches: 0,
+            unchecked_batches: 0,
         }
     }
 }
@@ -364,6 +372,11 @@ impl Execute for Bits {
         readouts: &mut Readouts,
     ) -> Result<(), ExecuteError> {
         for batch in batches {
+            if batch.is_checked() {
+                self.checked_batches += 1;
+            } else {
+                self.unchecked_batches += 1;
+            }
             let reads = batch
                 .instructions
                 .iter()
@@ -428,7 +441,7 @@ mod tests {
     /// draws included.
     #[test]
     fn a_shot_run_again_alone_with_the_seed_gets_its_values() {
-        let mut runner = coin_runner(CoinCopy::new());
+        let mut runner = coin_runner(CoinCopy::new(), Bits::new());
         let values = runner
             .run(&ShotSet::ids(0..12), SEED)
             .expect("the chain runs 12 shots");
@@ -448,7 +461,7 @@ mod tests {
     /// run is refused, naming both counts.
     #[test]
     fn a_run_of_more_shots_than_the_executor_runs_is_refused() {
-        let refused = coin_runner(CoinCopy::new()).run(&ShotSet::ids(0..2000), SEED);
+        let refused = coin_runner(CoinCopy::new(), Bits::new()).run(&ShotSet::ids(0..2000), SEED);
         assert!(matches!(
             refused,
             Err(RunError::Refused(RunRefusal::TooManyShots {
@@ -459,18 +472,28 @@ mod tests {
     }
 
     /// A developer who checks the coin's batches while a part of the chain
-    /// is developed: every boundary checks them, the noise forwarding the
-    /// check to each batch it sends, and each shot gets the values it gets
-    /// unchecked.
+    /// is developed: the executor receives checked batches only, the noise
+    /// forwarding the check to each batch it sends, and each shot gets the
+    /// values it gets unchecked, whose batches all reach it unchecked.
     #[test]
-    fn a_run_of_checked_batches_gives_the_values_of_an_unchecked_one() {
+    fn checked_batches_reach_the_executor_checked_and_change_no_value() {
         let shots = ShotSet::ids(0..12);
-        let unchecked = coin_runner(CoinCopy::new())
-            .run(&shots, SEED)
-            .expect("the chain runs 12 shots");
-        let checked = coin_runner(CoinCopy::new().checked())
-            .run(&shots, SEED)
-            .expect("the chain runs 12 checked shots");
+        let run = |coin| {
+            let mut bits = Bits::new();
+            let values = coin_runner(coin, &mut bits)
+                .run(&shots, SEED)
+                .expect("the chain runs 12 shots");
+            (values, bits.checked_batches, bits.unchecked_batches)
+        };
+        let (unchecked, checked_got, unchecked_got) = run(CoinCopy::new());
+        assert_eq!(checked_got, 0, "an unchecked run sends no checked batch");
+        assert!(unchecked_got > 0, "the executor received the batches");
+        let (checked, checked_got, unchecked_got) = run(CoinCopy::new().checked());
+        assert_eq!(
+            unchecked_got, 0,
+            "the noise forwards the check to each batch it sends"
+        );
+        assert!(checked_got > 0, "the executor received the batches");
         assert_eq!(checked, unchecked);
     }
 
