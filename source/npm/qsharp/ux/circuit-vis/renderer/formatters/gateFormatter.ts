@@ -25,12 +25,9 @@ import {
   arc,
   dashedLine,
   dashedBox,
-  SvgElement as SVGElement,
 } from "./formatUtils.js";
 
 import { mathChars } from "../../utils.js";
-
-type SVGTextElement = SVGElement;
 
 /**
  * Given an array of operations render data, return the SVG representation.
@@ -330,7 +327,7 @@ function createLinkElement(href: string, title: string) {
 
 function _style_gate_text(gate: SVGTextElement) {
   if (!use_katex) return;
-  const label = gate.textContent;
+  const label = gate.textContent ?? "";
 
   // In general, use the regular math font
   gate.classList.add("qs-maintext");
@@ -343,24 +340,24 @@ function _style_gate_text(gate: SVGTextElement) {
   for (const match of styledText.matchAll(tokenPattern)) {
     const index = match.index;
     if (index > offset) {
-      gate.appendText(styledText.slice(offset, index));
+      gate.append(styledText.slice(offset, index));
     }
     if (match[1] !== undefined) {
       const subscript = createSvgElement("tspan", {
         "baseline-shift": "sub",
         "font-size": "65%",
       });
-      subscript.appendText(match[1]);
+      subscript.append(match[1]);
       gate.appendChild(subscript);
     } else {
       const mathText = createSvgElement("tspan", { class: "qs-mathtext" });
-      mathText.appendText(match[0]);
+      mathText.append(match[0]);
       gate.appendChild(mathText);
     }
     offset = index + match[0].length;
   }
   if (offset < styledText.length) {
-    gate.appendText(styledText.slice(offset));
+    gate.append(styledText.slice(offset));
   }
   if (styledText.length !== label.length) {
     const dagger = createSvgElement("tspan", {
@@ -368,7 +365,7 @@ function _style_gate_text(gate: SVGTextElement) {
       dy: "-3",
       style: "font-size: 0.8em;",
     });
-    dagger.appendText(mathChars.dagger);
+    dagger.append(mathChars.dagger);
     gate.appendChild(dagger);
   }
 }
@@ -890,14 +887,14 @@ function controlLabel(x: number, y: number, label: number | null): SVGElement {
   const el: SVGElement = text("", x, y, labelFontSize);
 
   // Create text content "c"
-  el.appendText("c");
+  el.append("c");
 
   // Create tspan with subscript label
   const tspan = createSvgElement("tspan", {
     "baseline-shift": "sub",
     "font-size": "65%",
   });
-  tspan.appendText(String(label));
+  tspan.append(String(label));
   el.appendChild(tspan);
 
   el.setAttribute("text-anchor", "start");

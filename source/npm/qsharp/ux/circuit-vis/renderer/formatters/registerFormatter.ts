@@ -4,7 +4,7 @@
 import { RegisterMap } from "../../data/register.js";
 import { regLineStart } from "../constants.js";
 import { GateRenderData, GateType } from "../gateRenderData.js";
-import { group, line, SvgElement } from "./formatUtils.js";
+import { group, line } from "./formatUtils.js";
 
 /**
  * Generate the SVG representation of the qubit register wires in `registers` and the classical wires
@@ -21,9 +21,9 @@ const formatRegisters = (
   registers: RegisterMap,
   allGates: GateRenderData[],
   endX: number,
-): SvgElement => {
-  const qubitRegs: SvgElement[] = [];
-  const classicalRegs: SvgElement[] = [];
+): SVGElement => {
+  const qubitRegs: SVGElement[] = [];
+  const classicalRegs: SVGElement[] = [];
   for (const qId in registers) {
     // Render qubit wire
     qubitRegs.push(
@@ -84,7 +84,7 @@ const _classicalRegister = (
   endX: number,
   wireY: number,
   gateY?: number,
-): SvgElement => {
+): SVGElement => {
   const wirePadding = 1;
   const g = [];
   if (gateY != null) {

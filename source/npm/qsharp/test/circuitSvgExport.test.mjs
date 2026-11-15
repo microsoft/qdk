@@ -9,226 +9,129 @@ import { JSDOM } from "jsdom";
 import { h, render } from "preact";
 import { draw } from "../dist/ux/circuit-vis/index.js";
 import { Circuit } from "../dist/ux/circuit.js";
-import { renderCircuitSvg } from "../dist/ux/circuitSvgExport.js";
-
-test("renderCircuitSvg creates deterministic standalone SVG without a DOM", () => {
-  assert.equal(globalThis.document, undefined);
-  const circuit = representativeCircuit();
-  const before = JSON.stringify(circuit);
-
-  const first = renderCircuitSvg(circuit, {
-    title: "Parameterized Bell circuit",
-    description: "A Bell circuit with an Rx gate and measurement.",
-  });
-  const second = renderCircuitSvg(circuit, {
-    title: "Parameterized Bell circuit",
-    description: "A Bell circuit with an Rx gate and measurement.",
-  });
-
-  assert.equal(first, second);
-  assert.equal(JSON.stringify(circuit), before);
-  assert.match(first, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n/);
-  assert.match(first, /data:font\/woff2;base64,/);
-  assert.match(first, /@font-face\{font-family:"KaTeX_Main";/);
-  assert.match(first, /@font-face\{font-family:"KaTeX_Math";/);
-  assert.doesNotMatch(first, /QDKCircuitMain|QDKCircuitMath/);
-  assert.doesNotMatch(first, /Segoe WPC/);
-  assert.doesNotMatch(first, /gate-control/);
-  assert.doesNotMatch(first, /\sdata-[A-Za-z0-9_-]+=/);
-  assert.doesNotMatch(first, /<script|<foreignObject|<a(?:\s|>)/);
-
-  const parsed = parseSvg(first);
-  assert.equal(parsed.localName, "svg");
-  assert.equal(parsed.getAttribute("xmlns"), "http://www.w3.org/2000/svg");
-  assert.equal(parsed.getAttribute("version"), "1.1");
-  assert.equal(parsed.getAttribute("role"), "img");
-  assert.equal(
-    parsed.getAttribute("aria-labelledby"),
-    "qdk-circuit-title qdk-circuit-description",
-  );
-  assert.equal(
-    parsed.querySelector("title")?.textContent,
-    "Parameterized Bell circuit",
-  );
-  assert.equal(
-    parsed.querySelector("desc")?.textContent,
-    "A Bell circuit with an Rx gate and measurement.",
-  );
-
-  const width = parsed.getAttribute("width");
-  const height = parsed.getAttribute("height");
-  assert.ok(width);
-  assert.ok(height);
-  assert.equal(parsed.getAttribute("viewBox"), `0 0 ${width} ${height}`);
-  assert.equal(parsed.getAttribute("preserveAspectRatio"), "xMinYMin meet");
-  assert.equal(parsed.querySelector(".qdk-circuit-export-background"), null);
-  assert.ok(parsed.querySelector(".oplus"));
-  assert.ok(parsed.querySelector(".gate-measure"));
-
-  const argument = parsed.querySelector(".arg-button");
-  assert.ok(argument);
-  assert.ok(argument.classList.contains("qs-maintext"));
-  assert.match(argument.textContent ?? "", /π\/2/);
-  assert.equal(argument.getAttribute("font-family"), null);
-});
-
-test("renderCircuitSvg supports reference fonts and a solid background", () => {
-  const exported = renderCircuitSvg(representativeCircuit(), {
-    background: "solid",
-    fontMode: "reference",
-  });
-
-  const parsed = parseSvg(exported);
-  const style = parsed.querySelector("style")?.textContent ?? "";
-
-  assert.doesNotMatch(style, /data:font\/woff2;base64,/);
-  assert.match(style, /"KaTeX_Main"/);
-  assert.match(style, /"KaTeX_Math"/);
-  assert.equal(
-    parsed
-      .querySelector(".qdk-circuit-export-background")
-      ?.getAttribute("fill"),
-    null,
-  );
-});
-
-test("standalone SWAP hitboxes do not become black rectangles in SVG viewers", () => {
-  const circuit = representativeCircuit();
-  circuit.componentGrid.push({
-    components: [
-      {
-        kind: "unitary",
-        gate: "SWAP",
-        targets: [{ qubit: 0 }, { qubit: 1 }],
-      },
-    ],
-  });
-  const parsed = parseSvg(renderCircuitSvg(circuit));
-
-  assert.ok(parsed.querySelector("rect.gate-swap"));
-  assert.match(
-    parsed.querySelector("style")?.textContent ?? "",
-    /rect\.gate-swap\{fill:none;stroke:none\}/,
-  );
-});
-
-test("renderCircuitSvg applies explicit expansion policies", () => {
-  const circuit = groupedCircuit();
-  const collapsed = parseSvg(
-    renderCircuitSvg(circuit, {
-      expansion: "collapsed",
-      fontMode: "reference",
-    }),
-  );
-  const expanded = parseSvg(
-    renderCircuitSvg(circuit, {
-      expansion: "expanded",
-      fontMode: "reference",
-    }),
-  );
-
-  assert.equal(collapsed.textContent?.includes("ChildH"), false);
-  assert.equal(expanded.textContent?.includes("ChildH"), true);
-  assert.equal(collapsed.querySelector(".gate-control"), null);
-  assert.equal(expanded.querySelector(".gate-control"), null);
-});
-
-test("renderCircuitSvg escapes labels and rejects invalid XML", () => {
-  const circuit = singleQubitCircuit("<A&B>");
-  const exported = renderCircuitSvg(circuit, { fontMode: "reference" });
-  assert.match(exported, /&lt;/);
-  assert.match(exported, /&amp;/);
-  assert.equal(parseSvg(exported).textContent?.includes("<A&B>"), true);
-
-  assert.throws(
-    () =>
-      renderCircuitSvg(singleQubitCircuit(`bad\u0000label`), {
-        fontMode: "reference",
-      }),
-    /invalid XML character U\+0000/,
-  );
-});
-
-test("renderCircuitSvg validates model rendering options", () => {
-  assert.throws(
-    () =>
-      renderCircuitSvg(
-        {
-          version: 2,
-          circuits: [singleQubitCircuit("H")],
-        },
-        { circuitIndex: 1 },
-      ),
-    /outside the available range/,
-  );
-  assert.throws(
-    () => renderCircuitSvg(singleQubitCircuit("H"), { renderDepth: -1 }),
-    /non-negative integer/,
-  );
-  assert.throws(
-    () =>
-      renderCircuitSvg(singleQubitCircuit("H"), {
-        idPrefix: "invalid prefix",
-      }),
-    /Invalid SVG id prefix/,
-  );
-  assert.throws(
-    () =>
-      renderCircuitSvg(singleQubitCircuit("H"), {
-        // @ts-expect-error JavaScript callers can pass values outside the TypeScript union.
-        expansion: "invalid",
-      }),
-    /Circuit SVG expansion/,
-  );
-  assert.throws(
-    () =>
-      renderCircuitSvg(singleQubitCircuit("H"), {
-        // @ts-expect-error JavaScript callers can pass values outside the TypeScript union.
-        background: "invalid",
-      }),
-    /Circuit SVG background/,
-  );
-  assert.throws(
-    () =>
-      renderCircuitSvg(singleQubitCircuit("H"), {
-        // @ts-expect-error JavaScript callers can pass values outside the TypeScript union.
-        fontMode: "invalid",
-      }),
-    /Circuit SVG font mode/,
-  );
-});
-
-test("draw and direct rendering share the same SVG path", async () => {
+test("renderer exports the full mounted SVG without changing its geometry or zoom", async () => {
   await withDom(async (document) => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
     const circuit = representativeCircuit();
-    const renderer = draw(
-      {
-        version: 2,
-        circuits: [circuit],
-      },
-      container,
-    );
+    const before = JSON.stringify(circuit);
+    const { renderer, container } = drawCircuit(document, circuit);
+    renderer.userSetZoomLevel(25);
+    const mounted = container.querySelector("svg.qviz");
+    const markup = container.innerHTML;
     const options = {
-      title: "Shared renderer",
-      fontMode: /** @type {const} */ ("reference"),
+      title: "Parameterized Bell circuit",
+      description: "A Bell circuit with an Rx gate and measurement.",
     };
+    const first = renderer.exportSvg(options);
+    const parsed = parseSvg(first);
 
+    assert.equal(first, renderer.exportSvg(options));
+    assert.equal(JSON.stringify(circuit), before);
+    assert.equal(container.innerHTML, markup);
+    assert.deepEqual(geometry(parsed), geometry(mounted));
+    assert.equal(parsed.getAttribute("width"), mounted.getAttribute("width"));
+    assert.equal(parsed.getAttribute("height"), mounted.getAttribute("height"));
     assert.equal(
-      renderer.exportSvg(options),
-      renderCircuitSvg(circuit, options),
+      parsed.getAttribute("viewBox"),
+      mounted.getAttribute("viewBox"),
     );
-    assert.throws(
-      () =>
-        renderer.exportSvg(
-          // @ts-expect-error Renderer-owned exports cannot select another circuit.
-          { circuitIndex: 1 },
-        ),
-      /only supported by renderCircuitSvg/,
+    assert.equal(parsed.getAttribute("style"), null);
+    assert.match(first, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n/);
+    assert.match(first, /@font-face\{font-family:"KaTeX_Main";/);
+    assert.match(first, /@font-face\{font-family:"KaTeX_Math";/);
+    assert.match(first, /data:font\/woff2;base64,/);
+    assert.doesNotMatch(first, /QDKCircuitMain|QDKCircuitMath|var\(--/);
+    assert.doesNotMatch(first, /gate-control|\sdata-[A-Za-z0-9_-]+=/);
+    assert.equal(parsed.getAttribute("xmlns"), "http://www.w3.org/2000/svg");
+    assert.equal(parsed.getAttribute("role"), "img");
+    assert.equal(
+      parsed.getAttribute("aria-labelledby"),
+      "qdk-circuit-title qdk-circuit-description",
     );
-    assert.ok(container.querySelector("svg.qviz"));
+    assert.equal(parsed.querySelector("title")?.textContent, options.title);
+    assert.equal(
+      parsed.querySelector("desc")?.textContent,
+      options.description,
+    );
+    assert.equal(parsed.querySelector(".qdk-circuit-export-background"), null);
+    assert.ok(parsed.querySelector(".oplus"));
+    assert.ok(parsed.querySelector(".gate-measure"));
+    assert.match(
+      parsed.querySelector(".arg-button")?.textContent ?? "",
+      /π\/2/,
+    );
     assert.ok(container.querySelector("[data-location]"));
+  });
+});
+
+test("renderer export removes editor controls and source links only from the copy", async () => {
+  await withDom(async (document) => {
+    const { renderer, container } = drawCircuit(document, groupedCircuit());
+    const svg = container.querySelector("svg.qviz");
+    const namespace = "http://www.w3.org/2000/svg";
+    const overlay = document.createElementNS(namespace, "g");
+    overlay.classList.add("editor-overlay");
+    overlay.appendChild(document.createElementNS(namespace, "rect"));
+    svg.appendChild(overlay);
+    const link = document.createElementNS(namespace, "a");
+    link.setAttribute("href", "command:qsharp-vscode.open-source");
+    const input = svg.firstElementChild;
+    svg.prepend(link);
+    link.appendChild(input);
+    const before = container.innerHTML;
+
+    const parsed = parseSvg(renderer.exportSvg());
+    assert.equal(parsed.querySelector("a,.editor-overlay,.gate-control"), null);
+    assert.deepEqual(geometry(parsed), geometry(svg));
+    assert.equal(container.innerHTML, before);
+  });
+});
+
+test("standalone SWAP hitboxes do not become black rectangles in SVG viewers", async () => {
+  await withDom(async (document) => {
+    const circuit = representativeCircuit();
+    circuit.componentGrid.push({
+      components: [
+        {
+          kind: "unitary",
+          gate: "SWAP",
+          targets: [{ qubit: 0 }, { qubit: 1 }],
+        },
+      ],
+    });
+    const { renderer } = drawCircuit(document, circuit);
+    const parsed = parseSvg(renderer.exportSvg());
+    assert.ok(parsed.querySelector("rect.gate-swap"));
+    assert.match(
+      parsed.querySelector("style")?.textContent ?? "",
+      /rect\.gate-swap\{fill:none;stroke:none\}/,
+    );
+  });
+});
+
+test("renderer export escapes labels and accessible titles", async () => {
+  await withDom(async (document) => {
+    const { renderer } = drawCircuit(document, singleQubitCircuit("<A&B>"));
+    const exported = renderer.exportSvg({ title: "A & B" });
+    assert.match(exported, /&lt;/);
+    assert.match(exported, /&amp;/);
+    const parsed = parseSvg(exported);
+    assert.equal(parsed.textContent?.includes("<A&B>"), true);
+    assert.equal(parsed.querySelector("title")?.textContent, "A & B");
+  });
+});
+
+test("renderer export rejects invalid XML characters instead of saving a broken SVG", async () => {
+  await withDom(async (document) => {
+    for (const label of ["bad\u0000label", "bad\uD800label"]) {
+      const { renderer } = drawCircuit(document, singleQubitCircuit(label));
+      assert.throws(() => renderer.exportSvg(), /invalid XML character/);
+    }
+
+    const { renderer } = drawCircuit(document, singleQubitCircuit("H"));
+    assert.throws(
+      () => renderer.exportSvg({ title: "bad\u0000title" }),
+      /invalid XML character/,
+    );
   });
 });
 
@@ -245,9 +148,7 @@ test("renderer export preserves the current expansion state", async () => {
     );
 
     assert.equal(
-      parseSvg(
-        renderer.exportSvg({ fontMode: "reference" }),
-      ).textContent?.includes("ChildH"),
+      parseSvg(renderer.exportSvg()).textContent?.includes("ChildH"),
       false,
     );
     const expand = container.querySelector(".gate-expand");
@@ -255,9 +156,7 @@ test("renderer export preserves the current expansion state", async () => {
     expand.dispatchEvent(new document.defaultView.Event("click"));
 
     assert.equal(
-      parseSvg(
-        renderer.exportSvg({ fontMode: "reference" }),
-      ).textContent?.includes("ChildH"),
+      parseSvg(renderer.exportSvg()).textContent?.includes("ChildH"),
       true,
     );
   });
@@ -465,6 +364,32 @@ function parseSvg(contents) {
   }).window.document.documentElement;
 }
 
+function drawCircuit(document, circuit) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const renderer = draw({ version: 2, circuits: [circuit] }, container);
+  return { renderer, container };
+}
+
+function geometry(svg) {
+  return Array.from(svg.querySelectorAll("*"))
+    .filter(
+      (element) =>
+        ["line", "rect", "circle", "path", "text", "tspan"].includes(
+          element.localName,
+        ) && !element.closest(".gate-control,.editor-overlay"),
+    )
+    .map((element) => ({
+      tag: element.localName,
+      attributes: Array.from(element.attributes)
+        .filter((attribute) => !attribute.name.startsWith("data-"))
+        .map((attribute) => [attribute.name, attribute.value]),
+      text: ["text", "tspan"].includes(element.localName)
+        ? element.textContent
+        : undefined,
+    }));
+}
+
 async function withDom(callback) {
   const jsdom = new JSDOM("<!doctype html><html><body></body></html>", {
     pretendToBeVisual: true,
@@ -475,12 +400,14 @@ async function withDom(callback) {
     Node: globalThis.Node,
     HTMLElement: globalThis.HTMLElement,
     SVGElement: globalThis.SVGElement,
+    XMLSerializer: globalThis.XMLSerializer,
   };
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.Node = jsdom.window.Node;
   globalThis.HTMLElement = jsdom.window.HTMLElement;
   globalThis.SVGElement = jsdom.window.SVGElement;
+  globalThis.XMLSerializer = jsdom.window.XMLSerializer;
   try {
     await callback(jsdom.window.document, jsdom.window);
   } finally {

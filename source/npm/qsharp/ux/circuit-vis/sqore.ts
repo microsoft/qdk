@@ -16,16 +16,14 @@ import {
   minGateWidth,
   minToolboxHeight,
 } from "./renderer/constants.js";
-import { toDomSvgElement } from "./renderer/svg.js";
 import { installEditor } from "./editor/installEditor.js";
 import type { StateColumn } from "./state-viz/stateViz.js";
 import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
-import { createStandaloneCircuitSvg } from "./renderer/circuitSvgDocument.js";
-import { renderCircuit as renderCircuitSvgTree } from "./renderer/circuitRenderer.js";
 import {
+  createStandaloneCircuitSvg,
   type CircuitRendererSvgOptions,
-  validateCircuitRendererSvgOptions,
-} from "./renderer/circuitSvgOptions.js";
+} from "./renderer/circuitSvgDocument.js";
+import { renderCircuit } from "./renderer/circuitRenderer.js";
 
 function registerSemanticKey(register: {
   qubit: number;
@@ -148,16 +146,13 @@ export class Sqore {
     }
   }
 
-  /** Render the current circuit model as a standalone SVG document. */
+  /** Export the mounted circuit without changing its layout or view state. */
   exportSvg(options: CircuitRendererSvgOptions = {}): string {
-    const renderDepth = options.renderDepth ?? this.renderDepth;
-    validateCircuitRendererSvgOptions({ ...options, renderDepth });
-    const rendered = renderCircuitSvgTree(this.circuit, {
-      renderDepth,
-      expansion: options.expansion ?? "current",
-      applyCurrentExpansion: (grid) => this.viewState.applyTo(grid),
-    });
-    return createStandaloneCircuitSvg(rendered.svg, options);
+    const svg = this.container?.querySelector<SVGElement>("svg.qviz");
+    if (svg == null) {
+      throw new Error("The circuit must be rendered before exporting SVG.");
+    }
+    return createStandaloneCircuitSvg(svg, options);
   }
 
   /**
@@ -280,14 +275,13 @@ export class Sqore {
     // `this.circuit.componentGrid` — the JSON copy would break that identity link.
     this.rebaseViewState();
 
-    const rendered = renderCircuitSvgTree(this.circuit, {
+    const rendered = renderCircuit(this.circuit, {
       renderDepth: this.renderDepth,
-      expansion: "current",
       applyCurrentExpansion: (grid) => this.viewState.applyTo(grid),
       renderLocations:
         this.options.editor == null ? this.options.renderLocations : undefined,
     });
-    const svg = toDomSvgElement(rendered.svg, container.ownerDocument);
+    const svg = rendered.svg;
     this.setRendererCssVariables(container.ownerDocument);
     if (this.options.onZoomChange != null) {
       this.updateSvgWidth(svg, this.zoomLevel);

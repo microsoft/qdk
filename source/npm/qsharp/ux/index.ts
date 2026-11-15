@@ -33,13 +33,6 @@ export {
   type CircuitExportHandler,
   type CircuitViewProps,
 } from "./circuit.js";
-export {
-  renderCircuitSvg,
-  type CircuitSvgBackground,
-  type CircuitSvgExpansion,
-  type CircuitSvgFontMode,
-  type CircuitSvgRenderOptions,
-} from "./circuitSvgExport.js";
 export { setRenderer, Markdown } from "./renderers.js";
 export { Atoms, type ZoneLayout, type TraceData } from "./atoms/index.js";
 export { MoleculeViewer } from "./chem/index.js";

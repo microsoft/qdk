@@ -175,11 +175,7 @@ function ZoomableCircuit(
     setExportError("");
     setExporting(true);
     try {
-      const contents = await renderer.exportSvg({
-        title,
-        background: "transparent",
-        fontMode: "embed",
-      });
+      const contents = renderer.exportSvg({ title });
       if (props.onExportSvg !== undefined) {
         await props.onExportSvg(contents, suggestedName);
       } else {

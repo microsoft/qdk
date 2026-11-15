@@ -7,7 +7,7 @@ import { formatRegisters } from "./formatters/registerFormatter.js";
 import { GateRenderData } from "./gateRenderData.js";
 import { emptyLayoutMap, LayoutMap } from "./layoutMap.js";
 import { processOperations } from "./process.js";
-import { createSvgElement, SvgElement } from "./svg.js";
+import { createSvgElement } from "./formatters/formatUtils.js";
 import {
   Circuit,
   ComponentGrid,
@@ -17,7 +17,6 @@ import {
 } from "../data/circuit.js";
 import { Location } from "../data/location.js";
 import { getOperationRegisters } from "../utils.js";
-import type { CircuitSvgExpansion } from "./circuitSvgOptions.js";
 
 type RenderLocations = (locations: SourceLocation[]) => {
   title: string;
@@ -26,20 +25,19 @@ type RenderLocations = (locations: SourceLocation[]) => {
 
 export type CircuitRenderOptions = {
   renderDepth?: number;
-  expansion?: CircuitSvgExpansion | "current";
   applyCurrentExpansion?: (grid: ComponentGrid) => void;
   renderLocations?: RenderLocations;
 };
 
 export type RenderedCircuit = {
-  svg: SvgElement;
+  svg: SVGElement;
   layoutMap: LayoutMap;
 };
 
 type ComposedCircuit = {
   width: number;
   height: number;
-  elements: SvgElement[];
+  elements: SVGElement[];
   layoutMap: LayoutMap;
 };
 
@@ -74,19 +72,12 @@ function prepareCircuit(
 ): Circuit {
   const circuit: Circuit = JSON.parse(JSON.stringify(source));
   const renderDepth = options.renderDepth ?? 0;
-  const expansion = options.expansion ?? "model";
 
   assignOperationLocations(circuit.componentGrid, Location.root());
   expandOperationsToDepth(circuit.componentGrid, renderDepth);
   expandIfSingleOperation(circuit.componentGrid);
 
-  if (expansion === "current") {
-    options.applyCurrentExpansion?.(circuit.componentGrid);
-  } else if (expansion === "collapsed") {
-    setExpansion(circuit.componentGrid, false);
-  } else if (expansion === "expanded") {
-    setExpansion(circuit.componentGrid, true);
-  }
+  options.applyCurrentExpansion?.(circuit.componentGrid);
 
   return circuit;
 }
@@ -147,18 +138,6 @@ function expandIfSingleOperation(grid: ComponentGrid): void {
   }
 }
 
-function setExpansion(grid: ComponentGrid, expanded: boolean): void {
-  for (const column of grid) {
-    for (const operation of column.components) {
-      if (operation.children != null) {
-        operation.dataAttributes ??= {};
-        operation.dataAttributes["expanded"] = expanded ? "true" : "false";
-        setExpansion(operation.children, expanded);
-      }
-    }
-  }
-}
-
 function composeCircuit(
   circuit: Circuit,
   renderLocations: RenderLocations | undefined,
@@ -210,7 +189,7 @@ function flattenRenderData(renderData: GateRenderData[][]): GateRenderData[] {
   return result;
 }
 
-function createCircuitSvg(composed: ComposedCircuit): SvgElement {
+function createCircuitSvg(composed: ComposedCircuit): SVGElement {
   const svg = createSvgElement("svg", {
     class: "qviz",
     width: composed.width.toString(),

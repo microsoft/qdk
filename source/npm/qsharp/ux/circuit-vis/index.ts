@@ -3,7 +3,7 @@
 
 import { DrawOptions, Sqore } from "./sqore.js";
 import { CircuitGroup } from "./data/circuit.js";
-import type { CircuitRendererSvgOptions } from "./renderer/circuitSvgOptions.js";
+import type { CircuitRendererSvgOptions } from "./renderer/circuitSvgDocument.js";
 
 export type CircuitRenderer = {
   userSetZoomLevel: (zoomLevel: number) => void;
@@ -51,7 +51,7 @@ export const draw = (
 };
 
 export type { DrawOptions, EditorHandlers } from "./sqore.js";
-export type { CircuitRendererSvgOptions } from "./renderer/circuitSvgOptions.js";
+export type { CircuitRendererSvgOptions } from "./renderer/circuitSvgDocument.js";
 
 // Export types
 export type {

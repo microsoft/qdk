@@ -8,7 +8,6 @@ import {
   verticalGap,
 } from "../renderer/constants.js";
 import { formatGate } from "../renderer/formatters/gateFormatter.js";
-import { toDomSvgElement } from "../renderer/svg.js";
 import { toRenderData } from "./standaloneRenderData.js";
 import { GateDictionary, toolboxGateDictionary } from "./toolboxGates.js";
 
@@ -143,7 +142,7 @@ const _gate = (
   if (gate == null) throw new Error(`Gate ${type} not available`);
   const renderData = toRenderData(gate, x, y);
   renderData.dataAttributes = { type: type };
-  const gateElem = toDomSvgElement(formatGate(renderData), document);
+  const gateElem = formatGate(renderData);
   gateElem.setAttribute("toolbox-item", "true");
 
   return gateElem;

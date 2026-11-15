@@ -16,7 +16,6 @@ import { box, controlDot, line } from "../renderer/formatters/formatUtils.js";
 import { formatGate } from "../renderer/formatters/gateFormatter.js";
 import { qubitInput } from "../renderer/formatters/inputFormatter.js";
 import { LayoutMap, LayoutScope } from "../renderer/layoutMap.js";
-import { toDomSvgElement } from "../renderer/svg.js";
 import { Location } from "../data/location.js";
 import { toRenderData } from "./standaloneRenderData.js";
 import { Sqore } from "../sqore.js";
@@ -99,10 +98,9 @@ const createGateGhost = (
   selectedOperation: Operation,
   isControl: boolean,
 ) => {
-  const ghostNode = isControl
+  const ghost = isControl
     ? controlDot(20, 20, [])
     : formatGate(toRenderData(selectedOperation, 0, 0));
-  const ghost = toDomSvgElement(ghostNode, container.ownerDocument);
 
   _createGhostElement(container, ev, ghost, isControl);
 };
@@ -125,10 +123,7 @@ const createQubitLabelGhost = (
     targets: [],
   };
   const ghostRenderData = toRenderData(ghostGate, 0, 0);
-  const ghost = toDomSvgElement(
-    formatGate(ghostRenderData),
-    container.ownerDocument,
-  );
+  const ghost = formatGate(ghostRenderData);
 
   // Replace the placeholder text with the label element
   const placeholderText = ghost.querySelector(".qs-maintext");
@@ -238,9 +233,12 @@ const createWireDropzone = (
     wireY = wireData[wireIndex];
   }
 
-  const dropzone = toDomSvgElement(
-    box(0, wireY - paddingY, svgWidth, paddingY * 2, "dropzone-full-wire"),
-    circuitSvg.ownerDocument,
+  const dropzone = box(
+    0,
+    wireY - paddingY,
+    svgWidth,
+    paddingY * 2,
+    "dropzone-full-wire",
   );
   dropzone.setAttribute("data-dropzone-wire", `${wireIndex}`);
 
@@ -335,14 +333,18 @@ const _ghostQubitLayer = (context: Context) => {
   ghostLayer.classList.add("ghost-qubit-layer");
   ghostLayer.style.display = "none";
 
-  const ghostWire = toDomSvgElement(
-    line(regLineStart, ghostY, svgWidth, ghostY, "qubit-wire ghost-opacity"),
-    context.container.ownerDocument,
+  const ghostWire = line(
+    regLineStart,
+    ghostY,
+    svgWidth,
+    ghostY,
+    "qubit-wire ghost-opacity",
   );
 
-  const ghostLabel = toDomSvgElement(
-    qubitInput(ghostY, wireData.length, wireData.length.toString()),
-    context.container.ownerDocument,
+  const ghostLabel = qubitInput(
+    ghostY,
+    wireData.length,
+    wireData.length.toString(),
   );
   ghostLabel.classList.add("ghost-opacity");
   ghostLayer.appendChild(ghostWire);
@@ -707,28 +709,22 @@ const makeDropzoneBox = (
     // shrinking below the default width.
     const bandRight =
       bandRightX != null ? Math.max(defaultRight, bandRightX) : defaultRight;
-    dropzone = toDomSvgElement(
-      box(
-        bandLeft,
-        wireY - DROPZONE_PADDING_Y,
-        bandRight - bandLeft,
-        DROPZONE_PADDING_Y * 2,
-        "dropzone",
-      ),
-      document,
+    dropzone = box(
+      bandLeft,
+      wireY - DROPZONE_PADDING_Y,
+      bandRight - bandLeft,
+      DROPZONE_PADDING_Y * 2,
+      "dropzone",
     );
   } else {
     // On-column box: covers exactly `[colStartX, colStartX + colWidth]`, which is the gate's
     // bounding box width-wise.
-    dropzone = toDomSvgElement(
-      box(
-        colStartX,
-        wireY - DROPZONE_PADDING_Y,
-        colWidth,
-        DROPZONE_PADDING_Y * 2,
-        "dropzone",
-      ),
-      document,
+    dropzone = box(
+      colStartX,
+      wireY - DROPZONE_PADDING_Y,
+      colWidth,
+      DROPZONE_PADDING_Y * 2,
+      "dropzone",
     );
   }
 

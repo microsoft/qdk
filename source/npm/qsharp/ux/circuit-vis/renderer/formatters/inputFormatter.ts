@@ -16,7 +16,7 @@ import {
   gateHeight,
   gatePadding,
 } from "../constants.js";
-import { createSvgElement, group, SvgElement, text } from "./formatUtils.js";
+import { createSvgElement, group, text } from "./formatUtils.js";
 import { mathChars } from "../../utils.js";
 
 /**
@@ -39,8 +39,8 @@ const formatInputs = (
     };
   },
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
-): { qubitLabels: SvgElement; registers: RegisterMap; svgHeight: number } => {
-  const qubitLabels: SvgElement[] = [];
+): { qubitLabels: SVGElement; registers: RegisterMap; svgHeight: number } => {
+  const qubitLabels: SVGElement[] = [];
   const registers: RegisterMap = {};
 
   let currY: number = startY;
@@ -212,21 +212,21 @@ const qubitInput = (
   wireIndex: number,
   subscript?: string,
   link?: { href: string; title: string },
-): SvgElement => {
+): SVGElement => {
   const el = text("", leftPadding, y, 16);
-  el.appendText("|");
+  el.append("|");
   const state = createSvgElement("tspan", { class: "qs-mathtext" });
-  state.appendText(mathChars.psi);
+  state.append(mathChars.psi);
   el.appendChild(state);
   if (subscript) {
     const subtext = createSvgElement("tspan", {
       "baseline-shift": "sub",
       "font-size": "65%",
     });
-    subtext.appendText(subscript);
+    subtext.append(subscript);
     el.appendChild(subtext);
   }
-  el.appendText(mathChars.rangle);
+  el.append(mathChars.rangle);
 
   el.setAttribute("text-anchor", "start");
   el.setAttribute("dominant-baseline", "middle");
