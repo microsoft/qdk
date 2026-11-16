@@ -17,7 +17,7 @@
 //! (`algebra_session.rs`).
 
 use super::AlgebraResources;
-use super::algebra_session::{AlgebraSession, Retired};
+use super::algebra_session::{AlgebraSession, NativeObject, Retired};
 use crate::device_session::DeviceSession;
 use crate::native_calls::complex::{Complex64Abi, complex_bytes};
 use crate::native_calls::error::{NativeError, combine_execution_and_cleanup, first_failure};
@@ -33,31 +33,12 @@ pub(super) struct CallScope<'a> {
     pub(super) resources: &'a mut AlgebraResources,
     /// The call's own objects and intermediate buffers, released in the
     /// reverse order of their creation.
-    owned: Vec<Owned>,
+    owned: Vec<NativeObject>,
     /// The buffers the call returns, freed only if it fails.
     outputs: Vec<OpaqueHandle>,
     /// Whether the call copied, so that a failure also waits for the
     /// copies.
     copied: bool,
-}
-
-/// One native object or buffer a call made.
-pub(super) enum Owned {
-    Descriptor(OpaqueHandle),
-    SvdConfig(OpaqueHandle),
-    SvdInfo(OpaqueHandle),
-    Buffer(OpaqueHandle),
-}
-
-impl Owned {
-    pub(super) fn release(self, calls: &dyn NativeCalls) -> Result<(), NativeError> {
-        match self {
-            Self::Descriptor(descriptor) => calls.destroy_tensor_descriptor(descriptor),
-            Self::SvdConfig(config) => calls.destroy_svd_config(config),
-            Self::SvdInfo(info) => calls.destroy_svd_info(info),
-            Self::Buffer(buffer) => calls.free(buffer),
-        }
-    }
 }
 
 impl<'a> CallScope<'a> {
@@ -123,7 +104,7 @@ impl<'a> CallScope<'a> {
                 modes,
             },
         )?;
-        self.owned.push(Owned::Descriptor(descriptor));
+        self.owned.push(NativeObject::Descriptor(descriptor));
         Ok(descriptor)
     }
 
@@ -134,7 +115,7 @@ impl<'a> CallScope<'a> {
     ) -> Result<OpaqueHandle, NativeError> {
         let (calls, handle) = (self.calls(), self.handle());
         let config = calls.create_svd_config(handle)?;
-        self.owned.push(Owned::SvdConfig(config));
+        self.owned.push(NativeObject::SvdConfig(config));
         for &setting in settings {
             calls.configure_svd(handle, config, setting)?;
         }
@@ -144,14 +125,14 @@ impl<'a> CallScope<'a> {
     /// An SVD report, destroyed when the call returns.
     pub(super) fn svd_info(&mut self) -> Result<OpaqueHandle, NativeError> {
         let info = self.calls().create_svd_info(self.handle())?;
-        self.owned.push(Owned::SvdInfo(info));
+        self.owned.push(NativeObject::SvdInfo(info));
         Ok(info)
     }
 
     /// A buffer of `elements` complex doubles, freed when the call returns.
     pub(super) fn intermediate(&mut self, elements: usize) -> Result<OpaqueHandle, NativeError> {
         let buffer = self.allocate(elements)?;
-        self.owned.push(Owned::Buffer(buffer));
+        self.owned.push(NativeObject::Buffer(buffer));
         Ok(buffer)
     }
 
@@ -235,7 +216,7 @@ impl<'a> CallScope<'a> {
                     "a failed call could not wait for the device, which may still use \
                      its buffers: {error}"
                 );
-                let outputs = self.outputs.into_iter().map(Owned::Buffer);
+                let outputs = self.outputs.into_iter().map(NativeObject::Buffer);
                 let retired = self.owned.into_iter().chain(outputs);
                 self.session.poison(reason, retired.map(Retired::Object));
                 return combine_execution_and_cleanup(result, Err(error));

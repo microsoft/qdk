@@ -4,8 +4,7 @@
 //! [`DeviceTensor`]: one site tensor of a [`CudaAlgebra`](super::CudaAlgebra),
 //! a device buffer of complex doubles, freed when dropped.
 
-use super::algebra_session::{AlgebraSession, Retired};
-use super::call_scope::Owned;
+use super::algebra_session::{AlgebraSession, NativeObject, Retired};
 use crate::native_calls::{OpaqueHandle, error::NativeError, error::report_failed_release};
 use std::{fmt, rc::Rc};
 
@@ -66,7 +65,7 @@ impl Drop for DeviceTensor {
     fn drop(&mut self) {
         let freed = self
             .session
-            .release(Retired::Object(Owned::Buffer(self.buffer)));
+            .release(Retired::Object(NativeObject::Buffer(self.buffer)));
         report_failed_release("a device tensor", freed);
     }
 }

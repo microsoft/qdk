@@ -457,50 +457,65 @@ fn a_failed_call_that_waited_for_the_device_leaves_the_algebra_usable() {
 
 /// After a failed call that could not wait for the device, nothing tells when
 /// the device is done with that call's buffers, its inputs or the algebra's
-/// memory: none is freed until a later wait for the device succeeds (when the
-/// algebra is dropped, or else when its last tensor is), and if none does, they
-/// are leaked; once one succeeds, a tensor dropped is freed at once. The fake
-/// refuses to free a buffer while a stream's work may still run. Cases: whether
-/// the engine drops the failed call's inputs before the algebra (as after a
-/// failed gate, when it drops the state and keeps the algebra), and how many of
-/// the waits that follow fail.
+/// memory: none is freed until a later wait for the device (its stream and
+/// its copies) succeeds (when the algebra is dropped, or else when its last
+/// tensor is), and if none does, they are leaked; once one succeeds, a tensor
+/// dropped is freed at once. The fake refuses to free a buffer while a
+/// stream's work or a copy may still use it. Cases: the wait that failed (a
+/// split's, on the stream, or a duplicate's, of its copy), whether the engine
+/// drops the failed call's inputs before the algebra (as after a failed gate,
+/// when it drops the state and keeps the algebra), and how many of the same
+/// waits that follow fail. A duplicate has one input, whose drop after the
+/// algebra's is also the last tensor's, so its cases drop it first. The
+/// session's handle and stream are destroyed whatever its wait returns, as
+/// CUDA defers a stream's release until its work completes.
 #[test]
 fn a_poisoned_algebra_frees_nothing_until_a_wait_for_the_device_succeeds() {
-    for (inputs_dropped_first, failed_waits) in
-        [(false, 0), (true, 0), (false, 1), (true, 1), (true, 2)]
-    {
-        let case =
-            format!("inputs dropped first: {inputs_dropped_first}, failed waits: {failed_waits}");
-        let (algebra, libraries, pair, _failed) = a_failed_split(true);
+    for (wait, inputs_dropped_first, failed_waits) in [
+        ("synchronize_stream", false, 0),
+        ("synchronize_stream", true, 0),
+        ("synchronize_stream", false, 1),
+        ("synchronize_stream", true, 1),
+        ("synchronize_stream", true, 2),
+        ("synchronize_copies", true, 0),
+        ("synchronize_copies", true, 1),
+        ("synchronize_copies", true, 2),
+    ] {
+        let case = format!(
+            "{wait} failed, inputs dropped first: {inputs_dropped_first}, \
+             failed waits: {failed_waits}"
+        );
+        let (algebra, libraries, inputs) = a_poisoned_algebra(wait);
         let poisoned_at = libraries.events().len();
-        let waits = libraries.count("synchronize_stream");
+        let waits = libraries.count(wait);
         for failed in 1..=failed_waits {
-            libraries.fail("synchronize_stream", waits + failed);
+            libraries.fail(wait, waits + failed);
         }
         if inputs_dropped_first {
-            drop(pair);
+            drop(inputs);
             drop(algebra);
         } else {
             drop(algebra);
-            let [first, second] = pair;
+            let mut inputs = inputs.into_iter();
             let live = libraries.live_objects();
-            drop(first);
+            drop(inputs.next().expect("the failed call's input"));
             let freed_at_once = usize::from(failed_waits == 0);
             assert_eq!(
                 libraries.live_objects(),
                 live - freed_at_once,
                 "{case}: a tensor dropped is freed at once only after a wait succeeded"
             );
-            drop(second);
+            drop(inputs);
         }
         let events = libraries.events();
         let before_a_wait = events[poisoned_at..]
             .iter()
             .scan(0, |waits, &event| {
-                *waits += usize::from(event == "synchronize_stream");
+                *waits += usize::from(event == wait);
                 (*waits <= failed_waits).then_some(event)
             })
             .filter(|&event| event == "free" || event.starts_with("destroy_"))
+            .filter(|&event| !SESSION_DESTROYS.contains(&event))
             .count();
         assert_eq!(
             before_a_wait, 0,
@@ -515,6 +530,31 @@ fn a_poisoned_algebra_frees_nothing_until_a_wait_for_the_device_succeeds() {
             assert_eq!(frees.count(), 0, "{case}: leaked");
         }
     }
+}
+
+/// What the session destroys after its own wait, whatever it returns.
+const SESSION_DESTROYS: [&str; 2] = ["destroy_handle", "destroy_stream"];
+
+/// An algebra poisoned by a failed call whose `wait` (`synchronize_stream`,
+/// a split's, or `synchronize_copies`, a duplicate's) failed twice: the
+/// call's own and its release's. Returns the algebra and the call's inputs,
+/// which the device may still use.
+fn a_poisoned_algebra(wait: &'static str) -> (CudaAlgebra, Arc<FakeLibraries>, Vec<DeviceTensor>) {
+    if wait == "synchronize_stream" {
+        let (algebra, libraries, pair, _failed) = a_failed_split(true);
+        return (algebra, libraries, pair.into());
+    }
+    let (algebra, libraries) = algebra();
+    let source = upload(&algebra, &random(4, 14));
+    let waits = libraries.count(wait);
+    libraries.fail(wait, waits + 1);
+    libraries.fail(wait, waits + 2);
+    let failed = algebra.duplicate(&source, 4);
+    assert!(
+        matches!(failed, Err(NativeError::ExecutionAndCleanupFailed { .. })),
+        "{failed:?}"
+    );
+    (algebra, libraries, vec![source])
 }
 
 /// The engine on the algebra runs a long circuit as the exact reference

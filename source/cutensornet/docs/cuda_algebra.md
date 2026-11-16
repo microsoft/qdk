@@ -60,17 +60,18 @@ sequenceDiagram
   Note over M,N: Close, once the algebra is dropped
   A->>R: cudaSetDevice
   opt the algebra is poisoned
-    A->>R: cudaStreamSynchronize (if it fails, what follows waits for the session's close)
+    A->>R: cudaStreamSynchronize (the algebra's stream and cudaStreamLegacy, if either fails, what follows waits for the session's close)
   end
   A->>N: DestroyContractionOptimizerInfo, DestroyNetwork (each network kept), DestroyWorkspaceDescriptor (and a poisoned call's objects)
   A->>R: cudaFree (the lent memory, the singular values' and the gate's buffers, and a poisoned call's buffers and tensors dropped since)
   Note over M,N: Session: close, once the algebra and all its tensors are dropped
-  A->>R: cudaSetDevice, cudaStreamSynchronize
   opt the algebra was poisoned and its close's wait failed
-    A->>N: Destroy and cudaFree of what the close kept, if this wait succeeded, else leaked
+    A->>R: cudaSetDevice, cudaStreamSynchronize (the algebra's stream and cudaStreamLegacy)
+    A->>N: Destroy and cudaFree of what the close kept, if both waits succeeded, else leaked
   end
-  A->>N: Destroy (the algebra's handle)
-  A->>R: cudaStreamDestroy
+  A->>R: cudaSetDevice, cudaStreamSynchronize
+  A->>N: Destroy (the algebra's handle), whatever the wait returned
+  A->>R: cudaStreamDestroy, whatever the wait returned
 ```
 
 cuTensorNet's calls are shown without their `cutensornet` prefix; NVIDIA
@@ -87,8 +88,12 @@ copied), since the failed work may still write the call's buffers, and
 frees the outputs as well. If that wait fails, the algebra is poisoned:
 every later method returns `NativeError::Poisoned`, and the call's objects
 and buffers, the tensors dropped since and the algebra's own memory are
-freed only after a wait for the stream succeeds, at the algebra's close or
-else at the session's; if neither succeeds, they are leaked.
+freed only after a successful wait for the device (its stream and its
+copies), at the algebra's close or else at the session's; if neither
+succeeds, they are leaked. The session's close then destroys the handle
+and the stream whatever its own wait returned; CUDA releases a stream's
+resources only once the device has completed its work
+([`cudaStreamDestroy`](https://docs.nvidia.com/cuda/cuda-runtime-api/cuda_runtime_api/group__CUDART__STREAM.html#group__cudart__stream_1ga920234e40db739baab4f2459e4f68282)).
 
 ## Numerics
 

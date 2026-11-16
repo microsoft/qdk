@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! [`AlgebraSession`]: what a [`CudaAlgebra`](super::CudaAlgebra) and its
-//! tensors share, so that none of them frees memory the device may still
-//! use.
+//! tensors share, so that none of them frees a buffer the device may
+//! still use.
 //!
 //! Every call of the algebra returns with its device work done, so a
 //! buffer is freed at once when nothing uses it any more: a tensor when
@@ -17,20 +17,20 @@
 //! - whatever is released (the failed call's objects, a tensor dropped,
 //!   the algebra's memory when it is dropped) is retired instead, kept
 //!   by the session;
-//! - the retired objects are released after a wait for the stream
-//!   succeeds, tried when the algebra is dropped and again when the
-//!   session ends (the algebra and its last tensor dropped);
+//! - the retired objects are released after a wait for the device (its
+//!   stream and its copies) succeeds, tried when the algebra is dropped
+//!   and again when the session ends (the algebra and its last tensor
+//!   dropped);
 //! - if neither wait succeeds, they are leaked, never freed.
 //!
 //! So a buffer the device may still use is freed only after a successful
-//! wait for its stream; otherwise it is kept until one succeeds, or
-//! leaked.
+//! wait for the device (its stream and its copies); otherwise it is kept
+//! until one succeeds, or leaked.
 
 use super::AlgebraResources;
-use super::call_scope::Owned;
 use crate::device_session::DeviceSession;
-use crate::native_calls::NativeCalls;
 use crate::native_calls::error::{NativeError, first_failure, report_failed_release};
+use crate::native_calls::{NativeCalls, OpaqueHandle};
 use std::cell::RefCell;
 
 /// The device session of an algebra and its tensors, and whether a failed
@@ -42,7 +42,7 @@ pub(super) struct AlgebraSession {
 }
 
 /// What a session keeps once poisoned: why, and what the device may still
-/// use, released only after a wait for the stream succeeds.
+/// use, released only after a wait for the device succeeds.
 struct UnwaitedWork {
     reason: String,
     retired: Vec<Retired>,
@@ -51,15 +51,36 @@ struct UnwaitedWork {
 /// Something the device may still use, released once it is done.
 pub(super) enum Retired {
     /// A call's native object or buffer, or a tensor's buffer.
-    Object(Owned),
+    Object(NativeObject),
     /// The algebra's own memory and objects, once it is dropped.
     Resources(AlgebraResources),
+}
+
+/// One native object or buffer, released by the call its kind needs: a
+/// call's tensor descriptor, SVD configuration or report, or a buffer (a
+/// call's or a tensor's).
+pub(super) enum NativeObject {
+    Descriptor(OpaqueHandle),
+    SvdConfig(OpaqueHandle),
+    SvdInfo(OpaqueHandle),
+    Buffer(OpaqueHandle),
+}
+
+impl NativeObject {
+    pub(super) fn release(self, calls: &dyn NativeCalls) -> Result<(), NativeError> {
+        match self {
+            Self::Descriptor(descriptor) => calls.destroy_tensor_descriptor(descriptor),
+            Self::SvdConfig(config) => calls.destroy_svd_config(config),
+            Self::SvdInfo(info) => calls.destroy_svd_info(info),
+            Self::Buffer(buffer) => calls.free(buffer),
+        }
+    }
 }
 
 impl Retired {
     fn release(self, calls: &dyn NativeCalls) -> Result<(), NativeError> {
         match self {
-            Self::Object(owned) => owned.release(calls),
+            Self::Object(object) => object.release(calls),
             Self::Resources(resources) => resources.release(calls),
         }
     }
@@ -112,19 +133,21 @@ impl AlgebraSession {
         retired.release(self.device_session.calls())
     }
 
-    /// Once poisoned, waits for the stream and, if the wait succeeds,
-    /// releases what was retired, the latest first, and lifts the poison:
-    /// the device is done. If the wait fails, keeps them and returns its
-    /// failure.
+    /// Once poisoned, waits for the device (its stream and its copies)
+    /// and, if both waits succeed, releases what was retired and lifts the
+    /// poison: the device is done. If either fails, keeps them and returns
+    /// the first failure.
     pub(super) fn settle(&self) -> Result<(), NativeError> {
         if self.unwaited.borrow().is_none() {
             return Ok(());
         }
         let session = &self.device_session;
         let calls = session.calls();
-        session
-            .bind_device()
-            .and_then(|()| calls.synchronize_stream(session.stream()))?;
+        session.bind_device()?;
+        first_failure([
+            calls.synchronize_stream(session.stream()),
+            calls.synchronize_copies(),
+        ])?;
         let unwaited = self.unwaited.take().expect("a poisoned session");
         first_failure(
             unwaited

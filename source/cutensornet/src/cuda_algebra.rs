@@ -41,9 +41,9 @@
 //! device fails too: nothing then says when the device is done with the
 //! call's buffers, its inputs or the algebra's memory, so every later
 //! call returns [`NativeError::Poisoned`], and a buffer the device may
-//! still use is freed only after a successful wait for its stream;
-//! otherwise it is kept until one succeeds, or leaked
-//! (`algebra_session.rs`).
+//! still use is freed only after a successful wait for the device (its
+//! stream and its copies); otherwise it is kept until one succeeds, or
+//! leaked (`algebra_session.rs`).
 //!
 //! An algebra and its tensors are `!Send`, as the cuTensorNet engine is:
 //! the stream and the handle stay on the thread that created them. Each
