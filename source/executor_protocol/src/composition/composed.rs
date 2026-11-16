@@ -16,12 +16,13 @@
 //! The upper part reaches the lower one through a `Checked`, so every
 //! boundary of the chain is crossed through one, whatever the brackets: the
 //! boundary inside a `Composed` here, and the one where the driver meets the
-//! executor by the runner. Each checks the answers that cross it, and the
-//! batches their senders marked [`checked`](Batch::checked), against the
-//! offer that crosses it, and names a panic below it by the part that
-//! receives the calls, both kept when the `>>` that makes the runner reads
-//! every part's offer, before any part is provisioned, so that the checks
-//! and the names are the same wherever the brackets go.
+//! executor by the runner. Each checks the answers that cross it, every
+//! batch's count of instructions, and the batches their senders marked
+//! [`checked`](Batch::checked), against the offer that crosses it, and
+//! names a panic below it by the part that receives the calls, both kept
+//! when the `>>` that makes the runner reads every part's offer, before any
+//! part is provisioned, so that the checks and the names are the same
+//! wherever the brackets go.
 
 mod adapt;
 mod drive;
@@ -31,8 +32,8 @@ use crate::checked::batch_limits;
 use crate::instruction_set::instruction::batch_check::BatchLimits;
 use crate::panics::end_both;
 use crate::{
-    Adapt, Batch, Capabilities, ChainPart, Execute, ExecuteError, InstructionSet, Needs, Readouts,
-    Seed, ShotSet,
+    Adapt, AppendOnlyReadouts, Batch, Capabilities, ChainPart, Execute, ExecuteError,
+    InstructionSet, Needs, Seed, ShotSet,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
@@ -100,7 +101,7 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.adapter
             .adapt(batches, seed, &mut *self.below, readouts)

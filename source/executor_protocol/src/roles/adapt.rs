@@ -5,8 +5,8 @@
 
 use crate::admission::by_part::ByPart;
 use crate::{
-    Batch, Capabilities, Execute, ExecuteError, InstructionSet, Needs, OpcodeMap, Readouts,
-    RunRefusal, Seed, ShotSet,
+    AppendOnlyReadouts, Batch, Capabilities, Execute, ExecuteError, InstructionSet, Needs,
+    OpcodeMap, RunRefusal, Seed, ShotSet,
 };
 
 /// Answers each `execute` it receives, in the instructions it accepts, by
@@ -141,9 +141,10 @@ pub trait Adapt {
     /// `start` being the length of `readouts` before. It calls
     /// `below.execute`, the rest of the chain as one executor, any number
     /// of times, each with the shots it chooses, `seed` passed on
-    /// unchanged, and a buffer of its choice: `readouts` itself, when what
-    /// below appends is its own answer, or one it keeps to reuse, when it
-    /// maps the readouts below to its own.
+    /// unchanged, and a view of a buffer of its choice: `readouts` itself,
+    /// when what below appends is its own answer, or a view of a
+    /// [`Readouts`](crate::Readouts) it keeps to reuse, when it maps the
+    /// readouts below to its own, or retries.
     ///
     /// Each batch it sends below holds only shots of the batches it got: a
     /// rule the adapter keeps, which the protocol does not check, and
@@ -159,7 +160,7 @@ pub trait Adapt {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>>;
 
     /// As [`Execute::end_shots`].
@@ -214,7 +215,7 @@ impl<A: Adapt + ?Sized> Adapt for &mut A {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         (**self).adapt(batches, seed, below, readouts)
     }

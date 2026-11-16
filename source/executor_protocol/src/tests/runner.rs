@@ -915,7 +915,7 @@ impl Drive for SendsNothing {
         below: &mut impl Execute,
     ) -> Result<Vec<usize>, DriveError> {
         let mut answer = Readouts::new();
-        below.execute(&[], seed, &mut answer).await?;
+        below.execute(&[], seed, &mut answer.append_only()).await?;
         Ok(vec![answer.len(); shots.len()])
     }
 }

@@ -19,10 +19,10 @@ use crate::tests::fake_parts::{
     ParityGates, Profiler, Program, Renamed, in_each_bracketing,
 };
 use crate::{
-    Adapt, Adapter, Argument, Batch, BlockType, Capabilities, ChainPart, CompositionFaults, Drive,
-    DriveError, Driver, Execute, ExecuteError, ExecuteRefusal, Executor, Failure, Instruction,
-    InstructionDef, InstructionFault, InstructionSet, Needs, OpcodeMap, ReadoutValue, Readouts,
-    RunError, Runner, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
+    Adapt, Adapter, AppendOnlyReadouts, Argument, Batch, BlockType, Capabilities, ChainPart,
+    CompositionFaults, Drive, DriveError, Driver, Execute, ExecuteError, ExecuteRefusal, Executor,
+    Failure, Instruction, InstructionDef, InstructionFault, InstructionSet, Needs, OpcodeMap,
+    ReadoutValue, RunError, Runner, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
 };
 
 /// A run of a chain in one bracketing: how it failed, what its parts
@@ -540,7 +540,7 @@ impl Adapt for Stage {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         match self {
             Self::Counts(profiler) => profiler.adapt(batches, seed, below, readouts).await,
@@ -683,22 +683,19 @@ fn a_checked_batch_is_checked_at_every_boundary_wherever_the_brackets_go() {
 /// How a run of [`each_batch_of_an_execute_is_checked_as_its_sender_chose`]
 /// ends.
 enum Outcome {
-    /// It gives a record per shot.
-    Runs,
-    /// The `execute` is refused.
-    Refused(ExecuteRefusal),
+    /// It gives a record per shot, the second batch's of `width` values.
+    Runs { width: usize },
     /// The answer is misshapen, a failure of shot 9.
     Misshapen(ShapeFault),
 }
 
 /// Two batches of one `execute`, on shots 4 and 2 a measure of qubit 0,
 /// on shots 9 and 7 a flip and a measure, one checked and the other not,
-/// to bits that take one instruction a batch, or to an executor answering
-/// a value more in each row of the second batch: each batch's count of
-/// instructions is checked whatever its sender chose, and its answer's
-/// width as its sender chose. The unchecked batch's width goes unreported,
-/// and the run gives a record per shot; every other fault names batch 1
-/// and its first shot, 9.
+/// to an executor answering a value more, or a value fewer, in each row of
+/// the second batch: the width of each batch's answer is checked as its
+/// sender chose. The unchecked batch's width goes unreported, and the
+/// rows reach the driver as the executor wrote them; the checked one's
+/// names batch 1 and its first shot, 9.
 #[test]
 fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     let shots = ShotSet::ids([4, 2, 9, 7]);
@@ -708,60 +705,46 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
                 .with_checked_halves(first, second),
         )
     };
-    let log = Log::default();
-    let one_instruction = || {
-        Executor::new(
-            Bits::new(&log).offering(Capabilities::unlimited().max_qubits(64).max_instructions(1)),
-        )
-    };
-    let wider = || Executor::new(Misshapen(Misshape::ExtraValue));
-    let records = |run: Result<Vec<_>, RunError>| run.map(|records| records.len());
-    let too_many = || {
-        Outcome::Refused(ExecuteRefusal::TooManyInstructions {
-            shot: ShotId::new(9),
-            batch: 1,
-            max: 1,
-            got: 2,
-        })
-    };
-    let rows: [(&str, Result<usize, RunError>, Outcome); 4] = [
-        (
-            "a batch longer than the bits take, unchecked, after a checked one",
-            records(runner(program(true, false) >> one_instruction()).run(&shots, SEED)),
-            too_many(),
-        ),
-        (
-            "a batch longer than the bits take, checked, after an unchecked one",
-            records(runner(program(false, true) >> one_instruction()).run(&shots, SEED)),
-            too_many(),
-        ),
+    let misshapen = |misshape| Executor::new(Misshapen(misshape));
+    let rows: [(&str, Result<Vec<_>, RunError>, Outcome); 4] = [
         (
             "a value more in each row of the unchecked batch, after a checked one",
-            records(runner(program(true, false) >> wider()).run(&shots, SEED)),
-            Outcome::Runs,
+            runner(program(true, false) >> misshapen(Misshape::ExtraValue)).run(&shots, SEED),
+            Outcome::Runs { width: 2 },
+        ),
+        (
+            "a value fewer in each row of the unchecked batch, after a checked one",
+            runner(program(true, false) >> misshapen(Misshape::MissingValue)).run(&shots, SEED),
+            Outcome::Runs { width: 0 },
         ),
         (
             "a value more in each row of the checked batch, after an unchecked one",
-            records(runner(program(false, true) >> wider()).run(&shots, SEED)),
+            runner(program(false, true) >> misshapen(Misshape::ExtraValue)).run(&shots, SEED),
             Outcome::Misshapen(ShapeFault::Slots {
                 batch: 1,
                 expected: 1,
                 got: 2,
             }),
         ),
+        (
+            "a value fewer in each row of the checked batch, after an unchecked one",
+            runner(program(false, true) >> misshapen(Misshape::MissingValue)).run(&shots, SEED),
+            Outcome::Misshapen(ShapeFault::Slots {
+                batch: 1,
+                expected: 1,
+                got: 0,
+            }),
+        ),
     ];
     for (row, run, outcome) in rows {
         match outcome {
-            Outcome::Runs => {
-                assert_eq!(run.expect(row), 4, "{row}: a record per shot");
-            }
-            Outcome::Refused(refusal) => {
-                let error = failed(run);
-                assert_eq!(error.shot, refusal.shot(), "{row}");
-                assert!(
-                    matches!(&error.failure, Failure::Refused(got) if *got == refusal),
-                    "{row}: {error:?}"
-                );
+            Outcome::Runs { width } => {
+                let widths: Vec<usize> = run
+                    .expect(row)
+                    .iter()
+                    .map(|(values, _)| values.len())
+                    .collect();
+                assert_eq!(widths, [1, 1, width, width], "{row}: the rows as written");
             }
             Outcome::Misshapen(fault) => {
                 let error = failed(run);

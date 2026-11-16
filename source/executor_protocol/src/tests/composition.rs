@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Profiler, Program, Shifting,
-    Spread, Values,
+    Spread, Values, in_each_bracketing,
 };
 use crate::{
     Adapter, BlockType, Capabilities, CompositionFaults, Drive, Driver, Execute, Executor,
@@ -308,52 +308,29 @@ fn logged_over_two_runs<D: Drive, E: Execute>(
         .collect()
 }
 
-/// What a chain logs, to the log it is given, of what a test watches.
-type Chain = fn(&Log) -> Vec<String>;
-
 /// Two encodings over bits, in each bracketing that `>>` makes a runner
 /// of: the driver's 2 qubits come down as 4, then 12, and each part is
 /// provisioned with what reaches it, once, however many runs follow.
 #[test]
 fn needs_come_down_through_adapters_and_provision_each_part_once() {
-    let chains: [(&str, Chain); 3] = [
-        ("left", |log| {
-            provisioned(
-                Driver::new(CoinCopy::new())
-                    >> Adapter::new(Spread::new(2, log))
-                    >> Adapter::new(Spread::new(3, log))
-                    >> Executor::new(Bits::new(log)),
-                log,
-            )
-        }),
-        ("right", |log| {
-            provisioned(
-                Driver::new(CoinCopy::new())
-                    >> (Adapter::new(Spread::new(2, log))
-                        >> (Adapter::new(Spread::new(3, log)) >> Executor::new(Bits::new(log)))),
-                log,
-            )
-        }),
-        ("adapters joined", |log| {
-            provisioned(
-                Driver::new(CoinCopy::new())
-                    >> ((Adapter::new(Spread::new(2, log)) >> Adapter::new(Spread::new(3, log)))
-                        >> Executor::new(Bits::new(log))),
-                log,
-            )
-        }),
-    ];
-    for (bracketing, chain) in chains {
-        assert_eq!(
-            chain(&Log::default()),
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = Driver::new(CoinCopy::new());
+            let a = Adapter::new(Spread::new(2, &log));
+            let b = Adapter::new(Spread::new(3, &log));
+            let e = Executor::new(Bits::new(&log));
+        },
+        |chain, brackets| assert_eq!(
+            provisioned(chain, &log),
             [
                 "Spread provisioned for 2 qubits",
                 "Spread provisioned for 4 qubits",
                 "Bits provisioned for 12 qubits",
             ],
-            "{bracketing}"
-        );
-    }
+            "{brackets}"
+        ),
+    );
 }
 
 /// A program stating 1 qubit, then 3 once provisioned, which its rule
@@ -362,127 +339,61 @@ fn needs_come_down_through_adapters_and_provision_each_part_once() {
 /// checked, since the driver's needs are read before it is provisioned.
 #[test]
 fn every_part_is_provisioned_for_the_needs_read_before_the_drivers_provision() {
-    fn program() -> Driver<Program> {
-        Driver::new(
-            Program::new(&[("mz", 0)])
-                .needing(Needs::qubits(1))
-                .needing_once_provisioned(Needs::qubits(3)),
-        )
-    }
-    let chains: [(&str, Chain); 5] = [
-        ("left", |log| {
-            let spread = || Adapter::new(Spread::new(1, log));
-            provisioned(
-                ((program() >> spread()) >> spread()) >> Executor::new(Bits::new(log)),
-                log,
-            )
-        }),
-        ("right", |log| {
-            let spread = || Adapter::new(Spread::new(1, log));
-            provisioned(
-                program() >> (spread() >> (spread() >> Executor::new(Bits::new(log)))),
-                log,
-            )
-        }),
-        ("middle", |log| {
-            let spread = || Adapter::new(Spread::new(1, log));
-            provisioned(
-                (program() >> spread()) >> (spread() >> Executor::new(Bits::new(log))),
-                log,
-            )
-        }),
-        ("adapters joined", |log| {
-            let spread = || Adapter::new(Spread::new(1, log));
-            provisioned(
-                program() >> ((spread() >> spread()) >> Executor::new(Bits::new(log))),
-                log,
-            )
-        }),
-        ("adapters joined to the driver", |log| {
-            let spread = || Adapter::new(Spread::new(1, log));
-            provisioned(
-                (program() >> (spread() >> spread())) >> Executor::new(Bits::new(log)),
-                log,
-            )
-        }),
-    ];
-    for (bracketing, chain) in chains {
-        assert_eq!(
-            chain(&Log::default()),
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = Driver::new(
+                Program::new(&[("mz", 0)])
+                    .needing(Needs::qubits(1))
+                    .needing_once_provisioned(Needs::qubits(3)),
+            );
+            let a = Adapter::new(Spread::new(1, &log));
+            let b = Adapter::new(Spread::new(1, &log));
+            let e = Executor::new(Bits::new(&log));
+        },
+        |chain, brackets| assert_eq!(
+            provisioned(chain, &log),
             [
                 "Spread provisioned for 1 qubits",
                 "Spread provisioned for 1 qubits",
                 "Bits provisioned for 1 qubits",
             ],
-            "{bracketing}"
-        );
-    }
+            "{brackets}"
+        ),
+    );
 }
 
 /// Two adapters whose offers narrow from 2 instructions a batch to 1 once
 /// provisioned, which their rule forbids, over bits, under a program
-/// sending checked batches of 2, in each of the five bracketings: every
-/// boundary checks each batch against the offer read before any part was
-/// provisioned, and the upper adapter is told that offer, so the run
-/// succeeds alike.
+/// sending batches of 2, unchecked or checked, in each of the five
+/// bracketings: every boundary checks each batch's count of instructions
+/// against the offer read before any part was provisioned, and the upper
+/// adapter is told that offer, so the run succeeds alike.
 #[test]
 fn every_boundary_answers_the_offer_read_before_any_part_is_provisioned() {
-    fn program() -> Driver<Program> {
-        Driver::new(Program::new(&[("x", 0), ("mz", 0)]).with_checked_batches())
-    }
-    /// The offers each `Shifting` is told over two runs.
-    fn told<D: Drive, E: Execute>(
-        composed: Result<Runner<D, E>, CompositionFaults>,
-        log: &Log,
-    ) -> Vec<String> {
-        logged_over_two_runs(composed, log, "is offered")
-    }
-    let chains: [(&str, Chain); 5] = [
-        ("left", |log| {
-            let shifting = || Adapter::new(Shifting::new(log));
-            told(
-                ((program() >> shifting()) >> shifting()) >> Executor::new(Bits::new(log)),
-                log,
-            )
-        }),
-        ("right", |log| {
-            let shifting = || Adapter::new(Shifting::new(log));
-            told(
-                program() >> (shifting() >> (shifting() >> Executor::new(Bits::new(log)))),
-                log,
-            )
-        }),
-        ("middle", |log| {
-            let shifting = || Adapter::new(Shifting::new(log));
-            told(
-                (program() >> shifting()) >> (shifting() >> Executor::new(Bits::new(log))),
-                log,
-            )
-        }),
-        ("adapters joined", |log| {
-            let shifting = || Adapter::new(Shifting::new(log));
-            told(
-                program() >> ((shifting() >> shifting()) >> Executor::new(Bits::new(log))),
-                log,
-            )
-        }),
-        ("adapters joined to the driver", |log| {
-            let shifting = || Adapter::new(Shifting::new(log));
-            told(
-                (program() >> (shifting() >> shifting())) >> Executor::new(Bits::new(log)),
-                log,
-            )
-        }),
-    ];
-    for (bracketing, chain) in chains {
-        assert_eq!(
-            chain(&Log::default()),
-            [
-                "Shifting is offered Some(2) instructions a batch",
-                "Shifting is offered None instructions a batch",
-            ]
-            .repeat(2),
-            "{bracketing}"
+    for checked in [false, true] {
+        in_each_bracketing!(
+            [d, a, b, e] from {
+                let log = Log::default();
+                let program = Program::new(&[("x", 0), ("mz", 0)]);
+                let d = Driver::new(if checked {
+                    program.with_checked_batches()
+                } else {
+                    program
+                });
+                let a = Adapter::new(Shifting::new(&log));
+                let b = Adapter::new(Shifting::new(&log));
+                let e = Executor::new(Bits::new(&log));
+            },
+            |chain, brackets| assert_eq!(
+                logged_over_two_runs(chain, &log, "is offered"),
+                [
+                    "Shifting is offered Some(2) instructions a batch",
+                    "Shifting is offered None instructions a batch",
+                ]
+                .repeat(2),
+                "{brackets}, checked: {checked}"
+            ),
         );
     }
 }

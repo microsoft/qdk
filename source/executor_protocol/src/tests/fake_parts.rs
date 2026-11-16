@@ -43,8 +43,8 @@ use std::sync::OnceLock;
 use std::task::{Context, Poll};
 
 use crate::{
-    Batch, BatchReadouts, Execute, ExecuteError, Instruction, InstructionSet, OpcodeMap,
-    ReadoutValue, Readouts, Seed, ShotConditions, instruction_set,
+    AppendOnlyReadouts, Batch, BatchReadouts, Execute, ExecuteError, Instruction, InstructionSet,
+    OpcodeMap, ReadoutValue, Seed, ShotConditions, instruction_set,
 };
 
 mod adapters;
@@ -135,7 +135,7 @@ async fn forward(
     batches: &[Batch<'_>],
     seed: Seed,
     below: &mut impl Execute,
-    readouts: &mut Readouts,
+    readouts: &mut AppendOnlyReadouts<'_>,
     rewrite: impl FnMut(&Batch<'_>) -> Vec<Instruction>,
 ) -> Result<(), ExecuteError> {
     let sent: Vec<Vec<Instruction>> = batches.iter().map(rewrite).collect();

@@ -11,10 +11,11 @@
 //! have, and its seed against whether the chain is seedable, both by every
 //! part's offer ([`RunLimits`]), and whether each part can take a run now.
 //! Then the driver runs the shots, calling the chain below it as one
-//! executor, whose every answer the protocol checks, and every batch its
-//! sender marked [`checked`](crate::Batch::checked). Once the run
-//! ends, whether it gave outputs, failed, or its future was dropped, the
-//! runner ends its shots on every part, so that none keeps them.
+//! executor, whose every answer the protocol checks, with every batch's
+//! count of instructions, and every batch its sender marked
+//! [`checked`](crate::Batch::checked). Once the run ends, whether it gave
+//! outputs, failed, or its future was dropped, the runner ends its shots on
+//! every part, so that none keeps them.
 
 mod run_error;
 #[cfg(not(target_arch = "wasm32"))]

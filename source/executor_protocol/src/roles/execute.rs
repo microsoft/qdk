@@ -10,8 +10,8 @@ use std::fmt;
 
 use crate::admission::by_part::ByPart;
 use crate::{
-    Batch, Capabilities, Failure, InstructionFault, InstructionSet, Needs, Readouts, RunRefusal,
-    Seed, ShotId, ShotSet,
+    AppendOnlyReadouts, Batch, Capabilities, Failure, InstructionFault, InstructionSet, Needs,
+    RunRefusal, Seed, ShotId, ShotSet,
 };
 
 /// Runs batches of the instructions it accepts on their shots' states.
@@ -19,7 +19,8 @@ use crate::{
 /// It is the part at the bottom of a chain, and the part a driver or an
 /// adapter calls below it: the rest of the chain, composed, is one executor
 /// to the part above. The protocol checks the shape of each answer, as
-/// [`ShapeFault`](crate::ShapeFault) says, so the part above can index it.
+/// [`ShapeFault`](crate::ShapeFault) says, so the part above can index its
+/// batches and rows, and, for a checked batch, its slots.
 /// A batch its sender marked [`checked`](crate::Batch::checked) it also
 /// checks as that method says, against the executor's set and the needs it
 /// was provisioned for, so the executor runs only what it accepts; an
@@ -107,25 +108,23 @@ pub trait Execute {
     }
 
     /// Runs each batch's instructions on its shots' states, and appends
-    /// their readouts to `readouts`, which the caller lends: one
+    /// their readouts to `readouts`, the caller's, lent as a view that only
+    /// appends ([`AppendOnlyReadouts`]): one
     /// [`BatchReadouts`](crate::BatchReadouts) per batch, in the batches'
     /// order, a row per shot, in its set's order, of a value per readout
     /// slot. So, `start` being the length of `readouts` before, entry
-    /// `start + i` answers `batches[i]`. Called through the protocol, it
-    /// cannot change the readouts it found unseen: it reads them as a
-    /// slice, and [`Readouts::clear`](crate::Readouts::clear) keeps them;
-    /// assigning or swapping in another value for `*readouts`, whatever it
-    /// holds, fails, as
-    /// [`ShapeFault::ReadoutsReplaced`](crate::ShapeFault::ReadoutsReplaced)
-    /// says. Any other `execute` that fails, or one dropped before it
-    /// answers, leaves `readouts` as they were when it is called through
-    /// the protocol, which removes what was appended; a future leaked
-    /// rather than dropped (`std::mem::forget`) keeps its partial answer,
-    /// and `clear` then keeps the readouts that `execute` found: for good
-    /// when the caller owns `readouts`, and until the caller's own
-    /// `execute` ends when they were lent to it. A shot's state is made at
-    /// its first batch, from the needs it was provisioned for and
-    /// [`seed.shot(id)`](Seed::shot), and kept until
+    /// `start + i` answers `batches[i]`. It reads the readouts it found,
+    /// and cannot change them. An `execute` that fails, or one dropped
+    /// before it answers, leaves `readouts` as they were when it is called
+    /// through the protocol, which removes what was appended; a future
+    /// leaked rather than dropped (`std::mem::forget`) keeps its partial
+    /// answer: for good when the caller owns `readouts`, and, when they
+    /// were lent to the caller, as readouts more in the caller's answer,
+    /// which the boundary above the caller reports
+    /// ([`ShapeFault::Batches`](crate::ShapeFault::Batches)) unless all the
+    /// readouts appended still have the shape of the caller's batches. A
+    /// shot's state is made at its first batch, from the needs it was
+    /// provisioned for and [`seed.shot(id)`](Seed::shot), and kept until
     /// [`end_shots`](Self::end_shots).
     ///
     /// Three rules hold between the part that calls it and the executor:
@@ -150,7 +149,7 @@ pub trait Execute {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>>;
 
     /// Frees what it holds for shots that ended. The protocol calls it on
@@ -204,7 +203,7 @@ impl<E: Execute + ?Sized> Execute for &mut E {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         (**self).execute(batches, seed, readouts)
     }
@@ -216,7 +215,7 @@ impl<E: Execute + ?Sized> Execute for &mut E {
 
 /// What an `execute` returns when it gives no answer: it was refused, and
 /// nothing of it ran, or it failed for a shot. Through the protocol, the
-/// readouts it was lent are then as they were, unless it replaced them.
+/// readouts it was lent are then as they were.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ExecuteError {

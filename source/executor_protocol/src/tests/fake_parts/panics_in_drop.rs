@@ -8,8 +8,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::{
-    Adapt, Batch, Capabilities, Drive, DriveError, Execute, ExecuteError, InstructionSet, Needs,
-    OpcodeMap, Readouts, RunRefusal, Seed, ShotSet,
+    Adapt, AppendOnlyReadouts, Batch, Capabilities, Drive, DriveError, Execute, ExecuteError,
+    InstructionSet, Needs, OpcodeMap, RunRefusal, Seed, ShotSet,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
@@ -172,7 +172,7 @@ impl<P: Adapt> Adapt for PanicsInDrop<P> {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         let future = self.part.adapt(batches, seed, below, readouts);
         Dropping {
@@ -212,7 +212,7 @@ impl<P: Execute> Execute for PanicsInDrop<P> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         let future = self.part.execute(batches, seed, readouts);
         Dropping {

@@ -12,8 +12,9 @@ use std::task::Poll;
 
 use super::{CoinGates, Log, Stream, bound, coin_gate, coin_gates, forward, mapped, zeros};
 use crate::{
-    Adapt, Batch, BatchReadouts, BlockType, Capabilities, Execute, ExecuteError, Failure,
-    Instruction, InstructionSet, Needs, OpcodeMap, Readouts, RunRefusal, Seed, ShotId, ShotSet,
+    Adapt, AppendOnlyReadouts, Batch, BatchReadouts, BlockType, Capabilities, Execute,
+    ExecuteError, Failure, Instruction, InstructionSet, Needs, OpcodeMap, Readouts, RunRefusal,
+    Seed, ShotId, ShotSet,
 };
 
 /// A toy bit-flip noise: after each `x`, another `x` with probability
@@ -55,7 +56,7 @@ impl Adapt for BitFlip {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         let own = seed.derive("bit_flip");
@@ -90,7 +91,9 @@ impl Adapt for BitFlip {
             })
             .collect();
         let mut answer = Readouts::new();
-        below.execute(&one_each, seed, &mut answer).await?;
+        below
+            .execute(&one_each, seed, &mut answer.append_only())
+            .await?;
         let mut rows = answer.iter();
         for batch in batches {
             let mine: Vec<&BatchReadouts> = rows.by_ref().take(batch.shots.len()).collect();
@@ -174,7 +177,7 @@ impl Adapt for Profiler {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let count: usize = batches.iter().map(|batch| batch.instructions.len()).sum();
         self.instructions.set(self.instructions.get() + count);
@@ -222,7 +225,7 @@ impl Adapt for NamesBelow {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         self.log.push(format!("below: {}", below.name()));
         self.log
@@ -261,7 +264,7 @@ impl Adapt for Splitter {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         let mut parts = Readouts::new();
@@ -271,7 +274,9 @@ impl Adapt for Splitter {
             for instruction in &instructions {
                 let step = Batch::new(batch.shots, std::slice::from_ref(instruction))
                     .checked_if(batch.is_checked());
-                below.execute(&[step], seed, &mut parts).await?;
+                below
+                    .execute(&[step], seed, &mut parts.append_only())
+                    .await?;
             }
             readouts.push(if parts.is_empty() {
                 zeros(batch.shots.len(), 0)
@@ -341,7 +346,7 @@ impl Adapt for Spread {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         forward(batches, seed, below, readouts, |batch| {
@@ -410,7 +415,7 @@ impl Adapt for Pool {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await
     }
@@ -551,7 +556,7 @@ impl Adapt for Offering {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         self.spread.adapt(batches, seed, below, readouts).await
     }
@@ -586,11 +591,12 @@ impl Adapt for Impatient {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         {
             let mut dropped = Readouts::new();
-            let mut first = pin!(self.0.adapt(batches, seed, below, &mut dropped));
+            let mut lent = dropped.append_only();
+            let mut first = pin!(self.0.adapt(batches, seed, below, &mut lent));
             poll_fn(|context| {
                 let _ = first.as_mut().poll(context);
                 Poll::Ready(())
@@ -646,7 +652,7 @@ impl Adapt for Trap {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         if batches
             .iter()
@@ -705,7 +711,7 @@ impl Adapt for FailsOnce {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         self.adapts += 1;
         if self.adapts == 2 {
@@ -770,7 +776,7 @@ impl Adapt for Misbehaving {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         match self.misbehaviour {
             Misbehaviour::PanicsWithAString => {
@@ -839,7 +845,7 @@ impl Adapt for ForwardsParity {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await
     }
@@ -892,7 +898,7 @@ impl Adapt for Shifting {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let most = below.offers().max_instructions;
         self.log
@@ -958,7 +964,7 @@ impl Adapt for PanicsEnding {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         self.pass_through
             .adapt(batches, seed, below, readouts)
@@ -1003,7 +1009,7 @@ impl Adapt for EndsBelow {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await?;
         for batch in batches {

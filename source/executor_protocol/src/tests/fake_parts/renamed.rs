@@ -4,8 +4,8 @@
 //! A fake part of any role, renamed: [`Renamed`].
 
 use crate::{
-    Adapt, Batch, Capabilities, Drive, DriveError, Execute, ExecuteError, InstructionSet, Needs,
-    OpcodeMap, Readouts, RunRefusal, Seed, ShotSet,
+    Adapt, AppendOnlyReadouts, Batch, Capabilities, Drive, DriveError, Execute, ExecuteError,
+    InstructionSet, Needs, OpcodeMap, RunRefusal, Seed, ShotSet,
 };
 
 /// `part`, named `name`, as a part built at run time is named by what it
@@ -97,7 +97,7 @@ impl<P: Adapt> Adapt for Renamed<P> {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.part.adapt(batches, seed, below, readouts)
     }
@@ -132,7 +132,7 @@ impl<P: Execute> Execute for Renamed<P> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.part.execute(batches, seed, readouts)
     }

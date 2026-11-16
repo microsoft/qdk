@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use super::{CoinGates, Log, Stream, YieldNow, coin_gates, zeros};
 use crate::{
-    Batch, BatchReadouts, BlockType, Capabilities, Drive, DriveError, Execute, ExecuteError,
-    InstructionSet, Needs, Opcode, OpcodeMap, ReadoutFailure, ReadoutValue, Readouts, RunRefusal,
-    Seed, ShotConditions, ShotId, ShotSet,
+    AppendOnlyReadouts, Batch, BatchReadouts, BlockType, Capabilities, Drive, DriveError, Execute,
+    ExecuteError, InstructionSet, Needs, Opcode, OpcodeMap, ReadoutFailure, ReadoutValue, Readouts,
+    RunRefusal, Seed, ShotConditions, ShotId, ShotSet,
 };
 
 /// A toy executor on classical bits: `h` tosses a bit from the shot's
@@ -115,7 +115,7 @@ impl Execute for Bits {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         self.log.push("Bits execute");
         let [h, x, mz] = self.opcodes;
@@ -192,7 +192,7 @@ impl<E: Execute> Execute for Later<E> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         YieldNow::default().await;
         self.0.execute(batches, seed, readouts).await
@@ -251,12 +251,12 @@ impl<E: Execute> Execute for FromThread<E> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let mut own = Readouts::new();
         let answer = self
             .inner
-            .execute(batches, seed, &mut own)
+            .execute(batches, seed, &mut own.append_only())
             .await
             .map(|()| own);
         let handover = Arc::new(Mutex::new(Handover {
@@ -335,7 +335,7 @@ impl Execute for Misshapen {
         &mut self,
         batches: &[Batch<'_>],
         _seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let last = batches.len() - 1;
         let mut answer: Vec<BatchReadouts> = batches
@@ -429,7 +429,7 @@ impl Execute for Panics {
         &mut self,
         _batches: &[Batch<'_>],
         _seed: Seed,
-        _readouts: &mut Readouts,
+        _readouts: &mut AppendOnlyReadouts<'_>,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         assert!(
             matches!(self.0, PanicsWhen::Polled),

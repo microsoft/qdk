@@ -67,19 +67,20 @@ impl<'a> Batch<'a> {
     /// instructions at each boundary that receives it: little beside an
     /// executor that simulates each instruction, but more than double the
     /// time of a chain whose parts do little per instruction, such as a
-    /// lowering over a profiler, while an unchecked batch crosses a
-    /// boundary at no cost per instruction. So a chain of parts that keep
-    /// the protocol's rules sends its batches unchecked. A sender may check
-    /// some batches and not others: all of them while a part is developed,
-    /// or those a part sends that may hold what the receiver does not
-    /// accept, such as a part built from a user's description at run time.
+    /// lowering over an executor that only counts it, while an unchecked
+    /// batch crosses a boundary at no cost per instruction. So a chain of
+    /// parts that keep the protocol's rules sends its batches unchecked. A
+    /// sender may check some batches and not others: all of them while a
+    /// part is developed, or those a part sends that may hold what the
+    /// receiver does not accept, such as a part built from a user's
+    /// description at run time.
     ///
     /// Checked or not, the chain's fit and admission by `>>`, the refusals
     /// of a run ([`RunRefusal`](crate::RunRefusal)), the batch's count of
     /// instructions against the most the receiver takes (an
     /// [`ExecuteRefusal`](crate::ExecuteRefusal)), and the answer's count
-    /// of readouts and of rows, and a replacement of the readouts lent
-    /// ([`ShapeFault`](crate::ShapeFault)), are checked.
+    /// of readouts and of rows ([`ShapeFault`](crate::ShapeFault)), are
+    /// checked.
     #[must_use]
     pub const fn checked(self) -> Self {
         self.checked_if(true)

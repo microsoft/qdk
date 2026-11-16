@@ -8,7 +8,8 @@
 //! boundary of a chain is crossed through one `Checked`. It always makes a
 //! failure of a panic (where a panic unwinds: on wasm32, it aborts), and
 //! of an answer whose shape is not the batches', as [`ShapeFault`] says,
-//! so that the part above can index an answer without a check of its own.
+//! so that the part above can index its batches and rows, and, for a
+//! checked batch, its slots, without a check of its own.
 //! It refuses a batch of more instructions than the receiver takes
 //! ([`ExecuteRefusal::TooManyInstructions`]), checked or not, and, for a
 //! batch its sender marked [`checked`](Batch::checked), it also makes the
@@ -16,20 +17,21 @@
 //! runs. An unchecked batch costs it one comparison, its count, and no
 //! pass over its instructions. An `execute` that fails, or is dropped
 //! before it answers, has its answer removed from the caller's
-//! [`Readouts`], so the caller never reads part of an answer; unless it
-//! replaced them ([`ShapeFault::ReadoutsReplaced`]), they are as they
-//! were.
+//! [`Readouts`], so the caller never reads part of an answer: they are as
+//! they were. Each `Checked` lends the receiver a fresh
+//! [`AppendOnlyReadouts`] view of the caller's buffer, so a receiver that
+//! points its view elsewhere leaves that buffer, and the views above it,
+//! as they were.
 
 use smallvec::SmallVec;
 
-use crate::batch_readouts::Loan;
 use crate::instruction_set::instruction::batch_check::{
     BatchFault, BatchLimits, check_instruction_count, check_instructions,
 };
 use crate::panics::catch_panic;
 use crate::{
-    Batch, BatchReadouts, Capabilities, ChainPart, Execute, ExecuteError, ExecuteRefusal, Failure,
-    InstructionSet, Needs, Readouts, Seed, ShapeFault, ShotId, ShotSet,
+    AppendOnlyReadouts, Batch, BatchReadouts, Capabilities, ChainPart, Execute, ExecuteError,
+    ExecuteRefusal, Failure, InstructionSet, Needs, Readouts, Seed, ShapeFault, ShotId, ShotSet,
 };
 
 /// `inner`, the receiver of a boundary, with each batch it receives
@@ -77,7 +79,8 @@ impl<E: Execute> Execute for Checked<'_, E> {
     /// the runner's `>>`, or by the provision of the `Composed` holding the
     /// boundary), which `batch_limits` holds and every checked batch is
     /// checked against, not the receiver's answer now: a receiver whose set
-    /// changes later gets checked batches checked against that set.
+    /// changes later gets checked batches checked against the set read
+    /// then, not the new one.
     fn accepts(&self) -> &InstructionSet {
         self.batch_limits.set()
     }
@@ -100,7 +103,7 @@ impl<E: Execute> Execute for Checked<'_, E> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let Some(first) = batches.first() else {
             return Ok(());
@@ -124,16 +127,19 @@ impl<E: Execute> Execute for Checked<'_, E> {
                 });
             }
         }
-        let mut answer = PendingAnswer::new(readouts);
-        let ran = match catch_panic(|| self.inner.execute(batches, seed, answer.readouts())).await {
-            Ok(ran) => ran,
-            Err(message) => Err(ExecuteError::Failed {
-                shot: first_shot(first.shots),
-                failure: Failure::Panicked {
-                    part: self.part.clone(),
-                    message,
-                },
-            }),
+        let mut answer = PendingAnswer::new(readouts.buffer());
+        let ran = {
+            let mut lent = answer.lend();
+            match catch_panic(|| self.inner.execute(batches, seed, &mut lent)).await {
+                Ok(ran) => ran,
+                Err(message) => Err(ExecuteError::Failed {
+                    shot: first_shot(first.shots),
+                    failure: Failure::Panicked {
+                        part: self.part.clone(),
+                        message,
+                    },
+                }),
+            }
         };
         ran.and_then(|()| check_shape(batches, &checked_slots, answer.appended()))?;
         answer.keep();
@@ -187,72 +193,65 @@ fn refusal(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteRefusal
     }
 }
 
-/// The caller's `readouts` while they are lent to an `execute` that
-/// appends its answer to them: dropped unkept, it removes the answer, so
-/// that an `execute` that fails, panics or is dropped leaves them as they
-/// were, unless it replaced them.
+/// The caller's `readouts` while an `execute` appends its answer to them:
+/// dropped unkept, it removes the answer, so that an `execute` that fails,
+/// panics or is dropped leaves them as they were.
 struct PendingAnswer<'a> {
     readouts: &'a mut Readouts,
-    /// The loan, taken when it ends: kept, or on drop, unkept.
-    loan: Option<Loan>,
+    /// The readouts the `execute` found: its answer starts there.
+    start: usize,
+    kept: bool,
 }
 
 impl<'a> PendingAnswer<'a> {
     fn new(readouts: &'a mut Readouts) -> Self {
-        let loan = readouts.lend();
+        let start = readouts.len();
         Self {
             readouts,
-            loan: Some(loan),
+            start,
+            kept: false,
         }
     }
 
-    /// The readouts, to lend to the receiver.
-    fn readouts(&mut self) -> &mut Readouts {
-        self.readouts
+    /// A view of the readouts, to lend to the receiver: a fresh one, so
+    /// that what the receiver does to its view changes nothing here.
+    fn lend(&mut self) -> AppendOnlyReadouts<'_> {
+        self.readouts.append_only()
     }
 
-    /// The readouts the receiver appended, or `None` when it replaced the
-    /// readouts it was lent.
-    fn appended(&self) -> Option<&[BatchReadouts]> {
-        let loan = self
-            .loan
-            .as_ref()
-            .expect("the loan ends when kept or dropped");
-        self.readouts.appended(loan)
+    /// The readouts the receiver appended. The buffer never holds fewer
+    /// than `start`: the views lent only append, and a boundary below
+    /// removes only what was appended after it was called.
+    fn appended(&self) -> &[BatchReadouts] {
+        &self.readouts[self.start..]
     }
 
-    /// Keeps the answer, once checked, ending the loan.
+    /// Keeps the answer, once checked.
     fn keep(mut self) {
-        if let Some(loan) = self.loan.take() {
-            self.readouts.end_loan(loan, true);
-        }
+        self.kept = true;
     }
 }
 
 impl Drop for PendingAnswer<'_> {
     fn drop(&mut self) {
-        if let Some(loan) = self.loan.take() {
-            self.readouts.end_loan(loan, false);
+        if !self.kept {
+            self.readouts.truncate(self.start);
         }
     }
 }
 
-/// Whether `answer`, the readouts appended for `batches` (`None` when the
-/// receiver replaced the readouts it was lent), has their shape, as
-/// [`ShapeFault`] states it: `checked_slots` holds each checked batch's
+/// Whether `answer`, the readouts appended for `batches`, has their
+/// shape, as [`ShapeFault`] states it: `checked_slots` holds each checked batch's
 /// readout slots, `None` for an unchecked one, and is empty when no batch
 /// is checked, so that unchecked batches allocate nothing.
 fn check_shape(
     batches: &[Batch<'_>],
     checked_slots: &[Option<u32>],
-    answer: Option<&[BatchReadouts]>,
+    answer: &[BatchReadouts],
 ) -> Result<(), ExecuteError> {
     let failed = |shots: &ShotSet, fault: ShapeFault| ExecuteError::Failed {
         shot: first_shot(shots),
         failure: Failure::Part(Box::new(fault)),
-    };
-    let Some(answer) = answer else {
-        return Err(failed(batches[0].shots, ShapeFault::ReadoutsReplaced));
     };
     if answer.len() != batches.len() {
         return Err(failed(

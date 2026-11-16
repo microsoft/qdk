@@ -8,10 +8,11 @@
 //! driver straight to an executor.
 
 use crate::{
-    Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, Capabilities, Drive, DriveError,
-    Driver, Execute, ExecuteError, ExecuteRefusal, Executor, Failure, Instruction, InstructionDef,
-    InstructionFault, InstructionSet, Needs, Opcode, OpcodeMap, ParameterKind, ReadoutValue,
-    Readouts, RunError, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
+    AppendOnlyReadouts, Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, Capabilities,
+    Drive, DriveError, Driver, Execute, ExecuteError, ExecuteRefusal, Executor, Failure,
+    Instruction, InstructionDef, InstructionFault, InstructionSet, Needs, Opcode, OpcodeMap,
+    ParameterKind, ReadoutValue, Readouts, RunError, Seed, ShapeFault, ShotConditions, ShotId,
+    ShotSet,
 };
 use smallvec::smallvec;
 
@@ -106,7 +107,9 @@ impl Drive for Literal {
         below: &mut impl Execute,
     ) -> Result<Vec<()>, DriveError> {
         let batch = Batch::new(shots, &self.instructions).checked_if(self.checked);
-        below.execute(&[batch], seed, &mut Readouts::new()).await?;
+        below
+            .execute(&[batch], seed, &mut Readouts::new().append_only())
+            .await?;
         Ok(vec![(); shots.len()])
     }
 }
@@ -132,7 +135,7 @@ impl Execute for Zeros {
         &mut self,
         batches: &[Batch<'_>],
         _seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let row = vec![ReadoutValue::Zero; self.slots as usize];
         for batch in batches {

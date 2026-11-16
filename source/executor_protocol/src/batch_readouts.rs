@@ -23,8 +23,10 @@
 //! only once a shot has any. So a batch's readouts, made with its number of
 //! shots, take one allocation while every shot is clear, and at most two,
 //! whatever that number. An `execute` appends them to the caller's
-//! [`Readouts`], which keeps their memory for the next answer.
+//! [`Readouts`], lent as an [`AppendOnlyReadouts`] view, which keeps their
+//! memory for the next answer.
 
+mod append_only_readouts;
 mod readout_value;
 mod readouts;
 mod shot_conditions;
@@ -32,8 +34,8 @@ mod shot_conditions;
 use std::error::Error;
 use std::fmt;
 
+pub use append_only_readouts::AppendOnlyReadouts;
 pub use readout_value::{ReadoutFailure, ReadoutValue};
-pub(crate) use readouts::Loan;
 pub use readouts::Readouts;
 pub use shot_conditions::ShotConditions;
 
@@ -333,10 +335,8 @@ impl ReadoutIndex {
 /// The protocol checks every answer that crosses a boundary of a chain,
 /// and makes a failure of it
 /// ([`ExecuteError::Failed`](crate::ExecuteError::Failed), carrying the
-/// fault as [`Failure::Part`](crate::Failure::Part)) for readouts lent
-/// to the `execute` that it replaced, by assigning or swapping in another
-/// value (`ReadoutsReplaced`, named by the first batch's first shot), for
-/// readouts not one per batch sent (`Batches`, named likewise), for
+/// fault as [`Failure::Part`](crate::Failure::Part)) for readouts not one
+/// per batch sent (`Batches`, named by the first batch's first shot), for
 /// a batch's rows not one per shot of it (`Rows`, named by that batch's
 /// first shot), or, for a batch its sender marked
 /// [`checked`](crate::Batch::checked), for rows whose width is not the
@@ -344,9 +344,8 @@ impl ReadoutIndex {
 /// (`Slots`, named by that batch's first shot): that sum costs a pass over
 /// the instructions, which an unchecked batch is spared. So the part above
 /// finds a row for every shot, and, for a checked batch, every slot it
-/// asked for at its index, after the readouts it had, unchanged. Every
-/// replacement is reported, whatever the values hold: of readouts lent
-/// empty too, and by readouts lent to an earlier `execute`, swapped back.
+/// asked for at its index, after the readouts it had, which the
+/// [`AppendOnlyReadouts`] it lent keep unchanged.
 // The one statement of the protocol's check of an answer's shape: the
 // other docs link here rather than restate it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -359,10 +358,6 @@ pub enum ShapeFault {
         /// The number of values the row held.
         got: usize,
     },
-    /// An `execute` replaced the [`Readouts`] it was lent, by assigning or
-    /// swapping in another value, so that those it found, if any, were
-    /// lost with the value replaced.
-    ReadoutsReplaced,
     /// An `execute` appended `got` batches' readouts to the caller's
     /// [`Readouts`], where it was sent `expected` batches.
     Batches {
@@ -400,10 +395,6 @@ impl fmt::Display for ShapeFault {
             Self::RowWidth { expected, got } => write!(
                 f,
                 "a row of {got} readout values, where each row has {expected}"
-            ),
-            Self::ReadoutsReplaced => write!(
-                f,
-                "readouts that replace those lent, losing any readouts found"
             ),
             Self::Batches { expected, got } => {
                 write!(f, "readouts for {got} batches, where {expected} were sent")

@@ -23,9 +23,9 @@
 //! each boundary's, and the admission's, at each boundary the needs of the
 //! part above against the offer of the part below ([`CompositionFaults`]).
 //! A chain that composes is then provisioned, top down, and the protocol
-//! checks each answer crossing its boundaries, and each batch its sender
-//! marked [`checked`](crate::Batch::checked), so a part writes only its own
-//! logic.
+//! checks each answer crossing its boundaries, every batch's count of
+//! instructions, and each batch its sender marked
+//! [`checked`](crate::Batch::checked), so a part writes only its own logic.
 
 mod composed;
 mod composition_faults;

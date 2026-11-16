@@ -53,7 +53,11 @@ impl Drive for CoinCopy {
     ) -> Result<Vec<Values>, DriveError> {
         let mut tossed = Readouts::new();
         below
-            .execute(&[Batch::new(shots, &self.sequences[0])], seed, &mut tossed)
+            .execute(
+                &[Batch::new(shots, &self.sequences[0])],
+                seed,
+                &mut tossed.append_only(),
+            )
             .await?;
         let coin = &tossed[0];
         let mut outputs: Vec<Values> = (0..shots.len()).map(|i| coin.row(i).to_vec()).collect();
@@ -79,7 +83,9 @@ impl Drive for CoinCopy {
             .map(|(_, shots, instructions)| Batch::new(shots, instructions))
             .collect();
         let mut read = Readouts::new();
-        below.execute(&batches, seed, &mut read).await?;
+        below
+            .execute(&batches, seed, &mut read.append_only())
+            .await?;
         for ((positions, _, _), rows) in sets.iter().zip(&read) {
             for (j, &i) in positions.iter().enumerate() {
                 outputs[i].extend_from_slice(rows.row(j));
@@ -245,7 +251,9 @@ impl Drive for Program {
             })
             .collect();
         let mut readouts = Readouts::new();
-        below.execute(&batches, seed, &mut readouts).await?;
+        below
+            .execute(&batches, seed, &mut readouts.append_only())
+            .await?;
         if self.ends_its_shots {
             below.end_shots(shots);
         }
