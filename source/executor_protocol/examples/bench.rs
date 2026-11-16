@@ -5,9 +5,9 @@
 //! driver that calls its executor itself:
 //!
 //! - D: one driver on four chains, batches of 1 to 10 000 instructions;
-//! - C: a batch's checks, a boundary's cost without them, building an
-//!   instruction by name, and the count of a batch's instructions against
-//!   a most offered;
+//! - C: a batch's checks, whether a boundary without them costs anything
+//!   per instruction, building an instruction by name, and the count of a
+//!   batch's instructions against a most offered;
 //! - F: a lowering adapter, each logical instruction sent as three physical;
 //! - W: an executor that answers from a worker thread: the time of a call,
 //!   which includes copying its batches to the worker.
@@ -238,9 +238,12 @@ enum Chain {
 }
 
 /// D: each chain, per batch size, in ns per instruction and, beside each
-/// chain, its cost per `execute` over the direct call.
+/// chain, its cost per `execute` over the direct call, at batches of at
+/// most [`PER_CALL_UP_TO`] instructions.
 fn chains_bench(size: &Size, program: &[Instruction], checked: bool) {
-    println!("\nD. one driver on four chains, ns/instr (overhead per call vs direct)");
+    println!(
+        "\nD. one driver on four chains, ns/instr (overhead per call vs direct, batch ≤ {PER_CALL_UP_TO})"
+    );
     println!(
         "  ≫P = Driver ≫ Executor(profiler); ≫F≫P with an adapter that forwards; ≫F≫F≫P with two"
     );
@@ -259,9 +262,9 @@ fn chains_bench(size: &Size, program: &[Instruction], checked: bool) {
         let calls = program.len().div_ceil(batch);
         let cell = |t: f64| {
             format!(
-                "{:>8.2} ({:>7.1} ns)",
+                "{:>8.2} {:>11}",
                 per(t, program.len()),
-                per(t - direct, calls)
+                per_call(t - direct, calls, batch)
             )
         };
         println!(
@@ -271,6 +274,21 @@ fn chains_bench(size: &Size, program: &[Instruction], checked: bool) {
             cell(time(Chain::OneAdapter)),
             cell(time(Chain::TwoAdapters))
         );
+    }
+}
+
+/// The largest batch at which a difference of times is printed per call:
+/// beyond it, a run makes few calls, and a difference within the runs'
+/// spread, times the batch, would look like a cost per call.
+const PER_CALL_UP_TO: usize = 100;
+
+/// `time`, a difference of times over `calls` calls of `batch`
+/// instructions, per call, or "—" for a batch beyond [`PER_CALL_UP_TO`].
+fn per_call(time: f64, calls: usize, batch: usize) -> String {
+    if batch <= PER_CALL_UP_TO {
+        format!("({:>7.1} ns)", per(time, calls))
+    } else {
+        "—".to_owned()
     }
 }
 
@@ -311,9 +329,10 @@ fn run_chain(program: &[Instruction], batch: usize, chain: Chain, checked: bool)
 /// C: what a batch's checks cost, and a boundary without them, by
 /// difference, since they run inside the protocol; building an instruction
 /// by name, which checks it too; and the count of a batch's instructions
-/// against a most offered. A boundary's cost without the checks is its
-/// cost per call (the answer's shape check, the catch of a panic, one
-/// `Checked` call).
+/// against a most offered. A boundary without the checks costs per call
+/// (the answer's shape check, the catch of a panic, one `Checked` call),
+/// which D's ≫P at batch 1 shows; its row here, at a large batch, shows
+/// that it makes no pass per instruction.
 fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
     println!("\nC. the checks, ns/instr (per call, where given)");
     let time = |batch, chain, checked| {
@@ -327,9 +346,10 @@ fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
     let boundary = unchecked - time(large, Chain::Direct, false);
     let checked = time(large, Chain::Bare, true) - unchecked;
     println!(
-        "  a boundary, batches unchecked, batch {large} (≫P minus direct) {:>6.2}",
+        "  an unchecked boundary, cost per instruction, batch {large} (≫P minus direct) {:>6.2}",
         per(boundary, n)
     );
+    println!("    (its cost per call: D's ≫P at batch 1)");
     println!(
         "  a batch's checks, batch {large} (≫P, checked minus unchecked)  {:>6.2}",
         per(checked, n)
@@ -342,9 +362,9 @@ fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
             let limited =
                 time(batch, Chain::Limited(most), checked) - time(batch, Chain::Bare, checked);
             println!(
-                "  max_instructions {most} offered, {kind:>9}, batch {batch:>5} (minus unlimited) {:>6.2} ({:.1} ns)",
+                "  max_instructions {most} offered, {kind:>9}, batch {batch:>5} (minus unlimited) {:>6.2} {}",
                 per(limited, n),
-                per(limited, n.div_ceil(batch))
+                per_call(limited, n.div_ceil(batch), batch)
             );
         }
     }
