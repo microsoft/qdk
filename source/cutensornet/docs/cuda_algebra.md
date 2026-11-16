@@ -54,7 +54,7 @@ sequenceDiagram
   A->>N: (lend, for a network kept), NetworkSetInputTensorMemory ×2, NetworkSetOutputTensorMemory, NetworkContract
   A->>R: cudaStreamSynchronize
   Note over M,N: Phase: release, at the end of every method
-  A->>N: DestroyTensorSVDInfo, DestroyTensorSVDConfig, DestroyTensorDescriptor (in reverse order of creation)
+  A->>N: DestroyTensorSVDInfo, DestroyTensorSVDConfig, DestroyTensorDescriptor
   A->>R: cudaFree (the call's intermediate buffers)
   Note over M,N: Close, once the algebra is dropped
   A->>R: cudaSetDevice, cudaStreamSynchronize

@@ -212,7 +212,8 @@ fn every_methods_outputs_are_ready_when_it_returns() {
 
 /// Dropping an algebra and its tensors releases every native object: the
 /// device session, the workspace and its scratch, the gate's and the
-/// singular values' buffers, the prepared contractions and the tensors.
+/// singular values' buffers (and the smaller one a growth replaced), the
+/// prepared contractions and the tensors.
 #[test]
 fn dropping_the_algebra_and_its_tensors_releases_every_native_object() {
     let (algebra, libraries) = algebra();
@@ -224,6 +225,11 @@ fn dropping_the_algebra_and_its_tensors_releases_every_native_object() {
         ..one_qubit_split(&a, &b)
     };
     let (left, right) = (upload(&algebra, &a), upload(&algebra, &b));
+    // A smaller split first, so that the singular values' buffer grows.
+    let (small_a, small_b) = random_pair(1, 1, 1, 4);
+    one_qubit_split(&small_a, &small_b)
+        .on(&algebra)
+        .expect("the smaller split");
     let outcome = algebra
         .gate_split(&split.call(&left, &right))
         .expect("the split");
@@ -261,6 +267,89 @@ fn a_tensor_outliving_its_algebra_frees_its_buffer_when_dropped() {
     assert_eq!(libraries.live_objects(), 0);
 }
 
+/// CUDA's current device is per thread, and the engine may call the
+/// algebra on a thread that last used another device: every method, and
+/// the drop of a tensor and of the algebra, selects the algebra's device
+/// before any other native call.
+#[test]
+fn every_call_selects_the_algebras_device_first() {
+    let (algebra, libraries) = algebra();
+    let (a, b) = random_pair(1, 1, 1, 12);
+    let (left, right) = (upload(&algebra, &a), upload(&algebra, &b));
+    let split = one_qubit_split(&a, &b);
+    let moved = Move {
+        a: &a,
+        b: &b,
+        l: 1,
+        m: 1,
+        r: 1,
+        gate: None,
+        centre: CentreSide::Right,
+    };
+    let calls: [(&str, &dyn Fn()); 5] = [
+        ("upload", &|| drop(upload(&algebra, &a))),
+        ("read", &|| drop(read(&algebra, &left, a.len()))),
+        ("duplicate", &|| {
+            drop(algebra.duplicate(&left, a.len()).expect("the duplicate"));
+        }),
+        ("gate split", &|| {
+            drop(
+                algebra
+                    .gate_split(&split.call(&left, &right))
+                    .expect("the split"),
+            );
+        }),
+        ("move of the centre", &|| {
+            drop(
+                algebra
+                    .qr_move(&moved.call(&left, &right))
+                    .expect("the move"),
+            );
+        }),
+    ];
+    for (method, call) in calls {
+        let first = first_native_call(&libraries, call);
+        assert_eq!(first, Some("set_device"), "{method}");
+    }
+    let first = first_native_call(&libraries, move || drop(left));
+    assert_eq!(first, Some("set_device"), "the drop of a tensor");
+    let first = first_native_call(&libraries, move || drop(algebra));
+    assert_eq!(first, Some("set_device"), "the drop of the algebra");
+}
+
+/// The first native call `run` makes, if any.
+fn first_native_call(libraries: &FakeLibraries, run: impl FnOnce()) -> Option<&'static str> {
+    let before = libraries.events().len();
+    run();
+    libraries.events().get(before).copied()
+}
+
+/// A failed duplicate whose wait for its copy failed: the call waits for
+/// the copy again before it returns, so that the tensor it copied may be
+/// freed, which the fake refuses while a copy may still read it.
+#[test]
+fn a_failed_call_waits_for_its_copies() {
+    let (algebra, libraries) = algebra();
+    let source = upload(&algebra, &random(4, 13));
+    libraries.fail(
+        "synchronize_copies",
+        libraries.count("synchronize_copies") + 1,
+    );
+    let failed = algebra.duplicate(&source, 4);
+    assert!(
+        matches!(
+            failed,
+            Err(NativeError::NativeCallFailed {
+                operation: "synchronize_copies",
+                ..
+            })
+        ),
+        "{failed:?}"
+    );
+    drop((source, algebra));
+    assert_eq!(libraries.live_objects(), 0);
+}
+
 /// A failed gate split whose cleanup fails too, a release of its SVD
 /// report: both failures are returned, so the cleanup never hides the
 /// cause.
@@ -294,10 +383,10 @@ fn a_cleanup_failure_never_hides_the_cause() {
     );
 }
 
-/// A failed gate split: its library misreports the truncation, and, when
-/// `wait_fails`, the failed call's wait for the device fails too. Returns
-/// the algebra, the pair it split, which the device may still read, and
-/// the split's failure.
+/// A failed gate split: its wait for its device work fails, so that work
+/// may still run, and, when `wait_fails`, the failed call's own wait for
+/// the device fails too. Returns the algebra, the pair it split, which the
+/// device may still read, and the split's failure.
 fn a_failed_split(
     wait_fails: bool,
 ) -> (
@@ -309,20 +398,28 @@ fn a_failed_split(
     let (algebra, libraries) = algebra();
     let (a, b) = random_pair(1, 1, 1, 9);
     let pair = [upload(&algebra, &a), upload(&algebra, &b)];
-    libraries.misreport_truncation(SvdTruncation {
-        reduced_extent: 0,
-        full_extent: 2,
-        discarded_weight: 0.0,
-    });
+    // The split's first wait is for its factorization; the next is the
+    // failed call's.
+    let waits = libraries.count("synchronize_stream");
+    libraries.fail("synchronize_stream", waits + 1);
     if wait_fails {
-        // The split's own wait succeeds; the next is the failed call's.
-        let waits = libraries.count("synchronize_stream");
         libraries.fail("synchronize_stream", waits + 2);
     }
     let failed = algebra
         .gate_split(&one_qubit_split(&a, &b).call(&pair[0], &pair[1]))
-        .expect_err("a misreported truncation");
+        .expect_err("a failed wait");
     (algebra, libraries, pair, failed)
+}
+
+/// The failure of the `synchronize_stream` the fake was told to fail.
+fn is_a_failed_wait(error: &NativeError) -> bool {
+    matches!(
+        error,
+        NativeError::NativeCallFailed {
+            operation: "synchronize_stream",
+            ..
+        }
+    )
 }
 
 /// A failed call waits for the device before it releases its buffers;
@@ -335,20 +432,8 @@ fn a_failed_call_that_cannot_wait_for_the_device_poisons_the_algebra() {
     let NativeError::ExecutionAndCleanupFailed { execution, cleanup } = failed else {
         panic!("both failures, not {failed:?}");
     };
-    assert!(
-        matches!(*execution, NativeError::InvalidNativeResult { .. }),
-        "{execution:?}"
-    );
-    assert!(
-        matches!(
-            *cleanup,
-            NativeError::NativeCallFailed {
-                operation: "synchronize_stream",
-                ..
-            }
-        ),
-        "{cleanup:?}"
-    );
+    assert!(is_a_failed_wait(&execution), "{execution:?}");
+    assert!(is_a_failed_wait(&cleanup), "{cleanup:?}");
     let next = algebra.upload(&random(2, 10));
     assert!(
         matches!(next, Err(NativeError::Poisoned { .. })),
@@ -361,10 +446,7 @@ fn a_failed_call_that_cannot_wait_for_the_device_poisons_the_algebra() {
 #[test]
 fn a_failed_call_that_waited_for_the_device_leaves_the_algebra_usable() {
     let (algebra, _libraries, _pair, failed) = a_failed_split(false);
-    assert!(
-        matches!(failed, NativeError::InvalidNativeResult { .. }),
-        "{failed:?}"
-    );
+    assert!(is_a_failed_wait(&failed), "{failed:?}");
     let values = random(2, 11);
     let tensor = upload(&algebra, &values);
     assert_eq!(read(&algebra, &tensor, 2), values);
@@ -372,7 +454,8 @@ fn a_failed_call_that_waited_for_the_device_leaves_the_algebra_usable() {
 
 /// A poisoned algebra keeps the failed call's objects and buffers, which
 /// the device may still use, and releases them when it is dropped, once
-/// the device is done.
+/// the device is done: the fake refuses to free a buffer while a stream's
+/// work may still run.
 #[test]
 fn a_poisoned_algebra_releases_the_failed_calls_objects_when_dropped() {
     let (algebra, libraries, pair, _failed) = a_failed_split(true);

@@ -41,14 +41,14 @@ fn a_split_returns_the_bond_and_share_it_kept() {
 }
 
 /// A library that reports keeping no value, or more than the split asked
-/// for (here 4, either side of the pair): the report is refused as
-/// invalid, rather than read past the factors.
+/// for (here 4, either side of the pair), though no more than its SVD had:
+/// the report is refused as invalid, rather than read past the factors.
 #[test]
 fn a_bond_outside_one_to_the_largest_asked_is_refused() {
     for reduced_extent in [-1, 0, 5] {
         assert_refused(SvdTruncation {
             reduced_extent,
-            full_extent: 4,
+            full_extent: 8,
             discarded_weight: 0.0,
         });
     }

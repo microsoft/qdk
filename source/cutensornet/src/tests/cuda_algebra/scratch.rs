@@ -16,9 +16,10 @@ fn split_once(algebra: &CudaAlgebra) -> Result<(), NativeError> {
     one_qubit_split(&a, &b).on(algebra).map(drop)
 }
 
-/// Splits that ask for the same scratch, then one that asks for more: the
-/// algebra allocates one buffer for the first, reuses it, and replaces it
-/// by a larger one for the last.
+/// Splits that ask for the same scratch, then one that asks for more, then
+/// one that asks for less: the algebra allocates one buffer for the first,
+/// reuses it, replaces it by a larger one for the third, and keeps that
+/// one for the last.
 #[test]
 fn the_scratch_grows_only_when_a_call_asks_for_more() {
     let (algebra, libraries) = algebra();
@@ -30,6 +31,9 @@ fn the_scratch_grows_only_when_a_call_asks_for_more() {
     split_once(&algebra).expect("the split asking for more");
     assert_eq!(libraries.scratch_buffers(), 2);
     assert_eq!(libraries.live_scratch(), 1);
+    libraries.set_workspace_bytes(WORKSPACE_BYTES);
+    split_once(&algebra).expect("the split asking for less");
+    assert_eq!(libraries.scratch_buffers(), 2);
 }
 
 /// A call that asks for more scratch than the workspace holds: the larger
@@ -58,23 +62,25 @@ fn every_slot_a_call_asks_memory_for_is_lent_it() {
 }
 
 /// A call asking for more scratch than the device has free: it fails with
-/// the bytes asked and the bytes free, before allocating any.
+/// the bytes asked and the bytes free, before allocating any. A call
+/// asking for exactly the free memory is lent it.
 #[test]
-fn scratch_beyond_the_free_memory_is_refused() {
+fn scratch_is_bounded_by_the_free_memory() {
     let (algebra, libraries) = algebra();
-    libraries.set_free_memory(1000);
+    let asked = usize::try_from(WORKSPACE_BYTES).expect("a positive size");
+    libraries.set_free_memory(asked - 1);
     let refused = split_once(&algebra);
     assert!(
         matches!(
             refused,
-            Err(NativeError::WorkspaceLimitExceeded {
-                required,
-                maximum: 1000,
-            }) if i64::try_from(required) == Ok(WORKSPACE_BYTES)
+            Err(NativeError::WorkspaceLimitExceeded { required, maximum })
+                if required == asked && maximum == asked - 1
         ),
         "{refused:?}"
     );
     assert_eq!(libraries.scratch_buffers(), 0);
+    libraries.set_free_memory(asked);
+    split_once(&algebra).expect("a split asking for the free memory");
 }
 
 /// A grown scratch the workspace failed to take: the call fails, and the

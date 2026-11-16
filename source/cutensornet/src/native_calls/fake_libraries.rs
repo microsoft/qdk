@@ -153,7 +153,7 @@ struct Inner {
     objects: BTreeMap<usize, Object>,
     events: Vec<&'static str>,
     calls: BTreeMap<&'static str, usize>,
-    failure: Option<(&'static str, usize)>,
+    failures: Vec<(&'static str, usize)>,
     /// Every operator applied, on any state: its modes and unitary flag.
     applied: Vec<(Vec<i32>, bool)>,
     /// Every buffer ever attached to a workspace as scratch.
@@ -321,9 +321,10 @@ impl FakeLibraries {
         Self::default()
     }
 
-    /// Makes the `occurrence`-th call (from 1) to `operation` fail.
+    /// Makes the `occurrence`-th call (from 1) to `operation` fail, beside
+    /// the calls made to fail before.
     pub(crate) fn fail(&self, operation: &'static str, occurrence: usize) {
-        self.lock().failure = Some((operation, occurrence));
+        self.lock().failures.push((operation, occurrence));
     }
 
     pub(crate) fn events(&self) -> Vec<&'static str> {
@@ -479,7 +480,7 @@ impl FakeLibraries {
         let count = inner.calls.entry(operation).or_insert(0);
         *count += 1;
         let count = *count;
-        if inner.failure == Some((operation, count)) {
+        if inner.failures.contains(&(operation, count)) {
             return Err(failed(operation, "injected failure"));
         }
         Ok(inner)

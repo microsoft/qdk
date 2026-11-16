@@ -188,7 +188,7 @@ Each `SiteAlgebra` method of this algebra combines some of these phases
   that shape.
 - **contract**: a pairwise contraction on that network, waited for.
 - **release**: the call's descriptors, settings and intermediate buffers
-  released, in reverse order of creation.
+  released.
 
 ### How each `SiteAlgebra` method is implemented
 
