@@ -80,6 +80,9 @@ impl PartialEq for BatchReadouts {
 
 impl Eq for BatchReadouts {}
 
+// The methods an executor calls per batch or per shot are `#[inline]`:
+// executors live in other crates, where, without it, these small methods
+// are not inlined, and their calls cost more than their work.
 impl BatchReadouts {
     /// No rows yet, of `readouts` values each, with room for `shots` rows.
     ///
@@ -90,6 +93,7 @@ impl BatchReadouts {
     /// ([`push_row`](Self::push_row)), when the room for `shots` shots'
     /// conditions does.
     #[must_use]
+    #[inline]
     pub fn with_capacity(shots: usize, readouts: u32) -> Self {
         Self {
             readouts,
@@ -103,6 +107,7 @@ impl BatchReadouts {
     /// Empties it for rows of `readouts` values, with room for `shots`
     /// rows, keeping its memory: as [`with_capacity`](Self::with_capacity),
     /// with no allocation where its memory has the room.
+    #[inline]
     pub(crate) fn reset(&mut self, shots: usize, readouts: u32) {
         self.readouts = readouts;
         self.shots = 0;
@@ -115,6 +120,7 @@ impl BatchReadouts {
     /// Records the next shot's `conditions`, its values already added: the
     /// conditions are kept from the first shot that has any, with room for
     /// every row.
+    #[inline]
     fn record_shot(&mut self, conditions: ShotConditions) {
         if self.conditions.is_empty() {
             if conditions.is_empty() {
@@ -140,6 +146,7 @@ impl BatchReadouts {
     /// At the first shot with conditions, when the room for the conditions
     /// of the shots given to [`with_capacity`](Self::with_capacity) exceeds
     /// `isize::MAX` bytes.
+    #[inline]
     pub fn push_row(
         &mut self,
         values: &[ReadoutValue],
@@ -177,6 +184,7 @@ impl BatchReadouts {
     /// When `position` is not below [`shots`](Self::shots).
     #[must_use]
     #[track_caller]
+    #[inline]
     pub fn row(&self, position: usize) -> &[ReadoutValue] {
         self.check_position(position);
         let width = self.readouts as usize;
@@ -261,6 +269,7 @@ impl BatchReadouts {
 
     /// Panics, naming the rows, when `position` is not a row's.
     #[track_caller]
+    #[inline]
     fn check_position(&self, position: usize) {
         assert!(
             position < self.shots(),

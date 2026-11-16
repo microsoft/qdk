@@ -49,6 +49,7 @@ impl Readouts {
     }
 
     /// Empties it, keeping its memory.
+    #[inline]
     pub fn clear(&mut self) {
         self.len = 0;
     }
@@ -63,6 +64,7 @@ impl Readouts {
     /// When the room for `shots` rows is more than a `Vec` holds, here or
     /// at the first shot with conditions, as
     /// [`BatchReadouts::with_capacity`] says.
+    #[inline]
     pub fn push_with_capacity(&mut self, shots: usize, readouts: u32) -> &mut BatchReadouts {
         if self.len == self.batches.len() {
             self.batches
@@ -77,6 +79,7 @@ impl Readouts {
     /// Adds the next batch's readouts, made elsewhere, such as by
     /// [`BatchReadouts::concat_readouts`]: they take the place of the
     /// memory kept for the next batch, which is freed.
+    #[inline]
     pub fn push(&mut self, batch: BatchReadouts) {
         if self.len == self.batches.len() {
             self.batches.push(batch);
@@ -89,6 +92,7 @@ impl Readouts {
     /// Keeps only the first `len` readouts, if it holds more, keeping
     /// the memory of the rest: what the protocol does to remove a failed
     /// `execute`'s answer.
+    #[inline]
     pub(crate) fn truncate(&mut self, len: usize) {
         self.len = self.len.min(len);
     }
@@ -97,6 +101,7 @@ impl Readouts {
 impl Deref for Readouts {
     type Target = [BatchReadouts];
 
+    #[inline]
     fn deref(&self) -> &[BatchReadouts] {
         &self.batches[..self.len]
     }
