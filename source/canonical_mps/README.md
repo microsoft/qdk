@@ -287,6 +287,27 @@ rotations still turn after their last sweep, `FailedChecks` when `θ` holds
 a value that is not finite or the factors fail the SVD's checks. The
 engine reports it as `CanonicalMpsError::Algebra`.
 
+## Examples
+
+The examples measure `CpuMpsEngine` on circuits larger than the tests
+run, up to recorded chemistry shots; they assert nothing.
+
+- [`h2_shots`](examples/h2_shots.rs): recorded shots of H₂'s phase
+  estimation (its header gives their size and formats); for each shot,
+  the total variation distance (TVD) between the engine's distribution of
+  the readout qubits and the recorded exact one, and the time.
+  The shots are recorded by a simulator run outside this crate.
+- [`routing`](examples/routing.rs): circuits whose gates act on distant
+  qubits: the time, the retained weight, the bonds at rest and during
+  routes, and the distance to the exact state up to 22 qubits.
+- [`sparse_comparison`](examples/sparse_comparison.rs): the engine against
+  the QDK's sparse state simulator on the same circuits: their agreement,
+  and both times.
+
+Each file's header gives its command line and the formats of its input
+files; run them with `--release`. What they share is in
+[`examples/support`](examples/support/support.rs).
+
 ## Tests
 
 The [unit tests](src/tests) check the truncation rule, the reference
@@ -294,8 +315,12 @@ algebra against the contract, and the engine's rules on that algebra;
 where the engine reads values, they compare them with closed-form values,
 or with `tensornet`'s exact reference on circuits too large to check by
 hand, without truncation and within the distance its truncations allow.
-A backend in another crate is to check its own implementation of the
-contract there.
+The [integration tests](tests) compare `CpuMpsEngine` with the QDK's
+[sparse simulator](tests/sparse_simulator.rs) on every one- and two-qubit
+gate it runs, and with its [stabilizer simulator](tests/exact_families.rs)
+on Clifford circuits of up to 48 qubits, beside mirror circuits that
+return every qubit to zero. A backend in another crate is to check its
+own implementation of the contract there.
 
 ## Platforms
 

@@ -16,6 +16,10 @@ tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+# The integration tests compare with the stabilizer simulator, whose
+# observables are paulimer's, and with the sparse state simulator.
+paulimer = { workspace = true }
+qdk_simulators = { path = "../simulators", default-features = false }
 # The exact reference the engine's tests compare with.
 tensornet = { path = "../tensornet", features = ["conformance"] }
 
