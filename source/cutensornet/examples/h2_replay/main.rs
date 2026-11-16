@@ -65,7 +65,8 @@ struct Shot {
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("h2_replay error: {error}");
+        // Debug, not Display: it shows the cause an algebra error wraps.
+        eprintln!("h2_replay error: {error:?}");
         std::process::exit(1);
     }
 }

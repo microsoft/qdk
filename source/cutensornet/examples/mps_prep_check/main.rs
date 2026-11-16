@@ -237,7 +237,8 @@ fn main() {
     match run_case() {
         Ok(status) => std::process::exit(status),
         Err(error) => {
-            println!("MPSPREP error {error}");
+            // Debug, not Display: it shows the cause an algebra error wraps.
+            println!("MPSPREP error {error:?}");
             std::process::exit(1);
         }
     }

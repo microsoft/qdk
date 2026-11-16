@@ -145,7 +145,8 @@ struct Case {
 
 fn main() {
     if let Err(error) = run_case() {
-        println!("POLYENE error {error}");
+        // Debug, not Display: it shows the cause an algebra error wraps.
+        println!("POLYENE error {error:?}");
         std::process::exit(1);
     }
 }
