@@ -148,6 +148,13 @@ fn descriptor_gate(gate: &[Complex64; 16]) -> [Complex64; 16] {
 /// against what a split of at most `k` values can report: a bond in
 /// `1..=k` and at most the full extent, and a weight in `[0, 1)`, so that
 /// the retained fraction is in `(0, 1]`. Anything else is a library fault.
+///
+/// A weight below zero by no more than `policy::DISCARDED_WEIGHT_TOLERANCE`
+/// is the library's rounding of a split that discarded nothing, and is
+/// read as 0. The upper end is strict: cuTensorNet keeps the largest
+/// singular values and at least one of them (as the bond's check asks),
+/// and the largest square is at least `1/n` of the sum of `n`, so a true
+/// weight is at most `1 - 1/n`; a weight of 1 or more, or NaN, is a fault.
 fn checked(truncation: SvdTruncation, k: usize) -> Result<(usize, f64), NativeError> {
     let SvdTruncation {
         reduced_extent,
@@ -168,10 +175,12 @@ fn checked(truncation: SvdTruncation, k: usize) -> Result<(usize, f64), NativeEr
             "a gate split kept {reduced_extent} singular values of {full_extent}"
         )));
     }
-    if !(0.0..1.0).contains(&discarded_weight) {
+    if !(-policy::DISCARDED_WEIGHT_TOLERANCE..1.0).contains(&discarded_weight) {
         return Err(invalid(format!(
-            "a gate split discarded a weight of {discarded_weight}, not in [0, 1)"
+            "a gate split discarded a weight of {discarded_weight}, not in [0, 1) \
+             (nor a rounding of 0 within {:e})",
+            policy::DISCARDED_WEIGHT_TOLERANCE
         )));
     }
-    Ok((bond, discarded_weight))
+    Ok((bond, discarded_weight.max(0.0)))
 }

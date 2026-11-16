@@ -1,11 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The algebra's fixed settings: the device, the SVD algorithm, and how
-//! the contractions of a move of the centre find and keep their paths. No
-//! caller tunes them. The SVD algorithm was chosen by measurement on an
-//! A100, given below; the path settings were carried over from the GPU
-//! prototype of this algebra, not measured.
+//! The algebra's fixed settings: the device, the SVD algorithm, the
+//! rounding a split's report may carry, and how the contractions of a move
+//! of the centre find and keep their paths. No caller tunes them. The SVD
+//! algorithm was chosen by measurement on an A100, given below; the path
+//! settings were carried over from the GPU prototype of this algebra, not
+//! measured.
 //!
 //! A gate split also runs cuTensorNet's reduced algorithm
 //! (`CUTENSORNET_GATE_SPLIT_ALGO_REDUCED`), which first factors A and B by
@@ -33,6 +34,17 @@ pub(super) const DEVICE_ORDINAL: i32 = 0;
 /// 24th step of an 8-site polyene (cuTensorNet 2.13.0, CUDA 12.9, on an
 /// A100).
 pub(super) const SVD_ALGORITHM: SvdSetting = SvdSetting::AlgorithmGesvd;
+
+/// How far below zero a gate split's reported discarded weight may lie and
+/// still be read as zero, nothing discarded. cuTensorNet reports the
+/// weight rounded: a split that discarded nothing reported -2.2e-16 on an
+/// A100, as one minus a kept share of the squares rounded above 1 would.
+/// That rounding, over the at most `k` singular values of a split, is
+/// about `k·ε` at worst (2.3e-13 at `k` = 1024), so 1e-12 covers it with
+/// room, while a negative weight of any real size, a library fault, is
+/// still refused. A constant rather than a bound in `k`: the bound would
+/// rest on how the library sums the squares, which it does not document.
+pub(crate) const DISCARDED_WEIGHT_TOLERANCE: f64 = 1e-12;
 
 /// The device memory, in bytes, the path search of a contraction may plan
 /// for (1 GiB): a pairwise contraction of two sites needs far less, so the

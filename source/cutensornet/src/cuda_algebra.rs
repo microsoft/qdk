@@ -78,7 +78,7 @@ mod scratch;
 
 pub use device_tensor::DeviceTensor;
 #[cfg(test)]
-pub(crate) use policy::NETWORKS_KEPT;
+pub(crate) use policy::{DISCARDED_WEIGHT_TOLERANCE, NETWORKS_KEPT};
 
 use crate::device_session::DeviceSession;
 use crate::native_calls::complex::{Complex64Abi, complex_bytes};

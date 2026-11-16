@@ -6,6 +6,7 @@
 //! not have made, and the release of what a split made.
 
 use super::*;
+use crate::cuda_algebra::DISCARDED_WEIGHT_TOLERANCE;
 
 /// Pairs, square and not, give the reference algebra's truncated SVD
 /// (`algebra_rules.rs`).
@@ -65,11 +66,30 @@ fn a_bond_above_the_full_extent_is_refused() {
     });
 }
 
-/// A library that reports a discarded weight outside `[0, 1)`: the report
-/// is refused as invalid, since the share kept must lie in `(0, 1]`.
+/// A library that reports a discarded weight outside `[0, 1)`: a weight
+/// rounded below zero, as an A100 reported for a split that discarded
+/// nothing, is read as nothing discarded (the bond reported, the share
+/// kept exactly 1); one below the tolerance, of 1 or more, or NaN is
+/// refused as invalid, since the share kept must lie in `(0, 1]`.
 #[test]
-fn a_discarded_weight_outside_zero_to_one_is_refused() {
-    for discarded_weight in [-1e-3, 1.0, f64::NAN] {
+fn a_discarded_weight_lies_in_zero_to_one_up_to_a_rounding_below_zero() {
+    let (algebra, libraries) = algebra();
+    let (a, b) = random_pair(2, 2, 2, 17);
+    libraries.misreport_truncation(SvdTruncation {
+        reduced_extent: 2,
+        full_extent: 4,
+        discarded_weight: -2.220_446_049_250_313e-16,
+    });
+    let split = Split {
+        l: 2,
+        m: 2,
+        r: 2,
+        ..one_qubit_split(&a, &b)
+    };
+    let kept = split.on(&algebra).expect("a weight rounded below zero");
+    assert_eq!((kept.bond, kept.retained_fraction), (2, 1.0));
+    let below_the_tolerance = (-DISCARDED_WEIGHT_TOLERANCE).next_down();
+    for discarded_weight in [below_the_tolerance, -1e-3, 1.0, f64::NAN] {
         assert_refused(SvdTruncation {
             reduced_extent: 2,
             full_extent: 4,
