@@ -14,12 +14,14 @@ use super::{BatchReadouts, Readouts};
 /// batch, but cannot remove or change any.
 ///
 /// So the readouts a caller holds when it lends them, such as a driver's
-/// earlier rounds, stay as they were, and an `execute` that fails leaves
-/// them as they were: the protocol removes what the failed `execute`
-/// appended. A part that sends an `execute` below lends its own view on:
-/// `below.execute(batches, seed, readouts)`. A part that needs to remove
-/// what it appended, such as an adapter that retries, collects in a
-/// buffer of its own and appends the answer it keeps.
+/// earlier rounds, stay as they were, and, through the protocol, an
+/// `execute` that fails leaves them as they were: the protocol removes
+/// what the failed `execute` appended. A part that sends an `execute`
+/// below lends its own view on: `below.execute(batches, seed, readouts)`.
+/// A part that resends after a failure below may resend through the view
+/// it was lent, since the protocol removed the failed answer. A part that
+/// drops an answer that succeeded below needs a buffer of its own: it
+/// collects there, and appends the answer it keeps.
 ///
 /// An `execute` may assign or swap in a view of another buffer, one that
 /// outlives the call (a leaked or static one): that changes only where

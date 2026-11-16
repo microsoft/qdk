@@ -144,7 +144,9 @@ pub trait Adapt {
     /// unchanged, and a view of a buffer of its choice: `readouts` itself,
     /// when what below appends is its own answer, or a view of a
     /// [`Readouts`](crate::Readouts) it keeps to reuse, when it maps the
-    /// readouts below to its own, or retries.
+    /// readouts below to its own, or drops an answer that succeeded below.
+    /// After a failure below, it may resend through `readouts`: the
+    /// protocol removed the failed answer.
     ///
     /// Each batch it sends below holds only shots of the batches it got: a
     /// rule the adapter keeps, which the protocol does not check, and

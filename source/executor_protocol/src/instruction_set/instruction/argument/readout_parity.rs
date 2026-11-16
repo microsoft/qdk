@@ -103,8 +103,8 @@ enum Repr {
     Spilled { flip: bool, back: Arc<[u32]> },
 }
 
-/// An inline parity's flip and count, in one byte. Its values not listed
-/// here hold the tags of the enums around it (`Repr`,
+/// An inline parity's flip and count, in one byte. Its values above
+/// `FlippedCount5` hold the tags of the enums around it (`Repr`,
 /// [`Bit`](super::Bit), [`Argument`](super::Argument)), so that none of
 /// them grows.
 #[derive(Clone, Copy)]

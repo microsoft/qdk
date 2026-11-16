@@ -63,7 +63,8 @@ pub type Arguments = SmallVec<[Argument; 3]>;
 // The instruction's size sets how fast a batch runs, as the crate's bench
 // measures; smallvec's `union` feature, on in `Cargo.toml`, saves 16 bytes.
 // Equal, not at most, so that a change of layout either way is deliberate:
-// the docs and the bench state this size, and a change is measured again.
+// `Cargo.toml`'s comment states this size, the bench prints it, and a
+// change is measured again.
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<Instruction>() == 128);
 

@@ -20,7 +20,7 @@ use crate::tests::fake_parts::{
 use crate::{
     Adapt, Adapter, AppendOnlyReadouts, Batch, Capabilities, CompositionFaults, Drive, DriveError,
     Driver, Execute, ExecuteError, Executor, Failure, Instruction, InstructionSet, Needs,
-    OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
 };
 
 /// How a [`Lender`] waits for its `execute`.
@@ -265,45 +265,66 @@ fn seen<E: Execute>(waits: Waits, executor: E) -> Seen {
     seen_on(waits, |lender| lender >> Executor::new(executor))
 }
 
-/// A driver lending readouts that hold a batch of its own: the answer of
-/// its `execute` of one batch comes after it, a row per shot, and its own
-/// batch is unchanged; also when an adapter between sends the `execute`
-/// again, through the readouts it is lent, after the part below failed
-/// having appended an answer: the driver then reads only the answer sent
-/// again, where each shot's second `x` gave `Zero`.
+/// A driver lending readouts that hold a batch of its own to an executor:
+/// the answer of its `execute` of one batch comes after it, a row per
+/// shot, and its own batch is unchanged.
 #[test]
 fn an_execute_appends_its_answer_after_the_readouts_already_there() {
     let log = Log::default();
-    let counted = Rc::default();
-    for (scene, seen, value) in [
-        (
-            "an executor",
-            seen(Waits::ForTheAnswer, Bits::new(&log)),
-            ReadoutValue::One,
-        ),
-        (
-            "an adapter sending again after a failure below",
-            seen_on(Waits::ForTheAnswer, |lender| {
-                lender
-                    >> Adapter::new(RetriesAfterAFailure(Profiler::new(&counted, &log)))
-                    >> Executor::new(Unruly(Bits::new(&log), Unruliness::FailsAfterAppendingOnce))
-            }),
-            ReadoutValue::Zero,
-        ),
-    ] {
-        let Seen {
-            before,
-            result,
-            after,
-        } = seen;
-        result
-            .expect("the lender waited")
-            .unwrap_or_else(|error| panic!("{scene}: {error:?}"));
-        assert_eq!(after.len(), 2, "{scene}");
-        assert_eq!(after[0], before[0], "{scene}: the lender's own batch");
-        assert_eq!(after[1].shots(), 3, "{scene}");
-        for shot in 0..3 {
-            assert_eq!(after[1].row(shot), [value], "{scene}: shot {shot}");
+    let Seen {
+        before,
+        result,
+        after,
+    } = seen(Waits::ForTheAnswer, Bits::new(&log));
+    result
+        .expect("the lender waited")
+        .expect("the executor answers");
+    assert_eq!(after.len(), 2);
+    assert_eq!(after[0], before[0], "the lender's own batch");
+    assert_eq!(after[1].shots(), 3);
+    for shot in 0..3 {
+        assert_eq!(after[1].row(shot), [ReadoutValue::One], "shot {shot}");
+    }
+}
+
+/// What a [`Lender`]'s `execute` gives, in a row of
+/// [`a_failed_or_dropped_execute_leaves_the_lent_readouts_as_they_were`].
+enum Gives {
+    /// The executor's own failure, "the device failed".
+    ItsFailure,
+    /// A failure for the executor's panic, "the device broke".
+    ItsPanic,
+    /// A failure for this fault in the answer's shape, naming shot 0.
+    Fault(ShapeFault),
+    /// The answer to an adapter's resend: each shot's second `x` gives
+    /// `Zero`.
+    TheAnswerSentAgain,
+    /// Nothing: the lender stopped waiting.
+    Nothing,
+}
+
+impl Gives {
+    /// Whether `result` is what this says.
+    fn is(&self, result: Option<&Result<(), ExecuteError>>) -> bool {
+        match self {
+            Self::ItsFailure => matches!(
+                result,
+                Some(Err(ExecuteError::Failed { failure: Failure::Part(error), .. }))
+                    if error.to_string() == "the device failed"
+            ),
+            Self::ItsPanic => matches!(
+                result,
+                Some(Err(ExecuteError::Failed { failure: Failure::Panicked { message, .. }, .. }))
+                    if message.as_deref() == Some("the device broke")
+            ),
+            Self::Fault(fault) => matches!(
+                result,
+                Some(Err(ExecuteError::Failed { shot, failure: Failure::Part(error) }))
+                    if *shot == ShotId::new(0)
+                        && error.downcast_ref::<ShapeFault>() == Some(fault)
+            ),
+            Self::TheAnswerSentAgain => matches!(result, Some(Ok(()))),
+            Self::Nothing => result.is_none(),
         }
     }
 }
@@ -312,10 +333,14 @@ fn an_execute_appends_its_answer_after_the_readouts_already_there() {
 /// that appends its answer, then fails, panics or answers the wrong shape,
 /// to one that points the view it is lent at a buffer of its own and
 /// answers there, or to one it stops waiting for: the readouts are as they
-/// were, so the driver never reads part of an answer.
+/// were, so the driver never reads part of an answer. Also at a boundary
+/// below an adapter: when the executor fails after appending and the
+/// adapter sends the `execute` again, through the readouts it is lent, the
+/// driver reads only the answer sent again.
 #[test]
 fn a_failed_or_dropped_execute_leaves_the_lent_readouts_as_they_were() {
     let log = Log::default();
+    let counted = Rc::default();
     for (
         row,
         Seen {
@@ -323,7 +348,7 @@ fn a_failed_or_dropped_execute_leaves_the_lent_readouts_as_they_were() {
             result,
             after,
         },
-        fails,
+        gives,
     ) in [
         (
             "an executor failing after appending",
@@ -331,7 +356,7 @@ fn a_failed_or_dropped_execute_leaves_the_lent_readouts_as_they_were() {
                 Waits::ForTheAnswer,
                 Unruly(Bits::new(&log), Unruliness::FailsAfterAppending),
             ),
-            true,
+            Gives::ItsFailure,
         ),
         (
             "an executor panicking after appending",
@@ -339,20 +364,27 @@ fn a_failed_or_dropped_execute_leaves_the_lent_readouts_as_they_were() {
                 Waits::ForTheAnswer,
                 Unruly(Bits::new(&log), Unruliness::PanicsAfterAppending),
             ),
-            true,
+            Gives::ItsPanic,
         ),
         (
             "an executor answering a row too many",
             seen(Waits::ForTheAnswer, Misshapen(Misshape::ExtraRow)),
-            true,
+            Gives::Fault(ShapeFault::Rows {
+                batch: 0,
+                expected: 3,
+                got: 4,
+            }),
         ),
         (
-            "an executor answering in a buffer of its own",
+            "an executor answering in a buffer of its own, as readouts missing",
             seen(
                 Waits::ForTheAnswer,
                 Unruly(Bits::new(&log), Unruliness::SwapsInAViewOfItsOwn),
             ),
-            true,
+            Gives::Fault(ShapeFault::Batches {
+                expected: 1,
+                got: 0,
+            }),
         ),
         (
             "an execute dropped after appending",
@@ -360,15 +392,28 @@ fn a_failed_or_dropped_execute_leaves_the_lent_readouts_as_they_were() {
                 Waits::ForOnePoll,
                 Unruly(Bits::new(&log), Unruliness::WaitsAfterAppending),
             ),
-            false,
+            Gives::Nothing,
+        ),
+        (
+            "below an adapter sending again, an executor failing after appending",
+            seen_on(Waits::ForTheAnswer, |lender| {
+                lender
+                    >> Adapter::new(RetriesAfterAFailure(Profiler::new(&counted, &log)))
+                    >> Executor::new(Unruly(Bits::new(&log), Unruliness::FailsAfterAppendingOnce))
+            }),
+            Gives::TheAnswerSentAgain,
         ),
     ] {
-        if fails {
-            assert!(
-                matches!(result, Some(Err(ExecuteError::Failed { .. }))),
-                "{row}: {result:?}"
-            );
+        assert!(gives.is(result.as_ref()), "{row}: {result:?}");
+        let mut expected = before.clone();
+        if let Gives::TheAnswerSentAgain = gives {
+            let answer = expected.push_with_capacity(3, 1);
+            for _ in 0..3 {
+                answer
+                    .push_row(&[ReadoutValue::Zero], ShotConditions::NONE)
+                    .expect("a row of one value");
+            }
         }
-        assert_eq!(after, before, "{row}");
+        assert_eq!(after, expected, "{row}");
     }
 }

@@ -29,10 +29,10 @@ use super::BatchReadouts;
 /// appends one per batch, in the batches' order, and cannot remove or
 /// change those it found. The protocol checks every answer that crosses a
 /// boundary of a chain against its batches, as
-/// [`ShapeFault`](crate::ShapeFault) says, and an `execute` that fails
-/// leaves it as it was. Its owner [`clear`](Self::clear)s it between
-/// `execute`s whose answers it no longer needs; the memory stays, for the
-/// next.
+/// [`ShapeFault`](crate::ShapeFault) says, and, through the protocol, an
+/// `execute` that fails leaves it as it was. Its owner
+/// [`clear`](Self::clear)s it between `execute`s whose answers it no
+/// longer needs; the memory stays, for the next.
 #[derive(Default)]
 pub struct Readouts {
     /// The batches' readouts: the first `len` in use, the rest kept, with

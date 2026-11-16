@@ -15,8 +15,8 @@ use crate::{
 
 /// Calls the part below with batches of the instructions it sends, each
 /// with its shots, and the seed, and makes each shot's output from the
-/// readouts the part below appends to a buffer it lends, which it clears
-/// or reuses between calls.
+/// readouts the part below appends to the driver's buffer, which the
+/// driver clears or reuses between calls.
 ///
 /// Such as a program's interpreter, which sends each shot's instructions
 /// up to its next branch on a readout. It is the part at the top of a
