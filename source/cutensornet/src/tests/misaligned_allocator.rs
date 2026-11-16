@@ -1,26 +1,27 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The unit tests' global allocator, which starts every byte buffer one
-//! byte past a 256-byte boundary, the worst start for the CUDA algebra's
-//! host workspace (`src/cuda_algebra/scratch.rs`): what a host slot lends
-//! must begin on a 256-byte boundary, so its buffer holds that many bytes
-//! beyond what it lends, and only a buffer that starts off a boundary
-//! needs them. The system allocator often starts large buffers on one,
-//! where a slot without those bytes would still pass; under this allocator
-//! it never does, so the scratch tests catch it on every host.
+//! The unit tests' global allocator, which starts every allocation of
+//! alignment 1 (byte buffers, strings) one byte past a 256-byte boundary,
+//! the worst start for the CUDA algebra's host workspace
+//! (`src/cuda_algebra/scratch.rs`): what a host slot lends must begin on a
+//! 256-byte boundary, so a buffer starting one byte past one skips 255
+//! bytes, every byte the slot holds beyond what it lends. The system
+//! allocator often starts large buffers on a boundary, where a slot without
+//! those bytes would still pass; under this allocator it never does, so the
+//! scratch tests catch it on every host.
 //!
 //! It is safe for the whole test binary: every allocation is still one the
 //! system allocator made, aligned at least as its layout asks, and only
-//! byte buffers (alignment 1), which no layout asks to align, are moved.
+//! allocations of alignment 1, whose start no layout constrains, are moved.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 
-/// Where a byte buffer starts in the block holding it: one byte past the
-/// block's start, which lies on a [`BOUNDARY`].
+/// Where an allocation of alignment 1 starts in the block holding it: one
+/// byte past the block's start, which lies on a [`BOUNDARY`].
 const SHIFT: usize = 1;
 
-/// The boundary a byte buffer starts [`SHIFT`] bytes past.
+/// The boundary an allocation of alignment 1 starts [`SHIFT`] bytes past.
 pub(super) const BOUNDARY: usize = 256;
 
 struct MisalignedAllocator;
@@ -28,9 +29,9 @@ struct MisalignedAllocator;
 #[global_allocator]
 static ALLOCATOR: MisalignedAllocator = MisalignedAllocator;
 
-/// The block that holds a byte buffer of `layout`'s size [`SHIFT`] bytes
-/// past its start, or `None` for any other layout, which is allocated as
-/// asked.
+/// The block that holds an allocation of `layout`, of alignment 1,
+/// [`SHIFT`] bytes past its start, or `None` for any other layout, which
+/// is allocated as asked.
 fn shifted_block(layout: Layout) -> Option<Layout> {
     if layout.align() != 1 {
         return None;
@@ -41,10 +42,10 @@ fn shifted_block(layout: Layout) -> Option<Layout> {
 
 // SAFETY: every pointer returned is either the system allocator's, for the
 // layout asked, or `SHIFT` bytes into a block the system allocator made
-// `SHIFT` bytes larger than the layout asks, which only alignment 1 asks
-// of; `dealloc` sees the same layout as the allocation (`GlobalAlloc`'s
-// contract) and so undoes the same shift. The default `realloc` goes
-// through `alloc` and `dealloc`.
+// `SHIFT` bytes larger, for a layout of alignment 1 only; `dealloc` sees
+// the same layout as the allocation (`GlobalAlloc`'s contract) and so
+// undoes the same shift. The default `realloc` goes through `alloc` and
+// `dealloc`.
 unsafe impl GlobalAlloc for MisalignedAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         match shifted_block(layout) {

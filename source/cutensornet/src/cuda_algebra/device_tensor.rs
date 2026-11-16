@@ -20,7 +20,9 @@ use std::{fmt, rc::Rc};
 /// the algebra returns with its device work done, so nothing uses the
 /// buffer then, except after a failed call that could not wait for the
 /// device (the algebra is poisoned): the buffer is then freed only after
-/// a later wait for the device succeeds, or leaked.
+/// a later wait for the device succeeds, or leaked. A drop that cannot
+/// select the algebra's device leaks the buffer too, since its free needs
+/// that device; debug builds write that failure as well.
 pub struct DeviceTensor {
     buffer: OpaqueHandle,
     elements: usize,
@@ -38,12 +40,12 @@ impl DeviceTensor {
         }
     }
 
-    /// Refuses the tensor unless `session`, the session of the algebra
-    /// called, made it: a tensor's buffer is freed through the session that
+    /// Refuses the tensor unless the algebra of `session` made it: a
+    /// tensor's buffer is freed through the session of the algebra that
     /// made it, which knows nothing of another algebra's device work, so a
     /// failed call of another algebra could not keep the buffer from being
     /// freed while that call's work may still read it.
-    pub(super) fn belongs_to(&self, session: &Rc<AlgebraSession>) -> Result<(), NativeError> {
+    pub(super) fn check_made_by(&self, session: &Rc<AlgebraSession>) -> Result<(), NativeError> {
         if Rc::ptr_eq(&self.session, session) {
             Ok(())
         } else {

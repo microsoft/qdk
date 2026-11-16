@@ -106,9 +106,10 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 /// It holds, across calls, a workspace descriptor and the memory it lends
 /// cuTensorNet, which grows to the largest call's and never shrinks, and
 /// the contraction networks of up to a few hundred shapes. Dropping it
-/// releases them; its tensors keep the session alive and free their own
-/// buffers. A poisoned algebra frees nothing the device may still use
-/// until a wait for it succeeds (`algebra_session.rs`). It accepts only
+/// releases them, unless it cannot select its device, which leaks them;
+/// its tensors keep the session alive and free their own buffers. A
+/// poisoned algebra frees nothing the device may still use until a wait
+/// for it succeeds (`algebra_session.rs`). It accepts only
 /// the tensors it made, refusing another algebra's with
 /// [`NativeError::ForeignTensor`].
 pub struct CudaAlgebra {
@@ -213,7 +214,7 @@ impl CudaAlgebra {
         let mut resources = self.resources.borrow_mut();
         self.session.check_usable()?;
         for operand in operands {
-            operand.belongs_to(&self.session)?;
+            operand.check_made_by(&self.session)?;
         }
         self.session.device_session().bind_device()?;
         let mut scope = CallScope::new(&self.session, &mut resources);
@@ -225,10 +226,11 @@ impl CudaAlgebra {
         DeviceTensor::new(buffer, elements, &self.session)
     }
 
-    /// Releases everything the algebra holds; attempts every release and
-    /// returns the first failure. A poisoned algebra's memory is retired,
-    /// and released with the rest of what was retired if a wait for the
-    /// device now succeeds (`algebra_session.rs`).
+    /// Releases everything the algebra holds, with its device bound;
+    /// attempts every release and returns the first failure, or leaks them
+    /// all if the device cannot be bound. A poisoned algebra's memory is
+    /// retired, and released with the rest of what was retired if a wait
+    /// for the device now succeeds (`algebra_session.rs`).
     fn close(&mut self) -> Result<(), NativeError> {
         let resources = std::mem::take(self.resources.get_mut());
         let released = self.session.release(Retired::Resources(resources));

@@ -19,8 +19,8 @@
 //!
 //! They run under an allocator that starts every byte buffer just past a
 //! 256-byte boundary (`misaligned_allocator`), so the CUDA algebra's host
-//! workspace is tested at the start that needs its alignment bytes on every
-//! host.
+//! workspace is tested, on every host, at the start that needs every byte
+//! of its padding.
 
 mod cuda_algebra;
 mod device_session;

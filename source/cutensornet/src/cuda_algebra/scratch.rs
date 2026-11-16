@@ -25,13 +25,18 @@ use std::ptr::NonNull;
 /// alignment cuTensorNet's own allocations have.
 const HOST_ALIGNMENT: usize = 256;
 
+/// The bytes a host slot holds beyond what it lends: the most it may skip
+/// to reach a `HOST_ALIGNMENT`-aligned byte, when its memory starts one
+/// byte past one.
+const HOST_PADDING: usize = HOST_ALIGNMENT - 1;
+
 /// The memory of a workspace descriptor's four slots, each grown on
 /// demand.
 #[derive(Default)]
 pub(super) struct Scratch {
     /// The device scratch and the device cache: a buffer and its bytes.
     device: [Option<(OpaqueHandle, usize)>; 2],
-    /// The host scratch and the host cache, each `HOST_ALIGNMENT` bytes
+    /// The host scratch and the host cache, each `HOST_PADDING` bytes
     /// larger than what it lends, to align it.
     host: [Vec<u8>; 2],
     /// Device buffers replaced while the descriptor may still hold them (a
@@ -64,10 +69,10 @@ impl Scratch {
         {
             if let Some(bytes) = asked(calls, handle, workspace, slot)? {
                 let held = &mut self.host[index];
-                if held.len() < bytes + HOST_ALIGNMENT {
+                if held.len() < bytes + HOST_PADDING {
                     // The smaller memory is dropped only once the
                     // descriptor holds the larger, as a device buffer is.
-                    let mut grown = vec![0; bytes + HOST_ALIGNMENT];
+                    let mut grown = vec![0; bytes + HOST_PADDING];
                     lend_host(calls, handle, workspace, slot, &mut grown)?;
                     *held = grown;
                 } else {

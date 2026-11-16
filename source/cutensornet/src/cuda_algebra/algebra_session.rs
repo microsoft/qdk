@@ -121,7 +121,8 @@ impl AlgebraSession {
     }
 
     /// Releases `retired` now, with the device bound, or retires it if the
-    /// session is poisoned.
+    /// session is poisoned. If the device cannot be bound, `retired` is
+    /// dropped unreleased (leaked), since its release needs that device.
     pub(super) fn release(&self, retired: Retired) -> Result<(), NativeError> {
         if let Some(unwaited) = &mut *self.unwaited.borrow_mut() {
             unwaited.retired.push(retired);

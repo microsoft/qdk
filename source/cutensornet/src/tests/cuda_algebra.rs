@@ -182,8 +182,8 @@ fn a_call_reading_past_a_tensors_elements_is_refused() {
 /// algebra, whose failed call could not keep the tensor from being freed
 /// while that call's work may still read it, refuses it before any native
 /// call, whichever method is given it and whichever of a pair's tensors it
-/// is, and so does the engine on it, given a state another engine
-/// prepared. Nothing is leaked.
+/// is, and so does an engine method that passes another engine's sites to
+/// the algebra (its fork). Nothing is leaked.
 #[test]
 fn a_tensor_of_another_algebra_is_refused() {
     use crate::CudaMpsEngine;
@@ -349,7 +349,9 @@ fn a_tensor_outliving_its_algebra_frees_its_buffer_when_dropped() {
 /// CUDA's current device is per thread, and the engine may call the
 /// algebra on a thread that last used another device: every method, and
 /// the drop of a tensor and of the algebra, selects the algebra's device
-/// before any other native call.
+/// before any other native call. A tensor or an algebra dropped while the
+/// device cannot be selected frees nothing, since a free needs that
+/// device: its memory is leaked.
 #[test]
 fn every_call_selects_the_algebras_device_first() {
     let (algebra, libraries) = algebra();
@@ -392,6 +394,31 @@ fn every_call_selects_the_algebras_device_first() {
     }
     let first = first_native_call(&libraries, move || drop(left));
     assert_eq!(first, Some("set_device"), "the drop of a tensor");
+    let stranded = upload(&algebra, &a);
+    let (before, live) = (libraries.events().len(), libraries.live_objects());
+    libraries.fail("set_device", libraries.count("set_device") + 1);
+    drop(stranded);
+    assert_eq!(
+        libraries.events()[before..],
+        ["set_device"],
+        "the drop of a tensor whose device cannot be selected frees nothing"
+    );
+    assert_eq!(libraries.live_objects(), live, "its buffer is leaked");
+    let (stranded, stranded_libraries) = self::algebra();
+    let before = stranded_libraries.events().len();
+    stranded_libraries.fail("set_device", stranded_libraries.count("set_device") + 1);
+    drop(stranded);
+    let events = stranded_libraries.events();
+    let released = events[before..]
+        .iter()
+        .filter(|&&event| event == "free" || event.starts_with("destroy_"))
+        .filter(|&event| !SESSION_DESTROYS.contains(event));
+    assert_eq!(
+        released.count(),
+        0,
+        "the drop of an algebra whose device cannot be selected frees nothing: {:?}",
+        &events[before..]
+    );
     let first = first_native_call(&libraries, move || drop(algebra));
     assert_eq!(first, Some("set_device"), "the drop of the algebra");
     let (poisoned, libraries, _pair, _failed) = a_failed_split(true);
