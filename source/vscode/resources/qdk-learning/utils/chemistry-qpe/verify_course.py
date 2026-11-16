@@ -16,6 +16,10 @@ from pathlib import Path
 import nbformat
 
 DEFAULT_COURSE = Path(__file__).resolve().parents[2] / "courses/chemistry-qpe"
+sys.path.insert(0, str(DEFAULT_COURSE))
+
+from _learning_output import authored_quizzes  # noqa: E402
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("course", nargs="?", type=Path, default=DEFAULT_COURSE)
 parser.add_argument(
@@ -45,10 +49,6 @@ AUTHORING_KINDS = {
     "explanation": "markdown",
 }
 REGISTER_CALLS = {"register_exercise", "register_value_exercise"}
-#: A converted self-check question. One ``quiz()`` call can name several ids,
-#: so the questions are counted from the ids rather than from the calls.
-QUIZ_CALL = re.compile(r"^quiz\(([^)]*)\)", re.M)
-QUIZ_ID = re.compile(r'"([^"]+)"')
 EXPECTED_ATTACHMENT_MIMES = {
     "tutorial_qpe_atomic_basis_functions.png": "image/png",
     "tutorial_qpe_example_molecular_orbitals.png": "image/png",
@@ -200,9 +200,7 @@ for unit in manifest["units"]:
                 current_exercise = None
             counts["sections"] += any(tag.startswith("section:") for tag in tags)
             counts["quizzes"] += source.count("<details>")
-            counts["quizzes"] += sum(
-                len(QUIZ_ID.findall(call)) for call in QUIZ_CALL.findall(source)
-            )
+            counts["quizzes"] += len(authored_quizzes(cell))
             for name in re.findall(r'<svg[^>]+data-asset="([^"]+)"', source):
                 counts["inline_svgs"] += 1
                 if name not in EXPECTED_INLINE_SVGS:

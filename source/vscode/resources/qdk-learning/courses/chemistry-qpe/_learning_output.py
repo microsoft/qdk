@@ -19,13 +19,15 @@ producing an empty cell in front of a learner.
 
 from __future__ import annotations
 
+import ast
 import json
 import random
 import re
 from dataclasses import dataclass
+from functools import partial
 from html import escape
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 MIME_TYPE = "application/vnd.qdk.learning+json"
 
@@ -162,70 +164,15 @@ def multiple_choice(
 
 
 # ---------------------------------------------------------------------------
-# Registered quizzes
+# Notebook-owned quizzes
 # ---------------------------------------------------------------------------
 
-# ID-only calls resolve either a legacy output or an authored notebook path.
-# Authored calls construct their output directly without changing this registry.
-_quizzes: dict[str, LearningOutput | Path] = {}
 
-
-def register_quiz_notebook(quiz_id: str, notebook: Path) -> None:
-    """Bind an ID to a notebook beside the importing unit's helper.
-
-    Only the location is registered; each lookup reads the saved bundle again.
-    """
-    if quiz_id in _quizzes:
-        raise ValueError(f"a quiz is already registered as {quiz_id!r}")
-    if not _ID_RE.match(quiz_id):
-        raise ValueError(f"invalid quiz id: {quiz_id!r}")
+def quiz_for_notebook(notebook: Path) -> Callable[..., None]:
+    """Bind learner reruns to one authored notebook, without registering IDs."""
     if not notebook.is_absolute():
         raise ValueError("quiz notebook path must be absolute")
-    _quizzes[quiz_id] = notebook
-
-
-def register_quiz(
-    quiz_id: str,
-    prompt: str,
-    options: Sequence[Sequence[Any]],
-    *,
-    multi_select: bool = False,
-    shuffle: bool = True,
-) -> str:
-    """Register a quiz under ``quiz_id`` so a notebook can show it by name.
-
-    This supports existing ID-only runtime calls. New quiz content belongs in
-    the authored notebook; do not maintain a second registration of its
-    question, answers, or configuration.
-
-    The answers do still reach the browser, in the baked cell output, because
-    the renderer grades without a kernel. This raises the effort of cheating; it
-    does not make it impossible, and it is no weaker than the collapsible
-    answers it replaced.
-
-    Pass ``multi_select=True`` for a question with several right answers; the
-    learner gets checkboxes and is told to select all that apply.
-
-    Options are shuffled by default. It is natural to write the correct answer
-    first and the distractors after it, which makes "always pick A" a winning
-    strategy across a unit. The shuffle is seeded from ``quiz_id``, so the
-    order is stable: re-running a notebook, or baking its outputs again, does
-    not reorder the options or produce a spurious diff. Pass ``shuffle=False``
-    for a question whose options have a meaningful order of their own.
-    """
-    if quiz_id in _quizzes:
-        raise ValueError(f"a quiz is already registered as {quiz_id!r}")
-    if not _ID_RE.match(quiz_id):
-        raise ValueError(
-            f"quiz id {quiz_id!r} must be lowercase letters, digits and hyphens, "
-            "start with a letter or digit, and be at most 64 characters; the "
-            "renderer's Copilot action drops anything else"
-        )
-    ordered = _shuffled(quiz_id, options) if shuffle else options
-    _quizzes[quiz_id] = multiple_choice(
-        prompt, ordered, multi_select=multi_select, payload_id=quiz_id
-    )
-    return quiz_id
+    return partial(quiz, notebook=notebook)
 
 
 def _shuffled(seed: str, options: Sequence[Sequence[Any]]) -> list[Sequence[Any]]:
@@ -246,21 +193,13 @@ def quiz(
     options: Sequence[Sequence[Any]] | None = None,
     multi_select: bool = False,
     shuffle: bool = True,
+    notebook: Path | None = None,
 ) -> None:
-    """Display an authored quiz or the quizzes registered under ``quiz_ids``.
+    """Display full author definitions or resolve learner IDs from source.
 
     Supply one id, ``prompt`` and ``options`` to construct an authored quiz
-    directly. Its configuration applies to this display only; the registry is
-    neither read nor changed. With IDs only, display the registered outputs
-    or load their bound authored notebooks.
-
-    Accepts more than one id because the progress tree names a code cell after
-    the heading above it, so two adjacent quiz cells in one section would
-    appear twice under the same name. Where the chapter asks two questions
-    back to back, one cell shows both.
-
-    Displays rather than returns, so the call does not have to be the last
-    expression in the cell and one cell can produce several outputs.
+    directly. ID-only calls read the bound notebook's saved source on every
+    rerun, never its outputs. Neither form changes the authored notebook.
     """
     if not quiz_ids:
         raise ValueError('quiz() needs at least one quiz id, e.g. quiz("my-quiz")')
@@ -276,116 +215,138 @@ def quiz(
     if prompt is not None or options is not None or multi_select or not shuffle:
         if len(quiz_ids) != 1 or prompt is None or options is None:
             raise ValueError("an authored quiz needs one quiz id, prompt and options")
-        quiz_id = quiz_ids[0]
-        ordered = _shuffled(quiz_id, options) if shuffle else options
         display(
-            multiple_choice(
-                prompt, ordered, multi_select=multi_select, payload_id=quiz_id
+            _quiz_output(
+                quiz_ids[0],
+                prompt,
+                options,
+                multi_select=multi_select,
+                shuffle=shuffle,
             )
         )
         return
 
+    if notebook is None:
+        raise ValueError("ID-only quiz() calls need a source notebook binding")
+    outputs = {
+        output.payload["payloadId"]: output
+        for cell_outputs in notebook_quiz_outputs(read_quiz_notebook(notebook)).values()
+        for output in cell_outputs
+    }
     for quiz_id in quiz_ids:
-        display(_lookup_quiz(quiz_id))
+        if quiz_id not in outputs:
+            raise ValueError(f"no quiz {quiz_id!r} is authored in {notebook}")
+    for quiz_id in quiz_ids:
+        display(outputs[quiz_id])
 
 
-def _lookup_quiz(quiz_id: str) -> LearningOutput:
-    try:
-        registered = _quizzes[quiz_id]
-    except KeyError:
-        known = ", ".join(sorted(_quizzes)) or "none"
-        raise ValueError(
-            f"no quiz is registered as {quiz_id!r}; registered quizzes: {known}. "
-            "Quizzes are registered in the unit's _unit.py."
-        ) from None
-    if isinstance(registered, Path):
-        return _notebook_quiz(registered, quiz_id)
-    return registered
+def _quiz_output(
+    quiz_id: str,
+    prompt: str,
+    options: Sequence[Sequence[Any]],
+    *,
+    multi_select: bool = False,
+    shuffle: bool = True,
+) -> LearningOutput:
+    ordered = _shuffled(quiz_id, options) if shuffle else options
+    return multiple_choice(
+        prompt, ordered, multi_select=multi_select, payload_id=quiz_id
+    )
 
 
-def _notebook_quiz(notebook: Path, quiz_id: str) -> LearningOutput:
-    label = f"quiz {quiz_id!r} in {notebook}"
+def read_quiz_notebook(notebook: Path) -> dict[str, Any]:
     try:
         document = json.loads(notebook.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ValueError(f"cannot read {label}: {error}") from error
+        raise ValueError(f"cannot read quiz notebook {notebook}: {error}") from error
     if not isinstance(document, dict) or not isinstance(document.get("cells"), list):
-        raise ValueError(f"malformed notebook for {label}: expected cells")
+        raise ValueError(f"malformed quiz notebook {notebook}: expected cells")
+    return document
 
-    matches = []
-    for cell in document["cells"]:
-        if not isinstance(cell, dict):
-            raise ValueError(f"malformed cell in {label}")
-        if cell.get("cell_type") != "code":
-            continue
-        if not isinstance(cell.get("outputs"), list):
-            raise ValueError(f"malformed outputs in {label}")
-        for output in cell["outputs"]:
-            if not isinstance(output, dict):
-                raise ValueError(f"malformed output in {label}")
-            data = output.get("data", {})
-            if not isinstance(data, dict):
-                raise ValueError(f"malformed output data in {label}")
-            if MIME_TYPE not in data:
-                continue
-            payload = data[MIME_TYPE]
-            if not isinstance(payload, dict):
-                raise ValueError(f"malformed MCQ payload in {label}")
-            if payload.get("payloadId") == quiz_id:
-                matches.append(output)
 
-    if len(matches) != 1:
-        raise ValueError(
-            f"expected exactly one saved MCQ output for {label}; found {len(matches)}"
-        )
-    output = matches[0]
-    data = output["data"]
-    payload = data[MIME_TYPE]
+def authored_quizzes(cell: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Read literal quiz definitions without executing any notebook code."""
     if (
-        output.get("output_type") != "display_data"
-        or type(payload.get("schemaVersion")) is not int
-        or payload["schemaVersion"] != 1
-        or payload.get("kind") != "multiple-choice"
-        or not isinstance(payload.get("prompt"), str)
-        or not payload["prompt"].strip()
-        or not isinstance(payload.get("options"), list)
-        or not isinstance(payload.get("multiSelect", False), bool)
+        cell.get("cell_type") != "code"
+        or "quiz" not in cell.get("metadata", {}).get("tags", [])
     ):
-        raise ValueError(f"malformed saved MCQ output for {label}")
-    options = []
-    for option in payload["options"]:
-        if (
-            not isinstance(option, dict)
-            or not isinstance(option.get("id"), str)
-            or not isinstance(option.get("text"), str)
-            or (
-                "explanation" in option
-                and not isinstance(option["explanation"], str)
-            )
-        ):
-            raise ValueError(f"malformed saved MCQ option for {label}")
-        options.append(
-            (
-                option["id"],
-                option["text"],
-                option.get("correct"),
-                option.get("explanation"),
-            )
-        )
+        return []
+    label = f"quiz cell {cell.get('id', '?')}"
+    source = cell.get("source", "")
+    if isinstance(source, list) and all(isinstance(line, str) for line in source):
+        source = "".join(source)
+    if not isinstance(source, str):
+        raise ValueError(f"{label}: expected source text")
     try:
-        _normalize_options(options, multi_select=payload.get("multiSelect", False))
-    except ValueError as error:
-        raise ValueError(f"malformed saved MCQ output for {label}: {error}") from error
+        tree = ast.parse(source)
+    except SyntaxError as error:
+        raise ValueError(f"{label}: invalid quiz syntax: {error.msg}") from error
+    if not tree.body:
+        raise ValueError(f"{label}: expected full quiz() definitions")
+    authored = []
+    for statement in tree.body:
+        if (
+            not isinstance(statement, ast.Expr)
+            or not isinstance(statement.value, ast.Call)
+            or not isinstance(statement.value.func, ast.Name)
+            or statement.value.func.id != "quiz"
+        ):
+            raise ValueError(f"{label}: only quiz() calls and comments are allowed")
+        call = statement.value
+        if len(call.args) != 1:
+            raise ValueError(f"{label}: expected quiz(id, prompt=..., options=...)")
+        fields: dict[str, Any] = {}
+        try:
+            quiz_id = ast.literal_eval(call.args[0])
+            for keyword in call.keywords:
+                if (
+                    keyword.arg is None
+                    or keyword.arg not in {"prompt", "options", "multi_select", "shuffle"}
+                    or keyword.arg in fields
+                ):
+                    raise ValueError("unsupported or duplicate quiz field")
+                fields[keyword.arg] = ast.literal_eval(keyword.value)
+        except (ValueError, TypeError) as error:
+            raise ValueError(
+                f"{label}: quiz arguments must be supported literal data: {error}"
+            ) from error
+        if not isinstance(quiz_id, str) or not {"prompt", "options"} <= fields.keys():
+            raise ValueError(f"{label}: quiz needs a string id, prompt and options")
+        if any(
+            not isinstance(fields.get(name, False), bool)
+            for name in ("multi_select", "shuffle")
+        ):
+            raise ValueError(f"{label}: multi_select and shuffle must be booleans")
+        authored.append((quiz_id, fields))
+    return authored
 
-    fallbacks = []
-    for mime in ("text/html", "text/plain"):
-        value = data.get(mime)
-        if isinstance(value, list) and all(isinstance(line, str) for line in value):
-            value = "".join(value)
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"missing or malformed {mime} output for {label}")
-        fallbacks.append(value)
-    return LearningOutput(payload, fallbacks[0], fallbacks[1])
+
+def notebook_quiz_outputs(
+    document: Mapping[str, Any],
+) -> dict[str, list[LearningOutput]]:
+    """Generate each quiz cell's outputs from source, ignoring saved outputs."""
+    cells = document.get("cells")
+    if not isinstance(cells, list):
+        raise ValueError("quiz notebook must contain a cells array")
+    outputs = {}
+    seen_ids: set[str] = set()
+    for cell in cells:
+        if not isinstance(cell, dict):
+            raise ValueError("quiz notebook contains a malformed cell")
+        definitions = authored_quizzes(cell)
+        if not definitions:
+            continue
+        cell_id = cell.get("id")
+        if not isinstance(cell_id, str) or not cell_id or cell_id in outputs:
+            raise ValueError("quiz cells need unique, nonempty notebook cell IDs")
+        rendered = []
+        for quiz_id, fields in definitions:
+            if quiz_id in seen_ids:
+                raise ValueError(f"duplicate authored quiz id: {quiz_id!r}")
+            seen_ids.add(quiz_id)
+            rendered.append(_quiz_output(quiz_id, **fields))
+        outputs[cell_id] = rendered
+    return outputs
 
 
 # ---------------------------------------------------------------------------

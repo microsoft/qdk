@@ -345,21 +345,10 @@ export function checkRendererContract() {
     }
   }
 
-  // The converter writes this tag onto every quiz cell, and `notebookExercises`
+  // The Python source reader uses this tag, and `notebookExercises`
   // reads it to keep quizzes out of the progress tree. If the two spellings
   // drift, a quiz cell falls through to the code-cell branch and becomes an
   // activity — one that can never complete, because a quiz is never run.
-  const converter = readFileSync(
-    join(
-      thisDir,
-      "resources",
-      "qdk-learning",
-      "utils",
-      "chemistry-qpe",
-      "details_to_quiz.py",
-    ),
-    "utf8",
-  );
   const tsQuizTag = required(
     "QUIZ_TAG in notebookExercises.ts",
     /^const QUIZ_TAG = "([^"]+)";/m.exec(
@@ -369,21 +358,15 @@ export function checkRendererContract() {
       ),
     )?.[1],
   );
-  // The converter tags a quiz cell in two places — a bare list, and a merge
-  // with the source cell's own tags when the quiz comes first — so every
-  // writer is compared, not just the one that happens to be found first.
-  const pyQuizTags = [
-    ...converter.matchAll(
-      /tags = \["([^"]+)"\]|_cell_tags\(cell\), "([^"]+)"/g,
-    ),
-  ].map((m) => m[1] ?? m[2]);
-  required("a quiz cell tag in details_to_quiz.py", pyQuizTags[0]);
-  const wrongTags = [...new Set(pyQuizTags.filter((t) => t !== tsQuizTag))];
-  if (wrongTags.length > 0) {
+  const pyQuizTag = required(
+    "the quiz cell tag in _learning_output.py",
+    /"([^"]+)" not in cell\.get\("metadata", \{\}\)\.get\("tags", \[\]\)/.exec(
+      emitter,
+    )?.[1],
+  );
+  if (pyQuizTag !== tsQuizTag) {
     mismatches.push(
-      `Quiz cell tag differs: the converter writes ${wrongTags
-        .map((t) => `"${t}"`)
-        .join(" and ")} but notebookExercises.ts looks for "${tsQuizTag}".`,
+      `Quiz cell tag differs: Python reads "${pyQuizTag}" but notebookExercises.ts looks for "${tsQuizTag}".`,
     );
   }
 
