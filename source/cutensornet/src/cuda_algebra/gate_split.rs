@@ -66,13 +66,15 @@ pub(super) fn gate_split(
         .min(l.saturating_mul(2))
         .min(r.saturating_mul(2))
         .min(m.saturating_mul(4));
+    let a_data = split.left.holding(elements(&[l, 2, m])?)?;
+    let b_data = split.right.holding(elements(&[m, 2, r])?)?;
     let a = TensorOperand {
         descriptor: scope.descriptor(&[l, 2, m], &[LEFT, P, BOND])?,
-        data: split.left.holding(elements(&[l, 2, m])?)?,
+        data: a_data,
     };
     let b = TensorOperand {
         descriptor: scope.descriptor(&[m, 2, r], &[BOND, Q, RIGHT])?,
-        data: split.right.holding(elements(&[m, 2, r])?)?,
+        data: b_data,
     };
     let gate_descriptor = scope.descriptor(&[2, 2, 2, 2], &[P_OUT, Q_OUT, P, Q])?;
     let u_descriptor = scope.descriptor(&[l, 2, k], &[LEFT, P_OUT, NEW_BOND])?;

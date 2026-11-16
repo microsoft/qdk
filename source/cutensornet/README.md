@@ -195,9 +195,11 @@ Each `SiteAlgebra` method of this algebra combines some of these phases
 
 ### How each `SiteAlgebra` method is implemented
 
-This algebra's implementation of each `SiteAlgebra` method checks none of
-the engine's arguments (the engine checks every one before it calls), and
-runs the phases its row names, bind first. Each returns with the device
+This algebra's implementation of each `SiteAlgebra` method runs the
+phases its row names, bind first. Of the engine's arguments, it checks
+only that each tensor it reads holds the elements the call asks for,
+refusing the call before it makes any native object if not; the engine
+checks the others before it calls. Each returns with the device
 idle, its stream and its copies waited for, so the engine may use a tensor
 at once and the next call may grow the scratch.
 

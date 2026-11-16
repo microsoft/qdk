@@ -43,10 +43,10 @@ sequenceDiagram
   A->>N: WorkspaceSetMemory (each slot that asks for memory)
   Note over M,N: Phase: factor
   A->>R: cudaMalloc (the outputs, and the singular values' buffer if it must grow)
+  A->>R: cudaFree (the smaller singular values' buffer, if it grew)
   A->>N: GateSplit or TensorQR
   A->>R: cudaStreamSynchronize
   A->>N: TensorSVDInfoGetAttribute ×3 (a gate split only)
-  A->>R: cudaFree (the smaller singular values' buffer, if it grew)
   Note over M,N: Phase: prepare, for a contraction of a shape not kept
   A->>N: CreateNetwork, NetworkAppendTensor ×2, NetworkSetOutputTensor
   A->>N: CreateContractionOptimizerInfo, CreateContractionOptimizerConfig, ContractionOptimize, DestroyContractionOptimizerConfig
@@ -59,11 +59,13 @@ sequenceDiagram
   A->>R: cudaFree (the call's intermediate buffers)
   Note over M,N: Close, once the algebra is dropped
   A->>R: cudaSetDevice
-  opt the algebra is poisoned
+  alt the algebra is poisoned
     A->>R: cudaStreamSynchronize (the algebra's stream and cudaStreamLegacy, if either fails, what follows waits for the session's close)
+    A->>N: Destroy and cudaFree of what the algebra keeps, of a poisoned call's objects and of the tensors dropped since, interleaved
+  else
+    A->>N: DestroyContractionOptimizerInfo, DestroyNetwork (each network kept), DestroyWorkspaceDescriptor
+    A->>R: cudaFree (the lent memory, the singular values' and the gate's buffers)
   end
-  A->>N: DestroyContractionOptimizerInfo, DestroyNetwork (each network kept), DestroyWorkspaceDescriptor (and a poisoned call's objects)
-  A->>R: cudaFree (the lent memory, the singular values' and the gate's buffers, and a poisoned call's buffers and tensors dropped since)
   Note over M,N: Session: close, once the algebra and all its tensors are dropped
   opt the algebra was poisoned and its close's wait failed
     A->>R: cudaSetDevice, cudaStreamSynchronize (the algebra's stream and cudaStreamLegacy)

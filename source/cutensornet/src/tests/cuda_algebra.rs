@@ -131,12 +131,14 @@ fn a_duplicate_outlives_its_source() {
 
 /// A call that would read past a tensor's elements is a defect of its
 /// caller, refused before the device reads memory the tensor does not
-/// own, whichever method makes it.
+/// own, and before the call makes any native object, whichever method
+/// makes it and whichever of a pair's tensors is short.
 #[test]
 fn a_call_reading_past_a_tensors_elements_is_refused() {
-    let (algebra, _libraries) = algebra();
+    let (algebra, libraries) = algebra();
     let (a, b) = random_pair(1, 2, 1, 3);
     let (small, other) = (upload(&algebra, &a[..2]), upload(&algebra, &b));
+    let (left, small_right) = (upload(&algebra, &a), upload(&algebra, &b[..2]));
     let split = Split {
         m: 2,
         ..one_qubit_split(&a, &b)
@@ -150,23 +152,28 @@ fn a_call_reading_past_a_tensors_elements_is_refused() {
         gate: None,
         centre: CentreSide::Right,
     };
-    let refusals = [
-        ("read", algebra.read(&small, 3).map(drop)),
-        ("duplicate", algebra.duplicate(&small, 3).map(drop)),
-        (
-            "gate split",
-            algebra.gate_split(&split.call(&small, &other)).map(drop),
-        ),
-        (
-            "move of the centre",
-            algebra.qr_move(&moved.call(&small, &other)).map(drop),
-        ),
-    ];
-    for (method, refused) in refusals {
+    let is_refused = |method: &str, refuse: &dyn Fn() -> Result<(), NativeError>| {
+        let before = libraries.events().len();
+        let refused = refuse();
         assert!(
             matches!(refused, Err(NativeError::InvalidNativeCall { .. })),
             "{method}: {refused:?}"
         );
+        let made = libraries.events()[before..]
+            .iter()
+            .filter(|event| event.starts_with("create_") || **event == "allocate")
+            .count();
+        assert_eq!(made, 0, "{method}: no native object made");
+    };
+    is_refused("read", &|| algebra.read(&small, 3).map(drop));
+    is_refused("duplicate", &|| algebra.duplicate(&small, 3).map(drop));
+    for (side, left, right) in [("left", &small, &other), ("right", &left, &small_right)] {
+        is_refused(&format!("gate split, {side} short"), &|| {
+            algebra.gate_split(&split.call(left, right)).map(drop)
+        });
+        is_refused(&format!("move of the centre, {side} short"), &|| {
+            algebra.qr_move(&moved.call(left, right)).map(drop)
+        });
     }
 }
 
