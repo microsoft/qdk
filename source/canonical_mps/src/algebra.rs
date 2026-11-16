@@ -26,14 +26,11 @@
 //! `left × (2·right)` matrix of columns `s + 2·b`. The calls' outputs are
 //! packed: a site of extents `[left, 2, right]` holds exactly
 //! `left·2·right` elements.
-//!
-//! [`truncation`] holds a rule of truncation that a backend which computes
-//! the singular values itself may use.
 
-pub mod truncation;
+mod cpu_algebra;
+pub(crate) mod truncation;
 
-#[cfg(test)]
-pub(crate) mod fake_algebra;
+pub use cpu_algebra::CpuAlgebra;
 
 use num_complex::Complex64;
 use std::borrow::Cow;
@@ -99,8 +96,6 @@ pub trait SiteAlgebra {
     /// The bond need not be the smallest that meets the cutoff, and a tail
     /// whose squares sum to exactly the cutoff's share may be kept or
     /// dropped: a backend whose library decides these keeps its own rule.
-    /// A backend that computes the singular values itself may use
-    /// [`truncation`]'s rule, which stays within these bounds.
     fn gate_split(
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,

@@ -9,18 +9,22 @@
 //! - [`algebra`]: the backend contract. [`SiteAlgebra`](algebra::SiteAlgebra)
 //!   is what a backend implements: a site tensor's storage, a gate split,
 //!   and a move of the centre. [`algebra`]'s documentation states the
-//!   tensors' layout, and [`algebra::truncation`] holds a rule of
-//!   truncation that a backend which computes the singular values itself
-//!   may use.
+//!   tensors' layout.
+//! - [`CpuAlgebra`]: the reference algebra, the `SiteAlgebra` of the host
+//!   CPU, whose answers a backend on another library can be compared
+//!   with.
 //! - The engine, which will implement `tensornet`'s `MpsEngine` over any
 //!   `SiteAlgebra`, is planned: it is not in this crate yet.
 //!
-//! It depends only on `num-complex`, so it builds on every platform the
-//! QDK supports (the `README.md`'s Platforms says which are tested). Each
-//! item's documentation states its contract; the crate's `README.md`
+//! It depends on `dense_linalg` (the reference algebra's product, QR and
+//! SVD) and `num-complex`, both pure Rust, so it builds on every platform
+//! the QDK supports (the `README.md`'s Platforms says which are tested).
+//! Each item's documentation states its contract; the crate's `README.md`
 //! gives an overview for backend writers.
 
 pub mod algebra;
+
+pub use algebra::CpuAlgebra;
 
 #[cfg(test)]
 mod tests;

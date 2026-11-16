@@ -43,10 +43,10 @@ fn cuts_off_the_tail_below_the_cutoff() {
 /// A Bell pair's two Schmidt values, the same float, at a cutoff of 1/2:
 /// the smaller value's square is exactly the cutoff's share of the sum,
 /// and it is dropped.
-// COMPATIBILITY NOTE: this behavior was present in qdk_cpu_mps's
-// `Engine::kept` (a tail is dropped while its squares sum to at most the
-// cutoff's share), hence we keep it: it is what makes a cutoff of 0 drop
-// the zeros.
+// COMPATIBILITY NOTE: this behavior was present in the dev line's
+// `qdk_cpu_mps`'s `Engine::kept` (a tail is dropped while its squares sum
+// to at most the cutoff's share), hence we keep it: it is what makes a
+// cutoff of 0 drop the zeros.
 #[test]
 fn a_tail_equal_to_the_cutoffs_share_is_discarded() {
     let h = std::f64::consts::FRAC_1_SQRT_2;
@@ -65,10 +65,10 @@ fn a_cutoff_of_zero_discards_only_zeros() {
 /// A cutoff of zero after a value of 1: a value of 1e-161, whose square is
 /// a subnormal, is kept; one of 1e-163, whose square underflows to zero,
 /// counts as zero and is dropped, with a share of exactly 1.
-// COMPATIBILITY NOTE: this behavior was present in qdk_cpu_mps's
-// `Engine::kept` (its squares are of the values divided by the largest, so
-// those below about 1e-162 of it underflow), hence we keep it: no Schmidt
-// weight that small changes a simulation's result.
+// COMPATIBILITY NOTE: this behavior was present in the dev line's
+// `qdk_cpu_mps`'s `Engine::kept` (its squares are of the values divided by
+// the largest, so those below about 1e-162 of it underflow), hence we keep
+// it: no Schmidt weight that small changes a simulation's result.
 #[test]
 #[expect(clippy::float_cmp, reason = "the share is exactly 1")]
 fn a_cutoff_of_zero_drops_values_whose_squares_underflow() {
@@ -147,13 +147,13 @@ fn tiny_values_truncate_as_at_scale_one() {
 /// The singular values of the zero matrix, which a general SVD gives as
 /// `min(rows, cols)` zeros: one value is kept, zero, with a share of 1 and
 /// no NaN.
-// DISCUSS COMPATIBILITY: qdk_cpu_mps's SVD gave the zero matrix one value,
-// zero, so its `Engine::kept` and `kept_rescale` never met an all-zero
-// spectrum (their `0 / 0` would have failed the split with a weight
-// underflow); the planned engine will not reach it either, since its states
-// will have norm 1 and its gates are unitary. We think a total rule is
-// better than a NaN, and a share of 1 agrees with "exactly 1 when every
-// dropped value is zero", so we recommend keeping it.
+// DISCUSS COMPATIBILITY: the dev line's `qdk_cpu_mps`'s SVD gave the zero
+// matrix one value, zero, so its `Engine::kept` and `kept_rescale` never
+// met an all-zero spectrum (their `0 / 0` would have failed the split with
+// a weight underflow); the planned engine will not reach it either, since
+// its states will have norm 1 and its gates are unitary. We think a total
+// rule is better than a NaN, and a share of 1 agrees with "exactly 1 when
+// every dropped value is zero", so we recommend keeping it.
 #[test]
 #[expect(clippy::float_cmp, reason = "the share is exactly 1")]
 fn the_zero_spectrum_keeps_one_zero_value() {

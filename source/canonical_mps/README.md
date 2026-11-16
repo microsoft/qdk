@@ -1,4 +1,4 @@
-# canonical_mps: a canonical-form MPS engine over a backend's tensor operations
+# canonical_mps: the backend contract of a canonical-form MPS engine, and its reference algebra
 
 The `canonical_mps` crate is for simulators that run matrix product states
 (MPS) in canonical form on more than one backend, the CPU or a GPU library.
@@ -8,12 +8,14 @@ weight is kept, and the bounds every truncation stays within. What differs
 is where the tensors live, which library factors them, and which values a
 truncation keeps within those bounds. So the engine is to be written once,
 over a small contract, and a backend writes only the contract's tensor
-operations. The crate has two parts:
+operations. The crate has three parts:
 
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/algebra.rs), the tensor operations a backend
-  implements, and a [truncation rule](#the-truncation-rule) that a backend
-  which computes the singular values itself may use.
+  implements.
+- **[The reference algebra](#the-reference-algebra):**
+  [`CpuAlgebra`](src/algebra/cpu_algebra.rs), the contract on the host CPU,
+  whose answers a backend on another library can be compared with.
 - **[The engine](#the-engine-planned)**, which will implement `tensornet`'s
   `MpsEngine` over any `SiteAlgebra`, is planned: it is not in this crate yet.
 
@@ -28,8 +30,8 @@ operations. The crate has two parts:
   failures.
 - **Open to more backends.** A new backend is a new type implementing the
   trait, in its own crate; nothing here changes.
-- **Portable.** The crate depends only on `num-complex`, so it builds on
-  every [platform](#platforms) the QDK supports.
+- **Portable.** The crate depends on `dense_linalg` and `num-complex`, both
+  pure Rust, so it builds on every [platform](#platforms) the QDK supports.
 
 ## The backend contract
 
@@ -81,11 +83,33 @@ Every tensor holds complex doubles, its first mode fastest, so a backend
 factors a site read as a matrix with no copy; the
 [module's documentation](src/algebra.rs) gives the layout in full.
 
-### The truncation rule
+## The reference algebra
 
-A backend that computes the singular values itself may truncate them with
-[`Truncation`](src/algebra/truncation.rs), whose documentation states the
-rule, within the bounds `gate_split`'s contract sets for every backend.
+[`CpuAlgebra`](src/algebra/cpu_algebra.rs), exported at the crate's root,
+is the contract on the host CPU. Each operation is computed directly from
+its contract, so a backend on another library can be compared with its
+answers, call by call, and the engine's tests will run on it. It needs no
+device, so it runs wherever the QDK runs.
+
+`CpuAlgebra` holds each site in a `Vec<Complex64>`, in the contract's
+layout, which is the column-major order of `dense_linalg`'s matrices, so
+the operations read a site as a matrix without reordering it.
+
+| Operation    | How                                                                                                                                                                                                           | Why                                                                                                                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload`     | a copy of the host values into a new vector                                                                                                                                                                   | the tensors already live on the host                                                                                                                                                                    |
+| `read`       | the tensor's first `len` elements, borrowed                                                                                                                                                                   | the engine's host reads will need no copy                                                                                                                                                               |
+| `duplicate`  | a copy of the tensor's first `len` elements                                                                                                                                                                   | a fork's sites change apart from its parent's                                                                                                                                                           |
+| `gate_split` | `θ` by one product and the gate's loops; one `Svd::of`; the values the [truncation rule](src/algebra/truncation.rs) keeps, normalised, multiplied into the centre's side, the other side the singular vectors | the SVD's factors are checked against `θ` before the truncation: when they do not give `θ` back, the split fails with `SvdError` rather than spread them; what it keeps is `θ`'s truncation, normalised |
+| `qr_move`    | the one-site gate applied to the site the centre leaves; one thin `Qr::of` of it; the small factor multiplied into the other site                                                                             | a QR moves the centre exactly, and never fails                                                                                                                                                          |
+
+The truncation rule drops the longest tail of singular values whose
+squares sum to at most the cutoff's share, then keeps at most the cap;
+its [documentation](src/algebra/truncation.rs) states it in full. Only
+`gate_split` fails, when the SVD does
+([`SvdError`](../dense_linalg/src/svd.rs)): `DidNotConverge` when its
+rotations still turn after their last sweep, `FailedChecks` when `θ` holds
+a value that is not finite or the factors fail the SVD's checks.
 
 ## The engine (planned)
 
@@ -99,10 +123,10 @@ backend. It is not in this crate yet.
 
 ## Tests
 
-The [unit tests](src/tests) check the truncation rule, and a
-[host test algebra](src/algebra/fake_algebra.rs), built on `dense_linalg`,
-against the contract, since the engine's tests will run on it. Each backend
-checks its own implementation of the contract in its crate.
+The [unit tests](src/tests) check the truncation rule, and the reference
+algebra against the contract, since a backend on another library can be
+compared with it and the engine's tests will run on it. A backend in
+another crate is to check its own implementation of the contract there.
 
 ## Platforms
 

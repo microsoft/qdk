@@ -1,12 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The test algebra against `SiteAlgebra`'s contract, since the planned
-//! engine's tests will stand on its answers: a gate split gives back the
-//! gated pair, truncated to its largest singular values and normalised,
-//! with an isometry away from the centre; a move of the centre is exact
-//! and leaves an isometry behind. The product, QR and SVD it computes
-//! them with are `dense_linalg`'s, tested there.
+//! The reference algebra against `SiteAlgebra`'s contract, since a
+//! backend on another library can be compared with its answers and the
+//! planned engine's tests will run on it: a gate split gives back the gated
+//! pair, truncated to its largest singular values and normalised, with an
+//! isometry away from the centre, and reports a failed SVD; a move of the
+//! centre is exact and leaves an isometry behind; a read borrows a site's
+//! elements and a duplicate copies them, each the site's alone. The
+//! product, QR and SVD it computes them with are `dense_linalg`'s, tested
+//! there.
 //!
 //! The expected values come from the contract's formulas, computed here
 //! with plain loops, and from matrices whose SVD is known by construction.
@@ -16,9 +19,10 @@
 )]
 
 use super::*;
-use crate::algebra::fake_algebra::FakeAlgebra;
+use crate::CpuAlgebra;
 use crate::algebra::{CentreSide, GateSplitCall, QrMoveCall, SiteAlgebra};
-use dense_linalg::{Matrix, Qr};
+use dense_linalg::{Matrix, Qr, SvdError};
+use std::borrow::Cow;
 
 /// The singular values of [`known_split`]'s pair.
 const KNOWN_VALUES: [f64; 4] = [0.8, 0.5, 0.3, 0.1];
@@ -168,18 +172,120 @@ fn a_move_of_the_centre_leaves_an_isometry_behind() {
 }
 
 /// Moves of the centre across bonds smaller than, equal to and larger than
-/// the leaving site's side, a pair `[1, 2, m]`, `[m, 2, 2]`: the bond
-/// becomes the smaller of the bond and that side (2 to the right, 4 to the
-/// left), exactly.
+/// the leaving site's side, a pair `[1, 2, m]`, `[m, 2, 2]` with `m` from 1
+/// to 5: the bond becomes the smaller of the bond and that side (2 to the
+/// right, 4 to the left), exactly.
 #[test]
 fn the_bond_after_a_move_is_the_smaller_of_the_bond_and_the_leaving_sites_side() {
-    for m in [1, 2, 3] {
+    for m in 1..=5 {
         let (a, b) = (random(2, m, 16), random(m, 4, 17));
         let (_, _, bond) = move_centre(&a, &b, 1, 2, None, CentreSide::Right);
         assert_eq!(bond, m.min(2), "right, bond {m}");
         let (_, _, bond) = move_centre(&a, &b, 1, 2, None, CentreSide::Left);
         assert_eq!(bond, m.min(4), "left, bond {m}");
     }
+}
+
+/// Random pairs of rank 3 and of rank 1, each `θ` 4 × 4 through its bond,
+/// split at a cutoff of zero and no cap: the split drops only zeros, so the
+/// share it reports is exactly 1.
+#[test]
+#[expect(clippy::float_cmp, reason = "the share is exactly 1")]
+fn a_split_at_a_cutoff_of_zero_reports_a_share_of_exactly_one() {
+    for (l, m, r) in [(2, 3, 2), (2, 1, 2)] {
+        let (a, b) = (random(2 * l, m, 18), random(m, 2 * r, 19));
+        for centre in [CentreSide::Left, CentreSide::Right] {
+            let (_, _, bond, fraction) =
+                split(&a, &b, l, r, identity_gate(), 0.0, usize::MAX, centre);
+            assert!(
+                bond < 2 * l.min(r),
+                "precondition: the split drops a zero ({l}×{m}×{r}, {centre:?}, \
+                 bond {bond})"
+            );
+            assert_eq!(fraction, 1.0, "{l}×{m}×{r}, {centre:?}, bond {bond}");
+        }
+    }
+}
+
+/// A rare branch, the pair `√(1 − a²)|00⟩ + a|11⟩` with `a = 1e-8`, whose
+/// singular value `a` is far above the SVD's rounding though its square is
+/// 1e-16, split at a cutoff of zero, both sides: the split keeps both
+/// values, and the product of the new sites still holds `a`.
+#[test]
+fn a_split_at_a_cutoff_of_zero_keeps_a_small_singular_value() {
+    let a: f64 = 1e-8;
+    let large = (1.0 - a * a).sqrt();
+    let pair = Matrix::from_fn(2, 2, |i, j| match (i, j) {
+        (0, 0) => c(large, 0.0),
+        (1, 1) => c(a, 0.0),
+        _ => c(0.0, 0.0),
+    });
+    for centre in [CentreSide::Left, CentreSide::Right] {
+        let (left, right, bond, _) = split(
+            &pair,
+            &identity(2),
+            1,
+            1,
+            identity_gate(),
+            0.0,
+            usize::MAX,
+            centre,
+        );
+        assert_eq!(bond, 2, "{centre:?}");
+        let error = distance(&product(&left, &right), &pair);
+        assert!(error < 1e-6 * a, "{centre:?}: {error:e}");
+    }
+}
+
+/// A pair with a value that is not finite, as a fault upstream could leave:
+/// the split reports the SVD's failure, with the gated pair's shape, rather
+/// than spreading the value through the state.
+#[test]
+fn a_split_whose_svd_fails_reports_the_failure() {
+    let (l, m, r) = (2, 3, 1);
+    let mut a = random(2 * l, m, 22).elements().to_vec();
+    a[1] = c(f64::NAN, 0.0);
+    let b = random(m, 2 * r, 23).elements().to_vec();
+    let call = GateSplitCall {
+        left: &a,
+        right: &b,
+        left_extent: l,
+        bond: m,
+        right_extent: r,
+        gate: identity_gate(),
+        max_extent: usize::MAX,
+        cutoff: 0.0,
+        centre: CentreSide::Left,
+    };
+    let error = CpuAlgebra
+        .gate_split(&call)
+        .expect_err("a value that is not finite");
+    assert_eq!(error, SvdError::FailedChecks { rows: 4, cols: 2 });
+}
+
+/// A tensor longer than the site it holds, as a backend that reuses
+/// buffers may keep: a read returns the site's elements alone, borrowed
+/// from the vector rather than copied.
+#[test]
+fn a_read_borrows_the_first_len_elements() {
+    let tensor: Vec<Complex64> = (0..6).map(|k| c(f64::from(k), -1.0)).collect();
+    let read = CpuAlgebra.read(&tensor, 4).expect("reads never fail");
+    assert_eq!(*read, tensor[..4]);
+    assert!(
+        matches!(read, Cow::Borrowed(_)),
+        "a host read copies nothing"
+    );
+}
+
+/// A fork of a state whose tensor is longer than its site: the copy holds
+/// the site's elements alone.
+#[test]
+fn a_duplicate_holds_the_first_len_elements() {
+    let tensor: Vec<Complex64> = (0..6).map(|k| c(f64::from(k), 1.0)).collect();
+    let copy = CpuAlgebra
+        .duplicate(&tensor, 4)
+        .expect("duplicates never fail");
+    assert_eq!(copy, tensor[..4]);
 }
 
 /// A pair `[2, 2, 4]`, `[4, 2, 2]` whose product, under the identity gate,
@@ -192,9 +298,9 @@ fn known_split() -> (Matrix, Matrix, Matrix, Matrix) {
     (a, v_adjoint.clone(), u, v_adjoint)
 }
 
-/// The fake's gate split of the sites `a` (read as `(2·l) × m`) and `b`
-/// (`m × (2·r)`): the new sites as matrices, the bond and the retained
-/// fraction.
+/// The reference algebra's gate split of the sites `a` (read as
+/// `(2·l) × m`) and `b` (`m × (2·r)`): the new sites as matrices, the bond
+/// and the retained fraction.
 #[expect(clippy::too_many_arguments, reason = "the fields of the call")]
 fn split(
     a: &Matrix,
@@ -218,7 +324,7 @@ fn split(
         cutoff,
         centre,
     };
-    let outcome = FakeAlgebra.gate_split(&call).expect("the split");
+    let outcome = CpuAlgebra.gate_split(&call).expect("the split");
     let bond = outcome.bond;
     (
         Matrix::new(2 * l, bond, outcome.left),
@@ -228,8 +334,8 @@ fn split(
     )
 }
 
-/// The fake's move of the centre across the bond of `a` and `b`: the new
-/// sites as matrices, and the bond.
+/// The reference algebra's move of the centre across the bond of `a` and
+/// `b`: the new sites as matrices, and the bond.
 fn move_centre(
     a: &Matrix,
     b: &Matrix,
@@ -248,7 +354,7 @@ fn move_centre(
         gate,
         centre,
     };
-    let outcome = FakeAlgebra.qr_move(&call).expect("the move");
+    let outcome = CpuAlgebra.qr_move(&call).expect("the move");
     let bond = outcome.bond;
     (
         Matrix::new(2 * l, bond, outcome.left),

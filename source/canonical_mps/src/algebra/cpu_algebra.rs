@@ -1,32 +1,45 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`FakeAlgebra`]: a [`SiteAlgebra`] on the host, for the crate's tests.
+//! [`CpuAlgebra`]: the reference algebra, the [`SiteAlgebra`] of the host
+//! CPU.
 //!
-//! The planned engine's rules will be tested in CI with no backend crate:
-//! the engine will run on this algebra, whose tensors are vectors and
-//! whose maths is `dense_linalg`'s (its products, its QR, and its SVD,
-//! which checks its own factors). It truncates by the rule of
-//! [`Truncation`]. It is test support, not a test: it sits beside the
-//! trait it implements, and is compiled only with the tests, which live
-//! under `src/tests` and check it against the trait's contract, since the
-//! planned engine's tests will stand on its answers.
+//! Each operation is computed directly from its contract, so a backend on
+//! another library can be compared with its answers, call by call, and
+//! the planned engine's tests will run on it. It keeps each site tensor
+//! in a vector in the host's memory and computes its two factorisations,
+//! the gate split and the move, with `dense_linalg`'s product, thin QR
+//! and SVD (which checks its own factors), on the calling thread. It
+//! needs no device, so it runs wherever the QDK runs.
+//!
+//! A gate split builds the gated pair `θ` by a product and the gate's
+//! loops, factors it by one SVD, and truncates it by the crate's rule
+//! (`Truncation`): it drops the longest tail of values whose squares sum
+//! to at most the cutoff's share, a tail of exactly that share included,
+//! then keeps at most the cap. It multiplies the kept values, normalised,
+//! into the centre's side. A move of the centre applies the one-site gate
+//! to the leaving site, factors that site by one thin QR, and multiplies
+//! the small factor into the other site.
 
 use super::truncation::Truncation;
 use super::{CentreSide, GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
-use dense_linalg::{Matrix, MatrixRef, Qr, Svd};
+use dense_linalg::{Matrix, MatrixRef, Qr, Svd, SvdError};
 use num_complex::Complex64;
 use std::borrow::Cow;
-use std::convert::Infallible;
 
-/// The [`SiteAlgebra`] of the crate's tests: each tensor a vector on the
-/// host. It never fails.
+/// The reference algebra: the [`SiteAlgebra`] of the host CPU, each site
+/// tensor a vector in the host's memory, factored by `dense_linalg`.
+///
+/// Only [`gate_split`](SiteAlgebra::gate_split) fails, when `dense_linalg`'s
+/// SVD of the gated pair `θ` does ([`SvdError`]): its rotations do not
+/// converge, `θ` holds a value that is not finite, or the factors fail the
+/// checks the SVD makes of them. The other operations never fail.
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct FakeAlgebra;
+pub struct CpuAlgebra;
 
-impl SiteAlgebra for FakeAlgebra {
+impl SiteAlgebra for CpuAlgebra {
     type Tensor = Vec<Complex64>;
-    type Error = Infallible;
+    type Error = SvdError;
 
     fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error> {
         Ok(values.to_vec())
@@ -44,7 +57,7 @@ impl SiteAlgebra for FakeAlgebra {
         Ok(tensor[..len].to_vec())
     }
 
-    /// The gated pair, one SVD, [`Truncation`]'s truncation, and the kept
+    /// The gated pair, one SVD, the crate's truncation rule, and the kept
     /// values, normalised, multiplied into the centre's side.
     fn gate_split(
         &self,
@@ -52,7 +65,7 @@ impl SiteAlgebra for FakeAlgebra {
     ) -> Result<GateSplitOutcome<Self::Tensor>, Self::Error> {
         let rows = 2 * call.left_extent;
         let cols = 2 * call.right_extent;
-        let svd = thin_svd(gated_pair(call).view());
+        let svd = Svd::of(gated_pair(call).view())?;
         let rank = svd.singular_values.len();
         let truncation = Truncation::of(&svd.singular_values, call.cutoff, call.max_extent);
         let values = &truncation.normalised_values;
@@ -132,16 +145,6 @@ impl SiteAlgebra for FakeAlgebra {
             }
         })
     }
-}
-
-/// The thin SVD of `a`, the gated pair a split truncates.
-///
-/// # Panics
-///
-/// When `dense_linalg`'s SVD fails: the fake has no error to report, and
-/// the engine's tests give it finite matrices, which that SVD answers.
-fn thin_svd(a: MatrixRef<'_>) -> Svd {
-    Svd::of(a).expect("the engine's tests give the SVD finite matrices, which it answers")
 }
 
 /// The gated pair `θ` of `call`, as [`GateSplitCall`] defines it: the

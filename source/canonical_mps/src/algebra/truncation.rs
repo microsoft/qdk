@@ -1,17 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Truncation`]: which singular values a split keeps, and what that keeps
-//! of the split's weight, for a backend that computes the singular values
-//! itself.
+//! [`Truncation`]: which singular values the reference algebra's split
+//! keeps, and what that keeps of the split's weight.
 //!
 //! [`SiteAlgebra::gate_split`](super::SiteAlgebra::gate_split) bounds what
 //! a split may drop; a backend whose library truncates keeps the library's
-//! rule within those bounds. A backend that computes the singular values
-//! itself may use this rule instead, and the backends that use it truncate
-//! alike: it drops the longest tail whose squares sum to at most the
-//! cutoff's share, a tail of exactly that share included, so it keeps the
-//! fewest values that meet the cutoff, then at most the cap.
+//! rule within those bounds. The reference algebra
+//! ([`CpuAlgebra`](super::CpuAlgebra)) computes the singular
+//! values itself, and truncates them by this rule: it drops the longest
+//! tail whose squares sum to at most the cutoff's share, a tail of exactly
+//! that share included, so it keeps the fewest values that meet the
+//! cutoff, then at most the cap.
 //!
 //! Every square is of a value divided by the largest, so every sum is at
 //! least 1 and none underflows however small the values are. A value so
