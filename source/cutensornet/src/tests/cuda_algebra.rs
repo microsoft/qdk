@@ -315,6 +315,9 @@ fn every_call_selects_the_algebras_device_first() {
     assert_eq!(first, Some("set_device"), "the drop of a tensor");
     let first = first_native_call(&libraries, move || drop(algebra));
     assert_eq!(first, Some("set_device"), "the drop of the algebra");
+    let (poisoned, libraries, _pair, _failed) = a_failed_split(true);
+    let first = first_native_call(&libraries, move || drop(poisoned));
+    assert_eq!(first, Some("set_device"), "the drop of a poisoned algebra");
 }
 
 /// The first native call `run` makes, if any.
@@ -452,16 +455,66 @@ fn a_failed_call_that_waited_for_the_device_leaves_the_algebra_usable() {
     assert_eq!(read(&algebra, &tensor, 2), values);
 }
 
-/// A poisoned algebra keeps the failed call's objects and buffers, which
-/// the device may still use, and releases them when it is dropped, once
-/// the device is done: the fake refuses to free a buffer while a stream's
-/// work may still run.
+/// After a failed call that could not wait for the device, nothing tells when
+/// the device is done with that call's buffers, its inputs or the algebra's
+/// memory: none is freed until a later wait for the device succeeds (when the
+/// algebra is dropped, or else when its last tensor is), and if none does, they
+/// are leaked; once one succeeds, a tensor dropped is freed at once. The fake
+/// refuses to free a buffer while a stream's work may still run. Cases: whether
+/// the engine drops the failed call's inputs before the algebra (as after a
+/// failed gate, when it drops the state and keeps the algebra), and how many of
+/// the waits that follow fail.
 #[test]
-fn a_poisoned_algebra_releases_the_failed_calls_objects_when_dropped() {
-    let (algebra, libraries, pair, _failed) = a_failed_split(true);
-    drop(algebra);
-    drop(pair);
-    assert_eq!(libraries.live_objects(), 0);
+fn a_poisoned_algebra_frees_nothing_until_a_wait_for_the_device_succeeds() {
+    for (inputs_dropped_first, failed_waits) in
+        [(false, 0), (true, 0), (false, 1), (true, 1), (true, 2)]
+    {
+        let case =
+            format!("inputs dropped first: {inputs_dropped_first}, failed waits: {failed_waits}");
+        let (algebra, libraries, pair, _failed) = a_failed_split(true);
+        let poisoned_at = libraries.events().len();
+        let waits = libraries.count("synchronize_stream");
+        for failed in 1..=failed_waits {
+            libraries.fail("synchronize_stream", waits + failed);
+        }
+        if inputs_dropped_first {
+            drop(pair);
+            drop(algebra);
+        } else {
+            drop(algebra);
+            let [first, second] = pair;
+            let live = libraries.live_objects();
+            drop(first);
+            let freed_at_once = usize::from(failed_waits == 0);
+            assert_eq!(
+                libraries.live_objects(),
+                live - freed_at_once,
+                "{case}: a tensor dropped is freed at once only after a wait succeeded"
+            );
+            drop(second);
+        }
+        let events = libraries.events();
+        let before_a_wait = events[poisoned_at..]
+            .iter()
+            .scan(0, |waits, &event| {
+                *waits += usize::from(event == "synchronize_stream");
+                (*waits <= failed_waits).then_some(event)
+            })
+            .filter(|&event| event == "free" || event.starts_with("destroy_"))
+            .count();
+        assert_eq!(
+            before_a_wait, 0,
+            "{case}: nothing freed before a wait succeeds"
+        );
+        if failed_waits < 2 {
+            assert_eq!(libraries.live_objects(), 0, "{case}: freed after it");
+        } else {
+            let frees = events[poisoned_at..]
+                .iter()
+                .filter(|&&event| event == "free");
+            assert_eq!(frees.count(), 0, "{case}: leaked");
+        }
+    }
 }
 
 /// The engine on the algebra runs a long circuit as the exact reference

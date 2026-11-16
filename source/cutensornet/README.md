@@ -152,15 +152,17 @@ cuTensorNet's calls run asynchronously on a stream, on tensors it knows by
 descriptors, with scratch memory its caller lends. The algebra bridges the
 two:
 
-- [`CudaAlgebra`](src/cuda_algebra.rs) holds a
-  [`DeviceSession`](src/device_session.rs), as the engine does, and, across
-  its calls, one workspace descriptor, the scratch it lends cuTensorNet,
-  and the contraction networks it has prepared. `CudaAlgebra::new` (Linux
+- [`CudaAlgebra`](src/cuda_algebra.rs) holds a session it shares with
+  its tensors ([`AlgebraSession`](src/cuda_algebra/algebra_session.rs)):
+  a [`DeviceSession`](src/device_session.rs), as the engine has, and
+  whether the algebra is poisoned. Across its calls, it holds one
+  workspace descriptor, the memory it lends cuTensorNet, and the
+  contraction networks it has prepared. `CudaAlgebra::new` (Linux
   x86-64) opens one on an `Availability`, after checking that the loaded
   cuTensorNet has every function of its tensor API.
 - [`DeviceTensor`](src/cuda_algebra/device_tensor.rs) is one site: a
   device buffer of complex doubles, in the contract's layout. It keeps the
-  device session alive, so it may outlive the algebra.
+  algebra's session alive, so it may outlive the algebra.
 
 The settings the algebra fixes, with how each was chosen, are in
 [`src/cuda_algebra/policy.rs`](src/cuda_algebra/policy.rs);
@@ -179,9 +181,10 @@ Each `SiteAlgebra` method of this algebra combines some of these phases
 - **describe**: a descriptor per tensor of the call (its extents and mode
   labels) and, for a gate split, the SVD's settings and a record of its
   truncation.
-- **lend**: cuTensorNet sizes the call's scratch, and the algebra lends
-  it; its one scratch buffer grows to the largest call's, never beyond the
-  device's free memory, and never shrinks.
+- **lend**: cuTensorNet sizes the call's workspace, and the algebra lends
+  each slot the call asks memory for (device or host, scratch or cache)
+  its own buffer, grown to the largest call's and never shrunk; a device
+  buffer never grows beyond the device's free memory.
 - **factor**: one `GateSplit` or one `TensorQR`, waited for.
 - **prepare**: for a contraction of a shape the algebra has not kept, a
   network, its path found and its plan made, then kept for later calls of
@@ -198,21 +201,24 @@ runs the phases its row names, bind first. Each returns with the device
 idle, its stream and its copies waited for, so the engine may use a tensor
 at once and the next call may grow the scratch.
 
-| `SiteAlgebra` method  | Phases                                                                                                 | How                                                                                                                                                                                                                                      | Why                                                                                                                                                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `upload`              | bind; copy                                                                                             | a new device buffer, the host values copied into it                                                                                                                                                                                      | the sites live on the device, where they are factored                                                                                                                                       |
-| `read`                | bind; copy                                                                                             | the first `len` elements copied into a host vector; refused with `NativeError::InvalidNativeCall` when the tensor holds fewer                                                                                                            | the engine contracts the sites a read needs on the host; the check keeps the device from reading memory the tensor does not own                                                             |
-| `duplicate`           | bind; copy                                                                                             | a new device buffer, the first `len` elements copied into it on the device; refused as `read` is                                                                                                                                         | a fork's sites change apart from its parent's, with no round trip through the host                                                                                                          |
-| `gate_split`          | bind; describe; copy (the gate); lend; factor; release                                                 | one `GateSplit`, cuTensorNet's reduced algorithm, with the values normalised and absorbed on the centre's side and the cutoff as a discarded weight, into factors sized by [Numerics](docs/cuda_algebra.md#numerics); its report checked | one native call contracts the gate and splits the pair; a reported bond or discarded weight outside the contract's bounds is `NativeError::InvalidNativeResult`, never passed to the engine |
-| `qr_move`             | bind; describe; copy, prepare and contract (a one-site gate); lend; factor; prepare; contract; release | the gate, if any, contracted into the site the centre leaves; one `TensorQR` of that site, its small factor contracted into the other site                                                                                               | a QR moves the centre exactly; a network costs a path search and a preparation, and a run's moves repeat their shapes, so each shape's is made once                                         |
-| `Drop` of a tensor    | bind; its buffer freed                                                                                 | `cudaFree`; a failed free is not returned, and debug builds write it to stderr                                                                                                                                                           | `Drop` cannot return an error; no device work is pending on the tensor, since every method returns with the device idle                                                                     |
-| `Drop` of the algebra | bind; the stream waited for; release of what it keeps                                                  | the networks, the workspace descriptor, the scratch, the gate's and singular values' buffers, and a poisoned call's objects released; the device session closes once its last tensor is dropped too                                      | the session's stream and handle are shared with the tensors, which free their own buffers                                                                                                   |
+| `SiteAlgebra` method  | Phases                                                                                                 | How                                                                                                                                                                                                                                                                                                 | Why                                                                                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload`              | bind; copy                                                                                             | a new device buffer, the host values copied into it                                                                                                                                                                                                                                                 | the sites live on the device, where they are factored                                                                                                                                       |
+| `read`                | bind; copy                                                                                             | the first `len` elements copied into a host vector; refused with `NativeError::InvalidNativeCall` when the tensor holds fewer                                                                                                                                                                       | the engine contracts the sites a read needs on the host; the check keeps the device from reading memory the tensor does not own                                                             |
+| `duplicate`           | bind; copy                                                                                             | a new device buffer, the first `len` elements copied into it on the device; refused as `read` is                                                                                                                                                                                                    | a fork's sites change apart from its parent's, with no round trip through the host                                                                                                          |
+| `gate_split`          | bind; describe; copy (the gate); lend; factor; release                                                 | one `GateSplit`, cuTensorNet's reduced algorithm, with the values normalised and absorbed on the centre's side and the cutoff as a discarded weight, into factors sized by [Numerics](docs/cuda_algebra.md#numerics); its report checked                                                            | one native call contracts the gate and splits the pair; a reported bond or discarded weight outside the contract's bounds is `NativeError::InvalidNativeResult`, never passed to the engine |
+| `qr_move`             | bind; copy, prepare and contract (a one-site gate); describe; lend; factor; prepare; contract; release | the gate, if any, contracted into the site the centre leaves; one `TensorQR` of that site, its small factor contracted into the other site                                                                                                                                                          | a QR moves the centre exactly; a network costs a path search and a preparation, and a run's moves repeat their shapes, so each shape's is made once                                         |
+| `Drop` of a tensor    | bind; its buffer freed                                                                                 | `cudaFree`, or, if the algebra is poisoned, the buffer kept by the session; a failed free is not returned, and debug builds write it to stderr                                                                                                                                                      | `Drop` cannot return an error; every method returns with the device idle, so nothing uses the buffer, unless a failed method could not wait for the device                                  |
+| `Drop` of the algebra | bind; release of what it keeps; if poisoned, the stream waited for first                               | the networks, the workspace descriptor, the lent memory, the gate's and singular values' buffers released; if poisoned, they are kept by the session, and released with what it kept before only once a wait for the stream succeeds; the device session closes once its last tensor is dropped too | the session's stream and handle are shared with the tensors, which free their own buffers; an unpoisoned algebra's device is idle                                                           |
 
 A method that fails also frees its outputs, once it has waited for the
 device, since the failed work may still write the call's buffers. If that
-wait fails too, nothing says when the device is done with them: they are
-kept until the algebra is dropped, and every later method returns
-`NativeError::Poisoned`.
+wait fails too, nothing says when the device is done with them, with the
+method's inputs, or with the algebra's memory: every later method returns
+`NativeError::Poisoned`, and a buffer the device may still use is freed
+only after a successful wait for its stream (when the algebra is dropped,
+or else when its last tensor is); otherwise it is kept until one
+succeeds, or leaked.
 
 ## The discovery and loading of the libraries
 

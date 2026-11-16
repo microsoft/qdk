@@ -4,10 +4,9 @@
 //! [`DeviceTensor`]: one site tensor of a [`CudaAlgebra`](super::CudaAlgebra),
 //! a device buffer of complex doubles, freed when dropped.
 
-use crate::device_session::DeviceSession;
-use crate::native_calls::{
-    NativeCalls, OpaqueHandle, error::NativeError, error::report_failed_release,
-};
+use super::algebra_session::{AlgebraSession, Retired};
+use super::call_scope::Owned;
+use crate::native_calls::{OpaqueHandle, error::NativeError, error::report_failed_release};
 use std::{fmt, rc::Rc};
 
 /// One site tensor of a [`CudaAlgebra`](crate::CudaAlgebra): a buffer of
@@ -15,29 +14,27 @@ use std::{fmt, rc::Rc};
 /// `canonical_mps`'s algebra says, which the algebra's calls read and
 /// write. Only the algebra makes one.
 ///
-/// It keeps the algebra's device session alive, so it may outlive the
-/// algebra. Dropping it frees its buffer; a failed free is not returned,
-/// as `Drop` cannot return one, and debug builds write it to stderr. No
-/// device work is pending on it then: every call of the algebra returns
-/// with its work done.
+/// It keeps the algebra's session alive, so it may outlive the algebra.
+/// Dropping it frees its buffer; a failed free is not returned, as `Drop`
+/// cannot return one, and debug builds write it to stderr. Every call of
+/// the algebra returns with its device work done, so nothing uses the
+/// buffer then, except after a failed call that could not wait for the
+/// device (the algebra is poisoned): the buffer is then freed only after
+/// a later wait for the device succeeds, or leaked.
 pub struct DeviceTensor {
     buffer: OpaqueHandle,
     elements: usize,
-    device_session: Rc<DeviceSession<dyn NativeCalls>>,
+    session: Rc<AlgebraSession>,
 }
 
 impl DeviceTensor {
     /// The tensor of the `elements` complex doubles of `buffer`, a buffer
-    /// of `device_session`'s device, which it now owns.
-    pub(super) fn new(
-        buffer: OpaqueHandle,
-        elements: usize,
-        device_session: &Rc<DeviceSession<dyn NativeCalls>>,
-    ) -> Self {
+    /// of `session`'s device, which it now owns.
+    pub(super) fn new(buffer: OpaqueHandle, elements: usize, session: &Rc<AlgebraSession>) -> Self {
         Self {
             buffer,
             elements,
-            device_session: Rc::clone(device_session),
+            session: Rc::clone(session),
         }
     }
 
@@ -67,12 +64,9 @@ impl fmt::Debug for DeviceTensor {
 
 impl Drop for DeviceTensor {
     fn drop(&mut self) {
-        let session = &self.device_session;
-        // The algebra's device, which another algebra's call may have
-        // changed.
-        let freed = session
-            .bind_device()
-            .and_then(|()| session.calls().free(self.buffer));
+        let freed = self
+            .session
+            .release(Retired::Object(Owned::Buffer(self.buffer)));
         report_failed_release("a device tensor", freed);
     }
 }

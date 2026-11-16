@@ -9,13 +9,13 @@
 //! `r` the pair's left extent, bond and right extent, `k` the largest
 //! bond the split may keep):
 //!
-//! | tensor | extents      | modes                    |
-//! | ------ | ------------ | ------------------------ |
-//! | A      | `[l, 2, m]`  | `LEFT, P, BOND`          |
-//! | B      | `[m, 2, r]`  | `BOND, Q, RIGHT`         |
-//! | gate   | `[2, 2, 2, 2]` | `P_OUT, Q_OUT, P, Q`   |
-//! | U      | `[l, 2, k]`  | `LEFT, P_OUT, NEW_BOND`  |
-//! | V      | `[k, 2, r]`  | `NEW_BOND, Q_OUT, RIGHT` |
+//! | tensor | extents        | modes                    |
+//! | ------ | -------------- | ------------------------ |
+//! | A      | `[l, 2, m]`    | `LEFT, P, BOND`          |
+//! | B      | `[m, 2, r]`    | `BOND, Q, RIGHT`         |
+//! | gate   | `[2, 2, 2, 2]` | `P_OUT, Q_OUT, P, Q`     |
+//! | U      | `[l, 2, k]`    | `LEFT, P_OUT, NEW_BOND`  |
+//! | V      | `[k, 2, r]`    | `NEW_BOND, Q_OUT, RIGHT` |
 //!
 //! `k` is `max_extent`, `2l`, `2r` or `4m`, whichever is least: the product
 //! is a `2l × 2r` matrix of rank at most `4m` (the gate's four terms times
@@ -119,7 +119,7 @@ pub(super) fn gate_split(
         v,
         singular_values,
     };
-    let stream = scope.device_session.stream();
+    let stream = scope.stream();
     calls.gate_split(handle, &operands, config, info, workspace, stream)?;
     scope.synchronize()?;
     let truncation = calls.svd_truncation(handle, info)?;

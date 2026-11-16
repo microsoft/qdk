@@ -206,14 +206,7 @@ fn factor(
         descriptor: r_descriptor,
         data: scope.intermediate(elements(r.0)?)?,
     };
-    calls.tensor_qr(
-        handle,
-        input,
-        q,
-        r,
-        workspace,
-        scope.device_session.stream(),
-    )?;
+    calls.tensor_qr(handle, input, q, r, workspace, scope.stream())?;
     scope.synchronize()?;
     Ok((q.data, r.data))
 }

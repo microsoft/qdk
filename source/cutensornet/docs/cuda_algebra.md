@@ -46,6 +46,7 @@ sequenceDiagram
   A->>N: GateSplit or TensorQR
   A->>R: cudaStreamSynchronize
   A->>N: TensorSVDInfoGetAttribute ×3 (a gate split only)
+  A->>R: cudaFree (the smaller singular values' buffer, if it grew)
   Note over M,N: Phase: prepare, for a contraction of a shape not kept
   A->>N: CreateNetwork, NetworkAppendTensor ×2, NetworkSetOutputTensor
   A->>N: CreateContractionOptimizerInfo, CreateContractionOptimizerConfig, ContractionOptimize, DestroyContractionOptimizerConfig
@@ -57,11 +58,17 @@ sequenceDiagram
   A->>N: DestroyTensorSVDInfo, DestroyTensorSVDConfig, DestroyTensorDescriptor
   A->>R: cudaFree (the call's intermediate buffers)
   Note over M,N: Close, once the algebra is dropped
-  A->>R: cudaSetDevice, cudaStreamSynchronize
-  A->>N: DestroyContractionOptimizerInfo, DestroyNetwork (each network kept), DestroyWorkspaceDescriptor
-  A->>R: cudaFree (the scratch, the singular values' and the gate's buffers)
+  A->>R: cudaSetDevice
+  opt the algebra is poisoned
+    A->>R: cudaStreamSynchronize (if it fails, what follows waits for the session's close)
+  end
+  A->>N: DestroyContractionOptimizerInfo, DestroyNetwork (each network kept), DestroyWorkspaceDescriptor (and a poisoned call's objects)
+  A->>R: cudaFree (the lent memory, the singular values' and the gate's buffers, and a poisoned call's buffers and tensors dropped since)
   Note over M,N: Session: close, once the algebra and all its tensors are dropped
   A->>R: cudaSetDevice, cudaStreamSynchronize
+  opt the algebra was poisoned and its close's wait failed
+    A->>N: Destroy and cudaFree of what the close kept, if this wait succeeded, else leaked
+  end
   A->>N: Destroy (the algebra's handle)
   A->>R: cudaStreamDestroy
 ```
@@ -71,14 +78,17 @@ documents each on its
 [functions page](https://docs.nvidia.com/cuda/cuquantum/latest/cutensornet/api/functions.html),
 for example
 [`cutensornetGateSplit`](https://docs.nvidia.com/cuda/cuquantum/latest/cutensornet/api/functions.html#cutensornetgatesplit).
-A tensor's `Drop` binds the device and frees its buffer (`cudaFree`).
+A tensor's `Drop` binds the device and frees its buffer (`cudaFree`),
+unless the algebra is poisoned (below).
 
 When a method fails, the release phase first waits for the device
 (`cudaStreamSynchronize`, and on the legacy stream too if the method
 copied), since the failed work may still write the call's buffers, and
-frees the outputs as well. If that wait fails, the call's objects and
-buffers are kept until the algebra is dropped, and every later method
-returns `NativeError::Poisoned`.
+frees the outputs as well. If that wait fails, the algebra is poisoned:
+every later method returns `NativeError::Poisoned`, and the call's objects
+and buffers, the tensors dropped since and the algebra's own memory are
+freed only after a wait for the stream succeeds, at the algebra's close or
+else at the session's; if neither succeeds, they are leaked.
 
 ## Numerics
 

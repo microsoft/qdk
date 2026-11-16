@@ -16,7 +16,9 @@
 //! libraries.
 //!
 //! ```text
-//! CudaAlgebra ── holds ──► DeviceSession      device, stream, handle
+//! CudaAlgebra ── holds ──► AlgebraSession     shared with its tensors:
+//!                            DeviceSession (device, stream, handle),
+//!                            the poison (algebra_session.rs)
 //!             ── holds ──► AlgebraResources   kept across calls:
 //!                            workspace, Scratch (scratch.rs),
 //!                            the gate and singular-value buffers,
@@ -37,8 +39,11 @@
 //! often in the next call; and a call's scratch may be freed by the next
 //! one's growth. The one exception is a failed call whose wait for the
 //! device fails too: nothing then says when the device is done with the
-//! call's buffers, so they are kept, freed only when the algebra is
-//! dropped, and every later call returns [`NativeError::Poisoned`].
+//! call's buffers, its inputs or the algebra's memory, so every later
+//! call returns [`NativeError::Poisoned`], and a buffer the device may
+//! still use is freed only after a successful wait for its stream;
+//! otherwise it is kept until one succeeds, or leaked
+//! (`algebra_session.rs`).
 //!
 //! An algebra and its tensors are `!Send`, as the cuTensorNet engine is:
 //! the stream and the handle stay on the thread that created them. Each
@@ -55,6 +60,7 @@
 //! require_send::<qdk_cutensornet::CudaMpsEngine>();
 //! ```
 
+mod algebra_session;
 mod call_scope;
 mod contractions;
 mod device_tensor;
@@ -71,7 +77,8 @@ use crate::device_session::DeviceSession;
 use crate::native_calls::complex::{Complex64Abi, complex_bytes};
 use crate::native_calls::error::{NativeError, first_failure, report_failed_release};
 use crate::native_calls::{NativeCalls, OpaqueHandle};
-use call_scope::{CallScope, Owned};
+use algebra_session::{AlgebraSession, Retired};
+use call_scope::CallScope;
 use canonical_mps::algebra::{
     GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
 };
@@ -92,10 +99,11 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 /// It holds, across calls, a workspace descriptor and the memory it lends
 /// cuTensorNet, which grows to the largest call's and never shrinks, and
 /// the contraction networks of up to a few hundred shapes. Dropping it
-/// releases them; its tensors keep the device session alive and free their
-/// own buffers.
+/// releases them; its tensors keep the session alive and free their own
+/// buffers. A poisoned algebra frees nothing the device may still use
+/// until a wait for it succeeds (`algebra_session.rs`).
 pub struct CudaAlgebra {
-    device_session: Rc<DeviceSession<dyn NativeCalls>>,
+    session: Rc<AlgebraSession>,
     resources: RefCell<AlgebraResources>,
 }
 
@@ -112,12 +120,29 @@ struct AlgebraResources {
     /// doubles it holds.
     singular_values: Option<(OpaqueHandle, usize)>,
     contractions: Contractions,
-    /// The objects and buffers of a failed call the device may still be
-    /// using, released only when the algebra is dropped.
-    retired: Vec<Owned>,
-    /// Why the algebra can no longer be used, once a failed call could not
-    /// wait for the device.
-    poisoned: Option<String>,
+}
+
+impl AlgebraResources {
+    /// Releases everything, the workspace's memory once the descriptor is
+    /// destroyed; attempts every release and returns the first failure.
+    fn release(mut self, calls: &dyn NativeCalls) -> Result<(), NativeError> {
+        let mut released = vec![self.contractions.release(calls)];
+        if let Some(workspace) = self.workspace.take() {
+            released.push(calls.destroy_workspace(workspace));
+        }
+        released.push(self.scratch.release(calls));
+        let buffers = [
+            self.singular_values.take().map(|(buffer, _)| buffer),
+            self.gate.take(),
+        ];
+        released.extend(
+            buffers
+                .into_iter()
+                .flatten()
+                .map(|buffer| calls.free(buffer)),
+        );
+        first_failure(released)
+    }
 }
 
 impl CudaAlgebra {
@@ -151,14 +176,16 @@ impl CudaAlgebra {
         native_calls: Arc<dyn NativeCalls>,
     ) -> Result<Self, NativeError> {
         native_calls.check_tensor_functions()?;
+        let device_session = DeviceSession::new(native_calls, policy::DEVICE_ORDINAL)?;
         let algebra = Self {
-            device_session: Rc::new(DeviceSession::new(native_calls, policy::DEVICE_ORDINAL)?),
+            session: Rc::new(AlgebraSession::new(device_session)),
             resources: RefCell::new(AlgebraResources::default()),
         };
         {
-            let calls = algebra.device_session.calls();
+            let device_session = algebra.session.device_session();
+            let calls = device_session.calls();
             let mut resources = algebra.resources.borrow_mut();
-            resources.workspace = Some(calls.create_workspace(algebra.device_session.handle())?);
+            resources.workspace = Some(calls.create_workspace(device_session.handle())?);
             resources.gate = Some(calls.allocate(complex_bytes(16, "gate")?)?);
         }
         Ok(algebra)
@@ -171,56 +198,25 @@ impl CudaAlgebra {
         body: impl FnOnce(&mut CallScope<'_>) -> Result<T, NativeError>,
     ) -> Result<T, NativeError> {
         let mut resources = self.resources.borrow_mut();
-        if let Some(reason) = &resources.poisoned {
-            return Err(NativeError::Poisoned {
-                reason: reason.clone(),
-            });
-        }
-        self.device_session.bind_device()?;
-        let mut scope = CallScope::new(&self.device_session, &mut resources);
+        self.session.check_usable()?;
+        self.session.device_session().bind_device()?;
+        let mut scope = CallScope::new(&self.session, &mut resources);
         let result = body(&mut scope);
         scope.finish(result)
     }
 
     fn tensor(&self, buffer: OpaqueHandle, elements: usize) -> DeviceTensor {
-        DeviceTensor::new(buffer, elements, &self.device_session)
+        DeviceTensor::new(buffer, elements, &self.session)
     }
 
-    /// Releases everything the algebra holds, after waiting for the device;
-    /// attempts every release and returns the first failure.
+    /// Releases everything the algebra holds; attempts every release and
+    /// returns the first failure. A poisoned algebra's memory is retired,
+    /// and released with the rest of what was retired if a wait for the
+    /// device now succeeds (`algebra_session.rs`).
     fn close(&mut self) -> Result<(), NativeError> {
-        let session = &self.device_session;
-        let calls = session.calls();
-        let resources = self.resources.get_mut();
-        // The algebra's device, which another algebra's call may have
-        // changed.
-        let mut released = vec![
-            session.bind_device(),
-            calls.synchronize_stream(session.stream()),
-            resources.contractions.release(calls),
-        ];
-        if let Some(workspace) = resources.workspace.take() {
-            released.push(calls.destroy_workspace(workspace));
-        }
-        released.push(resources.scratch.release(calls));
-        released.extend(
-            resources
-                .retired
-                .drain(..)
-                .rev()
-                .map(|owned| owned.release(calls)),
-        );
-        let buffers = [
-            resources.singular_values.take().map(|(buffer, _)| buffer),
-            resources.gate.take(),
-        ];
-        released.extend(
-            buffers
-                .into_iter()
-                .flatten()
-                .map(|buffer| calls.free(buffer)),
-        );
-        first_failure(released)
+        let resources = std::mem::take(self.resources.get_mut());
+        let released = self.session.release(Retired::Resources(resources));
+        first_failure([released, self.session.settle()])
     }
 }
 

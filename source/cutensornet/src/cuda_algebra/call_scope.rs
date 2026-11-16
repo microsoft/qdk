@@ -13,22 +13,23 @@
 //! A failed call may leave device work pending, which may still write the
 //! call's buffers: `finish` waits for it before releasing anything. When
 //! that wait itself fails, nothing tells when the device is done with
-//! them, so they are retired, released only when the algebra is dropped,
-//! and the algebra is poisoned: every later call returns
-//! [`NativeError::Poisoned`].
+//! them, so they are retired and the algebra is poisoned
+//! (`algebra_session.rs`).
 
 use super::AlgebraResources;
+use super::algebra_session::{AlgebraSession, Retired};
 use crate::device_session::DeviceSession;
 use crate::native_calls::complex::{Complex64Abi, complex_bytes};
 use crate::native_calls::error::{NativeError, combine_execution_and_cleanup, first_failure};
 use crate::native_calls::tensor_calls::{SvdSetting, TensorModes};
-use crate::native_calls::{NativeCalls, OpaqueHandle};
+use crate::native_calls::{NativeCalls, OpaqueHandle, Stream};
 use num_complex::Complex64;
 
-/// One call of the algebra: its device session, the resources the algebra
-/// holds across calls, and the native objects and buffers this call made.
+/// One call of the algebra: the session it shares with its tensors, the
+/// resources the algebra holds across calls, and the native objects and
+/// buffers this call made.
 pub(super) struct CallScope<'a> {
-    pub(super) device_session: &'a DeviceSession<dyn NativeCalls>,
+    session: &'a AlgebraSession,
     pub(super) resources: &'a mut AlgebraResources,
     /// The call's own objects and intermediate buffers, released in the
     /// reverse order of their creation.
@@ -60,12 +61,9 @@ impl Owned {
 }
 
 impl<'a> CallScope<'a> {
-    pub(super) fn new(
-        device_session: &'a DeviceSession<dyn NativeCalls>,
-        resources: &'a mut AlgebraResources,
-    ) -> Self {
+    pub(super) fn new(session: &'a AlgebraSession, resources: &'a mut AlgebraResources) -> Self {
         Self {
-            device_session,
+            session,
             resources,
             owned: Vec::new(),
             outputs: Vec::new(),
@@ -73,12 +71,21 @@ impl<'a> CallScope<'a> {
         }
     }
 
+    fn device_session(&self) -> &'a DeviceSession<dyn NativeCalls> {
+        self.session.device_session()
+    }
+
     pub(super) fn calls(&self) -> &'a dyn NativeCalls {
-        self.device_session.calls()
+        self.device_session().calls()
     }
 
     pub(super) fn handle(&self) -> OpaqueHandle {
-        self.device_session.handle()
+        self.device_session().handle()
+    }
+
+    /// The algebra's stream, which every call's device work is queued on.
+    pub(super) fn stream(&self) -> Stream {
+        self.device_session().stream()
     }
 
     /// The algebra's workspace descriptor.
@@ -92,13 +99,13 @@ impl<'a> CallScope<'a> {
     /// asks for.
     pub(super) fn lend_workspace(&mut self) -> Result<(), NativeError> {
         let workspace = self.workspace();
-        self.resources.scratch.lend(self.device_session, workspace)
+        let device_session = self.device_session();
+        self.resources.scratch.lend(device_session, workspace)
     }
 
     /// Waits for the work queued on the algebra's stream.
     pub(super) fn synchronize(&self) -> Result<(), NativeError> {
-        self.calls()
-            .synchronize_stream(self.device_session.stream())
+        self.calls().synchronize_stream(self.stream())
     }
 
     /// A tensor descriptor of these extents and mode labels, destroyed when
@@ -194,7 +201,8 @@ impl<'a> CallScope<'a> {
 
     /// The algebra's buffer for a gate split's singular values, grown to
     /// hold `count` doubles if it is smaller. No device work may be
-    /// pending: a growth frees the smaller buffer.
+    /// pending: a growth frees the smaller buffer, and a failed free is
+    /// returned, not retried.
     pub(super) fn singular_values(&mut self, count: usize) -> Result<OpaqueHandle, NativeError> {
         let elements = count.div_ceil(2);
         match self.resources.singular_values {
@@ -223,14 +231,13 @@ impl<'a> CallScope<'a> {
             let stream = self.synchronize();
             let copies = self.copied.then(|| calls.synchronize_copies());
             if let Err(error) = first_failure(std::iter::once(stream).chain(copies)) {
-                self.resources.poisoned = Some(format!(
+                let reason = format!(
                     "a failed call could not wait for the device, which may still use \
                      its buffers: {error}"
-                ));
+                );
                 let outputs = self.outputs.into_iter().map(Owned::Buffer);
-                self.resources
-                    .retired
-                    .extend(self.owned.into_iter().chain(outputs));
+                let retired = self.owned.into_iter().chain(outputs);
+                self.session.poison(reason, retired.map(Retired::Object));
                 return combine_execution_and_cleanup(result, Err(error));
             }
         }

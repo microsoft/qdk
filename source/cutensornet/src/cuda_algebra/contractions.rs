@@ -116,7 +116,7 @@ pub(super) fn contract(
         [first.data, second.data],
         output,
         workspace,
-        scope.device_session.stream(),
+        scope.stream(),
     )?;
     scope.synchronize()
 }

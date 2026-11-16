@@ -9,11 +9,12 @@
 //! or host, scratch or cache. The algebra holds one buffer per slot, lends
 //! it to every call, and grows it when a call asks for more; it never
 //! shrinks, so at rest the algebra holds its largest call's memory. A
-//! device buffer grows as the cuTensorNet engine's scratch does: the
-//! larger buffer is lent before the smaller is freed, so the descriptor
-//! never holds freed memory. A slot a call asks no memory for keeps what
-//! it was lent: cuTensorNet refuses a slot lent a pointer and 0 bytes
-//! (status 7 on the A100).
+//! buffer grows as the cuTensorNet engine's scratch does: the larger
+//! buffer is lent before the smaller is freed, so the descriptor never
+//! holds freed memory. Only a device buffer is bounded: it never grows
+//! beyond the device's free memory. A slot a call asks no memory for
+//! keeps what it was lent: cuTensorNet refuses a slot lent a pointer and
+//! 0 bytes (status 7 on the A100).
 
 use crate::device_session::DeviceSession;
 use crate::native_calls::error::{NativeError, first_failure};
@@ -64,12 +65,14 @@ impl Scratch {
             if let Some(bytes) = asked(calls, handle, workspace, slot)? {
                 let held = &mut self.host[index];
                 if held.len() < bytes + HOST_ALIGNMENT {
-                    *held = vec![0; bytes + HOST_ALIGNMENT];
+                    // The smaller memory is dropped only once the
+                    // descriptor holds the larger, as a device buffer is.
+                    let mut grown = vec![0; bytes + HOST_ALIGNMENT];
+                    lend_host(calls, handle, workspace, slot, &mut grown)?;
+                    *held = grown;
+                } else {
+                    lend_host(calls, handle, workspace, slot, held)?;
                 }
-                let offset = held.as_ptr().align_offset(HOST_ALIGNMENT);
-                let aligned = NonNull::from(&mut held[offset]).cast();
-                let lent = size_i64(held.len() - offset)?;
-                calls.set_workspace(handle, workspace, slot, aligned, lent)?;
             }
         }
         Ok(())
@@ -141,6 +144,21 @@ fn asked(
         .map_err(|_| NativeError::ResourceSizeOverflow {
             resource: "workspace",
         })
+}
+
+/// Lends host slot `slot` of `workspace` `memory`, from its first
+/// `HOST_ALIGNMENT`-aligned byte.
+fn lend_host(
+    calls: &dyn NativeCalls,
+    handle: OpaqueHandle,
+    workspace: OpaqueHandle,
+    slot: WorkspaceSlot,
+    memory: &mut [u8],
+) -> Result<(), NativeError> {
+    let offset = memory.as_ptr().align_offset(HOST_ALIGNMENT);
+    let lent = size_i64(memory.len() - offset)?;
+    let aligned = NonNull::from(&mut memory[offset]).cast();
+    calls.set_workspace(handle, workspace, slot, aligned, lent)
 }
 
 fn size_i64(bytes: usize) -> Result<i64, NativeError> {
