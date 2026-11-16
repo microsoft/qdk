@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! The reference algebra against `SiteAlgebra`'s contract, since a
-//! backend on another library is compared with its answers and the
-//! engine's tests stand on them: a gate split gives back the gated pair,
+//! backend on another library can be compared with its answers and the
+//! engine's tests run on it: a gate split gives back the gated pair,
 //! truncated to its largest singular values and normalised, with an
 //! isometry away from the centre, and reports a failed SVD; a move of the
 //! centre is exact and leaves an isometry behind; a read borrows a site's

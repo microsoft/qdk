@@ -15,7 +15,7 @@ use tensornet::sampling::{TooManyValues, sample_by_conditionals};
 fn a_sample_of_no_sites_gives_no_values_at_once() {
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let engine = Engine::new(FakeAlgebra);
+        let engine = Engine::new(CpuAlgebra);
         let state = engine.prepare(&chain(2, 2)).expect("prepare");
         let values = engine.sample(&state, &[], usize::MAX, 0);
         sender.send(values).expect("the test waits");

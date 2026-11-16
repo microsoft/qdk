@@ -1,18 +1,21 @@
-# canonical_mps: a canonical-form MPS engine, and its backend contract
+# canonical_mps: a canonical-form MPS engine, its backend contract, and the reference algebra
 
 The `canonical_mps` crate lets a QDK simulator written against
 `tensornet`'s `MpsEngine` trait run its matrix product states (MPS) in
 canonical form on any backend that implements a small set of tensor
-operations. It has two parts:
+operations, the host CPU's included. It has three parts:
 
 - **[The engine](#the-engine):**
   [`CanonicalMpsEngine`](src/engine.rs) implements `tensornet::MpsEngine`
   over any `SiteAlgebra`: it routes, fuses, truncates and reads by one set
-  of rules.
+  of rules. [`CpuMpsEngine`](src/lib.rs) is the engine on the reference
+  algebra.
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/algebra.rs), the tensor operations a backend
-  implements, and a [truncation rule](#the-truncation-rule) that a backend
-  which computes the singular values itself may use.
+  implements.
+- **[The reference algebra](#the-reference-algebra):**
+  [`CpuAlgebra`](src/algebra/cpu_algebra.rs), the contract on the host CPU,
+  whose answers a backend on another library can be compared with.
 
 **The problem.** Some of an MPS engine's rules are the same on every
 backend, the CPU or a GPU library: where the orthogonality centre moves,
@@ -20,13 +23,15 @@ which pair a gate splits, how gates on distant qubits are routed, how the
 retained weight is kept, and the bounds every truncation stays within.
 What differs is where the tensors live, which library factors them, and
 which values a truncation keeps within those bounds. Written once per
-backend, those rules drift apart.
+backend, those rules drift apart. A simulator also needs an engine where
+no GPU is present, on every platform the QDK ships to, and a backend on a
+GPU library needs a reference to compare its operations with.
 
 **How it is solved.** The engine holds the rules, written once over the
 contract, and a backend writes only the contract's operations. The
-backends that run on a CPU and on a GPU library are planned, each in its
-own crate; this crate tests the engine on a host
-[test algebra](src/algebra/fake_algebra.rs).
+reference algebra is this crate's backend: its tensors are vectors in the
+host's memory, and its products, QR and SVD are `dense_linalg`'s, on the
+calling thread. A backend on a GPU library is planned, in its own crate.
 
 **Why this approach.**
 
@@ -40,6 +45,9 @@ own crate; this crate tests the engine on a host
   failures.
 - **Open to more backends.** A new backend is a new type implementing the
   trait, in its own crate; nothing here changes.
+- **A reference.** Each of the reference algebra's operations is computed
+  directly from its contract, with an SVD whose factors are checked, so a
+  backend on another library can be compared with it call by call.
 - **Portable.** The crate depends on `tensornet`, `dense_linalg`,
   `num-complex` and `thiserror`, all pure Rust, so it builds on every
   [platform](#platforms) the QDK supports.
@@ -101,6 +109,43 @@ flowchart LR
   S["an MPS simulation method<br/>(gates, measurements, shots)"] -->|"MpsEngine methods"| E["<b>CanonicalMpsEngine</b>"]
   E -->|"SiteAlgebra operations"| B["a backend<br/>(the site tensors, where they live)"]
   E -->|"host products"| D["dense_linalg"]
+```
+
+### On the host CPU
+
+[`CpuMpsEngine`](src/lib.rs) is the engine on the
+[reference algebra](#the-reference-algebra), `CpuAlgebra`. Its state is
+`CanonicalMpsState<CpuAlgebra>`, and its error
+`CanonicalMpsError<dense_linalg::SvdError>`. The GHZ state on three
+qubits, its last qubit reached from the first by a gate on sites that are
+not neighbours (the crate's doctest):
+
+```rust
+use canonical_mps::{CpuAlgebra, CpuMpsEngine};
+use num_complex::Complex64;
+use tensornet::{MpsEngine, MpsShape};
+
+let c = |re: f64| Complex64::new(re, 0.0);
+let h = std::f64::consts::FRAC_1_SQRT_2;
+let hadamard = [c(h), c(h), c(h), c(-h)];
+let mut cx = [c(0.0); 16];
+for (row, col) in [(0, 0), (1, 1), (2, 3), (3, 2)] {
+    cx[4 * row + col] = c(1.0);
+}
+
+let engine = CpuMpsEngine::new(CpuAlgebra);
+let capacity = MpsShape::qubit_chain(3, 2).expect("three sites");
+let mut ghz = engine.prepare(&capacity).expect("a chain of qubits");
+engine.apply(&mut ghz, &[0], &hadamard).expect("a one-site gate");
+engine.apply(&mut ghz, &[0, 1], &cx).expect("neighbours");
+engine.apply(&mut ghz, &[0, 2], &cx).expect("sites further apart");
+
+let p = engine.probability_of_one(&ghz, 2).expect("a site in range");
+assert!((p - 0.5).abs() < 1e-12);
+let given = engine
+    .conditional_probability_of_one(&ghz, 2, &[(0, true)])
+    .expect("a possible condition");
+assert!((given - 1.0).abs() < 1e-12);
 ```
 
 ### The engine's parts
@@ -218,7 +263,7 @@ factors a site read as a matrix with no copy; the
 [`CpuAlgebra`](src/algebra/cpu_algebra.rs), exported at the crate's root,
 is the contract on the host CPU. Each operation is computed directly from
 its contract, so a backend on another library can be compared with its
-answers, call by call, and the engine's tests will run on it. It needs no
+answers, call by call, and the engine's tests run on it. It needs no
 device, so it runs wherever the QDK runs.
 
 `CpuAlgebra` holds each site in a `Vec<Complex64>`, in the contract's
@@ -228,7 +273,7 @@ the operations read a site as a matrix without reordering it.
 | Operation    | How                                                                                                                                                                                                           | Why                                                                                                                                                                                                     |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `upload`     | a copy of the host values into a new vector                                                                                                                                                                   | the tensors already live on the host                                                                                                                                                                    |
-| `read`       | the tensor's first `len` elements, borrowed                                                                                                                                                                   | the engine's host reads will need no copy                                                                                                                                                               |
+| `read`       | the tensor's first `len` elements, borrowed                                                                                                                                                                   | the engine's host reads need no copy                                                                                                                                                                    |
 | `duplicate`  | a copy of the tensor's first `len` elements                                                                                                                                                                   | a fork's sites change apart from its parent's                                                                                                                                                           |
 | `gate_split` | `θ` by one product and the gate's loops; one `Svd::of`; the values the [truncation rule](src/algebra/truncation.rs) keeps, normalised, multiplied into the centre's side, the other side the singular vectors | the SVD's factors are checked against `θ` before the truncation: when they do not give `θ` back, the split fails with `SvdError` rather than spread them; what it keeps is `θ`'s truncation, normalised |
 | `qr_move`    | the one-site gate applied to the site the centre leaves; one thin `Qr::of` of it; the small factor multiplied into the other site                                                                             | a QR moves the centre exactly, and never fails                                                                                                                                                          |
@@ -239,16 +284,18 @@ its [documentation](src/algebra/truncation.rs) states it in full. Only
 `gate_split` fails, when the SVD does
 ([`SvdError`](../dense_linalg/src/svd.rs)): `DidNotConverge` when its
 rotations still turn after their last sweep, `FailedChecks` when `θ` holds
-a value that is not finite or the factors fail the SVD's checks.
+a value that is not finite or the factors fail the SVD's checks. The
+engine reports it as `CanonicalMpsError::Algebra`.
 
 ## Tests
 
-The [unit tests](src/tests) check the truncation rule, the
-[host test algebra](src/algebra/fake_algebra.rs) against the contract, and
-the engine's rules on that algebra; where the engine reads values, they
-compare them with closed-form values, or with `tensornet`'s exact reference
-on circuits too large to check by hand. Each backend checks its
-own implementation of the contract in its crate.
+The [unit tests](src/tests) check the truncation rule, the reference
+algebra against the contract, and the engine's rules on that algebra;
+where the engine reads values, they compare them with closed-form values,
+or with `tensornet`'s exact reference on circuits too large to check by
+hand, without truncation and within the distance its truncations allow.
+A backend in another crate is to check its own implementation of the
+contract there.
 
 ## Platforms
 

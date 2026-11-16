@@ -11,7 +11,7 @@ use super::*;
 /// then a read, take one split.
 #[test]
 fn new_fuses() {
-    let engine = Engine::new(FakeAlgebra);
+    let engine = Engine::new(CpuAlgebra);
     let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
     engine.apply(&mut state, &[0], &ry(0.7)).expect("apply");
     engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
@@ -25,7 +25,7 @@ fn new_fuses() {
 /// forks split it again when read.
 #[test]
 fn a_fork_splits_a_pending_pair_once() {
-    let engine = Engine::new(FakeAlgebra);
+    let engine = Engine::new(CpuAlgebra);
     let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
     engine.apply(&mut state, &[0], &ry(0.7)).expect("apply");
     engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
@@ -49,7 +49,7 @@ fn a_fork_splits_a_pending_pair_once() {
 #[test]
 fn a_read_splits_a_pending_pair_toward_its_site() {
     for (first_read, read) in [(None, 2), (Some(3), 1)] {
-        let engine = Engine::new(FakeAlgebra);
+        let engine = Engine::new(CpuAlgebra);
         let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
         if let Some(site) = first_read {
             engine.probability_of_one(&state, site).expect("P(One)");
@@ -69,7 +69,7 @@ fn a_read_splits_a_pending_pair_toward_its_site() {
 /// site 2 after it makes no move.
 #[test]
 fn an_expectation_splits_a_pending_pair_toward_the_centre() {
-    let engine = Engine::new(FakeAlgebra);
+    let engine = Engine::new(CpuAlgebra);
     let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
     engine.probability_of_one(&state, 3).expect("P(One)");
     engine.apply(&mut state, &[1, 2], &cnot()).expect("apply");
@@ -89,7 +89,7 @@ fn an_expectation_splits_a_pending_pair_toward_the_centre() {
 fn fuses_the_gates_on_one_pair_into_one_split() {
     let mut results = Vec::new();
     for fuses in [false, true] {
-        let engine = Engine::new(FakeAlgebra).with_fusion(fuses);
+        let engine = Engine::new(CpuAlgebra).with_fusion(fuses);
         let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
         for site in 0..3 {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
@@ -122,7 +122,7 @@ fn fuses_the_gates_on_one_pair_into_one_split() {
 fn fuses_a_routing_swap_into_the_pair_it_lands_on() {
     let mut results = Vec::new();
     for fuses in [false, true] {
-        let engine = Engine::new(FakeAlgebra).with_fusion(fuses);
+        let engine = Engine::new(CpuAlgebra).with_fusion(fuses);
         let mut state = engine.prepare(&chain(6, 4)).expect("prepare");
         for site in 0..6 {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
@@ -156,7 +156,7 @@ fn fuses_a_routing_swap_into_the_pair_it_lands_on() {
 fn fuses_a_gate_into_the_pair_a_route_returns_on() {
     let mut results = Vec::new();
     for fuses in [false, true] {
-        let engine = Engine::new(FakeAlgebra).with_fusion(fuses);
+        let engine = Engine::new(CpuAlgebra).with_fusion(fuses);
         let mut state = engine.prepare(&chain(5, 8)).expect("prepare");
         for site in 0..5 {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");

@@ -3,11 +3,11 @@
 
 //! The engine's failures, apart from refusals: a sample too large for
 //! memory, and each method of the algebra failing, on the fake
-//! [`FailingFakeAlgebra`], since no input makes [`FakeAlgebra`] itself fail.
+//! [`FailingFakeAlgebra`], since the reference algebra, [`CpuAlgebra`],
+//! fails only when its SVD does, which the engine's tests never make it do.
 
 use super::failing_fake_algebra::{AlgebraFailure, Method};
 use super::*;
-use std::convert::Infallible;
 
 /// The error of an engine on [`FailingFakeAlgebra`].
 type Failure = CanonicalMpsError<AlgebraFailure>;
@@ -28,7 +28,7 @@ fn assert_fails_in(error: &Failure, method: Method, context: &str) {
 /// `isize::MAX` shots of one site cannot be allocated.
 #[test]
 fn a_sample_too_large_for_memory_fails() {
-    let engine = Engine::new(FakeAlgebra);
+    let engine = Engine::new(CpuAlgebra);
     let state = engine.prepare(&chain(2, 2)).expect("prepare");
     for (sites, shots) in [
         (&[0, 1][..], usize::MAX),
@@ -40,7 +40,7 @@ fn a_sample_too_large_for_memory_fails() {
             .expect_err("too many values");
         assert_eq!(
             error,
-            CanonicalMpsError::<Infallible>::TooManyValues {
+            CanonicalMpsError::<SvdError>::TooManyValues {
                 shots,
                 sites: sites.len()
             }

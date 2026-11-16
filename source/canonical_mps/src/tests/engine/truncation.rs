@@ -14,7 +14,7 @@ use super::*;
 /// default cutoff; the split drops the first and keeps the second.
 #[test]
 fn new_truncates_at_the_default_cutoff() {
-    let engine = Engine::new(FakeAlgebra);
+    let engine = Engine::new(CpuAlgebra);
     for (tail, bond) in [(0.9 * DEFAULT_CUTOFF, 1), (1.1 * DEFAULT_CUTOFF, 2)] {
         let theta = 2.0 * tail.sqrt().asin();
         let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
@@ -138,7 +138,7 @@ fn the_cutoff_is_a_fraction_of_the_splits_own_weight() {
 #[test]
 fn a_cutoff_must_lie_in_zero_to_one() {
     for cutoff in [-1e-300, 1.0, 2.0, f64::INFINITY, f64::NAN] {
-        let payload = std::panic::catch_unwind(|| Engine::new(FakeAlgebra).with_cutoff(cutoff))
+        let payload = std::panic::catch_unwind(|| Engine::new(CpuAlgebra).with_cutoff(cutoff))
             .expect_err("a cutoff outside [0, 1)");
         let message = payload
             .downcast_ref::<String>()

@@ -1,12 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`FailingFakeAlgebra`]: a fake, [`FakeAlgebra`] except that the calls of
-//! one method fail, for the tests of what the engine does when its backend
-//! fails, since no input makes [`FakeAlgebra`] itself fail.
+//! [`FailingFakeAlgebra`]: a fake, the reference algebra ([`CpuAlgebra`])
+//! except that the calls of one method fail, for the tests of what the
+//! engine does when its backend fails: [`CpuAlgebra`] fails only when its
+//! SVD does, and the engine's tests give the SVD finite matrices, which it
+//! answers.
 
-use crate::algebra::fake_algebra::FakeAlgebra;
+use crate::CpuAlgebra;
 use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
+use dense_linalg::SvdError;
 use num_complex::Complex64;
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -27,7 +30,7 @@ pub(super) enum Method {
 #[error("the failing fake algebra's {0:?} failed")]
 pub(super) struct AlgebraFailure(pub(super) Method);
 
-/// [`FakeAlgebra`], except that the call of `method` numbered `failing`
+/// [`CpuAlgebra`], except that the call of `method` numbered `failing`
 /// (from 0) fails, or every call of it when `failing` is `None`; `asked`
 /// counts the calls of `method` asked of it.
 #[derive(Clone)]
@@ -74,11 +77,9 @@ impl FailingFakeAlgebra {
     }
 }
 
-/// [`FakeAlgebra`]'s answer, which never fails.
-fn fake<T>(answer: Result<T, std::convert::Infallible>) -> T {
-    match answer {
-        Ok(answer) => answer,
-    }
+/// [`CpuAlgebra`]'s answer, which fails only when its SVD does.
+fn cpu_answer<T>(answer: Result<T, SvdError>) -> T {
+    answer.expect("the engine's tests give the SVD small, finite matrices, on which it converges")
 }
 
 impl SiteAlgebra for FailingFakeAlgebra {
@@ -87,7 +88,7 @@ impl SiteAlgebra for FailingFakeAlgebra {
 
     fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error> {
         self.call(Method::Upload)?;
-        Ok(fake(FakeAlgebra.upload(values)))
+        Ok(cpu_answer(CpuAlgebra.upload(values)))
     }
 
     fn read<'t>(
@@ -96,12 +97,12 @@ impl SiteAlgebra for FailingFakeAlgebra {
         len: usize,
     ) -> Result<Cow<'t, [Complex64]>, Self::Error> {
         self.call(Method::Read)?;
-        Ok(fake(FakeAlgebra.read(tensor, len)))
+        Ok(cpu_answer(CpuAlgebra.read(tensor, len)))
     }
 
     fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Self::Error> {
         self.call(Method::Duplicate)?;
-        Ok(fake(FakeAlgebra.duplicate(tensor, len)))
+        Ok(cpu_answer(CpuAlgebra.duplicate(tensor, len)))
     }
 
     fn gate_split(
@@ -109,7 +110,7 @@ impl SiteAlgebra for FailingFakeAlgebra {
         call: &GateSplitCall<'_, Self::Tensor>,
     ) -> Result<GateSplitOutcome<Self::Tensor>, Self::Error> {
         self.call(Method::GateSplit)?;
-        Ok(fake(FakeAlgebra.gate_split(call)))
+        Ok(cpu_answer(CpuAlgebra.gate_split(call)))
     }
 
     fn qr_move(
@@ -117,6 +118,6 @@ impl SiteAlgebra for FailingFakeAlgebra {
         call: &QrMoveCall<'_, Self::Tensor>,
     ) -> Result<QrMoveOutcome<Self::Tensor>, Self::Error> {
         self.call(Method::QrMove)?;
-        Ok(fake(FakeAlgebra.qr_move(call)))
+        Ok(cpu_answer(CpuAlgebra.qr_move(call)))
     }
 }

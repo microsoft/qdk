@@ -1,17 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`SpyAlgebra`]: a spy on [`FakeAlgebra`], which counts the engine's
-//! calls and records what it uploads, for the tests that pin how many moves
-//! of the centre, reads and duplicates an operation takes, and what the
-//! engine hands the algebra.
+//! [`SpyAlgebra`]: a spy on the reference algebra, [`CpuAlgebra`], which
+//! counts the engine's calls and records what it uploads, for the tests
+//! that pin how many moves of the centre, reads and duplicates an
+//! operation takes, and what the engine hands the algebra.
 
-use crate::algebra::fake_algebra::FakeAlgebra;
+use crate::CpuAlgebra;
 use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
+use dense_linalg::SvdError;
 use num_complex::Complex64;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
-use std::convert::Infallible;
 use std::rc::Rc;
 
 /// How many calls of each counted method a [`SpyAlgebra`] answered,
@@ -24,7 +24,7 @@ pub(super) struct SpiedCalls {
     pub(super) uploads: RefCell<Vec<Vec<Complex64>>>,
 }
 
-/// A spy: [`FakeAlgebra`], counting its moves of the centre, reads and
+/// A spy: [`CpuAlgebra`], counting its moves of the centre, reads and
 /// duplicates, and recording its uploads, into the [`SpiedCalls`] it shares
 /// with the test.
 #[derive(Clone)]
@@ -44,11 +44,11 @@ fn count(counter: &Cell<usize>) {
 
 impl SiteAlgebra for SpyAlgebra {
     type Tensor = Vec<Complex64>;
-    type Error = Infallible;
+    type Error = SvdError;
 
     fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error> {
         self.0.uploads.borrow_mut().push(values.to_vec());
-        FakeAlgebra.upload(values)
+        CpuAlgebra.upload(values)
     }
 
     fn read<'t>(
@@ -57,19 +57,19 @@ impl SiteAlgebra for SpyAlgebra {
         len: usize,
     ) -> Result<Cow<'t, [Complex64]>, Self::Error> {
         count(&self.0.reads);
-        FakeAlgebra.read(tensor, len)
+        CpuAlgebra.read(tensor, len)
     }
 
     fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Self::Error> {
         count(&self.0.duplicates);
-        FakeAlgebra.duplicate(tensor, len)
+        CpuAlgebra.duplicate(tensor, len)
     }
 
     fn gate_split(
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,
     ) -> Result<GateSplitOutcome<Self::Tensor>, Self::Error> {
-        FakeAlgebra.gate_split(call)
+        CpuAlgebra.gate_split(call)
     }
 
     fn qr_move(
@@ -77,6 +77,6 @@ impl SiteAlgebra for SpyAlgebra {
         call: &QrMoveCall<'_, Self::Tensor>,
     ) -> Result<QrMoveOutcome<Self::Tensor>, Self::Error> {
         count(&self.0.qr_moves);
-        FakeAlgebra.qr_move(call)
+        CpuAlgebra.qr_move(call)
     }
 }

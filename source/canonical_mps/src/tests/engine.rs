@@ -2,13 +2,13 @@
 // Licensed under the MIT License.
 
 //! The tests of the engine's rules, one file per area of the contract or
-//! of the engine's own promises, on [`FakeAlgebra`]. This file holds what
-//! several areas share: the engine with and without fusion, gates and
-//! observables, and a circuit run on the engine and on the exact
-//! reference. Two stand-ins wrap [`FakeAlgebra`] for the tests that need
-//! more than its answers: the spy [`SpyAlgebra`] counts the engine's calls
-//! and records its uploads, and the fake [`FailingFakeAlgebra`] fails the
-//! call a test chooses.
+//! of the engine's own promises, on the reference algebra, [`CpuAlgebra`].
+//! This file holds what several areas share: the engine with and without
+//! fusion, gates and observables, and a circuit run on the engine and on
+//! the exact reference. Two stand-ins wrap [`CpuAlgebra`] for the tests
+//! that need more than its answers: the spy [`SpyAlgebra`] counts the
+//! engine's calls and records its uploads, and the fake
+//! [`FailingFakeAlgebra`] fails the call a test chooses.
 
 mod chain;
 mod conformance;
@@ -25,10 +25,11 @@ mod spy_algebra;
 mod statistics;
 mod truncation;
 
-use crate::algebra::fake_algebra::FakeAlgebra;
 use crate::{
-    CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, DEFAULT_CUTOFF, SplitStatistics,
+    CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, CpuAlgebra, CpuMpsEngine as Engine,
+    DEFAULT_CUTOFF, SplitStatistics,
 };
+use dense_linalg::SvdError;
 use failing_fake_algebra::FailingFakeAlgebra;
 use num_complex::Complex64;
 use spy_algebra::SpyAlgebra;
@@ -37,11 +38,9 @@ use tensornet::{
     reference::{ExactReference, ReferenceState},
 };
 
-/// The engine the tests run, on the test algebra.
-type Engine = CanonicalMpsEngine<FakeAlgebra>;
-
-/// A state of [`Engine`].
-type State = CanonicalMpsState<FakeAlgebra>;
+/// A state of [`Engine`], the engine the tests run, on the reference
+/// algebra.
+type State = CanonicalMpsState<CpuAlgebra>;
 
 fn real(re: f64) -> Complex64 {
     Complex64::new(re, 0.0)
@@ -132,7 +131,7 @@ fn mixed_string() -> PauliSum {
 
 /// The engine with and without fusion, each with its setting's name.
 fn both_fusions(cutoff: f64) -> [(Engine, &'static str); 2] {
-    let engine = Engine::new(FakeAlgebra).with_cutoff(cutoff);
+    let engine = Engine::new(CpuAlgebra).with_cutoff(cutoff);
     [
         (engine.clone(), "fused"),
         (engine.with_fusion(false), "unfused"),
@@ -196,7 +195,7 @@ fn halve_the_weight(
     engine: &Engine,
     state: &mut State,
     centre: usize,
-) -> Result<f64, CanonicalMpsError<std::convert::Infallible>> {
+) -> Result<f64, CanonicalMpsError<SvdError>> {
     engine.apply(state, &[0], &ry(std::f64::consts::FRAC_PI_2))?;
     engine.probability_of_one(state, centre)?;
     engine.apply(state, &[0, 1], &cnot())?;

@@ -88,7 +88,7 @@ fn a_routes_outbound_bond_is_transient_not_at_rest() {
 /// 1, the bond of a product state.
 #[test]
 fn a_state_without_splits_reports_largest_bonds_of_1() {
-    let engine = Engine::new(FakeAlgebra);
+    let engine = Engine::new(CpuAlgebra);
     let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
     engine.apply(&mut state, &[1], &ry(0.7)).expect("apply");
     let statistics = state.split_statistics();
@@ -107,7 +107,7 @@ fn a_state_without_splits_reports_largest_bonds_of_1() {
 /// neighbours takes one split.
 #[test]
 fn counts_the_splits_and_swaps_of_a_route() {
-    let engine = Engine::new(FakeAlgebra).with_fusion(false);
+    let engine = Engine::new(CpuAlgebra).with_fusion(false);
     let mut state = engine.prepare(&chain(5, 8)).expect("prepare");
     for site in 0..5 {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
@@ -150,7 +150,7 @@ fn counts_the_moves_of_the_centre() {
 /// the parent's splits, SWAPs and largest bonds.
 #[test]
 fn a_fork_starts_with_its_parents_history() {
-    let engine = Engine::new(FakeAlgebra).with_fusion(false);
+    let engine = Engine::new(CpuAlgebra).with_fusion(false);
     let mut state = engine.prepare(&chain(5, 8)).expect("prepare");
     for site in 0..5 {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");

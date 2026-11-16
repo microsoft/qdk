@@ -148,9 +148,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     /// of all their squares, unless the capacity's bond, which a split at
     /// rest keeps at most (Truncation on [`CanonicalMpsEngine`]), cuts more.
     /// These are the bounds of [`SiteAlgebra::gate_split`]'s contract;
-    /// which values a split drops within them is the algebra's to choose,
-    /// and an algebra that truncates by [`Truncation`] drops the longest
-    /// such tail.
+    /// which values a split drops within them is the algebra's to choose.
     ///
     /// The cutoff and the capacity's bond `χ` are the two settings that
     /// trade time for accuracy. The cutoff bounds the weight a split may
@@ -165,8 +163,6 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     ///
     /// When `cutoff` is not in `[0, 1)`, NaN included: it is a fraction of
     /// a split's weight, and a cutoff of 1 or more would drop every value.
-    ///
-    /// [`Truncation`]: crate::algebra::truncation::Truncation
     #[must_use]
     pub fn with_cutoff(self, cutoff: f64) -> Self {
         assert!(

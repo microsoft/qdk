@@ -89,9 +89,8 @@ the cut for a split at rest, none for a route's outbound SWAP, whose bond
 stays within twice the capacity's largest ([`routing.md`](routing.md)).
 These are the bounds of `gate_split`'s contract
 ([`algebra.rs`](../src/algebra.rs)); which values a split drops within
-them is the algebra's to choose, and an algebra that truncates by
-[`Truncation`](../src/algebra/truncation.rs) drops the longest such tail. A
-split normalises the values it keeps, so the chain keeps a norm of about 1.
+them is the algebra's to choose. A split normalises the values it keeps,
+so the chain keeps a norm of about 1.
 
 **The retained weight.** Each split returns the share `f ∈ (0, 1]` of the
 squared singular values it kept, and the state's retained weight is the

@@ -9,7 +9,6 @@
 use super::*;
 use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
 use std::borrow::Cow;
-use std::convert::Infallible;
 
 /// Turns of 0.3 and 0.4 and back by 0.7: the site is Zero up to rounding,
 /// so One keeps a weight of rounding, above zero.
@@ -178,7 +177,7 @@ fn refuses_a_gate_on_three_sites_leaving_what_reads_see() {
 #[test]
 fn refuses_a_qutrit() {
     let qutrit = MpsShape::new(vec![vec![3, 1], vec![1, 2]]).expect("a shape");
-    let error = Engine::new(FakeAlgebra)
+    let error = Engine::new(CpuAlgebra)
         .prepare(&qutrit)
         .expect_err("a qutrit");
     assert_eq!(error, Refusal::NotTwoLevel { site: 0, levels: 3 }.into());
@@ -188,7 +187,7 @@ fn refuses_a_qutrit() {
 /// keep the state: a refused call answers with the contract's refusal.
 #[test]
 fn a_refused_call_reports_its_refusal() {
-    let engine = Engine::new(FakeAlgebra);
+    let engine = Engine::new(CpuAlgebra);
     let state = engine.prepare(&chain(2, 2)).expect("prepare");
     let error = engine
         .probability_of_one(&state, 2)
@@ -200,42 +199,42 @@ fn a_refused_call_reports_its_refusal() {
 }
 
 /// A stub of a backend whose reads come back NaN, as a device's may after
-/// an overflow: [`FakeAlgebra`], except that `read` returns NaN elements.
+/// an overflow: [`CpuAlgebra`], except that `read` returns NaN elements.
 #[derive(Clone)]
 struct NanReadsStub;
 
 impl SiteAlgebra for NanReadsStub {
     type Tensor = Vec<Complex64>;
-    type Error = Infallible;
+    type Error = SvdError;
 
-    fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Infallible> {
-        FakeAlgebra.upload(values)
+    fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error> {
+        CpuAlgebra.upload(values)
     }
 
     fn read<'t>(
         &self,
         _: &'t Self::Tensor,
         len: usize,
-    ) -> Result<Cow<'t, [Complex64]>, Infallible> {
+    ) -> Result<Cow<'t, [Complex64]>, Self::Error> {
         Ok(Cow::Owned(vec![Complex64::new(f64::NAN, f64::NAN); len]))
     }
 
-    fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Infallible> {
-        FakeAlgebra.duplicate(tensor, len)
+    fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Self::Error> {
+        CpuAlgebra.duplicate(tensor, len)
     }
 
     fn gate_split(
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,
-    ) -> Result<GateSplitOutcome<Self::Tensor>, Infallible> {
-        FakeAlgebra.gate_split(call)
+    ) -> Result<GateSplitOutcome<Self::Tensor>, Self::Error> {
+        CpuAlgebra.gate_split(call)
     }
 
     fn qr_move(
         &self,
         call: &QrMoveCall<'_, Self::Tensor>,
-    ) -> Result<QrMoveOutcome<Self::Tensor>, Infallible> {
-        FakeAlgebra.qr_move(call)
+    ) -> Result<QrMoveOutcome<Self::Tensor>, Self::Error> {
+        CpuAlgebra.qr_move(call)
     }
 }
 
