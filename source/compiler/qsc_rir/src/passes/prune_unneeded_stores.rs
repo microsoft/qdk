@@ -30,8 +30,13 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
     let mut cross_block_used_vars = FxHashSet::default();
     let mut visited_blocks = FxHashSet::default();
     let mut blocks_to_visit = vec![entry_block_id];
+    let mut blocks_to_visit_set = FxHashSet::default();
+    blocks_to_visit_set.insert(entry_block_id);
     while let Some(block_id) = blocks_to_visit.pop() {
-        visited_blocks.insert(block_id);
+        blocks_to_visit_set.remove(&block_id);
+        if !visited_blocks.insert(block_id) {
+            continue;
+        }
         let mut used_vars_in_block = FxHashSet::default();
         let mut must_keep_vars_in_block = FxHashSet::default();
         let stored_vars_before_block = stored_vars.clone();
@@ -59,7 +64,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
         }
 
         for successor_id in get_block_successors(program.get_block(block_id)) {
-            if !visited_blocks.contains(&successor_id) {
+            if !visited_blocks.contains(&successor_id) && blocks_to_visit_set.insert(successor_id) {
                 blocks_to_visit.push(successor_id);
             }
         }
@@ -68,8 +73,11 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
     // Perform a intra-block-only version of the SSA transform to eliminate stores to variables that
     // are only used within a single block.
     visited_blocks.clear();
+    blocks_to_visit_set.clear();
     blocks_to_visit.push(entry_block_id);
+    blocks_to_visit_set.insert(entry_block_id);
     while let Some(block_id) = blocks_to_visit.pop() {
+        blocks_to_visit_set.remove(&block_id);
         if !visited_blocks.insert(block_id) {
             continue;
         }
@@ -82,7 +90,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
         );
 
         for successor_id in get_block_successors(program.get_block(block_id)) {
-            if !visited_blocks.contains(&successor_id) {
+            if !visited_blocks.contains(&successor_id) && blocks_to_visit_set.insert(successor_id) {
                 blocks_to_visit.push(successor_id);
             }
         }
@@ -92,8 +100,12 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
     // Filtered stored_vars to only those that are used, then revisit the blocks to remove stores to unused variables.
     stored_vars.retain(|var| used_vars.contains(var));
     visited_blocks.clear();
+    blocks_to_visit.clear();
+    blocks_to_visit_set.clear();
     blocks_to_visit.push(entry_block_id);
+    blocks_to_visit_set.insert(entry_block_id);
     while let Some(block_id) = blocks_to_visit.pop() {
+        blocks_to_visit_set.remove(&block_id);
         visited_blocks.insert(block_id);
         let block = program.get_block_mut(block_id);
         block.0.retain(|instr| match instr {
@@ -101,7 +113,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
             _ => true,
         });
         for successor_id in get_block_successors(program.get_block(block_id)) {
-            if !visited_blocks.contains(&successor_id) {
+            if !visited_blocks.contains(&successor_id) && blocks_to_visit_set.insert(successor_id) {
                 blocks_to_visit.push(successor_id);
             }
         }

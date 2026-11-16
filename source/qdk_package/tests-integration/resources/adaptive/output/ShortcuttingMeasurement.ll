@@ -5,7 +5,6 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_9 = alloca i1
-  %var_12 = alloca i1
   call void @__quantum__rt__initialize(ptr null)
   call void @X(ptr inttoptr (i64 0 to ptr))
   call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -14,10 +13,8 @@ block_0:
   store i1 true, ptr %var_9
   br i1 %var_6, label %block_1, label %block_2
 block_1:
-  %var_15 = load i1, ptr %var_9
-  store i1 %var_15, ptr %var_12
-  %var_17 = load i1, ptr %var_12
-  br i1 %var_17, label %block_3, label %block_4
+  %var_12 = load i1, ptr %var_9
+  br i1 %var_12, label %block_3, label %block_4
 block_2:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
   %var_10 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))

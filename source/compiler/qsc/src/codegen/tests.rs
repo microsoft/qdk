@@ -255,8 +255,6 @@ fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
         &expect![[r#"
             block_0:
               %var_0 = alloca i64
-              %var_5 = alloca i64
-              %var_7 = alloca i1
               call void @__quantum__rt__initialize(ptr null)
               store i64 4, ptr %var_0
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -264,13 +262,9 @@ fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
               %var_2 = icmp eq i1 %var_1, false
               br i1 %var_2, label %block_1, label %block_2
             block_1:
-              %var_10 = load i64, ptr %var_0
-              store i64 %var_10, ptr %var_5
-              %var_12 = load i64, ptr %var_5
-              %var_6 = icmp eq i64 %var_12, 4
-              store i1 %var_6, ptr %var_7
-              %var_14 = load i1, ptr %var_7
-              call void @__quantum__rt__bool_record_output(i1 zeroext %var_14, ptr @0)
+              %var_5 = load i64, ptr %var_0
+              %var_6 = icmp eq i64 %var_5, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, ptr @0)
               ret i64 0
             block_2:
               store i64 0, ptr %var_0
@@ -278,8 +272,6 @@ fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
         &expect![[r#"
             block_0:
               %var_1 = alloca i64
-              %var_6 = alloca i64
-              %var_8 = alloca i1
               call void @__quantum__rt__initialize(ptr null)
               call void @X(ptr inttoptr (i64 0 to ptr))
               store i64 4, ptr %var_1
@@ -288,13 +280,9 @@ fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
               %var_3 = icmp eq i1 %var_2, false
               br i1 %var_3, label %block_1, label %block_2
             block_1:
-              %var_11 = load i64, ptr %var_1
-              store i64 %var_11, ptr %var_6
-              %var_13 = load i64, ptr %var_6
-              %var_7 = icmp eq i64 %var_13, 4
-              store i1 %var_7, ptr %var_8
-              %var_15 = load i1, ptr %var_8
-              call void @__quantum__rt__bool_record_output(i1 zeroext %var_15, ptr @0)
+              %var_6 = load i64, ptr %var_1
+              %var_7 = icmp eq i64 %var_6, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, ptr @0)
               ret i64 0
             block_2:
               store i64 0, ptr %var_1
@@ -376,8 +364,6 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
         &expect![[r#"
             block_0:
               %var_0 = alloca i64
-              %var_6 = alloca i64
-              %var_8 = alloca i1
               call void @__quantum__rt__initialize(ptr null)
               store i64 4, ptr %var_0
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -385,13 +371,9 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
               %var_2 = icmp eq i1 %var_1, false
               br i1 %var_2, label %block_1, label %block_2
             block_1:
-              %var_11 = load i64, ptr %var_0
-              store i64 %var_11, ptr %var_6
-              %var_13 = load i64, ptr %var_6
-              %var_7 = icmp eq i64 %var_13, 4
-              store i1 %var_7, ptr %var_8
-              %var_15 = load i1, ptr %var_8
-              call void @__quantum__rt__bool_record_output(i1 zeroext %var_15, ptr @0)
+              %var_6 = load i64, ptr %var_0
+              %var_7 = icmp eq i64 %var_6, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, ptr @0)
               ret i64 0
             block_2:
               store i64 0, ptr %var_0
@@ -399,8 +381,6 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
         &expect![[r#"
             block_0:
               %var_1 = alloca i64
-              %var_7 = alloca i64
-              %var_9 = alloca i1
               call void @__quantum__rt__initialize(ptr null)
               call void @X(ptr inttoptr (i64 0 to ptr))
               store i64 4, ptr %var_1
@@ -409,13 +389,9 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
               %var_3 = icmp eq i1 %var_2, false
               br i1 %var_3, label %block_1, label %block_2
             block_1:
-              %var_12 = load i64, ptr %var_1
-              store i64 %var_12, ptr %var_7
-              %var_14 = load i64, ptr %var_7
-              %var_8 = icmp eq i64 %var_14, 4
-              store i1 %var_8, ptr %var_9
-              %var_16 = load i1, ptr %var_9
-              call void @__quantum__rt__bool_record_output(i1 zeroext %var_16, ptr @0)
+              %var_7 = load i64, ptr %var_1
+              %var_8 = icmp eq i64 %var_7, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_8, ptr @0)
               ret i64 0
             block_2:
               store i64 0, ptr %var_1
