@@ -1,10 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The memory the CUDA algebra lends cuTensorNet: grown only when a call
-//! asks for more, lent before the smaller buffer is freed, lent in every
-//! slot a call asks memory for, bounded by the device's free memory, and
-//! freed when the algebra closes.
+//! The memory the CUDA algebra lends cuTensorNet, and the singular values'
+//! buffer it keeps across splits: grown only when a call asks for more,
+//! lent before the smaller buffer is freed, lent in every slot a call asks
+//! memory for, bounded by the device's free memory, and freed when the
+//! algebra closes.
 
 use super::*;
 use crate::native_calls::fake_libraries::WORKSPACE_BYTES;
@@ -16,16 +17,21 @@ fn split_once(algebra: &CudaAlgebra) -> Result<(), NativeError> {
     one_qubit_split(&a, &b).on(algebra).map(drop)
 }
 
-/// Splits that ask for the same scratch, then one that asks for more, then
-/// one that asks for less: the algebra allocates one buffer for the first,
-/// reuses it, replaces it by a larger one for the third, and keeps that
-/// one for the last.
+/// Splits of one shape that ask for the same scratch, then one that asks
+/// for more, then one that asks for less: the algebra allocates one
+/// scratch buffer and one singular values' buffer for the first, reuses
+/// both, the singular values' at an exact fit, replaces the scratch by a
+/// larger one for the fourth, and keeps that one for the last.
 #[test]
-fn the_scratch_grows_only_when_a_call_asks_for_more() {
+fn the_algebras_buffers_grow_only_when_a_call_asks_for_more() {
     let (algebra, libraries) = algebra();
-    for _ in 0..3 {
-        split_once(&algebra).expect("a split");
+    split_once(&algebra).expect("a split");
+    let after_the_first = libraries.count("allocate");
+    for _ in 0..2 {
+        split_once(&algebra).expect("a split of the same shape");
     }
+    // A repeated split allocates its pair and its two factors alone.
+    assert_eq!(libraries.count("allocate") - after_the_first, 2 * 4);
     assert_eq!(libraries.scratch_buffers(), 1);
     libraries.set_workspace_bytes(4 * WORKSPACE_BYTES);
     split_once(&algebra).expect("the split asking for more");
@@ -49,12 +55,14 @@ fn a_grown_scratch_is_lent_before_the_smaller_is_freed() {
 }
 
 /// Calls whose workspace asks for memory in its other slots too (the
-/// device cache and both host slots), then for more there: every slot is
-/// lent at least what it asks, which the fake checks at each call.
+/// device cache and both host slots), then for more there, some asks just
+/// above the last, within the bytes a host slot holds beyond it to align
+/// what it lends: every slot is lent at least what it asks, which the fake
+/// checks at each call.
 #[test]
 fn every_slot_a_call_asks_memory_for_is_lent_it() {
     let (algebra, libraries) = algebra();
-    for bytes in [512, 4096] {
+    for bytes in [512, 768, 1000, 1256, 2000, 2256, 4096] {
         libraries.set_other_workspace_slot_bytes(bytes);
         let lent = split_once(&algebra);
         assert!(lent.is_ok(), "{bytes} bytes: {lent:?}");

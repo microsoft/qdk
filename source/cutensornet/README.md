@@ -187,9 +187,11 @@ Each `SiteAlgebra` method of this algebra combines some of these phases
   buffer never grows beyond the device's free memory.
 - **factor**: one `GateSplit` or one `TensorQR`, waited for.
 - **prepare**: for a contraction of a shape the algebra has not kept, a
-  network, its path found and its plan made, then kept for later calls of
-  that shape.
-- **contract**: a pairwise contraction on that network, waited for.
+  network, its path found, its workspace sized and lent (as in **lend**),
+  and its plan made, then kept for later calls of that shape.
+- **contract**: for a network kept from an earlier call, its workspace
+  sized and lent (as in **lend**); then a pairwise contraction on that
+  network, waited for.
 - **release**: the call's descriptors, settings and intermediate buffers
   released.
 
@@ -217,7 +219,7 @@ A method that fails also frees its outputs, once it has waited for the
 device, since the failed work may still write the call's buffers. If that
 wait fails too, nothing says when the device is done with them, with the
 method's inputs, or with the algebra's memory: every later method returns
-`NativeError::Poisoned`, and a buffer the device may still use is freed
+`NativeError::Poisoned`, whatever its arguments, and a buffer the device may still use is freed
 only after a successful wait for the device, its stream and its copies
 (when the algebra is dropped, or else when its last tensor is);
 otherwise it is kept until one succeeds, or leaked.

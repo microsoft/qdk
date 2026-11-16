@@ -192,7 +192,8 @@ impl CudaAlgebra {
     }
 
     /// Runs `body` in a new call scope, with the device bound, and ends it
-    /// ([`CallScope::finish`]); a poisoned algebra runs nothing.
+    /// ([`CallScope::finish`]); a poisoned algebra runs nothing, not even
+    /// the checks of the arguments that each method makes in `body`.
     fn run<T>(
         &self,
         body: impl FnOnce(&mut CallScope<'_>) -> Result<T, NativeError>,
@@ -250,8 +251,8 @@ impl SiteAlgebra for CudaAlgebra {
         tensor: &'t DeviceTensor,
         len: usize,
     ) -> Result<Cow<'t, [Complex64]>, NativeError> {
-        let source = tensor.holding(len)?;
         let values = self.run(|scope| {
+            let source = tensor.holding(len)?;
             let mut values = vec![Complex64Abi::default(); len];
             scope.calls().copy_to_host(&mut values, source)?;
             Ok(values)
@@ -262,8 +263,8 @@ impl SiteAlgebra for CudaAlgebra {
     }
 
     fn duplicate(&self, tensor: &DeviceTensor, len: usize) -> Result<DeviceTensor, NativeError> {
-        let source = tensor.holding(len)?;
         let buffer = self.run(|scope| {
+            let source = tensor.holding(len)?;
             let buffer = scope.output(len)?;
             scope.copy_on_device(buffer, source, complex_bytes(len, "device tensor")?)?;
             Ok(buffer)

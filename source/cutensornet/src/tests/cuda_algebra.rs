@@ -434,21 +434,52 @@ fn is_a_failed_wait(error: &NativeError) -> bool {
 
 /// A failed call waits for the device before it releases its buffers;
 /// when that wait fails, nothing tells when the device is done with them,
-/// so every later call is refused as poisoned, the wait's failure kept
-/// beside the call's.
+/// so every later call is refused as poisoned, whichever method makes it
+/// and whatever its arguments (a tensor too short for the call included),
+/// the wait's failure kept beside the call's.
 #[test]
 fn a_failed_call_that_cannot_wait_for_the_device_poisons_the_algebra() {
-    let (algebra, _libraries, _pair, failed) = a_failed_split(true);
+    let (algebra, _libraries, pair, failed) = a_failed_split(true);
     let NativeError::ExecutionAndCleanupFailed { execution, cleanup } = failed else {
         panic!("both failures, not {failed:?}");
     };
     assert!(is_a_failed_wait(&execution), "{execution:?}");
     assert!(is_a_failed_wait(&cleanup), "{cleanup:?}");
-    let next = algebra.upload(&random(2, 10));
-    assert!(
-        matches!(next, Err(NativeError::Poisoned { .. })),
-        "{next:?}"
-    );
+    // The pair holds two elements each; these calls ask for more.
+    let values = random(4, 10);
+    let split = Split {
+        m: 2,
+        ..one_qubit_split(&values, &values)
+    };
+    let moved = Move {
+        a: &values,
+        b: &values,
+        l: 1,
+        m: 2,
+        r: 1,
+        gate: None,
+        centre: CentreSide::Right,
+    };
+    let is_poisoned = |method: &str, call: &dyn Fn() -> Result<(), NativeError>| {
+        let next = call();
+        assert!(
+            matches!(next, Err(NativeError::Poisoned { .. })),
+            "{method}: {next:?}"
+        );
+    };
+    is_poisoned("upload", &|| algebra.upload(&values).map(drop));
+    is_poisoned("read, short", &|| algebra.read(&pair[0], 3).map(drop));
+    is_poisoned("duplicate, short", &|| {
+        algebra.duplicate(&pair[0], 3).map(drop)
+    });
+    is_poisoned("gate split, short", &|| {
+        algebra
+            .gate_split(&split.call(&pair[0], &pair[1]))
+            .map(drop)
+    });
+    is_poisoned("move of the centre, short", &|| {
+        algebra.qr_move(&moved.call(&pair[0], &pair[1])).map(drop)
+    });
 }
 
 /// A failed call that waited for the device has released what it made,

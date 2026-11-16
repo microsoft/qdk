@@ -26,9 +26,9 @@
 //! | the new centre, A·R | `[l, 2, k]`   | `LEFT, P, NEW_BOND`     |
 //!
 //! cuTensorNet's QR gives Q the input's modes that Q's descriptor names and
-//! R the rest, so to the left B is factored as a matrix of rows `(q, b)`:
-//! its Q, read as a `k × 2r` matrix, has orthonormal rows, as the contract
-//! asks. The gate and the factor go through
+//! R the rest, so to the left B is factored as a `2r × m` matrix, of rows
+//! `(q, r)`: its Q, read as a `k × 2r` matrix, has orthonormal rows, as the
+//! contract asks. The gate and the factor go through
 //! [`contractions`](super::contractions), the QR through `tensor_qr`, each
 //! waited for before the next starts.
 
