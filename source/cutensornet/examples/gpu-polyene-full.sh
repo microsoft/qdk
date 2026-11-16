@@ -121,6 +121,9 @@
 #   QDK_CUTENSORNET_LIBRARY, QDK_CUDART_LIBRARY, QDK_CUSOLVER_LIBRARY
 #                  the libraries, when neither at the pinned paths below nor
 #                  in /data/domingom/tn-venv
+#   QDK_DEV_UNAUDITED_CUTENSORNET
+#                  1 accepts a cuTensorNet other than 2.13.0 (development
+#                  only, to try a newer release with the 2.13 bindings)
 #   CARGO_FLAGS    extra flags for cargo build (for instance --offline)
 
 set -u

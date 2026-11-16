@@ -116,6 +116,14 @@ impl NativeLibrary for CuTensorNet {
         let version = unsafe { (functions.get_version)() };
         // SAFETY: as for the preceding call.
         let cuda_runtime_version = unsafe { (functions.get_cudart_version)() };
+        // Development only: QDK_DEV_UNAUDITED_CUTENSORNET=1 reports both
+        // versions without refusing them, to try a newer cuTensorNet with
+        // the 2.13 bindings (not for review).
+        if std::env::var_os("QDK_DEV_UNAUDITED_CUTENSORNET").is_some_and(|value| value == "1") {
+            probed.reported("cuTensorNet", version as i128);
+            probed.reported("cuTensorNet's CUDA Runtime", cuda_runtime_version as i128);
+            return probed;
+        }
         probed.audited("cuTensorNet", version as i128, AUDITED_VERSION as i128);
         probed.audited(
             "cuTensorNet's CUDA Runtime",
