@@ -69,6 +69,13 @@ impl Bits {
         }
     }
 
+    /// The words up to the last non-zero one: a key that two equal sets of
+    /// bits share.
+    #[must_use]
+    pub fn key(&self) -> Vec<u64> {
+        self.significant().to_vec()
+    }
+
     /// Whether every bit is 0.
     #[must_use]
     pub fn is_zero(&self) -> bool {

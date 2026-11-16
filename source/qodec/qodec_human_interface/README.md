@@ -123,22 +123,25 @@ The runtime is the reference one, unchanged. `Traced` wraps any `Design`, and gi
 
 What is live is read off the recorded calls with the runtime model's own rules (`Isa::parse_call` and `Signature::bind`), the same way `TypeChecker` reads them. The interface and the runtime agree on liveness by construction.
 
-| Module          | Role                                                                        |
-| --------------- | --------------------------------------------------------------------------- |
-| `trace.rs`      | `Traced` design and its taps, the journal, and the bottom backend with pins |
-| `shot.rs`       | `Engine`: a program and its outcomes in, a `Shot` out                       |
-| `state.rs`      | Block lifetimes at each boundary                                            |
-| `circuit.rs`    | Laying out a boundary's calls as a circuit                                  |
-| `vocab.rs`      | Names for bits, conditions, gadgets, and default operands                   |
-| `syntax.rs`     | The instruction syntax shared with `qodec-repl`                             |
-| `gf2.rs`        | Bit vectors and parity formulas over GF(2)                                  |
-| `stabilizer.rs` | The symbolic stabilizer tableau                                             |
-| `analysis.rs`   | Gadget analysis: verdicts, derived equations, state after each call         |
-| `codes.rs`      | What holds of a code                                                        |
-| `bundle.rs`     | The qodec as text: loading, saving, and edits that keep comments            |
-| `workbench.rs`  | The map, its marks, the findings, and new gadgets                           |
-| `app.rs`        | The interface state and what each key does                                  |
-| `ui.rs`         | Drawing the program, and the screen around every item                       |
-| `views.rs`      | Drawing the map, gadgets, codes and other files                             |
+| Module          | Role                                                                          |
+| --------------- | ----------------------------------------------------------------------------- |
+| `trace.rs`      | `Traced` design and its taps, the journal, and the bottom backend with pins   |
+| `shot.rs`       | `Engine`: a program and its outcomes in, a `Shot` out                         |
+| `state.rs`      | Block lifetimes at each boundary                                              |
+| `circuit.rs`    | Laying out a boundary's calls as a circuit                                    |
+| `vocab.rs`      | Names for bits, conditions, gadgets, and default operands                     |
+| `syntax.rs`     | The instruction syntax shared with `qodec-repl`                               |
+| `gf2.rs`        | Bit vectors and parity formulas over GF(2)                                    |
+| `stabilizer.rs` | The symbolic stabilizer tableau                                               |
+| `analysis.rs`   | Gadget analysis: verdicts, derived equations, state after each call           |
+| `codes.rs`      | What holds of a code                                                          |
+| `faults.rs`     | Fault tables: what each single fault does to a gadget, and its fault distance |
+| `bundle.rs`     | The qodec as text: loading, saving, and edits that keep comments              |
+| `workbench.rs`  | The map, its marks, the findings, and new gadgets                             |
+| `app.rs`        | The interface state and what each key does                                    |
+| `ui.rs`         | Drawing the program, and the screen around every item                         |
+| `views.rs`      | Drawing the map, gadgets, codes and other files                               |
+
+The crate is also a library, so other tools can build on its analysis and embed the workbench: [`qodec-explore`](../qodec_explorer/README.md) does both.
 
 Run the tests with `cargo test -p qodec_human_interface`. They draw the interface into a test terminal, so the screens they expect are readable in `src/tests.rs`. They also check that the gadgets of the well-built examples verify, and that every part of every example opens and draws.

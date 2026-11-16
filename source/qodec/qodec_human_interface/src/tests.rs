@@ -978,3 +978,61 @@ fn a_shared_file_is_edited_in_place_and_saved_to_itself() {
             .is_some_and(|l| l.ends_with(" (edited)"))
     );
 }
+
+/// The fault distance of gadget `mnemonic` of layer 0 of the example at
+/// `path`, and one smallest harmful set of faults.
+fn fault_distance(path: &str, mnemonic: &str) -> (usize, bool, Vec<String>) {
+    let (_, _, g, lower) = gadgets(&example(path))
+        .into_iter()
+        .find(|(k, m, _, _)| *k == 0 && m == mnemonic)
+        .expect("the gadget");
+    let t = crate::faults::table(&g, &lower).expect("a fault table");
+    let d = t.distance(1_000_000);
+    let example = d
+        .example
+        .iter()
+        .map(|&i| t.atoms[i].describe(&t.calls))
+        .collect();
+    (d.lower, d.exact, example)
+}
+
+#[test]
+fn fault_distance_tells_fault_tolerant_syndrome_extraction_apart() {
+    // Steane's plain round: one ancilla fault spreads to two data qubits.
+    let (d, exact, example) = fault_distance("steane/steane.qodec.yaml", "idle");
+    assert_eq!((d, exact), (2, true));
+    expect![[r#"
+        [
+            "X on 7 after `CX 7 0`",
+            "X on 8 after `CX 8 2`",
+        ]
+    "#]]
+    .assert_debug_eq(&example);
+    // Its flagged round catches that.
+    assert_eq!(fault_distance("steane/steane.qodec.yaml", "idle_ft").0, 3);
+    // A bit-flip code does not see phase flips.
+    let (d, _, example) = fault_distance("repetition3/repetition3.qodec.yaml", "idle");
+    assert_eq!(d, 1);
+    assert_eq!(example, ["Z on 0 after `CX 0 3`"]);
+    // Reading out takes three flipped outcomes to fool.
+    assert_eq!(
+        fault_distance("repetition3/repetition3.qodec.yaml", "measure_z").0,
+        3
+    );
+}
+
+#[test]
+fn a_gadget_that_does_not_verify_has_no_fault_table() {
+    let (_, _, g, lower) = gadgets(&example("honeycomb/honeycomb.qodec.yaml"))
+        .into_iter()
+        .find(|(_, m, _, _)| m == "round_green")
+        .expect("round_green");
+    let e = crate::faults::table(&g, &lower).expect_err("no table");
+    assert!(e.contains("does not verify"), "{e}");
+    // A gadget whose output stabilizers no check fixes still has one.
+    let (_, _, g, lower) = gadgets(&repetition3())
+        .into_iter()
+        .find(|(_, m, _, _)| m == "prepare_z")
+        .expect("prepare_z");
+    assert!(crate::faults::table(&g, &lower).is_ok());
+}

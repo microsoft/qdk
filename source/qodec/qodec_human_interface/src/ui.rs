@@ -142,8 +142,15 @@ fn render_title(frame: &mut Frame, app: &App, area: Rect) {
             qodec.name().unwrap_or("unnamed").to_string(),
             Style::new().add_modifier(Modifier::BOLD),
         ),
-        dim(" · "),
     ];
+    if let Some(label) = &app.label {
+        line.push(dim(" · "));
+        line.push(Span::styled(
+            label.clone(),
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ));
+    }
+    line.push(dim(" · "));
     for b in 0..app.engine.boundaries() {
         if b > 0 {
             line.push(dim(" ▸ "));

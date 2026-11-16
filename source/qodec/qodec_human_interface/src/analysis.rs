@@ -76,6 +76,8 @@ pub enum Var {
     Param(String),
     /// The ideal outcome of the instruction's `i`-th observable.
     Outcome(usize),
+    /// Whether fault `i` of [`Analysis::faults`] happened.
+    Fault(usize),
 }
 
 impl Var {
@@ -88,6 +90,7 @@ impl Var {
             Var::Random { call, index } => format!("random@{call}.{index}"),
             Var::Param(name) => name.clone(),
             Var::Outcome(i) => format!("outcome {i}"),
+            Var::Fault(i) => format!("fault {i}"),
         }
     }
 }
@@ -103,6 +106,19 @@ impl Vars {
         }
         self.0.push(var);
         self.0.len() - 1
+    }
+
+    /// The variable of each fault, by the fault's index.
+    #[must_use]
+    pub fn faults(&self) -> BTreeMap<usize, usize> {
+        self.0
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| match v {
+                Var::Fault(f) => Some((*f, i)),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The variable with index `i`.
@@ -247,6 +263,34 @@ pub struct ActionVerdict {
     /// Whether the analysis could compare at all: it can't past a step it
     /// cannot follow, such as a rotation.
     pub compared: bool,
+    /// Per ideal operator, how its sign differs from what the instruction
+    /// says: zero when it matches. With faults, a formula over them.
+    pub diffs: Vec<Form>,
+    /// The ideal operator of each of [`Self::diffs`], as text.
+    pub operators: Vec<String>,
+}
+
+/// Where a fault can happen: a Pauli on a qubit right after a call, or a
+/// flipped outcome of a call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FaultSite {
+    /// The call.
+    pub call: usize,
+    /// What goes wrong: `X`, `Z` or `flip`.
+    pub kind: FaultKind,
+    /// The qubit, as [`Analysis::qubits`] names it, or the outcome's index.
+    pub at: String,
+}
+
+/// The kind of a [`FaultSite`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum FaultKind {
+    /// An X on a qubit.
+    X,
+    /// A Z on a qubit.
+    Z,
+    /// A flipped outcome.
+    Flip,
 }
 
 /// What the tool derives for a gadget, to adopt.
@@ -330,6 +374,8 @@ pub struct Analysis {
     pub action: ActionVerdict,
     /// What the tool derived.
     pub suggestions: Suggestions,
+    /// With faults: where each can happen, as variable `Var::Fault(i)`.
+    pub faults: Vec<FaultSite>,
 }
 
 impl Analysis {
@@ -361,8 +407,20 @@ type DeclaredFrame = (
 /// Analyzes `gadget`, which implements an instruction of `upper` with a circuit
 /// of `lower`. Fails only when the circuit cannot be read at all; everything
 /// else it can't follow is a note or a verdict.
-#[allow(clippy::too_many_lines, clippy::many_single_char_names)]
 pub fn analyze(gadget: &Gadget, lower: &InstructionSet) -> Result<Analysis, String> {
+    analyze_with(gadget, lower, false)
+}
+
+/// [`analyze`], and with `faults`, a variable for every fault that can happen
+/// after each call: an X and a Z on each qubit the call gives, and a flip of
+/// each outcome it reports. Every formula then says how faults change it, and
+/// nothing is derived.
+#[allow(clippy::too_many_lines, clippy::many_single_char_names)]
+pub fn analyze_with(
+    gadget: &Gadget,
+    lower: &InstructionSet,
+    faults: bool,
+) -> Result<Analysis, String> {
     let calls = gadget.circuit.calls()?;
     let implemented = &gadget.implements;
     let mut a = Analysis::default();
@@ -648,12 +706,36 @@ pub fn analyze(gadget: &Gadget, lower: &InstructionSet) -> Result<Analysis, Stri
             &mut notes,
         );
         let observables = observables(instruction);
-        for (i, found) in outcomes.into_iter().enumerate() {
+        for (i, mut found) in outcomes.into_iter().enumerate() {
+            if faults {
+                let v = Form::var(a.vars.add(Var::Fault(a.faults.len())));
+                a.faults.push(FaultSite {
+                    call: c,
+                    kind: FaultKind::Flip,
+                    at: i.to_string(),
+                });
+                match &mut found {
+                    Found::Determined(f) | Found::Random(f) => f.xor(&v),
+                }
+            }
             a.record.push(RecordBit {
                 call: c,
                 what: observables.get(i).cloned().unwrap_or_default(),
                 value: found,
             });
+        }
+        if faults {
+            for &q in &out_pos {
+                for (kind, x, z) in [(FaultKind::X, true, false), (FaultKind::Z, false, true)] {
+                    let v = Form::var(a.vars.add(Var::Fault(a.faults.len())));
+                    a.faults.push(FaultSite {
+                        call: c,
+                        kind,
+                        at: a.qubits[q].clone(),
+                    });
+                    t.apply_pauli(&Pauli::single(q, x, z), &v);
+                }
+            }
         }
         for flag in &instruction.flags {
             a.record.push(RecordBit {
@@ -961,10 +1043,18 @@ pub fn analyze(gadget: &Gadget, lower: &InstructionSet) -> Result<Analysis, Stri
                         lhs.xor(&values[u]);
                     }
                     let diff = lhs.plus(rest);
-                    if !diff.is_zero() {
+                    let mut plain = diff.clone();
+                    for (i, v) in a.vars.0.iter().enumerate() {
+                        if matches!(v, Var::Fault(_)) {
+                            plain.vars.set(i, false);
+                        }
+                    }
+                    a.action.diffs.push(diff.clone());
+                    a.action.operators.push(shown.clone());
+                    if !plain.is_zero() {
                         a.action.mismatches.push(format!(
                             "{shown} comes out with sign off by {}",
-                            a.vars.show(&diff)
+                            a.vars.show(&plain)
                         ));
                     }
                 }
@@ -974,14 +1064,16 @@ pub fn analyze(gadget: &Gadget, lower: &InstructionSet) -> Result<Analysis, Stri
                 .mismatches
                 .push("some readouts are missing or do not evaluate".to_string()),
         }
-        a.suggestions = derive(
-            &a,
-            &conditions,
-            ideal_outcomes.len(),
-            &frame_keys,
-            n_observables + implemented.flags.len(),
-            n_observables,
-        );
+        if !faults {
+            a.suggestions = derive(
+                &a,
+                &conditions,
+                ideal_outcomes.len(),
+                &frame_keys,
+                n_observables + implemented.flags.len(),
+                n_observables,
+            );
+        }
     } else {
         for note in ideal_notes {
             a.notes

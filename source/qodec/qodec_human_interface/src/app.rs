@@ -171,6 +171,9 @@ pub struct App {
     pub program_path: Option<PathBuf>,
     /// Whether to exit.
     pub quit: bool,
+    /// What this copy of the qodec is, when a tool opens one of several
+    /// versions of it: shown after its name, so they can be told apart.
+    pub label: Option<String>,
 }
 
 impl App {
@@ -264,6 +267,7 @@ impl App {
             message: None,
             program_path,
             quit: false,
+            label: None,
         };
         if !app.program.is_empty() {
             app.focus = Focus::Program;
@@ -1152,13 +1156,18 @@ impl App {
         } else {
             Mark::None
         };
-        workbench::rows(
+        let mut rows = workbench::rows(
             &self.qodec,
             self.load_error.is_some(),
             self.plan_error.is_some(),
             program,
             |k, i| marks.get(&(k, i)).copied(),
-        )
+        );
+        if let (Some(label), Some(first)) = (&self.label, rows.first_mut()) {
+            let short = label.split(':').next().unwrap_or(label);
+            first.label = format!("{} · {short}", first.label);
+        }
+        rows
     }
 
     /// The document of the focused item, and the line it starts at.

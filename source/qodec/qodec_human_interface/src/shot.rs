@@ -155,6 +155,7 @@ impl Engine {
     }
 
     /// Runs `program` in a new shot, with bits from `outcomes`.
+    #[must_use]
     pub fn run(&self, program: &[Line], outcomes: &Outcomes) -> Shot {
         trace::lock(&self.journal).reset();
         let bench = Bench {

@@ -586,6 +586,36 @@ pub fn replace_block(body: &str, key: &str, block: &[String]) -> String {
     lines.join("\n") + "\n"
 }
 
+/// `body` without the top-level key `key` and its value. Comments at the
+/// margin right after the value introduce the next key, so they stay.
+#[must_use]
+pub fn remove_block(body: &str, key: &str) -> String {
+    let mut lines: Vec<String> = body.lines().map(str::to_string).collect();
+    let header = format!("{key}:");
+    let Some(at) = lines
+        .iter()
+        .position(|l| l == &header || l.starts_with(&format!("{header} ")))
+    else {
+        return body.to_string();
+    };
+    let mut end = at + 1;
+    while end < lines.len() {
+        let l = &lines[end];
+        if l.trim().is_empty() || l.starts_with(' ') || l.starts_with('#') || l.starts_with("- ") {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    while end > at + 1 && (lines[end - 1].trim().is_empty() || lines[end - 1].starts_with('#')) {
+        end -= 1;
+    }
+    lines.drain(at..end);
+    let mut text = lines.join("\n");
+    text.push('\n');
+    text
+}
+
 /// The manifest body with gadget `mnemonic` -> `file` added to layer `k`.
 #[must_use]
 pub fn add_gadget(manifest: &str, k: usize, mnemonic: &str, file: &str) -> String {

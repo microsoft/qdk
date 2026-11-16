@@ -52,6 +52,7 @@ pub enum Role {
 pub type Token = (Role, String);
 
 /// The text of `tokens`, without their roles.
+#[must_use]
 pub fn plain(tokens: &[Token]) -> String {
     tokens.iter().map(|(_, t)| t.as_str()).collect()
 }
@@ -209,6 +210,7 @@ pub fn blocks(call: &Call) -> impl Iterator<Item = u64> + '_ {
 }
 
 /// Renders `call`, a call of `isa`, in the input syntax.
+#[must_use]
 pub fn render(isa: &InstructionSet, call: &Call) -> Vec<Token> {
     let Some(decl) = isa.instructions.get(call.instruction_id) else {
         return vec![(
@@ -254,6 +256,7 @@ fn quote(text: &str) -> String {
 }
 
 /// The instruction's usage, e.g. `XIF <qubit> c=<bit>`, then what it reports.
+#[must_use]
 pub fn signature(decl: &Instruction) -> Vec<Token> {
     let mut tokens = vec![(Role::Mnemonic, decl.mnemonic.clone())];
     for j in 0..decl.inputs.len().max(decl.outputs.len()) {
@@ -296,6 +299,7 @@ pub fn signature(decl: &Instruction) -> Vec<Token> {
 
 /// Colors `line`, as typed, a statement at a time: what parses keeps its
 /// roles, and a statement that does not parse is marked invalid.
+#[must_use]
 pub fn highlight(isa: &InstructionSet, line: &str) -> Vec<Token> {
     let code_len = code(line).len();
     let (body, comment) = line.split_at(code_len);

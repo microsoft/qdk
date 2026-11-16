@@ -18,26 +18,7 @@
 //! The runtime is the reference one, unchanged: [`trace::Traced`] wraps its
 //! design to watch each layer from the outside. See `DESIGN.md`.
 
-mod analysis;
-mod app;
-mod bundle;
-mod circuit;
-mod codes;
-mod gf2;
-mod shot;
-mod stabilizer;
-mod state;
-mod syntax;
-mod trace;
-mod ui;
-mod views;
-mod vocab;
-mod workbench;
-
-#[cfg(test)]
-mod tests;
-
-use app::App;
+use qodec_human_interface::{app::App, bundle, ui};
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{self, Event, KeyEventKind},
