@@ -166,6 +166,11 @@ pub(crate) fn map_variable_use_in_block(
     for mut instr in instrs {
         match &mut instr {
             Instruction::Store(operand, var) => {
+                if !used_vars.is_none_or(|uv| uv.contains(&var.variable_id)) {
+                    // We were given a set of used variables that is missing the variable being stored, so this store is unnecessary.
+                    // Continue to drop it from the block.
+                    continue;
+                }
                 if var_stor_to_keep.contains(&var.variable_id) {
                     // The variable we are storing into is in the set of stored variables to keep,
                     // so we must remove any prior mapping that might exist and keep the store.
@@ -174,7 +179,6 @@ pub(crate) fn map_variable_use_in_block(
                     var_map.remove(&var.variable_id);
                 } else if let Operand::Variable(mapped_var) = operand.mapped(var_map)
                     && var_stor_to_keep.contains(&mapped_var.variable_id)
-                    && used_vars.is_some_and(|uv| uv.contains(&var.variable_id))
                 {
                     // ...otherwise, if the variable we are are reading from in this store instruction is tracked as a variable whose stores must be kept,
                     // meaning its value may change over time, and the variable written to by this store instruction is used later in the program,

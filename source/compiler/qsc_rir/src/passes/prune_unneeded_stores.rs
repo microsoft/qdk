@@ -95,29 +95,6 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
             }
         }
     }
-
-    // Now that we know which variables are used, we can remove the stores to unused variables.
-    // Filtered stored_vars to only those that are used, then revisit the blocks to remove stores to unused variables.
-    stored_vars.retain(|var| used_vars.contains(var));
-    visited_blocks.clear();
-    blocks_to_visit.clear();
-    blocks_to_visit_set.clear();
-    blocks_to_visit.push(entry_block_id);
-    blocks_to_visit_set.insert(entry_block_id);
-    while let Some(block_id) = blocks_to_visit.pop() {
-        blocks_to_visit_set.remove(&block_id);
-        visited_blocks.insert(block_id);
-        let block = program.get_block_mut(block_id);
-        block.0.retain(|instr| match instr {
-            Instruction::Store(_, variable) => stored_vars.contains(&variable.variable_id),
-            _ => true,
-        });
-        for successor_id in get_block_successors(program.get_block(block_id)) {
-            if !visited_blocks.contains(&successor_id) && blocks_to_visit_set.insert(successor_id) {
-                blocks_to_visit.push(successor_id);
-            }
-        }
-    }
 }
 
 #[allow(clippy::too_many_lines)]
