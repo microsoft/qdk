@@ -33,7 +33,7 @@ enum CallableToAdd {
 /// 3. No dynamic qubits are used.
 ///
 /// The pass will panic if the input program violates any of these assumptions.
-pub fn reindex_qubits(program: &mut Program) {
+pub(crate) fn reindex_qubits(program: &mut Program) {
     validate_assumptions(program);
 
     // Get measurement callable IDs if they exist in the program

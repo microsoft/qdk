@@ -11,7 +11,7 @@ use qsc_data_structures::attrs::Attributes;
 use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_rir::{
     rir::{self, ConditionCode, FcmpConditionCode},
-    utils::get_all_block_successors,
+    utils::get_callable_blocks,
 };
 use std::fmt::Write;
 
@@ -715,7 +715,7 @@ impl ToQir<String> for rir::Callable {
 /// the callable's `input_vars`. Bodyless callables (intrinsics) always render as `declare`.
 fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Program) -> String {
     let output_type = zeroext_i1(&ToQir::<String>::to_qir(&callable.output_type, program));
-    let Some(entry_id) = callable.body else {
+    if callable.body.is_none() {
         let input_type = callable
             .input_type
             .iter()
@@ -740,11 +740,9 @@ fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Prog
                 }
             }
         );
-    };
+    }
     let mut body = String::new();
-    let mut all_blocks = vec![entry_id];
-    all_blocks.extend(get_all_block_successors(entry_id, program));
-    for block_id in all_blocks {
+    for block_id in get_callable_blocks(callable, program) {
         let block = program.get_block(block_id);
         write!(
             body,

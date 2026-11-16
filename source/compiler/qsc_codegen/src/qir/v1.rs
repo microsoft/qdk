@@ -8,10 +8,7 @@ mod instruction_tests;
 mod tests;
 
 use qsc_data_structures::{attrs::Attributes, target::TargetCapabilityFlags};
-use qsc_rir::{
-    rir::{self, ConditionCode, FcmpConditionCode},
-    utils::get_all_block_successors,
-};
+use qsc_rir::rir::{self, ConditionCode, FcmpConditionCode};
 use std::fmt::Write;
 
 use super::name::llvm_global_name;
@@ -637,7 +634,7 @@ impl ToQir<String> for rir::Callable {
             .collect::<Vec<_>>()
             .join(", ");
         let output_type = zeroext_i1(&ToQir::<String>::to_qir(&self.output_type, program));
-        let Some(entry_id) = self.body else {
+        if self.body.is_none() {
             let callable_name = llvm_global_name(&self.name);
             return format!(
                 "declare {output_type} {callable_name}({input_type}){}",
@@ -650,11 +647,9 @@ impl ToQir<String> for rir::Callable {
                     _ => "",
                 }
             );
-        };
+        }
         let mut body = String::new();
-        let mut all_blocks = vec![entry_id];
-        all_blocks.extend(get_all_block_successors(entry_id, program));
-        for block_id in all_blocks {
+        for block_id in program.blocks.iter().map(|(block_id, _)| block_id) {
             let block = program.get_block(block_id);
             write!(
                 body,

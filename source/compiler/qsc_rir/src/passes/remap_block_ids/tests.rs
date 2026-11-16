@@ -4,6 +4,7 @@
 #![allow(clippy::too_many_lines, clippy::needless_raw_string_hashes)]
 
 use expect_test::expect;
+use qsc_data_structures::target::TargetCapabilityFlags;
 
 use crate::rir::{
     Block, BlockId, Callable, CallableId, CallableType, Instruction, Prim, Program, Ty, Variable,
@@ -263,6 +264,7 @@ fn remap_block_ids_out_of_order_with_one_branch() {
 #[test]
 fn remap_block_ids_simple_loop() {
     let mut program = Program::new();
+    program.config.capabilities = TargetCapabilityFlags::BackwardsBranching;
     program.callables.insert(
         CallableId(0),
         Callable {
@@ -312,7 +314,7 @@ fn remap_block_ids_simple_loop() {
                 Block 6: Block:
                     Jump(4)
             config: Config:
-                capabilities: Base
+                capabilities: TargetCapabilityFlags(BackwardsBranching)
             num_qubits: 0
             num_results: 0
             tags:
@@ -339,7 +341,7 @@ fn remap_block_ids_simple_loop() {
                 Block 2: Block:
                     Return
             config: Config:
-                capabilities: Base
+                capabilities: TargetCapabilityFlags(BackwardsBranching)
             num_qubits: 0
             num_results: 0
             tags:
@@ -350,6 +352,7 @@ fn remap_block_ids_simple_loop() {
 #[test]
 fn remap_block_ids_infinite_loop() {
     let mut program = Program::new();
+    program.config.capabilities = TargetCapabilityFlags::BackwardsBranching;
     program.callables.insert(
         CallableId(0),
         Callable {
@@ -385,7 +388,7 @@ fn remap_block_ids_infinite_loop() {
                 Block 4: Block:
                     Jump(0)
             config: Config:
-                capabilities: Base
+                capabilities: TargetCapabilityFlags(BackwardsBranching)
             num_qubits: 0
             num_results: 0
             tags:
@@ -410,7 +413,7 @@ fn remap_block_ids_infinite_loop() {
                 Block 1: Block:
                     Jump(0)
             config: Config:
-                capabilities: Base
+                capabilities: TargetCapabilityFlags(BackwardsBranching)
             num_qubits: 0
             num_results: 0
             tags:
@@ -421,6 +424,7 @@ fn remap_block_ids_infinite_loop() {
 #[test]
 fn remap_block_ids_nested_branching_loops() {
     let mut program = Program::new();
+    program.config.capabilities = TargetCapabilityFlags::BackwardsBranching;
     program.callables.insert(
         CallableId(0),
         Callable {
@@ -479,7 +483,7 @@ fn remap_block_ids_nested_branching_loops() {
                 Block 6: Block:
                     Branch Variable(1, Boolean), 4, 2
             config: Config:
-                capabilities: Base
+                capabilities: TargetCapabilityFlags(BackwardsBranching)
             num_qubits: 0
             num_results: 0
             tags:
@@ -506,7 +510,7 @@ fn remap_block_ids_nested_branching_loops() {
                 Block 2: Block:
                     Return
             config: Config:
-                capabilities: Base
+                capabilities: TargetCapabilityFlags(BackwardsBranching)
             num_qubits: 0
             num_results: 0
             tags:

@@ -11,7 +11,7 @@ use crate::{
     utils::{get_block_successors, map_variable_use_in_block},
 };
 
-pub fn prune_unneeded_stores(program: &mut Program) {
+pub(crate) fn prune_unneeded_stores(program: &mut Program) {
     for callable_id in program.all_callable_ids() {
         process_callable(program, callable_id);
     }

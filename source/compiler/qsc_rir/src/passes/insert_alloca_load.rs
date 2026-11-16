@@ -12,7 +12,7 @@ use crate::{
     utils::{get_block_successors, get_variable_assignments},
 };
 
-pub fn insert_alloca_load_instrs(program: &mut Program) {
+pub(crate) fn insert_alloca_load_instrs(program: &mut Program) {
     // Get the next available variable ID for use in newly generated loads.
     let mut next_var_id = get_variable_assignments(program)
         .iter()
