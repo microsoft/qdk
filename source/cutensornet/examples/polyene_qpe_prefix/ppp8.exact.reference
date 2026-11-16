@@ -1,0 +1,75 @@
+# The readings at the end of the ppp8 prefix on the exact state (the QDK's
+# sparse simulator): <H>, <N_alpha>, <N_beta>, every qubit's P(One), and the
+# expectations of 51 Pauli strings of weight 1-4 (random, fixed seed).
+kind exact
+energy -0.496553567158
+n_alpha 3.999999777244
+n_beta 3.999999808622
+one 0 0.4365265770391073
+one 1 0.5000408185009237
+one 2 0.4998338050025889
+one 3 0.500139721473324
+one 4 0.4998949391132387
+one 5 0.49997176466941534
+one 6 0.5000371757284992
+one 7 0.49981075025038935
+one 8 0.5002708025060866
+one 9 0.5000618203588346
+one 10 0.4999753373959558
+one 11 0.4999943412069406
+one 12 0.4999463506497497
+one 13 0.5001695662412655
+one 14 0.4998306475768822
+one 15 0.4999679925472552
+one 16 0.5000537526450538
+pauli 0.0 X:14 Y:1
+pauli 0.0 Y:13 Y:5 X:11
+pauli 1.3280270663836e-05 X:10 Z:15 X:11
+pauli 0.00033238999483226875 Z:2
+pauli 0.0 Z:3 Y:0 X:15 Y:4
+pauli 0.0 Y:16
+pauli 0.0 Y:11 X:5
+pauli -5.921056180597754e-05 X:4 X:6 Z:1
+pauli 0.0 Y:11
+pauli 0.0 Z:2 X:13 Z:8 Y:4
+pauli -0.19436891072331736 Z:1 Z:12
+pauli -4.6448132542328593e-05 Y:15 Z:5 Y:11
+pauli 0.015608575946704381 Z:7 Y:6 X:1
+pauli 0.0 Y:6 X:10
+pauli 0.0 Y:13 Z:8
+pauli 6.401490549810083e-05 Z:15
+pauli 0.009209472475200748 Y:12 Z:2 X:9
+pauli 0.0 Z:14 Y:2
+pauli 0.0023549898602487026 Z:11 Z:3 X:16 X:12
+pauli 0.0 Z:15 Z:0 Y:7
+pauli 0.16157003265182798 Y:4 Y:5
+pauli 0.0 X:2 Y:0
+pauli 0.0 Y:14
+pauli 0.00033870484624587817 Z:14
+pauli -0.12845940022177518 Z:11 Y:0 Z:1
+pauli 0.0 X:7 Z:5 Z:1 Z:3
+pauli 0.0 Y:1
+pauli 0.0 X:14
+pauli 0.0 Y:13 Y:6 Y:15 Y:0
+pauli 0.000228862809049552 Y:14 X:11
+pauli 0.0 X:16 Y:2
+pauli 0.0 Y:1 X:2 X:8
+pauli 0.0 Y:16 Y:3 Y:15 Z:9
+pauli -0.00016441246964657948 Y:9 Z:10 Y:13
+pauli 0.0 Z:13 Z:11 Y:14
+pauli -2.998583024303724e-05 Z:5 Z:0
+pauli 0.0 X:14 Y:2 Z:11 X:9
+pauli 0.0 Z:7 Z:16 Z:1 Y:10
+pauli 0.0 Y:8
+pauli 0.0 X:11 Y:6 X:0
+pauli 0.0 Z:11 Y:1 Y:16 Y:2
+pauli 0.0 Y:5
+pauli -4.9492341020938816e-05 X:1 Z:3 X:4
+pauli 0.0 Y:13 X:5 X:11
+pauli 0.0 Y:5
+pauli 4.932520809741963e-05 Z:10
+pauli 0.0 X:13
+pauli -5.988546138440597e-05 Z:3 X:10 Z:14 Y:11
+pauli 5.6470661183307316e-05 Z:5
+pauli 0.22027803138821844 Z:13 Z:15
+pauli 0.0 X:15 X:13 Y:4 Y:11
