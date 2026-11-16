@@ -1,12 +1,17 @@
-# cuTensorNet for the QDK: the MPS engine, and the discovery and loading of its libraries
+# cuTensorNet for the QDK: the MPS engine, the canonical MPS's site algebra, and the discovery and loading of their libraries
 
 The `qdk_cutensornet` crate lets a QDK simulator written against
 `tensornet`'s `MpsEngine` trait run its matrix product states (MPS) on an
-NVIDIA GPU, with NVIDIA's cuTensorNet library. It has two parts:
+NVIDIA GPU, with NVIDIA's cuTensorNet library. It has three parts:
 
 - **[The MPS engine](#the-mps-engine):**
   [`CuTensorNetEngine`](src/engine.rs) implements `tensornet::MpsEngine` on
   cuTensorNet.
+- **[The CUDA algebra](#the-cuda-algebra):**
+  [`CudaAlgebra`](src/cuda_algebra.rs) implements `canonical_mps`'s
+  `SiteAlgebra` on cuTensorNet's tensor API, so that
+  [`CudaMpsEngine`](src/lib.rs), the canonical-form MPS engine on it, runs
+  on the GPU.
 - **[The discovery and loading of the libraries](#the-discovery-and-loading-of-the-libraries):**
   cuTensorNet and the CUDA Runtime are opened at run time, never linked, so
   the QDK builds, loads and simulates on the CPU without NVIDIA software;
@@ -61,18 +66,18 @@ flowchart TD
   state into an MPS only when a read needs it ([Phases](#phases)).
 - [`NativeCalls`](src/native_calls.rs) is every call the crate makes to the
   CUDA Runtime and cuTensorNet, by kind: the session's, device memory's, the
-  states', and the tensor API's (gate splits, QRs, contractions), which a
-  planned GPU site algebra for a canonical MPS will make. The engine calls
-  nothing else, so it also runs in the [host tests](src/tests/engine.rs),
-  which have no GPU. On a GPU, the [`LoadedLibraries`](src/libraries.rs) that
-  discovery loaded answer them: `CuTensorNetEngine::new` takes them from an
+  states', and the tensor API's (gate splits, QRs, contractions), which the
+  [CUDA algebra](#the-cuda-algebra) makes. The engine calls nothing else,
+  so it also runs in the [host tests](src/tests/engine.rs), which have no
+  GPU. On a GPU, the [`LoadedLibraries`](src/libraries.rs) that discovery
+  loaded answer them: `CuTensorNetEngine::new` takes them from an
   `Availability`.
 
 The settings the engine fixes, with how each was chosen, are in
 [`src/engine/policy.rs`](src/engine/policy.rs);
 [`src/engine.rs`](src/engine.rs) maps its files. `DeviceSession` and
 `NativeCalls` sit at the crate's root, beside `src/engine/`, not in it: the
-engine uses them, and so will that site algebra, so they belong to neither.
+engine and the CUDA algebra both use them, so they belong to neither.
 
 ### Phases
 
@@ -118,6 +123,96 @@ current device is per thread, and runs the phases its row names.
 | `shape`                          | compute                                                                                | the extents the compute reported                                                                                                                                                                           | a truncation may keep less than the capacity, so the bonds are known only after a compute                                                                                                        |
 | `retained_weight`                | compute; query                                                                         | a query of the identity on the first site; its squared norm is returned                                                                                                                                    | the engine never renormalizes, so the norm is what the truncations kept ([Numerics](docs/engine.md#numerics))                                                                                    |
 | `Drop` of a state                | close                                                                                  | a failed release is not reported; leaks can be checked with `compute-sanitizer`                                                                                                                            | `Drop` cannot return an error; a broken device makes the engine's next call fail and report it ([`src/engine.rs`](src/engine.rs))                                                                |
+
+## The CUDA algebra
+
+[`CudaAlgebra`](src/cuda_algebra.rs) implements `canonical_mps`'s
+[`SiteAlgebra`](../canonical_mps/src/algebra.rs) on cuTensorNet's tensor
+API, and [`CudaMpsEngine`](src/lib.rs) is `canonical_mps`'s
+`CanonicalMpsEngine` on it: an `MpsEngine` that keeps its MPS in canonical
+form, on the GPU. What the contract requires is in
+[`canonical_mps`'s README](../canonical_mps/README.md#the-backend-contract)
+and the trait's rustdoc; this section says how this algebra meets it, and
+why; [`docs/cuda_algebra.md`](docs/cuda_algebra.md) gives the native calls
+of each phase and the numerics, and each file's header the details.
+
+Here the canonical-form engine's `MpsEngine` methods call the _`SiteAlgebra`
+methods_ (`upload`, `read`, `duplicate`, `gate_split`, `qr_move`), which
+this algebra turns into cuTensorNet's tensor calls.
+
+```mermaid
+flowchart LR
+  S["an MPS simulation method"] -->|"MpsEngine methods"| E["CanonicalMpsEngine<br/>(canonical_mps)"]
+  E -->|"SiteAlgebra methods"| A["<b>CudaAlgebra</b>"]
+  A -->|"tensor API"| N["cuTensorNet:<br/>GateSplit, TensorQR,<br/>contraction networks"]
+```
+
+The contract's methods are synchronous and hand over tensors, while
+cuTensorNet's calls run asynchronously on a stream, on tensors it knows by
+descriptors, with scratch memory its caller lends. The algebra bridges the
+two:
+
+- [`CudaAlgebra`](src/cuda_algebra.rs) holds a
+  [`DeviceSession`](src/device_session.rs), as the engine does, and, across
+  its calls, one workspace descriptor, the scratch it lends cuTensorNet,
+  and the contraction networks it has prepared. `CudaAlgebra::new` (Linux
+  x86-64) opens one on an `Availability`, after checking that the loaded
+  cuTensorNet has every function of its tensor API.
+- [`DeviceTensor`](src/cuda_algebra/device_tensor.rs) is one site: a
+  device buffer of complex doubles, in the contract's layout. It keeps the
+  device session alive, so it may outlive the algebra.
+
+The settings the algebra fixes, with how each was chosen, are in
+[`src/cuda_algebra/policy.rs`](src/cuda_algebra/policy.rs);
+[`src/cuda_algebra.rs`](src/cuda_algebra.rs) maps its files.
+
+### The algebra's phases
+
+Each `SiteAlgebra` method of this algebra combines some of these phases
+([the table below](#how-each-sitealgebra-method-is-implemented)):
+
+- **bind**: the algebra's device selected (`cudaSetDevice`), since CUDA's
+  current device is per thread.
+- **copy**: values copied to the device, to the host or on the device,
+  then waited for: the copies run on CUDA's legacy default stream, which
+  the algebra's stream does not wait for.
+- **describe**: a descriptor per tensor of the call (its extents and mode
+  labels) and, for a gate split, the SVD's settings and a record of its
+  truncation.
+- **lend**: cuTensorNet sizes the call's scratch, and the algebra lends
+  it; its one scratch buffer grows to the largest call's, never beyond the
+  device's free memory, and never shrinks.
+- **factor**: one `GateSplit` or one `TensorQR`, waited for.
+- **prepare**: for a contraction of a shape the algebra has not kept, a
+  network, its path found and its plan made, then kept for later calls of
+  that shape.
+- **contract**: a pairwise contraction on that network, waited for.
+- **release**: the call's descriptors, settings and intermediate buffers
+  released, in reverse order of creation.
+
+### How each `SiteAlgebra` method is implemented
+
+This algebra's implementation of each `SiteAlgebra` method checks none of
+the engine's arguments (the engine checks every one before it calls), and
+runs the phases its row names, bind first. Each returns with the device
+idle, its stream and its copies waited for, so the engine may use a tensor
+at once and the next call may grow the scratch.
+
+| `SiteAlgebra` method  | Phases                                                                                                 | How                                                                                                                                                                                                                                      | Why                                                                                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload`              | bind; copy                                                                                             | a new device buffer, the host values copied into it                                                                                                                                                                                      | the sites live on the device, where they are factored                                                                                                                                       |
+| `read`                | bind; copy                                                                                             | the first `len` elements copied into a host vector; refused with `NativeError::InvalidNativeCall` when the tensor holds fewer                                                                                                            | the engine contracts the sites a read needs on the host; the check keeps the device from reading memory the tensor does not own                                                             |
+| `duplicate`           | bind; copy                                                                                             | a new device buffer, the first `len` elements copied into it on the device; refused as `read` is                                                                                                                                         | a fork's sites change apart from its parent's, with no round trip through the host                                                                                                          |
+| `gate_split`          | bind; describe; copy (the gate); lend; factor; release                                                 | one `GateSplit`, cuTensorNet's reduced algorithm, with the values normalised and absorbed on the centre's side and the cutoff as a discarded weight, into factors sized by [Numerics](docs/cuda_algebra.md#numerics); its report checked | one native call contracts the gate and splits the pair; a reported bond or discarded weight outside the contract's bounds is `NativeError::InvalidNativeResult`, never passed to the engine |
+| `qr_move`             | bind; describe; copy, prepare and contract (a one-site gate); lend; factor; prepare; contract; release | the gate, if any, contracted into the site the centre leaves; one `TensorQR` of that site, its small factor contracted into the other site                                                                                               | a QR moves the centre exactly; a network costs a path search and a preparation, and a run's moves repeat their shapes, so each shape's is made once                                         |
+| `Drop` of a tensor    | bind; its buffer freed                                                                                 | `cudaFree`; a failed free is not returned, and debug builds write it to stderr                                                                                                                                                           | `Drop` cannot return an error; no device work is pending on the tensor, since every method returns with the device idle                                                                     |
+| `Drop` of the algebra | bind; the stream waited for; release of what it keeps                                                  | the networks, the workspace descriptor, the scratch, the gate's and singular values' buffers, and a poisoned call's objects released; the device session closes once its last tensor is dropped too                                      | the session's stream and handle are shared with the tensors, which free their own buffers                                                                                                   |
+
+A method that fails also frees its outputs, once it has waited for the
+device, since the failed work may still write the call's buffers. If that
+wait fails too, nothing says when the device is done with them: they are
+kept until the algebra is dropped, and every later method returns
+`NativeError::Poisoned`.
 
 ## The discovery and loading of the libraries
 
@@ -234,8 +329,15 @@ The [engine's tests](src/tests/engine.rs) run in CI, without a GPU, on
 [fake libraries](src/native_calls/fake_libraries.rs) that enforce
 cuTensorNet's call order, and the fake libraries'
 [own tests](src/tests/native_calls/fake_libraries.rs) pin how they simulate
-cuTensorNet's tensor API. The [unit tests](src/tests) drive each way
-discovery fails without NVIDIA's libraries, and
+cuTensorNet's tensor API. The [CUDA algebra's tests](src/tests/cuda_algebra.rs)
+run on the same fake libraries: they compare its gate splits and moves with
+`canonical_mps`'s reference algebra, and check its release of every native
+object, its scratch and its failures.
+[`tests/cuda_algebra_on_the_gpu.rs`](tests/cuda_algebra_on_the_gpu.rs)
+makes the same comparisons on a GPU, and runs circuits on `CudaMpsEngine`
+against `tensornet`'s exact reference; its tests are ignored unless asked
+for (`--ignored`), as they need a GPU. The [unit tests](src/tests) drive
+each way discovery fails without NVIDIA's libraries, and
 [`tests/availability.rs`](tests/availability.rs) discovers the audited
 libraries where they are installed.
 
@@ -244,12 +346,12 @@ libraries where they are installed.
 What the crate requires is checked when it runs; where it has run is listed
 apart. Anything else is expected to work, but not verified.
 
-| Requirement   | Checked by                                                                         | Verified on                                                                                      |
-| ------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                                        | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
-| The libraries | `discover`: the exact versions of [Versions](#versions)                            | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
-| A CUDA driver | not checked: its version is reported only                                          | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
-| An NVIDIA GPU | `CuTensorNetEngine::new`: `EngineError::Native(NativeError::NoDevice)` without one | an A100 80GB, where the engine passes `tensornet`'s conformance kit                              |
+| Requirement   | Checked by                                                                                                                      | Verified on                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                                                                                     | Ubuntu 22.04 on an NVIDIA A100 host                                                                        |
+| The libraries | `discover`: the exact versions of [Versions](#versions)                                                                         | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides           |
+| A CUDA driver | not checked: its version is reported only                                                                                       | NVIDIA's driver 580.178.04, from Ubuntu's packages                                                         |
+| An NVIDIA GPU | `CuTensorNetEngine::new`: `EngineError::Native(NativeError::NoDevice)` without one; `CudaAlgebra::new`: `NativeError::NoDevice` | an A100 80GB, where the engine passes `tensornet`'s conformance kit; the CUDA algebra has not run on a GPU |
 
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the
