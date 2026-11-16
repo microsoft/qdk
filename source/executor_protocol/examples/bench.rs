@@ -9,15 +9,18 @@
 //!   instruction by name, and the count of a batch's instructions against
 //!   a most offered;
 //! - F: a lowering adapter, each logical instruction sent as three physical;
-//! - W: an executor that answers from a worker thread: the time of a call.
+//! - W: an executor that answers from a worker thread: the time of a call,
+//!   which includes copying its batches to the worker.
 //!
 //! The executors only count what they get, so the time is the protocol's
 //! and the parts' own. Each variant is checked on every run: it must count
 //! what the program holds, received in batches checked as its flag asks
 //! (or, in F, answer what the direct call answers, and its composing must
-//! compose). It runs once untimed before it is timed, and keeps the best
-//! of 7. W has no untimed run, and keeps the best of up to 5 runs' median
-//! call. D, F and W send every batch unchecked, the default, or
+//! compose; in C, building by name must build the program's instructions,
+//! compared once before it is timed, and count them on every run). It
+//! runs once untimed before it is timed, and keeps the best of 7. W has
+//! no untimed run, and keeps the best of up to 5 runs' median call. D, F
+//! and W send every batch unchecked, the default, or
 //! [`checked`](Batch::checked) with `--checked`; C runs both.
 //! D, C and W draw the common mix, or the parity-heavy one with
 //! `--parity-heavy`. Run it with `cargo run --release --example bench`,
@@ -347,9 +350,18 @@ fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
     }
     // Into one buffer, reused, so that the row times building, not
     // allocating and freeing a program of instructions (their size printed
-    // above).
+    // above). Each buffer is compared with the program's instructions it
+    // stands for before the row is timed; every run's count is checked too.
     let set = MixGates::set();
     let mut buffer = Vec::with_capacity(BUILD_BUFFER);
+    for (some, expected) in draws.chunks(BUILD_BUFFER).zip(program.chunks(BUILD_BUFFER)) {
+        buffer.clear();
+        buffer.extend(some.iter().map(|draw| build_one(&set, draw)));
+        assert!(
+            buffer == expected,
+            "each buffer holds the program's instructions it stands for"
+        );
+    }
     let built = best(size.repeats, &program.len(), || {
         let mut count = 0;
         for some in draws.chunks(BUILD_BUFFER) {
@@ -359,11 +371,6 @@ fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
         }
         count
     });
-    let last = &program[program.len() - buffer.len()..];
-    assert!(
-        buffer == last,
-        "the buffer holds the program's last instructions"
-    );
     println!(
         "  building each instruction by name (InstructionSet::instruction) {:>6.2}",
         per(built, n)
@@ -743,15 +750,22 @@ impl Execute for Sink {
 // ------------------------------------------------------------- W: worker
 
 /// W: the time of a call to an executor that answers from a worker thread,
-/// beside the same call answered on this thread. Each call's time holds a
-/// clock read before and after it, whose cost the section prints, so the
-/// columns compare above that floor (batch 1 is near it).
+/// beside the same call answered on this thread. The worker's call also
+/// copies its batches, for the worker to own (a `Vec` of the instructions
+/// and a clone of the shots per batch), which the call on this thread does
+/// not, so the difference grows with the batch, beyond the handoff's cost
+/// that batch 1 shows. Each call's time holds a clock read before and
+/// after it, whose cost the section prints, so the columns compare above
+/// that floor (batch 1 is near it).
 fn worker_bench(size: &Size, program: &[Instruction], checked: bool) {
     let repeats = size.repeats.min(5);
     println!("\nW. an executor answering from a worker thread, median call, µs, best of {repeats}");
     println!(
         "  each call's time holds two clock reads, {:.2} µs here (an empty pair's median)",
         clock_floor()
+    );
+    println!(
+        "  the worker's call copies its batches to the worker; the call on this thread does not"
     );
     println!(
         "  {:>7} {:>7} {:>14} {:>14}",
