@@ -349,9 +349,7 @@ fn a_tensor_outliving_its_algebra_frees_its_buffer_when_dropped() {
 /// CUDA's current device is per thread, and the engine may call the
 /// algebra on a thread that last used another device: every method, and
 /// the drop of a tensor and of the algebra, selects the algebra's device
-/// before any other native call. A tensor or an algebra dropped while the
-/// device cannot be selected frees nothing, since a free needs that
-/// device: its memory is leaked.
+/// before any other native call.
 #[test]
 fn every_call_selects_the_algebras_device_first() {
     let (algebra, libraries) = algebra();
@@ -394,36 +392,49 @@ fn every_call_selects_the_algebras_device_first() {
     }
     let first = first_native_call(&libraries, move || drop(left));
     assert_eq!(first, Some("set_device"), "the drop of a tensor");
-    let stranded = upload(&algebra, &a);
-    let (before, live) = (libraries.events().len(), libraries.live_objects());
-    libraries.fail("set_device", libraries.count("set_device") + 1);
-    drop(stranded);
-    assert_eq!(
-        libraries.events()[before..],
-        ["set_device"],
-        "the drop of a tensor whose device cannot be selected frees nothing"
-    );
-    assert_eq!(libraries.live_objects(), live, "its buffer is leaked");
-    let (stranded, stranded_libraries) = self::algebra();
-    let before = stranded_libraries.events().len();
-    stranded_libraries.fail("set_device", stranded_libraries.count("set_device") + 1);
-    drop(stranded);
-    let events = stranded_libraries.events();
-    let released = events[before..]
-        .iter()
-        .filter(|&&event| event == "free" || event.starts_with("destroy_"))
-        .filter(|&event| !SESSION_DESTROYS.contains(event));
-    assert_eq!(
-        released.count(),
-        0,
-        "the drop of an algebra whose device cannot be selected frees nothing: {:?}",
-        &events[before..]
-    );
     let first = first_native_call(&libraries, move || drop(algebra));
     assert_eq!(first, Some("set_device"), "the drop of the algebra");
     let (poisoned, libraries, _pair, _failed) = a_failed_split(true);
     let first = first_native_call(&libraries, move || drop(poisoned));
     assert_eq!(first, Some("set_device"), "the drop of a poisoned algebra");
+}
+
+/// A free acts on the current device, which is per thread: a tensor or an
+/// algebra dropped while the algebra's device cannot be selected frees
+/// nothing, so that nothing is freed on another device, and its memory is
+/// leaked. Cases: the tensor dropped, or the algebra, after a split grew
+/// the algebra's buffers.
+#[test]
+fn a_drop_that_cannot_select_the_device_frees_nothing() {
+    for tensor_dropped in [true, false] {
+        let dropped = if tensor_dropped {
+            "a tensor"
+        } else {
+            "the algebra"
+        };
+        let (algebra, libraries) = algebra();
+        let (a, b) = random_pair(1, 1, 1, 15);
+        drop(one_qubit_split(&a, &b).on(&algebra).expect("the split"));
+        let tensor = upload(&algebra, &a);
+        let (before, live) = (libraries.events().len(), libraries.live_objects());
+        libraries.fail("set_device", libraries.count("set_device") + 1);
+        if tensor_dropped {
+            drop(tensor);
+        } else {
+            drop(algebra);
+        }
+        let events = libraries.events();
+        let released = events[before..]
+            .iter()
+            .filter(|&&event| event == "free" || event.starts_with("destroy_"));
+        assert_eq!(
+            released.count(),
+            0,
+            "{dropped}: nothing freed: {:?}",
+            &events[before..]
+        );
+        assert_eq!(libraries.live_objects(), live, "{dropped}: leaked");
+    }
 }
 
 /// The first native call `run` makes, if any.
@@ -534,7 +545,8 @@ fn is_a_failed_wait(error: &NativeError) -> bool {
 /// A failed call waits for the device before it releases its buffers;
 /// when that wait fails, nothing tells when the device is done with them,
 /// so every later call is refused as poisoned, whichever method makes it
-/// and whatever its arguments (a tensor too short for the call included),
+/// and whatever its arguments (a tensor too short for the call, or another
+/// algebra's, included),
 /// the wait's failure kept beside the call's.
 #[test]
 fn a_failed_call_that_cannot_wait_for_the_device_poisons_the_algebra() {
@@ -578,6 +590,16 @@ fn a_failed_call_that_cannot_wait_for_the_device_poisons_the_algebra() {
     });
     is_poisoned("move of the centre, short", &|| {
         algebra.qr_move(&moved.call(&pair[0], &pair[1])).map(drop)
+    });
+    let (other, _other_libraries) = self::algebra();
+    let foreign = upload(&other, &values);
+    is_poisoned("read, another algebra's", &|| {
+        algebra.read(&foreign, 4).map(drop)
+    });
+    is_poisoned("gate split, another algebra's on the right", &|| {
+        algebra
+            .gate_split(&one_qubit_split(&values, &values).call(&pair[0], &foreign))
+            .map(drop)
     });
 }
 

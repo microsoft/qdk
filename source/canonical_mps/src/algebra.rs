@@ -45,11 +45,12 @@ use std::borrow::Cow;
 ///
 /// # Errors
 ///
-/// Each method fails, with [`SiteAlgebra::Error`], only when the backend's
-/// own computation fails (an allocation, a copy, a library call), never
-/// for an argument the caller can check. Tensors are opaque to the caller,
-/// so an implementation whose tensors belong to one instance may refuse
-/// another instance's tensor.
+/// Each method fails, with [`SiteAlgebra::Error`], when the backend's own
+/// computation fails (an allocation, a copy, a library call), never for
+/// arguments that meet the preconditions above, except that an
+/// implementation whose tensors belong to one instance may refuse another
+/// instance's tensor, which the caller cannot check, as tensors are opaque
+/// to it.
 pub trait SiteAlgebra {
     /// Where one site tensor's elements live.
     type Tensor;
