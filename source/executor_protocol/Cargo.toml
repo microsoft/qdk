@@ -10,9 +10,9 @@ repository.workspace = true
 
 [dependencies]
 # `union` lays a small vector's inline items over its heap pointer with no
-# tag word, which keeps an instruction at 128 bytes rather than 144. Cargo
-# unifies features across the workspace, so other crates' small vectors
-# get it too in a shared build.
+# tag word, which keeps an instruction at 128 bytes rather than 144 on a
+# 64-bit target. Cargo unifies features across the workspace, so other
+# crates' small vectors get it too in a shared build.
 smallvec = { workspace = true, features = ["union"] }
 
 [lints]

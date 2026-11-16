@@ -6,7 +6,8 @@
 //!
 //! So that no part checks what it answers, nor what it is sent: each
 //! boundary of a chain is crossed through one `Checked`. It always makes a
-//! failure of a panic (where a panic unwinds: on wasm32, it aborts), and
+//! failure of the receiver's panic (where a panic unwinds: on wasm32, it
+//! aborts), and
 //! of an answer whose shape is not the batches', as [`ShapeFault`] says,
 //! so that the part above can index its batches and rows, and, for a
 //! checked batch, its slots, without a check of its own.

@@ -120,9 +120,9 @@ pub trait Execute {
     /// leaked rather than dropped (`std::mem::forget`) keeps its partial
     /// answer: for good when the caller owns `readouts`, and, when they
     /// were lent to the caller, as readouts more in the caller's answer,
-    /// which the boundary above the caller reports
-    /// ([`ShapeFault::Batches`](crate::ShapeFault::Batches)) unless all the
-    /// readouts appended still have the shape of the caller's batches. A
+    /// which the boundary above the caller reports as a
+    /// [`ShapeFault`](crate::ShapeFault) unless all the readouts appended
+    /// still have the shape of the caller's batches. A
     /// shot's state is made at its first batch, from the needs it was
     /// provisioned for and [`seed.shot(id)`](Seed::shot), and kept until
     /// [`end_shots`](Self::end_shots).
