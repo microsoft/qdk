@@ -4,7 +4,6 @@
 //! The state vector the fake libraries compute with, and the truncation
 //! a bond imposes on it at a cut.
 
-use crate::engine::policy::DISCARDED_WEIGHT_CUTOFF;
 use num_complex::Complex64;
 
 /// A state vector of qubits, site `k` the bit `k` of the index, that the
@@ -84,9 +83,9 @@ impl StateVector {
 
     /// How many Schmidt values cuTensorNet keeps at the cut after site
     /// `cut`, before the bond: all but the smallest whose squares sum to at
-    /// most the engine's `DISCARDED_WEIGHT_CUTOFF` of their total, which
-    /// also drops the rounding a projection leaves.
-    pub(super) fn kept_rank(&self, cut: usize) -> usize {
+    /// most `cutoff` of their total, the state's discarded-weight cutoff.
+    /// The engine's cutoff also drops the rounding a projection leaves.
+    pub(super) fn kept_rank(&self, cut: usize, cutoff: f64) -> usize {
         let (density, left) = self.left_density(cut);
         let (mut values, _) = hermitian_eigen(density, left);
         values.sort_by(f64::total_cmp);
@@ -96,7 +95,7 @@ impl StateVector {
             .iter()
             .take_while(|&&value| {
                 discarded += value;
-                discarded <= DISCARDED_WEIGHT_CUTOFF * total
+                discarded <= cutoff * total
             })
             .count();
         (left - dropped).max(1)

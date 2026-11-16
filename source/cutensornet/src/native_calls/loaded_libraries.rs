@@ -1,33 +1,40 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The engine's native calls on the loaded libraries: `SessionCalls`,
-//! `MemoryCalls` and `StateCalls`, implemented for `LoadedLibraries`
+//! The native calls on the loaded libraries: `SessionCalls`, `MemoryCalls`,
+//! `StateCalls` and `TensorCalls`, implemented for `LoadedLibraries`
 //! (`crate::libraries`) through the function tables discovery looked up,
 //! one file per trait (`loaded_libraries/session_calls.rs`,
-//! `loaded_libraries/memory_calls.rs`, `loaded_libraries/state_calls.rs`).
-//! This file holds what they share: turning a status into an `EngineError`
-//! with the library's message.
+//! `loaded_libraries/memory_calls.rs`, `loaded_libraries/state_calls.rs`,
+//! `loaded_libraries/tensor_calls.rs`). This file holds what they share:
+//! turning a status into a `NativeError` with the library's message.
 //!
 //! This module is the only code that calls cuTensorNet and the CUDA Runtime,
 //! so it is where every foreign-function obligation is kept: each `unsafe`
 //! call says what makes it sound (the handles live, the buffers large enough
 //! and kept alive, the values in the audited representation). It owns nothing:
 //! `DeviceSession` and `NativeState` create the streams, handles, states
-//! and buffers, and release them. Discovery has checked the versions, so
+//! and buffers, and release them, as the tensor API's planned caller will
+//! its own. Discovery has checked the versions, so
 //! this code assumes cuTensorNet 2.13 and the CUDA Runtime 12.9. It compiles
 //! only on Linux x86-64, and no host test reaches it; a new native call
 //! needs its function's row in its library's table first
 //! (`libraries::cuda_runtime::CudaFunctions`,
-//! `libraries::cutensornet::CuTensorNetFunctions`).
+//! `libraries::cutensornet::CuTensorNetFunctions`, or the tensor API's
+//! `libraries::cutensornet::tensor::CuTensorNetTensorFunctions`).
 
-use crate::engine::EngineError;
 use crate::libraries::{LoadedLibraries, cuda_runtime::cudart_12, cutensornet::v2_13};
+use crate::native_calls::error::NativeError;
 use std::ffi::CStr;
 
 mod memory_calls;
 mod session_calls;
 mod state_calls;
+#[allow(
+    dead_code,
+    reason = "the tensor API's planned caller, the canonical MPS's CudaAlgebra, is not written yet"
+)]
+mod tensor_calls;
 
 impl LoadedLibraries {
     fn cuda_message(&self, status: cudart_12::cudaError_t) -> String {
@@ -57,11 +64,11 @@ impl LoadedLibraries {
         &self,
         operation: &'static str,
         status: cudart_12::cudaError_t,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         if status == cudart_12::cudaError_cudaSuccess {
             Ok(())
         } else {
-            Err(EngineError::NativeCallFailed {
+            Err(NativeError::NativeCallFailed {
                 component: "CUDA Runtime",
                 operation,
                 status,
@@ -74,11 +81,11 @@ impl LoadedLibraries {
         &self,
         operation: &'static str,
         status: v2_13::cutensornetStatus_t,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         if status == v2_13::cutensornetStatus_t_CUTENSORNET_STATUS_SUCCESS {
             Ok(())
         } else {
-            Err(EngineError::NativeCallFailed {
+            Err(NativeError::NativeCallFailed {
                 component: "cuTensorNet",
                 operation,
                 status,

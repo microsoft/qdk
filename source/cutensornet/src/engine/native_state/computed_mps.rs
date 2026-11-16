@@ -32,18 +32,16 @@
 //!   compute asks for over a long shot (`policy.rs`).
 
 use super::NativeState;
-use crate::engine::{
-    EngineError,
-    error::{combine_execution_and_cleanup, first_failure},
-    native_calls::{
-        OpaqueHandle,
-        complex::{Complex64Abi, complex_bytes},
-        state_calls::{
-            MpsLayout, StateF64Configuration, StateU32Configuration, convert_layout,
-            validate_realized_chain,
-        },
+use crate::engine::policy::{DISCARDED_WEIGHT_CUTOFF, RESTART_PERIOD};
+use crate::native_calls::error::{NativeError, combine_execution_and_cleanup, first_failure};
+use crate::native_calls::{
+    OpaqueHandle,
+    complex::{Complex64Abi, complex_bytes},
+    memory_calls::WorkspaceSlot,
+    state_calls::{
+        MpsLayout, StateF64Configuration, StateU32Configuration, convert_layout,
+        validate_realized_chain,
     },
-    policy::{DISCARDED_WEIGHT_CUTOFF, RESTART_PERIOD},
 };
 use std::rc::Rc;
 use tensornet::MpsShape;
@@ -51,7 +49,7 @@ use tensornet::MpsShape;
 impl NativeState {
     /// The chain of the computed state, computing it first if an operator
     /// was applied since the last compute.
-    pub(super) fn ensure_computed(&mut self) -> Result<MpsShape, EngineError> {
+    pub(super) fn ensure_computed(&mut self) -> Result<MpsShape, NativeError> {
         if let Some(realized) = &self.realized {
             return Ok(realized.clone());
         }
@@ -73,7 +71,7 @@ impl NativeState {
 
     /// Computes the state into new output buffers, captures it, and returns
     /// the chain the library realized, checked against the native capacity.
-    fn materialize(&mut self) -> Result<MpsShape, EngineError> {
+    fn materialize(&mut self) -> Result<MpsShape, NativeError> {
         let device_session = Rc::clone(&self.device_session);
         let (calls, handle, stream) = (
             device_session.calls(),
@@ -89,9 +87,9 @@ impl NativeState {
         let workspace = self.workspace()?;
         let available = self.available_workspace_bytes()?;
         calls.prepare_state(handle, state, available, workspace, stream)?;
-        let bytes = calls.workspace_size(handle, workspace)?;
+        let bytes = calls.workspace_size(handle, workspace, WorkspaceSlot::DeviceScratch)?;
         if bytes <= 0 {
-            return Err(EngineError::InvalidNativeResult {
+            return Err(NativeError::InvalidNativeResult {
                 reason: format!("the compute's workspace size is {bytes}"),
             });
         }
@@ -104,7 +102,7 @@ impl NativeState {
         // strides it used to write it. Only the shape is part of the state.
         let realized =
             MpsShape::new(convert_layout("extent", &layout.extents)?).map_err(|error| {
-                EngineError::InvalidNativeResult {
+                NativeError::InvalidNativeResult {
                     reason: format!("realized MPS is not a valid chain: {error}"),
                 }
             })?;
@@ -125,7 +123,7 @@ impl NativeState {
 
     /// The truncation and factorization every state of the engine is
     /// computed with (`policy.rs`).
-    fn configure(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError> {
+    fn configure(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), NativeError> {
         let calls = self.device_session.calls();
         calls.configure_state_f64(
             handle,
@@ -151,7 +149,7 @@ impl NativeState {
         modes: Box<[i32]>,
         matrix: &[Complex64Abi],
         unitary: bool,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         if self.realized.is_some() && self.computes_since_restart >= RESTART_PERIOD {
             self.restart()?;
         }
@@ -176,7 +174,7 @@ impl NativeState {
     /// session's, its handle. The new state reads the MPS from
     /// `computed_buffers`, which the next compute frees once it has
     /// captured its own.
-    fn restart(&mut self) -> Result<(), EngineError> {
+    fn restart(&mut self) -> Result<(), NativeError> {
         let device_session = Rc::clone(&self.device_session);
         let calls = device_session.calls();
         let layout = self
@@ -230,7 +228,7 @@ impl NativeState {
         state: OpaqueHandle,
         layout: &MpsLayout,
         tensors: &[OpaqueHandle],
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let calls = self.device_session.calls();
         calls.initialize_mps(handle, state, layout, tensors)?;
         calls.finalize_mps(handle, state, &self.capacity)?;

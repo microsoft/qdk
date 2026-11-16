@@ -6,12 +6,9 @@
 //! library reports beside it, which is checked first.
 
 use super::{NativeState, mode};
-use crate::engine::{
-    EngineError,
-    error::{combine_execution_and_cleanup, first_failure},
-    native_calls::{OpaqueHandle, complex::Complex64Abi},
-    policy::EXPECTATION_HYPER_SAMPLES,
-};
+use crate::engine::policy::EXPECTATION_HYPER_SAMPLES;
+use crate::native_calls::error::{NativeError, combine_execution_and_cleanup, first_failure};
+use crate::native_calls::{OpaqueHandle, complex::Complex64Abi, memory_calls::WorkspaceSlot};
 use num_complex::Complex64;
 use std::{collections::BTreeMap, rc::Rc};
 
@@ -26,7 +23,7 @@ impl NativeState {
     pub(super) fn query(
         &mut self,
         terms: &[ProductTerm],
-    ) -> Result<(Complex64, Complex64), EngineError> {
+    ) -> Result<(Complex64, Complex64), NativeError> {
         let mark = self.allocations.len();
         let query = self.open_query(terms);
         let release = self.release_query(mark);
@@ -36,7 +33,7 @@ impl NativeState {
     /// The probability that `site` reads One when `one` is true, Zero when
     /// it is false, in the computed state, clamped to [0, 1] against
     /// rounding.
-    pub(super) fn probability(&mut self, site: usize, one: bool) -> Result<f64, EngineError> {
+    pub(super) fn probability(&mut self, site: usize, one: bool) -> Result<f64, NativeError> {
         let mut diagonal = [0.0, 0.0];
         diagonal[usize::from(one)] = 1.0;
         let projector = BTreeMap::from([(mode(site)?, diagonal)]);
@@ -46,7 +43,7 @@ impl NativeState {
             .clamp(0.0, 1.0))
     }
 
-    fn open_query(&mut self, terms: &[ProductTerm]) -> Result<(Complex64, Complex64), EngineError> {
+    fn open_query(&mut self, terms: &[ProductTerm]) -> Result<(Complex64, Complex64), NativeError> {
         let device_session = Rc::clone(&self.device_session);
         let (calls, handle, stream) = (
             device_session.calls(),
@@ -92,9 +89,9 @@ impl NativeState {
         self.query_workspace = Some(query_workspace);
         let available = self.available_workspace_bytes()?;
         calls.prepare_expectation(handle, expectation, available, query_workspace, stream)?;
-        let bytes = calls.workspace_size(handle, query_workspace)?;
+        let bytes = calls.workspace_size(handle, query_workspace, WorkspaceSlot::DeviceScratch)?;
         if bytes < 0 {
-            return Err(EngineError::InvalidNativeResult {
+            return Err(NativeError::InvalidNativeResult {
                 reason: format!("the expectation's workspace size is {bytes}"),
             });
         }
@@ -109,13 +106,13 @@ impl NativeState {
 
     /// Closes the expectation's objects, then frees the buffers allocated
     /// since `mark`.
-    fn release_query(&mut self, mark: usize) -> Result<(), EngineError> {
+    fn release_query(&mut self, mark: usize) -> Result<(), NativeError> {
         let closed = self.close_query_lifecycle();
         let freed = self.free_since(mark);
         closed.and(freed)
     }
 
-    pub(super) fn close_query_lifecycle(&mut self) -> Result<(), EngineError> {
+    pub(super) fn close_query_lifecycle(&mut self) -> Result<(), NativeError> {
         let calls = self.device_session.calls();
         first_failure(
             [
@@ -137,7 +134,7 @@ impl NativeState {
     /// Frees the allocations made since `mark`, newest first, once the
     /// stream has finished with them; attempts every free and returns the
     /// first failure.
-    fn free_since(&mut self, mark: usize) -> Result<(), EngineError> {
+    fn free_since(&mut self, mark: usize) -> Result<(), NativeError> {
         let device_session = Rc::clone(&self.device_session);
         let calls = device_session.calls();
         let synchronized = calls.synchronize_stream(device_session.stream());
@@ -187,9 +184,9 @@ pub(super) fn diagonal_term(diagonals: &BTreeMap<i32, [f64; 2]>) -> ProductTerm 
 pub(super) fn normalize_expectation(
     raw_expectation: Complex64,
     squared_norm: Complex64,
-) -> Result<Complex64, EngineError> {
+) -> Result<Complex64, NativeError> {
     let finite = |value: Complex64| value.re.is_finite() && value.im.is_finite();
-    let invalid = |reason: &str| EngineError::InvalidNativeResult {
+    let invalid = |reason: &str| NativeError::InvalidNativeResult {
         reason: reason.to_string(),
     };
     if !finite(raw_expectation) {
@@ -206,8 +203,8 @@ pub(super) fn normalize_expectation(
 /// The squared norm the library reported beside an expectation, which must
 /// be finite, real to rounding and positive: every read divides by it, and
 /// it is the retained weight, which the contract keeps above zero.
-pub(super) fn positive_squared_norm(squared_norm: Complex64) -> Result<f64, EngineError> {
-    let invalid = |reason: &str| EngineError::InvalidNativeResult {
+pub(super) fn positive_squared_norm(squared_norm: Complex64) -> Result<f64, NativeError> {
+    let invalid = |reason: &str| NativeError::InvalidNativeResult {
         reason: reason.to_string(),
     };
     if !(squared_norm.re.is_finite() && squared_norm.im.is_finite()) {

@@ -10,7 +10,7 @@ use crate::{
     libraries::loader::FunctionTable,
     libraries::{
         NativeLibrary,
-        cutensornet::{CuTensorNet, CuTensorNetFunctions},
+        cutensornet::{CuTensorNet, CuTensorNetFunctions, tensor::CuTensorNetTensorFunctions},
     },
 };
 
@@ -47,6 +47,41 @@ fn a_missing_optional_function_is_absent_from_the_table() {
     )
     .expect("an optional function is not required");
     assert!(functions.get_last_error.is_none());
+}
+
+/// A cuTensorNet without the tensor API still serves the engine, which
+/// never calls it: its table resolves, and keeps each missing tensor
+/// function, in order, for the tensor API's caller to name.
+#[test]
+fn a_cutensornet_without_the_tensor_api_keeps_its_missing_functions() {
+    let symbols: Vec<_> = CuTensorNetTensorFunctions::ROWS
+        .iter()
+        .map(|row| row.1)
+        .collect();
+    let resolver = symbols
+        .iter()
+        .fold(StandInResolver::audited(), |resolver, &symbol| {
+            resolver.without(symbol)
+        });
+    let functions =
+        CuTensorNetFunctions::resolve(&resolver).expect("the engine's functions are all present");
+    let missing = functions
+        .tensor
+        .err()
+        .expect("every tensor function is missing");
+    let expected: Vec<_> = symbols
+        .into_iter()
+        .map(|symbol| LibraryFault::MissingRequiredSymbol { symbol })
+        .collect();
+    assert_eq!(missing, expected);
+}
+
+/// The audited cuTensorNet offers the tensor API.
+#[test]
+fn the_audited_cutensornet_offers_the_tensor_api() {
+    let functions = CuTensorNetFunctions::resolve(&StandInResolver::audited())
+        .expect("the audited library exports every function");
+    assert!(functions.tensor.is_ok());
 }
 
 /// The faults found in the versions of a cuTensorNet whose version

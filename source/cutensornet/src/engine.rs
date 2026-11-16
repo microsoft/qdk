@@ -16,12 +16,12 @@
 //!
 //! ```text
 //! CuTensorNetEngine ── holds ──► DeviceSession   device, stream, handle
-//!                                                (device_session.rs)
+//!                                                (crate::device_session)
 //! CuTensorNetState  ── holds ──► NativeState     one native state
 //!                                                (native_state.rs)
 //! DeviceSession and NativeState
 //!   └─ every native call ──────► NativeCalls     CUDA and cuTensorNet
-//!                                                (native_calls.rs)
+//!                                                (crate::native_calls)
 //! engine-wide                    error.rs, policy.rs
 //! ```
 //!
@@ -47,23 +47,19 @@
 //! require_send::<qdk_cutensornet::CuTensorNetState>();
 //! ```
 
-mod device_session;
 mod error;
-pub(crate) mod native_calls;
 mod native_state;
 mod policy;
 
 pub use error::EngineError;
 
 // What the tests under `src/tests` name of the engine's private modules:
-// the session, and the settings they check it keeps.
+// the settings they check it keeps.
 #[cfg(test)]
-pub(crate) use self::{
-    device_session::DeviceSession,
-    policy::{DISCARDED_WEIGHT_CUTOFF, EXPECTATION_HYPER_SAMPLES, RESTART_PERIOD},
-};
+pub(crate) use self::policy::{DISCARDED_WEIGHT_CUTOFF, EXPECTATION_HYPER_SAMPLES, RESTART_PERIOD};
 
-use native_calls::NativeCalls;
+use crate::device_session::DeviceSession;
+use crate::native_calls::NativeCalls;
 use native_state::NativeState;
 use num_complex::Complex64;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
@@ -77,7 +73,7 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, Refusal, checks};
 /// How the engine truncates, factorizes and manages its scratch is fixed,
 /// not tunable (`policy.rs`).
 pub struct CuTensorNetEngine {
-    device_session: Rc<device_session::DeviceSession<dyn NativeCalls>>,
+    device_session: Rc<DeviceSession<dyn NativeCalls>>,
 }
 
 /// One MPS state of a [`CuTensorNetEngine`]: a cuTensorNet state, its
@@ -120,7 +116,7 @@ impl CuTensorNetEngine {
 
     /// An engine on device 0 that makes its native calls through
     /// `native_calls`. It opens the engine's device session
-    /// (`device_session.rs`).
+    /// (`crate::device_session`).
     #[cfg_attr(
         not(all(target_os = "linux", target_arch = "x86_64")),
         allow(
@@ -132,10 +128,7 @@ impl CuTensorNetEngine {
         native_calls: Arc<dyn NativeCalls>,
     ) -> Result<Self, EngineError> {
         Ok(Self {
-            device_session: Rc::new(device_session::DeviceSession::new(
-                native_calls,
-                policy::DEVICE_ORDINAL,
-            )?),
+            device_session: Rc::new(DeviceSession::new(native_calls, policy::DEVICE_ORDINAL)?),
         })
     }
 
@@ -196,8 +189,9 @@ impl MpsEngine for CuTensorNetEngine {
         sites: &[usize],
         matrix: &[Complex64],
     ) -> Result<(), EngineError> {
-        self.native_state(state, |site_count| checks::apply(site_count, sites, matrix))?
-            .apply(sites, matrix)
+        Ok(self
+            .native_state(state, |site_count| checks::apply(site_count, sites, matrix))?
+            .apply(sites, matrix)?)
     }
 
     fn probability_of_one(
@@ -205,10 +199,11 @@ impl MpsEngine for CuTensorNetEngine {
         state: &CuTensorNetState,
         site: usize,
     ) -> Result<f64, EngineError> {
-        self.native_state(state, |site_count| {
-            checks::probability_of_one(site_count, site)
-        })?
-        .probability_of_one(site)
+        Ok(self
+            .native_state(state, |site_count| {
+                checks::probability_of_one(site_count, site)
+            })?
+            .probability_of_one(site)?)
     }
 
     /// Two expectations on the state, no fork: the condition's projector
@@ -266,14 +261,15 @@ impl MpsEngine for CuTensorNetEngine {
         state: &CuTensorNetState,
         observable: &PauliSum,
     ) -> Result<Complex64, EngineError> {
-        self.native_state(state, |site_count| {
-            checks::expectation(site_count, observable)
-        })?
-        .expectation(observable)
+        Ok(self
+            .native_state(state, |site_count| {
+                checks::expectation(site_count, observable)
+            })?
+            .expectation(observable)?)
     }
 
     fn shape(&self, state: &CuTensorNetState) -> Result<MpsShape, EngineError> {
-        self.native_state(state, refuses_nothing)?.shape()
+        Ok(self.native_state(state, refuses_nothing)?.shape()?)
     }
 
     /// The squared norm cuTensorNet reports for the computed state, one
@@ -282,7 +278,9 @@ impl MpsEngine for CuTensorNetEngine {
     /// never rescaled. Computing the state truncates it, so reading the
     /// weight may truncate, as the contract allows.
     fn retained_weight(&self, state: &CuTensorNetState) -> Result<f64, EngineError> {
-        self.native_state(state, refuses_nothing)?.retained_weight()
+        Ok(self
+            .native_state(state, refuses_nothing)?
+            .retained_weight()?)
     }
 }
 

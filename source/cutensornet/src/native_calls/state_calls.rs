@@ -17,7 +17,7 @@
 //! computed, and a computed MPS is captured before the next compute.
 
 use super::{OpaqueHandle, Stream};
-use crate::engine::EngineError;
+use crate::native_calls::error::NativeError;
 use num_complex::Complex64;
 use tensornet::{MpsShape, MpsShapeError};
 
@@ -62,7 +62,7 @@ impl NativeCapacity {
     /// sample reaches it, and it stays |0⟩, a product factor that changes no
     /// probability, expectation or norm; [`logical`](Self::logical) drops it
     /// from the realized chain.
-    pub(in crate::engine) fn new(capacity: &MpsShape) -> Result<Self, EngineError> {
+    pub(crate) fn new(capacity: &MpsShape) -> Result<Self, NativeError> {
         let qubit_count = capacity.site_count();
         let native_count = qubit_count.max(NATIVE_MINIMUM_SITES);
         let bonds = (0..native_count - 1)
@@ -74,7 +74,7 @@ impl NativeCapacity {
                     capacity
                         .bond_dim(cut)
                         .and_then(|bond| i64::try_from(bond).ok())
-                        .ok_or(EngineError::ResourceSizeOverflow {
+                        .ok_or(NativeError::ResourceSizeOverflow {
                             resource: "MPS bond",
                         })?
                 } else {
@@ -101,11 +101,11 @@ impl NativeCapacity {
                     // A capacity whose bonds are large enough to overflow
                     // is a resource limit, not a malformed request.
                     MpsShapeError::ElementCountOverflow { .. } => {
-                        EngineError::ResourceSizeOverflow {
+                        NativeError::ResourceSizeOverflow {
                             resource: "MPS output",
                         }
                     }
-                    other => EngineError::InvalidNativeCall {
+                    other => NativeError::InvalidNativeCall {
                         reason: format!("native capacity is not a valid chain: {other}"),
                     },
                 }
@@ -142,14 +142,14 @@ impl NativeCapacity {
 
     /// The chain the callers see, from the one the library `realized`: the
     /// realized chain itself, or, for a padded lone site, that site alone.
-    pub(crate) fn logical(&self, realized: MpsShape) -> Result<MpsShape, EngineError> {
+    pub(crate) fn logical(&self, realized: MpsShape) -> Result<MpsShape, NativeError> {
         if realized.site_count() == self.site_count() {
             return Ok(realized);
         }
         let physical = realized
             .physical_dim(0)
             .ok_or_else(|| invalid_native_extents("realized MPS lacks the lone site"))?;
-        MpsShape::new(vec![vec![physical]]).map_err(|error| EngineError::InvalidNativeResult {
+        MpsShape::new(vec![vec![physical]]).map_err(|error| NativeError::InvalidNativeResult {
             reason: format!("realized lone site is not a valid chain: {error}"),
         })
     }
@@ -171,7 +171,7 @@ pub(crate) struct MpsLayout {
 impl MpsLayout {
     /// Tables for a compute to fill: per site of `capacity`'s native chain,
     /// an extent and a stride table of the site's rank, zeroed.
-    pub(in crate::engine) fn new(capacity: &NativeCapacity) -> Self {
+    pub(crate) fn new(capacity: &NativeCapacity) -> Self {
         let extents = capacity
             .extents
             .iter()
@@ -190,7 +190,7 @@ impl MpsLayout {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum StateF64Configuration {
     /// The fraction of a cut's squared norm a truncation may discard
-    /// (`policy::DISCARDED_WEIGHT_CUTOFF`).
+    /// (`engine::policy::DISCARDED_WEIGHT_CUTOFF`).
     SvdDiscardedWeightCutoff(f64),
 }
 
@@ -200,9 +200,9 @@ pub(crate) enum StateU32Configuration {
     /// Kept singular values are not rescaled after truncation, so the norm
     /// is the weight actually retained; every read divides by it.
     SvdNormalizationNone,
-    /// cuSOLVER's GESVD, the QR-based SVD (`policy.rs` says why).
+    /// cuSOLVER's GESVD, the QR-based SVD (`engine/policy.rs` says why).
     SvdAlgorithmGesvd,
-    /// The simple-update gauge (`policy.rs` says why).
+    /// The simple-update gauge (`engine/policy.rs` says why).
     MpsGaugeSimple,
 }
 
@@ -219,8 +219,8 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
         &self,
         handle: OpaqueHandle,
         mode_extents: &[i64],
-    ) -> Result<OpaqueHandle, EngineError>;
-    fn destroy_state(&self, state: OpaqueHandle) -> Result<(), EngineError>;
+    ) -> Result<OpaqueHandle, NativeError>;
+    fn destroy_state(&self, state: OpaqueHandle) -> Result<(), NativeError>;
     fn apply_tensor_operator(
         &self,
         handle: OpaqueHandle,
@@ -228,13 +228,13 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
         modes: &[i32],
         tensor: OpaqueHandle,
         unitary: bool,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     fn finalize_mps(
         &self,
         handle: OpaqueHandle,
         state: OpaqueHandle,
         capacity: &NativeCapacity,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     /// `cutensornetStateInitializeMPS`: the MPS in `tensors`, laid out as
     /// `layout` says (a compute's realized extents and strides), becomes the
     /// state's start. The tensors must stay allocated until the state has
@@ -245,24 +245,24 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
         state: OpaqueHandle,
         layout: &MpsLayout,
         tensors: &[OpaqueHandle],
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     /// `cutensornetStateCaptureMPS`: the last computed MPS becomes the
     /// state's start, and the operators applied so far are deleted from the
     /// state (their ids with them); the finalize capacity and configuration
     /// stay. The next compute applies only the operators applied after it.
-    fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError>;
+    fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), NativeError>;
     fn configure_state_f64(
         &self,
         handle: OpaqueHandle,
         state: OpaqueHandle,
         configuration: StateF64Configuration,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     fn configure_state_u32(
         &self,
         handle: OpaqueHandle,
         state: OpaqueHandle,
         configuration: StateU32Configuration,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     fn prepare_state(
         &self,
         handle: OpaqueHandle,
@@ -270,7 +270,7 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
         maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         stream: Stream,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     fn compute_state(
         &self,
         handle: OpaqueHandle,
@@ -279,13 +279,13 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
         layout: &mut MpsLayout,
         outputs: &mut [OpaqueHandle],
         stream: Stream,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     fn create_network_operator(
         &self,
         handle: OpaqueHandle,
         mode_extents: &[i64],
-    ) -> Result<OpaqueHandle, EngineError>;
-    fn destroy_network_operator(&self, operator: OpaqueHandle) -> Result<(), EngineError>;
+    ) -> Result<OpaqueHandle, NativeError>;
+    fn destroy_network_operator(&self, operator: OpaqueHandle) -> Result<(), NativeError>;
     fn append_product(
         &self,
         handle: OpaqueHandle,
@@ -293,20 +293,20 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
         coefficient: Complex64,
         factor_modes: &[Box<[i32]>],
         factor_tensors: &[OpaqueHandle],
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     fn create_expectation(
         &self,
         handle: OpaqueHandle,
         state: OpaqueHandle,
         operator: OpaqueHandle,
-    ) -> Result<OpaqueHandle, EngineError>;
-    fn destroy_expectation(&self, expectation: OpaqueHandle) -> Result<(), EngineError>;
+    ) -> Result<OpaqueHandle, NativeError>;
+    fn destroy_expectation(&self, expectation: OpaqueHandle) -> Result<(), NativeError>;
     fn configure_expectation_hyper_samples(
         &self,
         handle: OpaqueHandle,
         expectation: OpaqueHandle,
         hyper_samples: i32,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     fn prepare_expectation(
         &self,
         handle: OpaqueHandle,
@@ -314,34 +314,34 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
         maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         stream: Stream,
-    ) -> Result<(), EngineError>;
+    ) -> Result<(), NativeError>;
     fn compute_expectation(
         &self,
         handle: OpaqueHandle,
         expectation: OpaqueHandle,
         workspace: OpaqueHandle,
         stream: Stream,
-    ) -> Result<(Complex64, Complex64), EngineError>;
+    ) -> Result<(Complex64, Complex64), NativeError>;
 }
 
 /// The extent or stride tables `values` as `usize`s, for an `MpsShape` or
 /// a check; a value that is not positive, or does not fit, is an invalid
 /// native result named by `label`.
-pub(in crate::engine) fn convert_layout(
+pub(crate) fn convert_layout(
     label: &str,
     values: &[Box<[i64]>],
-) -> Result<Vec<Vec<usize>>, EngineError> {
+) -> Result<Vec<Vec<usize>>, NativeError> {
     let mut converted = Vec::with_capacity(values.len());
     for shape in values {
         let mut converted_shape = Vec::with_capacity(shape.len());
         for value in shape {
             if *value <= 0 {
-                return Err(EngineError::InvalidNativeResult {
+                return Err(NativeError::InvalidNativeResult {
                     reason: format!("MPS {label} is not positive: {values:?}"),
                 });
             }
             converted_shape.push(usize::try_from(*value).map_err(|_| {
-                EngineError::InvalidNativeResult {
+                NativeError::InvalidNativeResult {
                     reason: format!("MPS {label} does not fit usize: {values:?}"),
                 }
             })?);
@@ -359,10 +359,10 @@ pub(in crate::engine) fn convert_layout(
 /// keeps every site a qubit, as the engine's sites are: the capacity's
 /// physical extents are all two, and a chain fits it only with the same.
 /// The demand does not belong to matrix product states in general.
-pub(in crate::engine) fn validate_realized_chain(
+pub(crate) fn validate_realized_chain(
     realized: &MpsShape,
     target: &MpsShape,
-) -> Result<(), EngineError> {
+) -> Result<(), NativeError> {
     if !realized.fits_within(target) {
         return Err(invalid_native_extents(
             "realized chain does not fit the capacity",
@@ -371,8 +371,8 @@ pub(in crate::engine) fn validate_realized_chain(
     Ok(())
 }
 
-fn invalid_native_extents(reason: &'static str) -> EngineError {
-    EngineError::InvalidNativeResult {
+fn invalid_native_extents(reason: &'static str) -> NativeError {
+    NativeError::InvalidNativeResult {
         reason: reason.to_string(),
     }
 }
@@ -381,14 +381,14 @@ fn native_bond_extent(
     qubit_count: usize,
     cut: usize,
     requested_bond: i64,
-) -> Result<i64, EngineError> {
+) -> Result<i64, NativeError> {
     if requested_bond <= 0 {
-        return Err(EngineError::InvalidNativeCall {
+        return Err(NativeError::InvalidNativeCall {
             reason: "invalid MPS bond request".to_string(),
         });
     }
     let Some(left_mode_count) = cut.checked_add(1) else {
-        return Err(EngineError::InvalidNativeCall {
+        return Err(NativeError::InvalidNativeCall {
             reason: "invalid MPS bond request".to_string(),
         });
     };
@@ -396,7 +396,7 @@ fn native_bond_extent(
         .checked_sub(left_mode_count)
         .filter(|count| *count > 0)
     else {
-        return Err(EngineError::InvalidNativeCall {
+        return Err(NativeError::InvalidNativeCall {
             reason: "invalid MPS bond request".to_string(),
         });
     };

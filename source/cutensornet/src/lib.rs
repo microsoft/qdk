@@ -30,6 +30,14 @@
 //! each one can find, and its `docs/engine.md` how the engine calls
 //! cuTensorNet.
 
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(
+        dead_code,
+        reason = "off Linux x86-64 nothing calls the native API; the session stays compiled so its host tests run"
+    )
+)]
+mod device_session;
 mod discovery;
 #[cfg_attr(
     not(all(target_os = "linux", target_arch = "x86_64")),
@@ -47,9 +55,18 @@ mod engine;
     )
 )]
 mod libraries;
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(
+        dead_code,
+        reason = "off Linux x86-64 nothing calls the native API; the native calls stay compiled so their host tests run"
+    )
+)]
+mod native_calls;
 #[cfg(test)]
 mod tests;
 
 pub use discovery::{Availability, discover, error::AvailabilityError, report::AvailabilityReport};
 pub use engine::{CuTensorNetEngine, CuTensorNetState, EngineError};
 pub use libraries::report::{LibraryFault, LibraryReport, Version};
+pub use native_calls::error::NativeError;

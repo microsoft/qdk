@@ -11,7 +11,10 @@
 //! `10000·major + 100·minor + patch` (`21300` is 2.13.0), and a CUDA Runtime
 //! version as CUDA does, `1000·major + 10·minor` (`12090` is 12.9). The
 //! families' files (`context`, `state`, `workspace`, `operator`,
-//! `expectation`) declare the function-pointer types of the table's rows.
+//! `expectation`, `tensor`) declare the function-pointer types of the
+//! table's rows. `tensor` also declares the tensor API's own table, which
+//! the main table holds as an optional table: a cuTensorNet without it is
+//! still usable, and its missing functions are no fault of the library.
 //!
 //! `v2_13`, in `generated/`, declares cuTensorNet 2.13's API, the functions,
 //! types and constants of its header: a function pointer is only as right as
@@ -38,6 +41,12 @@ mod layout;
 pub(crate) mod operator;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod state;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+#[allow(
+    dead_code,
+    reason = "the tensor API's planned caller, the canonical MPS's CudaAlgebra, is not written yet"
+)]
+pub(crate) mod tensor;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod workspace;
 
@@ -165,6 +174,9 @@ super::loader::function_table! {
             cutensornetExpectationConfigure,
         required expectation_prepare: expectation::ExpectationPrepareFn =
             cutensornetExpectationPrepare,
+    }
+    optional tables {
+        tensor: tensor::CuTensorNetTensorFunctions,
     }
 }
 

@@ -4,17 +4,15 @@
 //! `StateCalls` on the loaded libraries: cuTensorNet's states, network
 //! operators and expectations.
 
-use crate::engine::{
-    EngineError,
-    native_calls::{
-        OpaqueHandle, Stream,
-        complex::Complex64Abi,
-        state_calls::{
-            MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateU32Configuration,
-        },
+use crate::libraries::{LoadedLibraries, cutensornet::v2_13};
+use crate::native_calls::error::NativeError;
+use crate::native_calls::{
+    OpaqueHandle, Stream,
+    complex::Complex64Abi,
+    state_calls::{
+        MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateU32Configuration,
     },
 };
-use crate::libraries::{LoadedLibraries, cutensornet::v2_13};
 use std::{ffi::c_void, ptr::NonNull};
 
 impl StateCalls for LoadedLibraries {
@@ -22,9 +20,9 @@ impl StateCalls for LoadedLibraries {
         &self,
         handle: OpaqueHandle,
         mode_extents: &[i64],
-    ) -> Result<OpaqueHandle, EngineError> {
+    ) -> Result<OpaqueHandle, NativeError> {
         let mode_count =
-            i32::try_from(mode_extents.len()).map_err(|_| EngineError::ResourceSizeOverflow {
+            i32::try_from(mode_extents.len()).map_err(|_| NativeError::ResourceSizeOverflow {
                 resource: "state mode count",
             })?;
         let mut state = std::ptr::null_mut();
@@ -41,13 +39,13 @@ impl StateCalls for LoadedLibraries {
             )
         };
         self.check_cutensornet("cutensornetCreateState", status)?;
-        NonNull::new(state).ok_or(EngineError::MissingNativeResource {
+        NonNull::new(state).ok_or(NativeError::MissingNativeResource {
             operation: "cutensornetCreateState",
             resource: "cuTensorNet state",
         })
     }
 
-    fn destroy_state(&self, state: OpaqueHandle) -> Result<(), EngineError> {
+    fn destroy_state(&self, state: OpaqueHandle) -> Result<(), NativeError> {
         // SAFETY: `NativeState` (its `close`, or a restart) destroys each
         // state exactly once.
         let status = unsafe { (self.cutensornet.functions.destroy_state)(state.as_ptr()) };
@@ -61,9 +59,9 @@ impl StateCalls for LoadedLibraries {
         modes: &[i32],
         tensor: OpaqueHandle,
         unitary: bool,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mode_count =
-            i32::try_from(modes.len()).map_err(|_| EngineError::ResourceSizeOverflow {
+            i32::try_from(modes.len()).map_err(|_| NativeError::ResourceSizeOverflow {
                 resource: "operator mode count",
             })?;
         let mut tensor_id = 0;
@@ -92,7 +90,7 @@ impl StateCalls for LoadedLibraries {
         handle: OpaqueHandle,
         state: OpaqueHandle,
         capacity: &NativeCapacity,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         // SAFETY: the capacity owns two retained extent arrays and their
         // pointer table through state destruction; null strides request
         // native layout.
@@ -114,9 +112,9 @@ impl StateCalls for LoadedLibraries {
         state: OpaqueHandle,
         layout: &MpsLayout,
         tensors: &[OpaqueHandle],
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         if layout.extents.len() != tensors.len() || layout.strides.len() != tensors.len() {
-            return Err(EngineError::InvalidNativeCall {
+            return Err(NativeError::InvalidNativeCall {
                 reason: "an initial MPS needs one extent, stride and tensor per site".to_string(),
             });
         }
@@ -152,7 +150,7 @@ impl StateCalls for LoadedLibraries {
         self.check_cutensornet("cutensornetStateInitializeMPS", status)
     }
 
-    fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError> {
+    fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), NativeError> {
         // SAFETY: handle and state are live and the state has been computed
         // into output buffers the caller keeps until the next compute after
         // this one. The call deletes the state's tensor operators; their
@@ -168,7 +166,7 @@ impl StateCalls for LoadedLibraries {
         handle: OpaqueHandle,
         state: OpaqueHandle,
         configuration: StateF64Configuration,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let (attribute, value) = match configuration {
             StateF64Configuration::SvdDiscardedWeightCutoff(value) => (
                 v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_DISCARDED_WEIGHT_CUTOFF,
@@ -194,7 +192,7 @@ impl StateCalls for LoadedLibraries {
         handle: OpaqueHandle,
         state: OpaqueHandle,
         configuration: StateU32Configuration,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let (attribute, value) = match configuration {
             StateU32Configuration::SvdNormalizationNone => (
                 v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_S_NORMALIZATION,
@@ -230,7 +228,7 @@ impl StateCalls for LoadedLibraries {
         maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         stream: Stream,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         // SAFETY: every native owner is live and the workspace ceiling is a
         // by-value snapshot from cudaMemGetInfo.
         let status = unsafe {
@@ -253,7 +251,7 @@ impl StateCalls for LoadedLibraries {
         layout: &mut MpsLayout,
         outputs: &mut [OpaqueHandle],
         stream: Stream,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let mut extent_pointers = layout
             .extents
             .iter_mut()
@@ -290,9 +288,9 @@ impl StateCalls for LoadedLibraries {
         &self,
         handle: OpaqueHandle,
         mode_extents: &[i64],
-    ) -> Result<OpaqueHandle, EngineError> {
+    ) -> Result<OpaqueHandle, NativeError> {
         let mode_count =
-            i32::try_from(mode_extents.len()).map_err(|_| EngineError::ResourceSizeOverflow {
+            i32::try_from(mode_extents.len()).map_err(|_| NativeError::ResourceSizeOverflow {
                 resource: "network operator mode count",
             })?;
         let mut operator = std::ptr::null_mut();
@@ -308,13 +306,13 @@ impl StateCalls for LoadedLibraries {
             )
         };
         self.check_cutensornet("cutensornetCreateNetworkOperator", status)?;
-        NonNull::new(operator).ok_or(EngineError::MissingNativeResource {
+        NonNull::new(operator).ok_or(NativeError::MissingNativeResource {
             operation: "cutensornetCreateNetworkOperator",
             resource: "network operator",
         })
     }
 
-    fn destroy_network_operator(&self, operator: OpaqueHandle) -> Result<(), EngineError> {
+    fn destroy_network_operator(&self, operator: OpaqueHandle) -> Result<(), NativeError> {
         // SAFETY: `NativeState`'s query cleanup destroys each operator
         // exactly once.
         let status =
@@ -329,9 +327,9 @@ impl StateCalls for LoadedLibraries {
         coefficient: num_complex::Complex64,
         factor_modes: &[Box<[i32]>],
         factor_tensors: &[OpaqueHandle],
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         if factor_modes.is_empty() || factor_modes.len() != factor_tensors.len() {
-            return Err(EngineError::InvalidNativeCall {
+            return Err(NativeError::InvalidNativeCall {
                 reason: "expectation product has no factor, or factors and modes differ in number"
                     .to_string(),
             });
@@ -341,13 +339,13 @@ impl StateCalls for LoadedLibraries {
             y: coefficient.im,
         };
         let factor_count =
-            i32::try_from(factor_modes.len()).map_err(|_| EngineError::ResourceSizeOverflow {
+            i32::try_from(factor_modes.len()).map_err(|_| NativeError::ResourceSizeOverflow {
                 resource: "expectation factor count",
             })?;
         let mode_counts = factor_modes
             .iter()
             .map(|modes| {
-                i32::try_from(modes.len()).map_err(|_| EngineError::ResourceSizeOverflow {
+                i32::try_from(modes.len()).map_err(|_| NativeError::ResourceSizeOverflow {
                     resource: "expectation factor mode count",
                 })
             })
@@ -388,7 +386,7 @@ impl StateCalls for LoadedLibraries {
         handle: OpaqueHandle,
         state: OpaqueHandle,
         operator: OpaqueHandle,
-    ) -> Result<OpaqueHandle, EngineError> {
+    ) -> Result<OpaqueHandle, NativeError> {
         let mut expectation = std::ptr::null_mut();
         // SAFETY: handle/state/operator are live and `expectation` is writable.
         let status = unsafe {
@@ -400,13 +398,13 @@ impl StateCalls for LoadedLibraries {
             )
         };
         self.check_cutensornet("cutensornetCreateExpectation", status)?;
-        NonNull::new(expectation).ok_or(EngineError::MissingNativeResource {
+        NonNull::new(expectation).ok_or(NativeError::MissingNativeResource {
             operation: "cutensornetCreateExpectation",
             resource: "state expectation",
         })
     }
 
-    fn destroy_expectation(&self, expectation: OpaqueHandle) -> Result<(), EngineError> {
+    fn destroy_expectation(&self, expectation: OpaqueHandle) -> Result<(), NativeError> {
         // SAFETY: `NativeState`'s query cleanup destroys each expectation
         // exactly once.
         let status =
@@ -419,7 +417,7 @@ impl StateCalls for LoadedLibraries {
         handle: OpaqueHandle,
         expectation: OpaqueHandle,
         hyper_samples: i32,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         // SAFETY: the attribute is paired with its audited int32 value and the
         // native API copies the call-local setting before returning.
         let status = unsafe {
@@ -441,7 +439,7 @@ impl StateCalls for LoadedLibraries {
         maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         stream: Stream,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         // SAFETY: every native owner is live and the workspace limit is passed
         // by value.
         let status = unsafe {
@@ -462,7 +460,7 @@ impl StateCalls for LoadedLibraries {
         expectation: OpaqueHandle,
         workspace: OpaqueHandle,
         stream: Stream,
-    ) -> Result<(num_complex::Complex64, num_complex::Complex64), EngineError> {
+    ) -> Result<(num_complex::Complex64, num_complex::Complex64), NativeError> {
         let mut value = Complex64Abi::default();
         let mut norm = Complex64Abi::default();
         // SAFETY: native owners are live and both host result buffers are valid
@@ -491,11 +489,11 @@ impl StateCalls for LoadedLibraries {
 fn validate_output_pointers(
     expected: &[*mut c_void],
     actual: &[*mut c_void],
-) -> Result<(), EngineError> {
+) -> Result<(), NativeError> {
     if actual == expected {
         Ok(())
     } else {
-        Err(EngineError::InvalidNativeResult {
+        Err(NativeError::InvalidNativeResult {
             reason: "cutensornetStateCompute replaced caller-owned output pointers".to_string(),
         })
     }
@@ -503,7 +501,7 @@ fn validate_output_pointers(
 
 #[cfg(test)]
 mod tests {
-    use super::{EngineError, validate_output_pointers};
+    use super::{NativeError, validate_output_pointers};
     use std::ffi::c_void;
 
     #[test]
@@ -516,11 +514,11 @@ mod tests {
             .expect("unchanged caller-owned pointers should be accepted");
         assert!(matches!(
             validate_output_pointers(&expected, &[first, first]),
-            Err(EngineError::InvalidNativeResult { .. })
+            Err(NativeError::InvalidNativeResult { .. })
         ));
         assert!(matches!(
             validate_output_pointers(&expected, &[first]),
-            Err(EngineError::InvalidNativeResult { .. })
+            Err(NativeError::InvalidNativeResult { .. })
         ));
     }
 }

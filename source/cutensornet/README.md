@@ -43,7 +43,7 @@ flowchart TD
   E -->|"prepare, fork"| S["<b>CuTensorNetState</b>"]
   S -->|holds| NS["<b>NativeState</b><br/>one cuTensorNet state,<br/>the computed MPS"]
   NS -->|"runs in"| DS
-  DS -->|"every native call,<br/>its own and its states'"| NC["<b>NativeCalls</b><br/>SessionCalls, MemoryCalls,<br/>StateCalls"]
+  DS -->|holds| NC["<b>NativeCalls</b><br/>SessionCalls, MemoryCalls,<br/>StateCalls, TensorCalls"]
   LL["<b>LoadedLibraries</b>"] -.->|implements| NC
 ```
 
@@ -53,22 +53,26 @@ flowchart TD
 - [`CuTensorNetState`](src/engine.rs) is one MPS, as the trait sees it. The
   trait reads a state through a shared reference, but a read may compute it,
   so the state holds its native state in a `RefCell`, borrowed for one call.
-- [`DeviceSession`](src/engine/device_session.rs): the stream is the queue
+- [`DeviceSession`](src/device_session.rs): the stream is the queue
   the device runs the engine's work in, in order, and the handle is
   cuTensorNet's context, on which each native object is created. The engine
   and its native states share it, so it closes after the last of them.
 - [`NativeState`](src/engine/native_state.rs) computes its cuTensorNet
   state into an MPS only when a read needs it ([Phases](#phases)).
-- [`NativeCalls`](src/engine/native_calls.rs) is every call the engine makes
-  to the CUDA Runtime and cuTensorNet, by kind: the session's, device
-  memory's and the states'. The engine calls nothing else, so it also runs
-  in the [host tests](src/tests/engine.rs), which have no GPU. On a GPU, the
-  [`LoadedLibraries`](src/libraries.rs) that discovery loaded answer them:
-  `CuTensorNetEngine::new` takes them from an `Availability`.
+- [`NativeCalls`](src/native_calls.rs) is every call the crate makes to the
+  CUDA Runtime and cuTensorNet, by kind: the session's, device memory's, the
+  states', and the tensor API's (gate splits, QRs, contractions), which a
+  planned GPU site algebra for a canonical MPS will make. The engine calls
+  nothing else, so it also runs in the [host tests](src/tests/engine.rs),
+  which have no GPU. On a GPU, the [`LoadedLibraries`](src/libraries.rs) that
+  discovery loaded answer them: `CuTensorNetEngine::new` takes them from an
+  `Availability`.
 
 The settings the engine fixes, with how each was chosen, are in
 [`src/engine/policy.rs`](src/engine/policy.rs);
-[`src/engine.rs`](src/engine.rs) maps its files.
+[`src/engine.rs`](src/engine.rs) maps its files. `DeviceSession` and
+`NativeCalls` sit at the crate's root, beside `src/engine/`, not in it: the
+engine uses them, and so will that site algebra, so they belong to neither.
 
 ### Phases
 
@@ -141,12 +145,13 @@ missing.
   Linux x86-64 the crate still builds, and `discover` reports the platform
   as unsupported.
 - **Failing early, with every cause.** A missing library, dependency or
-  function, or a version other than the audited one, is found before any
-  GPU work and reported with the path, function or version at fault, for
-  every library at once, so an installation is fixed in one pass.
-- **One audited surface.** The functions the engine may call are the rows
-  of one table per library, each checked against NVIDIA's header when the
-  crate compiles ([The bindings](docs/loading.md#the-bindings)).
+  function the engine calls, or a version other than the audited one, is
+  found before any GPU work and reported with the path, function or version
+  at fault, for every library at once, so an installation is fixed in one
+  pass.
+- **One audited surface.** The functions the crate may call are the rows
+  of its libraries' function tables, each checked against NVIDIA's header
+  when the crate compiles ([The bindings](docs/loading.md#the-bindings)).
 - **Open to more libraries.** Each library is one module; adding one changes
   no public type, as the report is a list with an entry per library.
 - **Explicit, no global state.** Nothing happens until `discover` is called,
@@ -226,8 +231,10 @@ component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
 ## Tests
 
 The [engine's tests](src/tests/engine.rs) run in CI, without a GPU, on
-[fake libraries](src/engine/native_calls/fake_libraries.rs) that enforce
-cuTensorNet's call order. The [unit tests](src/tests) drive each way
+[fake libraries](src/native_calls/fake_libraries.rs) that enforce
+cuTensorNet's call order, and the fake libraries'
+[own tests](src/tests/native_calls/fake_libraries.rs) pin how they simulate
+cuTensorNet's tensor API. The [unit tests](src/tests) drive each way
 discovery fails without NVIDIA's libraries, and
 [`tests/availability.rs`](tests/availability.rs) discovers the audited
 libraries where they are installed.
@@ -237,12 +244,12 @@ libraries where they are installed.
 What the crate requires is checked when it runs; where it has run is listed
 apart. Anything else is expected to work, but not verified.
 
-| Requirement   | Checked by                                                    | Verified on                                                                                      |
-| ------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                   | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
-| The libraries | `discover`: the exact versions of [Versions](#versions)       | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
-| A CUDA driver | not checked: its version is reported only                     | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
-| An NVIDIA GPU | `CuTensorNetEngine::new`: `EngineError::NoDevice` without one | an A100 80GB, where the engine passes `tensornet`'s conformance kit                              |
+| Requirement   | Checked by                                                                         | Verified on                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                                        | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
+| The libraries | `discover`: the exact versions of [Versions](#versions)                            | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
+| A CUDA driver | not checked: its version is reported only                                          | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
+| An NVIDIA GPU | `CuTensorNetEngine::new`: `EngineError::Native(NativeError::NoDevice)` without one | an A100 80GB, where the engine passes `tensornet`'s conformance kit                              |
 
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the

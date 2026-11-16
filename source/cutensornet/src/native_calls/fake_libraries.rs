@@ -2,29 +2,33 @@
 // Licensed under the MIT License.
 
 //! [`FakeLibraries`]: cuTensorNet and the CUDA Runtime, simulated on the CPU
-//! for the engine's tests.
+//! for the tests of the native calls' callers (the engine, and the tensor
+//! API's caller).
 //!
-//! CI has no GPU, so the engine's real code (every call it makes, in the
-//! order it makes them) runs against these fake libraries, which implement
+//! CI has no GPU, so the callers' real code (every call they make, in the
+//! order they make them) runs against these fake libraries, which implement
 //! `NativeCalls` as the loaded libraries do, one file per trait
 //! (`fake_libraries/session_calls.rs`, `fake_libraries/memory_calls.rs`,
-//! `fake_libraries/state_calls.rs`). It secures what a GPU run would
+//! `fake_libraries/state_calls.rs`, `fake_libraries/tensor_calls.rs`). It
+//! secures what a GPU run would
 //! otherwise be the first to show: a call out of cuTensorNet's order,
 //! memory freed while still in use, a read of a stale state. It is test
 //! support, not a test: it sits beside the traits it implements and the
-//! loaded libraries it stands in for, so the engine's modules stay private
-//! to the engine, and it is compiled only with the tests, which live under
-//! `src/tests`. This file holds what the three traits' files share: the
-//! objects the fake keeps, the checks every call goes through, and what a
-//! test sets and reads.
+//! loaded libraries it stands in for, so its callers' tests reach it as
+//! they reach the loaded libraries, and it is compiled only with the tests,
+//! which live under `src/tests`. This file holds what the traits' files
+//! share: the objects the fake keeps, the checks every call goes through,
+//! and what a test sets and reads.
 //!
 //! It keeps what cuTensorNet would keep, by id: buffers, workspaces, states
-//! with the operators applied to them, network operators and expectations. A
+//! with the operators applied to them, network operators and expectations,
+//! and the tensor API's objects (`fake_libraries/tensor_calls.rs`). A
 //! compute replays a state's operators on a state vector
 //! (`fake_libraries/state_vector.rs`), reading each matrix from its buffer at
 //! that moment, as the library reads it at compute time; reads use the computed
-//! state. It is strict about the order the engine calls in, so a wrong order
-//! fails a test instead of passing silently:
+//! state. It is strict about the order its callers call in, so a wrong order
+//! fails a test instead of passing silently; for the state API (the rules on
+//! buffers lent to a workspace and on streams hold for the tensor API too):
 //!
 //! - `finalize_mps` once per state, before any configuration or prepare;
 //! - a compute needs a prepare since the last operator, and scratch
@@ -42,13 +46,32 @@
 //!   MPS the start of a state no operator has been applied to, with one
 //!   extent and stride table per site. The next compute reads the start
 //!   from those buffers, which must still be allocated;
-//! - a buffer attached to a live workspace as scratch is never freed: the
-//!   descriptor would hold freed memory;
-//! - a compute or an expectation needs the scratch its workspace asked
-//!   for, attached, and no copy still running (`synchronize_copies`, the
-//!   legacy stream), and the source of a copy still running is not freed;
-//!   after a compute, nothing is freed or captured until the engine's
-//!   stream is synchronized;
+//! - a buffer lent to a device slot of a live workspace is never freed:
+//!   the descriptor would hold freed memory;
+//! - a compute or an expectation needs memory lent to every slot of its
+//!   workspace that asks for some, at least what the slot asks, and no
+//!   copy still running (`synchronize_copies`, the legacy stream), and the
+//!   source of a copy still running is not freed;
+//! - a compute runs on a live stream, and a stream is synchronized only
+//!   while live;
+//! - after a compute or a tensor call, no buffer is freed (`free`) until
+//!   every stream recorded as the last to write a pending object (below) is
+//!   synchronized, since the fake does not track what a stream's work
+//!   reads; and no state is captured (`capture_mps`) until then, a cautious
+//!   choice: the fake knows a compute's outputs and could wait for their
+//!   stream alone. A stream whose writes another stream wrote again since
+//!   is no longer recorded, so these waits do not cover its work;
+//! - a buffer a compute or a tensor call wrote is copied to the host
+//!   (`copy_to_host`), and an SVD info reported (`svd_truncation`), only
+//!   once the stream last queued to write it is synchronized: another
+//!   stream's synchronization says nothing of it. An object written on two
+//!   streams is released by the later one, and the fake does not flag the
+//!   race. Other reads and writes of a pending write are not checked: a
+//!   later call's inputs and outputs, `copy_on_device`'s source and
+//!   destination, `copy_to_device`'s destination;
+//! - a stream destroyed with writes pending keeps them, as its work may
+//!   still run after `cudaStreamDestroy`: no buffer is freed, and no state
+//!   captured, while it is their last recorded writer;
 //! - a device-to-device copy of a whole computed tensor holds that tensor;
 //!   a partial copy holds nothing;
 //! - every object a call takes a handle for (a workspace, state, network
@@ -57,9 +80,11 @@
 //!   is destroyed only once nothing of it is, so a state moved to a fresh
 //!   handle is caught using the old one, and a handle released too early.
 //!
-//! It records the scratch buffers attached to workspaces, so a test can see
-//! how many are allocated during a compute and after it, and asks for
-//! [`WORKSPACE_BYTES`] of scratch unless told another size.
+//! It records the buffers lent to workspaces as device scratch, so a test
+//! can see how many are allocated during a compute and after it. A
+//! workspace asks for [`WORKSPACE_BYTES`] of device scratch and nothing in
+//! its other slots, unless told other sizes. The tensor API's rules are in
+//! `fake_libraries/tensor_calls.rs`.
 //!
 //! A compute truncates as an MPS of the native capacity's bonds must: at
 //! each cut, left to right, whose Schmidt rank exceeds the capacity's
@@ -72,22 +97,26 @@
 //! the normalization is caught. Its truncation need not be the one
 //! cuTensorNet's sweep finds when several cuts truncate at once; with one,
 //! both are the best. Below the bond, it drops the singular values the
-//! engine's discarded-weight cutoff drops. A call can be made to fail with
+//! state's configured discarded-weight cutoff drops (none if unset, as
+//! cuTensorNet's default is 0). A call can be made to fail with
 //! [`FakeLibraries::fail`], to test cleanup; and the device count, the
 //! extents a compute reports and the values an expectation returns can be
-//! set, to test what the engine does with what the library answers.
+//! set, to test what the callers do with what the library answers.
 
+mod dense_tensor;
 mod memory_calls;
 mod session_calls;
 mod state_calls;
 mod state_vector;
+mod tensor_calls;
 
 use super::{
-    OpaqueHandle,
+    OpaqueHandle, Stream,
     complex::Complex64Abi,
+    memory_calls::WorkspaceSlot,
     state_calls::{StateF64Configuration, StateU32Configuration},
 };
-use crate::engine::EngineError;
+use crate::native_calls::error::NativeError;
 use num_complex::Complex64;
 use state_vector::StateVector;
 use std::{
@@ -96,10 +125,19 @@ use std::{
     ptr::NonNull,
     sync::{Mutex, MutexGuard},
 };
+use tensor_calls::{SizedFor, SvdConfig, TensorShape};
 
-/// The bytes `workspace_memory_size` asks for, unless
+/// The bytes `workspace_size` asks for in the device scratch, unless
 /// [`FakeLibraries::set_workspace_bytes`] says otherwise.
 pub(crate) const WORKSPACE_BYTES: i64 = 1024;
+
+/// Every slot of a workspace descriptor.
+const WORKSPACE_SLOTS: [WorkspaceSlot; 4] = [
+    WorkspaceSlot::DeviceScratch,
+    WorkspaceSlot::DeviceCache,
+    WorkspaceSlot::HostScratch,
+    WorkspaceSlot::HostCache,
+];
 
 #[derive(Default)]
 pub(crate) struct FakeLibraries {
@@ -120,9 +158,12 @@ struct Inner {
     /// Whether a copy may still be running on the legacy stream: set by a
     /// copy, cleared by `synchronize_copies`.
     copies_running: bool,
-    /// Whether the engine's stream may still be running a compute: set by
-    /// `compute_state`, cleared by `synchronize_stream`.
-    stream_busy: bool,
+    /// What the work queued on a stream may still be writing (a compute's
+    /// outputs, a tensor call's outputs and SVD info), by id, with the
+    /// stream of the last call queued to write it: set by the call, cleared
+    /// by `synchronize_stream` on that stream alone, and kept when the
+    /// stream is destroyed (the rules on streams, in this file's header).
+    pending_writes: BTreeMap<usize, usize>,
     /// The destination of every device-to-device copy.
     copy_destinations: Vec<usize>,
     /// The sources of the device-to-device copies that may still be
@@ -135,8 +176,12 @@ struct Inner {
     computes: Vec<(usize, usize)>,
     /// The free device memory `memory_info` reports, if not 1 TiB.
     free_memory: Option<usize>,
-    /// The scratch `workspace_size` asks for, if not [`WORKSPACE_BYTES`].
+    /// The device scratch `workspace_size` asks for, if not
+    /// [`WORKSPACE_BYTES`].
     workspace_bytes: Option<i64>,
+    /// The bytes `workspace_size` asks for in each other slot: the device
+    /// cache and both host slots.
+    other_slot_bytes: i64,
     /// The computed MPS each buffer holds, as a compute wrote it or a copy
     /// copied it: the compute's number, and the site.
     mps_tensors: BTreeMap<usize, (usize, usize)>,
@@ -168,10 +213,12 @@ enum Object {
     Stream,
     Handle,
     Buffer(Vec<Complex64Abi>),
-    /// A workspace descriptor, and the scratch attached to it and the
-    /// bytes it lends.
+    /// A workspace descriptor: the memory lent to each slot, by
+    /// [`slot_index`], and the bytes it lends; and the tensor call it was
+    /// last sized for.
     Workspace {
-        scratch: Option<(usize, i64)>,
+        lent: [Option<(usize, i64)>; 4],
+        sized_for: Option<SizedFor>,
     },
     State(FakeState),
     Operator(Vec<(Complex64, Vec<(usize, usize)>)>),
@@ -179,6 +226,23 @@ enum Object {
         state: usize,
         operator: usize,
         prepared: bool,
+    },
+    TensorDescriptor(TensorShape),
+    SvdConfig(SvdConfig),
+    /// An SVD info, and what the last gate split given it truncated.
+    SvdInfo(Option<super::tensor_calls::SvdTruncation>),
+    /// A contraction network: the info whose path it was last optimized
+    /// to, and, once prepared along that path, the device scratch bytes
+    /// lent at the preparation.
+    Network {
+        inputs: [TensorShape; 2],
+        output: TensorShape,
+        path: Option<usize>,
+        prepared: Option<i64>,
+    },
+    OptimizerInfo {
+        network: usize,
+        optimized: bool,
     },
 }
 
@@ -192,6 +256,9 @@ struct FakeState {
     /// The native capacity's bonds, once finalized.
     bonds: Option<Vec<usize>>,
     configurations: usize,
+    /// The discarded-weight cutoff each compute truncates at: the one the
+    /// state was configured with, or cuTensorNet's default, 0.
+    discarded_weight_cutoff: f64,
     /// How many operators the state had at its last prepare.
     prepared_at: Option<usize>,
     /// The last compute, and how many operators the state had then.
@@ -205,8 +272,8 @@ struct Computed {
     outputs: Vec<usize>,
 }
 
-fn failed(operation: &'static str, message: &str) -> EngineError {
-    EngineError::NativeCallFailed {
+fn failed(operation: &'static str, message: &str) -> NativeError {
+    NativeError::NativeCallFailed {
         component: "fake libraries",
         operation,
         status: 1,
@@ -222,8 +289,26 @@ fn id(handle: OpaqueHandle) -> usize {
     handle.addr().get()
 }
 
-fn to_usize(value: i64) -> Result<usize, EngineError> {
+fn to_usize(value: i64) -> Result<usize, NativeError> {
     usize::try_from(value).map_err(|_| failed("conversion", "negative value"))
+}
+
+/// Where a workspace's `lent` keeps `slot`.
+fn slot_index(slot: WorkspaceSlot) -> usize {
+    match slot {
+        WorkspaceSlot::DeviceScratch => 0,
+        WorkspaceSlot::DeviceCache => 1,
+        WorkspaceSlot::HostScratch => 2,
+        WorkspaceSlot::HostCache => 3,
+    }
+}
+
+/// Whether `slot` takes device memory: a buffer of the fake.
+fn is_device(slot: WorkspaceSlot) -> bool {
+    matches!(
+        slot,
+        WorkspaceSlot::DeviceScratch | WorkspaceSlot::DeviceCache
+    )
 }
 
 impl FakeLibraries {
@@ -329,9 +414,16 @@ impl FakeLibraries {
         self.lock().expectation_values.extend(values);
     }
 
-    /// Makes every workspace ask for `bytes` of scratch from now on.
+    /// Makes every workspace ask for `bytes` of device scratch from now on.
     pub(crate) fn set_workspace_bytes(&self, bytes: i64) {
         self.lock().workspace_bytes = Some(bytes);
+    }
+
+    /// Makes every workspace ask for `bytes` in each of its other slots
+    /// (the device cache and both host slots) from now on, instead of
+    /// none.
+    pub(crate) fn set_other_workspace_slot_bytes(&self, bytes: i64) {
+        self.lock().other_slot_bytes = bytes;
     }
 
     /// The f64 configurations of every state, in order.
@@ -369,7 +461,7 @@ impl FakeLibraries {
     }
 
     /// Records a call to `operation` and fails it if asked to.
-    fn call(&self, operation: &'static str) -> Result<MutexGuard<'_, Inner>, EngineError> {
+    fn call(&self, operation: &'static str) -> Result<MutexGuard<'_, Inner>, NativeError> {
         let mut inner = self.lock();
         inner.events.push(operation);
         let count = inner.calls.entry(operation).or_insert(0);
@@ -384,26 +476,88 @@ impl FakeLibraries {
 
 impl Inner {
     /// Fails unless the work about to run may: no copy still running, and
-    /// `workspace` lending live scratch of at least the size it asked for.
-    /// Returns the bytes of the scratch buffer.
+    /// `workspace` lending, in every slot that asks for memory, at least
+    /// what it asks for, live in a device slot. Returns the bytes of the
+    /// device scratch buffer, 0 if none is lent.
     fn lent_scratch(
         &self,
         workspace: OpaqueHandle,
         operation: &'static str,
-    ) -> Result<usize, EngineError> {
+    ) -> Result<usize, NativeError> {
         if self.copies_running {
             return Err(failed(operation, "a copy may still be running"));
         }
-        let Some(Object::Workspace {
-            scratch: Some((scratch, lent)),
-        }) = self.objects.get(&id(workspace))
-        else {
-            return Err(failed(operation, "no scratch attached"));
+        let Some(Object::Workspace { lent, .. }) = self.objects.get(&id(workspace)) else {
+            return Err(failed(operation, "no such workspace"));
         };
-        if *lent < self.workspace_bytes.unwrap_or(WORKSPACE_BYTES) {
-            return Err(failed(operation, "less scratch than asked for"));
+        for slot in WORKSPACE_SLOTS {
+            let asked = self.recommended_bytes(slot);
+            if asked <= 0 {
+                continue;
+            }
+            let Some((memory, bytes)) = lent[slot_index(slot)] else {
+                return Err(failed(
+                    operation,
+                    "no memory lent to a slot that asks for it",
+                ));
+            };
+            if bytes < asked {
+                return Err(failed(operation, "less memory lent than a slot asks for"));
+            }
+            if is_device(slot) {
+                self.buffer(memory, operation)?;
+            }
         }
-        Ok(size_of_val(self.buffer(*scratch, operation)?))
+        match lent[slot_index(WorkspaceSlot::DeviceScratch)] {
+            Some((scratch, _)) => Ok(size_of_val(self.buffer(scratch, operation)?)),
+            None => Ok(0),
+        }
+    }
+
+    /// Queues work on `stream` that writes `written`, by id, until
+    /// `synchronize_stream(stream)`.
+    fn queue_on(&mut self, stream: Stream, written: impl IntoIterator<Item = usize>) {
+        for object in written {
+            self.pending_writes.insert(object, id(stream));
+        }
+    }
+
+    /// Whether work queued on a stream not synchronized since may still
+    /// write `object`.
+    fn write_pending(&self, object: usize) -> bool {
+        self.pending_writes.contains_key(&object)
+    }
+
+    /// Whether any stream may still be running work, as far as the last
+    /// writers of pending writes record it. `free` needs it, as the
+    /// fake does not track what a stream's work reads; `capture_mps` uses it
+    /// as a cautious choice, since a compute's outputs are known and their
+    /// stream alone could be waited for (the rules on streams, in this
+    /// file's header).
+    fn any_stream_busy(&self) -> bool {
+        !self.pending_writes.is_empty()
+    }
+
+    /// The bytes `workspace` lends its device scratch, 0 if none.
+    fn lent_scratch_bytes(
+        &self,
+        workspace: OpaqueHandle,
+        operation: &'static str,
+    ) -> Result<i64, NativeError> {
+        match self.objects.get(&id(workspace)) {
+            Some(Object::Workspace { lent, .. }) => {
+                Ok(lent[slot_index(WorkspaceSlot::DeviceScratch)].map_or(0, |(_, bytes)| bytes))
+            }
+            _ => Err(failed(operation, "no such workspace")),
+        }
+    }
+
+    /// The bytes every workspace asks for in `slot`.
+    fn recommended_bytes(&self, slot: WorkspaceSlot) -> i64 {
+        match slot {
+            WorkspaceSlot::DeviceScratch => self.workspace_bytes.unwrap_or(WORKSPACE_BYTES),
+            _ => self.other_slot_bytes,
+        }
     }
 
     fn live_scratch(&self) -> usize {
@@ -426,7 +580,7 @@ impl Inner {
         handle: OpaqueHandle,
         operation: &'static str,
         object: Object,
-    ) -> Result<OpaqueHandle, EngineError> {
+    ) -> Result<OpaqueHandle, NativeError> {
         self.require(handle, operation, |o| matches!(o, Object::Handle))?;
         let created = self.create(object);
         self.owners.insert(id(created), id(handle));
@@ -439,7 +593,7 @@ impl Inner {
         handle: OpaqueHandle,
         object: OpaqueHandle,
         operation: &'static str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         self.require(handle, operation, |o| matches!(o, Object::Handle))?;
         match self.owners.get(&id(object)) {
             Some(&owner) if owner == id(handle) => Ok(()),
@@ -453,7 +607,7 @@ impl Inner {
         handle: OpaqueHandle,
         operation: &'static str,
         is_kind: fn(&Object) -> bool,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         match self.objects.get(&id(handle)) {
             Some(object) if is_kind(object) => {
                 self.objects.remove(&id(handle));
@@ -469,14 +623,14 @@ impl Inner {
         handle: OpaqueHandle,
         operation: &'static str,
         is_kind: fn(&Object) -> bool,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         match self.objects.get(&id(handle)) {
             Some(object) if is_kind(object) => Ok(()),
             _ => Err(failed(operation, "no such object")),
         }
     }
 
-    fn buffer(&self, id: usize, operation: &'static str) -> Result<&[Complex64Abi], EngineError> {
+    fn buffer(&self, id: usize, operation: &'static str) -> Result<&[Complex64Abi], NativeError> {
         match self.objects.get(&id) {
             Some(Object::Buffer(buffer)) => Ok(buffer),
             _ => Err(failed(operation, "no such buffer")),
@@ -487,7 +641,7 @@ impl Inner {
         &mut self,
         handle: OpaqueHandle,
         operation: &'static str,
-    ) -> Result<&mut FakeState, EngineError> {
+    ) -> Result<&mut FakeState, NativeError> {
         match self.objects.get_mut(&id(handle)) {
             Some(Object::State(state)) => Ok(state),
             _ => Err(failed(operation, "no such state")),
@@ -496,7 +650,7 @@ impl Inner {
 
     /// The state `state` was last computed as, if no operator was applied
     /// since and its output buffers are still allocated.
-    fn computed(&self, state: usize, operation: &'static str) -> Result<&StateVector, EngineError> {
+    fn computed(&self, state: usize, operation: &'static str) -> Result<&StateVector, NativeError> {
         match self.objects.get(&state) {
             Some(Object::State(FakeState {
                 operators,
@@ -517,7 +671,7 @@ impl Inner {
         &self,
         computed: &Computed,
         operation: &'static str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         for &output in &computed.outputs {
             self.buffer(output, operation)
                 .map_err(|_| failed(operation, "a computed MPS's output buffer was freed"))?;
@@ -533,7 +687,7 @@ impl Inner {
         sites: &[usize],
         tensor: usize,
         operation: &'static str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), NativeError> {
         let elements = 1 << (2 * sites.len());
         let matrix: Vec<Complex64> = self
             .buffer(tensor, operation)?

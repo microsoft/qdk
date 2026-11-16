@@ -4,7 +4,8 @@
 //! Tests of the size of a device buffer of complex numbers: an empty one is
 //! the engine's fault, and one too large to size is a resource limit.
 
-use crate::engine::{EngineError, native_calls::complex_bytes};
+use crate::native_calls::complex_bytes;
+use crate::native_calls::error::NativeError;
 
 /// No tensor the engine allocates or copies is empty, so asking for an
 /// empty buffer is an invalid call, refused before any native call.
@@ -12,7 +13,7 @@ use crate::engine::{EngineError, native_calls::complex_bytes};
 fn an_empty_buffer_is_an_invalid_call() {
     assert!(matches!(
         complex_bytes(0, "operator tensor"),
-        Err(EngineError::InvalidNativeCall { .. })
+        Err(NativeError::InvalidNativeCall { .. })
     ));
 }
 
@@ -22,7 +23,7 @@ fn an_empty_buffer_is_an_invalid_call() {
 fn a_buffer_too_large_to_size_overflows() {
     assert!(matches!(
         complex_bytes(usize::MAX, "complex tensor"),
-        Err(EngineError::ResourceSizeOverflow {
+        Err(NativeError::ResourceSizeOverflow {
             resource: "complex tensor"
         })
     ));

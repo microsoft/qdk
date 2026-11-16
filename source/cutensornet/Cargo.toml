@@ -14,5 +14,10 @@ num-complex = { workspace = true }
 tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+# The fake libraries' SVD and QR, which report a failure rather than
+# return wrong factors.
+dense_linalg = { path = "../dense_linalg" }
+
 [lints]
 workspace = true
