@@ -105,10 +105,12 @@
 #                  qr-off-<svd> with <svd> gesvd or gesvdj (default
 #                  "qr-on-gesvd")
 #   RELEVANT_CASES relevant's N/chi cases (default "16/128 20/128")
-#   RELEVANT_ENGINES relevant's runs on each case, in order: engine or
-#                  engine:variant (default "cuda-mps"; for instance
+#   RELEVANT_ENGINES relevant's runs on each case, in order: engine,
+#                  engine:variant or cutensornet:variant:mpo-config
+#                  (default "cuda-mps"; for instance
 #                  "cutensornet:base cuda-mps:base cuda-mps" compares the two
-#                  engines)
+#                  engines; "cutensornet:seq3-mpo:exact-simple" runs the
+#                  MPO diagnostic's exact-simple configuration)
 #   RELEVANT_VARIANT the gate form of an entry without one, seq3-mpo or
 #                  base (default seq3-mpo; base applies the gates one by
 #                  one, the form CuTensorNetEngine runs as it is, without its
@@ -541,12 +543,22 @@ if wanted relevant; then
    for entry in $RELEVANT_ENGINES; do
     engine=${entry%%:*}
     variant=$RELEVANT_VARIANT
-    [ "$entry" != "$engine" ] && variant=${entry#*:}
+    mpo_config=defaults
+    rest=${entry#*:}
+    if [ "$entry" != "$engine" ]; then
+      variant=${rest%%:*}
+      [ "$rest" != "$variant" ] && mpo_config=${rest#*:}
+    fi
     n=${case_%/*}
     chi=${case_#*/}
     reference=$(reference_of "$n")
     name=relevant-n$n-chi$chi-$engine-$variant
-    polyene_run "$name" "" interleave-centre "$n" "$chi" "$(box "$(relevant_box "$n")")" \
+    flags=
+    if [ "$mpo_config" != defaults ]; then
+      name=$name-$mpo_config
+      flags="--mpo-config $mpo_config"
+    fi
+    polyene_run "$name" "$flags" interleave-centre "$n" "$chi" "$(box "$(relevant_box "$n")")" \
       "$reference" "$engine" "$variant"
     read -r mean bond <<< "$(steps_table "$P_LOG" "$OUT/steps-$name.txt")"
     read -r cpu_seconds cpu_last <<< "$(cpu_prefix "$n" "$chi")"
@@ -560,6 +572,7 @@ if wanted relevant; then
         'BEGIN {print (g != "-" && g + 0 <= t + 0) ? "pass" : "fail"}')
     fi
     line="verdict=$P_VERDICT cp_verdict=$cp_verdict step=relevant engine=$engine combo=defaults"
+    line="$line mpo_config=$mpo_config"
     line="$line variant=$variant order=interleave-centre n=$n chi=$chi steps_done=$P_STEPS"
     line="$line gpu_seconds=$P_SECONDS cpu_prefix_seconds=$cpu_seconds"
     line="$line gpu_over_cpu=$([ "$P_STEPS" = 32 ] && ratio "$P_SECONDS" "$cpu_seconds" || echo -)"

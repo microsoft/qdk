@@ -31,7 +31,8 @@
 //!     --engine cutensornet|cuda-mps|cpu --n 8|12|16|20 --chi 128 \
 //!     [--order identity|interleave-centre] [--variant base|seq3-mpo] \
 //!     [--reference ppp8.exact.reference] [--steps 32] \
-//!     [--weight-reads-per-step 1] [--no-qr-moves] [--svd-algo gesvd|gesvdj]
+//!     [--weight-reads-per-step 1] [--no-qr-moves] [--svd-algo gesvd|gesvdj] \
+//!     [--mpo-config inexact-simple|exact-simple|inexact-free|exact-free]
 //! ```
 //!
 //! `--order` places the qubits on the chain, as `simulators`'
@@ -54,7 +55,11 @@
 //! `cuda-mps` moves its centre by QR moves (`with_dev_qr_moves`, its
 //! default; `--qr-moves` is accepted and changes nothing); `--no-qr-moves`
 //! moves it by `GateSplit`s instead, for comparison. `--svd-algo`
-//! (`with_dev_svd_algo`) sets its SVD algorithm.
+//! (`with_dev_svd_algo`) sets its SVD algorithm. `--mpo-config`
+//! (`CuTensorNetEngine` only, `with_dev_tuning`) names the MPO diagnostic's
+//! configuration: the MPO application (`exact` or the library's default,
+//! `inexact`) and the gauge (`simple`, the engine's, or `free`); the default
+//! is `inexact-simple`, the engine as it is.
 
 mod inputs;
 mod order;
@@ -97,6 +102,9 @@ struct Options {
     /// `--svd-algo`: the `CudaMpsEngine`'s SVD algorithm, its default if
     /// `None`.
     svd_algo: Option<String>,
+    /// `--mpo-config`: `CuTensorNetEngine`'s MPO application and gauge,
+    /// `None` for the engine as it is.
+    mpo_config: Option<String>,
     n: usize,
     chi: usize,
     reference: Option<String>,
@@ -140,6 +148,24 @@ impl Options {
                 && !args.iter().any(|arg| arg == "--no-qr-moves"),
             no_qr_moves: args.iter().any(|arg| arg == "--no-qr-moves"),
             svd_algo: flag("--svd-algo"),
+            mpo_config: match flag("--mpo-config") {
+                Some(config)
+                    if matches!(
+                        config.as_str(),
+                        "inexact-simple" | "exact-simple" | "inexact-free" | "exact-free"
+                    ) =>
+                {
+                    Some(config)
+                }
+                Some(other) => {
+                    return Err(format!(
+                        "--mpo-config {other}: inexact-simple, exact-simple, inexact-free or \
+                         exact-free"
+                    )
+                    .into());
+                }
+                None => None,
+            },
             n: number("--n")?.ok_or("--n 8|12|16|20")?,
             chi: number("--chi")?.ok_or("--chi <bond>")?,
             reference: flag("--reference"),
@@ -194,7 +220,7 @@ fn run_case() -> Res<()> {
     );
     println!(
         "POLYENE case n={} qubits={} chi={} engine={} order={} variant={} steps={} gates={} \
-         two_qubit={} weight_reads_per_step={} qr_moves={} svd_algo={} \
+         two_qubit={} weight_reads_per_step={} qr_moves={} svd_algo={} mpo_config={} \
          label=development-case-for-large-bonds,candidate-relevant-case-pending-the-chemistry-team",
         options.n,
         prefix.qubits,
@@ -208,9 +234,13 @@ fn run_case() -> Res<()> {
         options.weight_reads_per_step,
         options.qr_moves,
         options.svd_algo.as_deref().unwrap_or("default"),
+        options.mpo_config.as_deref().unwrap_or("default"),
     );
     if options.engine != "cuda-mps" && (options.no_qr_moves || options.svd_algo.is_some()) {
         return Err("--no-qr-moves and --svd-algo: --engine cuda-mps only".into());
+    }
+    if options.engine != "cutensornet" && options.mpo_config.is_some() {
+        return Err("--mpo-config: --engine cutensornet only".into());
     }
     let case = Case {
         prefix,
@@ -240,8 +270,14 @@ fn run_case() -> Res<()> {
 fn run_on_cutensornet(case: &Case, options: &Options) -> Res<Verdict> {
     let availability = qdk_cutensornet::discover()?;
     println!("POLYENE availability {:?}", availability.report());
+    let config = options.mpo_config.as_deref().unwrap_or("inexact-simple");
     let engine = qdk_cutensornet::CuTensorNetEngine::new(&availability)?
-        .with_dev_wide_operators(options.seq3_mpo);
+        .with_dev_wide_operators(options.seq3_mpo)
+        .with_dev_tuning(qdk_cutensornet::DevTuning {
+            mpo_application_exact: config.starts_with("exact"),
+            mps_gauge_free: config.ends_with("free"),
+            ..qdk_cutensornet::DevTuning::default()
+        });
     engine.dev_reset_times();
     let verdict = run(&engine, case, options, &|| {})?;
     let times = engine.dev_times();
