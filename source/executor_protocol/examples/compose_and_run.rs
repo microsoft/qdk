@@ -16,9 +16,10 @@
 use std::collections::BTreeMap;
 
 use executor_protocol::{
-    Adapt, Adapter, Batch, BatchReadouts, BlockType, Capabilities, Composed, Drive, DriveError,
-    Driver, Execute, ExecuteError, Executor, Instruction, InstructionSet, Needs, OpcodeMap,
-    ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet, instruction_set,
+    Adapt, Adapter, AppendOnlyReadouts, Batch, BatchReadouts, BlockType, Capabilities, Composed,
+    Drive, DriveError, Driver, Execute, ExecuteError, Executor, Instruction, InstructionSet, Needs,
+    OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    instruction_set,
 };
 
 instruction_set! {
@@ -166,7 +167,9 @@ impl Drive for CoinCopy {
         // boundary to check the batch before it runs, at a cost.
         let toss = Batch::new(shots, &self.sequences[0]).checked_if(self.checked);
         let mut readouts = Readouts::new();
-        below.execute(&[toss], seed, &mut readouts).await?;
+        below
+            .execute(&[toss], seed, &mut readouts.append_only())
+            .await?;
         let coin = &readouts[0];
         let mut outputs: Vec<Vec<ReadoutValue>> =
             (0..shots.len()).map(|i| coin.row(i).to_vec()).collect();
@@ -189,7 +192,9 @@ impl Drive for CoinCopy {
         // The same seed: each part keeps a shot's stream from its first
         // batch until the shot ends. The sides' readouts are appended
         // after the coin's.
-        below.execute(&batches, seed, &mut readouts).await?;
+        below
+            .execute(&batches, seed, &mut readouts.append_only())
+            .await?;
         for ((positions, _, _), rows) in sides.iter().zip(&readouts[1..]) {
             for (j, &i) in positions.iter().enumerate() {
                 outputs[i].extend_from_slice(rows.row(j));
@@ -254,7 +259,7 @@ impl Adapt for BitFlip {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let map = self.below.as_ref().expect("`>>` binds before any run");
         // Apart from the executor's streams, which draw from `seed` itself.
@@ -291,7 +296,9 @@ impl Adapt for BitFlip {
             })
             .collect();
         self.one_each.clear();
-        below.execute(&one_each, seed, &mut self.one_each).await?;
+        below
+            .execute(&one_each, seed, &mut self.one_each.append_only())
+            .await?;
         // An `x` adds no readout, so each shot's row comes back as it is,
         // joined again into one readouts per batch received, appended to
         // the caller's. The protocol has checked that `one_each` holds one
@@ -369,7 +376,7 @@ impl Execute for Bits {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         for batch in batches {
             if batch.is_checked() {

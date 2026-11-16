@@ -5,8 +5,9 @@
 //! driver that calls its executor itself:
 //!
 //! - D: one driver on four chains, batches of 1 to 10 000 instructions;
-//! - C: a batch's checks, a boundary's cost without them, and building an
-//!   instruction by name;
+//! - C: a batch's checks, a boundary's cost without them, building an
+//!   instruction by name, and the count of a batch's instructions against
+//!   a most offered;
 //! - F: a lowering adapter, each logical instruction sent as three physical;
 //! - W: an executor that answers from a worker thread: the time of a call.
 //!
@@ -31,10 +32,10 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use executor_protocol::{
-    Adapt, Adapter, Argument, Arguments, Batch, BatchReadouts, BlockType, Capabilities,
-    CompositionFaults, Drive, DriveError, Driver, Execute, ExecuteError, Executor, Instruction,
-    InstructionSet, Needs, Opcode, OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShotConditions,
-    ShotSet, instruction_set,
+    Adapt, Adapter, AppendOnlyReadouts, Argument, Arguments, Batch, BatchReadouts, BlockType,
+    Capabilities, CompositionFaults, Drive, DriveError, Driver, Execute, ExecuteError, Executor,
+    Instruction, InstructionSet, Needs, Opcode, OpcodeMap, ReadoutValue, Readouts, Runner, Seed,
+    ShotConditions, ShotSet, instruction_set,
 };
 
 instruction_set! {
@@ -305,10 +306,11 @@ fn run_chain(program: &[Instruction], batch: usize, chain: Chain, checked: bool)
 // ------------------------------------------------------------- C: checks
 
 /// C: what a batch's checks cost, and a boundary without them, by
-/// difference, since they run inside the protocol; and building an
-/// instruction by name, which checks it too. A boundary's cost without the
-/// checks is its cost per call (the answer's shape check, the catch of a
-/// panic, one `Checked` call).
+/// difference, since they run inside the protocol; building an instruction
+/// by name, which checks it too; and the count of a batch's instructions
+/// against a most offered. A boundary's cost without the checks is its
+/// cost per call (the answer's shape check, the catch of a panic, one
+/// `Checked` call).
 fn checks_bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
     println!("\nC. the checks, ns/instr (per call, where given)");
     let time = |batch, chain, checked| {
@@ -611,7 +613,7 @@ impl Adapt for Repetition3 {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         self.lowered.resize_with(batches.len(), Vec::new);
         for (batch, lowered) in batches.iter().zip(&mut self.lowered) {
@@ -629,7 +631,7 @@ impl Adapt for Repetition3 {
             .collect();
         self.physical_readouts.clear();
         below
-            .execute(&sent, seed, &mut self.physical_readouts)
+            .execute(&sent, seed, &mut self.physical_readouts.append_only())
             .await?;
         for batch in &self.physical_readouts {
             read_logical(batch, readouts);
@@ -659,7 +661,7 @@ fn lower(instruction: &Instruction, opcodes: [Opcode; 4], lowered: &mut Vec<Inst
 }
 
 /// The logical readouts of a batch's physical ones: each three's majority.
-fn read_logical(physical: &BatchReadouts, readouts: &mut Readouts) {
+fn read_logical(physical: &BatchReadouts, readouts: &mut AppendOnlyReadouts<'_>) {
     let logical = readouts.push_with_capacity(physical.shots(), physical.readouts() / 3);
     for shot in 0..physical.shots() {
         let row = majority_of_threes(physical.row(shot));
@@ -712,7 +714,7 @@ impl Execute for Sink {
         &mut self,
         batches: &[Batch<'_>],
         _seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let mut row = Vec::new();
         for batch in batches {
@@ -880,7 +882,7 @@ impl Execute for FromWorker {
         &mut self,
         batches: &[Batch<'_>],
         _seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         let job = batches
             .iter()
@@ -972,7 +974,9 @@ impl<'p> ProgramInBatches<'p> {
             let start = self.timed.then(Instant::now);
             let batches = [Batch::new(shots, black_box(chunk)).checked_if(self.checked)];
             readouts.clear();
-            target.execute(&batches, seed, &mut readouts).await?;
+            target
+                .execute(&batches, seed, &mut readouts.append_only())
+                .await?;
             if let Some(start) = start {
                 received.call_times.push(start.elapsed());
             }
@@ -1082,7 +1086,7 @@ impl Adapt for Forward {
         batches: &[Batch<'_>],
         seed: Seed,
         below: &mut impl Execute,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         below.execute(batches, seed, readouts).await
     }
@@ -1208,7 +1212,7 @@ impl Execute for Profiler {
         &mut self,
         batches: &[Batch<'_>],
         _seed: Seed,
-        readouts: &mut Readouts,
+        readouts: &mut AppendOnlyReadouts<'_>,
     ) -> Result<(), ExecuteError> {
         for batch in batches {
             self.profile.record(batch.instructions, batch.is_checked());
