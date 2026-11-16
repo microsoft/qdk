@@ -985,3 +985,54 @@ fn source_locations_for_groups() {
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
 }
+
+/// Traces one measurement per name on its own qubit and returns the rendered measurement gates.
+fn traced_measurement_gates(names: &[&str]) -> Vec<String> {
+    let c = FakeCompilation::default();
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: usize::MAX,
+            max_loop_iterations: None,
+            source_locations: false,
+            group_by_scope: false,
+            prune_classical_qubits: false,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    for (id, name) in names.iter().enumerate() {
+        builder.qubit_allocate(&[], id);
+        builder.measure(&[], name, id, &id.into());
+    }
+
+    builder
+        .finish(&c)
+        .component_grid
+        .iter()
+        .flat_map(|column| &column.components)
+        .filter_map(|operation| match operation {
+            Operation::Measurement(measurement) => Some(measurement.gate.clone()),
+            Operation::Unitary(_) | Operation::Ket(_) => None,
+        })
+        .collect()
+}
+
+#[test]
+fn mx_my_mz_name_is_preserved() {
+    assert_eq!(
+        traced_measurement_gates(&["MX", "MY", "MZ"]),
+        ["MX", "MY", "MZ"]
+    );
+}
+
+#[test]
+fn z_measurements_stay_m_without_other_bases() {
+    assert_eq!(traced_measurement_gates(&["M"]), ["M"]);
+    assert_eq!(traced_measurement_gates(&["MResetZ"]), ["M"]);
+}
+
+#[test]
+fn z_measurements_labeled_mz_with_other_bases() {
+    assert_eq!(traced_measurement_gates(&["MX", "M"]), ["MX", "MZ"]);
+    assert_eq!(traced_measurement_gates(&["MY", "MResetZ"]), ["MY", "MZ"]);
+}

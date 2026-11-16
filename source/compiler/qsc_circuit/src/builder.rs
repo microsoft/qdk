@@ -121,8 +121,13 @@ impl Tracer for CircuitTracer {
                 called_at,
             );
         } else {
-            self.circuit_builder
-                .measurement(self.wire_map_builder.current(), "M", q, r, called_at);
+            self.circuit_builder.measurement(
+                self.wire_map_builder.current(),
+                name,
+                q,
+                r,
+                called_at,
+            );
         }
     }
 
@@ -234,11 +239,16 @@ impl CircuitTracer {
 
     #[must_use]
     pub fn snapshot(&self, source_lookup: &impl SourceLookup) -> Circuit {
-        self.finish_circuit(self.circuit_builder.operations(), source_lookup)
+        self.finish_circuit(
+            self.circuit_builder.operations(),
+            self.circuit_builder.has_non_z_measurements(),
+            source_lookup,
+        )
     }
 
     #[must_use]
     pub fn finish(mut self, source_lookup: &impl SourceLookup) -> Circuit {
+        let has_non_z_measurements = self.circuit_builder.has_non_z_measurements();
         let ops = replace(
             &mut self.circuit_builder,
             OperationListBuilder::new(
@@ -250,12 +260,13 @@ impl CircuitTracer {
         )
         .into_operations();
 
-        self.finish_circuit(&ops, source_lookup)
+        self.finish_circuit(&ops, has_non_z_measurements, source_lookup)
     }
 
     fn finish_circuit(
         &self,
         operations: &[OperationOrGroup],
+        has_non_z_measurements: bool,
         source_lookup: &impl SourceLookup,
     ) -> Circuit {
         let mut operations = operations.to_vec();
@@ -275,6 +286,7 @@ impl CircuitTracer {
             qubits,
             self.config.group_by_scope,
             self.config.max_loop_iterations,
+            has_non_z_measurements,
         )
     }
 
@@ -522,6 +534,7 @@ pub(crate) fn finish_circuit(
     qubits: Vec<Qubit>,
     collapse_trivial_groups: bool,
     max_loop_iterations: Option<usize>,
+    has_non_z_measurements: bool,
 ) -> Circuit {
     if let Some(max_loop_iterations) = max_loop_iterations {
         truncate_loop_iterations(&mut operations, max_loop_iterations.max(2));
@@ -532,7 +545,7 @@ pub(crate) fn finish_circuit(
     let mut loop_id_cache = Default::default();
     let operations = operations
         .into_iter()
-        .map(|o| o.into_operation(source_lookup, &mut loop_id_cache))
+        .map(|o| o.into_operation(source_lookup, &mut loop_id_cache, has_non_z_measurements))
         .collect();
 
     let component_grid = operation_list_to_grid(operations, &qubits);
@@ -1538,10 +1551,13 @@ impl OperationOrGroup {
         }
     }
 
+    /// Converts to a circuit operation. When `has_non_z_measurements` is set, `M` measurements
+    /// are relabeled `MZ` so the Z basis is explicit next to other measurement bases.
     fn into_operation(
         mut self,
         source_lookup: &impl SourceLookup,
         loop_id_cache: &mut LoopIdCache,
+        has_non_z_measurements: bool,
     ) -> Operation {
         if let Some(location) = self.location {
             let package_offset =
@@ -1554,7 +1570,15 @@ impl OperationOrGroup {
         }
 
         match self.kind {
-            OperationOrGroupKind::Single => self.op,
+            OperationOrGroupKind::Single => {
+                if has_non_z_measurements
+                    && let Operation::Measurement(measurement) = &mut self.op
+                    && measurement.gate == "M"
+                {
+                    measurement.gate = "MZ".to_string();
+                }
+                self.op
+            }
             OperationOrGroupKind::Group {
                 scope_stack,
                 children,
@@ -1585,7 +1609,9 @@ impl OperationOrGroup {
                 u.children = vec![ComponentColumn {
                     components: children
                         .into_iter()
-                        .map(|o| o.into_operation(source_lookup, loop_id_cache))
+                        .map(|o| {
+                            o.into_operation(source_lookup, loop_id_cache, has_non_z_measurements)
+                        })
                         .collect(),
                 }];
                 self.op
@@ -1611,6 +1637,7 @@ pub(crate) struct OperationListBuilder {
     top: OperationOrGroup,
     user_package_ids: Vec<PackageId>,
     grouping_config: GroupingConfig,
+    has_non_z_measurements: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -1635,6 +1662,7 @@ impl OperationListBuilder {
                 group_by_scope,
             },
             user_package_ids,
+            has_non_z_measurements: false,
         }
     }
 
@@ -1677,6 +1705,11 @@ impl OperationListBuilder {
 
     fn operations(&self) -> &Vec<OperationOrGroup> {
         self.top.children().expect("container should be a group")
+    }
+
+    /// Returns whether any measurement other than `M` or `MResetZ` was recorded.
+    pub(crate) fn has_non_z_measurements(&self) -> bool {
+        self.has_non_z_measurements
     }
 
     pub(crate) fn into_operations(self) -> Vec<OperationOrGroup> {
@@ -1783,6 +1816,9 @@ impl OperationReceiver for OperationListBuilder {
                 call_stack.clone(),
                 wire_map,
             );
+        }
+        if name != "M" && name != "MResetZ" {
+            self.has_non_z_measurements = true;
         }
     }
 

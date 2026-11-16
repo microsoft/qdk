@@ -46,9 +46,57 @@ fn c_reg(q_id: usize, c_id: usize) -> Register {
     Register::classical(q_id, c_id)
 }
 
+fn x_measurement(q_id: usize, c_id: usize) -> Operation {
+    Operation::Measurement(Measurement {
+        gate: "MX".to_string(),
+        args: vec![],
+        qubits: vec![Register::quantum(q_id)],
+        results: vec![Register::classical(q_id, c_id)],
+        children: vec![],
+        metadata: None,
+    })
+}
+
+fn y_measurement(q_id: usize, c_id: usize) -> Operation {
+    Operation::Measurement(Measurement {
+        gate: "MY".to_string(),
+        args: vec![],
+        qubits: vec![Register::quantum(q_id)],
+        results: vec![Register::classical(q_id, c_id)],
+        children: vec![],
+        metadata: None,
+    })
+}
+
+/// The circuits not conditionally render "M" to show as "MZ" if measurements in bases other than Z are present.
+/// Thus, this is a helper function to render "MZ".
+fn z_measurement(q_id: usize, c_id: usize) -> Operation {
+    Operation::Measurement(Measurement {
+        gate: "MZ".to_string(),
+        args: vec![],
+        qubits: vec![Register::quantum(q_id)],
+        results: vec![Register::classical(q_id, c_id)],
+        children: vec![],
+        metadata: None,
+    })
+}
+
+/// The circuits not conditionally render "M" to show as "MZ" if measurements in bases other than Z are present.
+/// Thus, this is the original helper function to render "M".
 fn measurement(q_id: usize, c_id: usize) -> Operation {
     Operation::Measurement(Measurement {
-        gate: "Measure".to_string(),
+        gate: "M".to_string(),
+        args: vec![],
+        qubits: vec![Register::quantum(q_id)],
+        results: vec![Register::classical(q_id, c_id)],
+        children: vec![],
+        metadata: None,
+    })
+}
+
+fn mresetz_measurement(q_id: usize, c_id: usize) -> Operation {
+    Operation::Measurement(Measurement {
+        gate: "M".to_string(),
         args: vec![],
         qubits: vec![Register::quantum(q_id)],
         results: vec![Register::classical(q_id, c_id)],
@@ -490,4 +538,50 @@ fn typescript_current_version_matches_rust() {
         .expect("TypeScript CURRENT_VERSION should be an integer");
 
     assert_eq!(typescript_current_version, CURRENT_VERSION);
+}
+
+#[test]
+fn diff_bases_measurements() {
+    let operations = vec![
+        z_measurement(0, 0),
+        x_measurement(0, 1),
+        y_measurement(0, 2),
+    ];
+    let qubits = vec![qubit_with_results(0, 3)];
+    let component_grid = operation_list_to_grid(operations, &qubits);
+    let c = Circuit {
+        qubits,
+        component_grid,
+    };
+
+    expect![[r"
+        q_0    ─ MZ ─── MX ─── MY ──
+                  ╘══════╪══════╪═══
+                         ╘══════╪═══
+                                ╘═══
+    "]]
+    .assert_eq(&c.to_string());
+}
+
+#[test]
+fn only_z_mresetz_measurements() {
+    let operations = vec![
+        mresetz_measurement(0, 0),
+        measurement(0, 1),
+        mresetz_measurement(0, 2),
+    ];
+    let qubits = vec![qubit_with_results(0, 3)];
+    let component_grid = operation_list_to_grid(operations, &qubits);
+    let c = Circuit {
+        qubits,
+        component_grid,
+    };
+
+    expect![[r"
+        q_0    ── M ──── M ──── M ──
+                  ╘══════╪══════╪═══
+                         ╘══════╪═══
+                                ╘═══
+    "]]
+    .assert_eq(&c.to_string());
 }
