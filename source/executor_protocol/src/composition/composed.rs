@@ -9,9 +9,14 @@
 //! time, the upper part calls the lower one, with the rest of the chain
 //! below it, as one executor:
 //!
-//! - `(d >> a).drive(shots, seed, below)` is `d.drive(shots, seed, a >> below)`;
-//! - `(u >> l).adapt(batches, seed, below)` is `u.adapt(batches, seed, l >> below)`;
-//! - `(a >> e).execute(batches, seed)` is `a.adapt(batches, seed, e)`.
+//! ```text
+//! (d >> a).drive(shots, seed, below)
+//!     is d.drive(shots, seed, a >> below);
+//! (u >> l).adapt(batches, seed, below, readouts)
+//!     is u.adapt(batches, seed, l >> below, readouts);
+//! (a >> e).execute(batches, seed, readouts)
+//!     is a.adapt(batches, seed, e, readouts).
+//! ```
 //!
 //! The upper part reaches the lower one through a `Checked`, so every
 //! boundary of the chain is crossed through one, whatever the brackets: the

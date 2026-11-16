@@ -24,9 +24,9 @@ use crate::tests::fake_parts::{
     Profiler, Program, Splitter, Spread, Trap, Values, YieldNow, in_each_bracketing,
 };
 use crate::{
-    Adapter, Capabilities, Drive, DriveError, Driver, Execute, ExecuteRefusal, Executor, Failure,
-    InstructionFault, InstructionSet, Needs, OpcodeMap, ReadoutFailure, ReadoutValue, Readouts,
-    RunError, RunRefusal, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    Adapter, Capabilities, Drive, DriveError, Driver, Execute, Executor, InstructionSet, Needs,
+    OpcodeMap, ReadoutFailure, ReadoutValue, Readouts, RunError, RunRefusal, Runner, Seed,
+    ShotConditions, ShotSet,
 };
 
 const SEED: u64 = 7;
@@ -853,41 +853,6 @@ fn the_parts_are_asked_bottom_up() {
         ["Bits ready", "Profiler ready"],
         "the profiler with the bits"
     );
-}
-
-/// Two checked batches in one `execute`, shots 4 and 2 measuring qubit 0,
-/// shots 9 and 7 flipping qubit 5 beyond the program's 2 qubits: the
-/// second batch is refused, named by its first shot, 9, and neither batch
-/// runs.
-#[test]
-fn a_later_batchs_refusal_names_it_and_runs_no_batch() {
-    let log = Log::default();
-    let mut runner = runner(
-        Driver::new(
-            Program::halves(&[("mz", 0)], &[("x", 5)])
-                .needing(Needs::qubits(2))
-                .with_checked_batches(),
-        ) >> Executor::new(Bits::new(&log)),
-    );
-    let error = failed(runner.run(&ShotSet::ids([4, 2, 9, 7]), SEED));
-    assert_eq!(error.shot, ShotId::new(9));
-    let Failure::Refused(refusal) = error.failure else {
-        panic!("a refusal, not {:?}", error.failure);
-    };
-    assert_eq!(
-        refusal,
-        ExecuteRefusal::Instruction {
-            shot: ShotId::new(9),
-            batch: 1,
-            at: 0,
-            fault: InstructionFault::BlockBeyondNeeds {
-                mnemonic: "x".to_owned(),
-                block: 5,
-                needs: 2,
-            },
-        }
-    );
-    assert_eq!(log.count("Bits execute"), 0, "neither batch ran");
 }
 
 /// A driver sending no batch: an empty answer, and the executor is not

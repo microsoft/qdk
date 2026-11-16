@@ -26,10 +26,10 @@ use super::{BatchReadouts, Readouts};
 /// An `execute` may assign or swap in a view of another buffer, one that
 /// outlives the call (a leaked or static one): that changes only where
 /// its own view points, never the caller's buffer, and what it appends
-/// there is not its answer. The protocol
-/// checks every answer that crosses a boundary of a chain against its
-/// batches, as [`ShapeFault`](crate::ShapeFault) says, so an answer
-/// appended elsewhere fails the `execute`, as readouts missing.
+/// there is not its answer. The protocol checks every answer that crosses
+/// a boundary of a chain against its batches, as
+/// [`ShapeFault`](crate::ShapeFault) says, so an answer appended elsewhere
+/// fails the `execute`, as readouts missing.
 ///
 /// [`Readouts::append_only`] makes one.
 pub struct AppendOnlyReadouts<'a> {

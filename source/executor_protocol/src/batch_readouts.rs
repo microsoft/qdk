@@ -80,9 +80,10 @@ impl PartialEq for BatchReadouts {
 
 impl Eq for BatchReadouts {}
 
-// The methods an executor calls per batch or per shot are `#[inline]`:
-// executors live in other crates, where, without it, these small methods
-// are not inlined, and their calls cost more than their work.
+// The small methods a part calls per batch or per shot, to build an answer
+// or to read one, are `#[inline]`: parts live in other crates, where,
+// without it, these methods are not inlined, and their calls cost more
+// than their work.
 impl BatchReadouts {
     /// No rows yet, of `readouts` values each, with room for `shots` rows.
     ///
@@ -166,12 +167,14 @@ impl BatchReadouts {
     /// R, the number of values in each row, as given to
     /// [`with_capacity`](Self::with_capacity).
     #[must_use]
+    #[inline]
     pub fn readouts(&self) -> u32 {
         self.readouts
     }
 
     /// How many rows it holds: one per shot, once complete.
     #[must_use]
+    #[inline]
     pub fn shots(&self) -> usize {
         self.shots
     }
@@ -200,6 +203,7 @@ impl BatchReadouts {
     /// below R, where it would read another shot's value.
     #[must_use]
     #[track_caller]
+    #[inline]
     pub fn value(&self, position: usize, readout: ReadoutIndex) -> ReadoutValue {
         assert!(
             readout.get() < self.readouts,
@@ -217,6 +221,7 @@ impl BatchReadouts {
     /// When `position` is not below [`shots`](Self::shots).
     #[must_use]
     #[track_caller]
+    #[inline]
     pub fn conditions(&self, position: usize) -> ShotConditions {
         self.check_position(position);
         self.conditions

@@ -136,8 +136,9 @@ fn flip_on_a_parity(needs: Needs) -> Driver<Program> {
 
 /// Each boundary refuses a checked batch its receiver does not take,
 /// typed and naming the batch's first shot, before the receiver runs any
-/// of it, whoever sends it: the driver, to the executor or to an adapter,
-/// or an adapter, in both bracketings. A row per fault and sender.
+/// of it or of the other batches of its `execute`, whoever sends it: the
+/// driver, to the executor or to an adapter, or an adapter, in both
+/// bracketings. A row per fault and sender.
 #[test]
 #[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
@@ -186,7 +187,7 @@ fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
         arguments: smallvec![],
         select: None,
     };
-    let rows: [(&str, Vec<Failed>, ExecuteRefusal); 10] = [
+    let rows: [(&str, Vec<Failed>, ExecuteRefusal); 11] = [
         // An instruction on a qubit beyond the program's needs.
         (
             "the driver's instruction beyond its needs, to the executor",
@@ -202,6 +203,34 @@ fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
             })
             .into(),
             beyond_the_needs(4, 1, 5, 2),
+        ),
+        // Two checked batches in one `execute`, shots 4 and 2 measuring
+        // qubit 0, shots 9 and 7 flipping qubit 5 beyond the program's 2
+        // qubits: the second batch is refused, named by its first shot,
+        // 9, and neither batch runs.
+        (
+            "the driver's second batch beyond its needs, to the executor",
+            failed_with_no_adapter(&ShotSet::ids([4, 2, 9, 7]), |log| {
+                (
+                    Driver::new(
+                        Program::halves(&[("mz", 0)], &[("x", 5)])
+                            .needing(Needs::qubits(2))
+                            .with_checked_batches(),
+                    ),
+                    Executor::new(Bits::new(log)),
+                )
+            })
+            .into(),
+            ExecuteRefusal::Instruction {
+                shot: ShotId::new(9),
+                batch: 1,
+                at: 0,
+                fault: InstructionFault::BlockBeyondNeeds {
+                    mnemonic: "x".to_owned(),
+                    block: 5,
+                    needs: 2,
+                },
+            },
         ),
         // A driver flipping qubit 1 while needing one qubit, through a
         // profiler: refused at the driver's boundary, before the profiler
@@ -412,36 +441,6 @@ fn every_batch_is_checked_against_the_set_read_before_provision() {
     }
     assert_eq!(log.count("Bits execute"), 3, "each bracketing ran it");
     assert_eq!(log.count("below accepts: CoinGates"), 2);
-}
-
-/// An executor answering a row fewer than the batch's two shots, below a
-/// profiler: a failure naming the batch's first shot and the shape fault.
-#[test]
-fn a_misshapen_answer_below_an_adapter_is_a_failure() {
-    for run in failed_in_both_brackets(&ShotSet::ids([6, 1]), |log, counted| {
-        (
-            Driver::new(Program::new(&[("mz", 0)])),
-            Adapter::new(Profiler::new(counted, log)),
-            Executor::new(Misshapen(Misshape::MissingRow)),
-        )
-    }) {
-        let Failed {
-            brackets, error, ..
-        } = run;
-        assert_eq!(error.shot, ShotId::new(6), "{brackets}");
-        let Failure::Part(fault) = error.failure else {
-            panic!("{brackets}: the part's error, not {:?}", error.failure);
-        };
-        assert_eq!(
-            fault.downcast_ref::<ShapeFault>(),
-            Some(&ShapeFault::Rows {
-                batch: 0,
-                expected: 2,
-                got: 1
-            }),
-            "{brackets}"
-        );
-    }
 }
 
 /// Two decoders of one name, a profiler above an adapter that panics, in

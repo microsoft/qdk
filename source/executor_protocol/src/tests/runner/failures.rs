@@ -53,7 +53,8 @@ fn measure(checked: bool) -> Driver<Program> {
 }
 
 /// An executor answering readouts misshapen for the run's one batch, of
-/// one `mz` on shots 6, 1 and 2: the run fails naming the batch's first
+/// one `mz` on shots 6, 1 and 2, directly under the driver or below a
+/// profiler, in both bracketings: the run fails naming the batch's first
 /// shot, 6, with the shape fault; the count of readouts and of rows is
 /// checked whether the batch is checked or not, the values per row only
 /// if it is.
@@ -122,10 +123,28 @@ fn an_answer_misshapen_for_its_batch_is_a_failure() {
         ),
     ] {
         for &checked in sendings {
-            let row = format!("{row}, checked: {checked}");
-            let mut runner = runner(measure(checked) >> Executor::new(Misshapen(misshape)));
-            let run = runner.run(&ShotSet::ids([6, 1, 2]), SEED);
-            assert_eq!(shape_fault(&row, run, 6), expected, "{row}");
+            let shots = ShotSet::ids([6, 1, 2]);
+            let log = Log::default();
+            let counted = Rc::new(Cell::new(0));
+            let profiler = || Adapter::new(Profiler::new(&counted, &log));
+            let executor = || Executor::new(Misshapen(misshape));
+            for (chain, run) in [
+                (
+                    "directly under the driver",
+                    runner(measure(checked) >> executor()).run(&shots, SEED),
+                ),
+                (
+                    "below a profiler with the driver",
+                    runner((measure(checked) >> profiler()) >> executor()).run(&shots, SEED),
+                ),
+                (
+                    "below a profiler with the executor",
+                    runner(measure(checked) >> (profiler() >> executor())).run(&shots, SEED),
+                ),
+            ] {
+                let row = format!("{row}, checked: {checked}, {chain}");
+                assert_eq!(shape_fault(&row, run, 6), expected, "{row}");
+            }
         }
     }
 }

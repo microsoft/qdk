@@ -92,7 +92,6 @@ impl Readouts {
     /// Keeps only the first `len` readouts, if it holds more, keeping
     /// the memory of the rest: what the protocol does to remove a failed
     /// `execute`'s answer.
-    #[inline]
     pub(crate) fn truncate(&mut self, len: usize) {
         self.len = self.len.min(len);
     }
@@ -111,6 +110,7 @@ impl<'a> IntoIterator for &'a Readouts {
     type Item = &'a BatchReadouts;
     type IntoIter = std::slice::Iter<'a, BatchReadouts>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }

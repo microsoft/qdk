@@ -93,12 +93,12 @@ impl<E: Execute> Execute for Checked<'_, E> {
 
     /// Refuses `batches` if any batch holds more instructions than the
     /// receiver takes, or any checked batch is refused, before any runs;
-    /// an empty `execute` appends no readouts without reaching the
-    /// receiver. Then runs them on the receiver, and makes a failure of its
-    /// panic (where a panic unwinds), or of an answer whose shape is not
-    /// the batches', as [`check_shape`] checks it. On a failure, or when
-    /// its future is dropped before it answers, the receiver's answer is
-    /// removed from `readouts`.
+    /// an empty `execute` returns `Ok` at once: it appends nothing and
+    /// does not reach the receiver. Then runs them on the receiver, and
+    /// makes a failure of its panic (where a panic unwinds), or of an
+    /// answer whose shape is not the batches', as [`check_shape`] checks
+    /// it. On a failure, or when its future is dropped before it answers,
+    /// the receiver's answer is removed from `readouts`.
     async fn execute(
         &mut self,
         batches: &[Batch<'_>],
@@ -241,9 +241,9 @@ impl Drop for PendingAnswer<'_> {
 }
 
 /// Whether `answer`, the readouts appended for `batches`, has their
-/// shape, as [`ShapeFault`] states it: `checked_slots` holds each checked batch's
-/// readout slots, `None` for an unchecked one, and is empty when no batch
-/// is checked, so that unchecked batches allocate nothing.
+/// shape, as [`ShapeFault`] states it: `checked_slots` holds each checked
+/// batch's readout slots, `None` for an unchecked one, and is empty when
+/// no batch is checked, so that unchecked batches allocate nothing.
 fn check_shape(
     batches: &[Batch<'_>],
     checked_slots: &[Option<u32>],

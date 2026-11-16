@@ -151,7 +151,7 @@ fn a_full_batch_with_conditions_is_at_most_two_allocations() {
         }
         drop(batch);
     });
-    assert_eq!(count, 2);
+    assert!(count <= 2, "{count} allocations");
 }
 
 /// A caller that clears its readouts between `execute`s, as a driver
@@ -414,9 +414,9 @@ fn concat_panics_on_no_parts() {
     let _ = BatchReadouts::concat_readouts(&[]);
 }
 
-/// The joined width, R, is a `u32`: parts whose slots add up beyond it
-/// cannot be joined, rather than wrap to a narrower width. Parts of no rows
-/// allocate nothing, whatever their width.
+/// The joined width, R, is a `u32`: two parts whose slots add up beyond it,
+/// of no rows so that `u32::MAX` slots cost no memory, cannot be joined,
+/// rather than wrap to a narrower width.
 #[test]
 #[should_panic(expected = "add up to at most u32::MAX")]
 fn concat_panics_when_the_slots_exceed_u32() {

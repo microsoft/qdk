@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 //! What an `execute` through the protocol does with the readouts its
-//! caller lends: it appends its answer after those already there, and
-//! leaves them as they were when it fails or is dropped, also when it
-//! points the view it is lent at a buffer of its own.
+//! caller lends: it reads those already there and appends its answer
+//! after them, and leaves them as they were when it fails or is dropped,
+//! also when it points the view it is lent at a buffer of its own.
 
 use std::cell::RefCell;
 use std::future::poll_fn;
@@ -18,9 +18,10 @@ use crate::tests::fake_parts::{
     Bits, CoinGates, Log, Misshape, Misshapen, Profiler, YieldNow, coin_gate,
 };
 use crate::{
-    Adapt, Adapter, AppendOnlyReadouts, Batch, Capabilities, CompositionFaults, Drive, DriveError,
-    Driver, Execute, ExecuteError, Executor, Failure, Instruction, InstructionSet, Needs,
-    OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShapeFault, ShotConditions, ShotId, ShotSet,
+    Adapt, Adapter, AppendOnlyReadouts, Batch, BatchReadouts, Capabilities, CompositionFaults,
+    Drive, DriveError, Driver, Execute, ExecuteError, Executor, Failure, Instruction,
+    InstructionSet, Needs, OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShapeFault,
+    ShotConditions, ShotId, ShotSet,
 };
 
 /// How a [`Lender`] waits for its `execute`.
@@ -265,25 +266,98 @@ fn seen<E: Execute>(waits: Waits, executor: E) -> Seen {
     seen_on(waits, |lender| lender >> Executor::new(executor))
 }
 
-/// A driver lending readouts that hold a batch of its own to an executor:
-/// the answer of its `execute` of one batch comes after it, a row per
-/// shot, and its own batch is unchanged.
+/// A [`Bits`] that records the readouts it finds in the view it is lent,
+/// as it reads them, before it appends its answer.
+struct RecordsWhatItFinds(Bits, Rc<RefCell<Vec<BatchReadouts>>>);
+
+impl Execute for RecordsWhatItFinds {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn offers(&self) -> Capabilities {
+        self.0.offers()
+    }
+
+    fn provision(&mut self, needs: Needs) {
+        self.0.provision(needs);
+    }
+
+    async fn execute(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut AppendOnlyReadouts<'_>,
+    ) -> Result<(), ExecuteError> {
+        *self.1.borrow_mut() = readouts.to_vec();
+        self.0.execute(batches, seed, readouts).await
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        self.0.end_shots(shots);
+    }
+}
+
+/// A driver lending readouts that hold a batch of its own to an executor,
+/// directly or below a profiler, in both bracketings: the executor reads
+/// that batch through the view it is lent, and the answer of its `execute`
+/// of one batch comes after it, a row per shot, the driver's batch
+/// unchanged.
 #[test]
 fn an_execute_appends_its_answer_after_the_readouts_already_there() {
     let log = Log::default();
-    let Seen {
-        before,
-        result,
-        after,
-    } = seen(Waits::ForTheAnswer, Bits::new(&log));
-    result
-        .expect("the lender waited")
-        .expect("the executor answers");
-    assert_eq!(after.len(), 2);
-    assert_eq!(after[0], before[0], "the lender's own batch");
-    assert_eq!(after[1].shots(), 3);
-    for shot in 0..3 {
-        assert_eq!(after[1].row(shot), [ReadoutValue::One], "shot {shot}");
+    let counted = Rc::default();
+    let found: [Rc<RefCell<Vec<BatchReadouts>>>; 3] = Default::default();
+    let executor =
+        |row: usize| Executor::new(RecordsWhatItFinds(Bits::new(&log), Rc::clone(&found[row])));
+    let profiler = || Adapter::new(Profiler::new(&counted, &log));
+    for (
+        chain,
+        Seen {
+            before,
+            result,
+            after,
+        },
+        found,
+    ) in [
+        (
+            "directly under the lender",
+            seen_on(Waits::ForTheAnswer, |lender| lender >> executor(0)),
+            &found[0],
+        ),
+        (
+            "below a profiler with the lender",
+            seen_on(Waits::ForTheAnswer, |lender| {
+                (lender >> profiler()) >> executor(1)
+            }),
+            &found[1],
+        ),
+        (
+            "below a profiler with the executor",
+            seen_on(Waits::ForTheAnswer, |lender| {
+                lender >> (profiler() >> executor(2))
+            }),
+            &found[2],
+        ),
+    ] {
+        result
+            .expect("the lender waited")
+            .expect("the executor answers");
+        assert_eq!(
+            found.borrow().as_slice(),
+            &before[..],
+            "{chain}: what the executor read"
+        );
+        assert_eq!(after.len(), 2, "{chain}");
+        assert_eq!(after[0], before[0], "{chain}: the lender's own batch");
+        assert_eq!(after[1].shots(), 3, "{chain}");
+        for shot in 0..3 {
+            assert_eq!(
+                after[1].row(shot),
+                [ReadoutValue::One],
+                "{chain}: shot {shot}"
+            );
+        }
     }
 }
 
