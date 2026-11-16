@@ -1,22 +1,41 @@
 # A GPU resumer for `QirMachine` (prototype)
 
-> **Prototype, not for merging.** This example exists to support the review of
-> `QirMachine`; nothing here is a proposed change to the QDK.
+> **Prototype, not for merging.** This example's code supports the review of
+> `QirMachine`; its recommendation below is a proposal for the QDK's GPU
+> simulator, not a change made here.
+
+## Executive summary
 
 [`QirMachine`](../../src/qir/machine.rs) and
 [`QirResumer`](../../src/qir/resumer.rs) can be the core of every simulator
 the QDK runs QIR programs on: the machine runs a program's classical part
 (branches, arithmetic on measured values, records) once for every target, and
 each simulator keeps only its quantum part, as a resumer that runs the
-machine's batches of quantum calls. Rebuilt this way, the GPU simulator loses
-its second implementation of the classical semantics, the 1,338 interpreter
-lines of its WGSL shader, and gets faster: this prototype is 6.5–7.8× faster
-than the current GPU simulator on the bench program, noiseless. The one gap
-measured, repetition codes at d = 9 (2.2–2.8× slower), comes from how the
-machine batches quantum calls; an opt-in batching policy of `QirMachine`, a
-small API change not built yet, is expected to remove most of it. On the CPU,
-the same machine runs today's test programs with the records of today's
-interpreter, at its speed.
+machine's batches of quantum calls. This prototype rebuilds the GPU simulator
+that way.
+
+- **Recommendation: rebuild the GPU simulator on `QirMachine`, in two
+  steps.** First, build `QirMachine`'s opt-in batching policy (2–4 days), then
+  measure the repetition codes again, and the bench program on a native
+  backend (DX12, Vulkan or Metal). If both hold, do the rest of the production
+  work, about 3–4.5 weeks, plus other backends, not estimated
+  ([What is missing for production](#what-is-missing-for-production)).
+- **One implementation of the classical semantics instead of two:** the
+  rebuild removes the 1,338 interpreter lines of the current simulator's WGSL
+  shader ([The duplication removed](#the-duplication-removed)).
+- **Faster, with one gap:** 6.5–7.8× faster than the current GPU simulator on
+  the bench program, noiseless; 2.2–2.8× slower on repetition codes at d = 9,
+  from how the machine batches quantum calls, which the batching policy, a
+  small API change, is expected to remove for the most part
+  ([Closing the gap](#closing-the-gap-a-batching-policy)).
+- **The CPU already runs on the machine:** today's test programs, with the
+  records of today's interpreter, at its speed.
+- **Measured on one GPU:** a Qualcomm Adreno X1-85 under WSL, through wgpu's
+  GL backend, which is not a native backend of the current simulator; on
+  another GPU or backend the ratios may differ either way
+  ([Platform](#platform-and-what-it-costs-the-current-simulator)).
+
+## Each simulator on `QirMachine`
 
 The evidence, for each simulator that `run_qir` offers and for the new MPS
 one:
@@ -27,10 +46,6 @@ one:
 | Stabilizer (`stabilizer`, `clifford`) | the same resumer                                              | the same, on the 238 of those cases that the tests run on it                                                                                                                                                                            | not measured; the classical part alone (on a simulator that does nothing) costs the resumer 0.83–0.87× what it costs `run_shot` |
 | GPU (`gpu`)                           | `QirGpuResumer`, this example                                 | agrees with the current simulator and with the CPU resumer ([Correctness evidence](#correctness-evidence))                                                                                                                              | faster on the bench program, slower on the repetition code at d = 9 ([Performance on the GPU](#performance-on-the-gpu))         |
 | MPS (new, not in the QDK yet)         | `MpsResumer`, on the branch `domingom/mps-method-m1b`         | on a development branch: passes the resumer conformance kit; meets those tests' expectations on their noiseless programs but one, which checks for loss and is refused; H₂'s phase estimation, its readout within 10⁻⁹ of the exact one | no current path to compare: written on the machine from the start                                                               |
-
-The GPU numbers were measured on one GPU, a Qualcomm Adreno X1-85 under WSL,
-through wgpu's GL backend, which is not a native backend of the current
-simulator ([Platform](#platform-and-what-it-costs-the-current-simulator)).
 
 `QirGpuResumer` ([`gpu_resumer.rs`](gpu_resumer.rs),
 [`kernels.wgsl`](kernels.wgsl)) is the resumer that keeps every shot's state
