@@ -61,14 +61,16 @@
 //!   choice: the fake knows a compute's outputs and could wait for their
 //!   stream alone. A stream whose writes another stream wrote again since
 //!   is no longer recorded, so these waits do not cover its work;
-//! - a buffer a compute or a tensor call wrote is copied to the host
-//!   (`copy_to_host`), and an SVD info reported (`svd_truncation`), only
-//!   once the stream last queued to write it is synchronized: another
-//!   stream's synchronization says nothing of it. An object written on two
-//!   streams is released by the later one, and the fake does not flag the
-//!   race. Other reads and writes of a pending write are not checked: a
-//!   later call's inputs and outputs, `copy_on_device`'s source and
-//!   destination, `copy_to_device`'s destination;
+//! - a buffer a compute or a tensor call wrote is copied (`copy_to_host`,
+//!   and `copy_on_device` from it), copied into (`copy_to_device`,
+//!   `copy_on_device` into it), and an SVD info reported
+//!   (`svd_truncation`), only once the stream last queued to write it is
+//!   synchronized: the copies run on CUDA's legacy stream, which a
+//!   non-blocking stream does not wait for, and another stream's
+//!   synchronization says nothing of it. An object written on two streams
+//!   is released by the later one, and the fake does not flag the race.
+//!   Other reads and writes of a pending write are not checked: a later
+//!   call's inputs and outputs;
 //! - a stream destroyed with writes pending keeps them, as its work may
 //!   still run after `cudaStreamDestroy`: no buffer is freed, and no state
 //!   captured, while it is their last recorded writer;
@@ -100,8 +102,9 @@
 //! state's configured discarded-weight cutoff drops (none if unset, as
 //! cuTensorNet's default is 0). A call can be made to fail with
 //! [`FakeLibraries::fail`], to test cleanup; and the device count, the
-//! extents a compute reports and the values an expectation returns can be
-//! set, to test what the callers do with what the library answers.
+//! extents a compute reports, the truncation a gate split reports and the
+//! values an expectation returns can be set, to test what the callers do
+//! with what the library answers.
 
 mod dense_tensor;
 mod memory_calls;
@@ -204,6 +207,8 @@ struct Inner {
     /// The extents every compute reports for a site, by site, instead of
     /// the computed state's.
     misreported_extents: BTreeMap<usize, Vec<i64>>,
+    /// The truncation every gate split reports, instead of its own.
+    misreported_truncation: Option<super::tensor_calls::SvdTruncation>,
     /// The values the next expectations return, in order, instead of the
     /// computed state's.
     expectation_values: VecDeque<Complex64>,
@@ -406,6 +411,13 @@ impl FakeLibraries {
         self.lock()
             .misreported_extents
             .insert(site, extents.to_vec());
+    }
+
+    /// Makes every gate split from now on report `truncation` in its SVD
+    /// info, as a library that misreported it would; its outputs are
+    /// unchanged.
+    pub(crate) fn misreport_truncation(&self, truncation: super::tensor_calls::SvdTruncation) {
+        self.lock().misreported_truncation = Some(truncation);
     }
 
     /// Makes the next expectations return `values`, one each, in order, in

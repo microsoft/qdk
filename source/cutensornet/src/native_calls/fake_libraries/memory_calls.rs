@@ -55,6 +55,12 @@ impl MemoryCalls for FakeLibraries {
         bytes: usize,
     ) -> Result<(), NativeError> {
         let mut inner = self.call("copy_on_device")?;
+        if inner.write_pending(id(source)) || inner.write_pending(id(destination)) {
+            return Err(failed(
+                "copy_on_device",
+                "the stream writing the source or the destination is not synchronized",
+            ));
+        }
         let elements = bytes / size_of::<Complex64Abi>();
         let source_buffer = inner.buffer(id(source), "copy_on_device")?;
         let whole = elements == source_buffer.len();
@@ -94,6 +100,12 @@ impl MemoryCalls for FakeLibraries {
         // The loaded libraries refuse an empty copy before any native call.
         complex_bytes(source.len(), "complex tensor")?;
         let mut inner = self.call("copy_to_device")?;
+        if inner.write_pending(id(destination)) {
+            return Err(failed(
+                "copy_to_device",
+                "the stream writing the destination is not synchronized",
+            ));
+        }
         match inner.objects.get_mut(&id(destination)) {
             Some(Object::Buffer(buffer)) if buffer.len() >= source.len() => {
                 buffer[..source.len()].copy_from_slice(source);

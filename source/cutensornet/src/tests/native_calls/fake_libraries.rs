@@ -1370,6 +1370,47 @@ fn a_copy_to_the_host_needs_the_writing_stream_synchronized() {
     assert_eq!(Complex64::from(output[0]), Complex64::new(2.0, 0.0));
 }
 
+/// The copies on the device run on CUDA's legacy stream, which a
+/// non-blocking stream's work does not wait for: a caller that copies from
+/// a contraction's output, or into it, from the host or on the device,
+/// before synchronizing the stream writing it, is caught on the fake.
+#[test]
+fn a_copy_on_the_device_needs_the_stream_writing_its_buffers_synchronized() {
+    type CopyCall = fn(&Device, OpaqueHandle, OpaqueHandle) -> Result<(), crate::NativeError>;
+    let copies: [(&str, CopyCall); 3] = [
+        ("from the output", |device, output, other| {
+            device.fake.copy_on_device(other, output, 16)
+        }),
+        ("into the output", |device, output, other| {
+            device.fake.copy_on_device(output, other, 16)
+        }),
+        ("from the host into the output", |device, output, _| {
+            device
+                .fake
+                .copy_to_device(output, &[Complex64Abi::default()])
+        }),
+    ];
+    for (case, copy) in copies {
+        let contraction = Contraction::dot_product(FakeLibraries::new());
+        let device = &contraction.device;
+        let other = device.zeros(&[1]);
+        device
+            .fake
+            .synchronize_copies()
+            .expect("the copy was queued");
+        contraction.contract().expect("the network is prepared");
+        copy(device, contraction.output, other).expect_err(&format!(
+            "{case}: the stream may still be writing the output"
+        ));
+        device
+            .fake
+            .synchronize_stream(device.stream)
+            .expect("the stream is live");
+        copy(device, contraction.output, other)
+            .unwrap_or_else(|error| panic!("{case}: the stream is synchronized: {error}"));
+    }
+}
+
 /// A gate split and a QR write each of their outputs on their stream (the
 /// split's U, V and singular values, the QR's Q and R): a caller that
 /// copies any of them to the host before synchronizing it is caught on the

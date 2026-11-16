@@ -65,9 +65,11 @@
 //! unscaled for the weights and the normalization, so it models splits
 //! whose singular values' squares neither overflow nor underflow an f64, as
 //! a normalized state's do. The full extent is θ's smaller side,
-//! whatever the SVD left out. The fake absorbs the singular values into
-//! U or V only, writes none to their buffer, and refuses a product of A, B and
-//! the gate that is zero, whose singular vectors are arbitrary.
+//! whatever the SVD left out. A test may replace the whole report, not the
+//! outputs (`FakeLibraries::misreport_truncation`). The fake absorbs the
+//! singular values into U or V only, writes none to their buffer, and
+//! refuses a product of A, B and the gate that is zero, whose singular
+//! vectors are arbitrary.
 
 use super::{
     FakeLibraries, Inner, Object,
@@ -310,12 +312,13 @@ impl TensorCalls for FakeLibraries {
         inner.set_extent(v.descriptor, sides.shared, reduced_extent);
         let full_extent =
             i64::try_from(rows.min(cols)).map_err(|_| failed(OPERATION, "overflow"))?;
+        let reported = inner.misreported_truncation.unwrap_or(SvdTruncation {
+            reduced_extent,
+            full_extent,
+            discarded_weight,
+        });
         if let Some(Object::SvdInfo(truncation)) = inner.objects.get_mut(&id(info)) {
-            *truncation = Some(SvdTruncation {
-                reduced_extent,
-                full_extent,
-                discarded_weight,
-            });
+            *truncation = Some(reported);
         }
         let written = [id(u.data), id(v.data), id(singular_values), id(info)];
         inner.queue_on(stream, written);
