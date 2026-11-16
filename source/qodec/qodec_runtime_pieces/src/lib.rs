@@ -17,11 +17,13 @@
 //! | [`TypeChecker<E>`] | [`Layer`] | an [`Isa`]: the top ISA's signatures |
 //! | [`Resolver`] | [`Fixes`] | an [`Isa`]: applies corrections with the lower ISA's instructions |
 //! | [`Runtime`] | [`Backend`] | any qodec layer over a [`BatchBackend`], checked against the top ISA |
+//! | [`ActionTranslator`] | [`Layer`] | an [`Isa`]: runs the bottom ISA by its actions on an [`ActionBackend`] |
 //!
 //! A piece's `…Plan` is its [`Blueprint`]: shot-independent data from which a
 //! fresh piece is built per shot. This crate re-exports the model crate, and
 //! through it the interface crate.
 
+pub mod action_translator;
 pub mod encoder;
 pub mod frame_decoder;
 pub mod passive;
@@ -32,6 +34,7 @@ pub mod until_ready;
 
 pub use qodec_runtime_model::*;
 
+pub use action_translator::ActionTranslator;
 pub use encoder::{
     EncoderProgram, Fixes, GadgetCall, GadgetEncoder, GadgetEncoderPlan, GadgetProgram, LiveBlock,
     LogicalOps, Lowering, OutputEncoding, PlannedFix, check_pauli_corrections,

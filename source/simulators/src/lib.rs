@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+pub mod action_simulators;
 pub mod bytecode;
 pub mod cpu_full_state_simulator;
 #[cfg(feature = "gpu")]

@@ -14,7 +14,7 @@
 //! [design-principles]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#design-principles
 
 use super::{
-    action::{Angle, PauliExpr, StepAction, action_clifford},
+    action::{ActionStep, Angle, PauliExpr, StepAction, action_clifford},
     encoder::Fixes,
     isa::{Isa, ParamKind, Signature, TypeTable},
     pauli::{Clifford, Pauli, PauliOp},
@@ -235,7 +235,7 @@ fn semantics(index: usize, instruction: &Signature, types: &TypeTable) -> Option
             .parameters
             .iter()
             .any(|p| p.kind == ParamKind::Pauli)
-        || instruction.action.iter().any(|s| s.guarded)
+        || instruction.action.iter().any(ActionStep::guarded)
     {
         return None;
     }

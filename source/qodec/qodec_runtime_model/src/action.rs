@@ -57,10 +57,48 @@ pub enum Angle {
 /// One step of an instruction's action.
 #[derive(Clone, Debug)]
 pub struct ActionStep {
-    /// Whether the step only applies under a condition.
-    pub guarded: bool,
+    /// When the step applies: always, or under a condition.
+    pub condition: Option<Condition>,
     /// What the step does.
     pub action: StepAction,
+}
+
+impl ActionStep {
+    /// Whether the step only applies under a condition.
+    #[must_use]
+    pub fn guarded(&self) -> bool {
+        self.condition.is_some()
+    }
+}
+
+/// When a guarded step applies: the XOR parity of its predicates is 1 for an
+/// `if:` condition, and 0 for an `unless:` one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Condition {
+    /// The bits whose parity decides.
+    pub predicates: Vec<Predicate>,
+    /// Whether the step applies when the parity is 0 (`unless:`) rather
+    /// than 1 (`if:`).
+    pub invert: bool,
+}
+
+impl Condition {
+    /// Whether the step applies, given the value of each predicate.
+    #[must_use]
+    pub fn holds(&self, mut value: impl FnMut(&Predicate) -> bool) -> bool {
+        let parity = self.predicates.iter().fold(false, |acc, p| acc ^ value(p));
+        parity != self.invert
+    }
+}
+
+/// A bit a [`Condition`] reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Predicate {
+    /// The value of this `bit` parameter.
+    Param(String),
+    /// The `i`-th outcome of the action's `observe` steps, counted across
+    /// them all from 0. It is always measured by an earlier step.
+    Outcome(usize),
 }
 
 /// What an [`ActionStep`] does.
@@ -125,7 +163,7 @@ pub fn action_extent(action: &[ActionStep]) -> usize {
 pub fn action_clifford(action: &[ActionStep], width: usize) -> Option<Clifford> {
     let mut c = Clifford::identity(width);
     for step in action {
-        if step.guarded {
+        if step.guarded() {
             return None;
         }
         let next = match &step.action {

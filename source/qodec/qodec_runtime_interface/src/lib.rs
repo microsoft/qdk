@@ -76,16 +76,25 @@
 //! decoder that never pends needs no controller, because its `Reply<Never>`
 //! is a plain result.
 //!
+//! # Below the bottom ISA
+//!
+//! A runtime drives a backend for the bottom ISA. To simulate one, the
+//! [`actions`] protocol splits it in two: a layer that turns bottom calls
+//! into the steps of their actions, on numbered qubits ([`ActionOp`]), and
+//! an [`ActionBackend`] that runs them.
+//!
 //! [lowering-chain]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/model.md#the-lowering-chain
 // Links to the qodec spec are pinned to the commit that `qodec` 0.2.1 was
 // published from (recorded in the crate's `.cargo_vcs_info.json`). Update them
 // together with the `qodec` dependency.
 
+pub mod actions;
 pub mod backend;
 pub mod layer;
 pub mod pauli;
 pub mod protocol;
 
+pub use actions::{ActionBackend, ActionOp, Generator, Guard, Qubit, tableau};
 pub use backend::{Backend, FromFn, from_fn};
 pub use layer::{Blueprint, Chain, Layer, Link, Stack};
 pub use protocol::{

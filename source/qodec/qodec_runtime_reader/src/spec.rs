@@ -5,7 +5,7 @@
 //! reading instruction sets, arguments and selection patterns into the model,
 //! frame deltas, parity references, encoding layouts, and codes.
 
-use super::actions::compile_action;
+use super::actions::{check_temporaries, compile_action};
 use qodec::{
     Argument, BlockOperand, Code, Encoding, Gadget, Instruction, InstructionSet, ParameterKind,
     ParityEquation, ParityTerm, Reference, ReferenceSegment, SelectPattern,
@@ -62,10 +62,19 @@ pub fn signature(instruction: &Instruction, types: &TypeTable) -> Result<Signatu
             })
             .collect::<Result<Vec<_>, String>>()
     };
+    let inputs = operands(&instruction.inputs)?;
+    let outputs = operands(&instruction.outputs)?;
+    let action = compile_action(instruction)?;
+    // Without variadic operands the boundary is fixed, and so is which
+    // indices past it the action may use.
+    if !inputs.iter().chain(&outputs).any(|o| o.variadic) {
+        let width = |side: &[Operand]| side.iter().map(|o| types.caps[o.block]).sum::<usize>();
+        check_temporaries(instruction, &action, width(&inputs).max(width(&outputs)))?;
+    }
     Ok(Signature {
         mnemonic: instruction.mnemonic.clone(),
-        inputs: operands(&instruction.inputs)?,
-        outputs: operands(&instruction.outputs)?,
+        inputs,
+        outputs,
         parameters: instruction
             .parameters
             .iter()
@@ -76,7 +85,7 @@ pub fn signature(instruction: &Instruction, types: &TypeTable) -> Result<Signatu
             .collect(),
         outcomes: instruction.observe_count(),
         flags: instruction.flags.len(),
-        action: compile_action(instruction)?,
+        action,
     })
 }
 

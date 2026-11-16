@@ -17,6 +17,8 @@ mod read;
 mod spec;
 
 #[cfg(test)]
+mod action_simulator_tests;
+#[cfg(test)]
 mod tests;
 
 pub use read::read;

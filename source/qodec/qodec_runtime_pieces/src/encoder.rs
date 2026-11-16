@@ -176,7 +176,7 @@ fn is_pauli_only(instruction: &Signature) -> bool {
         && instruction
             .action
             .iter()
-            .all(|s| !s.guarded && matches!(s.action, StepAction::Pauli(_)))
+            .all(|s| !s.guarded() && matches!(s.action, StepAction::Pauli(_)))
         && instruction.flags == 0
         && !instruction.inputs.is_empty()
         && instruction.inputs == instruction.outputs

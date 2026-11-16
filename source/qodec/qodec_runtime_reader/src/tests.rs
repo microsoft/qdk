@@ -7,11 +7,13 @@ use super::{
 };
 use qodec::{BlockOperand, Instruction, InstructionSet, Qodec, SelectPattern};
 use qodec_runtime_recipes::{
-    Backend, BasicReadout, BlockRef, Blueprint, Call, CompiledSelect, Compiler, CompilerPlan,
-    Correction, Design, Encoder, Fault, FaultKind, FrameDecoder, FrameDecoderPlan, FrameDecoding,
-    GadgetEncoder, GadgetEncoderPlan, Layer, LayerBlueprint, LayerModel, Lower, Never, OwnedParam,
-    Passive, PlanError, QodecLayer, QodecPlan, QodecRuntimeError, Record, Reply, Resources, Rounds,
-    Runtime, Selection, Stack, Status, Step, TypeChecker, TypeTable, UntilReadyPlan,
+    ActionOp, ActionTranslator, Backend, BasicReadout, BlockRef, Blueprint, Call, CompiledSelect,
+    Compiler, CompilerPlan, Correction, Design, Encoder, Fault, FaultKind, FrameDecoder,
+    FrameDecoderPlan, FrameDecoding, GadgetEncoder, GadgetEncoderPlan, Generator, Guard, Layer,
+    LayerBlueprint, LayerModel, Lower, Never, OwnedParam, Passive, PlanError, QodecLayer,
+    QodecPlan, QodecRuntimeError, Record, Reply, Resources, Rounds, Runtime, Selection, Stack,
+    Status, Step, TypeChecker, TypeTable, UntilReadyPlan,
+    action::Predicate,
     check_pauli_corrections, from_fn,
     parity::{Basis, BinarySystem, Inconsistent, Parity, Var},
     pauli::{Clifford, DensePauli, Pauli, PauliOp},
@@ -1070,6 +1072,82 @@ fn actions_that_cannot_be_read_fail_to_read() {
                 .to_string()
         )
     );
+    // A condition reads `bit` parameters, and outcomes already measured.
+    assert_eq!(
+        read_error(
+            "{mnemonic: maybe, description: '', in: [lq], out: [lq], parameters: {n: integer}, action: [{pauli: X_0, if: [n]}]}"
+        ),
+        Some("layer 0: `maybe`, action step 0: `n` names no `bit` parameter".to_string())
+    );
+    assert_eq!(
+        read_error(
+            "{mnemonic: early, description: '', in: [lq], out: [lq], action: [{pauli: X_0, if: ['outcomes[0]']}, observe: Z_0]}"
+        ),
+        Some(
+            "layer 0: `early`, action step 0: `outcomes[0]` is read before it is measured"
+                .to_string()
+        )
+    );
+    // The number of outcomes is fixed.
+    assert_eq!(
+        read_error(
+            "{mnemonic: peek, description: '', in: [lq], out: [lq], parameters: {b: bit}, action: [{observe: Z_0, if: [b]}]}"
+        ),
+        Some(
+            "layer 0: `peek`, action step 0: an `observe` step can't be guarded: the number of outcomes must not vary"
+                .to_string()
+        )
+    ); // Past the boundary, only an unconditional `stabilize` introduces a
+    // temporary, and only then may other steps use it.
+    assert_eq!(
+        read_error(
+            "{mnemonic: spill, description: '', in: [lq], out: [lq], action: [clifford: {X_0: X_0 X_1, Z_1: Z_0 Z_1}]}"
+        ),
+        Some(
+            "layer 0: `spill`, action step 0: flat index 1 is past the boundary, and no earlier unconditional `stabilize` introduces it"
+                .to_string()
+        )
+    );
+    assert_eq!(
+        read_error(
+            "{mnemonic: hedge, description: '', in: [lq], out: [lq], parameters: {b: bit}, action: [{stabilize: Z_1, if: [b]}]}"
+        ),
+        Some(
+            "layer 0: `hedge`, action step 0: flat index 1 is past the boundary, and no earlier unconditional `stabilize` introduces it"
+                .to_string()
+        )
+    );
+}
+
+#[test]
+fn conditions_are_read_with_their_predicates() {
+    let qodec = one_layer(
+        "{lq: 1}",
+        &[
+            PREPARE,
+            "{mnemonic: fix, description: '', in: [lq], out: [lq], parameters: {b: bit}, action: [observe: Z_0, {pauli: X_0, unless: ['outcomes[0]', b]}]}",
+        ],
+        "{qubit: 1}",
+        &[R],
+        &[PREPARE_GADGET],
+    );
+    let model = read(&qodec).expect("reads");
+    let fix = model
+        .top
+        .instructions
+        .iter()
+        .find(|i| i.mnemonic == "fix")
+        .expect("fix");
+    let condition = fix.action[1].condition.clone().expect("guarded");
+    assert_eq!(
+        condition.predicates,
+        [Predicate::Outcome(0), Predicate::Param("b".to_string())]
+    );
+    assert!(condition.invert);
+    // `unless`: it applies when the parity is 0.
+    assert!(condition.holds(|_| true));
+    assert!(!condition.holds(|p| matches!(p, Predicate::Param(_))));
+    assert!(!fix.action[0].guarded());
 }
 
 #[test]
@@ -2078,4 +2156,227 @@ chain.gadget.yaml:
     // An even number of copies of readouts[0] cancels.
     let key = (0, Basis::X, 0);
     assert_eq!(gadget.frames[&key], Parity::default());
+}
+
+// ── The action translator ───────────────────────────────────────────────────
+
+/// A call of instruction `mnemonic` of `isa` on blocks `operands`, with
+/// arguments `args`.
+fn bottom_call(
+    isa: &qodec_runtime_recipes::Isa,
+    mnemonic: &str,
+    operands: &[u64],
+    args: &[OwnedParam],
+) -> Call {
+    let instruction_id = isa
+        .instructions
+        .iter()
+        .position(|i| i.mnemonic == mnemonic)
+        .expect("the instruction exists");
+    let mut parameters: SmallVec<[OwnedParam; 2]> =
+        operands.iter().map(|&b| OwnedParam::Block(b)).collect();
+    parameters.extend(args.iter().cloned());
+    Call {
+        instruction_id,
+        parameters,
+    }
+}
+
+/// An action backend that records what it is given, and measures `true`
+/// every time.
+fn recorder(
+    log: &RefCell<Vec<ActionOp>>,
+) -> impl Backend<Vec<ActionOp>, Result<Vec<bool>, String>> + '_ {
+    from_fn(move |ops: Vec<ActionOp>| {
+        let n = ops
+            .iter()
+            .map(|op| match op {
+                ActionOp::Observe(paulis) => paulis.len(),
+                _ => 0,
+            })
+            .sum();
+        log.borrow_mut().extend(ops);
+        Ok(vec![true; n])
+    })
+}
+
+#[test]
+fn the_action_translator_runs_bottom_calls_as_their_actions() {
+    let model = read(&repetition3()).expect("reads");
+    let isa = Arc::clone(&model.bottom);
+    let log = RefCell::new(Vec::new());
+    let mut shot = Stack::new(ActionTranslator::new(&isa), recorder(&log));
+    let c = |m: &str, ops: &[u64], args: &[OwnedParam]| bottom_call(&isa, m, ops, args);
+    let results = shot
+        .execute(vec![
+            c("R", &[7], &[]),
+            c("R", &[8], &[]),
+            c("CX", &[7, 8], &[]),
+            c("XIF", &[8], &[OwnedParam::Int(1)]),
+            c("XIF", &[8], &[OwnedParam::Bool(false)]),
+            c("M", &[7], &[]),
+            c("MZ", &[8], &[]),
+        ])
+        .expect("runs");
+    assert_eq!(
+        results,
+        [
+            BasicReadout::new(&[Some(true)], &[], Status::default()),
+            BasicReadout::new(&[Some(true)], &[], Status::default())
+        ]
+    );
+    assert_eq!(
+        *log.borrow(),
+        [
+            ActionOp::Allocate(0),
+            ActionOp::Stabilize {
+                paulis: vec![pauli("Z_0")],
+                guard: None
+            },
+            ActionOp::Allocate(1),
+            ActionOp::Stabilize {
+                paulis: vec![pauli("Z_1")],
+                guard: None
+            },
+            ActionOp::Clifford {
+                images: vec![
+                    (Generator::X(0), pauli("X_0 X_1")),
+                    (Generator::Z(1), pauli("Z_0 Z_1")),
+                ],
+                guard: None
+            },
+            // `if: [c]` with `c = 1` always applies, and with `c = 0` never.
+            ActionOp::Pauli {
+                pauli: pauli("X_1"),
+                guard: None
+            },
+            ActionOp::Observe(vec![pauli("Z_0")]),
+            ActionOp::Release(0),
+            ActionOp::Observe(vec![pauli("Z_1")]),
+        ]
+    );
+    // A released qubit is reused; a block that ended is gone.
+    log.borrow_mut().clear();
+    shot.execute(vec![c("R", &[9], &[])]).expect("runs");
+    assert_eq!(log.borrow()[0], ActionOp::Allocate(0));
+    assert_eq!(shot.upper.qubits_of(8), Some(&[1][..]));
+    assert_eq!(shot.upper.qubits_of(9), Some(&[0][..]));
+    assert_eq!(shot.upper.qubits_used(), 2);
+    let err = shot.execute(vec![c("M", &[7], &[])]).expect_err("7 ended");
+    assert!(err.contains("block 7 is not live"), "{err}");
+}
+
+#[test]
+fn guards_on_outcomes_read_the_outcomes_of_their_call() {
+    let measure_reset = "{mnemonic: MR, description: '', in: [qubit], out: [qubit], action: [observe: Z_0, {pauli: X_0, if: ['outcomes[0]']}]}";
+    let qodec = one_layer(
+        "{lq: 1}",
+        &[PREPARE],
+        "{qubit: 1}",
+        &[R, measure_reset],
+        &[PREPARE_GADGET],
+    );
+    let model = read(&qodec).expect("reads");
+    let isa = Arc::clone(&model.bottom);
+    let log = RefCell::new(Vec::new());
+    let mut shot = Stack::new(ActionTranslator::new(&isa), recorder(&log));
+    let c = |m: &str| bottom_call(&isa, m, &[0], &[]);
+    let results = shot.execute(vec![c("R"), c("MR"), c("MR")]).expect("runs");
+    assert_eq!(results.len(), 2);
+    let guards: Vec<Option<Guard>> = log
+        .borrow()
+        .iter()
+        .filter_map(|op| match op {
+            ActionOp::Pauli { guard, .. } => Some(guard.clone()),
+            _ => None,
+        })
+        .collect();
+    // Each call's `outcomes[0]` is its own outcome: the batch's first, then
+    // its second.
+    assert_eq!(
+        guards,
+        [
+            Some(Guard {
+                outcomes: vec![0],
+                invert: false
+            }),
+            Some(Guard {
+                outcomes: vec![1],
+                invert: false
+            })
+        ]
+    );
+}
+
+#[test]
+fn inputs_and_outputs_share_their_flat_indices() {
+    let grow = "{mnemonic: grow, description: '', in: [qubit], out: [pair], action: [clifford: {X_0: X_0 X_1, Z_1: Z_0 Z_1}]}";
+    let shrink =
+        "{mnemonic: shrink, description: '', in: [pair], out: [qubit], action: [observe: Z_1]}";
+    let qodec = one_layer(
+        "{lq: 1}",
+        &[PREPARE],
+        "{qubit: 1, pair: 2}",
+        &[R, grow, shrink],
+        // With two block types below, the circuit says which it gives.
+        &[(
+            "prepare",
+            "  circuit: {source: [{R: [0]}], out: {\"0\": qubit}}\n",
+        )],
+    );
+    let model = read(&qodec).expect("reads");
+    let isa = Arc::clone(&model.bottom);
+    let log = RefCell::new(Vec::new());
+    let mut shot = Stack::new(ActionTranslator::new(&isa), recorder(&log));
+    let c = |m: &str| bottom_call(&isa, m, &[5], &[]);
+    shot.execute(vec![c("R"), c("grow")]).expect("runs");
+    // The pair keeps the qubit's state in its first qubit.
+    assert_eq!(shot.upper.qubits_of(5), Some(&[0, 1][..]));
+    assert_eq!(log.borrow()[2], ActionOp::Allocate(1));
+    shot.execute(vec![c("shrink")]).expect("runs");
+    assert_eq!(shot.upper.qubits_of(5), Some(&[0][..]));
+    assert_eq!(log.borrow().last(), Some(&ActionOp::Release(1)));
+}
+
+#[test]
+fn an_unconditional_stabilize_introduces_the_temporaries_it_names() {
+    // Index 7 is a temporary; 1 to 6 are never named, so never allocated.
+    let measure = "{mnemonic: MA, description: '', in: [qubit], out: [qubit], action: [stabilize: Z_7, clifford: {X_0: X_0 X_7, Z_7: Z_0 Z_7}, observe: Z_7]}";
+    let qodec = one_layer(
+        "{lq: 1}",
+        &[PREPARE],
+        "{qubit: 1}",
+        &[R, measure],
+        &[PREPARE_GADGET],
+    );
+    let model = read(&qodec).expect("reads");
+    let isa = Arc::clone(&model.bottom);
+    let log = RefCell::new(Vec::new());
+    let mut shot = Stack::new(ActionTranslator::new(&isa), recorder(&log));
+    let c = |m: &str| bottom_call(&isa, m, &[0], &[]);
+    shot.execute(vec![c("R")]).expect("runs");
+    log.borrow_mut().clear();
+    shot.execute(vec![c("MA")]).expect("runs");
+    assert_eq!(
+        *log.borrow(),
+        [
+            ActionOp::Allocate(1),
+            ActionOp::Stabilize {
+                paulis: vec![pauli("Z_1")],
+                guard: None
+            },
+            ActionOp::Clifford {
+                images: vec![
+                    (Generator::X(0), pauli("X_0 X_1")),
+                    (Generator::Z(1), pauli("Z_0 Z_1")),
+                ],
+                guard: None
+            },
+            ActionOp::Observe(vec![pauli("Z_1")]),
+            // Traced out at the end of the call.
+            ActionOp::Release(1),
+        ]
+    );
+    assert_eq!(shot.upper.qubits_of(0), Some(&[0][..]));
+    assert_eq!(shot.upper.qubits_used(), 2);
 }

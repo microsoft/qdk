@@ -502,7 +502,7 @@ fn action_transport(
     let resolve = |pauli: &PauliExpr| pauli.resolve(&inv.args).map_err(|_| Unresolved);
 
     for step in &gadget.action {
-        if step.guarded {
+        if step.guarded() {
             // The step may or may not apply; that is harmless only when the
             // qubits it touches carry no frame.
             let touched = step_support(&step.action, &resolve)?;

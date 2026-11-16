@@ -15,6 +15,7 @@ rustc-hash = { workspace = true }
 
 [dev-dependencies]
 deq-runtime = { workspace = true }
+qdk_simulators = { path = "../../simulators", default-features = false }
 qodec_runtime_recipes = { path = "../qodec_runtime_recipes" }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
