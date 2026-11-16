@@ -44,6 +44,8 @@ sequenceDiagram
       A->>N: WorkspaceSetMemory (larger host memory, the smaller dropped after)
     else the slot asks for memory its buffer holds
       A->>N: WorkspaceSetMemory (its buffer)
+    else the slot asks for none
+      Note over A,N: nothing called, the slot keeps its loan
     end
   end
   Note over M,N: Phase: factor

@@ -102,41 +102,34 @@ fn scratch_is_bounded_by_the_free_memory() {
 }
 
 /// Calls whose library asks for more host memory in one host slot than
-/// a `Vec` can hold, or than the host can give: each fails with an error,
-/// not a panic or an abort, having released every native object it made,
-/// and the algebra serves the next call.
+/// the host's allocator gives, because a `Vec` cannot hold it or because
+/// the allocator returns none: each fails with `HostAllocationFailed`
+/// naming the bytes asked, not a panic or an abort, having released every
+/// native object it made, and the algebra serves the next call.
 #[test]
-fn a_host_slot_the_host_cannot_give_fails_only_its_call() {
-    // The most a host slot asks for that still fits, with its padding of
-    // 255 bytes, in `isize::MAX` bytes: more than any host has.
-    let unallocatable = i64::MAX - 255;
-    let cases = [
-        (WorkspaceSlot::HostScratch, i64::MAX, "beyond a Vec"),
-        (WorkspaceSlot::HostCache, i64::MAX, "beyond a Vec"),
-        (WorkspaceSlot::HostScratch, unallocatable, "beyond the host"),
-        (WorkspaceSlot::HostCache, unallocatable, "beyond the host"),
-    ];
-    for (slot, bytes, size) in cases {
+fn a_host_slot_the_allocator_refuses_fails_only_its_call() {
+    // Beyond `isize::MAX` once padded, and the most that fits, with the
+    // padding of 255 bytes, in `isize::MAX`: more than any host has.
+    let sizes = [i64::MAX, i64::MAX - 255];
+    let slots = [WorkspaceSlot::HostScratch, WorkspaceSlot::HostCache];
+    for (slot, bytes) in slots
+        .into_iter()
+        .flat_map(|slot| sizes.map(|bytes| (slot, bytes)))
+    {
         let (algebra, libraries) = algebra();
         split_once(&algebra).expect("a split that makes the workspace");
         let live = libraries.live_objects();
         libraries.set_workspace_slot_bytes(slot, bytes);
         let failed = split_once(&algebra);
-        let expected = match size {
-            "beyond a Vec" => matches!(
+        let asked = usize::try_from(bytes).expect("a 64-bit host");
+        assert!(
+            matches!(
                 failed,
-                Err(NativeError::ResourceSizeOverflow {
-                    resource: "host workspace"
-                })
+                Err(NativeError::HostAllocationFailed { bytes }) if bytes == asked
             ),
-            _ => matches!(
-                failed,
-                Err(NativeError::HostAllocationFailed { bytes: asked })
-                    if asked == usize::try_from(i64::MAX).expect("a 64-bit host")
-            ),
-        };
-        assert!(expected, "{slot:?} {size}: {failed:?}");
-        assert_eq!(libraries.live_objects(), live, "{slot:?} {size}");
+            "{slot:?} {bytes}: {failed:?}"
+        );
+        assert_eq!(libraries.live_objects(), live, "{slot:?} {bytes}");
         libraries.set_workspace_slot_bytes(slot, 0);
         split_once(&algebra).expect("the next call");
     }

@@ -6,8 +6,8 @@
 //! Every user of the native calls, today the engine and the CUDA algebra,
 //! must report these failures, and none of them is its caller's fault: no
 //! device, a call that returned an error status, a function the library
-//! lacks, a size or a result that does not fit, host memory the host cannot
-//! give, a workspace larger than the budget, or a native object an earlier
+//! lacks, a size or a result that does not fit, host memory the allocator
+//! refuses, a workspace larger than the budget, or a native object an earlier
 //! failure left unusable. So they are
 //! one type, which each user wraps in its own error beside the refusals of
 //! its contract (`EngineError::Native`), or returns as it is (the CUDA
@@ -67,9 +67,10 @@ pub enum NativeError {
     #[error("{resource} size overflows the native address space")]
     ResourceSizeOverflow { resource: &'static str },
 
-    /// The host could not give the memory a native call asked for, such as
-    /// a host slot of a workspace.
-    #[error("the host could not allocate {bytes} bytes")]
+    /// The host's allocator refused the memory a native call asked for,
+    /// such as a host slot of a workspace: `bytes`, as asked, before the
+    /// slot's alignment padding, which the refused allocation included.
+    #[error("the host's allocator refused {bytes} bytes of memory")]
     HostAllocationFailed { bytes: usize },
 
     /// cuTensorNet asked for more workspace than the budget or the device's

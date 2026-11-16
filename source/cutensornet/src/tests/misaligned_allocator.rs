@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! The unit tests' global allocator, which starts every allocation of
-//! alignment 1 (byte buffers, strings) one byte past a 256-byte boundary,
+//! alignment 1 (byte buffers, strings), but one too large to shift, one
+//! byte past a 256-byte boundary,
 //! the worst start for the CUDA algebra's host workspace
 //! (`src/cuda_algebra/scratch.rs`): what a host slot lends must begin on a
 //! 256-byte boundary, so a buffer starting one byte past one skips 255
@@ -30,8 +31,9 @@ struct MisalignedAllocator;
 static ALLOCATOR: MisalignedAllocator = MisalignedAllocator;
 
 /// The block that holds an allocation of `layout`, of alignment 1,
-/// [`SHIFT`] bytes past its start, or `None` for any other layout, which
-/// is allocated as asked.
+/// [`SHIFT`] bytes past its start, or `None` for another alignment or a
+/// size too large to shift (beyond `isize::MAX` once rounded to a
+/// [`BOUNDARY`]): such a layout is allocated as asked.
 fn shifted_block(layout: Layout) -> Option<Layout> {
     if layout.align() != 1 {
         return None;

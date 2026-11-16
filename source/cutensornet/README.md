@@ -189,8 +189,8 @@ Each `SiteAlgebra` method of this algebra combines some of these phases
 - **factor**: one `GateSplit` or one `TensorQR`, waited for.
 - **prepare**: for a contraction of a shape the algebra has not kept, a
   network, its path found, its workspace sized and lent (as in **lend**),
-  and prepared for contraction (`NetworkPrepareContraction`), then kept
-  for later calls of that shape.
+  and the network prepared for contraction (`NetworkPrepareContraction`),
+  then kept for later calls of that shape.
 - **contract**: for a network kept from an earlier call, its workspace
   sized and lent (as in **lend**); then a pairwise contraction on that
   network, waited for.
