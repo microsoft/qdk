@@ -109,9 +109,8 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 /// releases them, unless it cannot select its device, which leaks them;
 /// its tensors keep the session alive and free their own buffers. A
 /// poisoned algebra frees nothing the device may still use until a wait
-/// for it succeeds (`algebra_session.rs`). It accepts only
-/// the tensors it made, refusing another algebra's with
-/// [`NativeError::ForeignTensor`].
+/// for it succeeds (`algebra_session.rs`). It accepts only the tensors it
+/// made, refusing another algebra's with [`NativeError::ForeignTensor`].
 pub struct CudaAlgebra {
     session: Rc<AlgebraSession>,
     resources: RefCell<AlgebraResources>,

@@ -34,12 +34,12 @@ sequenceDiagram
   A->>N: CreateTensorSVDConfig, TensorSVDConfigSetAttribute ×4, CreateTensorSVDInfo (a gate split only)
   Note over M,N: Phase: lend
   A->>N: WorkspaceComputeGateSplitSizes, WorkspaceComputeQRSizes or WorkspaceComputeContractionSizes
-  loop each of the four slots, the device's first
+  loop each of the four slots, the two device slots first
     A->>N: WorkspaceGetMemorySize
     alt a device slot asks for more than its buffer holds
       A->>R: cudaMemGetInfo, cudaMalloc (the larger buffer)
       A->>N: WorkspaceSetMemory (the larger buffer)
-      A->>R: cudaFree (the smaller buffer)
+      A->>R: cudaFree (the smaller buffer, if any)
     else a host slot asks for more than its memory holds
       A->>N: WorkspaceSetMemory (larger host memory, the smaller dropped after)
     else the slot asks for memory its buffer holds

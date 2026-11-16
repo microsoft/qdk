@@ -14,8 +14,8 @@
 //! holds freed memory. Only a device buffer is bounded: it never grows
 //! beyond the device's free memory. A host slot's growth that the host's
 //! allocator refuses fails the call, as an error. A slot a call asks no
-//! memory for keeps what it was lent: cuTensorNet refuses a slot lent a pointer
-//! and 0 bytes (status 7 on the A100).
+//! memory for keeps what it was lent: cuTensorNet refuses a slot lent a
+//! pointer and 0 bytes (status 7 on the A100).
 
 use crate::device_session::DeviceSession;
 use crate::native_calls::error::{NativeError, first_failure};
@@ -163,7 +163,7 @@ fn asked(
 /// them (beyond `isize::MAX` bytes, a `Vec` cannot hold them), so the
 /// call's cleanup runs, where `vec!` would abort. Memory the system
 /// over-commits, or a memory cap, may still end the process once `resize`
-/// touches the pages: it writes every byte, where `vec!` let the system
+/// touches the pages: it writes every byte, where `vec!` would let the system
 /// zero them on first use, a cost only a large host slot would show.
 fn host_memory(bytes: usize) -> Option<Vec<u8>> {
     let mut memory = Vec::new();

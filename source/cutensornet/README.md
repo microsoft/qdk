@@ -185,7 +185,9 @@ Each `SiteAlgebra` method of this algebra combines some of these phases
 - **lend**: cuTensorNet sizes the call's workspace, and the algebra lends
   each slot the call asks memory for (device or host, scratch or cache)
   its own buffer, grown to the largest call's and never shrunk; a device
-  buffer never grows beyond the device's free memory.
+  buffer never grows beyond the device's free memory, and a host slot's
+  growth the allocator refuses fails the call
+  (`NativeError::HostAllocationFailed`).
 - **factor**: one `GateSplit` or one `TensorQR`, waited for.
 - **prepare**: for a contraction of a shape the algebra has not kept, a
   network, its path found, its workspace sized and lent (as in **lend**),
@@ -206,9 +208,9 @@ only each tensor it reads. It checks that this algebra made it (else
 through its own algebra's session, which waits only for that algebra's
 device work; and that it holds the elements the call asks for (else
 `NativeError::InvalidNativeCall`, before any native object). The engine
-checks the others before it calls. Each returns
-with the device idle, its stream and its copies waited for, so the engine
-may use a tensor at once and the next call may grow the scratch.
+checks the others before it calls. Each returns with the device idle, its
+stream and its copies waited for, so the engine may use a tensor at once
+and the next call may grow the scratch.
 
 | `SiteAlgebra` method  | Phases                                                                                                 | How                                                                                                                                                                                                                                                                                                                                                                           | Why                                                                                                                                                                                         |
 | --------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

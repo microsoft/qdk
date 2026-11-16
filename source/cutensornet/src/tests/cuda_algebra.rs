@@ -547,8 +547,7 @@ fn is_a_failed_wait(error: &NativeError) -> bool {
 /// when that wait fails, nothing tells when the device is done with them,
 /// so every later call is refused as poisoned, whichever method makes it
 /// and whatever its arguments (a tensor too short for the call, or another
-/// algebra's, included),
-/// the wait's failure kept beside the call's.
+/// algebra's, included), the wait's failure kept beside the call's.
 #[test]
 fn a_failed_call_that_cannot_wait_for_the_device_poisons_the_algebra() {
     let (algebra, _libraries, pair, failed) = a_failed_split(true);

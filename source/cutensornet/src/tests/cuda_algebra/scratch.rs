@@ -22,7 +22,9 @@ fn split_once(algebra: &CudaAlgebra) -> Result<(), NativeError> {
 /// for more, then one that asks for less: the algebra allocates one
 /// scratch buffer and one singular values' buffer for the first, reuses
 /// both, the singular values' at an exact fit, replaces the scratch by a
-/// larger one for the fourth, and keeps that one for the last.
+/// larger one for the fourth, and keeps that one for the last. Each host
+/// slot, asked memory the same way, is allocated it once for the first
+/// three, once more for the fourth, and not for the last.
 #[test]
 fn the_algebras_buffers_grow_only_when_a_call_asks_for_more() {
     let (algebra, libraries) = algebra();
@@ -41,6 +43,34 @@ fn the_algebras_buffers_grow_only_when_a_call_asks_for_more() {
     libraries.set_workspace_bytes(WORKSPACE_BYTES);
     split_once(&algebra).expect("the split asking for less");
     assert_eq!(libraries.scratch_buffers(), 2);
+
+    // Sizes no other test allocates; a host slot's memory is the size
+    // asked plus its alignment padding, less than a boundary.
+    let host_slots = [
+        (WorkspaceSlot::HostScratch, 3_000_017),
+        (WorkspaceSlot::HostCache, 5_000_011),
+    ];
+    for (slot, asked) in host_slots {
+        let (algebra, libraries) = super::algebra();
+        let grown_to = |bytes: usize, splits: usize| {
+            let watched = bytes..bytes + crate::tests::misaligned_allocator::BOUNDARY;
+            crate::tests::misaligned_allocator::count_allocations(watched, || {
+                for _ in 0..splits {
+                    split_once(&algebra).expect("a split asking host memory");
+                }
+            })
+        };
+        let set = |bytes: usize| {
+            let bytes = i64::try_from(bytes).expect("a small size");
+            libraries.set_workspace_slot_bytes(slot, bytes);
+        };
+        set(asked);
+        assert_eq!(grown_to(asked, 3), 1, "{slot:?}: the same size");
+        set(2 * asked);
+        assert_eq!(grown_to(2 * asked, 1), 1, "{slot:?}: more");
+        set(asked);
+        assert_eq!(grown_to(asked, 1), 0, "{slot:?}: less");
+    }
 }
 
 /// A call that asks for more scratch than the workspace holds: the larger

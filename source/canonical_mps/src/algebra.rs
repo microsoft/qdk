@@ -60,8 +60,8 @@ pub trait SiteAlgebra {
     /// can hold it as its source.
     type Error: std::error::Error + 'static;
 
-    /// A new tensor holding `values`, at least one (a site tensor holds
-    /// at least two).
+    /// A new tensor holding `values`. `values` holds at least one element
+    /// (a site tensor, at least two).
     fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error>;
 
     /// The first `len` elements of `tensor`, borrowed where they already

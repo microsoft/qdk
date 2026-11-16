@@ -7,9 +7,9 @@
 //! must report these failures, and none of them is its caller's fault: no
 //! device, a call that returned an error status, a function the library
 //! lacks, a size or a result that does not fit, host memory the allocator
-//! refuses, a workspace larger than the budget, or a native object an earlier
-//! failure left unusable. So they are
-//! one type, which each user wraps in its own error beside the refusals of
+//! refuses, a workspace larger than the budget, or a native object an
+//! earlier failure left unusable. So they are one type, which each user
+//! wraps in its own error beside the refusals of
 //! its contract (`EngineError::Native`), or returns as it is (the CUDA
 //! algebra's `SiteAlgebra::Error`), beside the algebra's two refusals of
 //! its caller's tensors: one another algebra made (`ForeignTensor`), and
