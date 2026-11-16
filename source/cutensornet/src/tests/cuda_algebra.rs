@@ -105,14 +105,15 @@ fn a_failed_opening_releases_what_it_made() {
 }
 
 /// A site uploaded and read back is the site: whole, or its first
-/// elements.
+/// elements, none included.
 #[test]
 fn an_uploaded_tensor_reads_back_its_values() {
     let (algebra, _libraries) = algebra();
     let values = random(12, 1);
     let tensor = upload(&algebra, &values);
-    assert_eq!(read(&algebra, &tensor, 12), values);
-    assert_eq!(read(&algebra, &tensor, 5), values[..5]);
+    for len in [12, 5, 0] {
+        assert_eq!(read(&algebra, &tensor, len), values[..len], "{len}");
+    }
 }
 
 /// A fork's copy of a site holds its first `len` elements, and stays

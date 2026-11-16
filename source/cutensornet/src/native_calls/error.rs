@@ -6,8 +6,9 @@
 //! Every user of the native calls, today the engine and the CUDA algebra,
 //! must report these failures, and none of them is its caller's fault: no
 //! device, a call that returned an error status, a function the library
-//! lacks, a size or a result that does not fit, a workspace larger than the
-//! budget, or a native object an earlier failure left unusable. So they are
+//! lacks, a size or a result that does not fit, host memory the host cannot
+//! give, a workspace larger than the budget, or a native object an earlier
+//! failure left unusable. So they are
 //! one type, which each user wraps in its own error beside the refusals of
 //! its contract (`EngineError::Native`), or returns as it is (the CUDA
 //! algebra's `SiteAlgebra::Error`), beside the algebra's two refusals of
@@ -40,7 +41,9 @@ pub enum NativeError {
     },
 
     /// A native call was about to be made with arguments that do not fit
-    /// it: a defect of the code making it, not of its caller.
+    /// it: a defect of the code making it, or of a caller that broke a
+    /// documented precondition, such as a tensor shorter than a CUDA
+    /// algebra's call reads.
     #[error("invalid native call: {reason}")]
     InvalidNativeCall { reason: String },
 
@@ -63,6 +66,11 @@ pub enum NativeError {
     /// A size does not fit the native integer type.
     #[error("{resource} size overflows the native address space")]
     ResourceSizeOverflow { resource: &'static str },
+
+    /// The host could not give the memory a native call asked for, such as
+    /// a host slot of a workspace.
+    #[error("the host could not allocate {bytes} bytes")]
+    HostAllocationFailed { bytes: usize },
 
     /// cuTensorNet asked for more workspace than the budget or the device's
     /// free memory.

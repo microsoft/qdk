@@ -60,7 +60,8 @@ pub trait SiteAlgebra {
     /// can hold it as its source.
     type Error: std::error::Error + 'static;
 
-    /// A new tensor holding `values`.
+    /// A new tensor holding `values`, at least one (a site tensor holds
+    /// at least two).
     fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error>;
 
     /// The first `len` elements of `tensor`, borrowed where they already
@@ -73,7 +74,7 @@ pub trait SiteAlgebra {
 
     /// A new tensor holding the first `len` elements of `tensor`, which
     /// later calls on either leave the other unchanged. `tensor` holds at
-    /// least `len` elements.
+    /// least `len` elements, and `len` is at least 1.
     fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Self::Error>;
 
     /// Applies a two-site gate to a pair of neighbouring sites and splits

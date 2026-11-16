@@ -185,6 +185,9 @@ struct Inner {
     /// The bytes `workspace_size` asks for in each other slot: the device
     /// cache and both host slots.
     other_slot_bytes: i64,
+    /// The bytes `workspace_size` asks for in a slot, by its index, when
+    /// set for that slot alone, whatever the two settings above say.
+    slot_bytes: [Option<i64>; 4],
     /// The computed MPS each buffer holds, as a compute wrote it or a copy
     /// copied it: the compute's number, and the site.
     mps_tensors: BTreeMap<usize, (usize, usize)>,
@@ -439,6 +442,12 @@ impl FakeLibraries {
         self.lock().other_slot_bytes = bytes;
     }
 
+    /// Makes every workspace ask for `bytes` in `slot` from now on,
+    /// whatever the two settings above say.
+    pub(crate) fn set_workspace_slot_bytes(&self, slot: WorkspaceSlot, bytes: i64) {
+        self.lock().slot_bytes[slot_index(slot)] = Some(bytes);
+    }
+
     /// The f64 configurations of every state, in order.
     pub(crate) fn f64_configurations(&self) -> Vec<StateF64Configuration> {
         self.lock().f64_configurations.clone()
@@ -567,6 +576,9 @@ impl Inner {
 
     /// The bytes every workspace asks for in `slot`.
     fn recommended_bytes(&self, slot: WorkspaceSlot) -> i64 {
+        if let Some(bytes) = self.slot_bytes[slot_index(slot)] {
+            return bytes;
+        }
         match slot {
             WorkspaceSlot::DeviceScratch => self.workspace_bytes.unwrap_or(WORKSPACE_BYTES),
             _ => self.other_slot_bytes,

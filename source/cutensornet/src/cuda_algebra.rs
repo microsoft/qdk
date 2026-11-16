@@ -270,6 +270,10 @@ impl SiteAlgebra for CudaAlgebra {
     ) -> Result<Cow<'t, [Complex64]>, NativeError> {
         let values = self.run(&[tensor], |scope| {
             let source = tensor.holding(len)?;
+            if len == 0 {
+                // A copy of no bytes is not a valid native call.
+                return Ok(Vec::new());
+            }
             let mut values = vec![Complex64Abi::default(); len];
             scope.calls().copy_to_host(&mut values, source)?;
             Ok(values)

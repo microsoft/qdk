@@ -9,6 +9,7 @@
 
 use super::*;
 use crate::native_calls::fake_libraries::WORKSPACE_BYTES;
+use crate::native_calls::memory_calls::WorkspaceSlot;
 
 /// A split the scratch tests repeat: any call that lends a workspace would
 /// do.
@@ -98,6 +99,47 @@ fn scratch_is_bounded_by_the_free_memory() {
     assert_eq!(libraries.scratch_buffers(), 0);
     libraries.set_free_memory(asked);
     split_once(&algebra).expect("a split asking for the free memory");
+}
+
+/// Calls whose library asks for more host memory in one host slot than
+/// a `Vec` can hold, or than the host can give: each fails with an error,
+/// not a panic or an abort, having released every native object it made,
+/// and the algebra serves the next call.
+#[test]
+fn a_host_slot_the_host_cannot_give_fails_only_its_call() {
+    // The most a host slot asks for that still fits, with its padding of
+    // 255 bytes, in `isize::MAX` bytes: more than any host has.
+    let unallocatable = i64::MAX - 255;
+    let cases = [
+        (WorkspaceSlot::HostScratch, i64::MAX, "beyond a Vec"),
+        (WorkspaceSlot::HostCache, i64::MAX, "beyond a Vec"),
+        (WorkspaceSlot::HostScratch, unallocatable, "beyond the host"),
+        (WorkspaceSlot::HostCache, unallocatable, "beyond the host"),
+    ];
+    for (slot, bytes, size) in cases {
+        let (algebra, libraries) = algebra();
+        split_once(&algebra).expect("a split that makes the workspace");
+        let live = libraries.live_objects();
+        libraries.set_workspace_slot_bytes(slot, bytes);
+        let failed = split_once(&algebra);
+        let expected = match size {
+            "beyond a Vec" => matches!(
+                failed,
+                Err(NativeError::ResourceSizeOverflow {
+                    resource: "host workspace"
+                })
+            ),
+            _ => matches!(
+                failed,
+                Err(NativeError::HostAllocationFailed { bytes: asked })
+                    if asked == usize::try_from(i64::MAX).expect("a 64-bit host")
+            ),
+        };
+        assert!(expected, "{slot:?} {size}: {failed:?}");
+        assert_eq!(libraries.live_objects(), live, "{slot:?} {size}");
+        libraries.set_workspace_slot_bytes(slot, 0);
+        split_once(&algebra).expect("the next call");
+    }
 }
 
 /// A grown scratch the workspace failed to take: the call fails, and the

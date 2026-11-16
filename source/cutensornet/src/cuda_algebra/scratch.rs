@@ -12,9 +12,10 @@
 //! buffer grows as the cuTensorNet engine's scratch does: the larger
 //! buffer is lent before the smaller is freed, so the descriptor never
 //! holds freed memory. Only a device buffer is bounded: it never grows
-//! beyond the device's free memory. A slot a call asks no memory for
-//! keeps what it was lent: cuTensorNet refuses a slot lent a pointer and
-//! 0 bytes (status 7 on the A100).
+//! beyond the device's free memory. A host slot's growth that the host
+//! cannot give fails the call, as an error. A slot a call asks no memory
+//! for keeps what it was lent: cuTensorNet refuses a slot lent a pointer
+//! and 0 bytes (status 7 on the A100).
 
 use crate::device_session::DeviceSession;
 use crate::native_calls::error::{NativeError, first_failure};
@@ -68,11 +69,18 @@ impl Scratch {
             .enumerate()
         {
             if let Some(bytes) = asked(calls, handle, workspace, slot)? {
+                // Beyond `isize::MAX` bytes, a `Vec` cannot hold them.
+                let padded = bytes
+                    .checked_add(HOST_PADDING)
+                    .filter(|&padded| isize::try_from(padded).is_ok())
+                    .ok_or(NativeError::ResourceSizeOverflow {
+                        resource: "host workspace",
+                    })?;
                 let held = &mut self.host[index];
-                if held.len() < bytes + HOST_PADDING {
+                if held.len() < padded {
                     // The smaller memory is dropped only once the
                     // descriptor holds the larger, as a device buffer is.
-                    let mut grown = vec![0; bytes + HOST_PADDING];
+                    let mut grown = host_memory(padded)?;
                     lend_host(calls, handle, workspace, slot, &mut grown)?;
                     *held = grown;
                 } else {
@@ -149,6 +157,18 @@ fn asked(
         .map_err(|_| NativeError::ResourceSizeOverflow {
             resource: "workspace",
         })
+}
+
+/// `bytes` zeroed bytes of host memory, at most `isize::MAX`. The library
+/// may ask for more than the host can give: that is returned as an error,
+/// not an abort, so the call's cleanup runs.
+fn host_memory(bytes: usize) -> Result<Vec<u8>, NativeError> {
+    let mut memory = Vec::new();
+    memory
+        .try_reserve_exact(bytes)
+        .map_err(|_| NativeError::HostAllocationFailed { bytes })?;
+    memory.resize(bytes, 0);
+    Ok(memory)
 }
 
 /// Lends host slot `slot` of `workspace` `memory`, from its first

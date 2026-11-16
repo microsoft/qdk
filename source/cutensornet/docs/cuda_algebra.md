@@ -34,13 +34,18 @@ sequenceDiagram
   A->>N: CreateTensorSVDConfig, TensorSVDConfigSetAttribute ×4, CreateTensorSVDInfo (a gate split only)
   Note over M,N: Phase: lend
   A->>N: WorkspaceComputeGateSplitSizes, WorkspaceComputeQRSizes or WorkspaceComputeContractionSizes
-  A->>N: WorkspaceGetMemorySize (each of the four slots)
-  opt a device slot's buffer is smaller than it asks
-    A->>R: cudaMemGetInfo, cudaMalloc (the larger buffer)
-    A->>N: WorkspaceSetMemory
-    A->>R: cudaFree (the smaller buffer)
+  loop each of the four slots, the device's first
+    A->>N: WorkspaceGetMemorySize
+    alt a device slot asks for more than its buffer holds
+      A->>R: cudaMemGetInfo, cudaMalloc (the larger buffer)
+      A->>N: WorkspaceSetMemory (the larger buffer)
+      A->>R: cudaFree (the smaller buffer)
+    else a host slot asks for more than its memory holds
+      A->>N: WorkspaceSetMemory (larger host memory, the smaller dropped after)
+    else the slot asks for memory its buffer holds
+      A->>N: WorkspaceSetMemory (its buffer)
+    end
   end
-  A->>N: WorkspaceSetMemory (each slot that asks for memory)
   Note over M,N: Phase: factor
   A->>R: cudaMalloc (the outputs, and the singular values' buffer if it must grow)
   A->>R: cudaFree (the smaller singular values' buffer, if it grew)
@@ -49,7 +54,7 @@ sequenceDiagram
   A->>N: TensorSVDInfoGetAttribute ×3 (a gate split only)
   Note over M,N: Phase: prepare, for a contraction of a shape not kept
   A->>N: CreateNetwork, NetworkAppendTensor ×2, NetworkSetOutputTensor
-  A->>N: CreateContractionOptimizerInfo, CreateContractionOptimizerConfig, ContractionOptimize, DestroyContractionOptimizerConfig
+  A->>N: CreateContractionOptimizerInfo, CreateContractionOptimizerConfig, ContractionOptimizerConfigSetAttribute (slicing disabled), ContractionOptimize, DestroyContractionOptimizerConfig
   A->>N: (lend), NetworkPrepareContraction
   Note over M,N: Phase: contract
   A->>N: (lend, for a network kept), NetworkSetInputTensorMemory ×2, NetworkSetOutputTensorMemory, NetworkContract
