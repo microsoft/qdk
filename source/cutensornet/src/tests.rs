@@ -16,12 +16,18 @@
 //! or concludes from it, open the C library instead, on Linux with glibc
 //! only, where it is always present. They, and the loader's tests, rely on
 //! the host's system loader.
+//!
+//! They run under an allocator that starts every byte buffer just past a
+//! 256-byte boundary (`misaligned_allocator`), so the CUDA algebra's host
+//! workspace is tested at the start that needs its alignment bytes on every
+//! host.
 
 mod cuda_algebra;
 mod device_session;
 mod discovery;
 mod engine;
 mod libraries;
+mod misaligned_allocator;
 mod native_calls;
 #[cfg(unix)]
 mod stand_ins;

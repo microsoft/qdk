@@ -11,7 +11,8 @@ use std::{fmt, rc::Rc};
 /// One site tensor of a [`CudaAlgebra`](crate::CudaAlgebra): a buffer of
 /// complex doubles on the algebra's CUDA device, laid out as
 /// `canonical_mps`'s algebra says, which the algebra's calls read and
-/// write. Only the algebra makes one.
+/// write. Only the algebra makes one, and only the algebra that made it
+/// accepts it: another refuses it with [`NativeError::ForeignTensor`].
 ///
 /// It keeps the algebra's session alive, so it may outlive the algebra.
 /// Dropping it frees its buffer; a failed free is not returned, as `Drop`
@@ -34,6 +35,19 @@ impl DeviceTensor {
             buffer,
             elements,
             session: Rc::clone(session),
+        }
+    }
+
+    /// Refuses the tensor unless `session`, the session of the algebra
+    /// called, made it: a tensor's buffer is freed through the session that
+    /// made it, which knows nothing of another algebra's device work, so a
+    /// failed call of another algebra could not keep the buffer from being
+    /// freed while that call's work may still read it.
+    pub(super) fn belongs_to(&self, session: &Rc<AlgebraSession>) -> Result<(), NativeError> {
+        if Rc::ptr_eq(&self.session, session) {
+            Ok(())
+        } else {
+            Err(NativeError::ForeignTensor)
         }
     }
 

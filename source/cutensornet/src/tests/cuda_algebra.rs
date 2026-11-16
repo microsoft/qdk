@@ -177,6 +177,78 @@ fn a_call_reading_past_a_tensors_elements_is_refused() {
     }
 }
 
+/// A tensor is freed through the session of the algebra that made it,
+/// which knows nothing of another algebra's device work: so another
+/// algebra, whose failed call could not keep the tensor from being freed
+/// while that call's work may still read it, refuses it before any native
+/// call, whichever method is given it and whichever of a pair's tensors it
+/// is, and so does the engine on it, given a state another engine
+/// prepared. Nothing is leaked.
+#[test]
+fn a_tensor_of_another_algebra_is_refused() {
+    use crate::CudaMpsEngine;
+    use canonical_mps::CanonicalMpsError;
+    use tensornet::{MpsEngine, MpsShape};
+
+    let libraries = Arc::new(FakeLibraries::new());
+    let open = || {
+        let native_calls: Arc<dyn NativeCalls> = libraries.clone();
+        CudaAlgebra::with_native_calls(native_calls)
+            .unwrap_or_else(|error| panic!("the fake libraries open an algebra: {error}"))
+    };
+    let (owner, algebra) = (open(), open());
+    let (a, b) = random_pair(1, 1, 1, 12);
+    let (foreign_a, foreign_b) = (upload(&owner, &a), upload(&owner, &b));
+    let (own_a, own_b) = (upload(&algebra, &a), upload(&algebra, &b));
+    let split = one_qubit_split(&a, &b);
+    let moved = Move {
+        a: &a,
+        b: &b,
+        l: 1,
+        m: 1,
+        r: 1,
+        gate: None,
+        centre: CentreSide::Right,
+    };
+    let (owner_engine, engine) = (CudaMpsEngine::new(open()), CudaMpsEngine::new(open()));
+    let state = owner_engine
+        .prepare(&MpsShape::qubit_chain(1, 1).expect("one qubit"))
+        .expect("the zero state");
+    let is_refused = |method: &str, refuse: &dyn Fn() -> Result<(), NativeError>| {
+        let before = libraries.events().len();
+        let refused = refuse();
+        assert!(
+            matches!(refused, Err(NativeError::ForeignTensor)),
+            "{method}: {refused:?}"
+        );
+        let events = libraries.events();
+        assert_eq!(
+            events.len(),
+            before,
+            "{method}: no native call, not {:?}",
+            &events[before..]
+        );
+    };
+    is_refused("read", &|| algebra.read(&foreign_a, 2).map(drop));
+    is_refused("duplicate", &|| algebra.duplicate(&foreign_a, 2).map(drop));
+    for (side, left, right) in [("left", &foreign_a, &own_b), ("right", &own_a, &foreign_b)] {
+        is_refused(&format!("gate split, {side} foreign"), &|| {
+            algebra.gate_split(&split.call(left, right)).map(drop)
+        });
+        is_refused(&format!("move of the centre, {side} foreign"), &|| {
+            algebra.qr_move(&moved.call(left, right)).map(drop)
+        });
+    }
+    is_refused("the engine's fork", &|| match engine.fork(&state) {
+        Ok(_) => Ok(()),
+        Err(CanonicalMpsError::Algebra(error)) => Err(error),
+        Err(other) => panic!("the fork fails in the algebra, not {other:?}"),
+    });
+    drop((foreign_a, foreign_b, own_a, own_b, owner, algebra));
+    drop((state, owner_engine, engine));
+    assert_eq!(libraries.live_objects(), 0);
+}
+
 /// Every method returns with its device work done and its copies made, so
 /// that its outputs can be read, and given to the next call, at once: the
 /// fake refuses a tensor call while a copy may still run, and a copy of a

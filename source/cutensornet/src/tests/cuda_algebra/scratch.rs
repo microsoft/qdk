@@ -57,10 +57,19 @@ fn a_grown_scratch_is_lent_before_the_smaller_is_freed() {
 /// Calls whose workspace asks for memory in its other slots too (the
 /// device cache and both host slots), then for more there, some asks just
 /// above the last, within the bytes a host slot holds beyond it to align
-/// what it lends: every slot is lent at least what it asks, which the fake
-/// checks at each call.
+/// what it lends, its memory starting just past a 256-byte boundary (the
+/// tests' allocator), where it needs every one of them: every slot is lent
+/// at least what it asks, which the fake checks at each call.
 #[test]
 fn every_slot_a_call_asks_memory_for_is_lent_it() {
+    let boundary = crate::tests::misaligned_allocator::BOUNDARY;
+    let memory = vec![0_u8; 512];
+    assert_eq!(
+        memory.as_ptr().align_offset(boundary),
+        boundary - 1,
+        "the test allocator starts a byte buffer just past a boundary, \
+         where a host slot needs every byte it holds beyond what it lends"
+    );
     let (algebra, libraries) = algebra();
     for bytes in [512, 768, 1000, 1256, 2000, 2256, 4096] {
         libraries.set_other_workspace_slot_bytes(bytes);

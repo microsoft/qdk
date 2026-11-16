@@ -81,8 +81,9 @@ documents each on its
 [functions page](https://docs.nvidia.com/cuda/cuquantum/latest/cutensornet/api/functions.html),
 for example
 [`cutensornetGateSplit`](https://docs.nvidia.com/cuda/cuquantum/latest/cutensornet/api/functions.html#cutensornetgatesplit).
-A tensor's `Drop` binds the device and frees its buffer (`cudaFree`),
-unless the algebra is poisoned (below).
+A method given a tensor another algebra made refuses it before the bind,
+with no native call. A tensor's `Drop` binds the device and frees its
+buffer (`cudaFree`), unless the algebra is poisoned (below).
 
 When a method fails, the release phase first waits for the device
 (`cudaStreamSynchronize`, and on the legacy stream too if the method

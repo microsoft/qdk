@@ -87,5 +87,9 @@ pub use libraries::report::{LibraryFault, LibraryReport, Version};
 pub use native_calls::error::NativeError;
 
 /// The canonical-form MPS engine (`canonical_mps::CanonicalMpsEngine`) on
-/// a [`CudaAlgebra`]: a `tensornet::MpsEngine` on the GPU.
+/// a [`CudaAlgebra`]: a `tensornet::MpsEngine` on the GPU. Its states'
+/// sites are its algebra's tensors, which another algebra refuses: a
+/// method given another engine's state that passes its sites to the
+/// algebra (a fork, for instance) returns
+/// `CanonicalMpsError::Algebra(NativeError::ForeignTensor)`.
 pub type CudaMpsEngine = canonical_mps::CanonicalMpsEngine<CudaAlgebra>;

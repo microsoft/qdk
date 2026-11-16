@@ -10,7 +10,9 @@
 //! budget, or a native object an earlier failure left unusable. So they are
 //! one type, which each user wraps in its own error beside the refusals of
 //! its contract (`EngineError::Native`), or returns as it is (the CUDA
-//! algebra's `SiteAlgebra::Error`).
+//! algebra's `SiteAlgebra::Error`), beside the algebra's two refusals of
+//! its caller's tensors: one another algebra made (`ForeignTensor`), and
+//! one shorter than the call reads (`InvalidNativeCall`).
 //!
 //! When an operation and the cleanup after it both fail, both errors are
 //! kept (`combine_execution_and_cleanup`), so a cleanup never hides the
@@ -71,6 +73,12 @@ pub enum NativeError {
     /// non-finite or complex norm.
     #[error("invalid native result: {reason}")]
     InvalidNativeResult { reason: String },
+
+    /// A CUDA algebra was given a tensor another algebra made, which it
+    /// refuses before any native call, as the engine refuses a state
+    /// another engine created.
+    #[error("the tensor belongs to another CUDA algebra")]
+    ForeignTensor,
 
     /// An earlier failure left the state unusable; only dropping it is left.
     #[error("the engine's state is unusable after an earlier failure: {reason}")]

@@ -1,14 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Tests of the fake libraries' tensor API, which nothing in the crate
-//! calls yet: the dense maths a caller's tests will be checked against (a
-//! contraction, a gate split, a QR), and the rules the fake holds a caller
-//! to (tensor descriptors, workspaces, streams, objects' handles and
-//! lifetimes, a gate split's labels, copies of its results to the host),
-//! each refused on the fake as a misuse would fail on a GPU. The rules on
-//! streams are shared with the state API, so a compute's are tested here
-//! too: only a direct caller can make the misuse they refuse.
+//! Tests of the fake libraries' tensor API, which the CUDA algebra calls
+//! through the native calls (`src/cuda_algebra/`): the dense maths its
+//! tests are checked against (a contraction, a gate split, a QR), and the
+//! rules the fake holds a caller to (tensor descriptors, workspaces,
+//! streams, objects' handles and lifetimes, a gate split's labels, copies
+//! of its results to the host), each refused on the fake as a misuse would
+//! fail on a GPU. They call the API directly, because only a direct caller
+//! can make the misuse the rules refuse; the rules on streams are shared
+//! with the state API, so a compute's are tested here too.
 
 use crate::native_calls::{
     OpaqueHandle, Stream,

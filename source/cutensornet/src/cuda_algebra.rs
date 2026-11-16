@@ -45,6 +45,13 @@
 //! stream and its copies); otherwise it is kept until one succeeds, or
 //! leaked (`algebra_session.rs`).
 //!
+//! That wait covers only the algebra's own device work, and a tensor is
+//! freed through the session of the algebra that made it: so every call
+//! refuses a tensor another algebra made, with
+//! [`NativeError::ForeignTensor`] and before any native call
+//! (`device_tensor.rs`), as the cuTensorNet engine refuses a state another
+//! engine created.
+//!
 //! An algebra and its tensors are `!Send`, as the cuTensorNet engine is:
 //! the stream and the handle stay on the thread that created them. Each
 //! block below is a test that must fail to compile, one for the algebra
@@ -101,7 +108,9 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 /// the contraction networks of up to a few hundred shapes. Dropping it
 /// releases them; its tensors keep the session alive and free their own
 /// buffers. A poisoned algebra frees nothing the device may still use
-/// until a wait for it succeeds (`algebra_session.rs`).
+/// until a wait for it succeeds (`algebra_session.rs`). It accepts only
+/// the tensors it made, refusing another algebra's with
+/// [`NativeError::ForeignTensor`].
 pub struct CudaAlgebra {
     session: Rc<AlgebraSession>,
     resources: RefCell<AlgebraResources>,
@@ -192,14 +201,20 @@ impl CudaAlgebra {
     }
 
     /// Runs `body` in a new call scope, with the device bound, and ends it
-    /// ([`CallScope::finish`]); a poisoned algebra runs nothing, not even
-    /// the checks of the arguments that each method makes in `body`.
+    /// ([`CallScope::finish`]). A poisoned algebra runs nothing, not even
+    /// the checks of the arguments that each method makes in `body`; then
+    /// `operands`, the tensors the call reads, are refused if another
+    /// algebra made any, before any native call.
     fn run<T>(
         &self,
+        operands: &[&DeviceTensor],
         body: impl FnOnce(&mut CallScope<'_>) -> Result<T, NativeError>,
     ) -> Result<T, NativeError> {
         let mut resources = self.resources.borrow_mut();
         self.session.check_usable()?;
+        for operand in operands {
+            operand.belongs_to(&self.session)?;
+        }
         self.session.device_session().bind_device()?;
         let mut scope = CallScope::new(&self.session, &mut resources);
         let result = body(&mut scope);
@@ -238,7 +253,7 @@ impl SiteAlgebra for CudaAlgebra {
     type Error = NativeError;
 
     fn upload(&self, values: &[Complex64]) -> Result<DeviceTensor, NativeError> {
-        let buffer = self.run(|scope| {
+        let buffer = self.run(&[], |scope| {
             let buffer = scope.output(values.len())?;
             scope.upload_to(buffer, values)?;
             Ok(buffer)
@@ -251,7 +266,7 @@ impl SiteAlgebra for CudaAlgebra {
         tensor: &'t DeviceTensor,
         len: usize,
     ) -> Result<Cow<'t, [Complex64]>, NativeError> {
-        let values = self.run(|scope| {
+        let values = self.run(&[tensor], |scope| {
             let source = tensor.holding(len)?;
             let mut values = vec![Complex64Abi::default(); len];
             scope.calls().copy_to_host(&mut values, source)?;
@@ -263,7 +278,7 @@ impl SiteAlgebra for CudaAlgebra {
     }
 
     fn duplicate(&self, tensor: &DeviceTensor, len: usize) -> Result<DeviceTensor, NativeError> {
-        let buffer = self.run(|scope| {
+        let buffer = self.run(&[tensor], |scope| {
             let source = tensor.holding(len)?;
             let buffer = scope.output(len)?;
             scope.copy_on_device(buffer, source, complex_bytes(len, "device tensor")?)?;
@@ -276,7 +291,9 @@ impl SiteAlgebra for CudaAlgebra {
         &self,
         call: &GateSplitCall<'_, DeviceTensor>,
     ) -> Result<GateSplitOutcome<DeviceTensor>, NativeError> {
-        let split = self.run(|scope| gate_split::gate_split(scope, call))?;
+        let split = self.run(&[call.left, call.right], |scope| {
+            gate_split::gate_split(scope, call)
+        })?;
         // The buffers' capacities: each factor is packed at the kept bond.
         let k = split.capacity;
         Ok(GateSplitOutcome {
@@ -291,7 +308,9 @@ impl SiteAlgebra for CudaAlgebra {
         &self,
         call: &QrMoveCall<'_, DeviceTensor>,
     ) -> Result<QrMoveOutcome<DeviceTensor>, NativeError> {
-        let moved = self.run(|scope| qr_move::qr_move(scope, call))?;
+        let moved = self.run(&[call.left, call.right], |scope| {
+            qr_move::qr_move(scope, call)
+        })?;
         let k = moved.bond;
         Ok(QrMoveOutcome {
             left: self.tensor(moved.left, call.left_extent * 2 * k),

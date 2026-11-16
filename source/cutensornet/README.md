@@ -162,7 +162,8 @@ two:
   cuTensorNet has every function of its tensor API.
 - [`DeviceTensor`](src/cuda_algebra/device_tensor.rs) is one site: a
   device buffer of complex doubles, in the contract's layout. It keeps the
-  algebra's session alive, so it may outlive the algebra.
+  algebra's session alive, so it may outlive the algebra; only the algebra
+  that made it accepts it.
 
 The settings the algebra fixes, with how each was chosen, are in
 [`src/cuda_algebra/policy.rs`](src/cuda_algebra/policy.rs);
@@ -199,11 +200,15 @@ Each `SiteAlgebra` method of this algebra combines some of these phases
 
 This algebra's implementation of each `SiteAlgebra` method runs the
 phases its row names, bind first. Of the engine's arguments, it checks
-only that each tensor it reads holds the elements the call asks for,
-refusing the call before it makes any native object if not; the engine
-checks the others before it calls. Each returns with the device
-idle, its stream and its copies waited for, so the engine may use a tensor
-at once and the next call may grow the scratch.
+only each tensor it reads: before the bind, that this algebra made it,
+refusing the call with `NativeError::ForeignTensor` if not, since a tensor
+is freed through its own algebra's session, which waits only for that
+algebra's device work (so an engine method that passes another engine's
+sites to the algebra, a fork for instance, fails); and that it holds the
+elements the call asks for, refusing the call before it makes any native
+object if not. The engine checks the others before it calls. Each returns
+with the device idle, its stream and its copies waited for, so the engine
+may use a tensor at once and the next call may grow the scratch.
 
 | `SiteAlgebra` method  | Phases                                                                                                 | How                                                                                                                                                                                                                                                                                                                             | Why                                                                                                                                                                                         |
 | --------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
