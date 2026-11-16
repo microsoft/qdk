@@ -3,9 +3,9 @@
 
 //! The memory the CUDA algebra lends cuTensorNet, and the singular values'
 //! buffer it keeps across splits: grown only when a call asks for more,
-//! lent before the smaller buffer is freed, lent in every slot a call asks
-//! memory for, bounded by the device's free memory, and freed when the
-//! algebra closes.
+//! the smaller buffer freed only once nothing uses it (within a move of
+//! the centre too), lent in every slot a call asks memory for, bounded by
+//! the device's free memory, and freed when the algebra closes.
 
 use super::*;
 use crate::native_calls::fake_libraries::WORKSPACE_BYTES;
@@ -73,16 +73,51 @@ fn the_algebras_buffers_grow_only_when_a_call_asks_for_more() {
     }
 }
 
-/// A call that asks for more scratch than the workspace holds: the larger
-/// buffer is lent before the smaller is freed, which the fake refuses while
-/// a workspace holds it, so the call succeeds.
+/// Calls that ask for more scratch than the workspace holds: a split
+/// after a split, and the contraction of a move of the centre after its
+/// QR, either side, with a gate or not. The smaller buffer is freed only
+/// once nothing may use it: the larger is lent first, and the device has
+/// finished the work that used the smaller. The fake refuses to free a
+/// buffer a workspace holds, or one a stream may still use, so each call
+/// succeeds.
 #[test]
-fn a_grown_scratch_is_lent_before_the_smaller_is_freed() {
+fn a_grown_scratch_frees_the_smaller_only_once_nothing_uses_it() {
     let (algebra, libraries) = algebra();
     split_once(&algebra).expect("a split");
     libraries.set_workspace_bytes(4 * WORKSPACE_BYTES);
     let grown = split_once(&algebra);
-    assert!(grown.is_ok(), "{grown:?}");
+    assert!(grown.is_ok(), "a split after a split: {grown:?}");
+
+    let (a, b) = random_pair(1, 1, 1, 41);
+    let gates = [None, Some(algebra_rules::one_qubit_gate(42))];
+    for centre in [CentreSide::Left, CentreSide::Right] {
+        for gate in gates {
+            let (algebra, libraries) = super::algebra();
+            libraries.set_workspace_bytes(64);
+            libraries.set_workspace_bytes_after_the_next_qr(WORKSPACE_BYTES);
+            let moved = Move {
+                a: &a,
+                b: &b,
+                l: 1,
+                m: 1,
+                r: 1,
+                gate,
+                centre,
+            };
+            let grown = moved.on(&algebra).map(drop);
+            assert!(
+                grown.is_ok(),
+                "{centre:?}, gate {}: {grown:?}",
+                gate.is_some()
+            );
+            assert_eq!(
+                libraries.scratch_buffers(),
+                2,
+                "{centre:?}, gate {}: grown within the move",
+                gate.is_some()
+            );
+        }
+    }
 }
 
 /// Calls whose workspace asks for memory in its other slots too (the

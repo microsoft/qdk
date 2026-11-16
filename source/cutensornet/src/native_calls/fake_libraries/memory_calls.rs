@@ -3,8 +3,7 @@
 
 //! `MemoryCalls` of the fake libraries: device buffers, copies and
 //! workspaces, whose slots ask for what the fake was told
-//! (`FakeLibraries::set_workspace_bytes`,
-//! `FakeLibraries::set_other_workspace_slot_bytes`).
+//! (`FakeLibraries::set_workspace_bytes` and the setters beside it).
 
 use super::{FakeLibraries, Object, failed, id, is_device, slot_index, to_usize};
 use crate::native_calls::error::NativeError;

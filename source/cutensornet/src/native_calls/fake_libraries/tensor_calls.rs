@@ -396,6 +396,9 @@ impl TensorCalls for FakeLibraries {
         inner.write(q.data, &q_tensor, OPERATION)?;
         inner.write(r.data, &r_tensor, OPERATION)?;
         inner.queue_on(stream, [id(q.data), id(r.data)]);
+        if let Some(bytes) = inner.workspace_bytes_after_qr.take() {
+            inner.workspace_bytes = Some(bytes);
+        }
         Ok(())
     }
 

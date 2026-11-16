@@ -131,7 +131,8 @@ use std::{
 use tensor_calls::{SizedFor, SvdConfig, TensorShape};
 
 /// The bytes `workspace_size` asks for in the device scratch, unless
-/// [`FakeLibraries::set_workspace_bytes`] says otherwise.
+/// [`FakeLibraries::set_workspace_bytes`] or the setters beside it say
+/// otherwise.
 pub(crate) const WORKSPACE_BYTES: i64 = 1024;
 
 /// Every slot of a workspace descriptor.
@@ -182,11 +183,13 @@ struct Inner {
     /// The device scratch `workspace_size` asks for, if not
     /// [`WORKSPACE_BYTES`].
     workspace_bytes: Option<i64>,
+    /// The device scratch the setting above takes when the next QR runs.
+    workspace_bytes_after_qr: Option<i64>,
     /// The bytes `workspace_size` asks for in each other slot: the device
     /// cache and both host slots.
     other_slot_bytes: i64,
     /// The bytes `workspace_size` asks for in a slot, by its index, when
-    /// set for that slot alone, whatever the two settings above say.
+    /// set for that slot alone, whatever the settings above say.
     slot_bytes: [Option<i64>; 4],
     /// The computed MPS each buffer holds, as a compute wrote it or a copy
     /// copied it: the compute's number, and the site.
@@ -435,6 +438,14 @@ impl FakeLibraries {
         self.lock().workspace_bytes = Some(bytes);
     }
 
+    /// Makes every workspace ask for `bytes` of device scratch once the
+    /// next QR has run, as the setting above would then, so the
+    /// contraction a move of the centre runs after its QR grows the
+    /// scratch.
+    pub(crate) fn set_workspace_bytes_after_the_next_qr(&self, bytes: i64) {
+        self.lock().workspace_bytes_after_qr = Some(bytes);
+    }
+
     /// Makes every workspace ask for `bytes` in each of its other slots
     /// (the device cache and both host slots) from now on, instead of
     /// none.
@@ -443,7 +454,7 @@ impl FakeLibraries {
     }
 
     /// Makes every workspace ask for `bytes` in `slot` from now on,
-    /// whatever the two settings above say.
+    /// whatever the settings above say.
     pub(crate) fn set_workspace_slot_bytes(&self, slot: WorkspaceSlot, bytes: i64) {
         self.lock().slot_bytes[slot_index(slot)] = Some(bytes);
     }
