@@ -3,13 +3,14 @@
 
 //! [`NativeError`]: why a native call, or the work around it, failed.
 //!
-//! Every user of the native calls, today the engine, must report these
-//! failures, and none of them is its caller's fault: no device, a call that
-//! returned an error status, a function the library lacks, a size or a
-//! result that does not fit, a workspace larger than the budget, or a
-//! native object an earlier failure left unusable. So they are one type,
-//! which each user wraps in its own error beside the refusals of its
-//! contract (`EngineError::Native`).
+//! Every user of the native calls, today the engine and the CUDA algebra,
+//! must report these failures, and none of them is its caller's fault: no
+//! device, a call that returned an error status, a function the library
+//! lacks, a size or a result that does not fit, a workspace larger than the
+//! budget, or a native object an earlier failure left unusable. So they are
+//! one type, which each user wraps in its own error beside the refusals of
+//! its contract (`EngineError::Native`), or returns as it is (the CUDA
+//! algebra's `SiteAlgebra::Error`).
 //!
 //! When an operation and the cleanup after it both fail, both errors are
 //! kept (`combine_execution_and_cleanup`), so a cleanup never hides the
@@ -43,7 +44,7 @@ pub enum NativeError {
 
     /// The loaded library lacks functions a call needs, which discovery did
     /// not require: today cuTensorNet's tensor API, which the engine never
-    /// calls.
+    /// calls and the CUDA algebra needs.
     #[error("{library} does not export {}", .symbols.join(", "))]
     MissingNativeFunctions {
         library: &'static str,

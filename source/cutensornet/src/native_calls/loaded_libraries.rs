@@ -14,12 +14,11 @@
 //! call says what makes it sound (the handles live, the buffers large enough
 //! and kept alive, the values in the audited representation). It owns nothing:
 //! `DeviceSession` and `NativeState` create the streams, handles, states
-//! and buffers, and release them, as the tensor API's planned caller will
-//! its own. Discovery has checked the versions, so
-//! this code assumes cuTensorNet 2.13 and the CUDA Runtime 12.9. It compiles
-//! only on Linux x86-64, and no host test reaches it; a new native call
-//! needs its function's row in its library's table first
-//! (`libraries::cuda_runtime::CudaFunctions`,
+//! and buffers, and release them, as `CudaAlgebra` does its own. Discovery
+//! has checked the versions, so this code assumes cuTensorNet 2.13 and the
+//! CUDA Runtime 12.9. It compiles only on Linux x86-64, and no host test
+//! reaches it; a new native call needs its function's row in its
+//! library's table first (`libraries::cuda_runtime::CudaFunctions`,
 //! `libraries::cutensornet::CuTensorNetFunctions`, or the tensor API's
 //! `libraries::cutensornet::tensor::CuTensorNetTensorFunctions`).
 
@@ -30,10 +29,6 @@ use std::ffi::CStr;
 mod memory_calls;
 mod session_calls;
 mod state_calls;
-#[allow(
-    dead_code,
-    reason = "the tensor API's planned caller, the canonical MPS's CudaAlgebra, is not written yet"
-)]
 mod tensor_calls;
 
 impl LoadedLibraries {

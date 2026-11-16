@@ -42,10 +42,6 @@ pub(crate) mod operator;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod state;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-#[allow(
-    dead_code,
-    reason = "the tensor API's planned caller, the canonical MPS's CudaAlgebra, is not written yet"
-)]
 pub(crate) mod tensor;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod workspace;

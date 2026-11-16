@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The session a caller's native work runs in (today the engine's states;
-//! later the tensor API's caller): one CUDA device, one CUDA stream on it,
-//! and one cuTensorNet handle.
+//! The session a caller's native work runs in (today the engine's states
+//! and the CUDA algebra): one CUDA device, one CUDA stream on it, and one
+//! cuTensorNet handle.
 //!
 //! A caller needs them before it makes any native call. A CUDA stream is
 //! the queue the device runs work in, in order: every call the caller
@@ -28,8 +28,8 @@ use crate::native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls};
 use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 /// A caller's CUDA stream and cuTensorNet handle on one device (today the
-/// engine's; later the tensor API caller's), created on the calling thread
-/// and released when dropped, the handle first.
+/// engine's or the CUDA algebra's), created on the calling thread and
+/// released when dropped, the handle first.
 ///
 /// It holds the native calls, and with them the libraries, but no state or
 /// buffer: its holders keep it by `Rc` (the engine and each of its

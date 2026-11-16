@@ -4,8 +4,8 @@
 //! [`Complex64Abi`]: the complex number every buffer and operator handed to
 //! cuTensorNet is made of, in the layout of CUDA's `cuDoubleComplex`.
 //!
-//! The callers of the native calls (the engine, and the tensor API's caller)
-//! write matrices and read results as `num_complex::Complex64`:
+//! The callers of the native calls (the engine and the CUDA algebra) write
+//! matrices and read results as `num_complex::Complex64`:
 //! two `f64`s, real then imaginary (`repr(C)`), aligned to 8 bytes. CUDA's
 //! `cuDoubleComplex`, which cuTensorNet reads, is the same pair aligned to
 //! 16. This type is that layout, `repr(C, align(16))`, and converts to and

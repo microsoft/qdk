@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! [`FakeLibraries`]: cuTensorNet and the CUDA Runtime, simulated on the CPU
-//! for the tests of the native calls' callers (the engine, and the tensor
-//! API's caller).
+//! for the tests of the native calls' callers (the engine and the CUDA
+//! algebra).
 //!
 //! CI has no GPU, so the callers' real code (every call they make, in the
 //! order they make them) runs against these fake libraries, which implement

@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+canonical_mps = { path = "../canonical_mps" }
 libloading = { workspace = true }
 num-complex = { workspace = true }
 tensornet = { path = "../tensornet" }
@@ -18,6 +19,8 @@ thiserror = { workspace = true }
 # The fake libraries' SVD and QR, which report a failure rather than
 # return wrong factors.
 dense_linalg = { path = "../dense_linalg" }
+# The exact reference the canonical MPS engine on the GPU is checked against.
+tensornet = { path = "../tensornet", features = ["conformance"] }
 
 [lints]
 workspace = true

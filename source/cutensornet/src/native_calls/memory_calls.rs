@@ -14,7 +14,8 @@
 //! for is left empty. The caller allocates, lends and frees every buffer, so
 //! it decides how much memory it holds: the engine for its states
 //! (`engine/native_state.rs`), which lend only device scratch, and the
-//! tensor API's caller for its tensors and workspaces.
+//! CUDA algebra for its tensors and its workspace (`cuda_algebra/`), which
+//! lends any slot.
 //!
 //! The copies run on CUDA's legacy default stream, which a session's
 //! non-blocking stream does not wait for. A copy to the device may still be
@@ -62,10 +63,6 @@ pub(crate) trait MemoryCalls {
     /// Copies the first `destination.len()` elements of the device
     /// allocation `source` to the host; the copy has finished when it
     /// returns. An empty `destination` is refused as an invalid call.
-    #[allow(
-        dead_code,
-        reason = "its planned caller, the canonical MPS's CudaAlgebra, is not written yet"
-    )]
     fn copy_to_host(
         &self,
         destination: &mut [Complex64Abi],
@@ -102,19 +99,7 @@ pub(crate) trait MemoryCalls {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkspaceSlot {
     DeviceScratch,
-    #[allow(
-        dead_code,
-        reason = "the engine lends device scratch only; the tensor API's planned caller may lend any slot"
-    )]
     DeviceCache,
-    #[allow(
-        dead_code,
-        reason = "the engine lends device scratch only; the tensor API's planned caller may lend any slot"
-    )]
     HostScratch,
-    #[allow(
-        dead_code,
-        reason = "the engine lends device scratch only; the tensor API's planned caller may lend any slot"
-    )]
     HostCache,
 }

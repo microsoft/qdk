@@ -1,0 +1,326 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! [`CudaAlgebra`]: `canonical_mps`'s `SiteAlgebra` on one CUDA device,
+//! through cuTensorNet's tensor API, so that the canonical-form MPS engine
+//! runs on the GPU as [`CudaMpsEngine`](crate::CudaMpsEngine).
+//!
+//! The canonical-form engine keeps its chain of site tensors in canonical
+//! form and asks its algebra for five operations: store a site, read it,
+//! copy it, split a gated pair of sites by a truncated SVD, and move the
+//! centre across a bond by a QR. This algebra holds each site in a device
+//! buffer ([`DeviceTensor`]) and runs the two factorizations with
+//! cuTensorNet's `GateSplit` and `TensorQR`, and the contractions around a
+//! QR with cuTensorNet's contraction networks. Its native calls go through
+//! `NativeCalls`, so the same code runs on the GPU and, in CI, on the fake
+//! libraries.
+//!
+//! ```text
+//! CudaAlgebra ── holds ──► DeviceSession      device, stream, handle
+//!             ── holds ──► AlgebraResources   kept across calls:
+//!                            workspace, Scratch (scratch.rs),
+//!                            the gate and singular-value buffers,
+//!                            Contractions (contractions.rs)
+//! each call ──── runs in ─► CallScope         one call's objects and
+//!                                             buffers (call_scope.rs)
+//!   gate_split ──────────► gate_split.rs      one GateSplit
+//!   qr_move ─────────────► qr_move.rs         a gate, a TensorQR, a
+//!                                             contraction
+//! settings                 policy.rs
+//! ```
+//!
+//! Every call binds the algebra's device first, and returns with the
+//! device idle: its stream synchronized, and its copies too if it made
+//! any. Three things rely on it. The copies run on CUDA's legacy default
+//! stream, which the algebra's stream does not wait for
+//! (`native_calls/memory_calls.rs`); the engine uses each tensor at once,
+//! often in the next call; and a call's scratch may be freed by the next
+//! one's growth. The one exception is a failed call whose wait for the
+//! device fails too: nothing then says when the device is done with the
+//! call's buffers, so they are kept, freed only when the algebra is
+//! dropped, and every later call returns [`NativeError::Poisoned`].
+//!
+//! An algebra and its tensors are `!Send`, as the cuTensorNet engine is:
+//! the stream and the handle stay on the thread that created them. Each
+//! block below is a test that must fail to compile, one for the algebra
+//! and one for the engine on it.
+//!
+//! ```compile_fail,E0277
+//! fn require_send<T: Send>() {}
+//! require_send::<qdk_cutensornet::CudaAlgebra>();
+//! ```
+//!
+//! ```compile_fail,E0277
+//! fn require_send<T: Send>() {}
+//! require_send::<qdk_cutensornet::CudaMpsEngine>();
+//! ```
+
+mod call_scope;
+mod contractions;
+mod device_tensor;
+mod gate_split;
+mod policy;
+mod qr_move;
+mod scratch;
+
+pub use device_tensor::DeviceTensor;
+#[cfg(test)]
+pub(crate) use policy::NETWORKS_KEPT;
+
+use crate::device_session::DeviceSession;
+use crate::native_calls::complex::{Complex64Abi, complex_bytes};
+use crate::native_calls::error::{NativeError, first_failure, report_failed_release};
+use crate::native_calls::{NativeCalls, OpaqueHandle};
+use call_scope::{CallScope, Owned};
+use canonical_mps::algebra::{
+    GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
+};
+use contractions::Contractions;
+use num_complex::Complex64;
+use scratch::Scratch;
+use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
+
+/// `canonical_mps`'s `SiteAlgebra` on one CUDA device, through
+/// cuTensorNet: its tensors are device buffers ([`DeviceTensor`]).
+///
+/// Open one with `new`, on a discovery's [`Availability`](crate::Availability)
+/// (Linux x86-64), and give it to `canonical_mps::CanonicalMpsEngine::new`,
+/// or use [`CudaMpsEngine`](crate::CudaMpsEngine). Its settings (the
+/// device, the SVD algorithm, the contractions' paths) are fixed, not
+/// tunable (`policy.rs`).
+///
+/// It holds, across calls, a workspace descriptor and the memory it lends
+/// cuTensorNet, which grows to the largest call's and never shrinks, and
+/// the contraction networks of up to a few hundred shapes. Dropping it
+/// releases them; its tensors keep the device session alive and free their
+/// own buffers.
+pub struct CudaAlgebra {
+    device_session: Rc<DeviceSession<dyn NativeCalls>>,
+    resources: RefCell<AlgebraResources>,
+}
+
+/// What an algebra keeps across its calls.
+#[derive(Default)]
+struct AlgebraResources {
+    /// The one workspace descriptor every call is sized for in turn.
+    workspace: Option<OpaqueHandle>,
+    /// The memory lent to the workspace.
+    scratch: Scratch,
+    /// A device buffer of 16 complex doubles: each call's gate.
+    gate: Option<OpaqueHandle>,
+    /// A device buffer for a gate split's singular values, and the complex
+    /// doubles it holds.
+    singular_values: Option<(OpaqueHandle, usize)>,
+    contractions: Contractions,
+    /// The objects and buffers of a failed call the device may still be
+    /// using, released only when the algebra is dropped.
+    retired: Vec<Owned>,
+    /// Why the algebra can no longer be used, once a failed call could not
+    /// wait for the device.
+    poisoned: Option<String>,
+}
+
+impl CudaAlgebra {
+    /// An algebra on the first CUDA device the process sees (device 0), on
+    /// the libraries `availability` loaded and checked, as
+    /// [`CuTensorNetEngine::new`](crate::CuTensorNetEngine::new) opens an
+    /// engine. The algebra keeps the libraries loaded for as long as it or
+    /// any of its tensors lives.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the loaded cuTensorNet lacks a function of its tensor API
+    /// (each is named), which discovery does not require; if no CUDA device
+    /// is available; or if creating the device's stream, the cuTensorNet
+    /// handle, the workspace descriptor or the gate's buffer fails.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn new(availability: &crate::Availability) -> Result<Self, NativeError> {
+        Self::with_native_calls(availability.libraries().clone())
+    }
+
+    /// An algebra on device 0 that makes its native calls through
+    /// `native_calls`; a failure releases what was created.
+    #[cfg_attr(
+        not(all(target_os = "linux", target_arch = "x86_64")),
+        allow(
+            dead_code,
+            reason = "only host tests create an algebra off Linux x86-64"
+        )
+    )]
+    pub(crate) fn with_native_calls(
+        native_calls: Arc<dyn NativeCalls>,
+    ) -> Result<Self, NativeError> {
+        native_calls.check_tensor_functions()?;
+        let algebra = Self {
+            device_session: Rc::new(DeviceSession::new(native_calls, policy::DEVICE_ORDINAL)?),
+            resources: RefCell::new(AlgebraResources::default()),
+        };
+        {
+            let calls = algebra.device_session.calls();
+            let mut resources = algebra.resources.borrow_mut();
+            resources.workspace = Some(calls.create_workspace(algebra.device_session.handle())?);
+            resources.gate = Some(calls.allocate(complex_bytes(16, "gate")?)?);
+        }
+        Ok(algebra)
+    }
+
+    /// Runs `body` in a new call scope, with the device bound, and ends it
+    /// ([`CallScope::finish`]); a poisoned algebra runs nothing.
+    fn run<T>(
+        &self,
+        body: impl FnOnce(&mut CallScope<'_>) -> Result<T, NativeError>,
+    ) -> Result<T, NativeError> {
+        let mut resources = self.resources.borrow_mut();
+        if let Some(reason) = &resources.poisoned {
+            return Err(NativeError::Poisoned {
+                reason: reason.clone(),
+            });
+        }
+        self.device_session.bind_device()?;
+        let mut scope = CallScope::new(&self.device_session, &mut resources);
+        let result = body(&mut scope);
+        scope.finish(result)
+    }
+
+    fn tensor(&self, buffer: OpaqueHandle, elements: usize) -> DeviceTensor {
+        DeviceTensor::new(buffer, elements, &self.device_session)
+    }
+
+    /// Releases everything the algebra holds, after waiting for the device;
+    /// attempts every release and returns the first failure.
+    fn close(&mut self) -> Result<(), NativeError> {
+        let session = &self.device_session;
+        let calls = session.calls();
+        let resources = self.resources.get_mut();
+        // The algebra's device, which another algebra's call may have
+        // changed.
+        let mut released = vec![
+            session.bind_device(),
+            calls.synchronize_stream(session.stream()),
+            resources.contractions.release(calls),
+        ];
+        if let Some(workspace) = resources.workspace.take() {
+            released.push(calls.destroy_workspace(workspace));
+        }
+        released.push(resources.scratch.release(calls));
+        released.extend(
+            resources
+                .retired
+                .drain(..)
+                .rev()
+                .map(|owned| owned.release(calls)),
+        );
+        let buffers = [
+            resources.singular_values.take().map(|(buffer, _)| buffer),
+            resources.gate.take(),
+        ];
+        released.extend(
+            buffers
+                .into_iter()
+                .flatten()
+                .map(|buffer| calls.free(buffer)),
+        );
+        first_failure(released)
+    }
+}
+
+impl Drop for CudaAlgebra {
+    fn drop(&mut self) {
+        report_failed_release("the CUDA algebra", self.close());
+    }
+}
+
+impl std::fmt::Debug for CudaAlgebra {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CudaAlgebra").finish_non_exhaustive()
+    }
+}
+
+impl SiteAlgebra for CudaAlgebra {
+    type Tensor = DeviceTensor;
+    type Error = NativeError;
+
+    fn upload(&self, values: &[Complex64]) -> Result<DeviceTensor, NativeError> {
+        let buffer = self.run(|scope| {
+            let buffer = scope.output(values.len())?;
+            scope.upload_to(buffer, values)?;
+            Ok(buffer)
+        })?;
+        Ok(self.tensor(buffer, values.len()))
+    }
+
+    fn read<'t>(
+        &self,
+        tensor: &'t DeviceTensor,
+        len: usize,
+    ) -> Result<Cow<'t, [Complex64]>, NativeError> {
+        let source = tensor.holding(len)?;
+        let values = self.run(|scope| {
+            let mut values = vec![Complex64Abi::default(); len];
+            scope.calls().copy_to_host(&mut values, source)?;
+            Ok(values)
+        })?;
+        Ok(Cow::Owned(
+            values.into_iter().map(Complex64::from).collect(),
+        ))
+    }
+
+    fn duplicate(&self, tensor: &DeviceTensor, len: usize) -> Result<DeviceTensor, NativeError> {
+        let source = tensor.holding(len)?;
+        let buffer = self.run(|scope| {
+            let buffer = scope.output(len)?;
+            scope.copy_on_device(buffer, source, complex_bytes(len, "device tensor")?)?;
+            Ok(buffer)
+        })?;
+        Ok(self.tensor(buffer, len))
+    }
+
+    fn gate_split(
+        &self,
+        call: &GateSplitCall<'_, DeviceTensor>,
+    ) -> Result<GateSplitOutcome<DeviceTensor>, NativeError> {
+        let split = self.run(|scope| gate_split::gate_split(scope, call))?;
+        // The buffers' capacities: each factor is packed at the kept bond.
+        let k = split.capacity;
+        Ok(GateSplitOutcome {
+            left: self.tensor(split.left, call.left_extent * 2 * k),
+            right: self.tensor(split.right, k * 2 * call.right_extent),
+            bond: split.bond,
+            retained_fraction: split.retained_fraction,
+        })
+    }
+
+    fn qr_move(
+        &self,
+        call: &QrMoveCall<'_, DeviceTensor>,
+    ) -> Result<QrMoveOutcome<DeviceTensor>, NativeError> {
+        let moved = self.run(|scope| qr_move::qr_move(scope, call))?;
+        let k = moved.bond;
+        Ok(QrMoveOutcome {
+            left: self.tensor(moved.left, call.left_extent * 2 * k),
+            right: self.tensor(moved.right, k * 2 * call.right_extent),
+            bond: k,
+        })
+    }
+}
+
+/// The mode labels of the calls' descriptors. Two tensors' modes of one
+/// label are one index; a call's output keeps the labels it names.
+mod modes {
+    /// A pair's left extent.
+    pub(super) const LEFT: i32 = 1;
+    /// The left site's qubit.
+    pub(super) const P: i32 = 2;
+    /// The bond the pair shares before the call.
+    pub(super) const BOND: i32 = 3;
+    /// The right site's qubit.
+    pub(super) const Q: i32 = 4;
+    /// A pair's right extent.
+    pub(super) const RIGHT: i32 = 5;
+    /// The left qubit once gated.
+    pub(super) const P_OUT: i32 = 6;
+    /// The right qubit once gated.
+    pub(super) const Q_OUT: i32 = 7;
+    /// The bond the call returns.
+    pub(super) const NEW_BOND: i32 = 8;
+}

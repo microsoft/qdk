@@ -10,8 +10,8 @@
 //! keeps its MPS canonical, site by site, needs the library's smaller steps
 //! instead: split a two-site gate's result by a truncated SVD (`gate_split`),
 //! move the canonical centre by a QR (`tensor_qr`), and contract two tensors
-//! (`contract`). Its planned user, `CudaAlgebra`, is that simulator's linear
-//! algebra on the GPU; nothing calls these yet.
+//! (`contract`). Its user, `CudaAlgebra`, is that simulator's linear
+//! algebra on the GPU.
 //!
 //! Every tensor is complex double (`CUDA_C_64F`), its first mode fastest
 //! (null strides), and every call computes in double precision
@@ -26,7 +26,7 @@
 //! synchronizes the stream.
 //!
 //! The tensor API is not required to open the libraries, since the engine
-//! never calls it:
+//! never calls it; `CudaAlgebra` checks it when it opens:
 //! [`check_tensor_functions`](TensorCalls::check_tensor_functions) names
 //! each function the library lacks; when any is missing, every other
 //! method fails with the same error.
