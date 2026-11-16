@@ -114,8 +114,9 @@ See the [interop connection example](../qep_interop/README.md#profiling-an-exter
 Python can reload saved profiling data with
 `ProfilerResult.from_json(path.read_text(encoding="utf-8"))`, including counts,
 temporal profiles, and any recorded trace. Invalid result JSON raises `ValueError`.
-The [in-process profiling notebook](demo/NativeQspInProcessProfile.ipynb) demonstrates
-compiling and running C++ with its own counting profiler, then inspecting the saved result.
+The [profiling comparison notebook](demo/QspAndQSharpProfile.ipynb) runs the same
+100-million-gate workload using native C++ QSP over pipes, an in-process C++ profiler,
+and Q# with and without QIR, reporting end-to-end ns/op for all four paths.
 
 `QuantumBackends::sparse_sim()` creates a sparse simulator wrapped in
 `QsBackendShim`, supporting all QEP instructions. Qubits are allocated lazily;
