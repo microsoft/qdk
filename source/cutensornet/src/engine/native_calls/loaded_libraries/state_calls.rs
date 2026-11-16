@@ -217,6 +217,14 @@ impl StateCalls for LoadedLibraries {
                 v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_ALGO,
                 v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDR,
             ),
+            StateU32Configuration::MpsGaugeFree => (
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_GAUGE_OPTION,
+                v2_13::cutensornetStateMPSGaugeOption_t_CUTENSORNET_STATE_MPS_GAUGE_FREE,
+            ),
+            StateU32Configuration::MpoApplicationExact => (
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_MPO_APPLICATION,
+                v2_13::cutensornetStateMPOApplication_t_CUTENSORNET_STATE_MPO_APPLICATION_EXACT,
+            ),
         };
         // SAFETY: the attribute is paired with its audited 32-bit enum
         // representation, and cuTensorNet copies the value before returning.

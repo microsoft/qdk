@@ -540,6 +540,7 @@ fn variants(base: qdk_cutensornet::DevTuning) -> [(&'static str, qdk_cutensornet
                 expectation_hyper_samples: 1,
                 pooled_buffers: true,
                 canonical_centre_reads: true,
+                ..base
             },
         ),
     ]

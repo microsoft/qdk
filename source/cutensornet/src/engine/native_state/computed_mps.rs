@@ -155,7 +155,16 @@ impl NativeState {
             SvdAlgorithm::Gesvdr => StateU32Configuration::SvdAlgorithmGesvdr,
         };
         calls.configure_state_u32(handle, state, algorithm)?;
-        calls.configure_state_u32(handle, state, StateU32Configuration::MpsGaugeSimple)?;
+        let tuning = self.device_session.dev_tuning();
+        let gauge = if tuning.mps_gauge_free {
+            StateU32Configuration::MpsGaugeFree
+        } else {
+            StateU32Configuration::MpsGaugeSimple
+        };
+        calls.configure_state_u32(handle, state, gauge)?;
+        if tuning.mpo_application_exact {
+            calls.configure_state_u32(handle, state, StateU32Configuration::MpoApplicationExact)?;
+        }
         if let Some(centre) = self.canonical_centre {
             let centre = i32::try_from(centre).map_err(|_| EngineError::ResourceSizeOverflow {
                 resource: "native mode",

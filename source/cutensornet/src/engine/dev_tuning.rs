@@ -26,6 +26,9 @@ pub enum SvdAlgorithm {
 
 /// What a `CuTensorNetEngine` does differently for the tuning bench.
 #[doc(hidden)]
+// Independent development switches, each compared on/off by the bench or the
+// MPO diagnostic; no state machine joins them.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DevTuning {
     pub svd_algorithm: SvdAlgorithm,
@@ -38,6 +41,14 @@ pub struct DevTuning {
     /// (`CuTensorNetEngine::dev_set_canonical_centre`) from that site's
     /// tensor, copied to the host, instead of an expectation.
     pub canonical_centre_reads: bool,
+    /// The MPO diagnostic: multiplies every three-site MPO
+    /// (`CuTensorNetEngine::with_dev_wide_operators`) into the MPS exactly
+    /// (`CUTENSORNET_STATE_MPO_APPLICATION_EXACT`) instead of the library's
+    /// default, which follows the SVD settings and the target extents.
+    pub mpo_application_exact: bool,
+    /// The MPO diagnostic: computes without a gauge
+    /// (`CUTENSORNET_STATE_MPS_GAUGE_FREE`) instead of the simple gauge.
+    pub mps_gauge_free: bool,
 }
 
 impl Default for DevTuning {
@@ -47,6 +58,8 @@ impl Default for DevTuning {
             expectation_hyper_samples: super::policy::EXPECTATION_HYPER_SAMPLES,
             pooled_buffers: false,
             canonical_centre_reads: false,
+            mpo_application_exact: false,
+            mps_gauge_free: false,
         }
     }
 }

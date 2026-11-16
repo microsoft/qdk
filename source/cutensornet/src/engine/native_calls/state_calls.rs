@@ -208,6 +208,14 @@ pub(crate) enum StateU32Configuration {
     SvdAlgorithmGesvdj,
     /// Development only (the tuning bench): cuSOLVER's randomized SVD.
     SvdAlgorithmGesvdr,
+    /// Development only (the MPO diagnostic): no gauge, the library's
+    /// default (`CUTENSORNET_STATE_MPS_GAUGE_FREE`).
+    MpsGaugeFree,
+    /// Development only (the MPO diagnostic): an MPO is multiplied into the
+    /// MPS without truncation (`CUTENSORNET_STATE_MPO_APPLICATION_EXACT`);
+    /// `cutensornetStateFinalizeMPS` says the factorization is exact with
+    /// MPOs only so.
+    MpoApplicationExact,
 }
 
 /// Development only (the tuning bench): a state's signed 32-bit

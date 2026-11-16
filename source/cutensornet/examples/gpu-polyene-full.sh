@@ -134,7 +134,7 @@ BUDGET_SECONDS=${BUDGET_SECONDS:-18000}
 LIMIT_PERCENT=${LIMIT_PERCENT:-100}
 BUILD_BOX=3600
 KIT_BOX=900
-DIAGNOSTIC_BOX=600
+DIAGNOSTIC_BOX=1800
 N8_BOX=900
 H2_BOX=900
 N16_BOX=4500
@@ -355,9 +355,11 @@ if wanted diagnostic; then
     # and looks for its esac.
     case_=${line#* case=}
     case_=${case_%% *}
+    config_=${line#* config=}
+    config_=${config_%% *}
     difference=$(field max_diff "$line")
     verdict=$(awk -v d="$difference" 'BEGIN {print (d != "" && d + 0 <= 1e-9) ? "agrees" : "differs"}')
-    summary "diagnostic-$case_" "$STATUS" "$SECONDS_TAKEN" \
+    summary "diagnostic-$config_-$case_" "$STATUS" "$SECONDS_TAKEN" \
       "verdict=$verdict step=diagnostic engine=cutensornet ${line#MPO_DIAGNOSTIC }"
   done
 fi

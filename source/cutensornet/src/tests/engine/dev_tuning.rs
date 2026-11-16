@@ -5,7 +5,7 @@
 //! engine's values and release what they hold.
 
 use super::{engine, gate_and_read, ok, uniform_capacity};
-use crate::engine::{DevTuning, RESTART_PERIOD};
+use crate::engine::{DevTuning, RESTART_PERIOD, native_calls::StateU32Configuration};
 use tensornet::MpsEngine;
 
 /// The values a long walk reads with `tuning`, the buffers it allocated
@@ -56,4 +56,29 @@ fn reads_use_the_tunings_hyper_samples() {
     let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
     gate_and_read(&engine, &mut state, 0);
     assert_eq!(libraries.hyper_samples(), [1]);
+}
+
+/// The MPO diagnostic's knobs configure every native state, a restarted
+/// or a forked one too: no gauge, and MPOs multiplied in exactly.
+#[test]
+fn every_native_state_takes_the_tunings_gauge_and_mpo_application() {
+    let (engine, libraries) = engine();
+    let engine = engine.with_dev_tuning(DevTuning {
+        mpo_application_exact: true,
+        mps_gauge_free: true,
+        ..DevTuning::default()
+    });
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    for step in 0..=RESTART_PERIOD {
+        gate_and_read(&engine, &mut state, step);
+    }
+    let fork = ok(engine.fork(&state));
+    ok(engine.probability_of_one(&fork, 1));
+    let configured = [
+        StateU32Configuration::SvdNormalizationNone,
+        StateU32Configuration::SvdAlgorithmGesvd,
+        StateU32Configuration::MpsGaugeFree,
+        StateU32Configuration::MpoApplicationExact,
+    ];
+    assert_eq!(libraries.u32_configurations(), [configured; 3]);
 }
