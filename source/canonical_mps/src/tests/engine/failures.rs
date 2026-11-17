@@ -60,12 +60,13 @@ fn a_preparation_fails_when_an_upload_fails() {
     assert_fails_in(&error, Method::Upload, "prepare");
 }
 
-/// A two-site gate splits its pair by the algebra's gate split; when the
-/// split fails (as a backend's SVD may not converge), the gate fails with
-/// the algebra's error, not a refusal.
+/// Without fusion, a two-site gate splits its pair by the algebra's gate
+/// split; when the split fails (as a backend's SVD may not converge), the
+/// gate fails with the algebra's error, not a refusal.
 #[test]
 fn a_gate_fails_when_its_split_fails() {
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::GateSplit));
+    let engine =
+        CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::GateSplit)).with_fusion(false);
     let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
     engine
         .apply(&mut state, &[1], &ry(0.4))
@@ -77,13 +78,13 @@ fn a_gate_fails_when_its_split_fails() {
 }
 
 /// Without fusion, a gate on neighbours splits its pair, and a gate on
-/// sites 0 and 2 of 3 takes three splits (the outbound SWAP's, the gate's
-/// and the return's). When one of them fails, though the algebra answers
+/// sites 0 and 2 of 3, a matrix product operator, takes two splits, one
+/// per cut of its span. When one of them fails, though the algebra answers
 /// the others, the gate fails with the algebra's error, whichever split it
-/// was, rather than return with the pair it was splitting lost.
+/// was, rather than return with the sites it was splitting lost.
 #[test]
 fn an_unfused_gate_fails_when_one_of_its_splits_fails() {
-    for (sites, splits) in [(&[0, 1][..], 1), (&[0, 2], 3)] {
+    for (sites, splits) in [(&[0, 1][..], 1), (&[0, 2], 2)] {
         for failing in 0..splits {
             let (algebra, asked) = FailingFakeAlgebra::on_call(Method::GateSplit, failing);
             let engine = CanonicalMpsEngine::new(algebra).with_fusion(false);
@@ -104,12 +105,12 @@ fn an_unfused_gate_fails_when_one_of_its_splits_fails() {
     }
 }
 
-/// A CNOT on sites 0 and 1 of 3, which fusion leaves unsplit; then a read
-/// or a fork, which splits the pair first. When that split fails, the read
-/// fails with the algebra's error, not a refusal, rather than read the
-/// sites the pair left stale.
+/// A CNOT on sites 0 and 1 of 3, which fusion leaves pending; then a read
+/// or a fork, which applies the window first. When its split fails, the
+/// read fails with the algebra's error, not a refusal, rather than read
+/// the sites the window left stale.
 #[test]
-fn a_read_fails_when_the_split_of_its_pending_pair_fails() {
+fn a_read_fails_when_the_split_of_its_pending_window_fails() {
     type State = CanonicalMpsState<FailingFakeAlgebra>;
     type Read<'a> = &'a dyn Fn(&mut State) -> Result<(), Failure>;
     let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::GateSplit));
@@ -151,6 +152,25 @@ fn a_read_fails_when_the_split_of_its_pending_pair_fails() {
         let error = read(&mut state).expect_err(name);
         assert_fails_in(&error, Method::GateSplit, name);
     }
+}
+
+/// Without fusion, a gate on sites 0 and 2 of 3 is a matrix product
+/// operator, which uploads each site of its span multiplied by its factor;
+/// when an upload fails, the gate fails with the algebra's error.
+#[test]
+fn a_gate_on_distant_sites_fails_when_an_upload_fails() {
+    let sites = 3;
+    let (algebra, asked) = FailingFakeAlgebra::on_call(Method::Upload, sites + 1);
+    let engine = CanonicalMpsEngine::new(algebra).with_fusion(false);
+    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
+    let error = engine
+        .apply(&mut state, &[0, 2], &cnot())
+        .expect_err("the operator's second upload fails");
+    assert!(
+        asked.get() > sites + 1,
+        "precondition: the operator asked for its second upload"
+    );
+    assert_fails_in(&error, Method::Upload, "a gate on sites 0 and 2");
 }
 
 /// A read of a site away from the centre moves the centre there, by one

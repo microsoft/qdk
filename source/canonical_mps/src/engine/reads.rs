@@ -14,9 +14,9 @@
 //!
 //! - **The state is kept.** A read does not change the state, except by
 //!   applying a truncation a gate deferred: it moves the centre, which
-//!   changes the tensors, not the state, and splits a pair that fusion
-//!   left pending, which truncates as any other operation's split would
-//!   ([`split`](super::split)). A read with conditions projects them on a
+//!   changes the tensors, not the state, and applies the window that
+//!   fusion left pending, which truncates as any other operation's
+//!   application of it would ([`window`](super::window)). A read with conditions projects them on a
 //!   fork, so the caller's state is not projected.
 //! - **Each value from its own weight.** A probability is the value's
 //!   weight at the centre (the squared norm of the centre's elements for

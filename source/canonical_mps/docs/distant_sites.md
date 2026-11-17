@@ -1,28 +1,79 @@
-# Routing a gate on distant sites
+# Gates on distant sites, and windows on three sites
 
-A gate acts on two neighbouring sites of the chain; a gate on sites further
-apart must first bring them together. This page gives the routing the
-engine uses, `swap-back-2x`, why it loses no weight to the move, what was
-tried before it and dropped, and the alternatives that could be explored
-later. The crate's
+A split factors the tensor of two neighbouring sites, so it applies a gate
+on neighbours; a gate on sites further apart, or the gates that fusion
+gathers on three sites, act on more than a pair. This page gives the
+approach the engine uses, a matrix product operator (MPO) across the span,
+why it loses no weight beyond what the capacity and the cutoff drop at the
+caller's cuts, what was tried before it and dropped, and the alternatives
+that could be explored later. The crate's
 [README](../README.md#how-each-mpsengine-method-is-implemented) summarizes
-it, and [`src/engine/routing.rs`](../src/engine/routing.rs) implements it.
+it, and [`src/engine/mpo.rs`](../src/engine/mpo.rs) implements it.
 
-The figures marked _study_ come from a study of the routings on an earlier
-version of this engine's rules, run on the CPU. Its error is the infidelity
-1 − F to the exact state, except for H₂, where it is the total variation
-distance (TVD) of the readout to the exact one, and for the mirror
-circuits, a circuit followed by its inverse, whose exact state is `|0…0⟩`,
-where it is 1 − P(0…0).
+The figures marked _study_ come from studies on earlier versions of this
+engine's rules, run on the CPU. Their error is the infidelity 1 − F to the
+exact state, except for H₂, where it is the total variation distance (TVD)
+of the readout to the exact one, and for the mirror circuits, a circuit
+followed by its inverse, whose exact state is `|0…0⟩`, where it is
+1 − P(0…0).
 
-## The approach: `swap-back-2x`
+## The approach: a matrix product operator
 
-A gate on sites `low < high` that are not neighbours moves the site at
-`high` down to `low + 1` by adjacent SWAPs (outbound), applies the gate to
-the pair at `low`, and moves the site back up by SWAPs (return): `d − 1`
-SWAPs each way for sites `d` apart. The chain is in the caller's order
-after every call, so nothing the engine reports, and no later call, sees
-the move.
+Fusion gathers two-site gates on up to three sites into one pending
+window, whose operator acts on its sites, `low` the first and `high` the
+last; its span is the sites from `low` to `high`. A window on two
+neighbours is applied by one split. Any other is applied in three steps:
+
+1. **Factor.** The window's operator, on `k` sites, is factored on the
+   host by `k − 1` SVDs into one tensor per site, linked by operator
+   bonds, keeping only the values above rounding's: a CNOT's bond is 2, a
+   general two-site gate's at most 4. The sites of the span between the
+   window's carry the identity, with the bond that crosses them.
+2. **Multiply.** With the centre in the span, each site of the span is
+   multiplied by its tensor, on the host, and uploaded: the bond at each
+   cut of the span grows by the operator's bond there.
+3. **Compress.** Exact moves of the centre across the span, then one split
+   per cut, the identity as gate, compress it back, each split truncating
+   its cut as a gate's split at rest does.
+
+The chain is in the caller's order after every call, so nothing the engine
+reports, and no later call, sees how the window was applied.
+
+**Every split is at a caller's cut.** The splits of step 3 run with the
+sites outside the span isometries towards it, and the sites they have
+passed isometries away from the cut, so each factors the state's exact
+Schmidt decomposition at a caller's cut, where the state must fit the
+capacity anyway. So an MPO discards nothing beyond what the cutoff drops
+at its splits (negligible at the default 1e-14) and what the capacity
+cuts at the caller's cuts.
+
+**The transient bond.** During step 2 the bond at a cut of the span is the
+chain's bond there times the operator's: at most the capacity's times 4.
+`CanonicalMpsState::split_statistics` reports the largest transient bond
+apart from the largest bond at rest.
+
+**The cost.** A window on a span of `d + 1` sites costs `d − 1` moves of
+the centre and `d` splits, each on matrices up to the capacity's times the
+operator's bond on a side, plus the reads, products and uploads of the
+span's sites on the host. Every backend call is one the algebra already
+makes for a gate or a move of the centre.
+
+## Tried and dropped
+
+**Routing by SWAPs, `swap-back-2x`.** The engine's previous rule moved the
+site at `high` down to `low + 1` by adjacent SWAPs (outbound), applied the
+gate to the pair at `low`, and moved the site back up by SWAPs (return):
+`2(d − 1) + 1` splits for sites `d` apart, against `d` for an MPO, and
+one window per gate, since a route acts on a pair at a time. Its
+outbound splits applied the cutoff alone and kept bonds up to 2χ, χ the
+capacity's largest bond, which the following paragraphs explain; they
+also drop a tail below the cutoff at cuts that are not the caller's,
+which an MPO never does (the case is in
+[the crate's MPO tests](../src/tests/engine/mpo.rs)). The MPO, with three
+sites per window, replaced it: on H₂'s phase estimation, an earlier
+version of the engine took 311,426 splits per shot gate by gate and
+83,322 with three-site windows as MPOs, 94.4 s against 14.3 s on the CPU
+(study).
 
 The split of each outbound SWAP drops the tail below the cutoff and
 applies no capacity. Its bond is still bounded: after the SWAP that moves
@@ -32,40 +83,13 @@ state in `A`'s Schmidt basis, `Σᵢ sᵢ |aᵢ⟩ |bᵢ⟩` with `r` terms, `r`
 the chain holds at cut `c − 1`; each `|bᵢ⟩` expands over `h`'s two levels,
 so the reduced state of `A ∪ {h}` lies in the span of the `|aᵢ⟩|x⟩`, of
 dimension at most `2r`. So the bond at cut `c` is at most twice the bond
-at cut `c − 1`, itself at most the capacity there: within 2χ, χ the
-capacity's largest bond. The bound is reached: on the random circuit of
-the second row of the first table below, the outbound splits keep bonds of
-256 at χ 128 (study).
+at cut `c − 1`, itself at most the capacity there: within 2χ. The bound
+is reached: on the random circuit of the second row of the first table
+below, the outbound splits keep bonds of 256 at χ 128 (study).
 
-The gate's split, at cut `low`, and each return split leave the moved site
-on the caller's side of the cut, so they split at the caller's cuts, where
-the state must fit the capacity anyway; they keep at most the capacity's
-bond. So a route discards nothing beyond what the cutoff drops at its
-`2(d − 1) + 1` splits (negligible at the default 1e-14) and what the
-capacity cuts at the caller's cuts, as that random circuit shows: it fits
-χ 128 in the caller's order and loses nothing beyond rounding.
-
-With fusion, a pair left unsplit is split under its last two-site
-operation. A route's first outbound SWAP may land on a pair the operation
-before it left unsplit; that pair is then split as outbound, and the bound
-holds unchanged: the gates fused into the pair act on its two sites, right
-of the cut below, and leave the bond there as it was.
-
-**The cost.** During a route a bond reaches up to 2χ, so a site tensor up
-to 4× the memory of one at χ, and a split's matrix up to 2χ × 4χ, against
-2χ × 2χ for a route truncated to χ. The study measured the split time
-against that truncated route (below): 1.46–1.62× where the bonds sit at
-χ, the cases where the allowance gains nothing (H₂ at χ 32, the polyene
-at χ 32 and 64, the mirror circuits), and 0.96–1.11× where it removes the
-loss (H₂ at χ 64, the polyene at χ 128, the QPE of 16 qubits), where
-bonds above χ appear only on the gates that need them.
-`CanonicalMpsState::split_statistics` reports the largest transient bond
-apart from the largest bond at rest.
-
-## Tried and dropped
-
-**Truncating the outbound splits to the capacity.** The study's `SwapBack`,
-and the first route of the engine's rules, kept at most χ at every split.
+**Truncating a route's outbound splits to the capacity.** The study's
+`SwapBack`, and the first route of the engine's rules, kept at most χ at
+every split.
 The temporary order needs up to 2χ, so it truncated states that fit χ in
 the caller's order:
 
@@ -78,18 +102,21 @@ the caller's order:
 | H₂, χ 64 (TVD of the readout) (study)        | 4.5e-4         | 1.6e-10        |
 
 The first row is computed, not measured: it is the case of
-[the crate's route tests](../src/tests/engine/routing.rs): Bell-like pairs
-on sites (0, 1) and (2, 3), then a CZ on sites 0 and 2, at bond 2; the
-truncated route loses sin²0.2 ≈ 3.9% of the weight at the outbound split.
+[the crate's MPO tests](../src/tests/engine/mpo.rs): Bell-like pairs on
+sites (0, 1) and (2, 3), then a CZ on sites 0 and 2, at bond 2; the
+truncated route loses sin²0.2 ≈ 3.9% of the weight at the outbound split,
+and an MPO, like `swap-back-2x`, none.
 
-**Truncating them to twice the capacity's bond at the cut they cross.**
+**Truncating a route's outbound splits to twice the capacity's bond at the
+cut they cross.**
 This equals 2χ on a chain of even bonds, but truncates a state that fits
 an uneven capacity: with bonds 2, 1 and 2, Bell pairs on sites (0, 1) and
 (2, 3) and a gate on sites 0 and 3, the SWAP at cut 1 needs a bond of 4
 (twice the bond at cut 0, below it), where this bound allowed 2. The bound
 of the proof above is the bond at the cut below, not the cut crossed.
 
-**Truncating them to twice the capacity's bond at the cut below.**
+**Truncating a route's outbound splits to twice the capacity's bond at the
+cut below.**
 Correct, but it never binds: the split's matrix has `2 · left` rows,
 `left` the bond at cut `c − 1`, which no split of the route has set yet
 and which the chain holds within the capacity there. The SVD's rank is at
@@ -99,7 +126,9 @@ alone.
 ## Alternatives that could be explored
 
 None is built. Each would be a new option of the engine, explored when a
-simulation method needs its speed and its cases are measured.
+simulation method needs its speed and its cases are measured. The studies
+compared them with `swap-back-2x`, the rule of the time, which kept the
+caller's order as an MPO does; none compared them with an MPO.
 
 **Routings that leave the moved site where the gate met it** save the
 return, at the price of a layout that drifts from the caller's order:

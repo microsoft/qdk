@@ -10,7 +10,8 @@
 //! measured values, estimates observables and draws samples. This engine
 //! holds the rules of all of it once, so that a backend (the CPU, a GPU
 //! library) writes only the tensor operations of [`SiteAlgebra`], and every
-//! backend routes and reads alike, and truncates within the same bounds.
+//! backend fuses, applies and reads alike, and truncates within the same
+//! bounds.
 //!
 //! **The canonical form.** The state of `n` qubits is a chain of `n` site
 //! tensors, one per qubit, neighbours sharing a bond. Every site but one is
@@ -25,22 +26,26 @@
 //!
 //! - [`chain`]: the sites, the centre, the gates still pending, and the
 //!   state's statistics;
-//! - [`gates`]: a one-site gate waits, pending, on its site; a gate on two
-//!   neighbours moves the centre into their pair and joins the pair's
-//!   pending 4×4 gate (fusion), which one split applies;
-//! - [`routing`]: a gate on sites further apart brings them together by
-//!   SWAPs on neighbours, and moves them back;
-//! - [`split`]: the pending pair's split, by one
+//! - [`window`]: fusion; a one-site gate waits, pending, on its site, and
+//!   two-site gates on up to three sites, neighbours or not, gather into
+//!   the pending window, which the first operation it does not serve
+//!   applies at once;
+//! - [`split`]: the split of two neighbours, a gate applied, by one
 //!   [`gate_split`](SiteAlgebra::gate_split), the one place where the
-//!   engine truncates; it leaves the centre on the side it is asked for;
+//!   engine truncates; it applies a window on two neighbours, and leaves
+//!   the centre on the side it is asked for;
+//! - [`mpo`]: any other window, applied as a matrix product operator
+//!   across its span, compressed back by splits;
 //! - [`canonical_form`]: moving the centre by one
 //!   [`qr_move`](SiteAlgebra::qr_move) per site crossed, which carries the
 //!   pending gate of the site it leaves;
+//! - [`gates`]: the arithmetic of the pending gates, on the host;
 //! - [`reads`]: probabilities, projections and conditional probabilities,
 //!   at the centre;
 //! - [`expectation`]: an observable's expectation, all its terms in one
 //!   walk;
-//! - [`policy`]: the default cutoff, with its reason;
+//! - [`policy`]: the default cutoff and the operator's rank threshold,
+//!   with their reasons;
 //! - [`error`]: why an operation was refused or failed.
 //!
 //! Each method the contract checks, here, first calls its
@@ -52,10 +57,11 @@ mod chain;
 mod error;
 mod expectation;
 mod gates;
+mod mpo;
 mod policy;
 mod reads;
-mod routing;
 mod split;
+mod window;
 
 pub use chain::SplitStatistics;
 pub use error::CanonicalMpsError;
@@ -71,15 +77,15 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// backend `A`, which holds the site tensors and runs every operation on
 /// them. A backend crate names its own engine as this one on its algebra.
 ///
-/// Beyond the contract, a caller may rely on how it routes and fuses, the
-/// same on every backend, and on the bounds its truncations stay within,
-/// which [`SiteAlgebra::gate_split`]'s contract sets for every backend.
+/// Beyond the contract, a caller may rely on how it fuses gates and applies
+/// them to sites far apart, the same on every backend, and on the bounds
+/// its truncations stay within, which [`SiteAlgebra::gate_split`]'s
+/// contract sets for every backend.
 ///
 /// **Truncation.** Every split drops a tail of singular values within the
-/// engine's cutoff, never the largest value, and a split at rest keeps
-/// at most the capacity's bond at its cut (the `χ` of the chain a caller
-/// asks for in [`MpsEngine::prepare`]); a route's outbound SWAPs apply the
-/// cutoff alone (Routing, below). A split normalises the values it keeps,
+/// engine's cutoff, never the largest value, and keeps at most the
+/// capacity's bond at its cut (the `χ` of the chain a caller asks for in
+/// [`MpsEngine::prepare`]). A split normalises the values it keeps,
 /// so the chain keeps a norm of about 1, and multiplies the state's
 /// retained weight by the share of the squared values they held, which
 /// [`MpsEngine::retained_weight`] reports. A split that would take that
@@ -91,41 +97,40 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// shifts reads by at most that order. A projection divides its site by the
 /// norm of what it kept, and leaves the retained weight unchanged.
 ///
-/// **Routing (`swap-back-2x`).** A gate on sites `low < high` that are not
-/// neighbours moves the site at `high` down to `low + 1` by SWAPs on
-/// neighbours (outbound), applies the gate to the pair at `low`, and moves
-/// the site back up by SWAPs (return). So the chain is in the caller's
-/// order after every call, and no read and no shape shows the move. The
-/// split after an outbound SWAP applies the cutoff alone: after the SWAP
-/// that moves the site down across cut `c`, the sites left of cut `c` are
-/// the caller's sites left of cut `c − 1` and the moved site, so its bond
-/// is at most twice the bond at cut `c − 1`, itself within the capacity.
-/// The gate's and the return's splits keep at most the capacity's bond at
-/// their own cut, a caller's cut, where the state must fit the capacity
-/// anyway. So a route discards nothing beyond what the cutoff discards at
-/// its splits and what the capacity cuts at the gate's and the return's.
-/// The price is transient: during a route a bond reaches up to twice the
-/// capacity's largest bond, which
-/// [`CanonicalMpsState::split_statistics`] reports apart from the bonds at
-/// rest. The crate's `docs/routing.md` lists other routings, with what is
-/// known of each.
+/// **Fusion.** Two-site gates gather into a pending window of up to three
+/// sites, neighbours or not: a gate joins while the window's sites and its
+/// own number at most three, and one-site gates on the window's sites
+/// multiply into it. The first operation the window does not serve (a
+/// two-site gate that does not fit, any read, projection, fork, shape or
+/// retained weight) applies it, so the backend sees one application for
+/// all its gates, and leaves the centre on the end of the window's span
+/// nearer the site that operation names (the centre, when it names none). A one-site gate on another site waits on its
+/// site until the next split or move of the centre across it, or a
+/// projection of it, applies it; a read sees it applied. Fusion moves where
+/// the truncations fall, so a truncated run's values may differ from those
+/// of a run that applies each gate at once, within the truncation error;
+/// without truncation they agree to rounding.
 ///
-/// **Fusion.** A gate on two neighbours leaves their pair unsplit, and the
-/// gates that follow on the same two sites, one-site gates and routing
-/// SWAPs included, multiply into the pair's pending gate, until another
-/// operation (a two-site gate on another pair, or any read or fork) splits
-/// the pair, by one [`gate_split`](SiteAlgebra::gate_split) for all of
-/// them. A one-site gate on another site waits on its site until the next
-/// split or move of the centre across it, or a projection of it, applies
-/// it; a read sees it applied.
-/// Fusion moves where the truncations fall, so a truncated run's values
-/// may differ from those of a run with one split per gate, within the
-/// truncation error; without truncation they agree to rounding.
+/// **Sites far apart.** A window on two neighbours is applied by one split.
+/// Any other, on sites further apart or on three sites, is applied as a
+/// matrix product operator (MPO) across its span, the sites from its first
+/// to its last: its operator is factored, on the host, into one tensor per
+/// site, the identity on the sites between; each site of the span is
+/// multiplied by its tensor; and the span is compressed back by exact moves
+/// of the centre across it and one split per cut, truncated as above. So
+/// the chain is in the caller's order after every call, every split is at
+/// a caller's cut, where the state must fit the capacity anyway, and an MPO
+/// on a span of `d + 1` sites costs `d − 1` moves of the centre and `d`
+/// splits. The price is transient: while the span is multiplied, its bonds
+/// reach up to the capacity's times the operator's bond (at most 4), which
+/// [`CanonicalMpsState::split_statistics`] reports apart from the bonds at
+/// rest. The crate's `docs/distant_sites.md` lists other ways to apply gates to
+/// sites far apart, with what is known of each.
 ///
 /// **Failures.** After a failure the state is unspecified, as
-/// [`MpsEngine`] says, and the caller must drop it: a split that fails may
-/// lose the gates pending on its pair, and a route that fails midway leaves
-/// its site moved.
+/// [`MpsEngine`] says, and the caller must drop it: an application of the
+/// pending window that fails may lose its gates, or leave its span half
+/// compressed.
 #[derive(Clone, Debug)]
 pub struct CanonicalMpsEngine<A> {
     algebra: A,
@@ -174,8 +179,8 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
 
     /// The same engine, fusing when `fuses` (Fusion on
     /// [`CanonicalMpsEngine`]). The crate's users always get fusion;
-    /// `with_fusion(false)` splits each two-site gate at once, which the
-    /// crate's tests compare with.
+    /// `with_fusion(false)` applies each two-site gate at once, as a window
+    /// of its own, which the crate's tests compare with.
     #[cfg(test)]
     #[must_use]
     pub(crate) fn with_fusion(self, fuses: bool) -> Self {
@@ -189,8 +194,8 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
 ///
 /// Every method that takes the state by shared reference may change its
 /// chain: the reads move the centre, which changes the tensors but not the
-/// state they describe, and the reads and [`MpsEngine::fork`] split a pair
-/// that fusion left pending, which applies the truncation its gates
+/// state they describe, and the reads and [`MpsEngine::fork`] apply the
+/// window that fusion left pending, which applies the truncation its gates
 /// deferred. So the chain sits in a [`RefCell`]. The state is `Send` when
 /// its algebra's tensors are.
 pub struct CanonicalMpsState<A: SiteAlgebra> {
@@ -251,7 +256,7 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
                 chain.apply_one(site, matrix);
                 Ok(())
             }
-            [first, second] => self.apply_pair(chain, first, second, matrix),
+            [_, _] => self.apply_two(chain, sites, matrix),
             _ => unreachable!("`checks::apply` refuses an operator on no site or more than two"),
         }
     }
@@ -296,12 +301,12 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
         self.project_on(chain, site, one)
     }
 
-    /// Splits a pending pair first, so the forks do not each split it, then
-    /// duplicates every site through the algebra.
+    /// Applies the pending window first, so the forks do not each apply it,
+    /// then duplicates every site through the algebra.
     fn fork(&self, state: &Self::State) -> Result<Self::State, Self::Error> {
         let mut chain = state.chain.borrow_mut();
         let centre = chain.centre;
-        self.split_pair_toward(&mut chain, centre)?;
+        self.flush_window(&mut chain, centre)?;
         Ok(CanonicalMpsState {
             chain: RefCell::new(chain.duplicate(&self.algebra)?),
         })
@@ -344,14 +349,14 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
     fn shape(&self, state: &Self::State) -> Result<MpsShape, Self::Error> {
         let mut chain = state.chain.borrow_mut();
         let centre = chain.centre;
-        self.split_pair_toward(&mut chain, centre)?;
+        self.flush_window(&mut chain, centre)?;
         Ok(chain.shape())
     }
 
     fn retained_weight(&self, state: &Self::State) -> Result<f64, Self::Error> {
         let mut chain = state.chain.borrow_mut();
         let centre = chain.centre;
-        self.split_pair_toward(&mut chain, centre)?;
+        self.flush_window(&mut chain, centre)?;
         Ok(chain.retained_weight)
     }
 }

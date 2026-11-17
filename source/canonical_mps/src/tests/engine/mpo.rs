@@ -1,15 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Gates on distant sites (`swap-back-2x`): they act in the caller's
-//! order, a route keeps a state that fits the capacity, applies the
-//! cutoff to its splits, and carries the centre without a QR.
+//! Gates on sites far apart, and windows on three sites, applied as a
+//! matrix product operator: they act in the caller's order, keep a state
+//! that fits the capacity, truncate only at the caller's cuts, grow the
+//! span by the operator's rank, and cost one move and one split per cut.
 
 use super::*;
 
 /// Gates on distant sites, in both operand orders: every read agrees with
-/// the reference in the caller's order, so the routing leaves no site
-/// moved.
+/// the reference in the caller's order, so no site is left moved.
 #[test]
 fn gates_on_distant_sites_act_in_the_callers_order() {
     let reference = ExactReference::new();
@@ -39,13 +39,11 @@ fn gates_on_distant_sites_act_in_the_callers_order() {
 }
 
 /// Two Bell pairs, (0, 1) and (2, 3), then a CZ on sites 0 and 2: the state
-/// has bond 2 at every cut in the caller's order, but 4 at the middle cut
-/// while site 2 visits site 1. The outbound SWAP's split keeps the 4, so
-/// the gate loses nothing on a chain of bond 2, where a route that kept
-/// only the capacity's bond on the way out would discard about 4% of the
-/// weight.
+/// has bond 2 at every cut, and the CZ, of operator rank 2, multiplies the
+/// bond at cut 0 to 4 before the splits compress it back to 2. The splits
+/// keep every value, so the gate loses nothing on a chain of bond 2.
 #[test]
-fn a_route_keeps_a_state_that_fits_the_capacity() {
+fn an_mpo_keeps_a_state_that_fits_the_capacity() {
     let capacity = chain(4, 2);
     let reference = ExactReference::new();
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
@@ -88,13 +86,11 @@ fn x_string(sites: &[usize]) -> PauliSum {
 
 /// Bell pairs on sites (0, 1) and (2, 3) fit a capacity whose bonds are
 /// 2, 1 and 2: the middle cut separates the pairs. A Z⊗Z on sites 0 and 3
-/// moves site 3 down to site 1; after the outbound SWAP at cut 1, the
-/// sites left of it, 0 and 3, hold half of each pair, a rank of 4. That is
-/// twice the capacity's bond at cut 0, the cut below, though four times
-/// the one at cut 1 itself; so the route keeps all the weight, and the
-/// Z⊗Z, which commutes with X⊗X⊗X⊗X, leaves its value at 1.
+/// spans the middle cut, whose split keeps at most 1: the Z⊗Z, which
+/// commutes with X⊗X⊗X⊗X, leaves the pairs apart, so the split keeps all
+/// the weight and the value of X⊗X⊗X⊗X at 1.
 #[test]
-fn a_route_keeps_a_state_that_fits_uneven_bonds() {
+fn an_mpo_keeps_a_state_that_fits_uneven_bonds() {
     let capacity = MpsShape::new(vec![vec![2, 2], vec![2, 2, 1], vec![1, 2, 2], vec![2, 2]])
         .expect("a chain of bonds 2, 1, 2");
     let half_turn = ry(std::f64::consts::FRAC_PI_2);
@@ -115,11 +111,6 @@ fn a_route_keeps_a_state_that_fits_uneven_bonds() {
             .expectation(&state, &x_string(&[0, 1, 2, 3]))
             .expect("expectation");
         assert!((xxxx - real(1.0)).norm() < 1e-12, "{name}: {xxxx}");
-        assert_eq!(
-            state.split_statistics().largest_transient_bond(),
-            4,
-            "{name}"
-        );
         assert!(
             engine.shape(&state).expect("shape").fits_within(&capacity),
             "{name}"
@@ -129,19 +120,18 @@ fn a_route_keeps_a_state_that_fits_uneven_bonds() {
 
 /// A Bell pair on sites (0, 1) and a pair on (2, 3) of Schmidt weights 0.98
 /// and 0.02, at a cutoff of 0.015 that no cut of the state reaches in the
-/// caller's order; then a Z⊗Z on sites 0 and 3, which moves site 3 down to
-/// site 1, next to site 0. The cut right of the two then separates half of
-/// each pair, weights 0.49, 0.49, 0.01 and 0.01, and the outbound SWAP's
-/// split drops a 0.01 there, as every split drops its tail below the
-/// cutoff, and the retained weight counts it: the route ends with a weight
-/// of 0.979974491787900 (measured, the same with and without fusion), where
-/// leaving the outbound split's loss out of the weight would end near 0.99.
+/// caller's order; then a Z⊗Z on sites 0 and 3, which changes no Schmidt
+/// value at any of the caller's cuts. The MPO's splits are all at the
+/// caller's cuts, so none drops the 0.02 and the weight stays 1, where a
+/// route by SWAPs, whose outbound split sees half of each pair, drops a
+/// 0.01 and ends near 0.98.
 #[test]
-fn the_cutoff_applies_to_a_routes_splits() {
-    // COMPATIBILITY NOTE: this behavior was present in the dev line's
-    // `qdk_cpu_mps` (its test of the same name, which measured
-    // 0.979974491787900), hence we keep the value: it holds here, fused and
-    // unfused, within the test's 1e-12.
+fn an_mpo_truncates_only_at_the_callers_cuts() {
+    // DISCUSS COMPATIBILITY: this crate's earlier rule for distant sites,
+    // the route by SWAPs `swap-back-2x`, kept a retained weight of
+    // 0.979974491787900 here, which its test pinned. The MPO keeps the
+    // whole weight: we think the change is right, since the 0.02 lost was
+    // the route's artefact, not the state's, so we recommend keeping it.
     let cutoff = 0.015;
     let half_turn = ry(std::f64::consts::FRAC_PI_2);
     let uneven = ry(2.0 * 0.98_f64.sqrt().acos());
@@ -155,22 +145,38 @@ fn the_cutoff_applies_to_a_routes_splits() {
         ] {
             engine.apply(&mut state, on, gate).expect("apply");
         }
-        let before = engine.retained_weight(&state).expect("weight");
-        assert!((before - 1.0).abs() < 1e-12, "{name}: {before}");
         engine.apply(&mut state, &[0, 3], &zz()).expect("apply");
-        let after = engine.retained_weight(&state).expect("weight");
-        assert!(
-            (after - 0.979_974_491_787_900).abs() < 1e-12,
-            "{name}: {after}"
-        );
+        let weight = engine.retained_weight(&state).expect("weight");
+        assert!((weight - 1.0).abs() < 1e-12, "{name}: {weight}");
     }
 }
 
-/// A read of site 3 leaves the centre there; then a CNOT on sites 0 and 4
-/// routes site 4 down to site 1 and back. Each SWAP's split leaves the
-/// centre on the site the next SWAP needs, so the route takes no QR.
+/// A product state of 6 sites, then a gate on sites 0 and 2: the CNOT,
+/// of operator rank 2, grows the span's bonds to 2, and the entangler,
+/// a partial iSWAP with a phase, of rank 4, to 4. A factorisation that
+/// kept rounding's values would grow every one to 4.
 #[test]
-fn a_route_carries_the_centre_without_a_qr() {
+fn an_mpo_grows_the_span_by_the_operators_rank() {
+    for (gate, rank) in [(cnot(), 2), (entangler(0.9), 4)] {
+        for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+            let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
+            for site in 0..6 {
+                engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
+            }
+            engine.apply(&mut state, &[0, 2], &gate).expect("apply");
+            engine.retained_weight(&state).expect("weight");
+            let statistics = state.split_statistics();
+            assert_eq!(statistics.mpo_applications(), 1, "{name}: precondition");
+            assert_eq!(statistics.largest_transient_bond(), rank, "{name}");
+        }
+    }
+}
+
+/// A read of site 2 leaves the centre inside the span of a CNOT on sites
+/// 0 and 4: the span of 5 sites takes 3 moves of the centre and 4 splits,
+/// and no move to reach the span.
+#[test]
+fn an_mpo_costs_a_move_and_a_split_per_cut_of_its_span() {
     for fuses in [true, false] {
         let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(fuses);
@@ -178,14 +184,37 @@ fn a_route_carries_the_centre_without_a_qr() {
         for site in 0..6 {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
         }
-        engine.probability_of_one(&state, 3).expect("P(One)");
-        let before = calls.qr_moves.get();
+        engine.probability_of_one(&state, 2).expect("P(One)");
+        let (moves, splits) = (calls.qr_moves.get(), state.split_statistics().splits());
         engine.apply(&mut state, &[0, 4], &cnot()).expect("apply");
+        engine.retained_weight(&state).expect("weight");
         assert_eq!(
-            state.split_statistics().swaps(),
-            6,
-            "fuses {fuses}: a route"
+            (
+                calls.qr_moves.get() - moves,
+                state.split_statistics().splits() - splits
+            ),
+            (3, 4),
+            "fuses {fuses}"
         );
-        assert_eq!(calls.qr_moves.get(), before, "fuses {fuses}");
+    }
+}
+
+/// A CNOT on sites 0 and 4 of 6 left pending, then a read of site 5 or of
+/// site 0: the window's splits leave the centre on the span's end nearer
+/// the read, site 4 or site 0, so the read of site 5 takes one move more
+/// than the span's 3, and the read of site 0 none.
+#[test]
+fn a_read_finds_the_centre_at_the_spans_end_nearer_its_site() {
+    for (read, moves) in [(5, 4), (0, 3)] {
+        let (algebra, calls) = SpyAlgebra::new();
+        let engine = CanonicalMpsEngine::new(algebra);
+        let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
+        for site in 0..6 {
+            engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
+        }
+        engine.apply(&mut state, &[0, 4], &cnot()).expect("apply");
+        let before = calls.qr_moves.get();
+        engine.probability_of_one(&state, read).expect("P(One)");
+        assert_eq!(calls.qr_moves.get() - before, moves, "a read of {read}");
     }
 }

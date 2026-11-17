@@ -4,10 +4,12 @@
 //! Moving the orthogonality centre, by one exact
 //! [`qr_move`](SiteAlgebra::qr_move) per site crossed.
 //!
-//! A read of a site and a gate on two neighbours need the centre on their
+//! A read of a site and a split of two neighbours need the centre on their
 //! sites: there, the rest of the chain drops out of the read, and the
-//! gate's split is the state's Schmidt decomposition. A move truncates
-//! nothing, so it changes the tensors but not the state.
+//! split is the state's Schmidt decomposition. A move truncates nothing,
+//! so it changes the tensors but not the state. A window applied as a
+//! matrix product operator ([`mpo`](super::mpo)) uses the same moves to
+//! make the sites of its span isometries again.
 //!
 //! The site the centre leaves must become an isometry with its pending
 //! one-site gate applied, so the move carries that gate into its QR; the
@@ -17,27 +19,27 @@ use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain, chain::Site};
 use crate::algebra::{CentreSide, QrMoveCall, SiteAlgebra};
 
 impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
-    /// Splits the pending pair, if any, toward `site`, and moves the centre
-    /// to `site`: what a read of that site alone needs.
+    /// Applies the pending window, if any, toward `site`, and moves the
+    /// centre to `site`: what a read of that site alone needs.
     pub(super) fn centre_on(
         &self,
         chain: &mut Chain<A::Tensor>,
         site: usize,
     ) -> Result<(), CanonicalMpsError<A::Error>> {
-        self.split_pair_toward(chain, site)?;
+        self.flush_window(chain, site)?;
         self.move_centre(chain, site)
     }
 
     /// Moves the centre to `to`, one site at a time. The chain has no
-    /// pending pair.
+    /// pending window.
     pub(super) fn move_centre(
         &self,
         chain: &mut Chain<A::Tensor>,
         to: usize,
     ) -> Result<(), CanonicalMpsError<A::Error>> {
         debug_assert!(
-            chain.fused.is_none(),
-            "a move of the centre with a pending pair"
+            chain.window.is_none(),
+            "a move of the centre with a pending window"
         );
         while chain.centre != to {
             let (cut, leaving, centre) = if chain.centre < to {

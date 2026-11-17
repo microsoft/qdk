@@ -10,10 +10,11 @@
 //! more than two sites, a projection on a value of probability zero, among
 //! others), before the state changes, or so that every read sees it
 //! unchanged. The engine's own failures are a sample too large for memory,
-//! a failure of the backend, and a truncation that would leave too little
-//! weight; the last two may fail a split, after which the state is
-//! unspecified and the caller drops it. [`MpsEngineError::refusal`] tells a
-//! refusal from a failure.
+//! a failure of the backend, a truncation that would leave too little
+//! weight, and a failed factorisation of a window's operator; the last
+//! three may fail the application of a pending window, after which the
+//! state is unspecified and the caller drops it.
+//! [`MpsEngineError::refusal`] tells a refusal from a failure.
 //!
 //! [`CanonicalMpsEngine`]: super::CanonicalMpsEngine
 
@@ -33,16 +34,16 @@ pub enum CanonicalMpsError<E> {
     /// A call the contract refuses: one whose arguments break the
     /// contract, refused before the state changed, or a projection or
     /// condition on a value of probability zero, refused after the engine
-    /// applied its pending pair, as any read does, so that the state every
+    /// applied its pending window, as any read does, so that the state every
     /// read sees is unchanged. It displays as the refusal, word for word.
     #[error(transparent)]
     Refused(#[from] Refusal),
 
     /// A call of the algebra failed ([`SiteAlgebra::Error`], its source).
     /// The state is then unspecified, as [`MpsEngine`] says, and the
-    /// caller must drop it: a failed split may have lost the gates pending
-    /// on its pair, a read splits a pending pair too, and a route that
-    /// fails midway leaves its site moved.
+    /// caller must drop it: a failed application of the pending window
+    /// may have lost its gates, or left its span half compressed, and a
+    /// read applies a pending window too.
     #[error("the site algebra failed")]
     Algebra(#[source] E),
 
@@ -64,6 +65,14 @@ pub enum CanonicalMpsError<E> {
     /// as for [`Self::Algebra`], and the caller must drop it.
     #[error("a truncation would take the retained weight below the smallest normal f64")]
     WeightUnderflow,
+
+    /// The factorisation of a pending window's operator into a matrix
+    /// product operator failed: the host's SVD of the operator
+    /// ([`SvdError`](dense_linalg::SvdError), its source) did not converge
+    /// or failed its checks. The window is lost, so the state is
+    /// unspecified, as for [`Self::Algebra`], and the caller must drop it.
+    #[error("the factorisation of a window's operator failed")]
+    OperatorDecomposition(#[source] dense_linalg::SvdError),
 }
 
 impl<E> From<TooManyValues> for CanonicalMpsError<E> {
@@ -76,7 +85,10 @@ impl<E: std::error::Error + 'static> MpsEngineError for CanonicalMpsError<E> {
     fn refusal(&self) -> Option<&Refusal> {
         match self {
             Self::Refused(refusal) => Some(refusal),
-            Self::Algebra(_) | Self::TooManyValues { .. } | Self::WeightUnderflow => None,
+            Self::Algebra(_)
+            | Self::TooManyValues { .. }
+            | Self::WeightUnderflow
+            | Self::OperatorDecomposition(_) => None,
         }
     }
 }
