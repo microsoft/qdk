@@ -17,13 +17,13 @@
 
 use crate::{
     analysis::Analysis,
-    app::{App, Focus, Target},
+    app::{App, Focus, Spot, Target},
     circuit::{Ink, Layout as CircuitLayout, draw_row},
     codes,
     stabilizer::Found,
     state::Wiring,
     syntax::{self, Role, Token},
-    ui::{dim, pane, spans, style},
+    ui::{dim, list_spots, pane, part_line, parts_title, parts_width, spans, style},
     workbench::{self, Item, Mark},
 };
 use qodec::{Code, Qodec};
@@ -121,6 +121,7 @@ pub fn render_map(frame: &mut Frame, app: &mut App, area: Rect) {
             line
         })
         .collect();
+    list_spots(app, area, Focus::Map, first, rows.len(), Spot::MapRow);
     frame.render_widget(
         Paragraph::new(lines).block(pane("Map".to_string(), focused)),
         area,
@@ -167,9 +168,10 @@ fn yaml_tokens(text: &str) -> Vec<Token> {
 }
 
 /// Draws the focused item's text, with its line editor.
-fn render_text(frame: &mut Frame, app: &App, area: Rect) {
+fn render_text(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Text;
     let Some((d, _)) = app.focused_doc() else {
+        app.spot(area, Spot::Pane(Focus::Text));
         frame.render_widget(
             Paragraph::new(dim("This item has no text of its own."))
                 .block(pane("Text".to_string(), focused)),
@@ -208,12 +210,18 @@ fn render_text(frame: &mut Frame, app: &App, area: Rect) {
         shown.push(Line::from(dim("Empty. Press n to write a line.")));
     }
     frame.render_widget(Paragraph::new(shown).block(block), area);
-    if let Some(editor) = editing {
-        let x = inner.x + to_u16(gutter + 1 + editor.cursor);
+    let caret = editing.map(|editor| {
         let y = inner.y + to_u16(app.text_line.saturating_sub(first));
+        let x = inner.x + to_u16(gutter + 1 + editor.cursor);
         if x < inner.right() && y < inner.bottom() {
             frame.set_cursor_position(Position::new(x, y));
         }
+        y
+    });
+    list_spots(app, area, Focus::Text, first, lines.len(), Spot::TextLine);
+    if let Some(y) = caret.filter(|&y| y < inner.bottom()) {
+        let row = Rect::new(inner.x, y, inner.width, 1);
+        app.spot(row, Spot::Caret(inner.x + to_u16(gutter + 1)));
     }
 }
 
@@ -354,6 +362,16 @@ impl GadgetCircuit {
             vec![self.offset + c - 1]
         }
     }
+
+    /// The cursor that selects drawn call `e`: an input selects the start,
+    /// an output the end.
+    fn point(&self, e: usize, calls: usize) -> usize {
+        if e < self.offset {
+            0
+        } else {
+            (e - self.offset + 1).min(calls)
+        }
+    }
 }
 
 /// Draws a gadget: its circuit and state over time, the parts it is built
@@ -371,7 +389,12 @@ pub fn render_gadget(
     let state_width = (top.width * 2 / 5).clamp(24, 60);
     let [circuit, state] =
         Layout::horizontal([Constraint::Min(20), Constraint::Length(state_width)]).areas(top);
-    let parts_width = gadget_parts_width(app, k).min(bottom.width / 5).max(14);
+    let parts_width = app
+        .qodec
+        .layers()
+        .get(k + 1)
+        .map_or(16, |l| parts_width(&l.instruction_set))
+        .min((bottom.width / 5).max(14));
     let [parts, text, findings] = Layout::horizontal([
         Constraint::Length(parts_width),
         Constraint::Percentage(28),
@@ -404,6 +427,7 @@ pub fn render_gadget(
                 app.focus == Focus::Circuit,
             ));
             frame.render_widget(text, top);
+            app.spot(top, Spot::Pane(Focus::Circuit));
             render_status(frame, app, status, Vec::new());
         }
         None => render_status(frame, app, status, Vec::new()),
@@ -447,7 +471,13 @@ fn gadget_status(app: &App, a: &Analysis) -> Vec<Span<'static>> {
     line
 }
 
-fn render_gadget_circuit(frame: &mut Frame, app: &App, area: Rect, a: &Analysis, mnemonic: &str) {
+fn render_gadget_circuit(
+    frame: &mut Frame,
+    app: &mut App,
+    area: Rect,
+    a: &Analysis,
+    mnemonic: &str,
+) {
     let focused = app.focus == Focus::Circuit;
     let calls = a.calls.len();
     let title = if app.gadget_call == 0 {
@@ -458,6 +488,7 @@ fn render_gadget_circuit(frame: &mut Frame, app: &App, area: Rect, a: &Analysis,
     let block = pane(title, focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    app.spot(area, Spot::Pane(Focus::Circuit));
     if calls == 0 && a.in_supports.is_empty() && a.out_supports.is_empty() {
         frame.render_widget(
             Paragraph::new(dim("No calls yet. Pick one in Parts and press Enter."))
@@ -500,6 +531,7 @@ fn render_gadget_circuit(frame: &mut Frame, app: &App, area: Rect, a: &Analysis,
     let first = first_row(focus_row, height);
 
     let mut lines = Vec::new();
+    let mut call_spots = Vec::new();
     for row in first..(first + height).min(layout.rows.len()) {
         let label = usize::try_from(layout.rows[row])
             .ok()
@@ -510,10 +542,12 @@ fn render_gadget_circuit(frame: &mut Frame, app: &App, area: Rect, a: &Analysis,
             format!("{label:>w$} ", w = gutter - 1),
             style(Role::Block),
         )];
+        let top = inner.y + to_u16(row - first);
+        let mut left = inner.x + to_u16(gutter);
         for segment in draw_row(layout, &g.wiring, row, start..end, |e| g.labels[e].clone()) {
-            let s = match segment.ink {
-                Ink::Wire => Style::new().fg(Color::DarkGray),
-                Ink::Gap => Style::new(),
+            let (s, call) = match segment.ink {
+                Ink::Wire => (Style::new().fg(Color::DarkGray), None),
+                Ink::Gap => (Style::new(), None),
                 Ink::Gate(e) | Ink::Link(e) => {
                     let mut s = match g.kinds[e] {
                         CallKind::Port => Style::new().fg(Color::Green),
@@ -525,14 +559,23 @@ fn render_gadget_circuit(frame: &mut Frame, app: &App, area: Rect, a: &Analysis,
                     if chosen.contains(&e) {
                         s = s.add_modifier(Modifier::REVERSED | Modifier::BOLD);
                     }
-                    s
+                    (s, Some(Spot::GadgetCall(g.point(e, calls))))
                 }
             };
-            row_spans.push(Span::styled(segment.text, s));
+            let span = Span::styled(segment.text, s);
+            let width = to_u16(span.width());
+            if let Some(call) = call {
+                call_spots.push((Rect::new(left, top, width, 1).intersection(inner), call));
+            }
+            left = left.saturating_add(width);
+            row_spans.push(span);
         }
         lines.push(Line::from(row_spans));
     }
     frame.render_widget(Paragraph::new(lines), inner);
+    for (area, spot) in call_spots {
+        app.spot(area, spot);
+    }
 }
 
 /// The letter of `pauli` on qubit `q`, styled.
@@ -604,24 +647,13 @@ fn render_gadget_state(frame: &mut Frame, app: &App, area: Rect, a: &Analysis) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn gadget_parts_width(app: &App, k: usize) -> u16 {
-    let widest = app.qodec.layers().get(k + 1).map_or(10, |l| {
-        l.instruction_set
-            .instructions
-            .iter()
-            .map(|i| syntax::plain(&syntax::signature(i)).chars().count())
-            .max()
-            .unwrap_or(10)
-    });
-    to_u16(widest + 2)
-}
-
-fn render_gadget_parts(frame: &mut Frame, app: &App, area: Rect, k: usize) {
+fn render_gadget_parts(frame: &mut Frame, app: &mut App, area: Rect, k: usize) {
     let focused = app.focus == Focus::Parts;
     let Some(lower) = app.qodec.layers().get(k + 1) else {
         return;
     };
     let isa = &lower.instruction_set;
+    let count = isa.instructions.len();
     let height = usize::from(area.height.saturating_sub(2));
     let first = first_row(app.gadget_part, height);
     let lines: Vec<Line> = isa
@@ -630,16 +662,11 @@ fn render_gadget_parts(frame: &mut Frame, app: &App, area: Rect, k: usize) {
         .enumerate()
         .skip(first)
         .take(height)
-        .map(|(p, decl)| {
-            let mut tokens = syntax::signature(decl);
-            tokens.retain(|(role, _)| *role != Role::Dim);
-            selected(Line::from(spans(tokens)), p == app.gadget_part, focused)
-        })
+        .map(|(p, decl)| selected(part_line(decl), p == app.gadget_part, focused))
         .collect();
-    frame.render_widget(
-        Paragraph::new(lines).block(pane(format!("Parts · {}", isa.name), focused)),
-        area,
-    );
+    let title = parts_title(isa);
+    list_spots(app, area, Focus::Parts, first, count, Spot::GadgetPart);
+    frame.render_widget(Paragraph::new(lines).block(pane(title, focused)), area);
 }
 
 fn render_findings(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -654,6 +681,7 @@ fn render_findings(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     let height = usize::from(area.height.saturating_sub(2));
     let first = first_row(app.finding, height);
+    let count = rows.len();
     let lines: Vec<Line> = rows
         .into_iter()
         .enumerate()
@@ -661,6 +689,7 @@ fn render_findings(frame: &mut Frame, app: &mut App, area: Rect) {
         .take(height)
         .map(|(r, row)| selected(Line::from(spans(row.tokens)), r == app.finding, focused))
         .collect();
+    list_spots(app, area, Focus::Findings, first, count, Spot::Finding);
     frame.render_widget(Paragraph::new(lines).block(pane(title, focused)), area);
 }
 

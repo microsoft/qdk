@@ -21,7 +21,10 @@
 use qodec_human_interface::{app::App, bundle, ui};
 use ratatui::{
     DefaultTerminal,
-    crossterm::event::{self, Event, KeyEventKind},
+    crossterm::{
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
+        execute,
+    },
 };
 use std::{io, path::PathBuf, process::ExitCode};
 
@@ -110,7 +113,15 @@ fn main() -> ExitCode {
         }
     };
     let mut terminal = ratatui::init();
-    let result = run(&mut terminal, &mut app);
+    // Mouse capture is ours to undo, on the way out and on a panic alike.
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = execute!(io::stdout(), DisableMouseCapture);
+        hook(info);
+    }));
+    let result =
+        execute!(io::stdout(), EnableMouseCapture).and_then(|()| run(&mut terminal, &mut app));
+    let _ = execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -124,10 +135,16 @@ fn main() -> ExitCode {
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.quit {
         terminal.draw(|frame| ui::render(frame, app))?;
-        if let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            app.key(key);
+        // Wait for something that may change the screen: the mouse moving
+        // over it does not.
+        loop {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => app.key(key),
+                Event::Mouse(mouse) if app.mouse(mouse) => {}
+                Event::Resize(..) => {}
+                _ => continue,
+            }
+            break;
         }
     }
     Ok(())

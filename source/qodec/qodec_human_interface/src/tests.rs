@@ -15,6 +15,7 @@ use ratatui::{
     Terminal,
     backend::TestBackend,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    layout::Position,
 };
 use std::{fmt::Write, path::PathBuf};
 
@@ -309,6 +310,17 @@ fn parts_add_lines_that_run_on_the_blocks_live_there() {
 }
 
 #[test]
+fn the_parts_pane_is_as_wide_as_the_parts_it_draws() {
+    let mut app = app(&repetition3(), &[]);
+    let screen = screen(&mut app, 200, 16);
+    // The widest part, then the pane's border, then the program's.
+    assert!(
+        screen.contains("│rotate_z <repetition3> theta=<number>││"),
+        "{screen}"
+    );
+}
+
+#[test]
 fn a_line_runs_as_it_is_typed() {
     let mut app = app(&repetition3(), &["prepare_z 0"]);
     assert_eq!(app.focus, Focus::Program);
@@ -397,6 +409,118 @@ fn brackets_go_down_to_what_a_call_became_and_back_up() {
     assert_eq!(app.shot.nodes[bottom.node].parent, Some(middle.node));
     press(&mut app, "[[");
     assert_eq!(app.event(), Some(top));
+}
+
+/// Where `text` first appears on the screen, drawn 120 by 34, as a click
+/// would find it: the drawing is what tells the app what is where.
+fn at(app: &mut App, text: &str) -> Position {
+    let (width, height) = (120, 34);
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("a test terminal");
+    terminal
+        .draw(|frame| ui::render(frame, app))
+        .expect("drawing succeeds");
+    let buffer = terminal.backend().buffer();
+    for y in 0..height {
+        for x in 0..width {
+            let rest: String = (x..width).map(|x| buffer[(x, y)].symbol()).collect();
+            if rest.starts_with(text) {
+                return Position::new(x, y);
+            }
+        }
+    }
+    panic!("`{text}` is not on the screen");
+}
+
+fn click(app: &mut App, text: &str) {
+    let position = at(app, text);
+    app.click(position, false);
+}
+
+fn double_click(app: &mut App, text: &str) {
+    let position = at(app, text);
+    app.click(position, false);
+    app.click(position, true);
+}
+
+#[test]
+fn the_mouse_builds_and_explores_a_program() {
+    let mut app = app(&repetition3(), &[]);
+    double_click(&mut app, "prepare_z <out");
+    double_click(&mut app, "measure_z <in");
+    assert_eq!(texts(&app), ["prepare_z 0", "measure_z 0"]);
+
+    click(&mut app, "1  prepare_z");
+    assert_eq!((app.focus, app.line), (Focus::Program, 0));
+    let position = at(&mut app, "1  prepare_z");
+    app.wheel(position, true, false);
+    assert_eq!(app.line, 1);
+
+    // A call in the circuit, then its bit flipped with the right button.
+    click(&mut app, "M→0");
+    assert_eq!(app.focus, Focus::View);
+    let event = app.event().expect("a selected call");
+    assert_eq!(app.shot.traced(event).call.instruction_id, 1);
+    let position = at(&mut app, "M→0");
+    app.right_click(position);
+    assert_eq!(app.outcomes.pins.len(), 1);
+
+    // A layer in the title shows it; a key below presses it.
+    let position = at(&mut app, "· repetition3 ▸");
+    app.click(Position::new(position.x + 2, position.y), false);
+    assert_eq!(app.boundary, 0);
+    click(&mut app, " v  flow");
+    assert_eq!(app.mode, Mode::Flow);
+    click(&mut app, "? help");
+    assert!(app.help);
+    click(&mut app, "Help");
+    assert!(!app.help);
+}
+
+#[test]
+fn clicking_in_a_line_being_edited_moves_its_cursor() {
+    let mut app = app(&repetition3(), &["prepare_z 0"]);
+    double_click(&mut app, "1  prepare_z");
+    assert_eq!(app.editor.as_ref().map(|e| e.cursor), Some(11));
+    let z = at(&mut app, "z 0");
+    app.click(Position::new(z.x + 1, z.y), false);
+    assert_eq!(app.editor.as_ref().map(|e| e.cursor), Some(9));
+    press(&mut app, "⌫x");
+    assert_eq!(texts(&app), ["prepare_x 0"]);
+    // The hints under an edit are its keys: Esc cancels it.
+    click(&mut app, "cancel");
+    assert_eq!(app.editor, None);
+    assert_eq!(texts(&app), ["prepare_z 0"]);
+    // A click elsewhere keeps the edit.
+    double_click(&mut app, "1  prepare_z");
+    press(&mut app, "⌫⌫");
+    click(&mut app, "prepare_z <out");
+    assert_eq!(app.editor, None);
+    assert_eq!(texts(&app), ["prepare_z"]);
+    assert_eq!(app.focus, Focus::Parts);
+}
+
+#[test]
+fn the_mouse_reaches_every_pane_of_a_gadget() {
+    let mut app = workbench("repetition3/repetition3.qodec.yaml");
+    click(&mut app, "✓ idle");
+    assert_eq!(
+        (app.focus, &app.item),
+        (Focus::Map, &Item::Instruction(0, 1))
+    );
+    double_click(&mut app, "✓ idle");
+    assert_eq!(app.focus, Focus::Circuit);
+    // The first CX drawn is the circuit's third call.
+    click(&mut app, "CX");
+    assert_eq!(app.gadget_call, 3);
+    let position = at(&mut app, "CX");
+    app.wheel(position, true, false);
+    assert_eq!(app.gadget_call, 4);
+    click(&mut app, "M <in:qubit>");
+    assert_eq!((app.focus, app.gadget_part), (Focus::Parts, 1));
+    click(&mut app, "11 checks:");
+    assert_eq!((app.focus, app.text_line), (Focus::Text, 10));
+    click(&mut app, "readouts[1] M 4");
+    assert_eq!((app.focus, app.finding), (Focus::Findings, 2));
 }
 
 #[test]

@@ -117,6 +117,24 @@ Bits come from the bottom backend, which runs nothing and makes them up: all zer
 
 `?` shows every key, `u`/`U` undo and redo any change (to a file, an adopted equation, a program line or a pinned bit), and `q` quits.
 
+## The mouse
+
+The mouse reaches everything the keys select. Each draw records where it put each pane, row and call, and a click acts on what is under it:
+
+| Action          | Where                                      | What it does                                                                |
+| --------------- | ------------------------------------------ | --------------------------------------------------------------------------- |
+| Click           | A pane, a row, or a call in a circuit      | Focuses the pane and selects what is under the pointer                      |
+| Double click    | A row                                      | Does what `Enter` does: opens a map item, adds a part, edits a line, adopts |
+| Double click    | A call in the program's circuit            | Goes down to the calls it became, as `]` does                               |
+| Click           | The line being edited                      | Moves the cursor; a click anywhere else keeps the edit                      |
+| Right click     | A bottom call in the program's circuit     | Flips its first bit, as `Space` does                                        |
+| Wheel           | Any pane                                   | Moves through it, as `↑`/`↓` do; in a gadget's circuit, steps through time  |
+| `Shift` + wheel | The program's circuit                      | Steps through time, as `←`/`→` do                                           |
+| Click           | A layer in the title, or `bits`, or `help` | Shows that layer's circuit, cycles the bits, or shows the help              |
+| Click           | A key in the line at the bottom            | Presses it                                                                  |
+
+While the interface has the mouse, most terminals select text only with `Shift` held down.
+
 ## How it watches the runtime
 
 The runtime is the reference one, unchanged. `Traced` wraps any `Design`, and gives each layer it assembles a tap: a layer around the layer that records each batch it is given and each answer it returns. A traced design is itself a design, so `QodecPlan` builds it like any other. Layers answer by calling the layer below, so the recorded batches nest into a tree whose depth is the boundary.
@@ -138,7 +156,7 @@ What is live is read off the recorded calls with the runtime model's own rules (
 | `faults.rs`     | Fault tables: what each single fault does to a gadget, and its fault distance |
 | `bundle.rs`     | The qodec as text: loading, saving, and edits that keep comments              |
 | `workbench.rs`  | The map, its marks, the findings, and new gadgets                             |
-| `app.rs`        | The interface state and what each key does                                    |
+| `app.rs`        | The interface state and what each key and click does                          |
 | `ui.rs`         | Drawing the program, and the screen around every item                         |
 | `views.rs`      | Drawing the map, gadgets, codes and other files                               |
 

@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The interface's state, and what each key does to it. Nothing here draws:
-//! [`crate::ui`] renders an [`App`], so the keys can be tested without a
+//! The interface's state, and what each key and click does to it. Nothing
+//! here draws: [`crate::ui`] renders an [`App`], and records where it drew
+//! what a click can reach, so the keys and the mouse can be tested without a
 //! terminal.
 //!
 //! The program and the outcomes are the only inputs. Every change to either
@@ -21,8 +22,49 @@ use crate::{
     workbench::{self, Item, Mark, Row},
 };
 use qodec::Qodec;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::{collections::BTreeMap, path::PathBuf, rc::Rc};
+use ratatui::{
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    layout::{Position, Rect},
+};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    rc::Rc,
+    time::{Duration, Instant},
+};
+
+/// How soon a second click on the same cell makes a double click.
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+
+/// Something drawn that the mouse can reach. [`crate::ui::render`] records
+/// where each one went, so a click finds what is under it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Spot {
+    /// A pane: a click focuses it.
+    Pane(Focus),
+    /// A row of the map.
+    MapRow(usize),
+    /// A top instruction in the program's parts.
+    Part(usize),
+    /// A program line.
+    Line(usize),
+    /// A call of the shown boundary's timeline.
+    Event(usize),
+    /// A line of the focused item's text.
+    TextLine(usize),
+    /// A point of a gadget's circuit, as [`App::gadget_call`] counts them.
+    GadgetCall(usize),
+    /// A lower instruction in a gadget's parts.
+    GadgetPart(usize),
+    /// A row of a gadget's findings.
+    Finding(usize),
+    /// A boundary's name in the title.
+    Boundary(usize),
+    /// The line being edited, whose first character is at this column.
+    Caret(u16),
+    /// A key hint: a click presses the key.
+    Key(KeyEvent),
+}
 
 /// Which pane keys go to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,6 +216,10 @@ pub struct App {
     /// What this copy of the qodec is, when a tool opens one of several
     /// versions of it: shown after its name, so they can be told apart.
     pub label: Option<String>,
+    /// Where the last draw put each spot, panes before what is in them.
+    pub(crate) spots: Vec<(Rect, Spot)>,
+    /// The last left click, to tell a double click.
+    last_click: Option<(Instant, Position)>,
 }
 
 impl App {
@@ -268,6 +314,8 @@ impl App {
             program_path,
             quit: false,
             label: None,
+            spots: Vec::new(),
+            last_click: None,
         };
         if !app.program.is_empty() {
             app.focus = Focus::Program;
@@ -705,6 +753,190 @@ impl App {
         let k = order.iter().position(|&f| f == self.focus).unwrap_or(0);
         let k = if forward { k + 1 } else { k + order.len() - 1 };
         self.focus = order[k % order.len()];
+    }
+
+    // ── Mouse ───────────────────────────────────────────────────────────────
+
+    /// Records that the last draw put `spot` at `area`.
+    pub(crate) fn spot(&mut self, area: Rect, spot: Spot) {
+        if area.width > 0 && area.height > 0 {
+            self.spots.push((area, spot));
+        }
+    }
+
+    /// The pane at `at`, if it can take focus, and the most specific other
+    /// spot there.
+    fn spots_at(&self, at: Position) -> (Option<Focus>, Option<Spot>) {
+        let mut pane = None;
+        let mut spot = None;
+        for &(_, s) in self.spots.iter().filter(|(area, _)| area.contains(at)) {
+            match s {
+                Spot::Pane(focus) => pane = Some(focus).filter(|f| self.panes().contains(f)),
+                Spot::Caret(_) if self.editor.is_none() => {}
+                _ => spot = Some(s),
+            }
+        }
+        (pane, spot)
+    }
+
+    /// Does what the mouse asks, and says whether anything may have changed.
+    pub fn mouse(&mut self, event: MouseEvent) -> bool {
+        let at = Position::new(event.column, event.row);
+        let sideways = event.modifiers.contains(KeyModifiers::SHIFT);
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let now = Instant::now();
+                let double = self.last_click.is_some_and(|(then, where_)| {
+                    where_ == at && now.duration_since(then) <= DOUBLE_CLICK
+                });
+                // A third click starts over rather than making another double.
+                self.last_click = (!double).then_some((now, at));
+                self.click(at, double);
+            }
+            MouseEventKind::Down(MouseButton::Right) => self.right_click(at),
+            MouseEventKind::ScrollDown => self.wheel(at, true, sideways),
+            MouseEventKind::ScrollUp => self.wheel(at, false, sideways),
+            MouseEventKind::ScrollRight => self.wheel(at, true, true),
+            MouseEventKind::ScrollLeft => self.wheel(at, false, true),
+            _ => return false,
+        }
+        true
+    }
+
+    /// A left click at `at`: focuses the pane there and selects what is
+    /// under it. A `double` click also does what `Enter` would.
+    pub fn click(&mut self, at: Position, double: bool) {
+        self.message = None;
+        if self.help {
+            self.help = false;
+            return;
+        }
+        let (pane, spot) = self.spots_at(at);
+        if let Some(editor) = &mut self.editor {
+            match spot {
+                Some(Spot::Caret(x)) => {
+                    let end = editor.text.chars().count();
+                    editor.cursor = usize::from(at.x.saturating_sub(x)).min(end);
+                    return;
+                }
+                // The hints under an edit are the editor's keys.
+                Some(Spot::Key(key)) => {
+                    self.key(key);
+                    return;
+                }
+                // A click elsewhere keeps the edit, as Enter does.
+                _ => self.editor = None,
+            }
+        }
+        if let Some(focus) = pane {
+            self.focus = focus;
+        }
+        let enter = KeyEvent::from(KeyCode::Enter);
+        match spot {
+            Some(Spot::MapRow(r)) => {
+                let Some(item) = self.rows().get(r).map(|row| row.item.clone()) else {
+                    return;
+                };
+                self.map_row = r;
+                self.show(item);
+                if double && let Some(next) = self.panes().get(1) {
+                    self.focus = *next;
+                }
+            }
+            Some(Spot::Part(p)) => {
+                self.part = p;
+                if double {
+                    self.insert_part(p);
+                }
+            }
+            Some(Spot::Line(l)) => {
+                self.select_line(l);
+                if double {
+                    self.start_edit();
+                }
+            }
+            Some(Spot::Event(t)) => {
+                self.select_event(t);
+                if double {
+                    self.change_boundary(true);
+                }
+            }
+            Some(Spot::TextLine(l)) => {
+                self.text_line = l;
+                if double {
+                    self.text_key(enter);
+                }
+            }
+            Some(Spot::GadgetCall(c)) => self.gadget_call = c,
+            Some(Spot::GadgetPart(p)) => {
+                self.gadget_part = p;
+                if double {
+                    self.insert_call(p);
+                }
+            }
+            Some(Spot::Finding(f)) => {
+                self.finding = f;
+                // The findings' keys show the call the row is about, and
+                // Enter adopts it.
+                self.findings_key(if double {
+                    enter
+                } else {
+                    KeyEvent::from(KeyCode::Null)
+                });
+            }
+            Some(Spot::Boundary(b)) => {
+                if self.item != Item::Program {
+                    self.select(&Item::Program);
+                }
+                self.focus = Focus::View;
+                if b != self.boundary && b < self.engine.boundaries() {
+                    self.boundary = b;
+                    self.scroll = (0, 0);
+                    self.cursor = None;
+                    self.follow_line();
+                }
+            }
+            Some(Spot::Key(key)) => self.key(key),
+            Some(Spot::Pane(_) | Spot::Caret(_)) | None => {}
+        }
+    }
+
+    /// A right click at `at`: on a call that reports bits made up at the
+    /// bottom, flips its first bit, as `Space` does.
+    pub fn right_click(&mut self, at: Position) {
+        self.message = None;
+        if self.help {
+            self.help = false;
+            return;
+        }
+        if let (_, Some(Spot::Event(t))) = self.spots_at(at) {
+            self.editor = None;
+            self.focus = Focus::View;
+            self.select_event(t);
+            self.flip(0);
+        }
+    }
+
+    /// The wheel over `at`: focuses the pane there and moves through it, as
+    /// the arrow keys do. A `sideways` wheel steps through a circuit's time.
+    pub fn wheel(&mut self, at: Position, down: bool, sideways: bool) {
+        if self.help || self.editor.is_some() {
+            return;
+        }
+        let (Some(focus), _) = self.spots_at(at) else {
+            return;
+        };
+        let across = focus == Focus::Circuit
+            || (sideways && focus == Focus::View && self.mode == Mode::Circuit);
+        let code = match (across, down) {
+            (true, true) => KeyCode::Right,
+            (true, false) => KeyCode::Left,
+            (false, _) if sideways => return,
+            (false, true) => KeyCode::Down,
+            (false, false) => KeyCode::Up,
+        };
+        self.focus = focus;
+        self.key(KeyEvent::from(code));
     }
 
     /// Shows the next boundary down (`deeper`) or up. From a selected call,

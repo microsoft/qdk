@@ -18,16 +18,18 @@
 //! ```
 
 use crate::{
-    app::{App, Focus, Mode, Target},
+    app::{App, Focus, Mode, Spot, Target},
     circuit::{Ink, Layout as CircuitLayout, draw_row},
     shot::{Event, Outcome},
     syntax::{self, Role, Token},
     vocab,
     workbench::Item,
 };
+use qodec::{Instruction, InstructionSet};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Position, Rect},
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    layout::{Constraint, Layout, Margin, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph, Wrap},
@@ -87,8 +89,70 @@ pub(crate) fn pane(title: String, focused: bool) -> Block<'static> {
     Block::bordered().title(title).border_style(border)
 }
 
+fn to_u16(n: usize) -> u16 {
+    u16::try_from(n).unwrap_or(u16::MAX)
+}
+
+/// Makes the bordered pane at `area` clickable as `focus`, and so each row of
+/// the list in it, which shows items `first..count`, as `spot` of its item.
+pub(crate) fn list_spots(
+    app: &mut App,
+    area: Rect,
+    focus: Focus,
+    first: usize,
+    count: usize,
+    spot: impl Fn(usize) -> Spot,
+) {
+    app.spot(area, Spot::Pane(focus));
+    let inner = area.inner(Margin::new(1, 1));
+    for (k, index) in (first..count).take(usize::from(inner.height)).enumerate() {
+        let row = Rect::new(inner.x, inner.y + to_u16(k), inner.width, 1);
+        app.spot(row, spot(index));
+    }
+}
+
+/// Draws `pieces` as one line in `area`, each clickable as its spot.
+fn render_spotted(
+    frame: &mut Frame,
+    app: &mut App,
+    area: Rect,
+    pieces: Vec<(Span<'static>, Option<Spot>)>,
+) {
+    let mut x = area.x;
+    let mut line = Vec::new();
+    for (span, spot) in pieces {
+        let width = to_u16(span.width());
+        if let Some(spot) = spot {
+            app.spot(Rect::new(x, area.y, width, 1).intersection(area), spot);
+        }
+        x = x.saturating_add(width);
+        line.push(span);
+    }
+    frame.render_widget(Paragraph::new(Line::from(line)), area);
+}
+
+/// The key a hint in the keys line stands for, when it stands for one.
+fn hint_key(hint: &str) -> Option<KeyEvent> {
+    let code = match hint {
+        "Enter" => KeyCode::Enter,
+        "Esc" => KeyCode::Esc,
+        "Tab" => KeyCode::Tab,
+        "Space" => KeyCode::Char(' '),
+        "Ctrl-S" => return Some(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)),
+        _ => {
+            let mut chars = hint.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) => KeyCode::Char(c),
+                _ => return None,
+            }
+        }
+    };
+    Some(KeyEvent::from(code))
+}
+
 /// Draws `app` on `frame`.
 pub fn render(frame: &mut Frame, app: &mut App) {
+    app.spots.clear();
     let [title, main, live, explain, keys] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(6),
@@ -105,7 +169,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     crate::views::render_map(frame, app, map);
     match app.item.clone() {
         Item::Program => {
-            let parts_width = parts_width(app).min(item.width * 3 / 10).max(16);
+            let parts_width = parts_width(app.engine.top()).min((item.width * 3 / 10).max(16));
             let most = item.width * 36 / 100;
             let program_width = program_width(app).unwrap_or(most).min(most).max(20);
             let [parts, program, view] = Layout::horizontal([
@@ -135,84 +199,119 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
 }
 
-fn render_title(frame: &mut Frame, app: &App, area: Rect) {
+fn render_title(frame: &mut Frame, app: &mut App, area: Rect) {
     let qodec = app.engine.qodec();
-    let mut line = vec![
-        Span::styled(" qodec-hi ", Style::new().add_modifier(Modifier::REVERSED)),
-        Span::raw(" "),
-        Span::styled(
-            qodec.name().unwrap_or("unnamed").to_string(),
-            Style::new().add_modifier(Modifier::BOLD),
+    let mut line: Vec<(Span<'static>, Option<Spot>)> = vec![
+        (
+            Span::styled(" qodec-hi ", Style::new().add_modifier(Modifier::REVERSED)),
+            None,
+        ),
+        (Span::raw(" "), None),
+        (
+            Span::styled(
+                qodec.name().unwrap_or("unnamed").to_string(),
+                Style::new().add_modifier(Modifier::BOLD),
+            ),
+            None,
         ),
     ];
     if let Some(label) = &app.label {
-        line.push(dim(" · "));
-        line.push(Span::styled(
-            label.clone(),
-            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        line.push((dim(" · "), None));
+        line.push((
+            Span::styled(
+                label.clone(),
+                Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            None,
         ));
     }
-    line.push(dim(" · "));
+    line.push((dim(" · "), None));
     for b in 0..app.engine.boundaries() {
         if b > 0 {
-            line.push(dim(" ▸ "));
+            line.push((dim(" ▸ "), None));
         }
         let name = app.engine.isa(b).name.clone();
-        line.push(if b == app.boundary {
+        let span = if b == app.boundary {
             Span::styled(
                 name,
                 style(Role::Name).add_modifier(Modifier::REVERSED | Modifier::BOLD),
             )
         } else {
             Span::styled(name, style(Role::Name))
-        });
+        };
+        line.push((span, Some(Spot::Boundary(b))));
     }
-    line.push(dim(" · bits: "));
-    line.push(Span::styled(
-        app.outcomes.policy.to_string(),
-        Style::new().add_modifier(Modifier::BOLD),
+    // While a line is edited, letters type rather than press.
+    let typing = app.editor.is_some();
+    let global = |c: &str| hint_key(c).filter(|_| !typing).map(Spot::Key);
+    let bits = global("o");
+    line.push((dim(" · bits: "), bits));
+    line.push((
+        Span::styled(
+            app.outcomes.policy.to_string(),
+            Style::new().add_modifier(Modifier::BOLD),
+        ),
+        bits,
     ));
     let pins = app.outcomes.pins.len();
     if pins > 0 {
-        line.push(dim(", "));
-        line.push(Span::styled(
-            format!("{pins} pinned"),
-            style(Role::Pinned).remove_modifier(Modifier::UNDERLINED),
+        line.push((dim(", "), None));
+        line.push((
+            Span::styled(
+                format!("{pins} pinned"),
+                style(Role::Pinned).remove_modifier(Modifier::UNDERLINED),
+            ),
+            None,
         ));
     }
     if app.load_error.is_some() {
-        line.push(Span::styled(
-            " · the text does not load",
-            style(Role::Error),
+        line.push((
+            Span::styled(" · the text does not load", style(Role::Error)),
+            None,
         ));
     } else if app.plan_error.is_some() {
-        line.push(Span::styled(
-            " · the runtime can't plan it",
-            style(Role::Error),
+        line.push((
+            Span::styled(" · the runtime can't plan it", style(Role::Error)),
+            None,
         ));
     }
     if app.dirty() {
-        line.push(Span::styled(" · unsaved", style(Role::Unresolved)));
+        line.push((Span::styled(" · unsaved", style(Role::Unresolved)), None));
     }
-    line.push(dim(" · ? help"));
-    frame.render_widget(Paragraph::new(Line::from(line)), area);
+    line.push((dim(" · "), None));
+    line.push((dim("? help"), global("?")));
+    render_spotted(frame, app, area, line);
 }
 
-fn parts_width(app: &App) -> u16 {
-    let widest = app
-        .engine
-        .top()
+/// A part as a parts pane draws it: its signature, without what it reports,
+/// which the explain pane tells.
+pub(crate) fn part_line(decl: &Instruction) -> Line<'static> {
+    let mut tokens = syntax::signature(decl);
+    tokens.retain(|(role, _)| *role != Role::Dim);
+    Line::from(spans(tokens))
+}
+
+pub(crate) fn parts_title(isa: &InstructionSet) -> String {
+    format!("Parts · {}", isa.name)
+}
+
+/// The width a parts pane needs to show its title and every part of `isa`
+/// whole, borders included.
+pub(crate) fn parts_width(isa: &InstructionSet) -> u16 {
+    let widest = isa
         .instructions
         .iter()
-        .map(|i| syntax::plain(&syntax::signature(i)).chars().count())
+        .map(|decl| part_line(decl).width())
         .max()
-        .unwrap_or(10);
-    u16::try_from(widest + 4).unwrap_or(u16::MAX)
+        .unwrap_or(0);
+    let title = Line::from(parts_title(isa)).width();
+    to_u16(widest.max(title) + 2)
 }
 
-fn render_parts(frame: &mut Frame, app: &App, area: Rect) {
+fn render_parts(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Parts;
     let isa = app.engine.top();
+    let count = isa.instructions.len();
     let height = usize::from(area.height.saturating_sub(2));
     let first = app.part.saturating_sub(height.saturating_sub(1));
     let lines: Vec<Line> = isa
@@ -222,10 +321,7 @@ fn render_parts(frame: &mut Frame, app: &App, area: Rect) {
         .skip(first)
         .take(height)
         .map(|(k, decl)| {
-            let mut tokens = syntax::signature(decl);
-            // What it reports is told in the explain pane.
-            tokens.retain(|(role, _)| *role != Role::Dim);
-            let mut line = Line::from(spans(tokens));
+            let mut line = part_line(decl);
             if k == app.part {
                 line = line.style(Style::new().add_modifier(if focused {
                     Modifier::REVERSED
@@ -236,7 +332,8 @@ fn render_parts(frame: &mut Frame, app: &App, area: Rect) {
             line
         })
         .collect();
-    let title = format!("Parts · {}", isa.name);
+    let title = parts_title(isa);
+    list_spots(app, area, Focus::Parts, first, count, Spot::Part);
     frame.render_widget(Paragraph::new(lines).block(pane(title, focused)), area);
 }
 
@@ -293,11 +390,12 @@ fn program_width(app: &App) -> Option<u16> {
     Some(u16::try_from(widest + 2).unwrap_or(u16::MAX))
 }
 
-fn render_program(frame: &mut Frame, app: &App, area: Rect) {
+fn render_program(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Program;
     let block = pane("Program".to_string(), focused);
     let inner = block.inner(area);
     if app.program.is_empty() {
+        app.spot(area, Spot::Pane(Focus::Program));
         let hint = Paragraph::new(vec![
             Line::from(dim("Nothing yet.")),
             Line::from(""),
@@ -343,11 +441,20 @@ fn render_program(frame: &mut Frame, app: &App, area: Rect) {
         lines.push(row);
     }
     frame.render_widget(Paragraph::new(lines).block(block), area);
+    let count = app.program.len();
+    list_spots(app, area, Focus::Program, first, count, Spot::Line);
     if let (Some(editor), true) = (&app.editor, app.line >= first) {
         let x = inner.x + u16::try_from(gutter + 2 + editor.cursor).unwrap_or(u16::MAX);
         let y = inner.y + u16::try_from(app.line - first).unwrap_or(u16::MAX);
         if x < inner.right() && y < inner.bottom() {
             frame.set_cursor_position(Position::new(x, y));
+        }
+    }
+    if app.editor.is_some() && app.target == Target::Program && app.line >= first {
+        let y = inner.y + to_u16(app.line - first);
+        if y < inner.bottom() {
+            let row = Rect::new(inner.x, y, inner.width, 1);
+            app.spot(row, Spot::Caret(inner.x + to_u16(gutter + 2)));
         }
     }
 }
@@ -374,6 +481,7 @@ fn render_circuit(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = pane(title, focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    app.spot(area, Spot::Pane(Focus::View));
     if n == 0 {
         let text = Paragraph::new(dim(
             "Nothing has run at this boundary yet. Add a line to the program.",
@@ -407,14 +515,17 @@ fn render_circuit(frame: &mut Frame, app: &mut App, area: Rect) {
         gutter,
         columns.clone(),
     )];
+    let mut call_spots = Vec::new();
     for row in scroll.1..(scroll.1 + height).min(layout.rows.len()) {
         let mut spans = vec![dim(format!("{:>w$} ", layout.rows[row], w = gutter - 1))];
+        let top = inner.y + 1 + to_u16(row - scroll.1);
+        let mut left = inner.x + to_u16(gutter);
         for segment in draw_row(layout, &view.lives.wiring, row, columns.clone(), |e| {
             view.labels[e].clone()
         }) {
-            let s = match segment.ink {
-                Ink::Wire => Style::new().fg(Color::DarkGray),
-                Ink::Gap => Style::new(),
+            let (s, call) = match segment.ink {
+                Ink::Wire => (Style::new().fg(Color::DarkGray), None),
+                Ink::Gap => (Style::new(), None),
                 Ink::Gate(e) | Ink::Link(e) => {
                     let mut s = Style::new().fg(hue(line_of[e]));
                     if line_of[e] == selected_line {
@@ -426,15 +537,24 @@ fn render_circuit(frame: &mut Frame, app: &mut App, area: Rect) {
                     if Some(e) == cursor {
                         s = s.add_modifier(Modifier::REVERSED);
                     }
-                    s
+                    (s, Some(Spot::Event(e)))
                 }
             };
-            spans.push(Span::styled(segment.text, s));
+            let span = Span::styled(segment.text, s);
+            let width = to_u16(span.width());
+            if let Some(call) = call {
+                call_spots.push((Rect::new(left, top, width, 1).intersection(inner), call));
+            }
+            left = left.saturating_add(width);
+            spans.push(span);
         }
         lines.push(Line::from(spans));
     }
     frame.render_widget(Paragraph::new(lines), inner);
     app.scroll = scroll;
+    for (area, spot) in call_spots {
+        app.spot(area, spot);
+    }
 }
 
 /// Scrolls so the selected call is in a `width` by `height` view, and
@@ -568,6 +688,7 @@ fn render_flow(frame: &mut Frame, app: &mut App, area: Rect) {
     app.flow_scroll = app.flow_scroll.min(lines.len().saturating_sub(height));
     let title = format!("Flow · line {} through every layer", app.line + 1);
     let scroll = u16::try_from(app.flow_scroll).unwrap_or(u16::MAX);
+    app.spot(area, Spot::Pane(Focus::View));
     frame.render_widget(
         Paragraph::new(lines)
             .scroll((scroll, 0))
@@ -869,7 +990,7 @@ pub(crate) fn render_explain(frame: &mut Frame, app: &mut App, area: Rect) {
     );
 }
 
-fn render_keys(frame: &mut Frame, app: &App, area: Rect) {
+fn render_keys(frame: &mut Frame, app: &mut App, area: Rect) {
     let keys: &[(&str, &str)] = if app.editor.is_some() {
         if app.target == Target::Program {
             &[
@@ -935,14 +1056,24 @@ fn render_keys(frame: &mut Frame, app: &App, area: Rect) {
     };
     let mut line = Vec::new();
     for (key, what) in keys {
-        line.push(Span::styled(
-            format!(" {key} "),
-            Style::new().add_modifier(Modifier::REVERSED),
+        let spot = hint_key(key).map(Spot::Key);
+        line.push((
+            Span::styled(
+                format!(" {key} "),
+                Style::new().add_modifier(Modifier::REVERSED),
+            ),
+            spot,
         ));
-        line.push(dim(format!(" {what}  ")));
+        line.push((dim(format!(" {what}")), spot));
+        line.push((dim("  "), None));
     }
-    line.push(dim("o bits  q quit"));
-    frame.render_widget(Paragraph::new(Line::from(line)), area);
+    // While a line is edited, letters type rather than press.
+    let typing = app.editor.is_some();
+    let global = |c: &str| hint_key(c).filter(|_| !typing).map(Spot::Key);
+    line.push((dim("o bits"), global("o")));
+    line.push((dim("  "), None));
+    line.push((dim("q quit"), global("q")));
+    render_spotted(frame, app, area, line);
 }
 
 const HELP: &str = "\
@@ -971,12 +1102,18 @@ and Space flips a bottom bit.
 Everywhere: Tab next pane · Esc back to the map · u/U undo/redo ·
 o bits zero/one/random · Ctrl-S save the qodec and program · q quit.
 
+The mouse: a click focuses a pane and selects what is under it; a double
+click does what Enter would (on a call, ] instead). A right click on a bottom
+call flips its bit. The wheel moves through a pane; with Shift, through a
+circuit's time. Click a layer in the title to show it, and a key below to
+press it.
+
 Press any key to close.";
 
 fn render_help(frame: &mut Frame) {
     let area = frame.area();
     let width = 82.min(area.width);
-    let height = 30.min(area.height);
+    let height = 34.min(area.height);
     let popup = Rect::new(
         area.x + (area.width - width) / 2,
         area.y + (area.height - height) / 2,
