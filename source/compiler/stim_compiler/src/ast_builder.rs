@@ -17,9 +17,9 @@ use qsc_data_structures::span::Span;
 use crate::compiler::{QSharpOp, QUBIT_REGISTER, QubitId, ResultId};
 
 /// `@EntryPoint() operation Main() : Result[] { stmts }`
-pub(crate) fn build_main(stmts: Vec<ast::Stmt>, span: Span) -> ast::Item {
+pub(crate) fn build_main(stmts: Vec<ast::Stmt>, circuit_span: Span) -> ast::Item {
     let result_array_ty = wrap_ty_in_array(build_path_ident_ty("Result"));
-    build_operation_with_stmts("Main", vec![], result_array_ty, stmts, span, true)
+    build_operation_with_stmts("Main", vec![], result_array_ty, stmts, circuit_span, true)
 }
 
 /// `@{attr}() operation {name}(arg0 : {param_tys[0]}, …) : {output} { body intrinsic; }`
@@ -81,11 +81,11 @@ pub(crate) fn build_intrinsic_decl(
 }
 
 /// `qs[k]`
-pub(crate) fn build_qubit_expr(qubit: QubitId, span: Span) -> ast::Expr {
+pub(crate) fn build_qubit_expr(qubit: QubitId, qubit_span: Span) -> ast::Expr {
     build_index_expr(
-        build_path_ident_expr(QUBIT_REGISTER, span, span),
-        build_lit_int_expr(i64::from(qubit), span),
-        span,
+        build_path_ident_expr(QUBIT_REGISTER, qubit_span, qubit_span),
+        build_lit_int_expr(i64::from(qubit), qubit_span),
+        qubit_span,
     )
 }
 
@@ -94,8 +94,8 @@ fn record_name(result_id: ResultId) -> String {
 }
 
 /// `r_k`
-pub(crate) fn build_record_expr(result_id: ResultId, span: Span) -> ast::Expr {
-    build_path_ident_expr(record_name(result_id), span, span)
+pub(crate) fn build_record_expr(result_id: ResultId, record_span: Span) -> ast::Expr {
+    build_path_ident_expr(record_name(result_id), record_span, record_span)
 }
 
 /// `mutable r_k = Zero;`

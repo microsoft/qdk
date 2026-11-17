@@ -227,7 +227,7 @@ impl SymbolTable {
 struct CorrelatedRow {
     faults: Vec<semantic::Fault>,
     probability: f64,
-    span: Span,
+    instruction_span: Span,
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -344,9 +344,9 @@ impl<'noise> NoiseAccumulator<'noise> {
             })
             .collect();
 
-        let span = Span {
-            lo: rows[0].span.lo,
-            hi: rows[rows.len() - 1].span.hi,
+        let chain_span = Span {
+            lo: rows[0].instruction_span.lo,
+            hi: rows[rows.len() - 1].instruction_span.hi,
         };
 
         let qubits = self.collect_qubits(&rows);
@@ -354,7 +354,7 @@ impl<'noise> NoiseAccumulator<'noise> {
         if pauli_string_width > MAX_CORRELATED_ERROR_QUBITS {
             return Err(Error::CorrelatedErrorTooManyQubits {
                 num_qubits: pauli_string_width,
-                span,
+                span: chain_span,
             });
         }
         let column_of_qubit = self.build_column_map(&qubits);
@@ -386,7 +386,7 @@ impl<'noise> NoiseAccumulator<'noise> {
         }
         let noise_table =
             self.build_noise_table(pauli_string_width as u32, pauli_strings, probabilities);
-        Ok((noise_table, qubits, span))
+        Ok((noise_table, qubits, chain_span))
     }
 
     fn collect_qubits(&self, rows: &[CorrelatedRow]) -> Vec<Qubit> {
@@ -511,7 +511,10 @@ impl<'noise> Compiler<'noise> {
             semantic::Block::RepeatBlock { count, body, .. } => {
                 self.compile_repeat_block(*count, body)
             }
-            semantic::Block::SelectBlock { span, body } => self.compile_select_block(body, *span),
+            semantic::Block::SelectBlock {
+                span: block_span,
+                body,
+            } => self.compile_select_block(body, *block_span),
         });
         stmts
     }
@@ -532,7 +535,11 @@ impl<'noise> Compiler<'noise> {
 
     /// `while true { …; break; }` if the block can restart, where REQUIRE and NOTLEAKED restart it
     /// with `continue`. Otherwise, just the body.
-    fn compile_select_block(&mut self, body: &[semantic::Item], span: Span) -> Vec<ast::Stmt> {
+    fn compile_select_block(
+        &mut self,
+        body: &[semantic::Item],
+        block_span: Span,
+    ) -> Vec<ast::Stmt> {
         if !select_block_can_restart(body) {
             return self.compile_block_body(body);
         }
@@ -546,8 +553,8 @@ impl<'noise> Compiler<'noise> {
         body_stmts.push(build_break_stmt(GENERATED_SPAN));
         vec![build_while_stmt(
             build_lit_bool_expr(true, GENERATED_SPAN),
-            build_block(body_stmts, span),
-            span,
+            build_block(body_stmts, block_span),
+            block_span,
         )]
     }
 
@@ -565,28 +572,30 @@ impl<'noise> Compiler<'noise> {
             stmts.extend(self.finish_correlated_noise());
         }
 
-        let span = instruction.span;
+        let instruction_span = instruction.span;
 
         let instruction_stmts = match &instruction.kind {
-            semantic::InstructionKind::Reset { q, basis } => self.compile_reset(*q, *basis, span),
+            semantic::InstructionKind::Reset { q, basis } => {
+                self.compile_reset(*q, *basis, instruction_span)
+            }
             semantic::InstructionKind::SingleQubitGate { q, gate } => {
-                self.compile_single_qubit_gate(*q, *gate, span)
+                self.compile_single_qubit_gate(*q, *gate, instruction_span)
             }
             semantic::InstructionKind::TwoQubitGate { q0, q1, gate } => {
-                self.compile_two_qubit_gate(*q0, *q1, *gate, span)
+                self.compile_two_qubit_gate(*q0, *q1, *gate, instruction_span)
             }
             semantic::InstructionKind::ThreeQubitGate { q0, q1, q2, gate } => {
-                self.compile_three_qubit_gate(*q0, *q1, *q2, *gate, span)
+                self.compile_three_qubit_gate(*q0, *q1, *q2, *gate, instruction_span)
             }
             semantic::InstructionKind::PauliProductGate { product, gate } => {
-                self.compile_pauli_product_gate(product, *gate, span)
+                self.compile_pauli_product_gate(product, *gate, instruction_span)
             }
             semantic::InstructionKind::ClassicallyControlledPauli {
                 control,
                 target,
                 pauli,
-            } => self.compile_classical_control(*control, *target, *pauli, span),
-            semantic::InstructionKind::Noise(noise) => self.compile_noise(noise, span),
+            } => self.compile_classical_control(*control, *target, *pauli, instruction_span),
+            semantic::InstructionKind::Noise(noise) => self.compile_noise(noise, instruction_span),
             semantic::InstructionKind::SingleQubitMeasurement {
                 reset,
                 observable,
@@ -599,7 +608,7 @@ impl<'noise> Compiler<'noise> {
                 *readout_noise,
                 *negated,
                 *q,
-                span,
+                instruction_span,
             ),
             semantic::InstructionKind::TwoQubitMeasurement {
                 readout_noise,
@@ -613,50 +622,57 @@ impl<'noise> Compiler<'noise> {
                 *negated,
                 *q0,
                 *q1,
-                span,
+                instruction_span,
             ),
             semantic::InstructionKind::PauliProductMeasurement {
                 readout_noise,
                 product,
-            } => self.compile_pauli_product_measurement(*readout_noise, product, span),
+            } => self.compile_pauli_product_measurement(*readout_noise, product, instruction_span),
             semantic::InstructionKind::PeekLoss { readout_noise, q } => {
-                self.compile_peek_loss(*readout_noise, *q, span)
+                self.compile_peek_loss(*readout_noise, *q, instruction_span)
             }
-            semantic::InstructionKind::Require { records } => self.compile_require(records, span),
+            semantic::InstructionKind::Require { records } => {
+                self.compile_require(records, instruction_span)
+            }
             semantic::InstructionKind::NotLeaked { records } => {
-                self.compile_not_leaked(records, span)
+                self.compile_not_leaked(records, instruction_span)
             }
             semantic::InstructionKind::Annotation(semantic::Annotation::MeasurementPadding {
                 ..
             }) => {
-                self.unsupported("MPAD", instruction.span);
+                self.unsupported("MPAD", instruction_span);
                 vec![]
             }
             semantic::InstructionKind::Annotation(_) => vec![],
             semantic::InstructionKind::SingleQubitRotation { axis, angle, q } => {
-                self.compile_single_qubit_rotation(*axis, *angle, *q, span)
+                self.compile_single_qubit_rotation(*axis, *angle, *q, instruction_span)
             }
             semantic::InstructionKind::TwoQubitRotation {
                 axis,
                 angle,
                 q0,
                 q1,
-            } => self.compile_two_qubit_rotation(*axis, *angle, *q0, *q1, span),
+            } => self.compile_two_qubit_rotation(*axis, *angle, *q0, *q1, instruction_span),
             semantic::InstructionKind::U3 {
                 theta,
                 phi,
                 lambda,
                 q,
-            } => self.compile_u3(*theta, *phi, *lambda, *q, span),
+            } => self.compile_u3(*theta, *phi, *lambda, *q, instruction_span),
             semantic::InstructionKind::PauliProductRotation { angle, product } => {
-                self.compile_pauli_product_rotation(*angle, product, span)
+                self.compile_pauli_product_rotation(*angle, product, instruction_span)
             }
         };
         stmts.extend(instruction_stmts);
         stmts
     }
 
-    fn compile_reset(&mut self, qubit: Qubit, basis: Pauli, span: Span) -> Vec<ast::Stmt> {
+    fn compile_reset(
+        &mut self,
+        qubit: Qubit,
+        basis: Pauli,
+        instruction_span: Span,
+    ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
         // Stim decomposition (into H, S, CX, M, R): R; then H for Z -> X; then S for X -> Y.
         let decomposition: &[Op] = match basis {
@@ -664,14 +680,14 @@ impl<'noise> Compiler<'noise> {
             X => &[Op::Reset, Op::H],
             Y => &[Op::Reset, Op::H, Op::S],
         };
-        self.decomposition_stmts(decomposition, qubit, span)
+        self.decomposition_stmts(decomposition, qubit, instruction_span)
     }
 
     fn compile_single_qubit_gate(
         &mut self,
         qubit: Qubit,
         gate: semantic::SingleQubitGateKind,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
         use semantic::SingleQubitGateKind as G;
@@ -705,7 +721,7 @@ impl<'noise> Compiler<'noise> {
             G::H_XY => &[Op::X, Op::S],              // H 0; S 0; S 0; H 0; S 0
             G::H_YZ => &[Op::SX, Op::Z],             // H 0; S 0; H 0; S 0; S 0
         };
-        self.decomposition_stmts(decomposition, qubit, span)
+        self.decomposition_stmts(decomposition, qubit, instruction_span)
     }
 
     fn compile_two_qubit_gate(
@@ -713,7 +729,7 @@ impl<'noise> Compiler<'noise> {
         q0: Qubit,
         q1: Qubit,
         gate: semantic::TwoQubitGateKind,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
         use semantic::TwoQubitGateKind as G;
@@ -833,9 +849,9 @@ impl<'noise> Compiler<'noise> {
                 (Op::S, &[q1]),
             ],
             G::YCZ => &[(Op::SAdj, &[q0]), (Op::CNOT, &[q1, q0]), (Op::S, &[q0])],
-            G::CH => return vec![self.controlled_op_call_stmt(Op::H, &[q0], q1, span)],
+            G::CH => return vec![self.controlled_op_call_stmt(Op::H, &[q0], q1, instruction_span)],
         };
-        self.multi_qubit_decomposition_stmts(decomposition, span)
+        self.multi_qubit_decomposition_stmts(decomposition, instruction_span)
     }
 
     fn compile_three_qubit_gate(
@@ -844,7 +860,7 @@ impl<'noise> Compiler<'noise> {
         q1: Qubit,
         q2: Qubit,
         gate: semantic::ThreeQubitGateKind,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
         use semantic::ThreeQubitGateKind as G;
@@ -854,14 +870,14 @@ impl<'noise> Compiler<'noise> {
             G::CCX => &[(Op::CCNOT, &[q0, q1, q2])],
             G::CCZ => &[(Op::H, &[q2]), (Op::CCNOT, &[q0, q1, q2]), (Op::H, &[q2])],
         };
-        self.multi_qubit_decomposition_stmts(decomposition, span)
+        self.multi_qubit_decomposition_stmts(decomposition, instruction_span)
     }
 
     fn compile_pauli_product_gate(
         &mut self,
         product: &semantic::PauliProduct,
         gate: semantic::PauliProductGateKind,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
         use semantic::PauliProductGateKind as G;
@@ -877,7 +893,7 @@ impl<'noise> Compiler<'noise> {
         };
 
         let op = if product.negated { op.adjoint() } else { op };
-        self.conjugate_gate(product, op, span)
+        self.conjugate_gate(product, op, instruction_span)
     }
 
     fn compile_single_qubit_rotation(
@@ -885,7 +901,7 @@ impl<'noise> Compiler<'noise> {
         axis: Pauli,
         angle: Angle,
         qubit: Qubit,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
 
@@ -894,7 +910,7 @@ impl<'noise> Compiler<'noise> {
             Y => Op::Ry,
             Z => Op::Rz,
         };
-        vec![self.rotation_stmt(op, angle, &[qubit], span)]
+        vec![self.rotation_stmt(op, angle, &[qubit], instruction_span)]
     }
 
     fn compile_two_qubit_rotation(
@@ -903,7 +919,7 @@ impl<'noise> Compiler<'noise> {
         angle: Angle,
         q0: Qubit,
         q1: Qubit,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
 
@@ -912,7 +928,7 @@ impl<'noise> Compiler<'noise> {
             semantic::PauliPair::YY => Op::Ryy,
             semantic::PauliPair::ZZ => Op::Rzz,
         };
-        vec![self.rotation_stmt(op, angle, &[q0, q1], span)]
+        vec![self.rotation_stmt(op, angle, &[q0, q1], instruction_span)]
     }
 
     /// `U3(θ, φ, λ) = Rz(φ) Ry(θ) Rz(λ)`, up to a global phase.
@@ -922,14 +938,14 @@ impl<'noise> Compiler<'noise> {
         phi: Angle,
         lambda: Angle,
         qubit: Qubit,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
 
         vec![
-            self.rotation_stmt(Op::Rz, lambda, &[qubit], span),
-            self.rotation_stmt(Op::Ry, theta, &[qubit], span),
-            self.rotation_stmt(Op::Rz, phi, &[qubit], span),
+            self.rotation_stmt(Op::Rz, lambda, &[qubit], instruction_span),
+            self.rotation_stmt(Op::Ry, theta, &[qubit], instruction_span),
+            self.rotation_stmt(Op::Rz, phi, &[qubit], instruction_span),
         ]
     }
 
@@ -937,7 +953,7 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         mut angle: Angle,
         product: &semantic::PauliProduct,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         if product.factors.is_empty() {
             return vec![];
@@ -945,7 +961,7 @@ impl<'noise> Compiler<'noise> {
         if product.negated {
             angle.radians = -angle.radians;
         }
-        self.conjugate_rotation(product, angle, span)
+        self.conjugate_rotation(product, angle, instruction_span)
     }
 
     fn compile_classical_control(
@@ -953,17 +969,17 @@ impl<'noise> Compiler<'noise> {
         control: semantic::MeasurementRecord,
         target: Qubit,
         pauli: Pauli,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         let Some(result_id) = self.resolve_record(control) else {
             return vec![];
         };
 
         let record = build_record_expr(result_id, control.span);
-        vec![self.conditional_pauli_stmt(pauli, record, target, span)]
+        vec![self.conditional_pauli_stmt(pauli, record, target, instruction_span)]
     }
 
-    fn compile_noise(&mut self, noise: &semantic::Noise, span: Span) -> Vec<ast::Stmt> {
+    fn compile_noise(&mut self, noise: &semantic::Noise, instruction_span: Span) -> Vec<ast::Stmt> {
         match noise {
             semantic::Noise::CorrelatedError {
                 kind,
@@ -972,11 +988,11 @@ impl<'noise> Compiler<'noise> {
             } => match kind {
                 // The chain's noise call is emitted when the chain is flushed.
                 semantic::CorrelatedErrorKind::Initial => {
-                    self.accumulate_correlated_noise(span, probability.value, faults);
+                    self.accumulate_correlated_noise(instruction_span, probability.value, faults);
                     vec![]
                 }
                 semantic::CorrelatedErrorKind::Else => {
-                    self.continue_correlated_noise(span, probability.value, faults);
+                    self.continue_correlated_noise(instruction_span, probability.value, faults);
                     vec![]
                 }
             },
@@ -990,14 +1006,14 @@ impl<'noise> Compiler<'noise> {
                     TWO_QUBIT_PAULIS.map(encode_pauli).to_vec(),
                     vec![probability.value / 15.0; 15],
                 );
-                vec![self.noise_table_stmt(table, &[*q0, *q1], span)]
+                vec![self.noise_table_stmt(table, &[*q0, *q1], instruction_span)]
             }
             semantic::Noise::HeraldedErase { .. } => {
-                self.unsupported("HERALDED_ERASE", span);
+                self.unsupported("HERALDED_ERASE", instruction_span);
                 vec![]
             }
             semantic::Noise::HeraldedPauliChannel1 { .. } => {
-                self.unsupported("HERALDED_PAULI_CHANNEL_1", span);
+                self.unsupported("HERALDED_PAULI_CHANNEL_1", instruction_span);
                 vec![]
             }
             semantic::Noise::PauliChannel1 { probabilities, q } => {
@@ -1006,7 +1022,7 @@ impl<'noise> Compiler<'noise> {
                     SINGLE_QUBIT_PAULIS.map(encode_pauli).to_vec(),
                     probabilities.iter().map(|p| p.value).collect(),
                 );
-                vec![self.noise_table_stmt(table, &[*q], span)]
+                vec![self.noise_table_stmt(table, &[*q], instruction_span)]
             }
             semantic::Noise::PauliChannel2 {
                 probabilities,
@@ -1018,7 +1034,7 @@ impl<'noise> Compiler<'noise> {
                     TWO_QUBIT_PAULIS.map(encode_pauli).to_vec(),
                     probabilities.iter().map(|p| p.value).collect(),
                 );
-                vec![self.noise_table_stmt(table, &[*q0, *q1], span)]
+                vec![self.noise_table_stmt(table, &[*q0, *q1], instruction_span)]
             }
             semantic::Noise::SingleQubitNoise {
                 kind,
@@ -1031,7 +1047,7 @@ impl<'noise> Compiler<'noise> {
                         SINGLE_QUBIT_PAULIS.map(encode_pauli).to_vec(),
                         vec![probability.value / 3.0; 3],
                     );
-                    vec![self.noise_table_stmt(table, &[*q], span)]
+                    vec![self.noise_table_stmt(table, &[*q], instruction_span)]
                 }
                 semantic::SingleQubitNoiseKind::Fault(kind) => {
                     let table = self.noise_accumulator.build_noise_table(
@@ -1039,7 +1055,7 @@ impl<'noise> Compiler<'noise> {
                         vec![encode_pauli(kind.as_str())],
                         vec![probability.value],
                     );
-                    vec![self.noise_table_stmt(table, &[*q], span)]
+                    vec![self.noise_table_stmt(table, &[*q], instruction_span)]
                 }
             },
         }
@@ -1052,10 +1068,17 @@ impl<'noise> Compiler<'noise> {
         readout_noise: Probability,
         negated: bool,
         qubit: Qubit,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
-        let basis_change = self.rotate_to_z_basis(observable, qubit, span);
-        self.compile_measurement(basis_change, qubit, reset, negated, readout_noise, span)
+        let basis_change = self.rotate_to_z_basis(observable, qubit, instruction_span);
+        self.compile_measurement(
+            basis_change,
+            qubit,
+            reset,
+            negated,
+            readout_noise,
+            instruction_span,
+        )
     }
 
     fn compile_two_qubit_measurement(
@@ -1065,7 +1088,7 @@ impl<'noise> Compiler<'noise> {
         negated: bool,
         q0: Qubit,
         q1: Qubit,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
         use semantic::PauliPair as P;
@@ -1076,9 +1099,16 @@ impl<'noise> Compiler<'noise> {
             P::XX => {
                 let basis_change = self.multi_qubit_decomposition_stmts(
                     &[(Op::CNOT, &[q0, q1]), (Op::H, &[q0])],
-                    span,
+                    instruction_span,
                 );
-                self.compile_measurement(basis_change, q0, false, negated, readout_noise, span)
+                self.compile_measurement(
+                    basis_change,
+                    q0,
+                    false,
+                    negated,
+                    readout_noise,
+                    instruction_span,
+                )
             }
             // S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1, with `S S` written as
             // `Z`. The uncompute is not the adjoint of the compute, so it can't use `within`.
@@ -1090,7 +1120,7 @@ impl<'noise> Compiler<'noise> {
                         (Op::CNOT, &[q0, q1]),
                         (Op::H, &[q0]),
                     ],
-                    span,
+                    instruction_span,
                 );
                 stmts.extend(self.compile_measurement(
                     vec![],
@@ -1098,7 +1128,7 @@ impl<'noise> Compiler<'noise> {
                     false,
                     negated,
                     readout_noise,
-                    span,
+                    instruction_span,
                 ));
                 stmts.extend(self.multi_qubit_decomposition_stmts(
                     &[
@@ -1108,15 +1138,22 @@ impl<'noise> Compiler<'noise> {
                         (Op::S, &[q0]),
                         (Op::S, &[q1]),
                     ],
-                    span,
+                    instruction_span,
                 ));
                 stmts
             }
             // CX 0 1; M 1; CX 0 1
             P::ZZ => {
-                let basis_change =
-                    self.multi_qubit_decomposition_stmts(&[(Op::CNOT, &[q0, q1])], span);
-                self.compile_measurement(basis_change, q1, false, negated, readout_noise, span)
+                let basis_change = self
+                    .multi_qubit_decomposition_stmts(&[(Op::CNOT, &[q0, q1])], instruction_span);
+                self.compile_measurement(
+                    basis_change,
+                    q1,
+                    false,
+                    negated,
+                    readout_noise,
+                    instruction_span,
+                )
             }
         }
     }
@@ -1125,12 +1162,12 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         readout_noise: Probability,
         product: &semantic::PauliProduct,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         if product.factors.is_empty() {
             return vec![];
         }
-        let basis_change = self.map_pauli_product_to_z(&product.factors, span);
+        let basis_change = self.map_pauli_product_to_z(&product.factors, instruction_span);
         let qubit = product.factors[0].q;
         self.compile_measurement(
             basis_change,
@@ -1138,7 +1175,7 @@ impl<'noise> Compiler<'noise> {
             false,
             product.negated,
             readout_noise,
-            span,
+            instruction_span,
         )
     }
 
@@ -1152,19 +1189,19 @@ impl<'noise> Compiler<'noise> {
         reset: bool,
         negated: bool,
         readout_noise: Probability,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         let op = if reset {
             QSharpOp::MResetZ
         } else {
             QSharpOp::M
         };
-        let measure = self.op_call_expr(op, &[qubit], span);
+        let measure = self.op_call_expr(op, &[qubit], instruction_span);
 
         // Flip before measuring, and undo the flip afterwards unless the qubit is reset.
         let mut flip = Vec::new();
         if negated {
-            let x = self.op_call_stmt(QSharpOp::X, &[qubit], span);
+            let x = self.op_call_stmt(QSharpOp::X, &[qubit], instruction_span);
             if reset {
                 flip.push(x);
             } else {
@@ -1177,12 +1214,12 @@ impl<'noise> Compiler<'noise> {
             stmts.extend(flip);
             measure
         } else {
-            build_within_apply_expr(basis_change, flip, measure, span)
+            build_within_apply_expr(basis_change, flip, measure, instruction_span)
         };
 
-        let (result_id, record_stmt) = self.record_result(measurement, span);
+        let (result_id, record_stmt) = self.record_result(measurement, instruction_span);
         stmts.push(record_stmt);
-        stmts.extend(self.readout_noise_stmt(readout_noise, result_id, span));
+        stmts.extend(self.readout_noise_stmt(readout_noise, result_id, instruction_span));
         stmts
     }
 
@@ -1190,19 +1227,19 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         readout_noise: Probability,
         qubit: Qubit,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
-        let (result_id, peek_loss_call) = self.peek_loss(qubit, span);
+        let (result_id, peek_loss_call) = self.peek_loss(qubit, instruction_span);
         stmts.push(peek_loss_call);
-        stmts.extend(self.readout_noise_stmt(readout_noise, result_id, span));
+        stmts.extend(self.readout_noise_stmt(readout_noise, result_id, instruction_span));
         stmts
     }
 
     fn compile_require(
         &mut self,
         records: &[semantic::NegatableMeasurementRecord],
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         let Some(result_ids) = records
             .iter()
@@ -1218,7 +1255,7 @@ impl<'noise> Compiler<'noise> {
             .zip(records)
             .map(|(&r, record)| build_record_expr(r, record.record.span))
             .collect();
-        let loss_expr = build_any_loss_expr(loss_terms, span);
+        let loss_expr = build_any_loss_expr(loss_terms, instruction_span);
 
         // parity = (r_a == One) != (r_b == One) != …, with `Zero` for `!rec[..]`
         let parity_terms: Vec<ast::Expr> = result_ids
@@ -1233,17 +1270,17 @@ impl<'noise> Compiler<'noise> {
                 let term = build_record_equals_expr(
                     build_record_expr(r, record.record.span),
                     expected,
-                    span,
+                    instruction_span,
                 );
                 // `==` and `!=` are non-associative in Q#, so chained terms need parentheses.
                 if result_ids.len() > 1 {
-                    wrap_expr_in_parens(term, span)
+                    wrap_expr_in_parens(term, instruction_span)
                 } else {
                     term
                 }
             })
             .collect();
-        let parity_expr = fold_exprs_with_op(ast::BinOp::Neq, parity_terms, span);
+        let parity_expr = fold_exprs_with_op(ast::BinOp::Neq, parity_terms, instruction_span);
 
         let (loss, loss_stmt) = self.bind_local("loss", loss_expr);
         let (parity, parity_stmt) = self.bind_local("parity", parity_expr);
@@ -1254,14 +1291,14 @@ impl<'noise> Compiler<'noise> {
             loss_stmt,
             parity_stmt,
             restart_stmt,
-            build_continue_if_stmt(restart, span),
+            build_continue_if_stmt(restart, instruction_span),
         ]
     }
 
     fn compile_not_leaked(
         &mut self,
         records: &[semantic::MeasurementRecord],
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         let Some(result_ids) = records
             .iter()
@@ -1288,10 +1325,10 @@ impl<'noise> Compiler<'noise> {
             .zip(records)
             .map(|(&r, record)| build_record_expr(r, record.span))
             .collect();
-        let loss_expr = build_any_loss_expr(loss_terms, span);
+        let loss_expr = build_any_loss_expr(loss_terms, instruction_span);
 
         let (loss, loss_stmt) = self.bind_local("loss", loss_expr);
-        vec![loss_stmt, build_continue_if_stmt(loss, span)]
+        vec![loss_stmt, build_continue_if_stmt(loss, instruction_span)]
     }
 
     fn accumulate_correlated_noise(
@@ -1303,7 +1340,7 @@ impl<'noise> Compiler<'noise> {
         self.noise_accumulator.push_correlated_row(CorrelatedRow {
             probability,
             faults: faults.to_vec(),
-            span: instruction_span,
+            instruction_span,
         });
     }
 
@@ -1324,18 +1361,19 @@ impl<'noise> Compiler<'noise> {
 
     fn finish_correlated_noise(&mut self) -> Option<ast::Stmt> {
         self.noise_accumulator.current_correlated_group.as_ref()?;
-        let (noise_table, qubits, span) = match self.noise_accumulator.flush_correlated_group() {
-            Ok(flushed) => flushed,
-            Err(error) => {
-                self.push_error(error);
-                return None;
-            }
-        };
+        let (noise_table, qubits, chain_span) =
+            match self.noise_accumulator.flush_correlated_group() {
+                Ok(flushed) => flushed,
+                Err(error) => {
+                    self.push_error(error);
+                    return None;
+                }
+            };
         if qubits.is_empty() {
             // Every outcome cancelled to the identity, so there is no noise to apply.
             return None;
         }
-        Some(self.noise_table_stmt(noise_table, &qubits, span))
+        Some(self.noise_table_stmt(noise_table, &qubits, chain_span))
     }
 
     fn resolve_record(&self, record: semantic::MeasurementRecord) -> Option<ResultId> {
@@ -1361,11 +1399,11 @@ impl<'noise> Compiler<'noise> {
         });
     }
 
-    fn peek_loss(&mut self, qubit: Qubit, span: Span) -> (ResultId, ast::Stmt) {
+    fn peek_loss(&mut self, qubit: Qubit, instruction_span: Span) -> (ResultId, ast::Stmt) {
         let args = self.qubit_args(&[qubit]);
         self.declare_intrinsic(PEEK_LOSS_INTRINSIC, "Measurement", &["Qubit"], "Result");
-        let peek_loss_call = build_intrinsic_call_expr(PEEK_LOSS_INTRINSIC, args, span);
-        let (result_id, assignment) = self.record_result(peek_loss_call, span);
+        let peek_loss_call = build_intrinsic_call_expr(PEEK_LOSS_INTRINSIC, args, instruction_span);
+        let (result_id, assignment) = self.record_result(peek_loss_call, instruction_span);
         self.symbols.peek_loss_record_ids.insert(result_id);
         (result_id, assignment)
     }
@@ -1375,11 +1413,11 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         product: &semantic::PauliProduct,
         op: QSharpOp,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
-        let within = self.map_pauli_product_to_z(&product.factors, span);
-        let apply = vec![self.op_call_stmt(op, &[product.factors[0].q], span)];
-        build_within_apply_stmts(within, apply, span)
+        let within = self.map_pauli_product_to_z(&product.factors, instruction_span);
+        let apply = vec![self.op_call_stmt(op, &[product.factors[0].q], instruction_span)];
+        build_within_apply_stmts(within, apply, instruction_span)
     }
 
     /// `within { <product to Z on its first qubit> } apply { Rz(angle, q_0); }`
@@ -1387,11 +1425,16 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         product: &semantic::PauliProduct,
         angle: Angle,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
-        let within = self.map_pauli_product_to_z(&product.factors, span);
-        let apply = vec![self.rotation_stmt(QSharpOp::Rz, angle, &[product.factors[0].q], span)];
-        build_within_apply_stmts(within, apply, span)
+        let within = self.map_pauli_product_to_z(&product.factors, instruction_span);
+        let apply = vec![self.rotation_stmt(
+            QSharpOp::Rz,
+            angle,
+            &[product.factors[0].q],
+            instruction_span,
+        )];
+        build_within_apply_stmts(within, apply, instruction_span)
     }
 
     /// Rotates each factor to the Z basis, then folds their parity onto the first qubit with
@@ -1399,40 +1442,55 @@ impl<'noise> Compiler<'noise> {
     fn map_pauli_product_to_z(
         &mut self,
         factors: &[semantic::PauliFactor],
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         let focus = factors[0].q;
         let mut stmts: Vec<ast::Stmt> = factors
             .iter()
-            .flat_map(|factor| self.rotate_to_z_basis(factor.pauli, factor.q, span))
+            .flat_map(|factor| self.rotate_to_z_basis(factor.pauli, factor.q, instruction_span))
             .collect();
         stmts.extend(
-            factors[1..]
-                .iter()
-                .map(|factor| self.op_call_stmt(QSharpOp::CNOT, &[factor.q, focus], span)),
+            factors[1..].iter().map(|factor| {
+                self.op_call_stmt(QSharpOp::CNOT, &[factor.q, focus], instruction_span)
+            }),
         );
         stmts
     }
 
-    fn rotate_to_z_basis(&mut self, pauli: Pauli, qubit: Qubit, span: Span) -> Vec<ast::Stmt> {
+    fn rotate_to_z_basis(
+        &mut self,
+        pauli: Pauli,
+        qubit: Qubit,
+        instruction_span: Span,
+    ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
         let basis_change: &[Op] = match pauli {
             X => &[Op::H],
             Y => &[Op::SAdj, Op::H],
             Z => &[],
         };
-        self.decomposition_stmts(basis_change, qubit, span)
+        self.decomposition_stmts(basis_change, qubit, instruction_span)
     }
 
     /// `{op}(qs[a], qs[b], …)`
-    fn op_call_expr(&mut self, op: QSharpOp, qubits: &[Qubit], span: Span) -> ast::Expr {
+    fn op_call_expr(
+        &mut self,
+        op: QSharpOp,
+        qubits: &[Qubit],
+        instruction_span: Span,
+    ) -> ast::Expr {
         let args = self.qubit_args(qubits);
-        build_qsharp_op_call_expr(op, args, span)
+        build_qsharp_op_call_expr(op, args, instruction_span)
     }
 
     /// `{op}(qs[a], qs[b], …);`
-    fn op_call_stmt(&mut self, op: QSharpOp, qubits: &[Qubit], span: Span) -> ast::Stmt {
-        build_stmt_semi_from_expr(self.op_call_expr(op, qubits, span))
+    fn op_call_stmt(
+        &mut self,
+        op: QSharpOp,
+        qubits: &[Qubit],
+        instruction_span: Span,
+    ) -> ast::Stmt {
+        build_stmt_semi_from_expr(self.op_call_expr(op, qubits, instruction_span))
     }
 
     /// `{op}(qs[a]);` for each `op` in `decomposition`, all applied to the same qubit.
@@ -1440,11 +1498,11 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         decomposition: &[QSharpOp],
         qubit: Qubit,
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
         for &op in decomposition {
-            stmts.push(self.op_call_stmt(op, &[qubit], span));
+            stmts.push(self.op_call_stmt(op, &[qubit], instruction_span));
         }
         stmts
     }
@@ -1453,11 +1511,11 @@ impl<'noise> Compiler<'noise> {
     fn multi_qubit_decomposition_stmts(
         &mut self,
         decomposition: &[(QSharpOp, &[Qubit])],
-        span: Span,
+        instruction_span: Span,
     ) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
         for &(op, qubits) in decomposition {
-            stmts.push(self.op_call_stmt(op, qubits, span));
+            stmts.push(self.op_call_stmt(op, qubits, instruction_span));
         }
         stmts
     }
@@ -1468,11 +1526,11 @@ impl<'noise> Compiler<'noise> {
         op: QSharpOp,
         controls: &[Qubit],
         target: Qubit,
-        span: Span,
+        instruction_span: Span,
     ) -> ast::Stmt {
-        let controls = build_expr_array_expr(self.qubit_args(controls), span);
+        let controls = build_expr_array_expr(self.qubit_args(controls), instruction_span);
         let target = build_qubit_expr(self.symbols.allocate_qubit(target.id), target.span);
-        build_controlled_qsharp_op_call_stmt(op, controls, target, span)
+        build_controlled_qsharp_op_call_stmt(op, controls, target, instruction_span)
     }
 
     /// `if r_k == One { {pauli}(qs[a]); }`
@@ -1481,16 +1539,23 @@ impl<'noise> Compiler<'noise> {
         pauli: Pauli,
         record: ast::Expr,
         target: Qubit,
-        span: Span,
+        instruction_span: Span,
     ) -> ast::Stmt {
         let op = match pauli {
             X => QSharpOp::X,
             Y => QSharpOp::Y,
             Z => QSharpOp::Z,
         };
-        let condition = build_record_equals_expr(record, ast::Result::One, span);
-        let then_block = build_block(vec![self.op_call_stmt(op, &[target], span)], span);
-        build_stmt_semi_from_expr(build_if_expr_then_block(condition, then_block, span))
+        let condition = build_record_equals_expr(record, ast::Result::One, instruction_span);
+        let then_block = build_block(
+            vec![self.op_call_stmt(op, &[target], instruction_span)],
+            instruction_span,
+        );
+        build_stmt_semi_from_expr(build_if_expr_then_block(
+            condition,
+            then_block,
+            instruction_span,
+        ))
     }
 
     /// `{op}(angle, qs[a], …);`
@@ -1499,11 +1564,11 @@ impl<'noise> Compiler<'noise> {
         op: QSharpOp,
         angle: Angle,
         qubits: &[Qubit],
-        span: Span,
+        instruction_span: Span,
     ) -> ast::Stmt {
         let mut args = vec![build_lit_double_expr(angle.radians, angle.span)];
         args.extend(self.qubit_args(qubits));
-        build_stmt_semi_from_expr(build_qsharp_op_call_expr(op, args, span))
+        build_stmt_semi_from_expr(build_qsharp_op_call_expr(op, args, instruction_span))
     }
 
     /// `let {prefix}_n = value;` with a fresh name `{prefix}_n`. Also returns a reference to it.
@@ -1523,13 +1588,13 @@ impl<'noise> Compiler<'noise> {
     }
 
     /// `let r_k = value;` for a new record `r_k`, or `r_k = value;` when records are hoisted.
-    fn record_result(&mut self, value: ast::Expr, span: Span) -> (ResultId, ast::Stmt) {
+    fn record_result(&mut self, value: ast::Expr, instruction_span: Span) -> (ResultId, ast::Stmt) {
         let result_id = self.symbols.allocate_record();
         let stmt = if self.symbols.hoist_records {
             self.symbols.hoisted_record_ids.push(result_id);
-            build_record_assign_stmt(result_id, value, span)
+            build_record_assign_stmt(result_id, value, instruction_span)
         } else {
-            build_record_let_stmt(result_id, value, span)
+            build_record_let_stmt(result_id, value, instruction_span)
         };
         (result_id, stmt)
     }
@@ -1553,7 +1618,7 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         readout_noise: Probability,
         result_id: ResultId,
-        span: Span,
+        instruction_span: Span,
     ) -> Option<ast::Stmt> {
         if readout_noise.value <= 0.0 {
             return None;
@@ -1561,7 +1626,7 @@ impl<'noise> Compiler<'noise> {
         let args = vec![
             build_lit_double_expr(readout_noise.value, readout_noise.span),
             build_lit_double_expr(readout_noise.value, readout_noise.span),
-            build_record_expr(result_id, span),
+            build_record_expr(result_id, instruction_span),
         ];
         self.declare_intrinsic(
             READOUT_NOISE_INTRINSIC,
@@ -1572,7 +1637,7 @@ impl<'noise> Compiler<'noise> {
         Some(build_intrinsic_call_stmt(
             READOUT_NOISE_INTRINSIC,
             args,
-            span,
+            instruction_span,
         ))
     }
 
