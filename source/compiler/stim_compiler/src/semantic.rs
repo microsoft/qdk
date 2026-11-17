@@ -31,6 +31,18 @@ pub struct MeasurementRecord {
     pub span: Span,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub struct Qubit {
+    pub id: StimQubitId,
+    pub span: Span,
+}
+
+impl fmt::Debug for Qubit {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.id, self.span)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct NegatableMeasurementRecord {
     pub record: MeasurementRecord,
@@ -71,22 +83,22 @@ pub struct Instruction {
 #[derive(Debug, PartialEq)]
 pub enum InstructionKind {
     Reset {
-        q: StimQubitId,
+        q: Qubit,
         basis: Pauli,
     },
     SingleQubitGate {
-        q: StimQubitId,
+        q: Qubit,
         gate: SingleQubitGateKind,
     },
     TwoQubitGate {
-        q0: StimQubitId,
-        q1: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
         gate: TwoQubitGateKind,
     },
     ThreeQubitGate {
-        q0: StimQubitId,
-        q1: StimQubitId,
-        q2: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
+        q2: Qubit,
         gate: ThreeQubitGateKind,
     },
     PauliProductGate {
@@ -95,7 +107,7 @@ pub enum InstructionKind {
     },
     ClassicallyControlledPauli {
         control: MeasurementRecord,
-        target: StimQubitId,
+        target: Qubit,
         pauli: Pauli,
     },
     Noise(Noise),
@@ -104,14 +116,14 @@ pub enum InstructionKind {
         observable: Pauli,
         readout_noise: Probability,
         negated: bool,
-        q: StimQubitId,
+        q: Qubit,
     },
     TwoQubitMeasurement {
         readout_noise: Probability,
         observable: PauliPair,
         negated: bool,
-        q0: StimQubitId,
-        q1: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
     },
     PauliProductMeasurement {
         readout_noise: Probability,
@@ -119,7 +131,7 @@ pub enum InstructionKind {
     },
     PeekLoss {
         readout_noise: Probability,
-        q: StimQubitId,
+        q: Qubit,
     },
     Require {
         records: Vec<NegatableMeasurementRecord>,
@@ -131,19 +143,19 @@ pub enum InstructionKind {
     SingleQubitRotation {
         axis: Pauli,
         angle: Radians,
-        q: StimQubitId,
+        q: Qubit,
     },
     TwoQubitRotation {
         axis: PauliPair,
         angle: Radians,
-        q0: StimQubitId,
-        q1: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
     },
     U3 {
         theta: Radians,
         phi: Radians,
         lambda: Radians,
-        q: StimQubitId,
+        q: Qubit,
     },
     PauliProductRotation {
         angle: Radians,
@@ -392,30 +404,30 @@ pub enum Noise {
     },
     Depolarize2 {
         probability: Probability,
-        q0: StimQubitId,
-        q1: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
     },
     HeraldedErase {
         probability: Probability,
-        q: StimQubitId,
+        q: Qubit,
     },
     HeraldedPauliChannel1 {
         probabilities: [Probability; 4],
-        q: StimQubitId,
+        q: Qubit,
     },
     PauliChannel1 {
         probabilities: [Probability; 3],
-        q: StimQubitId,
+        q: Qubit,
     },
     PauliChannel2 {
         probabilities: [Probability; 15],
-        q0: StimQubitId,
-        q1: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
     },
     SingleQubitNoise {
         kind: SingleQubitNoiseKind,
         probability: Probability,
-        q: StimQubitId,
+        q: Qubit,
     },
 }
 
@@ -479,7 +491,7 @@ pub enum Annotation {
     },
     QubitCoordinates {
         coordinates: Vec<f64>,
-        q: StimQubitId,
+        q: Qubit,
     },
     ShiftCoordinates {
         offsets: Vec<f64>,
@@ -1440,7 +1452,7 @@ impl Lowerer {
             let Some((value, _)) = self.expect_qubit(instruction, target, false) else {
                 continue;
             };
-            let value = match value {
+            let value = match value.id {
                 0 => false,
                 1 => true,
                 _ => {
@@ -1692,7 +1704,7 @@ impl Lowerer {
         &mut self,
         instruction: &parser::Instruction,
         allow_negated: bool,
-    ) -> Vec<(StimQubitId, bool)> {
+    ) -> Vec<(Qubit, bool)> {
         let mut qubit_targets = Vec::new();
         for target in &instruction.targets {
             let Some(qubit_target) = self.expect_qubit(instruction, target, allow_negated) else {
@@ -1707,7 +1719,7 @@ impl Lowerer {
         &mut self,
         instruction: &parser::Instruction,
         allow_negated: bool,
-    ) -> Vec<[(StimQubitId, bool); 2]> {
+    ) -> Vec<[(Qubit, bool); 2]> {
         let Some(pairs) = self.expect_target_pairs(instruction) else {
             return Vec::new();
         };
@@ -1723,7 +1735,7 @@ impl Lowerer {
         qubit_target_pairs
     }
 
-    fn expect_qubit_triples(&mut self, instruction: &parser::Instruction) -> Vec<[StimQubitId; 3]> {
+    fn expect_qubit_triples(&mut self, instruction: &parser::Instruction) -> Vec<[Qubit; 3]> {
         let Some(triples) = self.expect_target_triples(instruction) else {
             return Vec::new();
         };
@@ -1924,7 +1936,7 @@ impl Lowerer {
         instruction: &parser::Instruction,
         target: &parser::Target,
         allow_negated: bool,
-    ) -> Option<(StimQubitId, bool)> {
+    ) -> Option<(Qubit, bool)> {
         let parser::TargetKind::Qubit { value, negated } = target.kind else {
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
@@ -1940,7 +1952,11 @@ impl Lowerer {
             });
             return None;
         }
-        Some((value, negated))
+        let qubit = Qubit {
+            id: value,
+            span: target.span,
+        };
+        Some((qubit, negated))
     }
 
     fn expect_qubit_pair(
@@ -1948,15 +1964,15 @@ impl Lowerer {
         instruction: &parser::Instruction,
         pair: &[parser::Target],
         allow_negated: bool,
-    ) -> Option<[(StimQubitId, bool); 2]> {
+    ) -> Option<[(Qubit, bool); 2]> {
         let (q0, neg0) = self.expect_qubit(instruction, &pair[0], allow_negated)?;
         let (q1, neg1) = self.expect_qubit(instruction, &pair[1], allow_negated)?;
 
-        if q0 == q1 {
+        if q0.id == q1.id {
             self.push_error(Error::RepeatedQubit {
                 instruction: instruction.name.clone(),
-                qubit: q1,
-                span: pair[1].span,
+                qubit: q1.id,
+                span: q1.span,
             });
             return None;
         }
@@ -1968,23 +1984,23 @@ impl Lowerer {
         &mut self,
         instruction: &parser::Instruction,
         triple: &[parser::Target],
-    ) -> Option<[StimQubitId; 3]> {
+    ) -> Option<[Qubit; 3]> {
         let (q0, _) = self.expect_qubit(instruction, &triple[0], false)?;
         let (q1, _) = self.expect_qubit(instruction, &triple[1], false)?;
         let (q2, _) = self.expect_qubit(instruction, &triple[2], false)?;
 
-        let (repeated_qubit_value, repeated_qubit_span) = if q0 == q1 {
-            (q1, triple[1].span)
-        } else if q0 == q2 || q1 == q2 {
-            (q2, triple[2].span)
+        let repeated = if q0.id == q1.id {
+            q1
+        } else if q0.id == q2.id || q1.id == q2.id {
+            q2
         } else {
             return Some([q0, q1, q2]);
         };
 
         self.push_error(Error::RepeatedQubit {
             instruction: instruction.name.clone(),
-            qubit: repeated_qubit_value,
-            span: repeated_qubit_span,
+            qubit: repeated.id,
+            span: repeated.span,
         });
         None
     }

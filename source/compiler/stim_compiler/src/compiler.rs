@@ -28,7 +28,7 @@ use crate::ast_builder::{
     build_within_apply_stmts, fold_exprs_with_op,
 };
 use crate::parser::Pauli::{self, X, Y, Z};
-use crate::semantic;
+use crate::semantic::{self, Qubit};
 
 type StimQubitId = u32;
 pub(crate) type QubitId = u32;
@@ -646,7 +646,7 @@ impl<'noise> Compiler<'noise> {
         stmts
     }
 
-    fn compile_reset(&mut self, qubit: StimQubitId, basis: Pauli, span: Span) -> Vec<ast::Stmt> {
+    fn compile_reset(&mut self, qubit: Qubit, basis: Pauli, span: Span) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
         // Stim decomposition (into H, S, CX, M, R): R; then H for Z -> X; then S for X -> Y.
         let decomposition: &[Op] = match basis {
@@ -659,7 +659,7 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_single_qubit_gate(
         &mut self,
-        qubit: StimQubitId,
+        qubit: Qubit,
         gate: semantic::SingleQubitGateKind,
         span: Span,
     ) -> Vec<ast::Stmt> {
@@ -700,8 +700,8 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_two_qubit_gate(
         &mut self,
-        q0: StimQubitId,
-        q1: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
         gate: semantic::TwoQubitGateKind,
         span: Span,
     ) -> Vec<ast::Stmt> {
@@ -709,7 +709,7 @@ impl<'noise> Compiler<'noise> {
         use semantic::TwoQubitGateKind as G;
 
         // Decompositions are Stim's (into H, S, CX, M, R), with `S S S` written as `SAdj`.
-        let decomposition: &[(Op, &[StimQubitId])] = match gate {
+        let decomposition: &[(Op, &[Qubit])] = match gate {
             G::II => &[],
             G::CX => &[(Op::CNOT, &[q0, q1])],
             G::CY => &[(Op::CY, &[q0, q1])],
@@ -830,9 +830,9 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_three_qubit_gate(
         &mut self,
-        q0: StimQubitId,
-        q1: StimQubitId,
-        q2: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
+        q2: Qubit,
         gate: semantic::ThreeQubitGateKind,
         span: Span,
     ) -> Vec<ast::Stmt> {
@@ -840,7 +840,7 @@ impl<'noise> Compiler<'noise> {
         use semantic::ThreeQubitGateKind as G;
 
         // CCZ uses Clifft's decomposition: H 2; CCX 0 1 2; H 2
-        let decomposition: &[(Op, &[StimQubitId])] = match gate {
+        let decomposition: &[(Op, &[Qubit])] = match gate {
             G::CCX => &[(Op::CCNOT, &[q0, q1, q2])],
             G::CCZ => &[(Op::H, &[q2]), (Op::CCNOT, &[q0, q1, q2]), (Op::H, &[q2])],
         };
@@ -874,7 +874,7 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         axis: Pauli,
         angle: Radians,
-        qubit: StimQubitId,
+        qubit: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
@@ -891,8 +891,8 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         axis: semantic::PauliPair,
         angle: Radians,
-        q0: StimQubitId,
-        q1: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
@@ -911,7 +911,7 @@ impl<'noise> Compiler<'noise> {
         theta: Radians,
         phi: Radians,
         lambda: Radians,
-        qubit: StimQubitId,
+        qubit: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
@@ -939,7 +939,7 @@ impl<'noise> Compiler<'noise> {
     fn compile_classical_control(
         &mut self,
         control: semantic::MeasurementRecord,
-        target: StimQubitId,
+        target: Qubit,
         pauli: Pauli,
         span: Span,
     ) -> Vec<ast::Stmt> {
@@ -1039,7 +1039,7 @@ impl<'noise> Compiler<'noise> {
         observable: Pauli,
         readout_noise: f64,
         negated: bool,
-        qubit: StimQubitId,
+        qubit: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
         let basis_change = self.rotate_to_z_basis(observable, qubit, span);
@@ -1051,8 +1051,8 @@ impl<'noise> Compiler<'noise> {
         readout_noise: f64,
         observable: semantic::PauliPair,
         negated: bool,
-        q0: StimQubitId,
-        q1: StimQubitId,
+        q0: Qubit,
+        q1: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
@@ -1119,7 +1119,10 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         }
         let basis_change = self.map_pauli_product_to_z(&product.factors, span);
-        let qubit = product.factors[0].q;
+        let qubit = Qubit {
+            id: product.factors[0].q,
+            span,
+        };
         self.compile_measurement(
             basis_change,
             qubit,
@@ -1136,7 +1139,7 @@ impl<'noise> Compiler<'noise> {
     fn compile_measurement(
         &mut self,
         mut basis_change: Vec<ast::Stmt>,
-        qubit: StimQubitId,
+        qubit: Qubit,
         reset: bool,
         negated: bool,
         readout_noise: f64,
@@ -1177,7 +1180,7 @@ impl<'noise> Compiler<'noise> {
     fn compile_peek_loss(
         &mut self,
         readout_noise: f64,
-        qubit: StimQubitId,
+        qubit: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
@@ -1323,6 +1326,7 @@ impl<'noise> Compiler<'noise> {
             // Every outcome cancelled to the identity, so there is no noise to apply.
             return None;
         }
+        let qubits: Vec<Qubit> = qubits.into_iter().map(|id| Qubit { id, span }).collect();
         Some(self.noise_table_stmt(noise_table, &qubits, span))
     }
 
@@ -1349,8 +1353,8 @@ impl<'noise> Compiler<'noise> {
         });
     }
 
-    fn peek_loss(&mut self, qubit: StimQubitId, span: Span) -> (ResultId, ast::Stmt) {
-        let args = self.qubit_args(&[qubit], span);
+    fn peek_loss(&mut self, qubit: Qubit, span: Span) -> (ResultId, ast::Stmt) {
+        let args = self.qubit_args(&[qubit]);
         self.declare_intrinsic(PEEK_LOSS_INTRINSIC, "Measurement", &["Qubit"], "Result");
         let peek_loss_call = build_intrinsic_call_expr(PEEK_LOSS_INTRINSIC, args, span);
         let (result_id, assignment) = self.record_result(peek_loss_call, span);
@@ -1366,7 +1370,11 @@ impl<'noise> Compiler<'noise> {
         span: Span,
     ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
-        let apply = vec![self.op_call_stmt(op, &[product.factors[0].q], span)];
+        let target = Qubit {
+            id: product.factors[0].q,
+            span,
+        };
+        let apply = vec![self.op_call_stmt(op, &[target], span)];
         build_within_apply_stmts(within, apply, span)
     }
 
@@ -1378,7 +1386,11 @@ impl<'noise> Compiler<'noise> {
         span: Span,
     ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
-        let apply = vec![self.rotation_stmt(QSharpOp::Rz, angle, &[product.factors[0].q], span)];
+        let target = Qubit {
+            id: product.factors[0].q,
+            span,
+        };
+        let apply = vec![self.rotation_stmt(QSharpOp::Rz, angle, &[target], span)];
         build_within_apply_stmts(within, apply, span)
     }
 
@@ -1389,25 +1401,21 @@ impl<'noise> Compiler<'noise> {
         factors: &[semantic::PauliFactor],
         span: Span,
     ) -> Vec<ast::Stmt> {
-        let focus = factors[0].q;
+        let qubit = |factor: &semantic::PauliFactor| Qubit { id: factor.q, span };
+        let focus = qubit(&factors[0]);
         let mut stmts: Vec<ast::Stmt> = factors
             .iter()
-            .flat_map(|factor| self.rotate_to_z_basis(factor.pauli, factor.q, span))
+            .flat_map(|factor| self.rotate_to_z_basis(factor.pauli, qubit(factor), span))
             .collect();
         stmts.extend(
             factors[1..]
                 .iter()
-                .map(|factor| self.op_call_stmt(QSharpOp::CNOT, &[factor.q, focus], span)),
+                .map(|factor| self.op_call_stmt(QSharpOp::CNOT, &[qubit(factor), focus], span)),
         );
         stmts
     }
 
-    fn rotate_to_z_basis(
-        &mut self,
-        pauli: Pauli,
-        qubit: StimQubitId,
-        span: Span,
-    ) -> Vec<ast::Stmt> {
+    fn rotate_to_z_basis(&mut self, pauli: Pauli, qubit: Qubit, span: Span) -> Vec<ast::Stmt> {
         use QSharpOp as Op;
         let basis_change: &[Op] = match pauli {
             X => &[Op::H],
@@ -1418,13 +1426,13 @@ impl<'noise> Compiler<'noise> {
     }
 
     /// `{op}(qs[a], qs[b], …)`
-    fn op_call_expr(&mut self, op: QSharpOp, qubits: &[StimQubitId], span: Span) -> ast::Expr {
-        let args = self.qubit_args(qubits, span);
+    fn op_call_expr(&mut self, op: QSharpOp, qubits: &[Qubit], span: Span) -> ast::Expr {
+        let args = self.qubit_args(qubits);
         build_qsharp_op_call_expr(op, args, span)
     }
 
     /// `{op}(qs[a], qs[b], …);`
-    fn op_call_stmt(&mut self, op: QSharpOp, qubits: &[StimQubitId], span: Span) -> ast::Stmt {
+    fn op_call_stmt(&mut self, op: QSharpOp, qubits: &[Qubit], span: Span) -> ast::Stmt {
         build_stmt_semi_from_expr(self.op_call_expr(op, qubits, span))
     }
 
@@ -1432,7 +1440,7 @@ impl<'noise> Compiler<'noise> {
     fn decomposition_stmts(
         &mut self,
         decomposition: &[QSharpOp],
-        qubit: StimQubitId,
+        qubit: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
@@ -1445,7 +1453,7 @@ impl<'noise> Compiler<'noise> {
     /// `{op}(qs[a], …);` for each `(op, qubits)` in `decomposition`, in order.
     fn multi_qubit_decomposition_stmts(
         &mut self,
-        decomposition: &[(QSharpOp, &[StimQubitId])],
+        decomposition: &[(QSharpOp, &[Qubit])],
         span: Span,
     ) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
@@ -1459,12 +1467,12 @@ impl<'noise> Compiler<'noise> {
     fn controlled_op_call_stmt(
         &mut self,
         op: QSharpOp,
-        controls: &[StimQubitId],
-        target: StimQubitId,
+        controls: &[Qubit],
+        target: Qubit,
         span: Span,
     ) -> ast::Stmt {
-        let controls = build_expr_array_expr(self.qubit_args(controls, span), span);
-        let target = build_qubit_expr(self.symbols.allocate_qubit(target), span);
+        let controls = build_expr_array_expr(self.qubit_args(controls), span);
+        let target = build_qubit_expr(self.symbols.allocate_qubit(target.id), target.span);
         build_controlled_qsharp_op_call_stmt(op, controls, target, span)
     }
 
@@ -1473,7 +1481,7 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         pauli: Pauli,
         record: ast::Expr,
-        target: StimQubitId,
+        target: Qubit,
         span: Span,
     ) -> ast::Stmt {
         let op = match pauli {
@@ -1491,11 +1499,11 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         op: QSharpOp,
         angle: Radians,
-        qubits: &[StimQubitId],
+        qubits: &[Qubit],
         span: Span,
     ) -> ast::Stmt {
         let mut args = vec![build_lit_double_expr(angle, span)];
-        args.extend(self.qubit_args(qubits, span));
+        args.extend(self.qubit_args(qubits));
         build_stmt_semi_from_expr(build_qsharp_op_call_expr(op, args, span))
     }
 
@@ -1570,21 +1578,21 @@ impl<'noise> Compiler<'noise> {
     }
 
     /// `qs[k]` for each Stim qubit, allocating it on first use.
-    fn qubit_args(&mut self, qubits: &[StimQubitId], span: Span) -> Vec<ast::Expr> {
+    fn qubit_args(&mut self, qubits: &[Qubit]) -> Vec<ast::Expr> {
         qubits
             .iter()
-            .map(|&q| build_qubit_expr(self.symbols.allocate_qubit(q), span))
+            .map(|q| build_qubit_expr(self.symbols.allocate_qubit(q.id), q.span))
             .collect()
     }
 
     fn noise_table_stmt(
         &mut self,
         table: NoiseTable<f64>,
-        qubits: &[StimQubitId],
+        qubits: &[Qubit],
         span: Span,
     ) -> ast::Stmt {
         let name = self.noise_accumulator.get_or_insert_intrinsic(table);
-        let args = self.qubit_args(qubits, span);
+        let args = self.qubit_args(qubits);
         let param_tys = vec!["Qubit"; qubits.len()];
         self.declare_intrinsic(&name, "NoiseIntrinsic", &param_tys, "Unit");
         build_intrinsic_call_stmt(&name, args, span)

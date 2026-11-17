@@ -21,7 +21,7 @@ fn repeat_block_lowers() {
                         count: 3
                         body:
                             [13-16] SingleQubitGate {
-                                q: 0,
+                                q: 0 [15-16],
                                 gate: X,
                             }"#]],
     );
@@ -42,7 +42,7 @@ fn select_block_lowers() {
                     SelectBlock [0-16]:
                         body:
                             [11-14] SingleQubitGate {
-                                q: 0,
+                                q: 0 [13-14],
                                 gate: X,
                             }"#]],
     );
@@ -88,13 +88,13 @@ fn sibling_blocks_lower() {
                         count: 2
                         body:
                             [15-18] SingleQubitGate {
-                                q: 0,
+                                q: 0 [17-18],
                                 gate: X,
                             }
                     SelectBlock [21-39]:
                         body:
                             [34-37] SingleQubitGate {
-                                q: 1,
+                                q: 1 [36-37],
                                 gate: Z,
                             }"#]],
     );
@@ -121,7 +121,7 @@ fn repeat_inside_repeat_lowers() {
                                 count: 3
                                 body:
                                     [34-37] SingleQubitGate {
-                                        q: 0,
+                                        q: 0 [36-37],
                                         gate: X,
                                     }"#]],
     );
@@ -147,7 +147,7 @@ fn select_inside_repeat_lowers() {
                             SelectBlock [15-41]:
                                 body:
                                     [32-35] SingleQubitGate {
-                                        q: 0,
+                                        q: 0 [34-35],
                                         gate: X,
                                     }"#]],
     );
@@ -173,7 +173,7 @@ fn repeat_inside_select_lowers() {
                                 count: 2
                                 body:
                                     [32-35] SingleQubitGate {
-                                        q: 0,
+                                        q: 0 [34-35],
                                         gate: X,
                                     }"#]],
     );
@@ -198,7 +198,7 @@ fn select_inside_select_lowers() {
                             SelectBlock [13-39]:
                                 body:
                                     [30-33] SingleQubitGate {
-                                        q: 0,
+                                        q: 0 [32-33],
                                         gate: X,
                                     }"#]],
     );
@@ -234,7 +234,7 @@ fn alternating_nested_blocks_lower() {
                                                 observable: Z,
                                                 readout_noise: 0.0,
                                                 negated: false,
-                                                q: 0,
+                                                q: 0 [45-46],
                                             }
                                     [57-72] Require {
                                         records: [
