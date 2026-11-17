@@ -23,32 +23,34 @@ sequenceDiagram
   S->>E: apply(state, [s], gate)
   Note over S,A: apply, two sites: check, then pend, or window then pend
   S->>E: apply(state, [a, b], gate)
-  E->>A: window, of the pending window the gate does not fit
+  Note over E,A: window (see below), of the window the gate does not fit
   Note over S,A: probability_of_one: check, window, move, read
   S->>E: probability_of_one(state, s)
-  E->>A: window, of the pending window
+  Note over E,A: window (see below)
   E->>A: qr_move, once per site the centre crosses
   E->>A: read, of site s
   Note over S,A: project: check, window, move, read, upload
   S->>E: project(state, s, one)
-  E->>A: window, qr_move and read, as probability_of_one
+  Note over E,A: window (see below)
+  E->>A: qr_move and read, as probability_of_one
   E->>A: upload, of site s projected
   Note over S,A: conditional_probability_of_one: check, a fork, then project per condition, then a read
   S->>E: conditional_probability_of_one(state, s, given)
-  E->>A: window, of the pending window, then duplicate, once per site
+  Note over E,A: window (see below)
+  E->>A: duplicate, once per site
   E->>A: per condition, as project, on the fork
   E->>A: as probability_of_one, on the fork
   Note over S,A: expectation: check, window, read, contract
   S->>E: expectation(state, observable)
-  E->>A: window, of the pending window
+  Note over E,A: window (see below)
   E->>A: read, once per site between the terms and the centre
   Note over S,A: fork: window, duplicate
   S->>E: fork(state)
-  E->>A: window, of the pending window
+  Note over E,A: window (see below)
   E->>A: duplicate, once per site
   Note over S,A: shape, retained_weight: window
   S->>E: shape(state) or retained_weight(state)
-  E->>A: window, of the pending window
+  Note over E,A: window (see below)
 ```
 
 A "window" step runs only when a window is pending. Its calls depend on
@@ -66,15 +68,14 @@ the window's sites:
 
 The centre moves only as far as an operation needs, and the application of
 a window leaves it on the end of the window's span the next operation
-needs, so a sequence of
-operations on nearby sites moves it little. After each method, with `c` the
+needs, so a sequence of operations on nearby sites moves it little. After each method, with `c` the
 centre before it:
 
 | `MpsEngine` method                 | The centre after it                                                                                                                       |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `prepare`                          | site 0                                                                                                                                    |
 | `apply`, one site                  | `c`: the gate waits, pending                                                                                                              |
-| `apply`, two sites                 | `c` when the gate joins the window, which stays pending; else the end of the applied window's span nearer the gate's first site           |
+| `apply`, two sites                 | `c` when the gate joins the window, which stays pending; else the end of the applied window's span nearer the gate's lower site           |
 | `probability_of_one`, `project`    | the site read: the pending window is applied toward it first, which leaves the centre on its span's end nearer the site                   |
 | `expectation`                      | `c`, or the end of the pending window's span nearer `c`, when a window is pending; the reads copy the sites to the host without moving it |
 | `fork`, `shape`, `retained_weight` | as for `expectation`; a fork starts with its parent's centre                                                                              |

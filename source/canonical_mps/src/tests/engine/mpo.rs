@@ -4,7 +4,8 @@
 //! Gates on sites far apart, and windows on three sites, applied as a
 //! matrix product operator: they act in the caller's order, keep a state
 //! that fits the capacity, truncate only at the caller's cuts, grow the
-//! span by the operator's rank, and cost one move and one split per cut.
+//! span by the operator's rank, and cost, once the centre is in the span,
+//! one split per cut and one move fewer.
 
 use super::*;
 
@@ -151,18 +152,24 @@ fn an_mpo_truncates_only_at_the_callers_cuts() {
     }
 }
 
-/// A product state of 6 sites, then a gate on sites 0 and 2: the CNOT,
-/// of operator rank 2, grows the span's bonds to 2, and the entangler,
-/// a partial iSWAP with a phase, of rank 4, to 4. A factorisation that
-/// kept rounding's values would grow every one to 4.
+/// Six sites, sites 2 and 3 entangled (a bond of 2 at rest just right of
+/// the span) and the others in a product state, then a gate on sites 0 and
+/// 2: the CNOT, of operator rank 2, grows the span's bonds to 2, the
+/// entangler, a partial iSWAP with a phase, of rank 4, to 4, and Z⊗Z, of
+/// rank 1, leaves them at 1. A factorisation that kept rounding's values
+/// would grow every one to 4, and only the cuts inside the span count, not
+/// the bond of 2 beside it.
 #[test]
 fn an_mpo_grows_the_span_by_the_operators_rank() {
-    for (gate, rank) in [(cnot(), 2), (entangler(0.9), 4)] {
+    for (gate, rank) in [(cnot(), 2), (entangler(0.9), 4), (zz(), 1)] {
         for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
             let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
             for site in 0..6 {
                 engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
             }
+            engine.apply(&mut state, &[2, 3], &cnot()).expect("apply");
+            let bonds = engine.shape(&state).expect("shape");
+            assert_eq!(bonds.bond_dim(2), Some(2), "{name}: precondition");
             engine.apply(&mut state, &[0, 2], &gate).expect("apply");
             engine.retained_weight(&state).expect("weight");
             let statistics = state.split_statistics();
@@ -176,7 +183,7 @@ fn an_mpo_grows_the_span_by_the_operators_rank() {
 /// 0 and 4: the span of 5 sites takes 3 moves of the centre and 4 splits,
 /// and no move to reach the span.
 #[test]
-fn an_mpo_costs_a_move_and_a_split_per_cut_of_its_span() {
+fn an_mpo_inside_its_span_costs_d_minus_1_moves_and_d_splits() {
     for fuses in [true, false] {
         let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(fuses);

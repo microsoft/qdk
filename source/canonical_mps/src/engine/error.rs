@@ -43,7 +43,9 @@ pub enum CanonicalMpsError<E> {
     /// The state is then unspecified, as [`MpsEngine`] says, and the
     /// caller must drop it: a failed application of the pending window
     /// may have lost its gates, or left its span half compressed, and a
-    /// read applies a pending window too.
+    /// read applies a pending window too. A failed upload of a multiplied
+    /// span leaves the chain's sites as they were, so neighbours still
+    /// share each bond.
     #[error("the site algebra failed")]
     Algebra(#[source] E),
 
@@ -71,6 +73,9 @@ pub enum CanonicalMpsError<E> {
     /// ([`SvdError`](dense_linalg::SvdError), its source) did not converge
     /// or failed its checks. The window is lost, so the state is
     /// unspecified, as for [`Self::Algebra`], and the caller must drop it.
+    /// It is not expected: a window holds only gates checked finite and
+    /// unitary, whose SVD converges, so only a fault of the host's SVD
+    /// would reach it.
     #[error("the factorisation of a window's operator failed")]
     OperatorDecomposition(#[source] dense_linalg::SvdError),
 }

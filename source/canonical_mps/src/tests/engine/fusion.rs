@@ -167,6 +167,42 @@ fn a_gate_that_would_make_a_fourth_site_opens_a_new_window() {
     assert_eq!(counts(gates), [(4, 1), (4, 2)]);
 }
 
+/// A window on sites 1 and 4 of 6, then a gate on sites 5 and 2, which
+/// does not fit: the window is applied toward the gate's lower site, 2,
+/// which leaves the centre on site 1, so the new window on sites 2 to 5
+/// takes one move to reach its span. Applied toward site 5, the gate's
+/// first operand, the centre would be on site 4, inside the new span, one
+/// move fewer. The lower site was chosen by the H₂ and polyene runs, where
+/// it took the fewest moves or the least time.
+#[test]
+fn a_gate_that_does_not_fit_applies_the_window_toward_its_lower_site() {
+    let (algebra, calls) = SpyAlgebra::new();
+    let engine = CanonicalMpsEngine::new(algebra).with_fusion(true);
+    let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
+    for site in 0..6 {
+        engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
+    }
+    engine.apply(&mut state, &[1, 4], &cnot()).expect("apply");
+    assert_eq!(
+        calls.qr_moves.get(),
+        0,
+        "precondition: the window is pending"
+    );
+    engine
+        .apply(&mut state, &[5, 2], &entangler(0.4))
+        .expect("apply");
+    engine.retained_weight(&state).expect("weight");
+    // Each window: the moves into its span, then 2 across it. Toward site
+    // 2, 1 + 2 for the first and 1 + 2 for the second; toward site 5,
+    // 1 + 2 and 0 + 2.
+    assert_eq!(calls.qr_moves.get(), 6);
+    assert_eq!(
+        state.split_statistics().mpo_applications(),
+        2,
+        "precondition"
+    );
+}
+
 /// A read of a state and of the reference's, which checks they agree.
 type Read = fn(&Engine, &mut State, &ExactReference, &mut ReferenceState);
 

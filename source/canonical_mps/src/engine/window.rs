@@ -25,8 +25,9 @@
 //! - **When.** The first operation the window does not serve applies it:
 //!   a two-site gate that does not fit, any read, projection, fork, shape
 //!   or retained weight. It leaves the centre on the end of the window's
-//!   span nearer the site that operation names, so the operation finds it
-//!   there or close.
+//!   span nearer the site that operation names (a gate's lower site, a
+//!   read's site, or the centre, when it names none), so the operation
+//!   finds it there or close.
 //!
 //! Without fusion (the tests' comparison), each two-site gate is its own
 //! window, applied at once, and leaves the centre on the side of its sites
@@ -101,6 +102,9 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
             window.sites = sites;
             window.apply(gate, on);
         } else {
+            // The lower site took the fewest moves of the centre on H₂, or
+            // the least time on the polyene, against the first operand
+            // and the gate's site nearer the window.
             let toward = on[0].min(on[1]);
             self.flush_window(chain, toward)?;
             chain.window = Some(Window::of(gate, on));
