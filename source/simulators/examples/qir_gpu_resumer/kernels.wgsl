@@ -1116,3 +1116,123 @@ fn frame(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
     s[base | i0] = b * sign_of(i1, m.y);
   }
 }
+
+// SPIKE: `block` for monomial ops, composed on the host (`mono_code`): the
+// tile's amplitude e becomes w(f) * tile[src(f)], f = e ^ x, times
+// (-1)^parity(f & z), where (x, z) is the shot's faults moved to the block's
+// end and XORed (each site's draw by one thread), src is affine (one parity
+// per local bit) and w sums the code's phase terms. One read and one write
+// per amplitude, whatever the block's op count.
+var<workgroup> mtile: array<vec2<f32>, 1024>;
+var<workgroup> mcode: array<vec4<f32>, 256>;
+var<workgroup> mfx: atomic<u32>;
+var<workgroup> mfz: atomic<u32>;
+// The tile offset and the source index are linear in the index bits: each
+// is the XOR of a table entry for the low 5 bits and one for the high 5.
+var<workgroup> moff: array<u32, 64>;
+var<workgroup> msrc: array<u32, 64>;
+
+fn mparity(x: u32) -> u32 {
+  return countOneBits(x) & 1u;
+}
+
+@compute @workgroup_size(256)
+fn block_mono(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+  let w = flat_group(wid, nw);
+  let b = p.block;
+  let high = p.n - b;
+  let j = w >> high;
+  if (j >= p.shot_len) { return; }
+  let size = 1u << b;
+  let contiguous = tile_pos(b - 1u) == b - 1u;
+  var rest = w & ((1u << high) - 1u);
+  if (contiguous) {
+    rest = rest << b;
+  } else {
+    for (var i = 0u; i < b; i++) { rest = insert0(rest, tile_pos(i)); }
+  }
+  let slot = shots[p.shot_off + j];
+  let base = (slot << p.n) | rest;
+  for (var c = lid.x; c < p.kind; c += WG) { mcode[c] = ops[p.op_off + c]; }
+  if (lid.x == 0u) {
+    atomicStore(&mfx, 0u);
+    atomicStore(&mfz, 0u);
+  }
+  if (!contiguous && lid.x < 64u) {
+    moff[lid.x] = tile_offset(select(lid.x, (lid.x - 32u) << 5u, lid.x >= 32u));
+  }
+  workgroupBarrier();
+  if (contiguous) {
+    for (var e = lid.x; e < size; e += WG) { mtile[e] = s[base + e]; }
+  } else {
+    for (var e = lid.x; e < size; e += WG) { mtile[e] = s[base + (moff[e & 31u] | moff[32u + (e >> 5u)])]; }
+  }
+  let h = mcode[0];
+  let nterms = ival(h.y);
+  let nsites = ival(h.z);
+  let a = ival(h.w);
+  let rows_at = 1u;
+  let terms_at = rows_at + (b + 3u) / 4u;
+  let sites_at = terms_at + nterms;
+  if (lid.x >= 64u && lid.x < 128u) {
+    let t = lid.x - 64u;
+    let x = select(t, (t - 32u) << 5u, t >= 32u);
+    var k = 0u;
+    for (var i = 0u; i < b; i++) {
+      k ^= mparity(ival(mcode[rows_at + i / 4u][i % 4u]) & x) << i;
+    }
+    msrc[t] = k;
+  }
+  if (lid.x < nsites) {
+    var at = sites_at;
+    for (var o = 0u; o < lid.x; o++) {
+      let count = ival(mcode[at + 1u].x);
+      at += 1u + (count + 4u) / 4u + count;
+    }
+    let count = ival(mcode[at + 1u].x);
+    let f = draw(slot, mcode[at]);
+    if (f.x != 0u || f.y != 0u) {
+      let images = at + 1u + (count + 4u) / 4u;
+      var mx = 0u;
+      var mz = 0u;
+      for (var i = 0u; i < count; i++) {
+        let im = mcode[images + i];
+        if (((f.x >> i) & 1u) == 1u) {
+          mx ^= ival(im.x);
+          mz ^= ival(im.y);
+        }
+        if (((f.y >> i) & 1u) == 1u) {
+          mx ^= ival(im.z);
+          mz ^= ival(im.w);
+        }
+      }
+      atomicXor(&mfx, mx);
+      atomicXor(&mfz, mz);
+    }
+  }
+  workgroupBarrier();
+  let fx = atomicLoad(&mfx);
+  let fz = atomicLoad(&mfz);
+  for (var e = lid.x; e < size; e += WG) {
+    let f = e ^ fx;
+    let k = a ^ msrc[f & 31u] ^ msrc[32u + (f >> 5u)];
+    var v = mtile[k] * sign_of(f, fz);
+    if (nterms > 0u) {
+      var turns = 0.0;
+      for (var t = 0u; t < nterms; t++) {
+        let term = mcode[terms_at + t];
+        let ta = ival(term.x);
+        let tb = ival(term.y);
+        let fa = mparity(ta & 1023u & f) ^ (ta >> 10u);
+        let fb = mparity(tb & 1023u & f) ^ (tb >> 10u);
+        turns += term.z * f32(fa & fb);
+      }
+      v = cmul(phase(turns), v);
+    }
+    if (contiguous) {
+      s[base + e] = v;
+    } else {
+      s[base + (moff[e & 31u] | moff[32u + (e >> 5u)])] = v;
+    }
+  }
+}

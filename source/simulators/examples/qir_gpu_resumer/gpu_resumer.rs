@@ -135,6 +135,12 @@ pub struct Strategy {
     /// masks of the entries whose guard holds (and its drawn faults), and
     /// the pass applies the product once.
     pub frame: bool,
+    /// SPIKE: whether a block whose ops are all monomial (one nonzero per
+    /// row: permutations with phases, such as X, CX, CZ, S, and Pauli
+    /// faults) runs composed (`mono_code`): one affine index map with phase
+    /// terms, its faults moved to the block's end, so the pass reads and
+    /// writes each amplitude once whatever the op count.
+    pub monomial: bool,
 }
 
 impl Strategy {
@@ -156,6 +162,7 @@ impl Strategy {
         conditions: false,
         joint: false,
         frame: false,
+        monomial: false,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -175,6 +182,7 @@ impl Strategy {
         conditions: false,
         joint: false,
         frame: false,
+        monomial: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -194,6 +202,7 @@ impl Strategy {
         conditions: false,
         joint: false,
         frame: false,
+        monomial: false,
     };
 
     pub fn named(name: &str) -> Option<Self> {
@@ -217,6 +226,17 @@ impl Strategy {
                 conditions: true,
                 joint: true,
                 frame: true,
+                ..Self::ALL
+            },
+            "mono" => Self {
+                conditions: true,
+                joint: true,
+                frame: true,
+                monomial: true,
+                ..Self::ALL
+            },
+            "allmono" => Self {
+                monomial: true,
                 ..Self::ALL
             },
             "condframe" => Self {
@@ -378,6 +398,7 @@ pub struct Gpu {
     jsample: wgpu::ComputePipeline,
     jcollapse: wgpu::ComputePipeline,
     frame: wgpu::ComputePipeline,
+    block_mono: wgpu::ComputePipeline,
     /// Seconds to create the pipelines, and to compile them at a first
     /// dispatch each (Mesa compiles lazily).
     pub create_seconds: f64,
@@ -484,6 +505,7 @@ impl Gpu {
             jsample: make("jsample"),
             jcollapse: make("jcollapse"),
             frame: make("frame"),
+            block_mono: make("block_mono"),
             create_seconds: started.elapsed().as_secs_f64(),
             compile_seconds: 0.0,
             adapter_name,
@@ -526,6 +548,7 @@ impl Gpu {
             ("jsample", &self.jsample),
             ("jcollapse", &self.jcollapse),
             ("frame", &self.frame),
+            ("block_mono", &self.block_mono),
         ] {
             let t = Instant::now();
             let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -788,6 +811,233 @@ enum Op {
 
 fn is_noise(op: &Op) -> bool {
     matches!(op, Op::Noise { .. })
+}
+
+/// SPIKE: whether `op` has one nonzero entry per row (a permutation with
+/// phases), so that a block of such ops is one gather (`block_mono`).
+fn is_monomial(op: &Op) -> bool {
+    let one_per_row = |m: &[Complex64], d: usize| {
+        m.chunks(d)
+            .all(|row| row.iter().filter(|c| c.re != 0.0 || c.im != 0.0).count() == 1)
+    };
+    match op {
+        Op::G1 { m, .. } => one_per_row(m, 2),
+        Op::G2 { m, .. } => one_per_row(m, 4),
+        Op::Noise { .. } => true,
+        Op::Meas { .. } => false,
+    }
+}
+
+/// SPIKE: a block of monomial ops (on block-local qubits `0..b`) composed
+/// into one map, as the `block_mono` kernel reads it: the block takes
+/// amplitude `e` of the tile to `w(e) * psi[src(e)]`, where bit `i` of
+/// `src(e)` is `parity(row_i & e) ^ a_i` and `w(e)` sums terms `t *
+/// [parity(ma & e) ^ ca] * [parity(mb & e) ^ cb]` turns; each noise site's
+/// fault is moved to the block's end (Clifford conjugation by the ops after
+/// it), so that a shot applies one Pauli, the XOR of its faults' images,
+/// before the map is read. `None` when an op is not monomial, a fault
+/// cannot be moved (a non-Clifford op after it), or the code is too long.
+///
+/// Code: header `(15, terms, sites, a)`; the rows, 4 per vec4; the terms
+/// `(ma | ca << 10, mb | cb << 10, t, 0)`; per site its noise code (marker
+/// 14), then per target `(X image x, X image z, Z image x, Z image z)`.
+#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
+fn mono_code(block_ops: &[Op], b: u32) -> Option<Vec<[f32; 4]>> {
+    type Term = (u32, u32, u32, u32);
+    let turns = |c: Complex64| c.arg() / std::f64::consts::TAU;
+    let parity = |x: u32| x.count_ones() & 1;
+    let unit = |c: Complex64| (c.norm() - 1.0).abs() < 1e-9;
+    let mut rows: Vec<u32> = (0..b).map(|i| 1 << i).collect();
+    let mut a = 0u32;
+    let mut terms: BTreeMap<Term, f64> = BTreeMap::new();
+    // Each site's targets and their images (X image, Z image) so far.
+    let mut sites: Vec<(&Op, Vec<[u32; 4]>)> = Vec::new();
+    for op in block_ops {
+        let (qs, d, m): (Vec<u32>, usize, &[Complex64]) = match op {
+            Op::G1 { q, m } => (vec![*q], 2, m),
+            Op::G2 { a, b, m } => (vec![*a, *b], 4, m),
+            Op::Noise { targets, .. } => {
+                let images = targets
+                    .iter()
+                    .map(|&t| [1 << t, 0, 0, 1 << t])
+                    .collect();
+                sites.push((op, images));
+                continue;
+            }
+            Op::Meas { .. } => return None,
+        };
+        // sigma[r]: the column of row r's nonzero, v[r] its value; row bit
+        // k (from the top) is qubit qs[k].
+        let mut sigma = vec![0usize; d];
+        let mut v = vec![Complex64::new(0.0, 0.0); d];
+        for r in 0..d {
+            let nz: Vec<usize> = (0..d)
+                .filter(|&c| m[r * d + c].re != 0.0 || m[r * d + c].im != 0.0)
+                .collect();
+            let [c] = nz.as_slice() else { return None };
+            if !unit(m[r * d + c]) {
+                return None;
+            }
+            sigma[r] = *c;
+            v[r] = m[r * d + c];
+        }
+        // Qubit qs[k] is bit (width - 1 - k) of a row index.
+        let width = qs.len();
+        // pi(e): bit qs[k] = bit (width-1-k) of sigma(row(e)), affine:
+        // sigma(r) = c0 ^ sum over row bits of the column images.
+        let c0 = sigma[0];
+        let mut pmask = vec![0u32; b as usize];
+        let mut pvec = 0u32;
+        for j in 0..b {
+            pmask[j as usize] = 1 << j;
+        }
+        for (k, &q) in qs.iter().enumerate() {
+            let out_bit = width - 1 - k;
+            let mut mask = 0u32;
+            for (k2, &q2) in qs.iter().enumerate() {
+                let in_bit = width - 1 - k2;
+                let image = sigma[1 << in_bit] ^ c0;
+                if (image >> out_bit) & 1 == 1 {
+                    mask |= 1 << q2;
+                }
+            }
+            pmask[q as usize] = mask;
+            pvec |= u32::try_from((c0 >> out_bit) & 1).expect("bit") << q;
+        }
+        for r in 0..d {
+            let mut lin = c0;
+            for bit in 0..width {
+                if (r >> bit) & 1 == 1 {
+                    lin ^= sigma[1 << bit] ^ c0;
+                }
+            }
+            if lin != sigma[r] {
+                return None;
+            }
+        }
+        let subst = |mask: u32, c: u32| {
+            let mut out = 0u32;
+            for j in 0..b {
+                if (mask >> j) & 1 == 1 {
+                    out ^= pmask[j as usize];
+                }
+            }
+            (out, c ^ parity(mask & pvec))
+        };
+        for i in 0..b as usize {
+            let (row, ai) = subst(rows[i], (a >> i) & 1);
+            rows[i] = row;
+            a = (a & !(1 << i)) | (ai << i);
+        }
+        let old = std::mem::take(&mut terms);
+        for ((ma, ca, mb, cb), t) in old {
+            let (ma, ca) = subst(ma, ca);
+            let (mb, cb) = subst(mb, cb);
+            *terms.entry((ma, ca, mb, cb)).or_default() += t;
+        }
+        // The op's own phase, a function of its row bits (multilinear).
+        let th: Vec<f64> = v.iter().map(|&c| turns(c)).collect();
+        let bit = |k: usize| 1u32 << qs[k];
+        if width == 1 {
+            *terms.entry((bit(0), 0, 0, 1)).or_default() += th[1] - th[0];
+        } else {
+            *terms.entry((bit(0), 0, 0, 1)).or_default() += th[2] - th[0];
+            *terms.entry((bit(1), 0, 0, 1)).or_default() += th[1] - th[0];
+            *terms.entry((bit(0), 0, bit(1), 0)).or_default() += th[3] - th[2] - th[1] + th[0];
+        }
+        // Move the faults so far through the op: P -> G P G^dagger.
+        for (_, images) in &mut sites {
+            for image in images.iter_mut() {
+                for half in 0..2 {
+                    let (x, z) = (image[2 * half], image[2 * half + 1]);
+                    let local = |mask: u32| {
+                        qs.iter().enumerate().fold(0usize, |r, (k, &q)| {
+                            r | (((mask >> q) & 1) as usize) << (width - 1 - k)
+                        })
+                    };
+                    let (lx, lz) = conjugate_pauli(m, d, local(x), local(z))?;
+                    let mut nx = x;
+                    let mut nz = z;
+                    for (k, &q) in qs.iter().enumerate() {
+                        let bit = width - 1 - k;
+                        nx = (nx & !(1 << q)) | (u32::try_from((lx >> bit) & 1).expect("bit") << q);
+                        nz = (nz & !(1 << q)) | (u32::try_from((lz >> bit) & 1).expect("bit") << q);
+                    }
+                    image[2 * half] = nx;
+                    image[2 * half + 1] = nz;
+                }
+            }
+        }
+    }
+    let kept: Vec<(Term, f32)> = terms
+        .into_iter()
+        .filter_map(|(key, t)| {
+            let t = t.rem_euclid(1.0);
+            #[allow(clippy::cast_possible_truncation)]
+            (t > 1e-12 && t < 1.0 - 1e-12).then_some((key, t as f32))
+        })
+        .collect();
+    let mut code = vec![[15.0, kept.len() as f32, sites.len() as f32, a as f32]];
+    for chunk in rows.chunks(4) {
+        let mut w = [0.0; 4];
+        for (i, &r) in chunk.iter().enumerate() {
+            w[i] = r as f32;
+        }
+        code.push(w);
+    }
+    for ((ma, ca, mb, cb), t) in kept {
+        code.push([(ma | ca << 10) as f32, (mb | cb << 10) as f32, t, 0.0]);
+    }
+    for (op, images) in sites {
+        code.extend(noise_code(op, 14.0));
+        for image in images {
+            code.push(image.map(|w| w as f32));
+        }
+    }
+    (code.len() <= BLOCK_CODE).then_some(code)
+}
+
+/// SPIKE: the Pauli `Q` (as row-index bit patterns `x`, `z`) with `M P
+/// M^dagger = lambda Q`, `P = X^x Z^z` on a `d`-dimensional matrix `M`;
+/// `None` when `M P M^dagger` is no Pauli (`M` is not Clifford).
+fn conjugate_pauli(m: &[Complex64], d: usize, x: usize, z: usize) -> Option<(usize, usize)> {
+    let zero = Complex64::new(0.0, 0.0);
+    // (X^x Z^z)[r][c] = (-1)^parity(c & z) where r = c ^ x.
+    let pauli = |x: usize, z: usize| {
+        let mut p = vec![zero; d * d];
+        for c in 0..d {
+            let s = if (c & z).count_ones() % 2 == 1 { -1.0 } else { 1.0 };
+            p[(c ^ x) * d + c] = Complex64::new(s, 0.0);
+        }
+        p
+    };
+    let mul = |l: &[Complex64], r: &[Complex64]| {
+        let mut out = vec![zero; d * d];
+        for i in 0..d {
+            for k in 0..d {
+                for j in 0..d {
+                    out[i * d + j] += l[i * d + k] * r[k * d + j];
+                }
+            }
+        }
+        out
+    };
+    let dagger: Vec<Complex64> = (0..d * d).map(|i| m[(i % d) * d + i / d].conj()).collect();
+    let conj = mul(&mul(m, &pauli(x, z)), &dagger);
+    for qx in 0..d {
+        for qz in 0..d {
+            let q = pauli(qx, qz);
+            let r = qx; // row 0's nonzero column in Q is 0 ^ qx
+            let lambda = conj[r] / q[r];
+            if !lambda.re.is_finite() || (lambda.norm() - 1.0).abs() > 1e-9 {
+                continue;
+            }
+            if conj.iter().zip(&q).all(|(c, q)| (c - lambda * q).norm() < 1e-9) {
+                return Some((qx, qz));
+            }
+        }
+    }
+    None
 }
 
 /// A noise table on the GPU: `len` entries at `ops[off..]`, each
@@ -1787,6 +2037,8 @@ struct Layout<'a, 'g> {
     /// Whether noiseless diagonal and block passes run the specialised
     /// `diag_plain` and `block_plain` kernels.
     plain: bool,
+    /// SPIKE: whether monomial blocks run composed (`block_mono`).
+    mono: bool,
     /// The round, and where the slots' (noise seed, batch length) are in
     /// `shots`, for noise draws.
     round: u32,
@@ -1963,15 +2215,24 @@ impl Layout<'_, '_> {
                         local_ops
                     };
                     let noisy = local_ops.iter().any(is_noise);
-                    let plain = !noisy && self.plain;
+                    let mono_code = if self.mono && local_ops.iter().all(is_monomial) {
+                        mono_code(&local_ops, b)
+                    } else {
+                        None
+                    };
+                    let mono = mono_code.is_some();
+                    let plain = !noisy && self.plain && !mono;
                     let limit = if plain { PLAIN_CODE } else { BLOCK_CODE };
-                    let mut pieces = block_code(&local_ops, self.kron, self.hoist && noisy, limit);
+                    let mut pieces = match mono_code {
+                        Some(code) => vec![(1, code)],
+                        None => block_code(&local_ops, self.kron, self.hoist && noisy, limit),
+                    };
                     // The fault-free variant: with hoisted draws, the block's
                     // code without its noise follows the noisy code, and a
                     // workgroup whose shot has no fault at any site runs it
                     // instead (per_shot: its op count + 1, m0.x: its offset).
                     let mut clean_variant = None;
-                    if self.hoist && noisy && self.clean && pieces.len() == 1 {
+                    if !mono && self.hoist && noisy && self.clean && pieces.len() == 1 {
                         let clean_ops: Vec<Op> = local_ops
                             .iter()
                             .filter(|op| !is_noise(op))
@@ -1990,8 +2251,9 @@ impl Layout<'_, '_> {
                             clean_variant = Some((count + 1, offset));
                         }
                     }
-                    if pieces.is_empty() {
-                        // Only a global phase: nothing to do.
+                    if pieces.is_empty() || std::env::var("QDK_SKIP_BLOCKS").is_ok() {
+                        // Only a global phase: nothing to do (or, a timing
+                        // experiment with wrong results, blocks skipped).
                         self.params.truncate(at);
                         continue;
                     }
@@ -2009,11 +2271,17 @@ impl Layout<'_, '_> {
                         p.op_len = count;
                         p.kind = u32::try_from(code.len()).expect("fits");
                         p.block = b;
-                        p.meas = u32::from(self.hoist && noisy);
+                        p.meas = u32::from((self.hoist || mono) && noisy);
                         (p.per_shot, p.m0[0]) = clean_variant.unwrap_or((0, 0.0));
                         self.ops.extend(code);
                         p.write(self.params, at);
-                        let pipe = if plain { &gpu.block_plain } else { &gpu.block };
+                        let pipe = if mono {
+                            &gpu.block_mono
+                        } else if plain {
+                            &gpu.block_plain
+                        } else {
+                            &gpu.block
+                        };
                         self.passes.push((pipe, slot, len << (n - b)));
                     }
                     continue;
@@ -2259,7 +2527,21 @@ impl QirGpuResumer {
             }
             Op::G2 { a, b, m }
         };
+        let cx = |a: u32, b: u32| {
+            let mut m = [Complex64::new(0.0, 0.0); 16];
+            for (r, c) in [(0, 0), (1, 1), (2, 3), (3, 2)] {
+                m[4 * r + c] = one;
+            }
+            Op::G2 { a, b, m }
+        };
         let high = n - 1;
+        // The spread block set of rep_9's third block per round (when n
+        // allows), and a CX chain along it.
+        let spread: u64 = if n >= 17 { 0x1c1e7 } else { (1 << BLOCK_QUBITS.min(n)) - 1 };
+        let spread_qubits: Vec<u32> = (0..64u32).filter(|q| spread >> q & 1 == 1).collect();
+        let spread_chain = || -> Vec<Op> {
+            spread_qubits.windows(2).map(|w| cx(w[0], w[1])).collect()
+        };
         let block_qubits = BLOCK_QUBITS.min(n);
         let rx_m = |q, t| match rx(q, t) {
             Op::G1 { m, .. } => m,
@@ -2299,6 +2581,34 @@ impl QirGpuResumer {
             (
                 "diag (n-1 CZ terms)",
                 SegKind::Diag((0..n - 1).map(|q| cz(q, q + 1)).collect()),
+            ),
+            (
+                "block (CX chain on the low qubits)",
+                SegKind::Block {
+                    set: (1 << block_qubits) - 1,
+                    ops: (0..block_qubits - 1).map(|q| cx(q, q + 1)).collect(),
+                },
+            ),
+            (
+                "block (CX chain on the low qubits, monomial, composed: SPIKE)",
+                SegKind::Block {
+                    set: (1 << block_qubits) - 1,
+                    ops: (0..block_qubits - 1).map(|q| cx(q, q + 1)).collect(),
+                },
+            ),
+            (
+                "gather block (CX chain on rep_9's spread set 0x1c1e7)",
+                SegKind::Block {
+                    set: spread,
+                    ops: spread_chain(),
+                },
+            ),
+            (
+                "gather block (CX chain on rep_9's spread set 0x1c1e7, monomial, composed: SPIKE)",
+                SegKind::Block {
+                    set: spread,
+                    ops: spread_chain(),
+                },
             ),
             (
                 "block (Rx and CZ on the low qubits)",
@@ -2416,6 +2726,7 @@ impl QirGpuResumer {
                 hoist: self.strategy.hoist_noise,
                 clean: self.strategy.clean_variant,
                 plain: self.strategy.plain_kernels,
+                mono: self.strategy.monomial || name.contains("monomial"),
                 round: 0,
                 meta_off: 0,
             }
@@ -2491,6 +2802,7 @@ impl QirGpuResumer {
             hoist: self.strategy.hoist_noise,
             clean: self.strategy.clean_variant,
             plain: self.strategy.plain_kernels,
+            mono: self.strategy.monomial,
             round: 0,
             meta_off: 0,
         }
@@ -2936,6 +3248,7 @@ impl QirGpuResumer {
                     hoist: self.strategy.hoist_noise,
                     clean: self.strategy.clean_variant,
                     plain: self.strategy.plain_kernels,
+                    mono: self.strategy.monomial,
                     round,
                     meta_off: 0,
                 };
