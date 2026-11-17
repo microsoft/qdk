@@ -68,26 +68,40 @@ fn a_bond_above_the_full_extent_is_refused() {
 
 /// A library that reports a discarded weight outside `[0, 1)`: a weight
 /// rounded below zero, as an A100 reported for a split that discarded
-/// nothing, is read as nothing discarded (the bond reported, the share
-/// kept exactly 1); one below the tolerance, of 1 or more, or NaN is
-/// refused as invalid, since the share kept must lie in `(0, 1]`.
+/// nothing, down to the worst rounding over a split of 4,096 values and
+/// the tolerance itself, is read as nothing discarded (the bond reported,
+/// the share kept exactly 1); one below the tolerance, of 1 or more, or
+/// NaN is refused as invalid, since the share kept must lie in `(0, 1]`.
 #[test]
 fn a_discarded_weight_lies_in_zero_to_one_up_to_a_rounding_below_zero() {
     let (algebra, libraries) = algebra();
     let (a, b) = random_pair(2, 2, 2, 17);
-    libraries.misreport_truncation(SvdTruncation {
-        reduced_extent: 2,
-        full_extent: 4,
-        discarded_weight: -2.220_446_049_250_313e-16,
-    });
     let split = Split {
         l: 2,
         m: 2,
         r: 2,
         ..one_qubit_split(&a, &b)
     };
-    let kept = split.on(&algebra).expect("a weight rounded below zero");
-    assert_eq!((kept.bond, kept.retained_fraction), (2, 1.0));
+    let worst_rounding_of_4096_values = -4096.0 * f64::EPSILON;
+    for discarded_weight in [
+        -2.220_446_049_250_313e-16,
+        worst_rounding_of_4096_values,
+        -DISCARDED_WEIGHT_TOLERANCE,
+    ] {
+        libraries.misreport_truncation(SvdTruncation {
+            reduced_extent: 2,
+            full_extent: 4,
+            discarded_weight,
+        });
+        let kept = split
+            .on(&algebra)
+            .expect("a weight rounded below zero, within the tolerance");
+        assert_eq!(
+            (kept.bond, kept.retained_fraction),
+            (2, 1.0),
+            "{discarded_weight:e}"
+        );
+    }
     let below_the_tolerance = (-DISCARDED_WEIGHT_TOLERANCE).next_down();
     for discarded_weight in [below_the_tolerance, -1e-3, 1.0, f64::NAN] {
         assert_refused(SvdTruncation {

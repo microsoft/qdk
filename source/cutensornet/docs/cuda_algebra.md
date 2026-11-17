@@ -138,13 +138,14 @@ accepts no larger $k$. The SVD's settings, each a
 cuTensorNet packs $U$ and $V$ at the kept bond, which it reports with the
 full extent and the discarded weight $w$. The algebra returns the bond and
 the retained fraction $1 - w$, after checking the report: a bond between
-1 and $k$, and at most the full extent, and $w$ in $[0, 1)$; any other
-report is `NativeError::InvalidNativeResult`. cuTensorNet reports $w$
-rounded, so a split that discards nothing may report it just below 0:
-down to the tolerance in [`policy.rs`](../src/cuda_algebra/policy.rs),
-it is read as 0, a retained fraction of exactly 1. The upper end is
-strict: the split keeps at least the largest singular value, so a true
-$w$ is at most $1 - 1/n$ for $n$ values.
+1 and $k$, and at most the full extent, and $w$ in $[0, 1)$ or below 0 by
+at most the tolerance in [`policy.rs`](../src/cuda_algebra/policy.rs),
+read as 0, a retained fraction of exactly 1; any other report is
+`NativeError::InvalidNativeResult`. The tolerance takes in cuTensorNet's
+rounding: it reports $w$ rounded, so a split that discards nothing may
+report it just below 0. The upper end is strict: the split keeps at least
+the largest singular value, so a true $w$ is at most $1 - 1/n$ for $n$
+values.
 
 **A move of the centre** is exact. To the right, $A$, with the one-site
 gate applied to its qubit if there is one, is factored by one `TensorQR`

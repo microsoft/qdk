@@ -40,10 +40,12 @@ pub(super) const SVD_ALGORITHM: SvdSetting = SvdSetting::AlgorithmGesvd;
 /// weight rounded: a split that discarded nothing reported -2.2e-16 on an
 /// A100, as one minus a kept share of the squares rounded above 1 would.
 /// That rounding, over the at most `k` singular values of a split, is
-/// about `k·ε` at worst (2.3e-13 at `k` = 1024), so 1e-12 covers it with
-/// room, while a negative weight of any real size, a library fault, is
-/// still refused. A constant rather than a bound in `k`: the bound would
-/// rest on how the library sums the squares, which it does not document.
+/// about `k·ε` at worst, so 1e-12 covers splits of up to about 4,000
+/// values (`k·ε` = 9.1e-13 at `k` = 4,096), while a negative weight of any
+/// real size, a library fault, is still refused. A split of more values
+/// would need a larger tolerance. A constant rather than a bound in `k`: the
+/// bound would rest on how the library sums the squares, which it does not
+/// document.
 pub(crate) const DISCARDED_WEIGHT_TOLERANCE: f64 = 1e-12;
 
 /// The device memory, in bytes, the path search of a contraction may plan
