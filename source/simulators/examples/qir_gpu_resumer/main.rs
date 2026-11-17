@@ -845,8 +845,13 @@ fn compare_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
                     *counts.entry(code).or_default() += 1;
                     counts
                 });
+            // SPIKE: QDK_COMPARE_TOLERATE times a run whose shots fail
+            // (the current simulator's normalisation check on dense states).
             if !failed.is_empty() {
-                return Err(format!("failed shots by error code: {failed:?}"));
+                if std::env::var("QDK_COMPARE_TOLERATE").is_err() {
+                    return Err(format!("failed shots by error code: {failed:?}"));
+                }
+                println!("TOLERATED current: failed shots by error code: {failed:?}");
             }
             let records = results
                 .shot_output_records
@@ -897,12 +902,28 @@ fn compare_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
                 Ok((seconds, records))
             })
         };
-        let mut runs: Vec<(&str, TimedRun<'_>)> = vec![
-            ("current", Box::new(run_current)),
-            ("resumer", resumer("resumer", "all")),
-            ("resumer+reset", resumer("resumer+reset", "notail")),
-            ("resumer+cond", resumer("resumer+cond", "cond")),
-        ];
+        let mut runs: Vec<(&str, TimedRun<'_>)> = vec![("current", Box::new(run_current))];
+        // SPIKE: QDK_COMPARE_STRATEGIES (comma-separated strategy names)
+        // picks the resumer's strategies; by default, the last spike's.
+        let named: Vec<(&'static str, &'static str)> = match std::env::var("QDK_COMPARE_STRATEGIES")
+        {
+            Ok(list) => list
+                .split(',')
+                .map(|s| {
+                    let s: &'static str = Box::leak(s.to_string().into_boxed_str());
+                    (s, s)
+                })
+                .collect(),
+            Err(_) => vec![
+                ("resumer", "all"),
+                ("resumer+reset", "notail"),
+                ("resumer+cond", "cond"),
+            ],
+        };
+        let default_set = std::env::var("QDK_COMPARE_STRATEGIES").is_err();
+        for (who, strategy) in named {
+            runs.push((who, resumer(who, strategy)));
+        }
 
         let mut first = Vec::new();
         let mut outcomes = Vec::new();
@@ -948,7 +969,7 @@ fn compare_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
                 .collect::<Vec<_>>()
                 .join("; ")
         );
-        if runs.len() == 4 {
+        if runs.len() == 4 && default_set {
             println!(
                 "RATIO {label}: reset kept {:.2}x best, {:.2}x median; \
                  reset dropped {:.2}x best, {:.2}x median; \
@@ -972,6 +993,21 @@ fn compare_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
                 println!(
                     "OUTCOMES {label}: current vs {}: tvd {tvd:.4}, z {z:.2}: {}",
                     runs[i].0,
+                    if agree { "ok" } else { "DIFFER" }
+                );
+            }
+        }
+        if !default_set && runs.len() > 1 && runs[0].0 == "current" {
+            for i in 1..runs.len() {
+                let (tvd, z) = compare(&outcomes[0], &outcomes[i]);
+                let agree = z <= 5.0;
+                ok &= agree;
+                println!(
+                    "RATIO {label}: {} vs current {:.2}x best, {:.2}x median; \
+                     outcomes tvd {tvd:.4}, z {z:.2}: {}",
+                    runs[i].0,
+                    summary[0].0 / summary[i].0,
+                    summary[0].1 / summary[i].1,
                     if agree { "ok" } else { "DIFFER" }
                 );
             }
