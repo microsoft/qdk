@@ -22,7 +22,9 @@ line's time beyond the bar).
             throughput over the run and over the first wave (the first
             --first-wave shots to start) against --bar (0: no bar), with
             run 1's rate (--run1-per-hour) and the dev line's work
-            (--dev-*) beside it.
+            (--dev-*) beside it; with --versus-seconds, the fastest
+            replay's seconds against those (the low-sweep run against the
+            default sweep's shot 0).
   polyene   a polyene log against the CPU engine's log of the same case:
             every step's c_p and the energy within --tolerance, the
             driver's verdict against its reference the CPU's, and the
@@ -83,6 +85,17 @@ def read_dump(path):
 # rules alone, so the GPU's equal the CPU's; `leftward` only on a dump that
 # prints it.
 WORK_COUNTS = ("splits", "mpos", "moves", "leftward")
+
+
+def against_seconds(other, seconds):
+    """`versus_seconds=… versus_ratio=…`: these replay seconds against
+    another run's (--versus-seconds, the default sweep's shot 0 for the
+    low-sweep run), or nothing without one."""
+    try:
+        other = float(other)
+    except ValueError:
+        return ""
+    return f"versus_seconds={other:.1f} versus_ratio={seconds / other:.3f} "
 
 
 def h2(args):
@@ -156,6 +169,7 @@ def h2(args):
           f"transient:{work.get('transient')} "
           f"dev_work=splits:{args.dev_splits},mpos:{args.dev_mpos},moves:{args.dev_moves} "
           f"dev_solo_seconds={args.dev_solo_seconds} run1_solo_seconds={args.run1_solo_seconds} "
+          f"{against_seconds(args.versus_seconds, min(seconds, default=math.nan))}"
           f"verdict={verdict}")
     return verdict
 
@@ -347,6 +361,7 @@ def main():
     a.add_argument("--dev-splits", default="-")
     a.add_argument("--dev-mpos", default="-")
     a.add_argument("--dev-moves", default="-")
+    a.add_argument("--versus-seconds", default="-")
     a.add_argument("--table", required=True)
     b = sub.add_parser("polyene")
     b.add_argument("--gpu", required=True)

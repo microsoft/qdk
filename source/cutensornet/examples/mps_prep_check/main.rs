@@ -309,11 +309,12 @@ fn statistics<A: canonical_mps::algebra::SiteAlgebra>(
 ) -> String {
     let statistics = state.split_statistics();
     format!(
-        "splits={} mpo_applications={} centre_moves={} largest_bond_at_rest={} \
-         largest_transient_bond={}",
+        "splits={} mpo_applications={} centre_moves={} leftward_sweeps={} \
+         largest_bond_at_rest={} largest_transient_bond={}",
         statistics.splits(),
         statistics.mpo_applications(),
         statistics.centre_moves(),
+        canonical_mps::leftward_sweeps(),
         statistics.largest_bond_at_rest(),
         statistics.largest_transient_bond(),
     )

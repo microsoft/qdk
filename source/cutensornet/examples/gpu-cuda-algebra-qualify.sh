@@ -26,19 +26,30 @@
 #               isometries, bonds and cutoffs; the engine against the
 #               reference and the CPU). Pass: every one of them passes.
 #               Limit 30 min; a few minutes.
-#   sanitizer   NVIDIA's compute-sanitizer on SANITIZER_TESTS of the same
-#               binary (a split, a move, and the engine on a short
-#               circuit): memcheck with --leak-check full, then synccheck.
-#               Pass: each tool's ERROR SUMMARY counts 0 errors and the
-#               tests pass. Limit 1 h per tool; 5-40 min each (the
-#               sanitizer slows CUDA calls 10-100 times). When missing,
-#               its line says verdict=missing with the install command.
+#   sanitizer   NVIDIA's compute-sanitizer, memcheck with --leak-check full,
+#               then synccheck, on two programs:
+#               - SANITIZER_TESTS of the same binary (a split, a move, and
+#                 the engine on a short circuit);
+#               - the fused engine on a short polyene prefix
+#                 (polyene_qpe_prefix SANITIZER_POLYENE: N = 8, chi 16, two
+#                 steps; 1424 splits, 278 MPOs, 110 leftward sweeps, spans
+#                 up to 4 chi = 64 on the CPU), so that the leftward
+#                 sweep's shapes (Us QR moves at span bonds up to 4 chi,
+#                 which the dev line never ran) run under the sanitizer;
+#                 its log is compared with the CPU's (INPUTS/sanitizer):
+#                 c_p, the energy and the work counts, leftward sweeps
+#                 included.
+#               Pass: each ERROR SUMMARY counts 0 errors, the tests pass,
+#               and the prefix agrees with the CPU's with leftward_sweeps
+#               above 0. Limit 1 h per run; 5-40 min each (the sanitizer
+#               slows CUDA calls 10-100 times). When missing, its line
+#               says verdict=missing with the install command.
 #   h2          recorded H2 shots replayed on the GPU (h2_replay), each
 #               dump against the CPU engine's dump of the same recording:
 #               every projection probability, the retained weight and the
 #               readout distribution within H2_TOLERANCE, the work
-#               counts (splits, MPOs, centre moves) equal, since they
-#               follow from the gates alone. Its steps:
+#               counts (splits, MPOs, centre moves, leftward sweeps)
+#               equal, since they follow from the gates alone. Its steps:
 #                 h2-solo      shot 0 alone, without the MPS daemon: one
 #                              process's time (run 1: 1147 s, 313,350
 #                              splits; the dev line's h2_dev shot, a
@@ -65,6 +76,20 @@
 #                              against the dev line's 60.6 shots/h (slow
 #                              below it), run 1's 13.2 shots/h beside it.
 #               About 1 h in all at the dev line's rate (run 1: 3 h 47 min).
+#               The fused engine sweeps an MPO's span from its end nearer
+#               the next site, so it sweeps some leftward (Us QR moves,
+#               spans up to 4 chi; on the CPU, shot 0: 3,393 of 15,006
+#               MPOs, the largest span bond 144); each dump's leftward
+#               count shows they ran, and must equal the CPU's.
+#   h2-lowsweep shot 0 alone again, with P6_LOW_SWEEP_ONLY=1: every
+#               span swept from its low end, as the dev line did (a
+#               measurement switch of this dev branch, off by default),
+#               against the CPU's dump made with the same switch
+#               (INPUTS/h2/cpu-lowsweep; leftward 0), its time beside
+#               h2-solo's (versus_ratio: low-sweep / default). On the CPU
+#               at chi 128 the default was 5% faster (16.4 s against
+#               17.2 s, 19% more centre moves when sweeping low). About
+#               3-5 min.
 #   mps-prep    #540's state preparations (mps_prep_check), MPS_CASES
 #               (default n16-chi32, n20-chi64, n12-chi128), placement
 #               "following": the driver's check (verdict=Agrees), the
@@ -85,9 +110,9 @@
 #               time beside it (N = 16: 5042 s). About 57 min; each
 #               limited to 4 times the dev line's time.
 #
-# Expected in all: about 4 h (build 20 min, gpu-tests 5, sanitizer 40,
-# h2 60, mps-prep 112, polyene 57), less if #540's preparations gain from
-# the fusion. BUDGET_SECONDS (default 32400, 9 h) bounds the whole run: a
+# Expected in all: about 4 h (build 20 min, gpu-tests 5, sanitizer 50,
+# h2 60, h2-lowsweep 5, mps-prep 112, polyene 57), less if #540's
+# preparations gain from the fusion. BUDGET_SECONDS (default 32400, 9 h) bounds the whole run: a
 # part that would start past it is skipped (verdict=skipped-budget), and
 # each run's limit is cut to what is left.
 #
@@ -113,12 +138,13 @@
 # Environment (all optional):
 #   OUT              the output directory (default <dir>/out-<date>)
 #   INPUTS           the inputs (default <dir>/inputs)
-#   PARTS            among build gpu-tests sanitizer h2 mps-prep polyene
-#                    (default all, in that order)
+#   PARTS            among build gpu-tests sanitizer h2 h2-lowsweep
+#                    mps-prep polyene (default all, in that order)
 #   BUDGET_SECONDS   the whole run's budget (default 32400)
 #   DRY_RUN          1: print the commands only
 #   FORCE            1: skip the free-GPU check
 #   SANITIZER_TESTS  the tests the sanitizer runs (above)
+#   SANITIZER_POLYENE  0: the sanitizer skips the polyene prefix
 #   COMPUTE_SANITIZER  compute-sanitizer's path, instead of the search
 #   SHOTS            H2's shots under MPS (default 50)
 #   PROCS            the processes at once, instead of the computed P
@@ -141,12 +167,16 @@ REPO=$(readlink -f "$(dirname "$(readlink -f "$0")")/../../..")
 TOP=$(dirname "$REPO")
 OUT=${OUT:-$TOP/out-$(date +%Y%m%d-%H%M)}
 INPUTS=${INPUTS:-$TOP/inputs}
-ALL_PARTS="build gpu-tests sanitizer h2 mps-prep polyene"
+ALL_PARTS="build gpu-tests sanitizer h2 h2-lowsweep mps-prep polyene"
 PARTS=${PARTS:-$ALL_PARTS}
 BUDGET_SECONDS=${BUDGET_SECONDS:-32400}
 DRY_RUN=${DRY_RUN:-0}
 FORCE=${FORCE:-0}
 SANITIZER_TESTS=${SANITIZER_TESTS:-a_split_gives_the_reference_algebras_truncated_svd a_move_gives_the_reference_algebras_product_and_bond the_engine_on_the_gpu_agrees_with_the_reference}
+SANITIZER_POLYENE=${SANITIZER_POLYENE:-1}
+# The fused prefix the sanitizer runs, and its CPU log in INPUTS/sanitizer.
+SANITIZER_PREFIX=(--n 8 --chi 16 --order interleave-centre --variant base --steps 2)
+SANITIZER_PREFIX_CPU=cpu-n8-chi16-steps2.log
 SHOTS=${SHOTS:-50}
 PROCS=${PROCS:-}
 CALIBRATION_SECONDS=${CALIBRATION_SECONDS:-60}
@@ -260,7 +290,7 @@ if [ -z "${QDK_CUSOLVER_LIBRARY:-}" ]; then
   done
 fi
 
-mkdir -p "$OUT/h2/solo" "$OUT/h2/shots" "$OUT/mps-prep" "$OUT/polyene"
+mkdir -p "$OUT/h2/solo" "$OUT/h2/shots" "$OUT/h2/lowsweep" "$OUT/mps-prep" "$OUT/polyene"
 : > "$SUMMARY"
 
 # --- Helpers -----------------------------------------------------------------
@@ -629,9 +659,24 @@ if wanted sanitizer && within_budget sanitizer; then
       fi
       statuses=$statuses,$STATUS
       details="$details ${tool}_errors=${errors:--} ${tool}_tests=${result:--}"
+      [ "$SANITIZER_POLYENE" = 0 ] && continue
+      # The fused prefix: its leftward sweeps under the sanitizer.
+      log=$OUT/sanitizer-$tool-polyene.log
+      run_part "$(capped "$SANITIZER_BOX")" "$log" "$SANITIZER" "${options[@]}" \
+        "$BIN/polyene_qpe_prefix" --engine cuda-mps "${SANITIZER_PREFIX[@]}"
+      errors=$(grep -o 'ERROR SUMMARY: [0-9]* error' "$log" 2>/dev/null | tail -1 | awk '{print $3}')
+      compare polyene --gpu "$log" --cpu "$INPUTS/sanitizer/$SANITIZER_PREFIX_CPU" \
+        --table "$OUT/sanitizer-$tool-polyene.md"
+      leftward=$(printf '%s\n' "$COMPARED" | grep -o 'leftward=[0-9-]*' | head -n 1 | cut -d= -f2)
+      if ! dry && { [ "$STATUS" != 0 ] || [ "${errors:-}" != 0 ] || [ "$VERDICT_OF" != pass ] ||
+        [ "${leftward:-0}" = - ] || [ "${leftward:-0}" -le 0 ]; }; then
+        verdict=fail
+      fi
+      statuses=$statuses,$STATUS
+      details="$details ${tool}_polyene_errors=${errors:--} ${tool}_polyene=$VERDICT_OF ${tool}_polyene_leftward=${leftward:--}"
     done
     summary sanitizer "${statuses#,}" "$((SECONDS - start))" \
-      "verdict=$verdict$details tests=\"$SANITIZER_TESTS\" sanitizer=$SANITIZER (sanitizer-memcheck.log, sanitizer-synccheck.log)"
+      "verdict=$verdict$details tests=\"$SANITIZER_TESTS\" polyene=\"${SANITIZER_PREFIX[*]}\" sanitizer=$SANITIZER (sanitizer-memcheck.log, sanitizer-synccheck.log, sanitizer-*-polyene.log)"
     record sanitizer "$verdict"
   fi
 fi
@@ -653,6 +698,7 @@ if wanted h2 && within_budget h2; then
     [ "$STATUS" = 0 ] || VERDICT_OF=fail
     summary h2-solo "$STATUS" "$SECONDS_TAKEN" "$COMPARED (h2/solo/, h2/solo.md)"
     record h2-solo "$VERDICT_OF"
+    H2_SOLO_REPLAY_SECONDS=$(printf '%s\n' "$COMPARED" | grep -o 'replay_seconds_min=[0-9.]*' | cut -d= -f2)
 
     # mps-start: any daemon left running, on the default pipe directory or
     # ours, stops first.
@@ -767,6 +813,24 @@ if wanted h2 && within_budget h2; then
       summary h2-compare - 0 "$COMPARED (h2/shots.md)"
       record h2 "$VERDICT_OF"
     fi
+  fi
+fi
+
+# --- h2-lowsweep: shot 0 alone, every span swept from its low end ------------
+if wanted h2-lowsweep && within_budget h2-lowsweep; then
+  if [ "${#RECORDINGS[@]}" = 0 ]; then
+    summary h2-lowsweep - 0 "verdict=fail no recordings in $INPUTS/h2"
+    record h2-lowsweep fail
+  else
+    log=$OUT/h2/lowsweep/shot-0.log
+    # shellcheck disable=SC2046
+    run_part "$(capped "$SHOT_LIMIT")" "$log" env P6_LOW_SWEEP_ONLY=1 $(shot_command 0)
+    compare h2 --shots "$OUT/h2/lowsweep" --schedule /dev/null --cpu "$INPUTS/h2/cpu-lowsweep" \
+      --chi "$H2_CHI" --tolerance "$H2_TOLERANCE" --expect 1 --first-wave 1 --bar 0 \
+      --versus-seconds "${H2_SOLO_REPLAY_SECONDS:--}" --table "$OUT/h2/lowsweep.md"
+    [ "$STATUS" = 0 ] || VERDICT_OF=fail
+    summary h2-lowsweep "$STATUS" "$SECONDS_TAKEN" "$COMPARED (h2/lowsweep/, h2/lowsweep.md)"
+    record h2-lowsweep "$VERDICT_OF"
   fi
 fi
 

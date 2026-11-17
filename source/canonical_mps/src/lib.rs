@@ -67,6 +67,8 @@ pub mod algebra;
 mod engine;
 
 pub use algebra::CpuAlgebra;
+#[doc(hidden)]
+pub use engine::leftward_sweeps;
 pub use engine::{
     CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, DEFAULT_CUTOFF, SplitStatistics,
 };

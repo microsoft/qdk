@@ -18,9 +18,10 @@
 //! - `r <probability>` for each outcome of the readout qubits, the first
 //!   readout qubit the most significant bit, read from the expectations of
 //!   every Z string;
-//! - `stats splits … mpos … moves … rest … transient …`, the engine's
-//!   split statistics (splits, windows applied as an MPO, moves of the
-//!   centre, the largest bonds at rest and transient);
+//! - `stats splits … mpos … moves … leftward … rest … transient …`, the
+//!   engine's split statistics (splits, windows applied as an MPO, moves
+//!   of the centre, the MPOs swept leftward, the largest bonds at rest and
+//!   transient);
 //! - `time seconds=… tvd=…`: the replay's seconds (to the end of the
 //!   readout) and the readout's total variation distance to the recorded
 //!   exact distribution (`SHOT.readout`, when present).
@@ -121,10 +122,11 @@ fn statistics<A: canonical_mps::algebra::SiteAlgebra>(
 ) -> String {
     let s = state.split_statistics();
     format!(
-        "splits {} mpos {} moves {} rest {} transient {}",
+        "splits {} mpos {} moves {} leftward {} rest {} transient {}",
         s.splits(),
         s.mpo_applications(),
         s.centre_moves(),
+        canonical_mps::leftward_sweeps(),
         s.largest_bond_at_rest(),
         s.largest_transient_bond()
     )

@@ -65,6 +65,8 @@ mod window;
 
 pub use chain::SplitStatistics;
 pub use error::CanonicalMpsError;
+#[doc(hidden)]
+pub use mpo::leftward_sweeps;
 pub use policy::DEFAULT_CUTOFF;
 
 use crate::algebra::SiteAlgebra;

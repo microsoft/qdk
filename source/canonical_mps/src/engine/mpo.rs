@@ -54,7 +54,15 @@ use crate::algebra::{CentreSide, SiteAlgebra};
 use dense_linalg::{MatrixRef, Svd};
 use num_complex::Complex64;
 use std::borrow::Cow;
-use std::sync::LazyLock;
+use std::sync::{
+    LazyLock,
+    atomic::{AtomicU64, Ordering},
+};
+
+/// Development only (not for review): the leftward sweeps (Us QR moves,
+/// then Sv splits, the centre ending at the span's high end) made in this
+/// process, for the A100 drivers' statistics.
+static LEFTWARD_SWEEPS: AtomicU64 = AtomicU64::new(0);
 
 /// Development only (not for review): `P6_LOW_SWEEP_ONLY` set (to any
 /// value) makes every sweep rightward, the centre ending at the span's low
@@ -62,6 +70,14 @@ use std::sync::LazyLock;
 /// direction's choice.
 static LOW_SWEEP_ONLY: LazyLock<bool> =
     LazyLock::new(|| std::env::var_os("P6_LOW_SWEEP_ONLY").is_some());
+
+/// Development only (not for review): the leftward sweeps made in this
+/// process so far, by every engine.
+#[doc(hidden)]
+#[must_use]
+pub fn leftward_sweeps() -> u64 {
+    LEFTWARD_SWEEPS.load(Ordering::Relaxed)
+}
 
 impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     /// Applies the pending window (its operator row-major, its first site
@@ -130,6 +146,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         // either end: they start at the near one, so that the splits, which
         // come back, leave the centre there.
         if !*LOW_SWEEP_ONLY && toward.abs_diff(high) < toward.abs_diff(low) {
+            LEFTWARD_SWEEPS.fetch_add(1, Ordering::Relaxed);
             chain.centre = high;
             self.move_centre(chain, low + 1)?;
             for cut in low..high {
