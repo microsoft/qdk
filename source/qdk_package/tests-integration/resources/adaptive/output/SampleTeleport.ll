@@ -15,30 +15,33 @@ block_0:
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
   %var_11 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  br i1 %var_11, label %block_1, label %block_2
-block_1:
-  call void @X(ptr inttoptr (i64 1 to ptr))
-  br label %block_2
-block_2:
+  br i1 %var_11, label %block_5, label %block_4
+block_4:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
   %var_13 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   store i1 %var_13, ptr %var_1
   %var_27 = load i1, ptr %var_1
-  br i1 %var_27, label %block_3, label %block_4
-block_3:
-  call void @Z(ptr inttoptr (i64 1 to ptr))
+  br i1 %var_27, label %block_7, label %block_6
+block_5:
+  call void @X(ptr inttoptr (i64 1 to ptr))
   br label %block_4
-block_4:
+block_6:
   call void @H(ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @H__Adj(ptr inttoptr (i64 1 to ptr))
   store i64 0, ptr %var_17
-  br label %block_5
-block_5:
+  br label %block_10
+block_7:
+  call void @Z(ptr inttoptr (i64 1 to ptr))
+  br label %block_6
+block_10:
   %var_18 = load i64, ptr %var_17
   %var_19 = icmp slt i64 %var_18, 2
-  br i1 %var_19, label %block_6, label %block_7
-block_6:
+  br i1 %var_19, label %block_12, label %block_11
+block_11:
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @0)
+  ret i64 0
+block_12:
   %var_29 = load i64, ptr %var_17
   %var_30_offset_chk = icmp slt i64 %var_29, 0
   %var_30_offset = select i1 %var_30_offset_chk, i64 1, i64 0
@@ -48,16 +51,13 @@ block_6:
   %var_23 = load i64, ptr %var_17
   %var_24 = add i64 %var_23, 1
   store i64 %var_24, ptr %var_17
-  br label %block_5
-block_7:
-  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @0)
-  ret i64 0
+  br label %block_10
 }
 
 declare void @__quantum__rt__initialize(ptr)
 
 define internal void @H(ptr %var_5) {
-block_8:
+block_1:
   call void @__quantum__qis__h__body(ptr %var_5)
   ret void
 }
@@ -65,7 +65,7 @@ block_8:
 declare void @__quantum__qis__h__body(ptr)
 
 define internal void @CNOT(ptr %var_6, ptr %var_7) {
-block_9:
+block_2:
   call void @__quantum__qis__cx__body(ptr %var_6, ptr %var_7)
   ret void
 }
@@ -73,7 +73,7 @@ block_9:
 declare void @__quantum__qis__cx__body(ptr, ptr)
 
 define internal void @X(ptr %var_10) {
-block_10:
+block_3:
   call void @__quantum__qis__x__body(ptr %var_10)
   ret void
 }
@@ -87,7 +87,7 @@ declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
 define internal void @Z(ptr %var_15) {
-block_11:
+block_8:
   call void @__quantum__qis__z__body(ptr %var_15)
   ret void
 }
@@ -95,7 +95,7 @@ block_11:
 declare void @__quantum__qis__z__body(ptr)
 
 define internal void @H__Adj(ptr %var_16) {
-block_12:
+block_9:
   call void @__quantum__qis__h__body(ptr %var_16)
   ret void
 }

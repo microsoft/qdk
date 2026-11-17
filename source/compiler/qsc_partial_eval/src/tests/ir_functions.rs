@@ -1651,16 +1651,16 @@ fn store_backed_value_returning_ir_function_reloads_after_same_block_store() {
                 Variable(1, Integer) = Store Integer(0)
                 Call id(3), args( Variable(0, Qubit), Result(0), )
                 Variable(2, Boolean) = Call id(4), args( Result(0), )
-                Branch Variable(2, Boolean), 2, 3
+                Branch Variable(2, Boolean), 3, 2
             Block 2:Block:
-                Variable(1, Integer) = Store Integer(5)
-                Jump(3)
-            Block 3:Block:
                 Variable(4, Integer) = Load Variable(1, Integer)
                 Variable(5, Integer) = Add Variable(4, Integer), Integer(1)
                 Variable(1, Integer) = Store Variable(5, Integer)
                 Variable(9, Integer) = Load Variable(1, Integer)
-                Return Variable(9, Integer)"#]],
+                Return Variable(9, Integer)
+            Block 3:Block:
+                Variable(1, Integer) = Store Integer(5)
+                Jump(2)"#]],
     );
 }
 

@@ -23,21 +23,8 @@ block_1:
   %var_4 = load i64, ptr %var_3
   %var_5 = icmp sle i64 %var_4, 10
   store i1 true, ptr %var_7
-  br i1 %var_5, label %block_2, label %block_3
+  br i1 %var_5, label %block_3, label %block_4
 block_2:
-  %var_48 = load i1, ptr %var_7
-  br i1 %var_48, label %block_4, label %block_5
-block_3:
-  store i1 false, ptr %var_7
-  br label %block_2
-block_4:
-  call void @X(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_9 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  store i1 %var_9, ptr %var_0
-  %var_51 = load i1, ptr %var_0
-  br i1 %var_51, label %block_6, label %block_7
-block_5:
   call void @Reset(ptr inttoptr (i64 0 to ptr))
   %var_49 = load double, ptr %var_2
   %var_24 = fptosi double %var_49 to i64
@@ -63,7 +50,25 @@ block_5:
   call void @__quantum__rt__int_record_output(i64 %var_24, ptr @7)
   call void @__quantum__rt__double_record_output(double %var_26, ptr @8)
   ret i64 0
-block_6:
+block_3:
+  %var_48 = load i1, ptr %var_7
+  br i1 %var_48, label %block_5, label %block_2
+block_4:
+  store i1 false, ptr %var_7
+  br label %block_3
+block_5:
+  call void @X(ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+  %var_9 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  store i1 %var_9, ptr %var_0
+  %var_51 = load i1, ptr %var_0
+  br i1 %var_51, label %block_8, label %block_7
+block_7:
+  %var_21 = load i64, ptr %var_3
+  %var_22 = add i64 %var_21, 1
+  store i64 %var_22, ptr %var_3
+  br label %block_1
+block_8:
   call void @X(ptr inttoptr (i64 0 to ptr))
   %var_11 = load double, ptr %var_2
   %var_12 = fadd double %var_11, 1.0
@@ -81,17 +86,12 @@ block_6:
   %var_20 = fadd double %var_19, 1.0
   store double %var_20, ptr %var_2
   br label %block_7
-block_7:
-  %var_21 = load i64, ptr %var_3
-  %var_22 = add i64 %var_21, 1
-  store i64 %var_22, ptr %var_3
-  br label %block_1
 }
 
 declare void @__quantum__rt__initialize(ptr)
 
 define internal void @X(ptr %var_8) {
-block_8:
+block_6:
   call void @__quantum__qis__x__body(ptr %var_8)
   ret void
 }

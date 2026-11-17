@@ -89,7 +89,7 @@ pub const SIMPLETELEPORTATION_EXPECT_DEBUG: Expect = expect![[r#"
 pub const SIMPLETELEPORTATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 1463"];
 pub const SIMPLETELEPORTATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 3166"];
-pub const SIMPLETELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 4375"];
+pub const SIMPLETELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 4379"];
 pub const ENTANGLEMENT_EXPECT: Expect = expect![[r#"
     STATE:
     |00⟩: 0.7071+0.0000𝑖

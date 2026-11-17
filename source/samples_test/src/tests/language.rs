@@ -433,7 +433,7 @@ pub const SPECIALIZATIONS_EXPECT: Expect = expect!["()"];
 pub const SPECIALIZATIONS_EXPECT_DEBUG: Expect = expect!["()"];
 pub const SPECIALIZATIONS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4540"];
 pub const SPECIALIZATIONS_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 3106"];
-pub const SPECIALIZATIONS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8294"];
+pub const SPECIALIZATIONS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8300"];
 pub const STRING_EXPECT: Expect = expect![[r#"
     FooBar
     interpolated: FooBar

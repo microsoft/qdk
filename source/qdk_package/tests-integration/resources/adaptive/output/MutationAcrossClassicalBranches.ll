@@ -8,14 +8,14 @@ block_0:
   store i64 5, ptr %var_0
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
   %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  br i1 %var_1, label %block_1, label %block_2
+  br i1 %var_1, label %block_2, label %block_1
 block_1:
-  store i64 1, ptr %var_0
-  br label %block_2
-block_2:
   %var_4 = load i64, ptr %var_0
   call void @__quantum__rt__int_record_output(i64 %var_4, ptr @0)
   ret i64 0
+block_2:
+  store i64 1, ptr %var_0
+  br label %block_1
 }
 
 declare void @__quantum__rt__initialize(ptr)

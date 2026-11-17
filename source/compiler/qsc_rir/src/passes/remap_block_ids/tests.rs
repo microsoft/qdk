@@ -332,14 +332,14 @@ fn remap_block_ids_simple_loop() {
                     call_type: Regular
                     input_type: <VOID>
                     output_type: <VOID>
-                    body: 0
+                    body: 3
             blocks:
-                Block 0: Block:
-                    Branch Variable(0, Boolean), 1, 2
                 Block 1: Block:
-                    Jump(0)
+                    Jump(3)
                 Block 2: Block:
                     Return
+                Block 3: Block:
+                    Branch Variable(0, Boolean), 1, 2
             config: Config:
                 capabilities: TargetCapabilityFlags(BackwardsBranching)
             num_qubits: 0
@@ -406,12 +406,12 @@ fn remap_block_ids_infinite_loop() {
                     call_type: Regular
                     input_type: <VOID>
                     output_type: <VOID>
-                    body: 0
+                    body: 2
             blocks:
-                Block 0: Block:
-                    Jump(1)
                 Block 1: Block:
-                    Jump(0)
+                    Jump(2)
+                Block 2: Block:
+                    Jump(1)
             config: Config:
                 capabilities: TargetCapabilityFlags(BackwardsBranching)
             num_qubits: 0
@@ -501,13 +501,13 @@ fn remap_block_ids_nested_branching_loops() {
                     call_type: Regular
                     input_type: <VOID>
                     output_type: <VOID>
-                    body: 0
+                    body: 2
             blocks:
-                Block 0: Block:
-                    Branch Variable(0, Boolean), 1, 2
                 Block 1: Block:
-                    Branch Variable(1, Boolean), 0, 2
+                    Branch Variable(1, Boolean), 2, 3
                 Block 2: Block:
+                    Branch Variable(0, Boolean), 1, 3
+                Block 3: Block:
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(BackwardsBranching)

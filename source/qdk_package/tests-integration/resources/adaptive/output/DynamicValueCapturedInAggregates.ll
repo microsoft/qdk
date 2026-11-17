@@ -17,11 +17,7 @@ block_0:
   store i64 3, ptr %var_3
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
   %var_4 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  br i1 %var_4, label %block_1, label %block_2
-block_1:
-  store i64 2, ptr %var_1
-  store i64 4, ptr %var_2
-  br label %block_2
+  br i1 %var_4, label %block_3, label %block_2
 block_2:
   %var_7 = load i64, ptr %var_1
   %var_8 = load i64, ptr %var_2
@@ -37,12 +33,16 @@ block_2:
   call void @__quantum__rt__int_record_output(i64 %var_10, ptr @4)
   call void @__quantum__rt__int_record_output(i64 5, ptr @5)
   ret i64 0
+block_3:
+  store i64 2, ptr %var_1
+  store i64 4, ptr %var_2
+  br label %block_2
 }
 
 declare void @__quantum__rt__initialize(ptr)
 
 define internal void @X(ptr %var_0) {
-block_3:
+block_1:
   call void @__quantum__qis__x__body(ptr %var_0)
   ret void
 }

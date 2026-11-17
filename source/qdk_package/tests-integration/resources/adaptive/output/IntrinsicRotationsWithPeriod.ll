@@ -25,8 +25,11 @@ block_0:
 block_1:
   %var_5 = load i64, ptr %var_4
   %var_6 = icmp slt i64 %var_5, 2
-  br i1 %var_6, label %block_2, label %block_3
+  br i1 %var_6, label %block_3, label %block_2
 block_2:
+  store i64 0, ptr %var_12
+  br label %block_5
+block_3:
   %var_62 = load i64, ptr %var_4
   %var_63_offset_chk = icmp slt i64 %var_62, 0
   %var_63_offset = select i1 %var_63_offset_chk, i64 1, i64 0
@@ -37,14 +40,14 @@ block_2:
   %var_11 = add i64 %var_10, 1
   store i64 %var_11, ptr %var_4
   br label %block_1
-block_3:
-  store i64 0, ptr %var_12
-  br label %block_4
-block_4:
+block_5:
   %var_13 = load i64, ptr %var_12
   %var_14 = icmp slt i64 %var_13, 2
-  br i1 %var_14, label %block_5, label %block_6
-block_5:
+  br i1 %var_14, label %block_7, label %block_6
+block_6:
+  store i64 0, ptr %var_20
+  br label %block_9
+block_7:
   %var_59 = load i64, ptr %var_12
   %var_60_offset_chk = icmp slt i64 %var_59, 0
   %var_60_offset = select i1 %var_60_offset_chk, i64 1, i64 0
@@ -54,15 +57,15 @@ block_5:
   %var_18 = load i64, ptr %var_12
   %var_19 = add i64 %var_18, 1
   store i64 %var_19, ptr %var_12
-  br label %block_4
-block_6:
-  store i64 0, ptr %var_20
-  br label %block_7
-block_7:
+  br label %block_5
+block_9:
   %var_21 = load i64, ptr %var_20
   %var_22 = icmp slt i64 %var_21, 2
-  br i1 %var_22, label %block_8, label %block_9
-block_8:
+  br i1 %var_22, label %block_11, label %block_10
+block_10:
+  store i64 1, ptr %var_29
+  br label %block_14
+block_11:
   %var_56 = load i64, ptr %var_20
   %var_57_offset_chk = icmp slt i64 %var_56, 0
   %var_57_offset = select i1 %var_57_offset_chk, i64 1, i64 0
@@ -74,33 +77,13 @@ block_8:
   %var_27 = load i64, ptr %var_20
   %var_28 = add i64 %var_27, 1
   store i64 %var_28, ptr %var_20
-  br label %block_7
-block_9:
-  store i64 1, ptr %var_29
-  br label %block_10
-block_10:
+  br label %block_9
+block_14:
   %var_30 = load i64, ptr %var_29
   %var_31 = icmp sle i64 %var_30, 8
   store i1 true, ptr %var_33
-  br i1 %var_31, label %block_11, label %block_12
-block_11:
-  %var_54 = load i1, ptr %var_33
-  br i1 %var_54, label %block_13, label %block_14
-block_12:
-  store i1 false, ptr %var_33
-  br label %block_11
-block_13:
-  call void @Rx(double 1.5707963267948966, ptr inttoptr (i64 0 to ptr))
-  call void @Rx(double 1.5707963267948966, ptr inttoptr (i64 1 to ptr))
-  call void @Ry(double 1.5707963267948966, ptr inttoptr (i64 2 to ptr))
-  call void @Ry(double 1.5707963267948966, ptr inttoptr (i64 3 to ptr))
-  call void @Rz(double 1.5707963267948966, ptr inttoptr (i64 4 to ptr))
-  call void @Rz(double 1.5707963267948966, ptr inttoptr (i64 5 to ptr))
-  %var_46 = load i64, ptr %var_29
-  %var_47 = add i64 %var_46, 1
-  store i64 %var_47, ptr %var_29
-  br label %block_10
-block_14:
+  br i1 %var_31, label %block_16, label %block_17
+block_15:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
@@ -118,12 +101,29 @@ block_14:
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 4 to ptr), ptr @8)
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 5 to ptr), ptr @9)
   ret i64 0
+block_16:
+  %var_54 = load i1, ptr %var_33
+  br i1 %var_54, label %block_18, label %block_15
+block_17:
+  store i1 false, ptr %var_33
+  br label %block_16
+block_18:
+  call void @Rx(double 1.5707963267948966, ptr inttoptr (i64 0 to ptr))
+  call void @Rx(double 1.5707963267948966, ptr inttoptr (i64 1 to ptr))
+  call void @Ry(double 1.5707963267948966, ptr inttoptr (i64 2 to ptr))
+  call void @Ry(double 1.5707963267948966, ptr inttoptr (i64 3 to ptr))
+  call void @Rz(double 1.5707963267948966, ptr inttoptr (i64 4 to ptr))
+  call void @Rz(double 1.5707963267948966, ptr inttoptr (i64 5 to ptr))
+  %var_46 = load i64, ptr %var_29
+  %var_47 = add i64 %var_46, 1
+  store i64 %var_47, ptr %var_29
+  br label %block_14
 }
 
 declare void @__quantum__rt__initialize(ptr)
 
 define internal void @X(ptr %var_9) {
-block_15:
+block_4:
   call void @__quantum__qis__x__body(ptr %var_9)
   ret void
 }
@@ -131,7 +131,7 @@ block_15:
 declare void @__quantum__qis__x__body(ptr)
 
 define internal void @Y(ptr %var_17) {
-block_16:
+block_8:
   call void @__quantum__qis__y__body(ptr %var_17)
   ret void
 }
@@ -139,7 +139,7 @@ block_16:
 declare void @__quantum__qis__y__body(ptr)
 
 define internal void @H(ptr %var_25) {
-block_17:
+block_12:
   call void @__quantum__qis__h__body(ptr %var_25)
   ret void
 }
@@ -147,7 +147,7 @@ block_17:
 declare void @__quantum__qis__h__body(ptr)
 
 define internal void @Z(ptr %var_26) {
-block_18:
+block_13:
   call void @__quantum__qis__z__body(ptr %var_26)
   ret void
 }

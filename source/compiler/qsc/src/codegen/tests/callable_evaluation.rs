@@ -116,8 +116,10 @@ fn helper_local_qubit_array_loop_emits_initialized_index_to_gate_qir() {
         block_2:
           %var_3 = load i64, ptr %var_2
           %var_4 = icmp slt i64 %var_3, 1
-          br i1 %var_4, label %block_3, label %block_4
+          br i1 %var_4, label %block_4, label %block_3
         block_3:
+          ret void
+        block_4:
           %var_13 = load ptr, ptr %var_1
           %var_5_0 = getelementptr [1 x ptr], ptr %var_5, i64 0, i64 0
           store ptr %var_13, ptr %var_5_0
@@ -130,9 +132,7 @@ fn helper_local_qubit_array_loop_emits_initialized_index_to_gate_qir() {
           %var_9 = load i64, ptr %var_2
           %var_10 = add i64 %var_9, 1
           store i64 %var_10, ptr %var_2
-          br label %block_2
-        block_4:
-          ret void"#]]
+          br label %block_2"#]]
     .assert_eq(qir_internal_void_body(&qir, "Apply"));
 }
 
@@ -176,21 +176,8 @@ fn local_array_access_after_skipped_branch_initializes_its_index_storage() {
           %var_9 = alloca [2 x ptr]
           store ptr %var_0, ptr %var_4
           store ptr %var_1, ptr %var_5
-          br i1 %var_3, label %block_2, label %block_3
+          br i1 %var_3, label %block_3, label %block_2
         block_2:
-          %var_17 = load ptr, ptr %var_4
-          %var_18 = load ptr, ptr %var_5
-          %var_6_0 = getelementptr [2 x ptr], ptr %var_6, i64 0, i64 0
-          store ptr %var_17, ptr %var_6_0
-          %var_6_1 = getelementptr [2 x ptr], ptr %var_6, i64 0, i64 1
-          store ptr %var_18, ptr %var_6_1
-          %var_20_offset_chk = icmp slt i64 %var_2, 0
-          %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
-          %var_20 = getelementptr [2 x ptr], ptr %var_6, i64 %var_20_offset, i64 %var_2
-          %var_7 = load ptr, ptr %var_20
-          call void @X(ptr %var_7)
-          br label %block_3
-        block_3:
           %var_13 = load ptr, ptr %var_4
           %var_14 = load ptr, ptr %var_5
           %var_9_0 = getelementptr [2 x ptr], ptr %var_9, i64 0, i64 0
@@ -202,7 +189,20 @@ fn local_array_access_after_skipped_branch_initializes_its_index_storage() {
           %var_16 = getelementptr [2 x ptr], ptr %var_9, i64 %var_16_offset, i64 %var_2
           %var_10 = load ptr, ptr %var_16
           call void @X(ptr %var_10)
-          ret void"#]]
+          ret void
+        block_3:
+          %var_17 = load ptr, ptr %var_4
+          %var_18 = load ptr, ptr %var_5
+          %var_6_0 = getelementptr [2 x ptr], ptr %var_6, i64 0, i64 0
+          store ptr %var_17, ptr %var_6_0
+          %var_6_1 = getelementptr [2 x ptr], ptr %var_6, i64 0, i64 1
+          store ptr %var_18, ptr %var_6_1
+          %var_20_offset_chk = icmp slt i64 %var_2, 0
+          %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
+          %var_20 = getelementptr [2 x ptr], ptr %var_6, i64 %var_20_offset, i64 %var_2
+          %var_7 = load ptr, ptr %var_20
+          call void @X(ptr %var_7)
+          br label %block_2"#]]
     .assert_eq(qir_internal_void_body(&qir, "Apply"));
 }
 
@@ -752,23 +752,23 @@ fn measured_short_circuit_callable_reassignment_compiles_on_restricted_profiles(
                   store i1 %var_2, ptr %var_0
                   %var_4 = load i1, ptr %var_0
                   store i1 false, ptr %var_5
-                  br i1 %var_4, label %block_1, label %block_2
-                block_1:
-                  store i1 true, ptr %var_5
-                  br label %block_2
+                  br i1 %var_4, label %block_3, label %block_2
                 block_2:
                   %var_12 = load i1, ptr %var_0
-                  br i1 %var_12, label %block_3, label %block_4
+                  br i1 %var_12, label %block_5, label %block_6
                 block_3:
-                  store i64 6, ptr %var_7
-                  br label %block_5
+                  store i1 true, ptr %var_5
+                  br label %block_2
                 block_4:
-                  store i64 4, ptr %var_7
-                  br label %block_5
-                block_5:
                   %var_8 = load i64, ptr %var_7
                   call void @__quantum__rt__int_record_output(i64 %var_8, ptr @0)
-                  ret i64 0"#]]
+                  ret i64 0
+                block_5:
+                  store i64 6, ptr %var_7
+                  br label %block_4
+                block_6:
+                  store i64 4, ptr %var_7
+                  br label %block_4"#]]
         } else {
             expect![[r#"
                 block_0:

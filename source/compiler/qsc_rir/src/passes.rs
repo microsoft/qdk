@@ -48,7 +48,6 @@ pub fn check_and_transform(program: &mut Program) {
     simplify_control_flow(program);
     check_unreachable_code(program);
     check_types(program);
-    remap_block_ids(program);
 
     let uses_non_ssa_pipeline = program.config.capabilities >= Profile::Adaptive.into();
     if uses_non_ssa_pipeline {
@@ -58,6 +57,7 @@ pub fn check_and_transform(program: &mut Program) {
     } else {
         // Any transformation after this point assumes that the control-flow graph is acyclic.
         // This assumption is validated during construction of the predecessor map by passing `true`.
+        remap_block_ids(program);
         let preds = build_predecessors_map(program, true);
         transform_to_ssa(program, &preds);
         let doms = build_dominator_graph(program, &preds);

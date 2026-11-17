@@ -42,23 +42,12 @@ block_0:
   store i1 %var_31, ptr %var_40
   store i1 %var_35, ptr %var_41
   store i64 0, ptr %var_42
-  br label %block_1
-block_1:
+  br label %block_12
+block_12:
   %var_43 = load i64, ptr %var_42
   %var_44 = icmp slt i64 %var_43, 2
-  br i1 %var_44, label %block_2, label %block_3
-block_2:
-  %var_59 = load i64, ptr %var_42
-  %var_60_offset_chk = icmp slt i64 %var_59, 0
-  %var_60_offset = select i1 %var_60_offset_chk, i64 1, i64 0
-  %var_60 = getelementptr [2 x ptr], ptr @array0, i64 %var_60_offset, i64 %var_59
-  %var_45 = load ptr, ptr %var_60
-  call void @Reset(ptr %var_45)
-  %var_48 = load i64, ptr %var_42
-  %var_49 = add i64 %var_48, 1
-  store i64 %var_49, ptr %var_42
-  br label %block_1
-block_3:
+  br i1 %var_44, label %block_14, label %block_13
+block_13:
   %var_50 = load i1, ptr %var_15
   %var_51 = load i1, ptr %var_21
   %var_52 = load i1, ptr %var_40
@@ -71,19 +60,30 @@ block_3:
   call void @__quantum__rt__bool_record_output(i1 zeroext %var_52, ptr @5)
   call void @__quantum__rt__bool_record_output(i1 zeroext %var_53, ptr @6)
   ret i64 0
+block_14:
+  %var_59 = load i64, ptr %var_42
+  %var_60_offset_chk = icmp slt i64 %var_59, 0
+  %var_60_offset = select i1 %var_60_offset_chk, i64 1, i64 0
+  %var_60 = getelementptr [2 x ptr], ptr @array0, i64 %var_60_offset, i64 %var_59
+  %var_45 = load ptr, ptr %var_60
+  call void @Reset(ptr %var_45)
+  %var_48 = load i64, ptr %var_42
+  %var_49 = add i64 %var_48, 1
+  store i64 %var_49, ptr %var_42
+  br label %block_12
 }
 
 declare void @__quantum__rt__initialize(ptr)
 
 define internal void @CreateEntangledPair(ptr %var_1, ptr %var_2) {
-block_4:
+block_1:
   call void @H(ptr %var_1)
   call void @CNOT(ptr %var_1, ptr %var_2)
   ret void
 }
 
 define internal void @H(ptr %var_3) {
-block_5:
+block_2:
   call void @__quantum__qis__h__body(ptr %var_3)
   ret void
 }
@@ -91,7 +91,7 @@ block_5:
 declare void @__quantum__qis__h__body(ptr)
 
 define internal void @CNOT(ptr %var_6, ptr %var_7) {
-block_6:
+block_3:
   call void @__quantum__qis__cx__body(ptr %var_6, ptr %var_7)
   ret void
 }
@@ -103,22 +103,22 @@ declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @SuperdenseEncode(i1 zeroext %var_24, i1 zeroext %var_25, ptr %var_26) {
-block_7:
-  br i1 %var_24, label %block_8, label %block_9
-block_8:
+block_4:
+  br i1 %var_24, label %block_6, label %block_5
+block_5:
+  br i1 %var_25, label %block_9, label %block_8
+block_6:
   call void @Z(ptr %var_26)
-  br label %block_9
-block_9:
-  br i1 %var_25, label %block_10, label %block_11
-block_10:
-  call void @X(ptr %var_26)
-  br label %block_11
-block_11:
+  br label %block_5
+block_8:
   ret void
+block_9:
+  call void @X(ptr %var_26)
+  br label %block_8
 }
 
 define internal void @Z(ptr %var_27) {
-block_12:
+block_7:
   call void @__quantum__qis__z__body(ptr %var_27)
   ret void
 }
@@ -126,7 +126,7 @@ block_12:
 declare void @__quantum__qis__z__body(ptr)
 
 define internal void @X(ptr %var_28) {
-block_13:
+block_10:
   call void @__quantum__qis__x__body(ptr %var_28)
   ret void
 }
@@ -134,7 +134,7 @@ block_13:
 declare void @__quantum__qis__x__body(ptr)
 
 define internal void @H__Adj(ptr %var_30) {
-block_14:
+block_11:
   call void @__quantum__qis__h__body(ptr %var_30)
   ret void
 }

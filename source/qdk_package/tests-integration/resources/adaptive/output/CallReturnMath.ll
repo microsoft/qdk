@@ -19,41 +19,41 @@ block_1:
   call void @X(ptr %var_2)
   call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 1 to ptr))
   %var_11 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-  br i1 %var_11, label %block_2, label %block_3
-block_2:
-  store i64 5, ptr %var_13
-  br label %block_4
-block_3:
-  store i64 2, ptr %var_13
-  br label %block_4
-block_4:
+  br i1 %var_11, label %block_8, label %block_9
+block_7:
   %var_14 = load i64, ptr %var_13
   %var_22 = load i64, ptr %var_10
   %var_16 = mul i64 %var_14, %var_22
   %var_18 = add i64 %var_16, 1
   ret i64 %var_18
+block_8:
+  store i64 5, ptr %var_13
+  br label %block_7
+block_9:
+  store i64 2, ptr %var_13
+  br label %block_7
 }
 
 define internal i64 @B(ptr %var_4) {
-block_5:
+block_2:
   %var_8 = alloca i64
   call void @X(ptr %var_4)
   call void @__quantum__qis__mresetz__body(ptr %var_4, ptr inttoptr (i64 0 to ptr))
   %var_6 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  br i1 %var_6, label %block_6, label %block_7
-block_6:
-  store i64 7, ptr %var_8
-  br label %block_8
-block_7:
-  store i64 3, ptr %var_8
-  br label %block_8
-block_8:
+  br i1 %var_6, label %block_5, label %block_6
+block_4:
   %var_25 = load i64, ptr %var_8
   ret i64 %var_25
+block_5:
+  store i64 7, ptr %var_8
+  br label %block_4
+block_6:
+  store i64 3, ptr %var_8
+  br label %block_4
 }
 
 define internal void @X(ptr %var_5) {
-block_9:
+block_3:
   call void @__quantum__qis__x__body(ptr %var_5)
   ret void
 }

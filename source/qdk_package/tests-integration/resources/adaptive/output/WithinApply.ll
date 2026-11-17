@@ -15,8 +15,12 @@ block_0:
 block_1:
   %var_3 = load i64, ptr %var_2
   %var_4 = icmp slt i64 %var_3, 2
-  br i1 %var_4, label %block_2, label %block_3
+  br i1 %var_4, label %block_3, label %block_2
 block_2:
+  call void @__quantum__qis__ccx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
+  store i64 1, ptr %var_13
+  br label %block_5
+block_3:
   %var_39 = load i64, ptr %var_2
   %var_40_offset_chk = icmp slt i64 %var_39, 0
   %var_40_offset = select i1 %var_40_offset_chk, i64 1, i64 0
@@ -27,15 +31,17 @@ block_2:
   %var_9 = add i64 %var_8, 1
   store i64 %var_9, ptr %var_2
   br label %block_1
-block_3:
-  call void @__quantum__qis__ccx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-  store i64 1, ptr %var_13
-  br label %block_4
-block_4:
+block_5:
   %var_14 = load i64, ptr %var_13
   %var_15 = icmp sge i64 %var_14, 0
-  br i1 %var_15, label %block_5, label %block_6
-block_5:
+  br i1 %var_15, label %block_7, label %block_6
+block_6:
+  call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
+  store i64 0, ptr %var_23
+  br label %block_9
+block_7:
   %var_16 = load i64, ptr %var_13
   %var_37_offset_chk = icmp slt i64 %var_16, 0
   %var_37_offset = select i1 %var_37_offset_chk, i64 1, i64 0
@@ -45,18 +51,19 @@ block_5:
   %var_20 = load i64, ptr %var_13
   %var_21 = add i64 %var_20, -1
   store i64 %var_21, ptr %var_13
-  br label %block_4
-block_6:
-  call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
-  store i64 0, ptr %var_23
-  br label %block_7
-block_7:
+  br label %block_5
+block_9:
   %var_24 = load i64, ptr %var_23
   %var_25 = icmp slt i64 %var_24, 2
-  br i1 %var_25, label %block_8, label %block_9
-block_8:
+  br i1 %var_25, label %block_11, label %block_10
+block_10:
+  call void @Reset(ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__rt__array_record_output(i64 3, ptr @0)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @1)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @3)
+  ret i64 0
+block_11:
   %var_34 = load i64, ptr %var_23
   %var_35_offset_chk = icmp slt i64 %var_34, 0
   %var_35_offset = select i1 %var_35_offset_chk, i64 1, i64 0
@@ -66,20 +73,13 @@ block_8:
   %var_29 = load i64, ptr %var_23
   %var_30 = add i64 %var_29, 1
   store i64 %var_30, ptr %var_23
-  br label %block_7
-block_9:
-  call void @Reset(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__rt__array_record_output(i64 3, ptr @0)
-  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @1)
-  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)
-  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @3)
-  ret i64 0
+  br label %block_9
 }
 
 declare void @__quantum__rt__initialize(ptr)
 
 define internal void @X(ptr %var_7) {
-block_10:
+block_4:
   call void @__quantum__qis__x__body(ptr %var_7)
   ret void
 }
@@ -89,7 +89,7 @@ declare void @__quantum__qis__x__body(ptr)
 declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
 
 define internal void @X__Adj(ptr %var_19) {
-block_11:
+block_8:
   call void @__quantum__qis__x__body(ptr %var_19)
   ret void
 }

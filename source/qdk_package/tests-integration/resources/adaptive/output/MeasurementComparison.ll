@@ -28,14 +28,8 @@ block_0:
   store i1 %var_15, ptr %var_16
   %var_17 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   %var_18 = icmp eq i1 %var_17, false
-  br i1 %var_18, label %block_1, label %block_2
-block_1:
-  store i1 false, ptr %var_19
-  br label %block_3
-block_2:
-  store i1 true, ptr %var_19
-  br label %block_3
-block_3:
+  br i1 %var_18, label %block_5, label %block_6
+block_4:
   %var_20 = load i1, ptr %var_19
   %var_21 = load i1, ptr %var_9
   %var_22 = load i1, ptr %var_12
@@ -46,12 +40,18 @@ block_3:
   call void @__quantum__rt__bool_record_output(i1 zeroext %var_23, ptr @3)
   call void @__quantum__rt__bool_record_output(i1 zeroext %var_20, ptr @4)
   ret i64 0
+block_5:
+  store i1 false, ptr %var_19
+  br label %block_4
+block_6:
+  store i1 true, ptr %var_19
+  br label %block_4
 }
 
 declare void @__quantum__rt__initialize(ptr)
 
 define internal void @X(ptr %var_1) {
-block_4:
+block_1:
   call void @__quantum__qis__x__body(ptr %var_1)
   ret void
 }
@@ -59,7 +59,7 @@ block_4:
 declare void @__quantum__qis__x__body(ptr)
 
 define internal void @CNOT(ptr %var_2, ptr %var_3) {
-block_5:
+block_2:
   call void @__quantum__qis__cx__body(ptr %var_2, ptr %var_3)
   ret void
 }
@@ -69,7 +69,7 @@ declare void @__quantum__qis__cx__body(ptr, ptr)
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
 define internal void @Reset(ptr %var_6) {
-block_6:
+block_3:
   call void @__quantum__qis__reset__body(ptr %var_6)
   ret void
 }
