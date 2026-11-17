@@ -12,6 +12,7 @@ use super::super::program::prepared_quantum_calls::RegisterOperands;
 use super::super::quantum_instruction_encoding::{self, CallOperand, Register};
 use super::super::{QirCall, QirOutcome, QirReadout, QirTrap};
 use super::block_start;
+use super::conditions::{QirCallCondition, QirCondition};
 #[cfg(doc)]
 use super::{QirMachine, QirStop};
 use crate::bytecode::encoding::{
@@ -60,6 +61,22 @@ pub struct QirShotContext {
     /// What the shot recorded, which [`QirStop::Ended`] lends; at the end,
     /// every result when the program records nothing.
     pub(super) records: Vec<OutputRecord>,
+    /// The conditioned policy's state (`conditions.rs`), empty under
+    /// `resume`. Whether a measurement of the batch writes each result, so
+    /// that a read of it may be deferred.
+    pub(super) deferrable: Vec<bool>,
+    /// Each register's deferred value, if it holds one.
+    pub(super) deferred: Vec<Option<QirCondition>>,
+    /// The registers given a deferred value in this batch (some may since
+    /// have been overwritten).
+    pub(super) deferred_registers: Vec<Register>,
+    /// The deferred reads of this batch: the result and the instruction.
+    pub(super) deferred_reads: Vec<(u32, usize)>,
+    /// The conditions of the batch's calls.
+    pub(super) conditions: Vec<QirCallCondition>,
+    /// The writes of an if-conversion under way: register, old value, old
+    /// deferred value.
+    pub(super) undo_log: Vec<(Register, u64, Option<QirCondition>)>,
 }
 
 /// A function call under way. Its caller's registers are on the context's
@@ -165,6 +182,7 @@ impl QirShotContext {
         {
             return Err(QirTrap::MissingOutcome { result: *result });
         }
+        self.resolve_deferred()?;
         self.batch.clear();
         self.batch_results.clear();
         Ok(())

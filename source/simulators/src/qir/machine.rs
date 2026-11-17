@@ -80,9 +80,11 @@
 //! other notes: `design.md`.
 
 mod classical_ops;
+mod conditions;
 mod shot_context;
 mod walk;
 
+pub use conditions::{QirCallCondition, QirCondition, QirConditionedStop};
 pub use shot_context::QirShotContext;
 
 #[cfg(doc)]
@@ -221,6 +223,12 @@ impl<'p> QirMachine<'p> {
             batch: Vec::new(),
             batch_results: Vec::new(),
             records: Vec::new(),
+            deferrable: Vec::new(),
+            deferred: Vec::new(),
+            deferred_registers: Vec::new(),
+            deferred_reads: Vec::new(),
+            conditions: Vec::new(),
+            undo_log: Vec::new(),
         };
         self.restart_shot(&mut context);
         context
@@ -248,6 +256,16 @@ impl<'p> QirMachine<'p> {
         context.batch.clear();
         context.batch_results.clear();
         context.records.clear();
+        context.deferrable.clear();
+        context.deferrable.resize(results, false);
+        context.deferred.clear();
+        context
+            .deferred
+            .resize(bytecode.num_registers as usize, None);
+        context.deferred_registers.clear();
+        context.deferred_reads.clear();
+        context.conditions.clear();
+        context.undo_log.clear();
     }
 
     /// Takes the outcomes of the context's last batch, one per call that
@@ -282,9 +300,43 @@ impl<'p> QirMachine<'p> {
         outcomes: &[QirOutcome],
     ) -> Result<QirStop<'c>, QirTrap> {
         context.take_outcomes(outcomes)?;
-        Ok(match self.walk(context)? {
+        Ok(match self.walk::<false>(context)? {
             Stop::Batch => QirStop::Batch(&context.batch),
             Stop::Ended => QirStop::Ended(&context.records),
+        })
+    }
+
+    /// As [`resume`](Self::resume), under the conditioned-batch policy
+    /// (`machine/conditions.rs`), for a resumer that can run a gate only
+    /// where a condition on the batch's own outcomes holds: a read of a
+    /// result that a measurement of the batch writes does not end the batch
+    /// but defers its value, and a branch on deferred values whose arms only
+    /// compute bits and apply gates puts those gates in the batch, each
+    /// with its condition ([`QirConditionedStop::Batch`]). Each shot runs
+    /// the same quantum calls, and records the same, as under `resume`,
+    /// where the resumer runs each conditioned call only where its condition
+    /// holds.
+    ///
+    /// A deferred read of a result that comes back with no value traps
+    /// ([`QirTrap::MissingValue`], at that read) on this resume, as under
+    /// `resume`; but a trap the walk reaches after that read, before the
+    /// batch ends, comes first.
+    ///
+    /// # Errors
+    ///
+    /// As [`resume`](Self::resume).
+    pub fn resume_conditioned<'c>(
+        &self,
+        context: &'c mut QirShotContext,
+        outcomes: &[QirOutcome],
+    ) -> Result<QirConditionedStop<'c>, QirTrap> {
+        context.take_outcomes(outcomes)?;
+        Ok(match self.walk::<true>(context)? {
+            Stop::Batch => QirConditionedStop::Batch {
+                calls: &context.batch,
+                conditions: &context.conditions,
+            },
+            Stop::Ended => QirConditionedStop::Ended(&context.records),
         })
     }
 }

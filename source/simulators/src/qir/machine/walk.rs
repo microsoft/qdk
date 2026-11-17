@@ -15,6 +15,7 @@ use super::super::program::prepared_quantum_calls::PreparedQuantumCalls;
 use super::super::quantum_instruction_encoding::Register;
 use super::super::{QirReadout, QirTrap};
 use super::classical_ops::{binary, bit, float_compare, int_compare, signed, unary, unsigned};
+use super::conditions::{ConditionedStep, is_measurement};
 use super::shot_context::{Frame, program_result};
 use super::{QirMachine, QirShotContext, block_start};
 use crate::bytecode::encoding::{
@@ -42,13 +43,26 @@ impl QirMachine<'_> {
     // The bytecode's words index its tables and registers: the check
     // refused every index past them, so none is truncated.
     #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
-    pub(super) fn walk(self, context: &mut QirShotContext) -> Result<Stop, QirTrap> {
+    pub(super) fn walk<const CONDITIONS: bool>(
+        self,
+        context: &mut QirShotContext,
+    ) -> Result<Stop, QirTrap> {
         let bytecode = self.bytecode;
         let mut pc = context.pc;
         let stop = loop {
             let instruction = &bytecode.instructions[pc];
             let dst = instruction.dst as Register;
             let opcode = instruction.primary_opcode();
+            if CONDITIONS && (opcode == OP_READ_RESULT || context.defers()) {
+                match self.conditioned_step(context, pc) {
+                    ConditionedStep::Ran(next) => {
+                        pc = next;
+                        continue;
+                    }
+                    ConditionedStep::Stop => break Stop::Batch,
+                    ConditionedStep::Concrete => {}
+                }
+            }
             match opcode {
                 OP_RET => {
                     // No frame is left: the check refused a `RET` inside a
@@ -137,6 +151,10 @@ impl QirMachine<'_> {
                                 }
                                 context.pending[result as usize] = true;
                                 context.batch_results.push(result);
+                                if CONDITIONS {
+                                    context.deferrable[result as usize] =
+                                        calls.last().is_some_and(is_measurement);
+                                }
                             }
                             context.batch.extend_from_slice(calls);
                             // To the run's last call: the `pc += 1` below
@@ -164,6 +182,9 @@ impl QirMachine<'_> {
                                 }
                                 context.pending[result as usize] = true;
                                 context.batch_results.push(result);
+                                if CONDITIONS {
+                                    context.deferrable[result as usize] = is_measurement(&call);
+                                }
                             }
                             context.batch.push(call);
                         }

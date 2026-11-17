@@ -63,7 +63,9 @@ pub use resumer::conformance;
 pub use call::{QirCall, QirInstruction, QirOutcome, QirQubits, QirReadout};
 pub use fault::{QirError, QirFault, QirFaultSite, QirFaults, SideTable};
 pub use gate::QirGate;
-pub use machine::{QirMachine, QirShotContext, QirStop};
+pub use machine::{
+    QirCallCondition, QirCondition, QirConditionedStop, QirMachine, QirShotContext, QirStop,
+};
 pub use operator_matrix::OperatorMatrix;
 pub use program::{MeasuredQubit, QirProgram, TwoQubitGate};
 #[cfg(test)]

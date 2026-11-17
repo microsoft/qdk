@@ -107,7 +107,9 @@ use qdk_simulators::bytecode::AdaptiveProgram;
 use qdk_simulators::bytecode::runtime::run_shot;
 use qdk_simulators::cpu_full_state_simulator::FullStateSimulator;
 use qdk_simulators::noise_config::{CumulativeNoiseConfig, LossPolicy, NoiseConfig, NoiseTable};
-use qdk_simulators::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
+use qdk_simulators::qir::{
+    QirConditionedStop, QirMachine, QirProgram, QirResumer, QirShotId, QirTrap, expect_ready,
+};
 use qdk_simulators::stabilizer_simulator::StabilizerSimulator;
 use qdk_simulators::{MeasurementResult, OutputRecord, Simulator};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
@@ -128,7 +130,7 @@ mod simulator_resumer;
 use bytecode_json::Bytecode;
 use encoding::OP_RECORD_OUTPUT;
 use grouping_resumer::QirGroupingResumer;
-use simulator_resumer::QirSimulatorResumer;
+use simulator_resumer::{QirSimulatorResumer, run_batch};
 
 /// The corpus file.
 #[derive(Deserialize)]
@@ -232,6 +234,10 @@ enum Runner {
     PerShot,
     /// The machine, resumed by a [`QirGroupingResumer`].
     Grouped,
+    /// The machine under its conditioned-batch policy
+    /// ([`QirMachine::resume_conditioned`]), each shot's batches run on its
+    /// simulator, a conditioned call only where its condition holds then.
+    Conditioned,
     /// `run_shot`, with `run_adaptive`'s records for a program that records
     /// no output: every measurement, in order.
     Reference,
@@ -327,6 +333,11 @@ impl Case {
         let run = match runner {
             Runner::PerShot => expect_ready(QirSimulatorResumer::new(make).run(&machine, &shots)),
             Runner::Grouped => expect_ready(QirGroupingResumer::new(make).run(&machine, &shots)),
+            Runner::Conditioned => Ok(shots
+                .into_iter()
+                .map(|shot| conditioned_shot(&machine, &mut simulator(shot)))
+                .collect::<Result<_, _>>()
+                .unwrap_or_else(|trap| panic!("{}: a shot traps: {trap}", self.name))),
             Runner::Reference => {
                 let records_output = records_output(&bytecode);
                 return shots
@@ -453,6 +464,39 @@ fn results(records: &[OutputRecord]) -> String {
         .collect()
 }
 
+/// The records of a shot of `machine` on `simulator`, under the machine's
+/// conditioned-batch policy: each call of a batch runs in order, a
+/// conditioned call only where its condition holds on the simulator's
+/// results then.
+fn conditioned_shot<S: Simulator>(
+    machine: &QirMachine,
+    simulator: &mut S,
+) -> Result<Vec<OutputRecord>, QirTrap> {
+    let mut context = machine.start_shot();
+    let mut outcomes = Vec::new();
+    loop {
+        match machine.resume_conditioned(&mut context, &outcomes)? {
+            QirConditionedStop::Batch { calls, conditions } => {
+                outcomes.clear();
+                for (index, call) in calls.iter().enumerate() {
+                    let holds = conditions
+                        .iter()
+                        .find(|condition| condition.call == index)
+                        .is_none_or(|condition| {
+                            condition.condition.holds(|result| {
+                                simulator.measurements()[result as usize] == MeasurementResult::One
+                            })
+                        });
+                    if holds {
+                        run_batch(simulator, std::slice::from_ref(call), &mut outcomes);
+                    }
+                }
+            }
+            QirConditionedStop::Ended(records) => return Ok(records.to_vec()),
+        }
+    }
+}
+
 /// Whether `bytecode` records output, as `run_adaptive` decides it.
 fn records_output(bytecode: &AdaptiveProgram<u64>) -> bool {
     bytecode
@@ -514,7 +558,7 @@ fn every_shot_records_what_run_shot_records() {
         .iter()
         .flat_map(|case| {
             case.sims().into_iter().flat_map(move |sim| {
-                [Runner::PerShot, Runner::Grouped]
+                [Runner::PerShot, Runner::Grouped, Runner::Conditioned]
                     .into_iter()
                     .flat_map(move |runner| case.differences(sim, runner))
             })

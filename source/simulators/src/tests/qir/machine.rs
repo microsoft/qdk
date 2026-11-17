@@ -10,6 +10,7 @@
 
 mod batches;
 mod classical_ops;
+mod conditioned_batches;
 mod contexts;
 mod control_flow;
 mod memory;
