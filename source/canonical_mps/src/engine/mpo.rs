@@ -54,6 +54,14 @@ use crate::algebra::{CentreSide, SiteAlgebra};
 use dense_linalg::{MatrixRef, Svd};
 use num_complex::Complex64;
 use std::borrow::Cow;
+use std::sync::LazyLock;
+
+/// Development only (not for review): `P6_LOW_SWEEP_ONLY` set (to any
+/// value) makes every sweep rightward, the centre ending at the span's low
+/// end whatever `toward` says: the measurement switch of the sweep
+/// direction's choice.
+static LOW_SWEEP_ONLY: LazyLock<bool> =
+    LazyLock::new(|| std::env::var_os("P6_LOW_SWEEP_ONLY").is_some());
 
 impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     /// Applies the pending window (its operator row-major, its first site
@@ -121,7 +129,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         // The multiplied span holds no isometry, so the moves may start at
         // either end: they start at the near one, so that the splits, which
         // come back, leave the centre there.
-        if toward.abs_diff(high) < toward.abs_diff(low) {
+        if !*LOW_SWEEP_ONLY && toward.abs_diff(high) < toward.abs_diff(low) {
             chain.centre = high;
             self.move_centre(chain, low + 1)?;
             for cut in low..high {
