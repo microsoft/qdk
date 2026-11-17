@@ -1979,6 +1979,23 @@ dependencies = [
 
 [[package]]
 name = "profiling"
+version = "0.0.0"
+dependencies = [
+ "expect-test",
+ "qdk_simulators",
+ "qsc",
+ "qsc_eval",
+ "qsp",
+ "rand 0.10.2",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "strum",
+]
+
+[[package]]
+name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
@@ -2075,10 +2092,10 @@ dependencies = [
  "num-bigint",
  "num-complex",
  "num-traits",
+ "profiling 0.0.0",
  "pyo3",
  "qdk_openqasm",
  "qdk_simulators",
- "qep",
  "qre",
  "qsc",
  "qsp",
@@ -2133,28 +2150,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "qep"
-version = "0.0.0"
-dependencies = [
- "expect-test",
- "qdk_simulators",
- "qsc",
- "qsc_eval",
- "qsp",
- "rand 0.10.2",
- "rustc-hash",
- "serde",
- "serde_json",
- "smallvec",
- "strum",
-]
-
-[[package]]
 name = "qep_interop"
 version = "0.0.0"
 dependencies = [
  "libc",
- "qep",
+ "profiling 0.0.0",
  "smallvec",
 ]
 
@@ -3484,7 +3484,7 @@ dependencies = [
  "naga",
  "parking_lot",
  "portable-atomic",
- "profiling",
+ "profiling 1.0.18",
  "raw-window-handle",
  "smallvec",
  "static_assertions",
@@ -3516,7 +3516,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "portable-atomic",
- "profiling",
+ "profiling 1.0.18",
  "raw-window-handle",
  "rustc-hash",
  "smallvec",
@@ -3593,7 +3593,7 @@ dependencies = [
  "parking_lot",
  "portable-atomic",
  "portable-atomic-util",
- "profiling",
+ "profiling 1.0.18",
  "range-alloc",
  "raw-window-handle",
  "raw-window-metal",

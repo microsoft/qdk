@@ -525,7 +525,7 @@ static void run_random_shors_shot(int bit_len, bool profile) {
                         (double)(end.tv_nsec - start.tv_nsec);
     if (profile) {
         char path[64];
-        int length = snprintf(path, sizeof(path), "source/qep/profile_viewer/profiles/shor_c_%d.json", bit_len);
+        int length = snprintf(path, sizeof(path), "source/profiling/profile_viewer/profiles/shor_c_%d.json", bit_len);
         if (length < 0 || (size_t)length >= sizeof(path)) fail("could not format profile path");
         qdk_save_profile(path);
         uint64_t count = read_operation_count(path);
@@ -546,7 +546,7 @@ static void run_random_shors_shot(int bit_len, bool profile) {
                       Large inputs are representable but generally infeasible to simulate.
    --profile <bitlen> Profile one shot on counting_profiler using two random primes,
                       each of bitlen/2 bits; bitlen must be even and in [4, 2048].
-                      Save to source/qep/profile_viewer/profiles/shor_c_<bitlen>.json
+                      Save to source/profiling/profile_viewer/profiles/shor_c_<bitlen>.json
                       and print operation count, elapsed
                       shot time, and ns/op. Bogus profiling measurements are ignored.
    --run-random <bitlen> Run the same random-semiprime shot using the default streaming

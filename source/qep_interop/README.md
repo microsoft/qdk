@@ -36,7 +36,7 @@ The following backends can be selected by name:
   and default instruction transpilers. Combined measurement/reset is profiled as separate
   measurement and reset operations.
 
-The stdio backend uses the [QEP stream protocol](../qep/README.md#stream-transport)
+The stdio backend uses the [QSP stream protocol](../qsp/README.md#interprocess-communication-protocol)
 and can connect to a `StreamDriver` wrapping a simulator or profiler. Without
 dedicated descriptors, reserve stdout for instructions and stdin for results;
 print application diagnostics to stderr.
@@ -249,7 +249,7 @@ the current gate-emitting implementation scales roughly cubically with bit lengt
 
 In profiling mode, each random prime has half the requested bit length;
 their product can be one bit shorter than the requested length. Output is
-written to `source/qep/profile_viewer/profiles/shor_c_<bitlen>.json`; the parent
+written to `source/profiling/profile_viewer/profiles/shor_c_<bitlen>.json`; the parent
 directory must already exist. Prime generation uses GMP probable-prime testing
 with 25 repetitions and a time-seeded random generator intended for benchmarking,
 not cryptography. The example reads the saved operation count and
@@ -261,7 +261,7 @@ and saving (including the final buffer flush).
 ./target/release/shor_c --profile 20
 ```
 
-The [Shor native profiling notebook](../qep/demo/ShorsNativeProfile.ipynb) uses
+The [Shor native profiling notebook](../profiling/demo/ShorsNativeProfile.ipynb) uses
 `QspApplication` with `arithmetic.c` as an extra source and `-lgmp` as a compiler
 argument. It compares external streaming (`--run-random 100`) with an in-process
 counting profile (`--profile 100`) loaded from JSON.

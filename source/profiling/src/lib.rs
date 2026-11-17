@@ -10,7 +10,7 @@
 //! and leaf output records. The Q# runner delegates quantum instructions through
 //! a batched backend interface.
 //!
-//! Run the test suite with `cargo test -p qep`.
+//! Run the test suite with `cargo test -p profiling`.
 
 #![forbid(unsafe_code)]
 

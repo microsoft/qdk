@@ -31,7 +31,7 @@ int main(void) {
 
     qdk_init("temporal_profiler");
     ghz_example(10);
-    qdk_save_profile("source/qep/profile_viewer/profiles/ghz_profile.json");
+    qdk_save_profile("source/profiling/profile_viewer/profiles/ghz_profile.json");
 
     return 0;
 }

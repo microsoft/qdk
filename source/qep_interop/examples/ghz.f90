@@ -14,7 +14,7 @@ program ghz
 
     call qdk_init(c_char_"temporal_profiler" // c_null_char)
     outcome = ghz_example(10_c_size_t)
-    call qdk_save_profile(c_char_"source/qep/profile_viewer/profiles/ghz_profile_fortran.json" // c_null_char)
+    call qdk_save_profile(c_char_"source/profiling/profile_viewer/profiles/ghz_profile_fortran.json" // c_null_char)
 
 contains
 

@@ -1,6 +1,6 @@
-use qep::Parameter::ResultId;
-use qep::interface::Driver;
-use qep::{
+use profiling::Parameter::ResultId;
+use profiling::interface::Driver;
+use profiling::{
     Batcher, DEFAULT_MAX_BATCH_SIZE, DemoModel1, InstructionId, OPERATION_COUNT, Parameter,
     Profiler, QuantumBackend, QuantumBackendInstruction, QuantumBackends,
     SequentialCountingProfiler, StreamBackend, TemporalProfiler, TemporalProfilerConfig,
@@ -22,7 +22,7 @@ impl QuantumBackend for BackendKind {
     fn execute_batch(
         &mut self,
         instructions: &[QuantumBackendInstruction],
-    ) -> Result<qep::BatchResult, String> {
+    ) -> Result<profiling::BatchResult, String> {
         match self {
             Self::Profiler(profiler) => profiler.execute_batch(instructions),
             Self::Other(backend) | Self::Stdio(backend) => backend.execute_batch(instructions),
@@ -153,9 +153,9 @@ fn instruction_with_result(
             ))
         });
     match result {
-        qep::QuantumBackendResult::Zero => 0,
-        qep::QuantumBackendResult::One => 1,
-        qep::QuantumBackendResult::Error => 2,
+        profiling::QuantumBackendResult::Zero => 0,
+        profiling::QuantumBackendResult::One => 1,
+        profiling::QuantumBackendResult::Error => 2,
     }
 }
 
@@ -194,8 +194,8 @@ pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
                 record_trace: true,
                 ..TemporalProfilerConfig::default()
             };
-            BackendWrapper::for_profiler(qep::ResultAdapter::new(
-                qep::TranspilingAdapter::with_defaults(TemporalProfiler::new(
+            BackendWrapper::for_profiler(profiling::ResultAdapter::new(
+                profiling::TranspilingAdapter::with_defaults(TemporalProfiler::new(
                     DemoModel1::default(),
                     config,
                 )),
@@ -514,9 +514,9 @@ pub unsafe extern "C" fn qdk_read_results(count: usize, output: *mut u8) {
         // SAFETY: The caller guarantees output points to count writable bytes.
         unsafe {
             output.add(i).write(match result.results[i] {
-                qep::QuantumBackendResult::Zero => 0,
-                qep::QuantumBackendResult::One => 1,
-                qep::QuantumBackendResult::Error => 2,
+                profiling::QuantumBackendResult::Zero => 0,
+                profiling::QuantumBackendResult::One => 1,
+                profiling::QuantumBackendResult::Error => 2,
             });
         }
     }
@@ -525,7 +525,7 @@ pub unsafe extern "C" fn qdk_read_results(count: usize, output: *mut u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use qep::{BatchResult, QuantumBackendResult};
+    use profiling::{BatchResult, QuantumBackendResult};
     use std::{ffi::CString, fs, sync::Arc};
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -607,7 +607,7 @@ mod tests {
         ) -> Result<BatchResult, String> {
             let mut result = BatchResult::default();
             for instruction in instructions {
-                qep::validate_instruction(instruction);
+                profiling::validate_instruction(instruction);
                 self.instructions
                     .lock()
                     .expect("recording mutex must not be poisoned")

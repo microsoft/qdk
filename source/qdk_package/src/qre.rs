@@ -120,7 +120,7 @@ fn trace_fds(py: Python<'_>, instruction_fd: i32, result_fd: i32) -> PyResult<Tr
 
 /// Python representation of total operation and resource counts.
 #[pyclass(module = "qdk.qre", frozen)]
-pub struct TotalCounts(qep::TotalCounts);
+pub struct TotalCounts(profiling::TotalCounts);
 
 #[pymethods]
 impl TotalCounts {
@@ -187,7 +187,7 @@ impl TotalCounts {
 
 /// Python representation of a time-series profiling metric.
 #[pyclass(module = "qdk.qre", frozen)]
-pub struct TimeSeries(qep::TimeSeries);
+pub struct TimeSeries(profiling::TimeSeries);
 
 #[pymethods]
 impl TimeSeries {
@@ -212,7 +212,7 @@ impl TimeSeries {
 
 /// Python representation of the temporal profiling data.
 #[pyclass(module = "qdk.qre", frozen)]
-pub struct TemporalProfiles(qep::TemporalProfiles);
+pub struct TemporalProfiles(profiling::TemporalProfiles);
 
 #[pymethods]
 impl TemporalProfiles {
@@ -236,11 +236,11 @@ impl TemporalProfiles {
 
 /// Python representation of profiling data collected during quantum execution.
 #[pyclass(module = "qdk.qre", frozen)]
-pub struct ProfilerResult(qep::ProfilerResult);
+pub struct ProfilerResult(profiling::ProfilerResult);
 
-impl From<qep::ProfilerResult> for ProfilerResult {
-    /// Wraps a QEP profiler result for Python.
-    fn from(result: qep::ProfilerResult) -> Self {
+impl From<profiling::ProfilerResult> for ProfilerResult {
+    /// Wraps a profiling result for Python.
+    fn from(result: profiling::ProfilerResult) -> Self {
         Self(result)
     }
 }
@@ -290,12 +290,12 @@ impl ProfilerResult {
 /// Base class for quantum profilers exposed to Python.
 #[pyclass(subclass, module = "qdk.qre")]
 pub struct Profiler {
-    backend: Option<Box<dyn qep::Profiler + Send + Sync>>,
+    backend: Option<Box<dyn profiling::Profiler + Send + Sync>>,
 }
 
 impl Profiler {
     /// Borrows the backend, which is absent only while an adapter is being installed.
-    fn backend_mut(&mut self) -> &mut Box<dyn qep::Profiler + Send + Sync> {
+    fn backend_mut(&mut self) -> &mut Box<dyn profiling::Profiler + Send + Sync> {
         self.backend
             .as_mut()
             .expect("profiler backend is installed")
@@ -330,7 +330,7 @@ impl Profiler {
         mut interpreter: PyRefMut<'_, Interpreter>,
         entry_expr: &str,
     ) -> PyResult<ProfilerResult> {
-        use qep::Profiler as _;
+        use profiling::Profiler as _;
 
         self.backend_mut()
             .profile_qsharp_expr(&mut interpreter.interpreter, entry_expr)
@@ -348,7 +348,7 @@ impl Profiler {
         callable: Py<PyAny>,
         args: Option<Py<PyAny>>,
     ) -> PyResult<ProfilerResult> {
-        use qep::Profiler as _;
+        use profiling::Profiler as _;
 
         let callable = extract_callable_value(py, &callable, &interpreter.callable_owner)?;
         let args = prepare_callable_args(
@@ -375,7 +375,7 @@ impl Profiler {
         py: Python<'_>,
         program: &Bound<'_, PyDict>,
     ) -> PyResult<ProfilerResult> {
-        use qep::Profiler as _;
+        use profiling::Profiler as _;
 
         let program = crate::qir_simulation::adaptive_program_from_pydict::<u64>(program)?;
         py.detach(|| {
@@ -391,7 +391,7 @@ impl Profiler {
     /// Prior profiling data is retained. Stream and backend failures raise
     /// `RuntimeError`; stdout must be reserved for protocol messages.
     fn profile_stdio(&mut self, py: Python<'_>) -> PyResult<ProfilerResult> {
-        use qep::Profiler as _;
+        use profiling::Profiler as _;
 
         py.detach(|| {
             self.backend_mut()
@@ -432,7 +432,7 @@ impl SequentialCountingProfiler {
     ) -> PyResult<PyClassInitializer<Self>> {
         Ok(PyClassInitializer::from(Profiler {
             backend: Some(Box::new(
-                qep::SequentialCountingProfiler::new(
+                profiling::SequentialCountingProfiler::new(
                     physical_qubits_per_logical,
                     gate_time_sec.unwrap_or_default(),
                 )
@@ -522,18 +522,18 @@ impl TemporalProfiler {
     /// Creates fresh model state from hardware settings and profiler configuration.
     #[new]
     fn new(model: &DemoModel1, config: &TemporalProfilerConfig) -> PyClassInitializer<Self> {
-        let model = qep::DemoModel1::new(
+        let model = profiling::DemoModel1::new(
             model.clifford_gate_time_nanos,
             model.measurment_time_nanos,
             model.t_factories_count,
             model.ecc_distance,
         );
-        let config = qep::TemporalProfilerConfig {
+        let config = profiling::TemporalProfilerConfig {
             aggregation_window_nanos: config.aggregation_window_nanos,
             seed: config.seed,
             record_trace: config.record_trace,
         };
-        let profiler = qep::TemporalProfiler::new(model, config);
+        let profiler = profiling::TemporalProfiler::new(model, config);
         PyClassInitializer::from(Profiler {
             backend: Some(Box::new(profiler)),
         })

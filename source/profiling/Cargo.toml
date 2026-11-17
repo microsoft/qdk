@@ -1,5 +1,5 @@
 [package]
-name = "qep"
+name = "profiling"
 
 version.workspace = true
 authors.workspace = true

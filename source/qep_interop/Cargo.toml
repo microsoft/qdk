@@ -11,7 +11,7 @@ license.workspace = true
 crate-type = ["staticlib"]
 
 [dependencies]
-qep = { path = "../qep" }
+profiling = { path = "../profiling" }
 smallvec = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
