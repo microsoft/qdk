@@ -30,6 +30,11 @@ struct P {
   site_off: u32,
   meta_off: u32,
   site_mode: u32,
+  // A guarded pass's condition (gate1, gate2, pauli): its truth table, its
+  // number of results (0: no guard), and the measurement indices of its
+  // results (guard.zw, then guard_meas.xyz).
+  guard: vec4<u32>,
+  guard_meas: vec4<u32>,
 }
 
 @group(0) @binding(0) var<storage, read_write> s: array<vec2<f32>>;
@@ -66,6 +71,19 @@ fn ival(x: f32) -> u32 {
   return u32(x + 0.5);
 }
 
+// Whether the pass's guard holds for the shot in `slot`: bit `index` of its
+// truth table, where bit k of `index` is the outcome of its k-th result (in
+// this round's outcomes, written by the round's sample passes before).
+fn guard_holds(slot: u32) -> bool {
+  if (p.guard.y == 0u) { return true; }
+  let ms = array<u32, 5>(p.guard.z, p.guard.w, p.guard_meas.x, p.guard_meas.y, p.guard_meas.z);
+  var index = 0u;
+  for (var i = 0u; i < p.guard.y; i++) {
+    index |= (outcomes[ms[i] * p.slots + slot] & 1u) << i;
+  }
+  return ((p.guard.x >> index) & 1u) == 1u;
+}
+
 // |0...0> in every slot of the chunk.
 @compute @workgroup_size(256)
 fn init(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
@@ -75,14 +93,16 @@ fn init(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) n
   s[t] = select(vec2(0.0, 0.0), vec2(1.0, 0.0), (t & mask) == 0u);
 }
 
-// A 2x2 matrix (rows m0, m1) on qubit q0.
+// A 2x2 matrix (rows m0, m1) on qubit q0, on the shots whose guard holds.
 @compute @workgroup_size(256)
 fn gate1(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
   let t = flat(id, nw);
   let j = t >> (p.n - 1u);
   if (j >= p.shot_len) { return; }
   let k = t & ((1u << (p.n - 1u)) - 1u);
-  let base = shots[p.shot_off + j] << p.n;
+  let slot = shots[p.shot_off + j];
+  if (!guard_holds(slot)) { return; }
+  let base = slot << p.n;
   let i0 = base | insert0(k, p.q0);
   let i1 = i0 | (1u << p.q0);
   let a = s[i0];
@@ -99,14 +119,17 @@ fn row4(off: u32, r: u32, v0: vec2<f32>, v1: vec2<f32>, v2: vec2<f32>, v3: vec2<
   return cmul(a.xy, v0) + cmul(a.zw, v1) + cmul(b.xy, v2) + cmul(b.zw, v3);
 }
 
-// A 4x4 matrix (ops[op_off..+8]) on qubits q0 (most significant), q1.
+// A 4x4 matrix (ops[op_off..+8]) on qubits q0 (most significant), q1, on
+// the shots whose guard holds.
 @compute @workgroup_size(256)
 fn gate2(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
   let t = flat(id, nw);
   let j = t >> (p.n - 2u);
   if (j >= p.shot_len) { return; }
   let k = t & ((1u << (p.n - 2u)) - 1u);
-  let base = shots[p.shot_off + j] << p.n;
+  let slot = shots[p.shot_off + j];
+  if (!guard_holds(slot)) { return; }
+  let base = slot << p.n;
   let lo = min(p.q0, p.q1);
   let hi = max(p.q0, p.q1);
   let i0 = base | insert0(insert0(k, lo), hi);
@@ -211,6 +234,7 @@ fn pauli(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) 
   if (j >= p.shot_len) { return; }
   let k = t & ((1u << (p.n - 1u)) - 1u);
   let slot = shots[p.shot_off + j];
+  if (!guard_holds(slot)) { return; }
   let f = draw(slot, ops[p.op_off]);
   if (f.x == 0u && f.y == 0u) { return; }
   let m = fault_masks(f, p.op_off);

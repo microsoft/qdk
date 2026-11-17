@@ -10,7 +10,7 @@ their `Bytecode.Bit32` form, which the current GPU simulator takes:
   (`source/qdk_package/tests/test_adaptive_gpu_quantum_ops.py`) and the
   bench workload `bench_<n>` for n in 4, 12, 16, 20, 22;
 - `programs_noise.json`: the distance-d repetition codes `rep_<d>` for d in
-  3, 5, 7, 9, 11, and two hand-written programs for the noise checks,
+  3, 5, 7, 9, 11, 13, and two hand-written programs for the noise checks,
   `readout_branch` (readout noise read by a branch) and `corr_branch` (a
   correlated-noise intrinsic, table 0, then a branch).
 
@@ -202,7 +202,9 @@ def main_programs():
 
 
 def noise_programs():
-    programs = [timed(f"rep_{d}", compile_qsharp(rep_source(d, 8))) for d in (3, 5, 7, 9, 11)]
+    programs = [
+        timed(f"rep_{d}", compile_qsharp(rep_source(d, 8))) for d in (3, 5, 7, 9, 11, 13)
+    ]
     programs.append({"name": "readout_branch", "bytecode": bytecode(READOUT)})
     programs.append(
         {"name": "corr_branch", "bytecode": bytecode(CORR, {"test_noise_intrinsic": 0})}

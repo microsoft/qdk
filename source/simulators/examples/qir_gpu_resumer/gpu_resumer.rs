@@ -45,8 +45,9 @@ use num_complex::Complex64;
 use qdk_simulators::OutputRecord;
 use qdk_simulators::noise_config::{Fault, FaultTerm, NoiseConfig, NoiseTable};
 use qdk_simulators::qir::{
-    OperatorMatrix, QirCall, QirGate, QirMachine, QirOutcome, QirReadout, QirResumeError,
-    QirResumer, QirShotContext, QirShotId, QirStop,
+    OperatorMatrix, QirCall, QirCallCondition, QirCondition, QirConditionedStop, QirGate,
+    QirMachine, QirOutcome, QirReadout, QirResumeError, QirResumer, QirShotContext, QirShotId,
+    QirStop,
 };
 
 /// The largest state per binding: 128 MiB of complex f32.
@@ -56,7 +57,7 @@ const BLOCK_QUBITS: u32 = 10;
 const WG: u64 = 256;
 /// The bytes of a pass's parameter slot (dynamic uniform offset).
 const SLOT: u64 = 256;
-const PARAMS_BYTES: u64 = 96;
+const PARAMS_BYTES: u64 = 128;
 /// The most noise sites a diagonal pass holds (the kernel's private array).
 const DIAG_NOISE: usize = 32;
 const NO_RESULT: u32 = u32::MAX;
@@ -116,6 +117,11 @@ pub struct Strategy {
     /// Whether noiseless diagonal and block passes run kernels specialised
     /// for noiseless code.
     pub plain_kernels: bool,
+    /// Whether shots resume under the machine's conditioned-batch policy
+    /// (`resume_conditioned`): a gate conditioned on results measured in
+    /// its batch runs in that batch, in a pass whose guard each shot
+    /// evaluates on its outcomes, rather than in a round of its own.
+    pub conditions: bool,
 }
 
 impl Strategy {
@@ -134,6 +140,7 @@ impl Strategy {
         hoist_noise: true,
         clean_variant: true,
         plain_kernels: true,
+        conditions: false,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -150,6 +157,7 @@ impl Strategy {
         hoist_noise: false,
         clean_variant: false,
         plain_kernels: false,
+        conditions: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -166,12 +174,17 @@ impl Strategy {
         hoist_noise: true,
         clean_variant: true,
         plain_kernels: true,
+        conditions: false,
     };
 
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
             "blocked" | "all" => Self::ALL,
             "perpass" => Self::PER_GATE,
+            "cond" => Self {
+                conditions: true,
+                ..Self::ALL
+            },
             "fused" => Self::FUSED,
             "single" => Self {
                 max_slots: 1,
@@ -517,11 +530,14 @@ struct Params {
     /// Where each slot's (noise seed, batch length) start in `shots`.
     meta_off: u32,
     site_mode: u32,
+    /// A guarded pass's guard (`Guard::words`): it runs on a shot only
+    /// where its condition holds on the shot's outcomes; `[0; 8]`: none.
+    guard: [u32; 8],
 }
 
 impl Params {
     fn write(&self, bytes: &mut [u8], at: usize) {
-        let mut words = [0u32; 24];
+        let mut words = [0u32; 32];
         for (i, x) in self.m0.iter().chain(&self.m1).enumerate() {
             words[i] = x.to_bits();
         }
@@ -543,7 +559,8 @@ impl Params {
             self.meta_off,
             self.site_mode,
         ]);
-        bytes[at..at + 96].copy_from_slice(bytemuck::cast_slice(&words));
+        words[24..32].copy_from_slice(&self.guard);
+        bytes[at..at + 128].copy_from_slice(bytemuck::cast_slice(&words));
     }
 }
 
@@ -936,6 +953,32 @@ enum SegKind {
     },
     /// A noise site in a pass of its own (an `Op::Noise`).
     Pauli(Op),
+    /// A conditioned gate (`Op::G1`, `Op::G2`) or its noise site
+    /// (`Op::Noise`), in a pass of its own that runs on a shot only where
+    /// `guard` holds.
+    Guarded {
+        op: Op,
+        guard: Guard,
+    },
+}
+
+/// A call's condition, on the round's outcomes: its truth table over the
+/// outcomes at the measurement indices `meas` (the condition's results, in
+/// its order), `len` of them.
+#[derive(Clone, Copy, Debug)]
+struct Guard {
+    table: u32,
+    len: u32,
+    meas: [u32; QirCondition::MAX_RESULTS],
+}
+
+impl Guard {
+    /// The guard as the kernels' `P.guard` and `P.guard_meas` read it,
+    /// its measurement indices moved by `meas_off`.
+    fn words(&self, meas_off: u32) -> [u32; 8] {
+        let m = self.meas.map(|m| m + meas_off);
+        [self.table, self.len, m[0], m[1], m[2], m[3], m[4], 0]
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -957,9 +1000,13 @@ struct Plan {
     measurements: u32,
 }
 
+/// Translates `batch`, whose calls listed in `conditions` run only where
+/// their condition holds (a pass of their own, guarded on the outcomes of
+/// the batch's measurements).
 #[allow(clippy::too_many_lines)]
 fn translate(
     batch: &[QirCall],
+    conditions: &[QirCallCondition],
     n: u32,
     strategy: Strategy,
     noise: &NoiseTables,
@@ -975,6 +1022,12 @@ fn translate(
     let mut results = Vec::new();
     let mut measurements = 0;
     for (site, call) in batch.iter().enumerate() {
+        let condition = conditions.iter().find(|c| c.call == site);
+        if condition.is_some() && !matches!(call, QirCall::Gate { .. }) {
+            return Err(GpuError(format!(
+                "{call} is conditioned, but it is no gate"
+            )));
+        }
         let site = u32::try_from(site).expect("fits");
         let (table, targets): (Option<Table>, Vec<u32>) = match call {
             QirCall::Gate {
@@ -1064,6 +1117,19 @@ fn translate(
                 continue;
             }
         };
+        if let Some(condition) = condition {
+            // After every segment so far (the measurements its guard reads
+            // among them); a later op on its qubits comes after it.
+            let guard = guard_of(&condition.condition, &results, call)?;
+            for op in std::iter::once(op).chain(noise_op) {
+                segments.push(Segment {
+                    nondiag: qubit_mask(&op),
+                    diag: 0,
+                    kind: SegKind::Guarded { op, guard },
+                });
+            }
+            continue;
+        }
         place(&mut segments, op, low, strategy);
         if let Some(noise_op) = noise_op {
             place(&mut segments, noise_op, low, strategy);
@@ -1090,6 +1156,7 @@ fn translate(
                 SegKind::Gate2 { a, b, .. } => format!("Gate2({a},{b})"),
                 SegKind::Pauli(_) => "Pauli".to_string(),
                 SegKind::Meas { q, .. } => format!("Meas({q})"),
+                SegKind::Guarded { op, guard } => format!("Guarded({:?}: {op:?})", guard.meas),
             })
             .collect();
         eprintln!("PLAN {} calls: {}", batch.len(), summary.join(" | "));
@@ -1098,6 +1165,37 @@ fn translate(
         segments,
         results,
         measurements,
+    })
+}
+
+/// The guard of `call`'s `condition`: each result it reads at the index of
+/// the batch's measurement of it, from the batch's answers so far
+/// (`results`). A result not measured before `call` in its batch fails: the
+/// machine conditions a call only on such results.
+fn guard_of(
+    condition: &QirCondition,
+    results: &[(u32, Answer)],
+    call: &QirCall,
+) -> Result<Guard, GpuError> {
+    let mut meas = [0; QirCondition::MAX_RESULTS];
+    for (slot, &result) in meas.iter_mut().zip(condition.results()) {
+        *slot = results
+            .iter()
+            .rev()
+            .find_map(|&(r, answer)| match answer {
+                Answer::Meas(m) if r == result => Some(m),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                GpuError(format!(
+                    "{call} is conditioned on result {result}, not measured before it in its batch"
+                ))
+            })?;
+    }
+    Ok(Guard {
+        table: condition.truth_table(),
+        len: u32::try_from(condition.results().len()).expect("at most 5"),
+        meas,
     })
 }
 
@@ -1792,6 +1890,34 @@ impl Layout<'_, '_> {
                     }
                     continue;
                 }
+                SegKind::Guarded { op, guard } => {
+                    p.guard = guard.words(meas_off);
+                    match op {
+                        Op::G1 { q, m } => {
+                            let r: Vec<C32> = m.iter().map(|&c| c32(c)).collect();
+                            p.m0 = [r[0][0], r[0][1], r[1][0], r[1][1]];
+                            p.m1 = [r[2][0], r[2][1], r[3][0], r[3][1]];
+                            p.q0 = *q;
+                            self.passes
+                                .push((&gpu.gate1, slot, (len << (n - 1)).div_ceil(WG)));
+                        }
+                        Op::G2 { a, b, m } => {
+                            push_matrix4(self.ops, m);
+                            p.q0 = *a;
+                            p.q1 = *b;
+                            p.op_off = op_off;
+                            self.passes
+                                .push((&gpu.gate2, slot, (len << (n - 2)).div_ceil(WG)));
+                        }
+                        Op::Noise { .. } => {
+                            p.op_off = op_off;
+                            self.ops.extend(noise_code(op, -1.0));
+                            self.passes
+                                .push((&gpu.pauli, slot, (len << (n - 1)).div_ceil(WG)));
+                        }
+                        Op::Meas { .. } => unreachable!("only gates are conditioned"),
+                    }
+                }
                 SegKind::Meas { q, kind, meas } => {
                     p.q0 = *q;
                     p.kind = *kind;
@@ -1868,15 +1994,21 @@ impl QirGpuResumer {
         self
     }
 
-    fn plan(&self, batch: &[QirCall], n: u32) -> Result<Rc<Plan>, GpuError> {
+    fn plan(
+        &self,
+        batch: &[QirCall],
+        conditions: &[QirCallCondition],
+        n: u32,
+    ) -> Result<Rc<Plan>, GpuError> {
+        let translated = || translate(batch, conditions, n, self.strategy, &self.noise);
         if !self.strategy.cache {
-            return Ok(Rc::new(translate(batch, n, self.strategy, &self.noise)?));
+            return Ok(Rc::new(translated()?));
         }
-        let key = format!("{n}:{batch:?}");
+        let key = format!("{n}:{batch:?}:{conditions:?}");
         if let Some(plan) = self.cache.borrow().get(&key) {
             return Ok(plan.clone());
         }
-        let plan = Rc::new(translate(batch, n, self.strategy, &self.noise)?);
+        let plan = Rc::new(translated()?);
         let mut cache = self.cache.borrow_mut();
         if cache.len() > 4096 {
             cache.clear();
@@ -2086,7 +2218,7 @@ impl QirGpuResumer {
         let gpu = self.gpu.clone();
         let (device, queue) = (&gpu.device, &gpu.queue);
         let per_shot = ((1u32 << (n - 1)) / 4096).max(1);
-        let plan = translate(batch, n, self.strategy, &self.noise)?;
+        let plan = translate(batch, &[], n, self.strategy, &self.noise)?;
         if plan.measurements > 0 {
             return Err(GpuError("state_after takes gates only".into()));
         }
@@ -2243,25 +2375,46 @@ fn answer(
 }
 
 /// Resumes every running shot (those before the chunk's first failure) to
-/// its next stop, grouping the shots whose batches are equal. Leaves the
-/// round's distinct batches in `batches`, and records a new first failure.
+/// its next stop, under the conditioned-batch policy where `conditioned`,
+/// grouping the shots whose batches (and their conditions) are equal.
+/// Leaves the round's distinct batches in `batches`, their conditions in
+/// `conditions`, and records a new first failure.
 fn resume_round(
     machine: &QirMachine<'_>,
     shots: &mut [GpuShot],
     failing: &[QirShotId],
+    conditioned: bool,
     batches: &mut Vec<Vec<QirCall>>,
+    conditions: &mut Vec<Vec<QirCallCondition>>,
     failure: &mut Option<(usize, QirResumeError<GpuError>)>,
 ) {
     batches.clear();
+    conditions.clear();
     let running = failure.as_ref().map_or(shots.len(), |(place, _)| *place);
     for (place, shot) in shots[..running].iter_mut().enumerate() {
         if shot.records.is_some() {
             continue;
         }
         shot.group = None;
-        match machine.resume(&mut shot.context, &shot.outcomes) {
-            Ok(QirStop::Ended(ended)) => shot.records = Some(ended.to_vec()),
-            Ok(QirStop::Batch(batch)) => {
+        let stop = if conditioned {
+            machine.resume_conditioned(&mut shot.context, &shot.outcomes)
+        } else {
+            machine
+                .resume(&mut shot.context, &shot.outcomes)
+                .map(|stop| match stop {
+                    QirStop::Batch(calls) => QirConditionedStop::Batch {
+                        calls,
+                        conditions: &[],
+                    },
+                    QirStop::Ended(records) => QirConditionedStop::Ended(records),
+                })
+        };
+        match stop {
+            Ok(QirConditionedStop::Ended(ended)) => shot.records = Some(ended.to_vec()),
+            Ok(QirConditionedStop::Batch {
+                calls: batch,
+                conditions: batch_conditions,
+            }) => {
                 if failing.contains(&shot.id) {
                     let error = GpuError(format!("{} fails on purpose", shot.id));
                     *failure = Some((
@@ -2275,9 +2428,13 @@ fn resume_round(
                 }
                 let group = batches
                     .iter()
-                    .position(|equal| equal[..] == *batch)
+                    .zip(conditions.iter())
+                    .position(|(equal, equal_conditions)| {
+                        equal[..] == *batch && equal_conditions[..] == *batch_conditions
+                    })
                     .unwrap_or_else(|| {
                         batches.push(batch.to_vec());
+                        conditions.push(batch_conditions.to_vec());
                         batches.len() - 1
                     });
                 shot.group = Some(group);
@@ -2408,6 +2565,7 @@ impl QirGpuResumer {
         // The first failure in the chunk's order: its place, and the error.
         let mut failure: Option<(usize, QirResumeError<GpuError>)> = None;
         let mut batches: Vec<Vec<QirCall>> = Vec::new();
+        let mut conditions: Vec<Vec<QirCallCondition>> = Vec::new();
         let mut params: Vec<u8> = Vec::new();
         let mut ops: Vec<[f32; 4]> = Vec::new();
         let mut shot_list: Vec<u32> = Vec::new();
@@ -2425,7 +2583,9 @@ impl QirGpuResumer {
                     machine,
                     &mut shots,
                     &self.failing,
+                    self.strategy.conditions,
                     &mut batches,
+                    &mut conditions,
                     &mut failure,
                 );
                 resumes += 1;
@@ -2443,19 +2603,38 @@ impl QirGpuResumer {
             // and suffix) run once on the union of the groups' shots; the
             // rest of each group's batch on its own shots.
             let t = Instant::now();
+            // A round with conditioned calls shares nothing: a condition
+            // reads the outcomes of its own group's batch.
+            let conditioned = conditions.iter().any(|c| !c.is_empty());
             let (pre, suf) = if batches.len() == 1 {
                 (batches[0].len(), 0)
-            } else if self.strategy.share {
+            } else if self.strategy.share && !conditioned {
                 common_ends(&batches)
             } else {
                 (0, 0)
             };
-            let piece = |this: &Self, batch: &[QirCall]| this.plan(batch, n);
-            let shared_pre = piece(self, &batches[0][..pre]);
-            let shared_suf = piece(self, &batches[0][batches[0].len() - suf..]);
+            let piece = |this: &Self, batch: &[QirCall], conditions: &[QirCallCondition]| {
+                this.plan(batch, conditions, n)
+            };
+            let whole = |group: usize| -> &[QirCallCondition] { &conditions[group] };
+            let shared_pre = piece(
+                self,
+                &batches[0][..pre],
+                if batches.len() == 1 { whole(0) } else { &[] },
+            );
+            let shared_suf = piece(self, &batches[0][batches[0].len() - suf..], &[]);
             let mut middles = Vec::with_capacity(batches.len());
-            for batch in &batches {
-                middles.push(piece(self, &batch[pre..batch.len() - suf]));
+            for (group, batch) in batches.iter().enumerate() {
+                let middle_conditions = if batches.len() == 1 {
+                    &[]
+                } else {
+                    whole(group)
+                };
+                middles.push(piece(
+                    self,
+                    &batch[pre..batch.len() - suf],
+                    middle_conditions,
+                ));
             }
             // A piece that fails fails every shot that runs it: the first in
             // order is reported.
@@ -2615,7 +2794,9 @@ impl QirGpuResumer {
                     machine,
                     &mut shots,
                     &self.failing,
+                    self.strategy.conditions,
                     &mut batches,
+                    &mut conditions,
                     &mut failure,
                 );
                 resumes += 1;

@@ -99,8 +99,9 @@ fn main() {
         "corpus" => corpus_mode(
             &gpu,
             words.get(1).map_or(2000, |w| w.parse().expect("shots")),
+            strategy_word(words.get(2)),
         ),
-        "tests" => tests_mode(&gpu, words[1]),
+        "tests" => tests_mode(&gpu, words[1], strategy_word(words.get(2))),
         "noisy" => noisy_mode(&gpu, &words[1..]),
         "bench" => bench_mode(&gpu, &words[1..]),
         "compare" => compare_mode(&gpu, &words[1..]),
@@ -128,6 +129,12 @@ fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
         .cloned()
         .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
         .unwrap_or_default()
+}
+
+/// The strategy an optional mode word names (`cond`), `Strategy::ALL` by
+/// default.
+fn strategy_word(word: Option<&&str>) -> Strategy {
+    word.map_or(Strategy::ALL, |w| Strategy::named(w).expect("a strategy"))
 }
 
 fn conformance_mode(gpu: &Rc<Gpu>) -> bool {
@@ -161,6 +168,7 @@ fn conformance_mode(gpu: &Rc<Gpu>) -> bool {
     for (name, strategy) in [
         ("perpass", Strategy::PER_GATE),
         ("single", Strategy::named("single").expect("a strategy")),
+        ("cond", Strategy::named("cond").expect("a strategy")),
     ] {
         let checked = catch_unwind(AssertUnwindSafe(|| {
             conformance::check(|| QirGpuResumer::new(gpu.clone(), strategy));
@@ -395,12 +403,12 @@ impl Case {
     }
 }
 
-fn corpus_mode(gpu: &Rc<Gpu>, at_least: u32) -> bool {
+fn corpus_mode(gpu: &Rc<Gpu>, at_least: u32, strategy: Strategy) -> bool {
     let corpus: Corpus = serde_json::from_str(include_str!(
         "../../tests/run_shot_compatibility/run_shot_cases.json"
     ))
     .expect("the corpus parses");
-    let mut noiseless = QirGpuResumer::new(gpu.clone(), Strategy::ALL);
+    let mut noiseless = QirGpuResumer::new(gpu.clone(), strategy);
     let (mut run, mut passed, mut skipped, mut failed) = (0, 0, Vec::new(), Vec::new());
     let mut tvd_max: (f64, String) = (0.0, String::new());
     let mut z_max: (f64, String) = (0.0, String::new());
@@ -415,7 +423,7 @@ fn corpus_mode(gpu: &Rc<Gpu>, at_least: u32) -> bool {
         let resumer = match &config {
             None => &mut noiseless,
             Some(config) => {
-                noisy = QirGpuResumer::new(gpu.clone(), Strategy::ALL).with_noise(config);
+                noisy = QirGpuResumer::new(gpu.clone(), strategy).with_noise(config);
                 &mut noisy
             }
         };
@@ -518,7 +526,7 @@ fn count_results(shots: &[Vec<OutputRecord>]) -> BTreeMap<String, usize> {
 }
 
 #[allow(clippy::too_many_lines)]
-fn tests_mode(gpu: &Rc<Gpu>, path: &str) -> bool {
+fn tests_mode(gpu: &Rc<Gpu>, path: &str, strategy: Strategy) -> bool {
     let programs = load_programs(path);
     let mut ok = true;
     for (name, program) in &programs {
@@ -537,7 +545,7 @@ fn tests_mode(gpu: &Rc<Gpu>, path: &str) -> bool {
             }
             _ => 10_000,
         };
-        let mut resumer = QirGpuResumer::new(gpu.clone(), Strategy::ALL);
+        let mut resumer = QirGpuResumer::new(gpu.clone(), strategy);
         let t = Instant::now();
         let gpu_shots = match expect_ready(resumer.run(&machine, &QirShotId::first(shots))) {
             Ok(records) => records,
@@ -858,22 +866,42 @@ fn compare_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
                 .collect();
             Ok((seconds, records))
         };
-        let resumer = |strategy: &str| -> TimedRun<'_> {
+        // Prints its rounds per chunk (and groups and passes per round) on
+        // its warm-up run.
+        let resumer = |who: &'static str, strategy: &str| -> TimedRun<'_> {
             let mut resumer =
                 QirGpuResumer::new(gpu.clone(), Strategy::named(strategy).expect("a strategy"))
                     .with_noise(&noise)
                     .with_seed(7);
-            let (machine, ids) = (&machine, &ids);
+            let (machine, ids, label) = (&machine, &ids, &label);
+            let mut warm = false;
             Box::new(move || {
+                let before = resumer.stats.clone();
                 let t = Instant::now();
                 let records = expect_ready(resumer.run(machine, ids)).expect("the resumer runs");
-                Ok((t.elapsed().as_secs_f64(), records))
+                let seconds = t.elapsed().as_secs_f64();
+                if !warm {
+                    warm = true;
+                    let stats = resumer.stats.since(&before);
+                    #[allow(clippy::cast_precision_loss)]
+                    let per = |count: u64, by: u64| count as f64 / by.max(1) as f64;
+                    println!(
+                        "ROUNDS {label}: {who}: {:.1} rounds per chunk ({} chunks), \
+                         {:.2} groups and {:.1} passes per round",
+                        per(stats.rounds, stats.chunks),
+                        stats.chunks,
+                        per(stats.groups, stats.rounds),
+                        per(stats.passes, stats.rounds),
+                    );
+                }
+                Ok((seconds, records))
             })
         };
         let mut runs: Vec<(&str, TimedRun<'_>)> = vec![
             ("current", Box::new(run_current)),
-            ("resumer", resumer("all")),
-            ("resumer+reset", resumer("notail")),
+            ("resumer", resumer("resumer", "all")),
+            ("resumer+reset", resumer("resumer+reset", "notail")),
+            ("resumer+cond", resumer("resumer+cond", "cond")),
         ];
 
         let mut first = Vec::new();
@@ -920,16 +948,24 @@ fn compare_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
                 .collect::<Vec<_>>()
                 .join("; ")
         );
-        if runs.len() == 3 {
+        if runs.len() == 4 {
             println!(
                 "RATIO {label}: reset kept {:.2}x best, {:.2}x median; \
-                 reset dropped {:.2}x best, {:.2}x median",
+                 reset dropped {:.2}x best, {:.2}x median; \
+                 conditioned {:.2}x best, {:.2}x median",
                 summary[0].0 / summary[2].0,
                 summary[0].1 / summary[2].1,
                 summary[0].0 / summary[1].0,
                 summary[0].1 / summary[1].1,
+                summary[0].0 / summary[3].0,
+                summary[0].1 / summary[3].1,
             );
-            for i in 1..3 {
+            println!(
+                "RATIO {label}: conditioned vs resumer {:.2}x best, {:.2}x median",
+                summary[1].0 / summary[3].0,
+                summary[1].1 / summary[3].1,
+            );
+            for i in 1..4 {
                 let (tvd, z) = compare(&outcomes[0], &outcomes[i]);
                 let agree = z <= 5.0;
                 ok &= agree;
