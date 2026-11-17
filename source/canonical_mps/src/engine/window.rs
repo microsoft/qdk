@@ -26,8 +26,8 @@
 //!   a two-site gate that does not fit, any read, projection, fork, shape
 //!   or retained weight. It leaves the centre on the end of the window's
 //!   span nearer the site that operation names (a gate's lower site, a
-//!   read's site, or the centre, when it names none), so the operation
-//!   finds it there or close.
+//!   read's site, or the centre, when it names none), the lower end on a
+//!   tie, so the operation finds it there or close.
 //!
 //! Without fusion (the tests' comparison), each two-site gate is its own
 //! window, applied at once, and leaves the centre on the side of its sites
@@ -118,7 +118,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     }
 
     /// Applies the pending window, if any, and leaves the centre on the end
-    /// of its span nearer `toward`.
+    /// of its span nearer `toward`, the lower end on a tie.
     pub(super) fn flush_window(
         &self,
         chain: &mut Chain<A::Tensor>,

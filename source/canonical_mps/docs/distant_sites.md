@@ -55,9 +55,9 @@ apart from the largest bond at rest.
 
 **The cost.** A window on a span of `d + 1` sites costs the moves that
 bring the centre into the span, then `d − 1` moves of the centre and `d`
-splits, each on matrices up to the capacity's times the
-operator's bond on a side, plus the reads, products and uploads of the
-span's sites on the host. Every backend call is one the algebra already
+splits, each on matrices up to the capacity's times the operator's bond
+on a side, plus the reads, products and uploads of the span's sites on
+the host. Every backend call is one the algebra already
 makes for a gate or a move of the centre.
 
 ## Tried and dropped
@@ -72,16 +72,7 @@ capacity's largest bond, which the following paragraphs explain; they
 also drop a tail below the cutoff at cuts that are not the caller's,
 which an MPO never does (the case is in
 [the crate's MPO tests](../src/tests/engine/mpo.rs)). The MPO replaced
-it. Gate by gate, each distant gate one route or one MPO, the MPO made
-fewer splits and was as fast or faster, on the CPU:
-
-| Case, gate by gate                   | Route: splits | MPO: splits | Route: seconds | MPO: seconds |
-| ------------------------------------ | ------------- | ----------- | -------------- | ------------ |
-| H₂ phase estimation, one shot, χ 128 | 339,100       | 214,215     | 78.5           | 78.5         |
-| PPP polyene QPE, first round, χ 32   | 378,864       | 208,864     | 413            | 262          |
-
-With windows on three sites, which only the MPO serves, H₂'s shot takes
-57,643 splits and 17 s.
+it.
 
 The split of each outbound SWAP drops the tail below the cutoff and
 applies no capacity. Its bond is still bounded: after the SWAP that moves

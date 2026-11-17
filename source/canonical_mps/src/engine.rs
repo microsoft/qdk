@@ -104,13 +104,13 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// two-site gate that does not fit, any read, projection, fork, shape or
 /// retained weight) applies it, so the backend sees one application for
 /// all its gates, and leaves the centre on the end of the window's span
-/// nearer the site that operation names: a gate's lower site, a read's
-/// site, or the centre, when it names none. A one-site gate on another
-/// site waits on its site until the next split or move of the centre
-/// across it, or a projection of it, applies it; a read sees it applied.
-/// Fusion moves where the truncations fall, so a truncated run's values
-/// may differ from those of a run that applies each gate at once, within
-/// the truncation error; without truncation they agree to rounding.
+/// nearer the site that operation names (the lower end on a tie): a gate's
+/// lower site, a read's site, or the centre, when it names none. A one-site
+/// gate on another site waits on its site until the next split or move of
+/// the centre across it, or a projection of it, applies it; a read sees it
+/// applied. Fusion moves where the truncations fall, so a truncated run's
+/// values may differ from those of a run that applies each gate at once,
+/// within the truncation error; without truncation they agree to rounding.
 ///
 /// **Sites far apart.** A window on two neighbours is applied by one split.
 /// Any other, on sites further apart or on three sites, is applied as a

@@ -49,10 +49,12 @@ fn a_fork_applies_the_pending_window_once() {
 /// on site 3, where a read of site 3 had left it, a read of site 1. The
 /// read moves the centre onto the pair's site nearer it, one move, and
 /// splits the pair toward the site it reads, which leaves the centre
-/// there, so the centre makes no other move.
+/// there, so the centre makes no other move. With the centre already on
+/// site 1, where a read of site 1 had left it, a read of site 2 makes no
+/// move before the split.
 #[test]
 fn a_read_applies_the_pending_window_toward_its_site() {
-    for (first_read, read) in [(None, 2), (Some(3), 1)] {
+    for (first_read, read, expected) in [(None, 2, 1), (Some(3), 1, 1), (Some(1), 2, 0)] {
         let engine = Engine::new(CpuAlgebra);
         let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
         if let Some(site) = first_read {
@@ -65,30 +67,38 @@ fn a_read_applies_the_pending_window_toward_its_site() {
         assert_eq!(statistics.splits(), 1, "precondition, the pair's split");
         assert_eq!(
             statistics.centre_moves() - moves,
-            1,
+            expected,
             "a read of site {read}"
         );
     }
 }
 
-/// A gate on sites 1 and 2 of 4, left pending with the centre on site 3,
-/// where a read had left it, then an expectation: it splits the pair
-/// toward the centre, which ends on site 2, so a read of site 2 after it
-/// makes no move.
+/// A gate left pending with the centre where a read had left it, then an
+/// expectation, which applies the window toward the centre: a gate on
+/// sites 1 and 2 of 4 with the centre on site 3 ends it on site 2; a gate
+/// on sites 0 and 2 with the centre on site 1, as near one end of the span
+/// as the other, ends it on the lower end, site 0. So a read of that site
+/// after the expectation makes no move.
 #[test]
 fn an_expectation_applies_the_pending_window_toward_the_centre() {
-    let engine = Engine::new(CpuAlgebra);
-    let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
-    engine.probability_of_one(&state, 3).expect("P(One)");
-    engine.apply(&mut state, &[1, 2], &cnot()).expect("apply");
-    engine
-        .expectation(&state, &z_string(&[0]))
-        .expect("an expectation");
-    let moves = state.split_statistics().centre_moves();
-    engine.probability_of_one(&state, 2).expect("P(One)");
-    let statistics = state.split_statistics();
-    assert_eq!(statistics.splits(), 1, "precondition, the pair's split");
-    assert_eq!(statistics.centre_moves(), moves);
+    for (on, centre, end, splits) in [([1, 2], 3, 2, 1), ([0, 2], 1, 0, 2)] {
+        let engine = Engine::new(CpuAlgebra);
+        let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
+        engine.probability_of_one(&state, centre).expect("P(One)");
+        engine.apply(&mut state, &on, &cnot()).expect("apply");
+        engine
+            .expectation(&state, &z_string(&[0]))
+            .expect("an expectation");
+        let moves = state.split_statistics().centre_moves();
+        engine.probability_of_one(&state, end).expect("P(One)");
+        let statistics = state.split_statistics();
+        assert_eq!(
+            statistics.splits(),
+            splits,
+            "precondition, the window's splits"
+        );
+        assert_eq!(statistics.centre_moves(), moves, "a gate on {on:?}");
+    }
 }
 
 /// The state, splits and matrix product operators of `gates` (on 5 sites

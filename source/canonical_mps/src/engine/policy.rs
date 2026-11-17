@@ -19,9 +19,11 @@ pub const DEFAULT_CUTOFF: f64 = 1e-14;
 
 /// The singular values a window's operator keeps when it is factored into
 /// a matrix product operator ([`mpo`](super::mpo)): those above `1e-12`
-/// times the largest. The factorisation is exact: the values below are
-/// rounding's (the operator is a product of gates, each checked unitary),
-/// and keeping them would grow the operator's bond, and with it every bond
-/// of the span before its splits, for no weight. The dev line's MPO used
-/// the same threshold, on the H₂ and polyene phase estimations.
+/// times the largest. The values below are rounding's, or a genuine part
+/// of the operator of at most that relative size (a two-qubit rotation by
+/// an angle below about `1e-12`), which is dropped and which the retained
+/// weight does not count. Keeping them would grow the operator's bond, and
+/// with it every bond of the span before its splits, for at most that
+/// part. The dev line's MPO used the same threshold, on the H₂ and polyene
+/// phase estimations.
 pub(super) const OPERATOR_RANK_CUTOFF: f64 = 1e-12;

@@ -36,9 +36,9 @@ calling thread. A backend on a GPU library is planned, in its own crate.
 **Why this approach.**
 
 - **One implementation of the rules.** The centre's moves, the fusion of
-  gates, their application to distant sites, the truncation's bookkeeping and the checks of
-  every call belong to the engine alone, so every backend runs them alike,
-  and a fix reaches every backend.
+  gates, their application to distant sites, the truncation's bookkeeping
+  and the checks of every call belong to the engine alone, so every
+  backend runs them alike, and a fix reaches every backend.
 - **Small backends.** A backend writes five operations, on a site's
   storage or on two neighbouring sites; it checks no argument, since the
   engine checks every one before it calls, and reports only its own
