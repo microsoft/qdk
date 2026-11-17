@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! `SplitStatistics`: the largest bonds at rest and during routes, the
-//! splits, SWAPs and moves of the centre counted, and a fork's history.
+//! `SplitStatistics`: the largest bonds at rest and inside a matrix
+//! product operator's span, the splits, operators and moves of the centre
+//! counted, and a fork's history.
 
 use super::*;
 
@@ -29,9 +30,9 @@ fn the_largest_bond_at_rest_is_the_bond_a_gates_split_kept() {
     }
 }
 
-/// A Bell pair made by a gate on neighbours, and no route: the split kept a
-/// bond of 2 at rest, and no split was transient, so the largest transient
-/// bond is 1.
+/// A Bell pair made by a gate on neighbours, and no matrix product
+/// operator: the split kept a bond of 2 at rest, and no bond was
+/// transient, so the largest transient bond is 1.
 #[test]
 fn a_gate_on_neighbours_leaves_no_transient_bond() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
@@ -53,12 +54,12 @@ fn a_gate_on_neighbours_leaves_no_transient_bond() {
     }
 }
 
-/// Two Bell pairs, (0, 1) and (2, 3), at bond 2, then a CZ on sites 0 and 2:
-/// the outbound SWAP's split keeps a bond of 4, the gate's and the return's
-/// splits keep 2, the capacity. The 4 counts as transient only: the largest
-/// bond at rest stays at the capacity.
+/// Two Bell pairs, (0, 1) and (2, 3), at bond 2, then a CZ on sites 0 and 2,
+/// a matrix product operator: its factors multiply the bond at cut 0 to 4,
+/// and its splits compress it back to 2, the capacity. The 4 counts as
+/// transient only: the largest bond at rest stays at the capacity.
 #[test]
-fn a_routes_outbound_bond_is_transient_not_at_rest() {
+fn an_operators_grown_bond_is_transient_not_at_rest() {
     let half_turn = ry(std::f64::consts::FRAC_PI_2);
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
         let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
@@ -73,12 +74,12 @@ fn a_routes_outbound_bond_is_transient_not_at_rest() {
         }
         engine
             .retained_weight(&state)
-            .expect("a read splits the pair");
+            .expect("a read applies the operator");
         let statistics = state.split_statistics();
         assert_eq!(
             statistics.largest_transient_bond(),
             4,
-            "{name}: the outbound split keeps twice the capacity"
+            "{name}: the operator doubles the capacity"
         );
         assert_eq!(statistics.largest_bond_at_rest(), 2, "{name}");
     }
@@ -102,11 +103,11 @@ fn a_state_without_splits_reports_largest_bonds_of_1() {
     );
 }
 
-/// A gate on sites 3 and 0 of 5, unfused: two SWAPs bring site 3 down to
-/// site 1, the gate splits, and two SWAPs take it back; then a gate on
+/// A gate on sites 3 and 0 of 5, unfused: a matrix product operator,
+/// which splits each of the three cuts of its span; then a gate on
 /// neighbours takes one split.
 #[test]
-fn counts_the_splits_and_swaps_of_a_route() {
+fn counts_the_splits_and_matrix_product_operators() {
     let engine = Engine::new(CpuAlgebra).with_fusion(false);
     let mut state = engine.prepare(&chain(5, 8)).expect("prepare");
     for site in 0..5 {
@@ -122,7 +123,7 @@ fn counts_the_splits_and_swaps_of_a_route() {
         .apply(&mut state, &[1, 2], &entangler(0.4))
         .expect("apply");
     let statistics = state.split_statistics();
-    assert_eq!((statistics.splits(), statistics.swaps()), (6, 4));
+    assert_eq!((statistics.splits(), statistics.mpo_applications()), (4, 1));
 }
 
 /// Reads of site 4 of 5, then of site 1, from the centre on site 0: the
@@ -146,8 +147,8 @@ fn counts_the_moves_of_the_centre() {
     }
 }
 
-/// Grouped shots fork a state after a routed gate: each fork starts with
-/// the parent's splits, SWAPs and largest bonds.
+/// Grouped shots fork a state after a gate on distant sites: each fork
+/// starts with the parent's splits, operators and largest bonds.
 #[test]
 fn a_fork_starts_with_its_parents_history() {
     let engine = Engine::new(CpuAlgebra).with_fusion(false);

@@ -1,82 +1,19 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Gates on two neighbours, fused into one pending gate until a split, and
-//! the arithmetic of the gates the chain keeps pending on the host.
-//!
-//! A gate on two neighbours moves the centre into their pair and becomes
-//! the pair's pending gate ([`FusedPair`]); the gates that follow on the
-//! same pair, one-site gates on either site and routing SWAPs included,
-//! multiply into it, and the first other operation (a two-site gate on
-//! another pair, a read, a fork) splits the pair, by one
-//! [`gate_split`](crate::algebra::SiteAlgebra::gate_split) for all of
-//! them ([`split`](super::split)). The pair's gate starts as the two sites'
-//! pending one-site gates, so they reach the backend in the same call.
-//! Without fusion (the tests' comparison), each gate splits its pair at
-//! once and leaves the centre on the side the caller names.
+//! The arithmetic of the gates the chain keeps pending on the host: a
+//! one-site gate waiting on its site, and the operator of the pending
+//! window ([`window`](super::window)), the product of the gates on its
+//! sites.
 //!
 //! The gates are row-major, the first site the most significant bit: a
-//! one-site gate `G[s, p]` at `2s + p`, a two-site gate `G[(s, t), (p, q)]`
-//! at `(2s + t)·4 + 2p + q`, as [`GateSplitCall`] reads them.
+//! one-site gate `G[s, p]` at `2s + p`, a gate on `k` sites at
+//! `row·2ᵏ + column`, the first site's value the highest bit of the row and
+//! of the column, as [`GateSplitCall`] reads a two-site gate.
 //!
 //! [`GateSplitCall`]: crate::algebra::GateSplitCall
 
-use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain};
-use crate::algebra::{CentreSide, SiteAlgebra};
 use num_complex::Complex64;
-
-impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
-    /// Applies `gate` to the sites `cut` and `cut + 1`, whose split then
-    /// drops by `truncation`. With fusion it leaves them pending, and the
-    /// operation that splits them chooses the side; without, it splits them
-    /// and leaves the centre on `side`.
-    pub(super) fn apply_adjacent(
-        &self,
-        chain: &mut Chain<A::Tensor>,
-        cut: usize,
-        gate: &[Complex64; 16],
-        side: CentreSide,
-        truncation: Truncation,
-    ) -> Result<(), CanonicalMpsError<A::Error>> {
-        if chain.fused.is_none_or(|fused| fused.cut != cut) {
-            self.split_pair_toward(chain, cut)?;
-            let nearest = if chain.centre <= cut { cut } else { cut + 1 };
-            self.move_centre(chain, nearest)?;
-            chain.fused = Some(FusedPair {
-                cut,
-                gate: chain.take_pending_pair(cut),
-                truncation,
-            });
-        }
-        let fused = chain.fused.as_mut().expect("a pending pair at the cut");
-        fused.truncation = truncation;
-        fused.gate = multiply4(gate, &fused.gate);
-        if self.fuses {
-            Ok(())
-        } else {
-            self.split_pair(chain, side)
-        }
-    }
-}
-
-/// The gates applied to the sites `cut` and `cut + 1` since their last
-/// split, as one 4×4 gate, and what their split drops.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct FusedPair {
-    pub(super) cut: usize,
-    pub(super) gate: [Complex64; 16],
-    pub(super) truncation: Truncation,
-}
-
-/// What a split drops.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Truncation {
-    /// A split at rest, after a gate or a return SWAP: the cutoff and the
-    /// capacity's bond.
-    CutoffAndCapacity,
-    /// A split after a route's outbound SWAP: the cutoff alone.
-    CutoffOnly,
-}
 
 /// The one-site identity.
 pub(super) const IDENTITY: [Complex64; 4] = [
@@ -86,26 +23,71 @@ pub(super) const IDENTITY: [Complex64; 4] = [
     Complex64::ONE,
 ];
 
-/// `a ⊗ b` of two one-site gates, `a` on the most significant bit.
-pub(super) fn kron(a: &[Complex64; 4], b: &[Complex64; 4]) -> [Complex64; 16] {
-    std::array::from_fn(|at| {
-        let (row, col) = (at / 4, at % 4);
-        a[2 * (row >> 1) + (col >> 1)] * b[2 * (row & 1) + (col & 1)]
-    })
-}
-
-/// `a·b` of two 4×4 gates.
-pub(super) fn multiply4(a: &[Complex64; 16], b: &[Complex64; 16]) -> [Complex64; 16] {
-    std::array::from_fn(|at| {
-        let (row, col) = (at / 4, at % 4);
-        (0..4).map(|k| a[4 * row + k] * b[4 * k + col]).sum()
-    })
-}
-
 /// `a·b` of two one-site gates.
 pub(super) fn multiply2(a: &[Complex64; 4], b: &[Complex64; 4]) -> [Complex64; 4] {
     std::array::from_fn(|at| {
         let (row, col) = (at / 2, at % 2);
         (0..2).map(|k| a[2 * row + k] * b[2 * k + col]).sum()
     })
+}
+
+/// `a·b` of two operators on the same sites.
+pub(super) fn multiply(a: &[Complex64], b: &[Complex64]) -> Vec<Complex64> {
+    let dim = dimension(a.len());
+    debug_assert_eq!(a.len(), b.len(), "two operators on the same sites");
+    let mut product = vec![Complex64::ZERO; dim * dim];
+    for row in 0..dim {
+        for k in 0..dim {
+            let x = a[row * dim + k];
+            if x == Complex64::ZERO {
+                continue;
+            }
+            for col in 0..dim {
+                product[row * dim + col] += x * b[k * dim + col];
+            }
+        }
+    }
+    product
+}
+
+/// `operator`, on the sites `on` in that order, as an operator on the
+/// sites `into`, the identity on those of `into` not in `on`. The sites of
+/// `on` are distinct and all in `into`.
+pub(super) fn widen(operator: &[Complex64], on: &[usize], into: &[usize]) -> Vec<Complex64> {
+    let k = into.len();
+    let dim = 1 << k;
+    let small = 1 << on.len();
+    debug_assert_eq!(operator.len(), small * small, "an operator on `on`");
+    // The bit of `into`'s index that holds each site of `on`.
+    let bits: Vec<usize> = on
+        .iter()
+        .map(|site| {
+            let at = into
+                .iter()
+                .position(|s| s == site)
+                .expect("a site of `on` in `into`");
+            k - 1 - at
+        })
+        .collect();
+    let mask = bits.iter().fold(0, |mask, bit| mask | (1 << bit));
+    let index_on = |index: usize| {
+        bits.iter()
+            .fold(0, |value, bit| (value << 1) | ((index >> bit) & 1))
+    };
+    let mut widened = vec![Complex64::ZERO; dim * dim];
+    for row in 0..dim {
+        for col in 0..dim {
+            if row & !mask == col & !mask {
+                widened[row * dim + col] = operator[index_on(row) * small + index_on(col)];
+            }
+        }
+    }
+    widened
+}
+
+/// The side of a square operator of `len` elements.
+fn dimension(len: usize) -> usize {
+    let dim = len.isqrt();
+    debug_assert_eq!(dim * dim, len, "a square operator");
+    dim
 }

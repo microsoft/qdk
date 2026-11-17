@@ -7,8 +7,8 @@ operations, the host CPU's included. It has three parts:
 
 - **[The engine](#the-engine):**
   [`CanonicalMpsEngine`](src/engine.rs) implements `tensornet::MpsEngine`
-  over any `SiteAlgebra`: it routes, fuses, truncates and reads by one set
-  of rules. [`CpuMpsEngine`](src/lib.rs) is the engine on the reference
+  over any `SiteAlgebra`: it fuses, applies, truncates and reads by one
+  set of rules. [`CpuMpsEngine`](src/lib.rs) is the engine on the reference
   algebra.
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/algebra.rs), the tensor operations a backend
@@ -19,7 +19,7 @@ operations, the host CPU's included. It has three parts:
 
 **The problem.** Some of an MPS engine's rules are the same on every
 backend, the CPU or a GPU library: where the orthogonality centre moves,
-which pair a gate splits, how gates on distant qubits are routed, how the
+which sites a gate splits, how gates on distant qubits are applied, how the
 retained weight is kept, and the bounds every truncation stays within.
 What differs is where the tensors live, which library factors them, and
 which values a truncation keeps within those bounds. Written once per
@@ -35,8 +35,8 @@ calling thread. A backend on a GPU library is planned, in its own crate.
 
 **Why this approach.**
 
-- **One implementation of the rules.** The centre's moves, the routing,
-  the fusion of gates, the truncation's bookkeeping and the checks of
+- **One implementation of the rules.** The centre's moves, the fusion of
+  gates, their application to distant sites, the truncation's bookkeeping and the checks of
   every call belong to the engine alone, so every backend runs them alike,
   and a fix reaches every backend.
 - **Small backends.** A backend writes five operations, on a site's
@@ -80,13 +80,16 @@ engine's own for the work it defers or reorders:
   product of its splits' retained fractions, the weight its truncations
   kept.
 - **Pending gate:** a gate the engine has accepted but not yet applied to
-  the backend's tensors. A one-site gate waits on its site; the gates on
-  the pair the engine last joined wait as one 4×4 gate.
-- **Fusion:** the gates on one pair, one-site gates on either site
-  included, multiply into the pair's pending gate, so that one split
-  applies them all.
-- **Route:** a gate on two sites that are not neighbours runs as SWAPs that
-  bring them together, the gate, and SWAPs that take them back.
+  the backend's tensors. A one-site gate waits on its site; the two-site
+  gates of the pending window wait as one operator on its sites.
+- **Window, fusion:** the two-site gates on up to three sites, neighbours
+  or not, one-site gates on those sites included, multiply into one
+  pending operator, the **window**, so that one application applies them
+  all; its **span** is the sites from its first to its last.
+- **MPO (matrix product operator):** a window that is not on two
+  neighbours is applied as one tensor per site of its span, multiplied
+  into the sites, and the span compressed back by splits
+  ([`docs/distant_sites.md`](docs/distant_sites.md)).
 
 ## The engine
 
@@ -156,12 +159,13 @@ assert!((given - 1.0).abs() < 1e-12);
 
 - [`chain.rs`](src/engine/chain.rs): the sites, the centre, the pending
   gates, the retained weight and the [statistics](#settings-and-statistics);
-- [`gates.rs`](src/engine/gates.rs) and
-  [`routing.rs`](src/engine/routing.rs): gates on neighbours, fused, and
-  on sites further apart, routed;
-- [`split.rs`](src/engine/split.rs) and
-  [`canonical_form.rs`](src/engine/canonical_form.rs): the pending pair's
-  split, the one place the engine truncates, and the centre's moves;
+- [`window.rs`](src/engine/window.rs) and
+  [`gates.rs`](src/engine/gates.rs): the pending window, which gathers the
+  gates, and the arithmetic of their operators;
+- [`split.rs`](src/engine/split.rs), [`mpo.rs`](src/engine/mpo.rs) and
+  [`canonical_form.rs`](src/engine/canonical_form.rs): a window applied by
+  one split of two neighbours, the one place the engine truncates, or as
+  an [MPO](#terms) across its span, and the centre's moves;
 - [`reads.rs`](src/engine/reads.rs) and
   [`expectation.rs`](src/engine/expectation.rs): the reads of one site, and
   an observable's expectation;
@@ -173,21 +177,20 @@ assert!((given - 1.0).abs() < 1e-12);
 
 The engine defers work it can share: a gate waits, pending, until an
 operation needs the tensors it changes. So the engine's work on a state
-falls into nine phases, which each `MpsEngine` method combines
+falls into eight phases, which each `MpsEngine` method combines
 ([the table below](#how-each-mpsengine-method-is-implemented)):
 
 - **check**: the method's `tensornet::checks` function, so the backend
   never sees a refused call.
 - **pend**: a gate is multiplied into a pending gate, on the host; no
   backend call.
-- **split**: the pending pair is applied and factored by one `gate_split`,
-  which truncates; the centre is left on the side the next operation
-  needs.
+- **window**: the pending window is applied: on two neighbours by one
+  `gate_split`, which truncates; otherwise as an [MPO](#terms), its span's
+  sites read, multiplied on the host and uploaded, then compressed by
+  `qr_move`s and one `gate_split` per cut. The centre is left on the end
+  of the span the next operation needs.
 - **move**: the centre moves one site at a time, by one `qr_move` per site
   crossed, which applies the pending gate of the site it leaves.
-- **route**: the SWAPs and the gate of a [route](#terms), each pending on
-  the pair it acts on until the next one, on the neighbouring pair, splits
-  it.
 - **read**: the centre's site is copied to the host (`read`), its pending
   gate applied, and its values' weights are summed.
 - **contract**: the expectation's products of host matrices, by
@@ -201,20 +204,19 @@ falls into nine phases, which each `MpsEngine` method combines
 Each method first runs its check, when the contract has one; the table
 names the phases that follow.
 
-| `MpsEngine` method               | Phases                                                                                                         | How                                                                                                                                                                                                                                                   | Why                                                                                                                                                                                                    |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `prepare`                        | check; upload                                                                                                  | a site holding \|0⟩ per qubit, its bonds of extent 1; the centre on site 0, a retained weight of 1                                                                                                                                                    | a product state needs no split; the bonds grow only as gates entangle                                                                                                                                  |
-| `apply`, one site                | check; pend                                                                                                    | the gate joins the pending pair's gate when its site is in the pair, else its site's pending gate                                                                                                                                                     | the next split or move applies it in a call it makes anyway                                                                                                                                            |
-| `apply`, two neighbours          | check; split, of another pending pair; move; pend                                                              | the centre moves to the pair's site nearer it; the two sites' pending gates and the gate become the pair's pending gate, which later gates on the pair join                                                                                           | the gates on one pair share one split ([fusion](#terms)), and the centre moves no further than the pair                                                                                                |
-| `apply`, distant sites           | check; split, of another pending pair; move; route                                                             | `swap-back-2x`: the site at `high` moves down to `low + 1` and back; the outbound SWAPs' splits apply the cutoff alone, the gate's and the return's the cutoff and the capacity; the last return's pair stays pending                                 | the chain is in the caller's order after every call; a route drops no weight beyond the cutoff's and the capacity's at a caller's cut ([`docs/routing.md`](docs/routing.md))                           |
-| `probability_of_one`             | check; split, toward the site; move; read                                                                      | P(One) is the One value's weight over both values' weights                                                                                                                                                                                            | a value of weight exactly zero reads exactly 0; a gate's drift from norm 1, within the unitarity check's tolerance, divides out on the centre's site, and elsewhere shifts reads by at most that order |
-| `project`                        | check; split, toward the site; move; read; upload                                                              | refused when the value's probability `p` is zero or NaN, what every read sees unchanged; else the other value's elements are zeroed, and the site divided by the norm of what it kept, computed scaled; returns `p`; the retained weight is unchanged | the state's norm is 1 to rounding, however few digits `p` holds                                                                                                                                        |
-| `conditional_probability_of_one` | check; split and duplicate (a fork), with conditions; as `project` per condition; then as `probability_of_one` | the conditions are projected in order on one fork, each refused as `project` refuses; without conditions, the state is read directly                                                                                                                  | the caller's state is not projected; a rare condition whose complement rounds to 1 is not refused, as each value is read from its own weight                                                           |
-| `sample`                         | check; as `conditional_probability_of_one` per new prefix                                                      | `tensornet::sampling`'s shared sampler, over this engine's conditional probabilities                                                                                                                                                                  | the draws are `tensornet`'s shared sampler's, as for every engine that uses it, and a value of probability zero is never drawn                                                                         |
-| `expectation`                    | check; split, toward the centre; read; contract                                                                | the sites between the terms and the centre are read once each; the terms walk a trie of their factors, from the plain chain's environments; the sum is divided by the squared norm at the centre                                                      | a chemistry reading holds hundreds of Pauli strings that share their sites; one walk per term would read the sites many times over                                                                     |
-| `fork`                           | split, toward the centre; duplicate                                                                            | the copy keeps the centre, the pending one-site gates, the retained weight and the statistics                                                                                                                                                         | a pending pair is split once, in the parent, not once per fork; a fork is the same state                                                                                                               |
-| `shape`                          | split, toward the centre                                                                                       | the extents of the chain's bonds                                                                                                                                                                                                                      | a pending pair's truncation sets its bond                                                                                                                                                              |
-| `retained_weight`                | split, toward the centre                                                                                       | the product of the splits' retained fractions                                                                                                                                                                                                         | a pending pair's truncation sets its share; the chain's norm stays about 1, so the weight is kept apart                                                                                                |
+| `MpsEngine` method               | Phases                                                                                                          | How                                                                                                                                                                                                                                                   | Why                                                                                                                                                                                                                                                                      |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `prepare`                        | check; upload                                                                                                   | a site holding \|0⟩ per qubit, its bonds of extent 1; the centre on site 0, a retained weight of 1                                                                                                                                                    | a product state needs no split; the bonds grow only as gates entangle                                                                                                                                                                                                    |
+| `apply`, one site                | check; pend                                                                                                     | the gate joins the pending window's operator when its site is in the window, else its site's pending gate                                                                                                                                             | the next application of the window, or move of the centre, applies it in a call it makes anyway                                                                                                                                                                          |
+| `apply`, two sites               | check; pend, or window then pend                                                                                | the gate joins the pending window when the window's sites and its own number at most three; else the window is applied, toward the gate's first site, and the gate opens a new window                                                                 | the gates on up to three sites share one application ([fusion](#terms)): one split on two neighbours, otherwise an [MPO](#terms), which keeps the chain in the caller's order and truncates only at the caller's cuts ([`docs/distant_sites.md`](docs/distant_sites.md)) |
+| `probability_of_one`             | check; window, toward the site; move; read                                                                      | P(One) is the One value's weight over both values' weights                                                                                                                                                                                            | a value of weight exactly zero reads exactly 0; a gate's drift from norm 1, within the unitarity check's tolerance, divides out on the centre's site, and elsewhere shifts reads by at most that order                                                                   |
+| `project`                        | check; window, toward the site; move; read; upload                                                              | refused when the value's probability `p` is zero or NaN, what every read sees unchanged; else the other value's elements are zeroed, and the site divided by the norm of what it kept, computed scaled; returns `p`; the retained weight is unchanged | the state's norm is 1 to rounding, however few digits `p` holds                                                                                                                                                                                                          |
+| `conditional_probability_of_one` | check; window and duplicate (a fork), with conditions; as `project` per condition; then as `probability_of_one` | the conditions are projected in order on one fork, each refused as `project` refuses; without conditions, the state is read directly                                                                                                                  | the caller's state is not projected; a rare condition whose complement rounds to 1 is not refused, as each value is read from its own weight                                                                                                                             |
+| `sample`                         | check; as `conditional_probability_of_one` per new prefix                                                       | `tensornet::sampling`'s shared sampler, over this engine's conditional probabilities                                                                                                                                                                  | the draws are `tensornet`'s shared sampler's, as for every engine that uses it, and a value of probability zero is never drawn                                                                                                                                           |
+| `expectation`                    | check; window, toward the centre; read; contract                                                                | the sites between the terms and the centre are read once each; the terms walk a trie of their factors, from the plain chain's environments; the sum is divided by the squared norm at the centre                                                      | a chemistry reading holds hundreds of Pauli strings that share their sites; one walk per term would read the sites many times over                                                                                                                                       |
+| `fork`                           | window, toward the centre; duplicate                                                                            | the copy keeps the centre, the pending one-site gates, the retained weight and the statistics                                                                                                                                                         | a pending window is applied once, in the parent, not once per fork; a fork is the same state                                                                                                                                                                             |
+| `shape`                          | window, toward the centre                                                                                       | the extents of the chain's bonds                                                                                                                                                                                                                      | a pending window's truncation sets its bonds                                                                                                                                                                                                                             |
+| `retained_weight`                | window, toward the centre                                                                                       | the product of the splits' retained fractions                                                                                                                                                                                                         | a pending window's truncations set their share; the chain's norm stays about 1, so the weight is kept apart                                                                                                                                                              |
 
 A split that would take the retained weight below the smallest normal
 `f64` fails with `CanonicalMpsError::WeightUnderflow`, since callers divide
@@ -227,8 +229,8 @@ The cutoff and the capacity's `χ` trade time for accuracy:
 [`CanonicalMpsEngine::with_cutoff`](src/engine.rs) says how, and
 [`policy.rs`](src/engine/policy.rs) gives the default cutoff with how it
 was chosen. A caller that tunes them reads a state's
-[`SplitStatistics`](src/engine/chain.rs): its splits, SWAPs and moves of
-the centre, and its largest bond at rest and during routes, apart.
+[`SplitStatistics`](src/engine/chain.rs): its splits, MPOs and moves of
+the centre, and its largest bond at rest and inside an MPO's span, apart.
 
 ## The backend contract
 
@@ -239,13 +241,13 @@ elements live (`Tensor`) and one for its failures (`Error`). Its rustdoc
 states each operation's guarantees, to rounding; the table says what each
 is for.
 
-| Operation    | What the backend computes                                                                                                                                                     | What the engine needs it for                                                                                |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `upload`     | a new tensor holding host values                                                                                                                                              | a new state's sites, and the sites it computes on the host (a projected site)                               |
-| `read`       | a tensor's elements on the host, borrowed where they already live there                                                                                                       | the reads, which contract sites on the host (a probability)                                                 |
-| `duplicate`  | a new tensor holding a copy of another's elements                                                                                                                             | a fork of a state, whose sites then change independently                                                    |
-| `gate_split` | `θ` factored by one SVD, truncated as the call says, the kept values normalised and absorbed on the centre's side, the other side an isometry; the bond and retained fraction | a two-qubit gate on neighbouring qubits, with the centre on the pair                                        |
-| `qr_move`    | the centre moved across a bond, exactly, by one QR of the site it leaves, a one-site gate applied to that site first                                                          | bringing the centre to a gate or a read without truncating, and applying a pending one-site gate on the way |
+| Operation    | What the backend computes                                                                                                                                                     | What the engine needs it for                                                                                                                             |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload`     | a new tensor holding host values                                                                                                                                              | a new state's sites, and the sites it computes on the host (a projected site)                                                                            |
+| `read`       | a tensor's elements on the host, borrowed where they already live there                                                                                                       | the reads, which contract sites on the host (a probability)                                                                                              |
+| `duplicate`  | a new tensor holding a copy of another's elements                                                                                                                             | a fork of a state, whose sites then change independently                                                                                                 |
+| `gate_split` | `θ` factored by one SVD, truncated as the call says, the kept values normalised and absorbed on the centre's side, the other side an isometry; the bond and retained fraction | a window of gates on two neighbouring qubits, with the centre on the pair; and the compression of an MPO's span, one cut at a time, the identity as gate |
+| `qr_move`    | the centre moved across a bond, exactly, by one QR of the site it leaves, a one-site gate applied to that site first                                                          | bringing the centre to a gate or a read without truncating, and applying a pending one-site gate on the way                                              |
 
 [`GateSplitCall`](src/algebra.rs) and [`QrMoveCall`](src/algebra.rs) define
 each operation's inputs exactly, and

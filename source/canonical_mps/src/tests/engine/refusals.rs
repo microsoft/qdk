@@ -82,7 +82,7 @@ fn refuses_a_projection_on_a_value_of_probability_zero() {
 
 /// `cos 0.4·|00⟩ + sin 0.4·|11⟩`, by Ry(0.8) on site 0 and a CX, on a
 /// chain of capacity 1: the CX's split keeps `|00⟩`, dropping the value
-/// One of site 0. With fusion the CX's pair is still pending.
+/// One of site 0. With fusion the CX's window is still pending.
 fn a_pair_truncated_to_zero_zero(engine: &Engine) -> State {
     let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
     engine.apply(&mut state, &[0], &ry(0.8)).expect("apply");
@@ -101,7 +101,7 @@ fn reads(engine: &Engine, state: &State) -> [f64; 3] {
 
 /// A projection on the value of site 0 that the capacity drops from
 /// `a_pair_truncated_to_zero_zero`: with fusion the projection first
-/// applies the pending pair, as any read does, so both engines refuse it
+/// applies the pending window, as any read does, so both engines refuse it
 /// (`ZeroProbabilityOutcome`), and the reads after it are the reads
 /// before it, the same with or without fusion: P(One) 0 on both sites and
 /// the retained weight `cos²0.4`.
@@ -143,7 +143,7 @@ fn projects_on_a_value_of_rounding_weight() {
     }
 }
 
-/// A Toffoli the method did not decompose, after a pair that fusion keeps
+/// A Toffoli the method did not decompose, after a gate that fusion keeps
 /// pending: the engine refuses it with the contract's refusal, with or
 /// without fusion, and the reads after it are the reads before it.
 #[test]

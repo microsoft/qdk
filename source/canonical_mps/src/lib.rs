@@ -3,15 +3,16 @@
 
 //! A matrix product state (MPS) engine in canonical form, written once
 //! over the tensor operations of a backend, so that each backend (the CPU,
-//! a GPU library) writes only those operations, and every backend routes
-//! and reads by the same rules, and truncates within the same bounds.
+//! a GPU library) writes only those operations, and every backend fuses,
+//! applies and reads by the same rules, and truncates within the same
+//! bounds.
 //!
 //! - [`CanonicalMpsEngine`] is `tensornet`'s
 //!   [`MpsEngine`](tensornet::MpsEngine) on any
 //!   [`SiteAlgebra`](algebra::SiteAlgebra), with its state
 //!   ([`CanonicalMpsState`]), its errors ([`CanonicalMpsError`]) and what
 //!   its splits cost ([`SplitStatistics`]). It documents what a caller may
-//!   rely on beyond the contract: how it routes and fuses, and the bounds
+//!   rely on beyond the contract: how it fuses and applies gates, and the bounds
 //!   its truncations stay within.
 //! - [`CpuMpsEngine`] is the engine on [`CpuAlgebra`], the reference
 //!   algebra: the `SiteAlgebra` of the host CPU, whose answers a backend
@@ -59,8 +60,8 @@
 //! every platform the QDK supports (the `README.md`'s Platforms says which
 //! are tested). Each item's documentation states its contract; the crate's
 //! `README.md` gives an overview, `docs/engine.md` the backend calls and
-//! the numerics of each method, and `docs/routing.md` compares the routings
-//! considered.
+//! the numerics of each method, and `docs/distant_sites.md` how gates on
+//! distant sites are applied, with the alternatives considered.
 
 pub mod algebra;
 mod engine;

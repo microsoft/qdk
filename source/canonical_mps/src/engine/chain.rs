@@ -9,11 +9,12 @@
 //! call until a split or a move of the centre needs one: one pending
 //! one-site gate per site, applied by the next call that touches the site
 //! (a unitary on a site's qubit keeps the canonical form), and the pending
-//! pair ([`FusedPair`]), a 4×4 gate on two neighbours that their next
-//! split applies.
+//! window ([`Window`]), the product of the gates on up to three sites,
+//! applied at once ([`window`](super::window)).
 
 use super::CanonicalMpsError;
-use super::gates::{FusedPair, IDENTITY, kron, multiply2, multiply4};
+use super::gates::multiply2;
+use super::window::Window;
 use crate::algebra::SiteAlgebra;
 use num_complex::Complex64;
 use tensornet::MpsShape;
@@ -28,9 +29,8 @@ pub(super) struct Chain<T> {
     pub(super) centre: usize,
     /// The capacity's bond at each cut.
     pub(super) capacity_bonds: Vec<usize>,
-    /// The pair of neighbours whose gates wait for one split, if any; the
-    /// centre is one of its two sites.
-    pub(super) fused: Option<FusedPair>,
+    /// The gates on a few sites waiting to be applied at once, if any.
+    pub(super) window: Option<Window>,
     /// The product of the shares of their squared values the splits kept.
     /// The chain itself is normalised at each split, so its squared norm
     /// stays about 1.
@@ -75,7 +75,7 @@ impl<T> Chain<T> {
             pending: vec![None; n],
             centre: 0,
             capacity_bonds,
-            fused: None,
+            window: None,
             retained_weight: 1.0,
             statistics: SplitStatistics::default(),
         })
@@ -105,27 +105,20 @@ impl<T> Chain<T> {
             pending: self.pending.clone(),
             centre: self.centre,
             capacity_bonds: self.capacity_bonds.clone(),
-            fused: self.fused,
+            window: self.window.clone(),
             retained_weight: self.retained_weight,
             statistics: self.statistics,
         })
     }
 
     /// Applies the one-site gate `m` (row-major, checked) to `site`: into
-    /// the pending pair's gate when `site` is one of its two, otherwise
-    /// into the site's pending gate.
+    /// the pending window's operator when `site` is one of its sites,
+    /// otherwise into the site's pending gate.
     pub(super) fn apply_one(&mut self, site: usize, m: &[Complex64]) {
-        let m: [Complex64; 4] = std::array::from_fn(|at| m[at]);
-        match self.fused.as_mut() {
-            Some(fused) if fused.cut == site || fused.cut + 1 == site => {
-                let gate = if fused.cut == site {
-                    kron(&m, &IDENTITY)
-                } else {
-                    kron(&IDENTITY, &m)
-                };
-                fused.gate = multiply4(&gate, &fused.gate);
-            }
+        match self.window.as_mut() {
+            Some(window) if window.holds(site) => window.apply(m, &[site]),
             _ => {
+                let m: [Complex64; 4] = std::array::from_fn(|at| m[at]);
                 let pending = &mut self.pending[site];
                 *pending = Some(match pending {
                     Some(earlier) => multiply2(&m, earlier),
@@ -135,16 +128,8 @@ impl<T> Chain<T> {
         }
     }
 
-    /// The pending gates of `cut` and `cut + 1` as one 4×4 gate, cleared:
-    /// what the pair's split applies first.
-    pub(super) fn take_pending_pair(&mut self, cut: usize) -> [Complex64; 16] {
-        let left = self.pending[cut].take().unwrap_or(IDENTITY);
-        let right = self.pending[cut + 1].take().unwrap_or(IDENTITY);
-        kron(&left, &right)
-    }
-
     /// The chain's shape: one qubit per site, with the bond each cut holds.
-    /// The pending pair, if any, has not changed its bond yet.
+    /// The pending window, if any, has not changed its bonds yet.
     pub(super) fn shape(&self) -> MpsShape {
         let n = self.sites.len();
         let sites = self
@@ -162,49 +147,47 @@ impl<T> Chain<T> {
 }
 
 /// What the splits and moves of a state's history cost: how many splits it
-/// took, how many SWAPs only routed a site, how many times the centre moved
-/// by one site, and the largest bonds the splits kept, at rest and during
-/// routes.
+/// took, how many pending windows went as a matrix product operator, how
+/// many times the centre moved by one site, and the largest bonds the
+/// chain held, at rest and while such a window was applied.
 ///
-/// A split at rest (a gate's, or a route's return SWAP's) keeps at most the
-/// capacity's bond at its cut: with one `χ` at every cut, a largest bond at
-/// rest below `χ` says the capacity cut nothing, and one at `χ` that it may
-/// have, so a smaller `χ` would cut more. A route's outbound SWAPs keep
-/// transient bonds of up to twice the capacity's largest bond (Routing on
+/// Every split keeps at most the capacity's bond at its cut: with one `χ`
+/// at every cut, a largest bond at rest below `χ` says the capacity cut
+/// nothing, and one at `χ` that it may have, so a smaller `χ` would cut
+/// more. A window applied as a matrix product operator grows the bonds of
+/// its span, before its splits compress them, up to the capacity's times
+/// the operator's bond (Sites far apart on
 /// [`CanonicalMpsEngine`](super::CanonicalMpsEngine)), which
-/// [`MpsEngine::shape`](tensornet::MpsEngine::shape) no longer shows once
-/// the route is undone: the larger of the two figures is the largest bond
-/// the state held. The splits and the moves of the centre count the
-/// backend's factorisations (`gate_split`, `qr_move`), one call each.
+/// [`MpsEngine::shape`](tensornet::MpsEngine::shape) never shows: the
+/// larger of the two figures is the largest bond the state held. The
+/// splits and the moves of the centre count the backend's factorisations
+/// (`gate_split`, `qr_move`), one call each.
 ///
-/// With fusion, a pair left pending counts when it is split, under its last
-/// two-site operation: as transient if that was an outbound SWAP, at rest
-/// otherwise.
+/// With fusion, the window's gates count when the window is applied.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SplitStatistics {
     pub(super) splits: u64,
-    pub(super) swaps: u64,
+    pub(super) mpo_applications: u64,
     pub(super) centre_moves: u64,
     pub(super) largest_bond_at_rest: usize,
     pub(super) largest_transient_bond: usize,
 }
 
 impl SplitStatistics {
-    /// The splits of two neighbouring sites, a SWAP's included: each one
-    /// [`gate_split`](crate::algebra::SiteAlgebra::gate_split).
+    /// The splits of two neighbouring sites, each one
+    /// [`gate_split`](crate::algebra::SiteAlgebra::gate_split): one per
+    /// window on two neighbours, one per cut of the span of a window
+    /// applied as a matrix product operator.
     #[must_use]
     pub fn splits(&self) -> u64 {
         self.splits
     }
 
-    /// The SWAPs that brought two sites of a gate together or moved them
-    /// back. Each takes a split of its own, except, with fusion, a route's
-    /// first and last: the first shares the split of the pair it lands on
-    /// when the operation before it left that pair pending, and the last
-    /// shares its split with the operations that follow on its pair.
+    /// The pending windows applied as a matrix product operator: those on
+    /// sites that are not neighbours, or on three sites.
     #[must_use]
-    pub fn swaps(&self) -> u64 {
-        self.swaps
+    pub fn mpo_applications(&self) -> u64 {
+        self.mpo_applications
     }
 
     /// The moves of the centre by one site, outside the splits: each one
@@ -214,15 +197,17 @@ impl SplitStatistics {
         self.centre_moves
     }
 
-    /// The largest bond a split at rest kept, at most the capacity's
-    /// largest bond; 1 for a state without such splits.
+    /// The largest bond a split kept, at most the capacity's largest bond;
+    /// 1 for a state without splits.
     #[must_use]
     pub fn largest_bond_at_rest(&self) -> usize {
         self.largest_bond_at_rest.max(1)
     }
 
-    /// The largest bond the split of a route's outbound SWAP kept, at most
-    /// twice the capacity's largest bond; 1 for a state without routes.
+    /// The largest bond a window applied as a matrix product operator grew
+    /// a cut of its span to, before its splits compressed it: at most the
+    /// capacity's largest bond times the operator's (4 for a window of two
+    /// or three sites); 1 for a state without such windows.
     #[must_use]
     pub fn largest_transient_bond(&self) -> usize {
         self.largest_transient_bond.max(1)
