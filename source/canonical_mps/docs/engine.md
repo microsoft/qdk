@@ -87,8 +87,8 @@ each method, with `c` the centre before it:
 value and drops values whose squares sum to at most the cutoff times the
 sum of all their squares, unless the cap cuts more: the capacity's bond at
 the cut. Every split, an MPO's included, is at a caller's cut, so every
-split is at rest; inside an MPO's span, a bond grows, before its split,
-to at most the capacity's times the operator's bond, at most 4
+split leaves a bond at rest; inside an MPO's span, a bond grows, before
+its split, to at most the capacity's times the operator's bond, at most 4
 ([`distant_sites.md`](distant_sites.md)). These are the bounds of
 `gate_split`'s contract ([`algebra.rs`](../src/algebra.rs)); which values
 a split drops within them is the algebra's to choose. A split normalises

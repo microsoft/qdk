@@ -72,9 +72,9 @@ engine's own for the work it defers or reorders:
   keeps only its largest singular values, which truncates the bond between
   the pair. The **cutoff** is the share of the squared singular values a
   split may drop; the **capacity** is the shape a caller prepares a state
-  with, whose bond at each cut, its `χ`, is the largest a split at rest
-  may keep there; the contract calls the largest bond one split may keep
-  its **cap**.
+  with, whose bond at each cut, its `χ`, is the largest a split may keep
+  there; the contract calls the largest bond one split may keep its
+  **cap**.
 - **Retained fraction, retained weight:** the share of the squared
   singular values a split keeps; the state's **retained weight** is the
   product of its splits' retained fractions, the weight its truncations
@@ -92,6 +92,10 @@ engine's own for the work it defers or reorders:
   neighbours is applied as one tensor per site of its span, multiplied
   into the sites, and the span compressed back by splits
   ([`docs/distant_sites.md`](docs/distant_sites.md)).
+- **Bond at rest, transient bond:** a bond **at rest** is one a cut
+  holds between calls, as a split leaves it; a **transient** bond is one
+  at a cut inside an MPO's span, after its sites are multiplied and
+  before its split, up to the capacity's times the operator's bond.
 
 ## The engine
 

@@ -15,12 +15,12 @@
 //! `docs/distant_sites.md` compares them). The steps:
 //!
 //! 1. **Factor.** The operator on `k` sites becomes `k` tensors by `k − 1`
-//!    thin SVDs on the host ([`operator_mpo`]). Each SVD leaves out the
-//!    rounding values it can tell apart, and the factorisation also drops
-//!    the values at or below [`OPERATOR_RANK_CUTOFF`] times the largest:
-//!    rounding the SVD kept, or a part of the operator of at most that
-//!    relative size, which the retained weight does not count. A CNOT has
-//!    an operator bond of 2, a general two-site gate at most 4.
+//!    thin SVDs on the host ([`operator_mpo`]). Each SVD trims the values
+//!    its rank-revealing QR finds to be rounding, and the factorisation
+//!    also drops the values at or below [`OPERATOR_RANK_CUTOFF`] times the
+//!    largest: rounding the trim kept, or a part of the operator of at
+//!    most that relative size, which the retained weight does not count. A
+//!    CNOT has an operator bond of 2, a general two-site gate at most 4.
 //! 2. **Multiply.** With the centre moved into the span, each site of the
 //!    span is read, its pending gate applied, multiplied by its MPO tensor
 //!    on the host, and uploaded: the bond at each cut of the span grows by
@@ -33,7 +33,7 @@
 //!    end make every site they leave an isometry; then one
 //!    [`gate_split`](SiteAlgebra::gate_split) per cut, the identity as
 //!    gate, from the far end back to the near end, truncates each cut as a
-//!    gate's split at rest, and leaves the centre at the near end.
+//!    gate's split does, and leaves the centre at the near end.
 //!
 //! So a window on a span of `d + 1` sites costs the moves that bring the
 //! centre into the span, then `d − 1` QR moves and `d` splits. Every
@@ -56,32 +56,33 @@ use num_complex::Complex64;
 use std::borrow::Cow;
 
 impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
-    /// Applies `operator` (row-major, `sites[0]` the most significant bit)
-    /// to `sites` (ascending, at least two) as an MPO, compresses the span,
-    /// and leaves the centre on the span's end nearer `toward`, the lower
-    /// end on a tie.
+    /// Applies the pending window (its operator row-major, its first site
+    /// the most significant bit) as an MPO, compresses the span, and leaves
+    /// the centre on the span's end nearer `toward`, the lower end on a tie.
     pub(super) fn apply_mpo(
         &self,
         chain: &mut Chain<A::Tensor>,
-        sites: &[usize],
-        operator: &[Complex64],
         toward: usize,
     ) -> Result<(), CanonicalMpsError<A::Error>> {
-        // `Window` keeps its sites ascending, and sends a window on one pair
-        // of neighbours to one split instead.
+        let window = chain.window.as_ref().expect("a pending window");
+        // `Window` keeps its sites ascending, and `flush_window` sends a
+        // window on one pair of neighbours to one split instead.
         debug_assert!(
-            sites.len() >= 2 && sites.is_sorted(),
+            window.sites.len() >= 2 && window.sites.is_sorted(),
             "an MPO's sites are at least two, ascending"
         );
+        // Factored before the window leaves the chain, so that a failed
+        // factorisation keeps the window and changes nothing.
+        let factors = operator_mpo(&window.operator, window.sites.len())
+            .map_err(CanonicalMpsError::OperatorDecomposition)?;
+        let sites = chain.window.take().expect("the window factored").sites;
         let (low, high) = (sites[0], sites[sites.len() - 1]);
-        let mut factors = operator_mpo(operator, sites.len())
-            .map_err(CanonicalMpsError::OperatorDecomposition)?
-            .into_iter();
+        let mut factors = factors.into_iter();
         let centre = chain.centre.clamp(low, high);
         self.move_centre(chain, centre)?;
         // The span's sites are committed only once every upload succeeded,
-        // so a failed upload leaves the chain's neighbours sharing each
-        // bond, as before the window.
+        // so a failed read or upload leaves the chain's neighbours sharing
+        // each bond, as before the window.
         let mut multiplied_span = Vec::with_capacity(high - low + 1);
         let mut bond = 1;
         for at in low..=high {
