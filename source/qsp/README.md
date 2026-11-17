@@ -1,9 +1,9 @@
 # Quantum Service Protocol
 
-Quantum Service Protocol (QSP) is a framework for sending quantum instructions and
-results between components. It allows a component executing a quantum program to
-use different backends without changing the program, and to insert adapters
-between them.
+Quantum Service Protocol (QSP) is a framework for sending quantum instructions
+and results between components. A component executing a quantum program can use
+different backends without changing the program. Adapters can transform
+instructions and results between the components.
 
 QSP defines:
 
@@ -12,15 +12,13 @@ QSP defines:
 - Serialization format.
 - Interprocess communication protocol.
 
-The package also provides utilities implementing these interfaces. Specific
-implementations of drivers, backends, adapters and runners are separate from the
-protocol itself.
+The package also provides utilities for working with QSP.
 
 ## Core Rust interfaces
 
 We define a few core entities: Driver, Backend, Adapter and Runner.
 
-**Driver** is something that sends quantum instructions to a downstream backend.
+Driver is something that sends quantum instructions to a downstream backend.
 Instructions may be batched; sending one instruction is sending a batch of size 1.
 Every time the driver sends a batch, it blocks until it receives the results.
 Then it uses those results to continue execution, for example to choose a branch
@@ -29,7 +27,7 @@ based on a measurement.
 The Rust [Driver](src/interface.rs) trait identifies the type of the downstream
 backend and provides access to it through `get_backend()`.
 
-**Backend** is something that can process batches of quantum instructions. It
+Backend is something that can process batches of quantum instructions. It
 can be a simulator, a model of a quantum computer, or a real quantum computer.
 The [QuantumBackend](src/interface.rs) trait has one method, `execute_batch()`.
 It receives an ordered slice of `QuantumBackendInstruction` and returns
@@ -42,14 +40,14 @@ contains an ordered list of `QuantumBackendResult` values: `Zero`, `One` or
 instruction, in instruction order. Other instructions do not append results.
 A backend can accept multiple result-producing instructions in one batch.
 
-**Adapter** is something that can be plugged between a driver and a backend and
-transforms the stream of instructions. An adapter is both a Driver, relative to
-the downstream backend, and a Backend, relative to the upstream driver. Adapters
-can be stateful and can transform results as well as instructions. The
+Adapter is something that can be plugged between a driver and a backend to
+transform the instruction stream. It is a Driver for the downstream backend and
+a Backend for the upstream driver. Adapters can be stateful and can transform
+results as well as instructions. The
 [Adapter](src/utils/adapters.rs) marker trait is implemented for types that
 implement both `Driver` and `QuantumBackend`.
 
-**Runner** is a driver that executes a quantum program. It performs classical
+Runner is a driver that executes a quantum program. It performs classical
 computation and sends quantum instructions to its backend. Runner is a term for
 this role, not a separate Rust trait.
 
@@ -71,9 +69,9 @@ a canonical name and a parameter shape. Currently there are 27 instructions:
 
 We support two measurement models:
 
-- **Immediate measurement**: `mz(qubit)` and `mz_reset(qubit)` return a result in
+- Immediate measurement: `mz(qubit)` and `mz_reset(qubit)` return a result in
   the current batch response. `mz_reset` also resets the qubit.
-- **Deferred measurement**: `mz_store(qubit,result)` and
+- Deferred measurement: `mz_store(qubit,result)` and
   `mz_store_reset(qubit,result)` store the measurement in a backend result slot.
   The driver obtains it later using `read_result(result)`. This is the model
   used by QIR.
@@ -89,7 +87,7 @@ package, not extended by sending arbitrary names at runtime.
 
 ## Serialization format
 
-The serialization format is implemented in [serde.rs](src/serde.rs).
+[serde.rs](src/serde.rs) implements the serialization format:
 
 - A single instruction is represented as `name(arguments)`, for example
   `ccx(1,2,3)`.
@@ -110,7 +108,7 @@ instructions and results directly without serialization.
 
 ## Interprocess communication protocol
 
-QSP provides two stream components using this serialization format:
+Two components use this format to communicate over streams:
 
 - [StreamBackend](src/serde/stream_backend.rs) sends instruction batches to a
   writer and reads results from a reader. To the local driver, it is a backend.
@@ -135,13 +133,13 @@ value is distinct from an execution failure.
 
 ## Utilities
 
-The [utils](src/utils.rs) module contains reusable implementations built on top
-of QSP. They are helpers for executing programs and connecting components, not
-additional parts of the protocol contract.
+The [utils](src/utils.rs) module contains implementations for executing programs
+and connecting components. These utilities use QSP but are separate from the
+protocol definition.
 
 ### Runners
 
-[runners](src/utils/runners.rs) provides:
+The [runners](src/utils/runners.rs) module supports two ways to execute a program:
 
 - Q# execution through the existing interpreter, using `run_qsharp_call()` or
   `run_qsharp_expr()`. A reverse shim converts the interpreter's backend calls
@@ -176,7 +174,7 @@ instructions using registered transpilers, selected by source instruction ID.
 Unregistered instructions pass through unchanged. Generated instructions go
 directly to the backend; they are not recursively passed through transpilers.
 
-[transpilers](src/utils/transpilers.rs) contains:
+The [transpilers](src/utils/transpilers.rs) module contains:
 
 - Clifford decompositions for `cy`, `cz` and `sx`.
 - SWAP and Toffoli decompositions.
@@ -186,14 +184,14 @@ directly to the backend; they are not recursively passed through transpilers.
   using a precomputed table.
 
 `TranspilingAdapter::with_defaults()` installs the Clifford, SWAP, Toffoli,
-measurement/reset and arbitrary-angle Rz transpilers. A custom set can be
-supplied to `TranspilingAdapter::new()`.
+measurement/reset and arbitrary-angle Rz transpilers. Use
+`TranspilingAdapter::new()` to supply a custom set.
 
 ### Batching
 
 [Batcher](src/utils/batcher.rs) accumulates instructions for a backend. It sends
 a batch when it reaches the configured size, or when a result-producing
 instruction requires a response. The default maximum batch size is 10,000.
-These result-producing instructions are the last instruction in their batches.
+Each result-producing instruction ends its batch.
 Call `finish()` to submit any remaining instructions; dropping the batcher does
 not flush them.

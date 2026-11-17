@@ -1,15 +1,15 @@
 # Temporal profiler
 
-This document describes the internals of `TemporalProfiler` and the assumptions
-made by `DemoModel1`. For the general profiling workflow and Python API, see the
-[profiling README](../../README.md).
+`TemporalProfiler` runs against a hardware model. The settings and assumptions
+below are those of `DemoModel1`. For the general profiling workflow and Python
+API, see the [profiling README](../../README.md).
 
 ## Scheduler
 
-[TemporalProfiler](temporal_profiler.rs) separates scheduling from the hardware
-model. It maintains a simulated clock, dependencies between operations,
-available resources and a queue of completion events. The hardware model decides
-what native operations to schedule and what happens when they start and finish.
+[TemporalProfiler](temporal_profiler.rs) maintains the simulated clock,
+dependencies between operations, available resources and a queue of completion
+events. The hardware model decides which native operations to schedule and what
+happens when they start and finish.
 
 The [QpuModel](../models.rs) callbacks are:
 
@@ -28,28 +28,27 @@ when their resources are available. Publishing a resource through
 `add_resource()` wakes waiting operations. Completion events are ordered by
 timestamp; ties are processed FIFO.
 
-Factory rounds use the same scheduling machinery as gates. For example, a T
+Factory rounds are scheduled in the same way as gates. For example, a T
 injection can wait for a factory to publish a T state, consume that state when
 the injection starts, and start the next factory round when injection finishes.
 
 ## Execution boundaries
 
-For each batch, the profiler schedules the instructions and processes completion
-events until all requested measurement results are available. Results can finish
-out of submission order, but are returned in submission order. Dependencies and
-resource state persist across batches.
+For each batch, the profiler schedules instructions and processes completion
+events until all requested measurement results are available. Measurements can
+finish out of order; the profiler returns their results in submission order.
+Dependencies and resource state persist across batches.
 
-A batch without results can start ready operations, but does not process
-completion events or advance simulated time. This also applies to an empty
-batch. There is no final drain when program execution returns, and `get_result()`
-does not drain pending work. Trailing result-free work may remain unfinished.
-The reported runtime describes work processed so far, not necessarily every
-submitted instruction.
+A batch without results, including an empty batch, can start ready operations.
+It does not process completion events or advance simulated time. Neither the
+end of program execution nor `get_result()` drains pending work. Trailing
+result-free work may remain unfinished, so the reported runtime covers only
+work processed so far.
 
 ## DemoModel1
 
-[DemoModel1](../models/demo_model1.rs) is a model of hypothetical hardware. The
-numbers below are assumptions for a demo, not a calibration of a real machine.
+[DemoModel1](../models/demo_model1.rs) describes hypothetical hardware. Its
+numbers are demo assumptions and are not calibrated to a real machine.
 Its functional-unit implementations are [LogicalQubit](../models/qubits.rs) and
 [TFactory](../models/factories.rs).
 
@@ -59,7 +58,7 @@ The model accepts `cx`, `h`, `s`, `sadj`, `x`, `y`, `z`, `t`, `tadj`, `mz` and
 `reset`. T and T-adjoint become native `inject_t` and `inject_tadj` operations.
 Other instructions need adapters before reaching the model.
 
-Timings are specified as follows:
+The timings are:
 
 - Clifford gates use `clifford_gate_time_nanos`.
 - Measurement and reset each use `measurment_time_nanos`.
@@ -80,7 +79,7 @@ depends on distance, independently of those timing overrides.
 
 ### Logical and physical qubits
 
-Compute-qubit storage grows through the largest submitted qubit ID.
+The compute-qubit register grows to include the largest submitted qubit ID.
 `totals.logical_compute_qubits` is the size of that register, including any gaps
 in the IDs. Factories contribute their own logical qubits:
 
@@ -92,7 +91,7 @@ in the IDs. Factories contribute their own logical qubits:
 Each logical patch uses a rotated surface code with $d^2$ data qubits and
 $d^2 - 1$ syndrome-extraction ancillas. This is the same patch-size formula as
 QRE's [SurfaceCode model](../../../qdk_package/qdk/qre/models/qec/_surface_code.py).
-Compute qubits and factories currently use the same distance, so:
+Compute qubits and factories currently use the same distance:
 
 $$
 N_{\mathrm{physical}} =
@@ -100,9 +99,9 @@ N_{\mathrm{physical}} =
 $$
 
 For example, a distance-5 patch needs 49 physical qubits, and a factory needs
-245. This estimate does not include routing space, lattice-surgery workspace,
-memory buffers or hardware spares. Distance is supplied by the caller, not
-chosen from a target failure probability.
+245. The estimate excludes routing space, lattice-surgery workspace, memory
+buffers and hardware spares. The caller supplies the distance; the model does
+not choose it from a target failure probability.
 
 ### Factories
 
@@ -115,15 +114,16 @@ Each factory starts a distillation round at startup. When a round finishes:
 - The factory remains reserved during injection and starts its next round when
   injection finishes.
 
-We assume raw T-state production is included in the factory. There is no
-separate output buffer: a successful factory cannot start another round while
-its output is waiting to be consumed.
+We include raw T-state production in the factory. A successful factory holds
+its output until an injection consumes it. There is no separate output buffer,
+so the factory cannot start another round while it waits.
 
 The five-patch, 11-step single-round 15-to-1 layout follows
 [Litinski, arXiv:1808.02892](https://arxiv.org/abs/1808.02892).
 The acceptance and output-error coefficients come from
 [arXiv:2211.07629, Appendix C / Table 6](https://arxiv.org/abs/2211.07629).
-Combining them is a demo approximation, not a calibration of the compact layout.
+Using those coefficients with the compact layout is a demo approximation. They
+are not calibrated to that layout.
 
 ### Error model and measurements
 
@@ -156,25 +156,25 @@ The scheduler samples success and retries failures, rather than replacing rounds
 with an average duration. Produced T states accrue memory error while waiting
 and during injection. Injection adds that state's error to the compute qubit.
 
-Compute qubits accrue memory error from the time they are added to the model.
+Compute qubits accumulate memory error from the time they are added to the model.
 Measurement adds previously unreported memory and injected-state contributions
 to `totals.error`. Repeated measurements do not charge the same interval twice;
-this is accounting, not physical error correction. Reset starts a fresh interval
-with no accumulated error.
+the model is accounting for error, not physically correcting it. Reset starts
+a fresh interval with no accumulated error.
 
 Measurements return Zero or One with equal probability. The model does not
 maintain a wavefunction or correlations between measurement results.
 
-`totals.error` is a first-order additive fault budget, not an exact probability,
-and can exceed one. Reset is assumed perfect. The model does not simulate error
-propagation, routing, decoder delays, rotation-synthesis error or intrinsic
+`totals.error` sums first-order fault contributions and can exceed one. It is not
+an exact probability. We assume reset is perfect. The model does not simulate
+error propagation, routing, decoder delays, rotation-synthesis error or intrinsic
 algorithm success. Its physical error assumptions describe a future hardware
 target; they are not claims about current hardware.
 
 ## Construction and adapters
 
-Hardware settings belong to `DemoModel1`. Recording settings and randomness
-belong to `TemporalProfilerConfig`:
+Use `DemoModel1` to configure the hardware and `TemporalProfilerConfig` to
+configure recording and randomness:
 
 - `aggregation_window_nanos`: window size for time series, one second by default.
 - `seed`: optional random seed, shared by distillation and measurement sampling.
@@ -206,9 +206,9 @@ The result adapter maintains result registers across batches. It converts stored
 measurements to immediate measurements and answers `read_result` locally.
 The transpiling adapter decomposes composite gates and rotations into native
 gates. It also turns `mz_reset` into separate `mz` and `reset` operations.
-Profiles describe the decomposed operations, not the original composite gates
-or result-register accesses. See [QSP utilities](../../../qsp/README.md#utilities)
-for the adapter implementations.
+Profiles describe the decomposed operations. They do not include the original
+composite gates or result-register accesses. See
+[QSP utilities](../../../qsp/README.md#utilities) for the adapter implementations.
 
 In Rust, the equivalent arrangement with default hardware settings is:
 
@@ -242,11 +242,12 @@ Event rates and factory utilization use separate `TumblingWindowAggregator`
 instances. Only the event-rate aggregator contributes to the total event count.
 Their time series are combined in the result.
 
-`Factory utilization` sums distillation durations and divides by the aggregation
-window duration, reporting the average number of factories in use, with units
-`factories`, not a percentage. Waiting time is excluded. Each round is charged
-to its starting window rather than split across window boundaries. Rates use
-the full window duration even for the final partial window.
+`Factory utilization` is the sum of distillation durations divided by the
+aggregation window duration. It gives the average number of factories in use,
+in units of `factories`, not a percentage. It excludes waiting time and charges
+each round to the window in which it starts, without splitting the duration
+across windows. Rates use the full window duration even for the final partial
+window.
 
 The [profile viewer](../../profile_viewer/README.md) displays the recorded
 series and intervals without recomputing these rates.

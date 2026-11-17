@@ -1,27 +1,26 @@
 # QSPNLib
 
-QSPNLib (Quantum Service Protocol Native Library) allows native programs in
-various languages to send quantum instructions using QSP.
-
-It allows you to write code that drives QuantumBackend by calling C-style functions.
+QSPNLib (Quantum Service Protocol Native Library) is a library for writing native
+quantum programs in languages such as C, C++ and Fortran. Programs call C-style
+functions, which send quantum instructions to a QuantumBackend using QSP.
 
 All exposed functions use the `qsp_` prefix (for example, `qsp_x` applies an X gate).
 
-Typical usage:
+To use it:
 
-- Write code for a quantum application in a language (e.g., C, C++, or Fortran)
-  that calls the corresponding function exposed by the library for each quantum
-  instruction (gate or measurement).
-- By default, instructions are streamed to stdout and results are read from stdin.
+- Write a quantum application that calls the library function corresponding to
+  each quantum instruction (gate or measurement).
+- By default, instructions are streamed to stdout and results are read from stdin (using
+  the [QSP interprocess communication protocol](../qsp/README.md#interprocess-communication-protocol)).
   Optionally call `qsp_init()` to select a simulator or local profiler instead.
-- When using a profiler, call `qsp_save_profile()` at the end to save the profile to a
-  JSON file (which will contain a resource estimate based on profiling).
-- Compile your code, statically linking it against the library provided by this package.
+- When using a profiler, call `qsp_save_profile()` at the end to save the profile
+  and resource estimate to a JSON file.
+- Compile your code and statically link it against this library.
 - Execute the resulting binary.
 
-At runtime, function calls will be turned into calls to the QuantumBackend interface.
-
-See [qspnlib.h](include/qspnlib.h) for the full list of exposed functions.
+See [src/lib.rs](src/lib.rs) for list of exposed functions with documentation.
+See also [this C header file](include/qspnlib.h) for the same list of functions in more
+compact format.
 
 ## Supported backends in qsp_init()
 
@@ -46,78 +45,6 @@ is reached. `qsp_save_profile()` in stdio mode only prints an informational mess
 to stderr: it does not flush, inspect the path, or write a file. Profiling and
 saving must be handled by the profiler receiving the instruction stream.
 
-### Compiling and profiling C++ from Python
-
-In a QDK source checkout on Linux or macOS, build the release interop archive
-once with `cargo build --release -p qspnlib`, then use:
-
-```python
-from qdk.qre.application import QspApplication
-from qdk.qre.profiler import QREProfiler
-
-result = QREProfiler.counting().profile(QspApplication("my_program.cpp"))
-print(result.totals.calls_per_operation)
-```
-
-`QspApplication.compile()` invokes `cc` (or `CC`) for a `.c` main source using C11,
-and `c++` (or `CXX`) for other sources using C++17. It links the
-release archive, and returns the absolute path of an executable named
-`<source-stem>_qsp` beside the source. Profiling compiles and runs it, connecting
-two dedicated inherited pipes through the environment variables above. Neither
-process's stdin/stdout is redirected, so the C++ program can print normal logs
-to stdout. Compiler failures, nonzero program exits, and protocol errors raise
-exceptions.
-
-Pass `extra_sources=[...]` to compile additional translation units alongside the
-main source, `args=[...]` for executable arguments, and `compiler_args=[...]` for
-additional compiler/linker flags (including `-I`, `-D`, and `-l` options).
-Source paths are resolved from the current working directory. Arguments are passed
-as separate tokens, not split as shell commands. Extra compiler arguments follow
-the interop archive and system libraries so additional libraries link correctly.
-
-The program should call `qsp_` instructions directly, without `qsp_init()` or
-`qsp_save_profile()`. Finish with a measurement/result read to submit buffered
-gates. Running the executable outside the profiler, with neither environment
-variable set, still uses stdin/stdout for the protocol.
-
-`QspApplication.get_trace()` compiles and runs the same application through a
-trace-building backend instead. It returns a fresh `Trace` containing the gates
-executed by that run, suitable for resource-estimation transformations. Measurement
-outcomes are random, not simulated quantum-state outcomes; conditional programs
-record only the path taken. Tracing and profiling share the same dedicated-pipe
-transport, subprocess cleanup, and error handling.
-
-### Profiling an external program from Python
-
-On Unix, `Profiler.profile_fds(instruction_fd, result_fd)` reads instruction
-batches from one descriptor and writes replies to the other, until instruction
-EOF. It duplicates the descriptors, leaves ownership of the originals with the
-caller, and releases the GIL while serving.
-
-For manual subprocess wiring, create two `os.pipe()` pairs and pass these ends
-with `subprocess.Popen(pass_fds=..., env=...)`:
-
-| Pipe | Child environment | Profiler argument |
-| --- | --- | --- |
-| Instructions | `QDK_INSTRUCTION_FD`: write end | `instruction_fd`: read end |
-| Results | `QDK_RESULT_FD`: read end | `result_fd`: write end |
-
-Close the parent's copies of the child ends after spawning, and close the
-remaining ends on completion or failure so EOF can be observed. The C++ program
-may use normal stdin/stdout/stderr independently of these pipes.
-`Profiler.profile_stdio()` remains available for explicitly serving the protocol
-on the profiler process's stdin/stdout instead.
-
-End the workload with a measurement/result read so buffered instructions are
-submitted, then let the program exit (or close its instruction pipe) to signal EOF. Trailing
-instructions that never reach a batch boundary are discarded;
-`qsp_save_profile()` does not flush them in stdio mode.
-
-Coming soon: profilers will load configuration from a file. Meanwhile, if you need
-to instantiate backend with custom parameters, define custom backend name (e.g.
-"custom_profiler") and add implementation for it in `qsp_init()` in
-[src/lib.rs](src/lib.rs).
-
 ## Supported languages
 
 ### C/C++
@@ -139,10 +66,10 @@ to instantiate backend with custom parameters, define custom backend name (e.g.
    On Linux, include the system libraries shown in the command below, after
    the Rust archive in the link command.
 
-For example, [examples/ghz.c](examples/ghz.c) demonstrates preparing and measuring a GHZ
-state, first using a simulator and then a profiler.
+[examples/ghz.c](examples/ghz.c) prepares and measures a GHZ state, first using a
+simulator and then a profiler.
 
-Build and run it with the following command:
+Build and run it:
 
 ```
 cargo build --release -p qspnlib && \
@@ -153,8 +80,8 @@ cc -std=c11 -Wall -Wextra -Werror -Isource/qspnlib/include source/qspnlib/exampl
 ### Fortran
 
 Use [include/qspnlib.fi](include/qspnlib.fi) for Fortran interfaces to
-all functions in the C header. These interfaces use `bind(C)` and
-`iso_c_binding`; no additional Rust library or wrapper is required.
+all functions in the C header. The interfaces use `bind(C)` and
+`iso_c_binding` and need no additional Rust library or wrapper.
 
 1. Install a Fortran compiler supporting Fortran 2008, such as `gfortran`, plus
    the Rust prerequisites listed in the C/C++ section.
@@ -203,20 +130,18 @@ gfortran -std=f2008 -Wall -Wextra -Werror -Isource/qspnlib/include source/qspnli
 ./target/release/ghz_fortran
 ```
 
-## More examples
-
-### Shor's algorithm (C and Fortran)
+## Example: Shor's algorithm (C and Fortran)
 
 [examples/shor.c](examples/shor.c) and [examples/shor.f90](examples/shor.f90)
-port [the Q# Shor sample](../../samples/algorithms/Shor.qs) to the interop API.
-The C example provides explicit self-test, factorization, profiling, and random-shot modes.
-Profiling uses `counting_profiler`; its measurement results are bogus, so the
-factorization result is ignored rather than retried. The Fortran example
-uses `sparse_sim` and defaults to factoring **187 = 11 \* 17**.
+port [the Q# Shor sample](../../samples/algorithms/Shor.qs) to the native API.
+The C example has self-test, factorization, profiling and random-shot modes.
+Profiling uses `counting_profiler`, whose measurement results do not simulate a
+quantum state. The example ignores the factorization result and does not retry.
+The Fortran example uses `sparse_sim` and defaults to factoring 187 = 11 \* 17.
 
 The C example requires the GMP development headers and library (on Ubuntu/Debian,
 install `libgmp-dev`). Its classical arithmetic supports numbers up to 2048 bits;
-the Fortran example retains its existing fixed-width implementation.
+the Fortran example uses fixed-width arithmetic.
 
 Build both examples from the repository root on Linux:
 
@@ -244,13 +169,13 @@ The C CLI accepts exactly one of these modes:
   Use `QDK_INSTRUCTION_FD` and `QDK_RESULT_FD` to keep the example's stdout logs
   separate from the protocol. The shot's factorization result is not retried.
 
-Supporting large integers does not make generic 2048-bit quantum simulation
-practical. Use profiling mode for large circuits, and expect very long runtimes:
+Generic 2048-bit quantum simulation is impractical even with large-integer
+support. Use profiling mode for large circuits, and expect very long runtimes:
 the current gate-emitting implementation scales roughly cubically with bit length.
 
-In profiling mode, each random prime has half the requested bit length;
-their product can be one bit shorter than the requested length. Output is
-written to `source/profiling/profile_viewer/profiles/shor_c_<bitlen>.json`; the parent
+In profiling mode, each random prime has half the requested bit length, so their
+product can be one bit shorter than requested. The example writes the profile to
+`source/profiling/profile_viewer/profiles/shor_c_<bitlen>.json`; the parent
 directory must already exist. Prime generation uses GMP probable-prime testing
 with 25 repetitions and a time-seeded random generator intended for benchmarking,
 not cryptography. The example reads the saved operation count and
@@ -290,3 +215,55 @@ in superposition, continued fractions, and period-to-factor recovery.
 The C self-test additionally checks 64-, 65-, 2048-, and 2049-bit addition,
 comparison, controls, wraparound, and workspace cleanup on basis states, as well
 as large modular powers, 4097-bit phase postprocessing, and 1024-bit prime generation.
+
+## Python API
+
+`QspApplication` compiles C or C++ programs written using QSPNLib. It requires a
+QDK source checkout on Linux or macOS. Build the native archive once with
+`cargo build --release -p qspnlib`.
+
+TODO: bundle pre-built libqspnlib.a with QDK and update QspApplication to know where it
+is located.
+
+Pass `extra_sources=[...]` for additional source files, `compiler_args=[...]` for
+compiler/linker flags and `args=[...]` for executable arguments.
+
+### Profiling and tracing
+
+Pass the application to `QREProfiler` to profile it, or call `get_trace()` to
+collect a trace for QREv3:
+
+```python
+from qdk.qre.application import QspApplication
+from qdk.qre.profiler import QREProfiler
+
+application = QspApplication("my_program.cpp")
+result = QREProfiler.counting().profile(application)
+print(result.totals.calls_per_operation)
+
+trace = application.get_trace()
+```
+
+Both calls compile and run the program, using the QSP interprocess protocol to
+exchange instructions and results. The program can still print to stdout.
+Call `qsp_` instructions without `qsp_init()` or `qsp_save_profile()`, and finish
+with a measurement/result read to submit buffered gates.
+
+Tracing runs the program again. Measurement outcomes are random, so the trace
+records only the path taken, without simulating a quantum state.
+
+### Standalone execution
+
+To run without an external backend, the native program must select a local
+backend, for example with `qsp_init("sparse_sim")`. If it selects a profiler,
+call `qsp_save_profile("profile.json")` before exiting.
+
+Use `compile()` to build the executable, then run it directly:
+
+```python
+import subprocess
+
+application = QspApplication("standalone.cpp")
+executable = application.compile()
+subprocess.run([str(executable), *application.args], check=True)
+```

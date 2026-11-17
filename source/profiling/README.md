@@ -2,19 +2,19 @@
 
 ## Profiling in QDK
 
-Profiling is a resource estimation tool for quantum programs that executes a
-program against a model of a quantum processing unit (QPU). Instead of maintaining
-a wavefunction, the model tracks how the program would use the hardware: how long
-it takes, how many qubits it needs, and how much error it accumulates.
+Profiling is a resource estimation tool that fully executes a quantum program
+against a model of a quantum processing unit (QPU). The model tracks how long
+execution takes, how many qubits the program needs and how much error it
+accumulates.
 
-The program is executed, not just analyzed statically. Classical computation,
-loops and measurement-dependent branches run as part of profiling. Since the
-profiler does not maintain a wavefunction, measurement results may not be
-consistent with what a real quantum computer would return. This matters for
-programs whose runtime depends on the probability of a measurement outcome.
+Classical computation, loops and measurement-dependent branches run as part of
+profiling. The profiler does not maintain a wavefunction, so measurement results
+may not be consistent with what a real quantum computer would return. This
+matters for programs whose runtime depends on the probability of a measurement
+outcome.
 
-We use [Quantum Service Protocol (QSP)](../qsp/README.md) to connect program
-execution to the model:
+We use [Quantum Service Protocol (QSP)](../qsp/README.md) to connect the program
+to the model:
 
 - A runner executes the program and sends batches of quantum instructions.
 - The profiler processes those instructions as a QSP backend and returns
@@ -22,18 +22,18 @@ execution to the model:
 - Adapters between the runner and profiler can decompose instructions into the
   model's native instruction set or translate between measurement models.
 
-The connection can be in-process or over streams between processes. The profiler
-does not need to know whether the instructions came from Q#, QIR or a native
-program using QSP.
+The runner and profiler can run in the same process or communicate over streams.
+The profiler handles the same instructions whether they come from Q#, QIR or a
+native program using QSP.
 
 ## Profilers
 
 [Profiler](src/profilers.rs) is a Rust trait that extends QSP's `QuantumBackend`.
-A profiler maintains some internal state and implements `get_result()`, which
-returns a `ProfilerResult`. It contains resource estimates, temporal profiles
-and an optional execution trace.
+A profiler maintains internal state and implements `get_result()`, which returns
+a `ProfilerResult` containing resource estimates, temporal profiles and an
+optional execution trace.
 
-We currently have two profilers.
+We currently have two implementations: counting and temporal.
 
 ### Counting profiler
 
@@ -42,12 +42,13 @@ assumes that they execute sequentially. Runtime is the sum of each instruction's
 call count multiplied by its configured duration. Physical qubit usage is logical
 qubit usage multiplied by a configured constant.
 
-This is not a detailed hardware model. It is useful for counting instructions
-and measuring the overhead of executing a program through different runners.
+We use this simple model to count instructions and measure the overhead of
+executing a program through different runners. It does not model hardware in
+detail.
 Only gates specified in `gate_time_sec` appear in the per-operation count and
 runtime maps and contribute to the total operation count. Executed gates without
-configured timings contribute zero runtime and produce an informational message.
-They still contribute to qubit usage.
+configured timings contribute to qubit usage but have zero runtime and produce
+an informational message.
 
 ### Temporal profiler
 
@@ -61,18 +62,16 @@ the scheduler, model assumptions, configuration and current limitations.
 ## Models
 
 A QPU model is defined in terms of functional units and native instructions.
-Functional units are the parts of the machine that perform work, for example
-logical compute qubits and T-state factories. Native instructions are operations
-these units can execute.
+Functional units are parts of the machine, such as logical compute qubits and
+T-state factories. Native instructions are the operations they can execute.
 
-The model also describes the dynamic behavior of those units using event
-handlers: initialize the machine, schedule an instruction, react to an operation
-starting, and react to it finishing. For example, finishing a factory round can
-make a T state available, which allows a waiting injection to start. The model
-computes resource estimates from its state; the temporal profiler handles
-scheduling and the simulated clock.
+Event handlers describe how the units behave: how they initialize, schedule
+instructions and react when operations start or finish. For example, finishing a
+factory round can make a T state available for a waiting injection. The model
+computes resource estimates from its state. The temporal profiler handles
+scheduling and advances the simulated clock.
 
-Currently a model needs to be implemented in Rust, using
+Currently models must be implemented in Rust, using
 [QpuModel](src/models.rs) inside this crate.
 
 TODO: make it possible to compose a model from predefined functional units using
@@ -81,9 +80,9 @@ a Python API, without writing a new Rust model.
 ### DemoModel1
 
 [DemoModel1](src/models/demo_model1.rs) is the only implemented temporal model.
-It describes hypothetical hardware, not a specific real quantum computer.
-It has two kinds of functional units: logical compute qubits and T-state
-factories. Logical qubits use the surface code, and T gates consume states
+It describes hypothetical hardware with two kinds of functional units: logical
+compute qubits and T-state factories. It does not represent a specific real
+quantum computer. Logical qubits use the surface code, and T gates consume states
 produced by the factories.
 
 The model lets us vary gate timings, factory count and code distance. It also
@@ -97,7 +96,7 @@ assumptions and formulas are in
 concrete profiler. `QREProfiler(profiler).profile(application)` executes an
 application using that profiler as its backend, then returns a `ProfilerResult`.
 
-The following application types are supported:
+It supports these application types:
 
 - `QSharpApplication`: a Q# expression or an imported callable with arguments.
 - `OpenQASMApplication`: OpenQASM source or an imported callable with arguments.
@@ -112,7 +111,7 @@ adaptive bytecode using PyQIR, and executes that bytecode. Pass `use_qir=False`
 to use the Q# interpreter instead. QIR applications always use bytecode.
 Aggregate `LogicalCounts` are not executable programs and cannot be profiled.
 
-For example, to profile a QIR file with configured instruction timings:
+To profile a QIR file with configured instruction timings:
 
 ```python
 from pathlib import Path
@@ -134,9 +133,9 @@ result.to_json("profile.json")
 `QREProfiler.counting()` creates a wrapper configured to count every QSP
 instruction, with zero gate durations and one physical qubit per logical qubit.
 
-For temporal profiling, construct `TemporalProfiler(model, config)`, with
-`DemoModel1` describing hardware and `TemporalProfilerConfig` controlling
-recording and randomness. Pass it to the same `QREProfiler` wrapper.
+For temporal profiling, construct `TemporalProfiler(model, config)`.
+`DemoModel1` describes the hardware; `TemporalProfilerConfig` controls recording
+and randomness. Pass the profiler to the same `QREProfiler` wrapper.
 See the [construction example](src/profilers/TemporalProfiler.md#construction-and-adapters)
 for the model parameters and required adapters.
 
