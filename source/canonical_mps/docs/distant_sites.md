@@ -60,8 +60,9 @@ apart from the largest bond at rest.
 bring the centre into the span, then `d − 1` moves of the centre and `d`
 splits, each on matrices up to the capacity's times the operator's bond
 on a side, plus the reads, products and uploads of the span's sites on
-the host. Every backend call is one the algebra already
-makes for a gate or a move of the centre.
+the host. Every backend call is one of the operations the engine already
+makes elsewhere: moves and splits as for a gate, reads and uploads as for
+a projection.
 
 ## Tried and dropped
 

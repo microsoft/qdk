@@ -24,6 +24,7 @@ pub const DEFAULT_CUTOFF: f64 = 1e-14;
 /// an angle below about `1e-12`), which is dropped and which the retained
 /// weight does not count. Keeping them would grow the operator's bond, and
 /// with it every bond of the span before its splits, for at most that
-/// part. An earlier version of this engine used the same threshold on the
-/// H₂ and polyene phase estimations.
+/// part. The threshold sits about four decades above `f64`'s precision
+/// (`f64::EPSILON`, about `2.2e-16`), so rounding's values, a few times
+/// that relative to the largest, fall well below it.
 pub(super) const OPERATOR_RANK_CUTOFF: f64 = 1e-12;
