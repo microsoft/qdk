@@ -1,0 +1,14 @@
+# S with a Y-eigenstate ancilla. Measuring Z Z and then the ancilla's X turns
+# the data's X into Y and leaves its Z alone.
+circuit:
+  source:
+    - prepare_z: [1]
+    - measure_y: [1]
+    - measure_zz: [0, 1]
+    - measure_x: [1]
+    - release: [1]
+in: [qubit: [0]]
+out: [qubit: [0]]
+frames:
+  "out[0].x[0]":
+    ["circuit.readouts[0]", "circuit.readouts[1]", "circuit.readouts[2]"]

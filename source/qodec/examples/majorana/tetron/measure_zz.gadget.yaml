@@ -1,0 +1,9 @@
+circuit:
+  source: [measure_01_01: [0, 1]]
+in: [tetron: [0], tetron: [1]]
+out: [tetron: [0], tetron: [1]]
+checks:
+  - ["in[0].stabilizers[0]", "out[0].stabilizers[0]"]
+  - ["in[1].stabilizers[0]", "out[1].stabilizers[0]"]
+# (-Z_0)(-Z_2): the two signs cancel.
+readouts: [["circuit.readouts[0]", "in[0].z[0]", "in[1].z[0]"]]

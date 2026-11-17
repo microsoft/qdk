@@ -1,0 +1,8 @@
+circuit:
+  source: [measure_02: [0]]
+in: [tetron: [0]]
+out: [tetron: [0]]
+checks: [["in[0].stabilizers[0]", "out[0].stabilizers[0]"]]
+# The loop measures Y_0 X_1 = i (X_0 X_1)(Z_0): the code's Y, whose sign is
+# the X sign plus the Z sign.
+readouts: [["circuit.readouts[0]", "in[0].x[0]", "in[0].z[0]"]]

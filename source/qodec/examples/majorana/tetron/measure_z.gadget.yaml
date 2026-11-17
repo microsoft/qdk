@@ -1,0 +1,7 @@
+circuit:
+  source: [measure_01: [0]]
+in: [tetron: [0]]
+out: [tetron: [0]]
+checks: [["in[0].stabilizers[0]", "out[0].stabilizers[0]"]]
+# The loop measures -Z_0, hence the 1.
+readouts: [["circuit.readouts[0]", "in[0].z[0]", 1]]

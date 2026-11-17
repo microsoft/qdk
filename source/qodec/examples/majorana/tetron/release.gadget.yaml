@@ -1,0 +1,3 @@
+circuit:
+  source: [release: [0]]
+in: [tetron: [0]]
