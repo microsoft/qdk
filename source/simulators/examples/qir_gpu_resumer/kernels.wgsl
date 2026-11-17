@@ -861,3 +861,160 @@ fn collapse(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroup
     s[i1] = zero;
   }
 }
+
+// ---------------------------------------------------------------------------
+// SPIKE: joint measurement of up to 8 qubits (n >= 8) in three passes: the
+// 2^k outcome probabilities in one reduction (jprob), one draw (jsample),
+// one collapse (jcollapse). The measured qubits are the mask p.q0, those
+// reset after (mresetz, reset) the mask p.q1; ops[op_off..][..op_len] holds
+// (q, outcome index or -1, 0, 0) per qubit. An outcome's bin numbers the
+// measured qubits in ascending order. jprob's workgroups per shot
+// (p.per_shot) are 2^khi * C (khi: the measured qubits >= 8; C = p.kind:
+// workgroups per high outcome, JOINT_TILES tiles of 256 amplitudes each).
+
+const JOINT_TILES: u32 = 16u;
+
+var<workgroup> jacc: array<f32, 256>;
+
+// The low bits of x, deposited in the set bits of m (ascending).
+fn deposit(x: u32, m: u32) -> u32 {
+  var out = 0u;
+  var rest = m;
+  var b = 0u;
+  loop {
+    if (rest == 0u) { break; }
+    let low = rest & (0u - rest);
+    if (((x >> b) & 1u) == 1u) { out |= low; }
+    rest ^= low;
+    b++;
+  }
+  return out;
+}
+
+// The bits of x at the set bits of m, packed (ascending).
+fn extract(x: u32, m: u32) -> u32 {
+  var out = 0u;
+  var rest = m;
+  var b = 0u;
+  loop {
+    if (rest == 0u) { break; }
+    let low = rest & (0u - rest);
+    if ((x & low) != 0u) { out |= 1u << b; }
+    rest ^= low;
+    b++;
+  }
+  return out;
+}
+
+// Per group shot j, high outcome h and slice c: each low outcome's sum of
+// |amp|^2 over the slice's tiles, into partial[((j * per_shot + h * C + c)
+// << klo) | b].
+@compute @workgroup_size(256)
+fn jprob(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+  let w = flat_group(wid, nw);
+  let j = w / p.per_shot;
+  if (j >= p.shot_len) { return; }
+  let g = w % p.per_shot;
+  let h = g / p.kind;
+  let c = g % p.kind;
+  let mlo = p.q0 & 0xffu;
+  let mhi = p.q0 & ~0xffu;
+  let rest_mask = ((1u << p.n) - 1u) & ~0xffu & ~mhi;
+  let rests = 1u << (p.n - 8u - countOneBits(mhi));
+  let base = (shots[p.shot_off + j] << p.n) | deposit(h, mhi) | lid.x;
+  var r = c * JOINT_TILES;
+  var at = deposit(r, rest_mask);
+  var sum = 0.0;
+  for (var it = 0u; it < JOINT_TILES; it++) {
+    if (r < rests) {
+      let a = s[base | at];
+      sum += dot(a, a);
+    }
+    r++;
+    at = ((at | ~rest_mask) + 1u) & rest_mask;
+  }
+  jacc[lid.x] = sum;
+  workgroupBarrier();
+  // Sum over the low qubits not measured, one bit at a time.
+  for (var bit = 0u; bit < 8u; bit++) {
+    let stride = 1u << bit;
+    if ((mlo & stride) == 0u) {
+      if ((lid.x & stride) == 0u) { jacc[lid.x] += jacc[lid.x | stride]; }
+      workgroupBarrier();
+    }
+  }
+  if ((lid.x & ~mlo & 0xffu) == 0u) {
+    let klo = countOneBits(mlo);
+    partial[((j * p.per_shot + g) << klo) | extract(lid.x, mlo)] = vec2(jacc[lid.x], 0.0);
+  }
+}
+
+// One workgroup per group shot: sums each outcome's probability, draws one
+// outcome from the shot's own generator, records each qubit's outcome, and
+// leaves (outcome's index bits, 1/sqrt(P(outcome))) in flags[slot].
+@compute @workgroup_size(256)
+fn jsample(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+  let j = flat_group(wid, nw);
+  if (j >= p.shot_len) { return; }
+  let bins = 1u << countOneBits(p.q0);
+  let klo = countOneBits(p.q0 & 0xffu);
+  var t = 0.0;
+  if (lid.x < bins) {
+    let h = lid.x >> klo;
+    let b = lid.x & ((1u << klo) - 1u);
+    for (var c = 0u; c < p.kind; c++) {
+      t += partial[((j * p.per_shot + h * p.kind + c) << klo) | b].x;
+    }
+  }
+  jacc[lid.x] = t;
+  workgroupBarrier();
+  if (lid.x == 0u) {
+    let slot = shots[p.shot_off + j];
+    var total = 0.0;
+    for (var b = 0u; b < bins; b++) { total += jacc[b]; }
+    let u = f32(pcg(slot) >> 8u) * (1.0 / 16777216.0) * total;
+    var pick = 0u;
+    var last = 0u;
+    var found = false;
+    var acc = 0.0;
+    for (var b = 0u; b < bins; b++) {
+      if (jacc[b] > 0.0) { last = b; }
+      acc += jacc[b];
+      if (!found && u < acc) { pick = b; found = true; }
+    }
+    if (!found) { pick = last; }
+    let bits = deposit(pick, p.q0);
+    flags[slot] = vec2(f32(bits), inverseSqrt(jacc[pick]));
+    for (var i = 0u; i < p.op_len; i++) {
+      let e = ops[p.op_off + i];
+      if (e.y >= 0.0) {
+        outcomes[ival(e.y) * p.slots + slot] = (bits >> ival(e.x)) & 1u;
+      }
+    }
+  }
+}
+
+// Collapses the measured qubits of each group shot to the drawn outcome,
+// renormalized, the reset ones moved to |0>: one thread per amplitude; the
+// thread of the kept amplitude moves it and clears its source.
+@compute @workgroup_size(256)
+fn jcollapse(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+  let t = flat(id, nw);
+  let j = t >> p.n;
+  if (j >= p.shot_len) { return; }
+  let k = t & ((1u << p.n) - 1u);
+  let slot = shots[p.shot_off + j];
+  let f = flags[slot];
+  let bits = ival(f.x);
+  let kept = bits & ~p.q1;
+  let x = k & p.q0;
+  let base = slot << p.n;
+  if (x == kept) {
+    let source = base | (k & ~p.q0) | bits;
+    let a = s[source];
+    s[base | k] = a * f.y;
+    if (bits != kept) { s[source] = vec2(0.0, 0.0); }
+  } else if (x != bits) {
+    s[base | k] = vec2(0.0, 0.0);
+  }
+}

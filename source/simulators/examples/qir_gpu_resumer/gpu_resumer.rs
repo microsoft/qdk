@@ -68,6 +68,10 @@ const CARRIERS: u64 = 0b111;
 const BLOCK_CODE: usize = 256;
 /// The code (vec4) of a noiseless block piece (the `block_plain` kernel).
 const PLAIN_CODE: usize = 128;
+/// SPIKE: the most qubits a joint measurement holds (the kernels' 256
+/// outcomes), and the tiles of 256 amplitudes each `jprob` workgroup sums.
+const JOINT_MAX: usize = 8;
+const JOINT_TILES: u64 = 16;
 
 /// What fails in the resumer's own work: a call it does not support.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,6 +126,10 @@ pub struct Strategy {
     /// its batch runs in that batch, in a pass whose guard each shot
     /// evaluates on its outcomes, rather than in a round of its own.
     pub conditions: bool,
+    /// SPIKE: whether measurements on distinct qubits with nothing on
+    /// their qubits between them run as one joint measurement (up to
+    /// `JOINT_MAX` qubits, n >= 8): three passes for all of them.
+    pub joint: bool,
 }
 
 impl Strategy {
@@ -141,6 +149,7 @@ impl Strategy {
         clean_variant: true,
         plain_kernels: true,
         conditions: false,
+        joint: false,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -158,6 +167,7 @@ impl Strategy {
         clean_variant: false,
         plain_kernels: false,
         conditions: false,
+        joint: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -175,6 +185,7 @@ impl Strategy {
         clean_variant: true,
         plain_kernels: true,
         conditions: false,
+        joint: false,
     };
 
     pub fn named(name: &str) -> Option<Self> {
@@ -183,6 +194,15 @@ impl Strategy {
             "perpass" => Self::PER_GATE,
             "cond" => Self {
                 conditions: true,
+                ..Self::ALL
+            },
+            "joint" => Self {
+                conditions: true,
+                joint: true,
+                ..Self::ALL
+            },
+            "jointall" => Self {
+                joint: true,
                 ..Self::ALL
             },
             "fused" => Self::FUSED,
@@ -335,6 +355,9 @@ pub struct Gpu {
     sample: wgpu::ComputePipeline,
     collapse: wgpu::ComputePipeline,
     pauli: wgpu::ComputePipeline,
+    jprob: wgpu::ComputePipeline,
+    jsample: wgpu::ComputePipeline,
+    jcollapse: wgpu::ComputePipeline,
     /// Seconds to create the pipelines, and to compile them at a first
     /// dispatch each (Mesa compiles lazily).
     pub create_seconds: f64,
@@ -437,6 +460,9 @@ impl Gpu {
             sample: make("sample"),
             collapse: make("collapse"),
             pauli: make("pauli"),
+            jprob: make("jprob"),
+            jsample: make("jsample"),
+            jcollapse: make("jcollapse"),
             create_seconds: started.elapsed().as_secs_f64(),
             compile_seconds: 0.0,
             adapter_name,
@@ -475,6 +501,9 @@ impl Gpu {
             ("sample", &self.sample),
             ("collapse", &self.collapse),
             ("pauli", &self.pauli),
+            ("jprob", &self.jprob),
+            ("jsample", &self.jsample),
+            ("jcollapse", &self.jcollapse),
         ] {
             let t = Instant::now();
             let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -951,6 +980,9 @@ enum SegKind {
         kind: u32,
         meas: u32,
     },
+    /// SPIKE: measurements on distinct qubits, `(q, kind, meas)` each, in
+    /// one joint measurement.
+    Joint(Vec<(u32, u32, u32)>),
     /// A noise site in a pass of its own (an `Op::Noise`).
     Pauli(Op),
     /// A conditioned gate (`Op::G1`, `Op::G2`) or its noise site
@@ -1156,6 +1188,10 @@ fn translate(
                 SegKind::Gate2 { a, b, .. } => format!("Gate2({a},{b})"),
                 SegKind::Pauli(_) => "Pauli".to_string(),
                 SegKind::Meas { q, .. } => format!("Meas({q})"),
+                SegKind::Joint(ms) => format!(
+                    "Joint({:?})",
+                    ms.iter().map(|m| m.0).collect::<Vec<_>>()
+                ),
                 SegKind::Guarded { op, guard } => format!("Guarded({:?}: {op:?})", guard.meas),
             })
             .collect();
@@ -1305,6 +1341,12 @@ fn place(segments: &mut Vec<Segment>, op: Op, low: u64, strategy: Strategy) {
                 *m = mul4(&g, m);
                 true
             }
+            (SegKind::Joint(ms), Op::Meas { q, kind, meas })
+                if strategy.joint && ms.len() < JOINT_MAX && ms.iter().all(|m| m.0 != *q) =>
+            {
+                ms.push((*q, *kind, *meas));
+                true
+            }
             _ => false,
         };
         if joined {
@@ -1337,6 +1379,9 @@ fn place(segments: &mut Vec<Segment>, op: Op, low: u64, strategy: Strategy) {
         }
         Op::G1 { q, m } => SegKind::Gate1 { q, m },
         Op::G2 { a, b, m } => SegKind::Gate2 { a, b, m },
+        Op::Meas { q, kind, meas } if strategy.joint && low.count_ones() >= 8 => {
+            SegKind::Joint(vec![(q, kind, meas)])
+        }
         Op::Meas { q, kind, meas } => SegKind::Meas { q, kind, meas },
         op @ Op::Noise { .. } => SegKind::Pauli(op),
     };
@@ -1638,6 +1683,12 @@ pub fn common_ends(batches: &[Vec<QirCall>]) -> (usize, usize) {
     (pre, suf)
 }
 
+/// The `partial` entries a shot needs: `prob`'s `per_shot`, or (SPIKE) a
+/// joint measurement's, at most `2^k * C` (`max(256, 2^(n-4))`).
+fn partial_per_shot(n: u32, per_shot: u32) -> u64 {
+    u64::from(per_shot).max(256).max(1u64 << n.saturating_sub(4))
+}
+
 /// The passes of a round being laid out: their parameters, op lists and
 /// dispatches.
 struct Layout<'a, 'g> {
@@ -1918,6 +1969,36 @@ impl Layout<'_, '_> {
                         Op::Meas { .. } => unreachable!("only gates are conditioned"),
                     }
                 }
+                SegKind::Joint(ms) => {
+                    let mask = ms.iter().fold(0u32, |m, &(q, _, _)| m | 1 << q);
+                    let reset = ms
+                        .iter()
+                        .filter(|m| m.1 == 1)
+                        .fold(0u32, |m, &(q, _, _)| m | 1 << q);
+                    let khi = (mask & !0xff).count_ones();
+                    let rests = 1u64 << (n - 8 - khi);
+                    let c = rests.div_ceil(JOINT_TILES);
+                    let groups = (1u64 << khi) * c;
+                    p.q0 = mask;
+                    p.q1 = reset;
+                    p.kind = u32::try_from(c).expect("fits");
+                    p.per_shot = u32::try_from(groups).expect("fits");
+                    p.op_off = op_off;
+                    p.op_len = u32::try_from(ms.len()).expect("fits");
+                    #[allow(clippy::cast_precision_loss)]
+                    self.ops.extend(ms.iter().map(|&(q, _, meas)| {
+                        let at = if meas == NO_RESULT {
+                            -1.0
+                        } else {
+                            (meas + meas_off) as f32
+                        };
+                        [q as f32, at, 0.0, 0.0]
+                    }));
+                    self.passes.push((&gpu.jprob, slot, len * groups));
+                    self.passes.push((&gpu.jsample, slot, len));
+                    self.passes
+                        .push((&gpu.jcollapse, slot, (len << n).div_ceil(WG)));
+                }
                 SegKind::Meas { q, kind, meas } => {
                     p.q0 = *q;
                     p.kind = *kind;
@@ -2037,9 +2118,9 @@ impl QirGpuResumer {
             1 << 16,
             u64::from(slots) * 4,
             u64::from(slots),
-            u64::from(slots) * u64::from(per_shot) * 8,
+            u64::from(slots) * partial_per_shot(n, per_shot) * 8,
         );
-        buffers.ensure_outcomes(device, &gpu.layout, u64::from(slots) * 4);
+        buffers.ensure_outcomes(device, &gpu.layout, u64::from(slots) * 4 * 8);
         let shot_list: Vec<u32> = (0..slots).collect();
         queue.write_buffer(&buffers.shots, 0, bytemuck::cast_slice(&shot_list));
         let rx = |q: u32, t: f64| {
@@ -2140,6 +2221,18 @@ impl QirGpuResumer {
                     kind: 1,
                     meas: 0,
                 },
+            ),
+            (
+                "joint mresetz of the 8 highest qubits (SPIKE)",
+                SegKind::Joint((n - 8..n).map(|q| (q, 1, q + 8 - n)).collect()),
+            ),
+            (
+                "joint mresetz of the 8 lowest qubits (SPIKE)",
+                SegKind::Joint((0..8).map(|q| (q, 1, q)).collect()),
+            ),
+            (
+                "joint mresetz of 1 qubit (SPIKE)",
+                SegKind::Joint(vec![(0, 1, 0)]),
             ),
         ];
         let mut times = Vec::new();
@@ -2259,7 +2352,7 @@ impl QirGpuResumer {
             (ops.len() as u64 * 16).max(16),
             u64::from(slots) * 4,
             u64::from(slots),
-            u64::from(slots) * u64::from(per_shot) * 8,
+            u64::from(slots) * partial_per_shot(n, per_shot) * 8,
         );
         buffers.ensure_outcomes(device, &gpu.layout, u64::from(slots) * 4);
         let shot_list: Vec<u32> = (0..slots).collect();
@@ -2515,7 +2608,7 @@ impl QirGpuResumer {
             16,
             16,
             u64::from(slots),
-            u64::from(slots) * u64::from(per_shot) * 8,
+            u64::from(slots) * partial_per_shot(n, per_shot) * 8,
         );
         let seeds: Vec<u32> = chunk
             .iter()
