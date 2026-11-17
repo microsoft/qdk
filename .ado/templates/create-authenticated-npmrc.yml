@@ -1,0 +1,17 @@
+parameters:
+  - name: workingFile
+    type: string
+    default: .npmrc
+
+steps:
+  - script: |
+      node -e "const registry = process.env.AZURE_ARTIFACTS_FEED; if (!registry) throw new Error('AZURE_ARTIFACTS_FEED is not set'); require('fs').writeFileSync(process.env.NPMRC_PATH, ['registry=' + registry, '', 'always-auth=true', ''].join('\n'));"
+    displayName: Create ${{ parameters.workingFile }} for npm authentication
+    env:
+      AZURE_ARTIFACTS_FEED: $(AZURE_ARTIFACTS_FEED)
+      NPMRC_PATH: ${{ parameters.workingFile }}
+
+  # See the note on AZURE_ARTIFACTS_FEED in publish.yml.
+  - task: npmAuthenticate@0
+    inputs:
+      workingFile: ${{ parameters.workingFile }}

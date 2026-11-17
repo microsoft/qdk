@@ -4,6 +4,8 @@
 #![allow(unknown_lints, clippy::empty_docs)]
 #![allow(non_snake_case)]
 
+// Enable the WASM randomness backend for the transitive rand 0.8 dependency.
+use getrandom_02 as _;
 use katas::check_solution;
 use language_service::IOperationInfo;
 use num_bigint::BigUint;
@@ -59,24 +61,79 @@ pub fn git_hash() -> String {
 }
 
 #[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console, js_name = warn)]
+    fn report_qir_warning(message: &str);
+}
+
+/// Returns QIR and reports nonfatal diagnostics through the host's console.
+/// Use `get_qir_with_diagnostics` to control warning presentation instead.
+#[wasm_bindgen]
 pub fn get_qir(program: ProgramConfig) -> Result<String, String> {
+    generate_qir_with_diagnostics(program).map(|result| {
+        for warning in result.warnings {
+            report_qir_warning(&format!(
+                "{}: {}",
+                warning.diagnostic.code.as_deref().unwrap_or_default(),
+                warning.diagnostic.message,
+            ));
+        }
+        result.qir
+    })
+}
+
+serializable_type! {
+    QirGenerationResult,
+    {
+        pub qir: String,
+        pub warnings: Vec<diagnostic::QSharpError>,
+    },
+    r#"export interface QirGenerationResult {
+        qir: string;
+        warnings: IQSharpError[];
+    }
+    export type IQirGenerationResult = QirGenerationResult;"#,
+    IQirGenerationResult
+}
+
+#[wasm_bindgen]
+pub fn get_qir_with_diagnostics(program: ProgramConfig) -> Result<IQirGenerationResult, String> {
+    generate_qir_with_diagnostics(program).map(Into::into)
+}
+
+fn qir_result(result: qsc::codegen::qir::QirGenerationResult) -> QirGenerationResult {
+    QirGenerationResult {
+        qir: result.qir,
+        warnings: diagnostic::interpret_errors_into_qsharp_errors(&result.warnings),
+    }
+}
+
+fn generate_qir_with_diagnostics(program: ProgramConfig) -> Result<QirGenerationResult, String> {
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
-        get_qir_from_openqasm(&sources, capabilities)
+        let (entry, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)
+            .map_err(interpret_errors_into_qsharp_errors_json)?;
+        interpreter
+            .qirgen_with_diagnostics(&entry)
+            .map(qir_result)
+            .map_err(interpret_errors_into_qsharp_errors_json)
     } else {
         let (source_map, capabilities, language_features, store, deps) =
             into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
 
-        get_qir_from_qsharp(
+        qsc::codegen::qir::get_qir_with_diagnostics(
             source_map,
             language_features,
             capabilities,
             store,
             &deps[..],
         )
+        .map(qir_result)
+        .map_err(interpret_errors_into_qsharp_errors_json)
     }
 }
 
+#[cfg(test)]
 pub(crate) fn get_qir_from_qsharp(
     sources: SourceMap,
     language_features: LanguageFeatures,
@@ -85,17 +142,7 @@ pub(crate) fn get_qir_from_qsharp(
     deps: &qsc::compile::Dependencies,
 ) -> Result<String, String> {
     qsc::codegen::qir::get_qir(sources, language_features, capabilities, store, deps)
-        .map_err(interpret_errors_into_qsharp_errors_json)
-}
-
-pub(crate) fn get_qir_from_openqasm(
-    sources: &[(Arc<str>, Arc<str>)],
-    capabilities: TargetCapabilityFlags,
-) -> Result<String, String> {
-    let (entry_expr, mut interpreter) = get_interpreter_from_openqasm(sources, capabilities)
-        .map_err(interpret_errors_into_qsharp_errors_json)?;
-    interpreter
-        .qirgen(&entry_expr)
+        .map(|result| result.qir)
         .map_err(interpret_errors_into_qsharp_errors_json)
 }
 
@@ -152,12 +199,14 @@ serializable_type! {
     {
         generation_method: String,
         max_operations: usize,
+        max_loop_iterations: Option<usize>,
         source_locations: bool,
         group_by_scope: bool,
     },
     r#"export interface ICircuitConfig {
         generationMethod: "simulate" | "classicalEval" | "static";
         maxOperations: number;
+        maxLoopIterations?: number;
         sourceLocations: boolean;
         groupByScope: boolean;
     }"#,
@@ -185,6 +234,7 @@ pub fn get_circuit(
     let tracer_config = qsc::circuit::TracerConfig {
         source_locations: config.source_locations,
         max_operations: config.max_operations,
+        max_loop_iterations: config.max_loop_iterations,
         group_by_scope: config.group_by_scope,
         prune_classical_qubits: false,
     };
@@ -344,6 +394,47 @@ pub fn get_rir(program: ProgramConfig) -> Result<Vec<String>, String> {
         )
         .map_err(interpret_errors_into_qsharp_errors_json)
     }
+}
+
+serializable_type! {
+    RirGenerationResult,
+    {
+        pub rir: Vec<String>,
+        pub warnings: Vec<diagnostic::QSharpError>,
+    },
+    r#"export interface RirGenerationResult {
+        rir: string[];
+        warnings: IQSharpError[];
+    }
+    export type IRirGenerationResult = RirGenerationResult;"#,
+    IRirGenerationResult
+}
+
+/// Backend-preview RIR with QIR's fallback policy and caller-owned warnings.
+#[wasm_bindgen]
+pub fn get_rir_with_diagnostics(program: ProgramConfig) -> Result<IRirGenerationResult, String> {
+    let result = if is_openqasm_program(&program) {
+        let (sources, capabilities) = into_openqasm_arg(program);
+        let (entry, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)
+            .map_err(interpret_errors_into_qsharp_errors_json)?;
+        interpreter.get_rir_with_diagnostics(&entry)
+    } else {
+        let (source_map, capabilities, language_features, store, deps) =
+            into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
+        qsc::codegen::qir::get_rir_with_diagnostics(
+            source_map,
+            language_features,
+            capabilities,
+            store,
+            &deps[..],
+        )
+    }
+    .map_err(interpret_errors_into_qsharp_errors_json)?;
+    Ok(RirGenerationResult {
+        rir: result.rir,
+        warnings: diagnostic::interpret_errors_into_qsharp_errors(&result.warnings),
+    }
+    .into())
 }
 
 /// Compiles raw `OpenQASM` sources into a Q# package store, returning the store and the id of the

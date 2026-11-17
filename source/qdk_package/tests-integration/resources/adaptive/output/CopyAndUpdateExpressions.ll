@@ -23,18 +23,19 @@ block_0:
   store i64 0, ptr %var_4
   br label %block_1
 block_1:
-  %var_10 = load i64, ptr %var_4
-  %var_5 = icmp slt i64 %var_10, 2
-  br i1 %var_5, label %block_2, label %block_3
+  %var_5 = load i64, ptr %var_4
+  %var_6 = icmp slt i64 %var_5, 2
+  br i1 %var_6, label %block_2, label %block_3
 block_2:
-  %var_11 = load i64, ptr %var_4
-  %var_6_offset_chk = icmp slt i64 %var_11, 0
-  %var_6_offset = select i1 %var_6_offset_chk, i64 1, i64 0
-  %var_6 = getelementptr [2 x ptr], ptr @array0, i64 %var_6_offset, i64 %var_11
-  %var_12 = load ptr, ptr %var_6
-  call void @X(ptr %var_12)
-  %var_8 = add i64 %var_11, 1
-  store i64 %var_8, ptr %var_4
+  %var_12 = load i64, ptr %var_4
+  %var_13_offset_chk = icmp slt i64 %var_12, 0
+  %var_13_offset = select i1 %var_13_offset_chk, i64 1, i64 0
+  %var_13 = getelementptr [2 x ptr], ptr @array0, i64 %var_13_offset, i64 %var_12
+  %var_7 = load ptr, ptr %var_13
+  call void @X(ptr %var_7)
+  %var_9 = load i64, ptr %var_4
+  %var_10 = add i64 %var_9, 1
+  store i64 %var_10, ptr %var_4
   br label %block_1
 block_3:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 5 to ptr))
@@ -77,7 +78,7 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -88,3 +89,4 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

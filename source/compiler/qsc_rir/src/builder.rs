@@ -45,6 +45,30 @@ pub fn h_decl() -> Callable {
 }
 
 #[must_use]
+pub fn s_decl() -> Callable {
+    Callable {
+        name: "__quantum__qis__s__body".to_string(),
+        input_type: vec![Ty::Prim(Prim::Qubit)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Regular,
+    }
+}
+
+#[must_use]
+pub fn sadj_decl() -> Callable {
+    Callable {
+        name: "__quantum__qis__s__adj".to_string(),
+        input_type: vec![Ty::Prim(Prim::Qubit)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Regular,
+    }
+}
+
+#[must_use]
 pub fn cx_decl() -> Callable {
     Callable {
         name: "__quantum__qis__cx__body".to_string(),
@@ -72,6 +96,30 @@ pub fn rx_decl() -> Callable {
 pub fn m_decl() -> Callable {
     Callable {
         name: "__quantum__qis__m__body".to_string(),
+        input_type: vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Result)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Measurement,
+    }
+}
+
+#[must_use]
+pub fn mx_decl() -> Callable {
+    Callable {
+        name: "__quantum__qis__mx__body".to_string(),
+        input_type: vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Result)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Measurement,
+    }
+}
+
+#[must_use]
+pub fn my_decl() -> Callable {
+    Callable {
+        name: "__quantum__qis__my__body".to_string(),
         input_type: vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Result)],
         input_vars: Vec::new(),
         output_type: None,
@@ -113,6 +161,18 @@ pub fn read_result_decl() -> Callable {
         output_type: Some(Ty::Prim(Prim::Boolean)),
         body: None,
         call_type: CallableType::Readout,
+    }
+}
+
+#[must_use]
+pub fn write_result_decl() -> Callable {
+    Callable {
+        name: "__quantum__rt__write_result".to_string(),
+        input_type: vec![Ty::Prim(Prim::Boolean), Ty::Prim(Prim::Result)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Regular,
     }
 }
 

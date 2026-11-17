@@ -1,9 +1,60 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{CompilationContext, check_last_statement_compute_properties};
+use super::{
+    CompilationContext, check_callable_compute_properties, check_last_statement_compute_properties,
+};
 use expect_test::expect;
 use qsc_data_structures::target::Profile;
+
+#[test]
+fn loop_body_tuple_shift_propagates_measurement_dependency_to_first_bool() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let measured = MResetZ(q) == One;
+        mutable (i, a, b, c, d, e, f) = (0, false, false, false, false, false, false);
+        while i < 7 {
+            set (i, a, b, c, d, e, f) = (i + 1, b, c, d, e, f, measured);
+        }
+        a"#,
+    );
+    check_last_statement_compute_properties(
+        compilation_context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn loop_condition_tuple_shift_preserves_fixed_measurement_handle() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let measured = MResetZ(q);
+        mutable (i, a, b, c, d, e, f) = (0, Zero, Zero, Zero, Zero, Zero, Zero);
+        while {
+            set (i, a, b, c, d, e, f) = (i + 1, b, c, d, e, f, measured);
+            i < 7
+        } {}
+        a"#,
+    );
+    check_last_statement_compute_properties(
+        compilation_context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
 
 #[test]
 fn check_rca_for_classical_for_loop() {
@@ -313,6 +364,107 @@ fn check_rca_for_dynamic_while_loop_with_assignments_in_both_the_condition_and_t
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
+    );
+}
+
+// These tests use an operation because at the top level, `unanalyzed_stmts` visits the loop's statements again
+// after the loop, which adds propagation passes and hides the bug.
+#[test]
+fn check_rca_for_dynamic_value_shifted_through_tuple_assignment_in_while_loop_block() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        operation Foo() : Bool {
+            use q = Qubit();
+            mutable (i, a, b, c, e) = (0, false, false, false, false);
+            let d = M(q) == One;
+            while i < 5 {
+                set (i, a, b, c, e) = (i + 1, b, c, e, d);
+            }
+            a
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "Foo",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                        value_kind: Variable
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_dynamic_value_shifted_through_tuple_assignment_in_while_loop_condition() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        operation Foo() : Bool {
+            use q = Qubit();
+            mutable (i, a, b, c, e) = (0, false, false, false, false);
+            let d = M(q) == One;
+            while {
+                set (i, a, b, c, e) = (i + 1, b, c, e, d);
+                i < 5
+            } {}
+            a
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "Foo",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                        value_kind: Variable
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_dynamic_value_shifted_through_tuple_assignment_in_while_loop_condition_with_loop_support()
+ {
+    let mut compilation_context = CompilationContext::new(Profile::Adaptive.into());
+    compilation_context.update(
+        r#"
+        operation Foo() : Bool {
+            use q = Qubit();
+            mutable (i, a, b, c, e) = (0, false, false, false, false);
+            let d = M(q) == One;
+            while {
+                set (i, a, b, c, e) = (i + 1, b, c, e, d);
+                i < 5
+            } {}
+            a
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "Foo",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | QubitAllocation)
+                        value_kind: Variable
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
     );
 }
 

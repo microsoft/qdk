@@ -85,7 +85,7 @@ pub fn hook(info: &std::panic::PanicHookInfo) {
 
     // The target will appear in telemetry, but nothing else will for privacy reasons
     let err_text = format!("Wasm panic occurred: {msg}");
-    log::error!(target: "wasm", "{}", &err_text);
+    log::error!(target: "wasm", "{err_text}");
 }
 
 #[wasm_bindgen(js_name=initLogging)]

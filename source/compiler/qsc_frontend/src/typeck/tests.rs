@@ -787,6 +787,39 @@ fn binop_andb_mismatch() {
 }
 
 #[test]
+fn binop_andl_mismatch() {
+    check(
+        "",
+        r#"5 and true"#,
+        &expect![[r##"
+            #1 0-10 "5 and true" : Bool
+            #2 0-1 "5" : Int
+            #3 6-10 "true" : Bool
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 0, hi: 1 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn binop_andl_doesnt_diverge() {
+    check(
+        "",
+        r#"5 + ((fail "error") and false)"#,
+        &expect![[r##"
+            #1 0-30 "5 + ((fail \"error\") and false)" : Int
+            #2 0-1 "5" : Int
+            #3 4-30 "((fail \"error\") and false)" : Bool
+            #4 5-29 "(fail \"error\") and false" : Bool
+            #5 5-19 "(fail \"error\")" : Bool
+            #6 6-18 "fail \"error\"" : Bool
+            #7 11-18 "\"error\"" : String
+            #8 24-29 "false" : Bool
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 4, hi: 30 }))))
+        "##]],
+    );
+}
+
+#[test]
 fn binop_equal_callable() {
     check(
         indoc! {"
@@ -1477,7 +1510,7 @@ fn if_cond_fail() {
             namespace A {
                 function F() : Int {
                     if fail "error" {
-                        "this type doesn't matter"
+                        "this type is still seen"
                     } else {
                         "foo"
                     }
@@ -1487,15 +1520,16 @@ fn if_cond_fail() {
         "",
         &expect![[r##"
             #6 28-30 "()" : Unit
-            #10 37-154 "{\n        if fail \"error\" {\n            \"this type doesn't matter\"\n        } else {\n            \"foo\"\n        }\n    }" : Int
-            #12 47-148 "if fail \"error\" {\n            \"this type doesn't matter\"\n        } else {\n            \"foo\"\n        }" : String
+            #10 37-153 "{\n        if fail \"error\" {\n            \"this type is still seen\"\n        } else {\n            \"foo\"\n        }\n    }" : String
+            #12 47-147 "if fail \"error\" {\n            \"this type is still seen\"\n        } else {\n            \"foo\"\n        }" : String
             #13 50-62 "fail \"error\"" : Bool
             #14 55-62 "\"error\"" : String
-            #15 63-113 "{\n            \"this type doesn't matter\"\n        }" : String
-            #17 77-103 "\"this type doesn't matter\"" : String
-            #18 114-148 "else {\n            \"foo\"\n        }" : String
-            #19 119-148 "{\n            \"foo\"\n        }" : String
-            #21 133-138 "\"foo\"" : String
+            #15 63-112 "{\n            \"this type is still seen\"\n        }" : String
+            #17 77-102 "\"this type is still seen\"" : String
+            #18 113-147 "else {\n            \"foo\"\n        }" : String
+            #19 118-147 "{\n            \"foo\"\n        }" : String
+            #21 132-137 "\"foo\"" : String
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(String), display: "String" }, Span { lo: 47, hi: 147 }))))
         "##]],
     );
 }
@@ -1879,7 +1913,7 @@ fn unop_not_int() {
         "",
         "not 0",
         &expect![[r##"
-            #1 0-5 "not 0" : Int
+            #1 0-5 "not 0" : Bool
             #2 4-5 "0" : Int
             Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 4, hi: 5 }))))
         "##]],
@@ -5201,14 +5235,16 @@ fn instantiate_duplicate_ty_param_names() {
     check(
         "namespace Test { function Foo<'T, 'T>() : () { let f = Foo; } }",
         "",
-        &expect![[r#"
+        &expect![[r##"
             #8 37-39 "()" : Unit
             #10 45-61 "{ let f = Foo; }" : Unit
             #12 51-52 "f" : (Unit -> Unit)
             #14 55-58 "Foo" : (Unit -> Unit)
+            Error(Type(Error(UnusedGeneric { span: Span { lo: 30, hi: 32 }, name: "'T" })))
+            Error(Type(Error(UnusedGeneric { span: Span { lo: 34, hi: 36 }, name: "'T" })))
             Error(Type(Error(AmbiguousTy(Span { lo: 55, hi: 58 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 55, hi: 58 }))))
-        "#]],
+        "##]],
     );
 }
 #[test]
@@ -5235,6 +5271,67 @@ fn ambiguous_generic() {
         "#]],
     );
 }
+
+#[test]
+fn generic_used_in_nested_tuple_allowed() {
+    check(
+        "namespace Test {
+            function Foo<'T>(x : (Int, (Double, 'T))) : Unit { }
+        }",
+        "",
+        &expect![[r##"
+            #7 45-70 "(x : (Int, (Double, 'T)))" : (Int, (Double, Param<"'T": 0>))
+            #8 46-69 "x : (Int, (Double, 'T))" : (Int, (Double, Param<"'T": 0>))
+            #23 78-81 "{ }" : Unit
+        "##]],
+    );
+}
+
+#[test]
+fn generic_used_in_nested_callable_allowed() {
+    check(
+        "namespace Test {
+            function Foo<'T>(x : Int -> (Double, 'T)) : Unit { }
+        }",
+        "",
+        &expect![[r##"
+            #7 45-70 "(x : Int -> (Double, 'T))" : (Int -> (Double, Param<"'T": 0>))
+            #8 46-69 "x : Int -> (Double, 'T)" : (Int -> (Double, Param<"'T": 0>))
+            #23 78-81 "{ }" : Unit
+        "##]],
+    );
+}
+
+#[test]
+fn generic_used_in_array_allowed() {
+    check(
+        "namespace Test {
+            function Foo<'T>(x : 'T[]) : Unit { }
+        }",
+        "",
+        &expect![[r##"
+            #7 45-55 "(x : 'T[])" : Param<"'T": 0>[]
+            #8 46-54 "x : 'T[]" : Param<"'T": 0>[]
+            #16 63-66 "{ }" : Unit
+        "##]],
+    );
+}
+
+#[test]
+fn generic_used_only_in_discard_allowed() {
+    check(
+        "namespace Test {
+            function Foo<'T>(_ : 'T) : Unit { }
+        }",
+        "",
+        &expect![[r##"
+            #7 45-53 "(_ : 'T)" : Param<"'T": 0>
+            #8 46-52 "_ : 'T" : Param<"'T": 0>
+            #14 61-64 "{ }" : Unit
+        "##]],
+    );
+}
+
 #[test]
 fn invalid_ident() {
     check(
@@ -5375,15 +5472,17 @@ fn inference_infinite_recursion_should_fail() {
             #27 102-125 "y : (('T2, 'U2) -> 'T2)" : ((Param<"'T2": 0>, Param<"'U2": 1>) -> Param<"'T2": 0>)
             #40 133-140 "{\n    }" : Unit
             #44 161-163 "()" : Unit
-            #48 170-193 "{\n        A and B\n    }" : (((?2, ?3) -> ?2) -> ?2[])
-            #50 180-187 "A and B" : (((?2, ?3) -> ?2) -> ?2[])
-            #51 180-181 "A" : (((?2, ?3) -> ?2) -> ?2[])
+            #48 170-193 "{\n        A and B\n    }" : Bool
+            #50 180-187 "A and B" : Bool
+            #51 180-181 "A" : ((?0 -> ?1) -> ?1[])
             #54 186-187 "B" : (((?2, ?3) -> ?2) -> ?2)
             Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Array(Param), display: "'U1[]" }, Span { lo: 62, hi: 67 }))))
             Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T2" }, Span { lo: 129, hi: 132 }))))
-            Error(Type(Error(RecursiveTypeConstraint(Span { lo: 186, hi: 187 }))))
-            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Arrow, display: "(((?, ?) -> ?) -> ?[])" }, Span { lo: 180, hi: 181 }))))
-            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Arrow, display: "(((?, ?) -> ?) -> ?[])" }, Span { lo: 180, hi: 187 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Arrow, display: "(((?, ?) -> ?) -> ?)" }, Span { lo: 186, hi: 187 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Arrow, display: "((? -> ?) -> ?[])" }, Span { lo: 180, hi: 181 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 180, hi: 187 }))))
+            Error(Type(Error(AmbiguousTy(Span { lo: 180, hi: 181 }))))
+            Error(Type(Error(AmbiguousTy(Span { lo: 180, hi: 181 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 186, hi: 187 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 186, hi: 187 }))))
         "##]],

@@ -214,7 +214,7 @@ def test_clifford_simulator_type(backend) -> None:
     circuit = create_bell_circuit()
     try:
         counts = (
-            backend.run(circuit, shots=100, simulator_type="clifford", seed=7)
+            backend.run(circuit, shots=100, simulator_type="stabilizer", seed=7)
             .result()
             .get_counts()
         )
@@ -458,4 +458,6 @@ def test_non_base_target_profile_raises(backend) -> None:
 
     circuit = create_bell_circuit()
     with pytest.raises(ValueError, match="TargetProfile.Base"):
-        backend.run(circuit, shots=10, target_profile=TargetProfile.Adaptive_RI).result()
+        backend.run(
+            circuit, shots=10, target_profile=TargetProfile.Adaptive_RI
+        ).result()

@@ -4,7 +4,6 @@ name = "qsc_doc_gen"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-homepage.workspace = true
 license.workspace = true
 repository.workspace = true
 

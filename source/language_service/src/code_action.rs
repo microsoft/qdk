@@ -19,6 +19,7 @@ use crate::{
     protocol::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit},
 };
 
+/// Returns code actions overlapping with the given range.
 pub(crate) fn get_code_actions(
     compilation: &Compilation,
     source_name: &str,
@@ -58,6 +59,7 @@ pub(crate) fn get_code_actions(
     actions
 }
 
+/// A quick fix applies the edit attached to an [`ErrorKind::Lint`].
 fn quick_fixes(
     compilation: &Compilation,
     source_name: &str,

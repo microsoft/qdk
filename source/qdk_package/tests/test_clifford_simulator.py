@@ -150,6 +150,25 @@ def test_program_with_branching_succeeds():
     assert len(results) == 1
 
 
+def test_program_indexing_single_zero_result_array_succeeds():
+    # Regression test for https://github.com/microsoft/qdk/issues/3777.
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Result {
+            use q = Qubit();
+            for result in [M(q)] {
+                if result == One {
+                    X(q);
+                }
+            }
+            MResetZ(q)
+        }
+        """)
+    ir = qsharp.compile("Main()")
+    results = run_qir_clifford(str(ir), 1, NoiseConfig())
+    assert results == [Result.Zero]
+
+
 def test_program_with_unconditional_branching_succeeds():
     qir = """
 %Result = type opaque
@@ -279,7 +298,7 @@ def test_clifford_run_no_noise():
     output = qsharp.run(
         "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 10.0, 10)",
         1,
-        type="clifford",
+        type="stabilizer",
     )
     print(output)
     # Expecting deterministic output, no randomization seed needed.
@@ -295,7 +314,7 @@ def test_clifford_run_no_noise():
         math.pi / 2,
         10.0,
         10,
-        type="clifford",
+        type="stabilizer",
     )
     print(output)
     assert output == [[Result.Zero] * 16], "Expected result of 0s with pi/2 angles."
@@ -328,12 +347,12 @@ def test_qsharp_clifford_run_with_seed_produces_deterministic_results():
     qsharp.init(target_profile=TargetProfile.Base)
     qsharp.eval(QSHARP_SEEDED_MEASUREMENT)
 
-    results = qsharp.run("SeededMeasurement()", shots=32, seed=42, type="clifford")
+    results = qsharp.run("SeededMeasurement()", shots=32, seed=42, type="stabilizer")
     repeated_results = qsharp.run(
-        "SeededMeasurement()", shots=32, seed=42, type="clifford"
+        "SeededMeasurement()", shots=32, seed=42, type="stabilizer"
     )
     different_seed_results = qsharp.run(
-        "SeededMeasurement()", shots=32, seed=43, type="clifford"
+        "SeededMeasurement()", shots=32, seed=43, type="stabilizer"
     )
 
     assert set(results) == {Result.Zero, Result.One}
@@ -363,7 +382,7 @@ def test_clifford_run_bitflip_noise():
         "0000000000000000000000011": p_noise**2,  # X & CZ bitflip
     }
 
-    output = qsharp.run("Test()", shots=1000, noise=noise, seed=17, type="clifford")
+    output = qsharp.run("Test()", shots=1000, noise=noise, seed=17, type="stabilizer")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
@@ -372,7 +391,7 @@ def test_clifford_run_bitflip_noise():
     )
 
     # Same execution should work with the operation itself.
-    output = qsharp.run(qdk.code.Test, 1000, noise=noise, seed=17, type="clifford")
+    output = qsharp.run(qdk.code.Test, 1000, noise=noise, seed=17, type="stabilizer")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
@@ -391,7 +410,7 @@ def test_clifford_run_mixed_noise():
     noise.cz.XI = p_noise
     noise.cz.IL = p_noise
 
-    output = qsharp.run("Test()", shots=2000, noise=noise, seed=17, type="clifford")
+    output = qsharp.run("Test()", shots=2000, noise=noise, seed=17, type="stabilizer")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
@@ -427,7 +446,7 @@ operation Main() : Result[] {
     noise = NoiseConfig()
     noise.x.loss = 0.1
 
-    output = qsharp.run("Main()", shots=1000, noise=noise, type="clifford")
+    output = qsharp.run("Main()", shots=1000, noise=noise, type="stabilizer")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     histogram = Counter(result)
     total = sum(histogram.values())
@@ -472,7 +491,7 @@ operation Main() : Result[] {
     noise.x.set_bitflip(0.001)
     noise.x.loss = 0.001
 
-    output = qsharp.run("Main()", shots=1000, noise=noise, type="clifford")
+    output = qsharp.run("Main()", shots=1000, noise=noise, type="stabilizer")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     histogram = Counter(result)
     total = sum(histogram.values())
@@ -547,7 +566,7 @@ def test_clifford_run_x_chain(
     noise.x.set_bitflip(p_noise)
 
     qasm = build_x_chain_qasm(n_instances, n_x)
-    output = openqasm.run(qasm, shots=n_shots, noise=noise, seed=42, type="clifford")
+    output = openqasm.run(qasm, shots=n_shots, noise=noise, seed=42, type="stabilizer")
     histogram = [0 for _ in range(n_instances + 1)]
     for shot in output:
         shot_results = cast(Sequence[Result], shot)
@@ -588,7 +607,7 @@ def test_clifford_run_cy_noise_distribution():
     noise.cy.set_pauli_noise("IZ", p_z)
 
     qasm = build_cy_noise_qasm(n_cy)
-    output = openqasm.run(qasm, shots=n_shots, noise=noise, seed=77, type="clifford")
+    output = openqasm.run(qasm, shots=n_shots, noise=noise, seed=77, type="stabilizer")
 
     count_target_one = 0
     for shot in output:
@@ -627,7 +646,7 @@ def test_clifford_run_with_rotation_by_clifford_angles_succeeds():
             return MResetZ(q);
         }
         """)
-    output = qsharp.run("Main()", shots=1, type="clifford")
+    output = qsharp.run("Main()", shots=1, type="stabilizer")
     print(output)
     assert output == [Result.Zero], "Expected result of 0 with Clifford rotations."
 
@@ -676,7 +695,7 @@ def test_clifford_run_joint_rotations_by_clifford_angles_succeeds():
             MResetEachZ(qs)
         }
         """)
-    output = qsharp.run("Main()", shots=1, type="clifford")
+    output = qsharp.run("Main()", shots=1, type="stabilizer")
     print(output)
     assert output == [
         [
@@ -697,7 +716,7 @@ def test_clifford_run_with_t():
             return MResetZ(q);
         }
         """)
-    counts = Counter(qsharp.run("Main()", shots=5000, seed=42, type="clifford"))
+    counts = Counter(qsharp.run("Main()", shots=5000, seed=42, type="stabilizer"))
     assert 4000 < counts[Result.Zero] < 4500
     assert 500 < counts[Result.One] < 1000
 
@@ -713,7 +732,7 @@ def test_clifford_run_with_adjoint_t():
             return MResetZ(q);
         }
         """)
-    counts = Counter(qsharp.run("Main()", shots=5000, seed=42, type="clifford"))
+    counts = Counter(qsharp.run("Main()", shots=5000, seed=42, type="stabilizer"))
     assert 4000 < counts[Result.Zero] < 4500
     assert 500 < counts[Result.One] < 1000
 
@@ -727,7 +746,7 @@ def test_clifford_run_with_non_clifford_rotation():
             return MResetZ(q);
         }
         """)
-    counts = Counter(qsharp.run("Main()", shots=5000, seed=42, type="clifford"))
+    counts = Counter(qsharp.run("Main()", shots=5000, seed=42, type="stabilizer"))
     assert 3600 < counts[Result.Zero] < 4100
     assert 900 < counts[Result.One] < 1400
 
@@ -740,7 +759,7 @@ def test_clifford_run_with_too_many_qubits_fails():
         }
         """)
     try:
-        qsharp.run("Main()", shots=1, type="clifford", num_qubits=5)
+        qsharp.run("Main()", shots=1, type="stabilizer", num_qubits=5)
         assert False, "Expected QSharpError for too many qubits"
     except QSharpError as e:
         assert "qubit limit exceeded" in str(e)

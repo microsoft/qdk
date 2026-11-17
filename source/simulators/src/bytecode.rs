@@ -18,6 +18,12 @@ unsafe impl Pod for PhiNodeEntry<u32> {}
 unsafe impl Pod for SwitchCase<u32> {}
 
 /// Stores a parsed adaptive program.
+///
+/// Registers and stack allocations are private to each call. Call arguments are
+/// read from the caller before binding callee parameters, and returns restore
+/// the caller before writing the result. Memory reached through passed pointers
+/// remains shared. `OP_ALLOCA` allocates fresh storage on each execution; its
+/// legacy static-address operand is retained in the encoding but is not used.
 #[derive(Debug)]
 pub struct AdaptiveProgram<Word: Unsigned> {
     /// Number of qubits used by the program.

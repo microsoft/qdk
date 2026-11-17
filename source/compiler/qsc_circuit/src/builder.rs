@@ -38,6 +38,9 @@ use std::{
     rc::Rc,
 };
 
+/// Reserved gate name for a placeholder representing omitted loop iterations.
+pub const OMITTED_LOOP_ITERATIONS_GATE: &str = "...";
+
 /// Circuit builder that implements the `Tracer` trait to build a circuit
 /// while tracing execution.
 pub struct CircuitTracer {
@@ -118,8 +121,13 @@ impl Tracer for CircuitTracer {
                 called_at,
             );
         } else {
-            self.circuit_builder
-                .measurement(self.wire_map_builder.current(), "M", q, r, called_at);
+            self.circuit_builder.measurement(
+                self.wire_map_builder.current(),
+                name,
+                q,
+                r,
+                called_at,
+            );
         }
     }
 
@@ -231,11 +239,16 @@ impl CircuitTracer {
 
     #[must_use]
     pub fn snapshot(&self, source_lookup: &impl SourceLookup) -> Circuit {
-        self.finish_circuit(self.circuit_builder.operations(), source_lookup)
+        self.finish_circuit(
+            self.circuit_builder.operations(),
+            self.circuit_builder.has_non_z_measurements(),
+            source_lookup,
+        )
     }
 
     #[must_use]
     pub fn finish(mut self, source_lookup: &impl SourceLookup) -> Circuit {
+        let has_non_z_measurements = self.circuit_builder.has_non_z_measurements();
         let ops = replace(
             &mut self.circuit_builder,
             OperationListBuilder::new(
@@ -247,12 +260,13 @@ impl CircuitTracer {
         )
         .into_operations();
 
-        self.finish_circuit(&ops, source_lookup)
+        self.finish_circuit(&ops, has_non_z_measurements, source_lookup)
     }
 
     fn finish_circuit(
         &self,
         operations: &[OperationOrGroup],
+        has_non_z_measurements: bool,
         source_lookup: &impl SourceLookup,
     ) -> Circuit {
         let mut operations = operations.to_vec();
@@ -271,6 +285,8 @@ impl CircuitTracer {
             operations,
             qubits,
             self.config.group_by_scope,
+            self.config.max_loop_iterations,
+            has_non_z_measurements,
         )
     }
 
@@ -507,6 +523,8 @@ impl CircuitTracer {
 /// Constructs the final circuit representation from operations and qubits.
 ///
 /// This function:
+/// - Truncates oversized loops when a maximum number of rendered iterations is configured,
+///   enforcing a minimum of two iterations
 /// - Optionally collapses unnecessary scope groups based on user/library package origin
 /// - Lays out operations into columns for circuit visualization
 /// - Resolves source location metadata into displayable file/line/column information
@@ -515,20 +533,65 @@ pub(crate) fn finish_circuit(
     mut operations: Vec<OperationOrGroup>,
     qubits: Vec<Qubit>,
     collapse_trivial_groups: bool,
+    max_loop_iterations: Option<usize>,
+    has_non_z_measurements: bool,
 ) -> Circuit {
+    if let Some(max_loop_iterations) = max_loop_iterations {
+        truncate_loop_iterations(&mut operations, max_loop_iterations.max(2));
+    }
     if collapse_trivial_groups {
         collapse_unnecessary_scopes(&mut operations, source_lookup);
     }
     let mut loop_id_cache = Default::default();
     let operations = operations
         .into_iter()
-        .map(|o| o.into_operation(source_lookup, &mut loop_id_cache))
+        .map(|o| o.into_operation(source_lookup, &mut loop_id_cache, has_non_z_measurements))
         .collect();
 
     let component_grid = operation_list_to_grid(operations, &qubits);
     Circuit {
         qubits,
         component_grid,
+    }
+}
+
+/// Replaces middle iterations of oversized loop groups with an omission marker.
+fn truncate_loop_iterations(operations: &mut Vec<OperationOrGroup>, max_loop_iterations: usize) {
+    for op in operations {
+        let OperationOrGroupKind::Group {
+            scope_stack,
+            children,
+        } = &mut op.kind
+        else {
+            continue;
+        };
+
+        if matches!(scope_stack.current_lexical_scope(), Scope::Loop(..))
+            && children.len() > max_loop_iterations
+        {
+            let last_iteration = children
+                .pop()
+                .expect("a truncated loop should have a last iteration");
+            let mut omitted_count = 0;
+            let mut omitted_qubits = FxHashSet::default();
+            for iteration in children.drain(max_loop_iterations.saturating_sub(1)..) {
+                omitted_count += 1;
+                omitted_qubits.extend(iteration.all_qubits());
+            }
+            let mut omitted_qubits = omitted_qubits.into_iter().collect::<Vec<_>>();
+            omitted_qubits.sort_unstable();
+
+            children.push(OperationOrGroup::new_unitary(
+                OMITTED_LOOP_ITERATIONS_GATE,
+                false,
+                &omitted_qubits,
+                vec![],
+                vec![omitted_count.to_string()],
+            ));
+            children.push(last_iteration);
+        }
+
+        truncate_loop_iterations(children, max_loop_iterations);
     }
 }
 
@@ -591,20 +654,25 @@ fn collapse_if_unnecessary(
             }
 
             // now, if each c applies to a distinct set of qubits, this loop is entirely vertical and can be collapsed as well
-            let mut distinct_sets_of_qubits = FxHashSet::default();
+            let mut distinct_sets_of_qubits: FxHashSet<QubitWire> = FxHashSet::default();
             for child_op in children.iter() {
-                let qs = child_op.all_qubits();
-                if !distinct_sets_of_qubits.insert(qs) {
-                    // There's overlap, so we won't collapse
-                    return None;
+                for qubit in child_op.all_qubits() {
+                    if !distinct_sets_of_qubits.insert(qubit) {
+                        // There's overlap, so we won't collapse
+                        return None;
+                    }
                 }
             }
             let mut all_children = vec![];
             for mut child_op in children.drain(..) {
-                let OperationOrGroupKind::Group { children, .. } = &mut child_op.kind else {
-                    panic!("only child of an outer loop scope should be a group");
-                };
-                all_children.extend(take(children));
+                match &mut child_op.kind {
+                    OperationOrGroupKind::Group { children, .. } => {
+                        all_children.extend(take(children));
+                    }
+                    OperationOrGroupKind::Single => {
+                        all_children.push(child_op);
+                    }
+                }
             }
             return Some(all_children);
         } else if let Scope::Callable(callable_id) = scope_stack.current_lexical_scope() {
@@ -1046,6 +1114,8 @@ fn get_loop_by_expr_id(
 pub struct TracerConfig {
     /// Maximum number of operations the builder will add to the circuit
     pub max_operations: usize,
+    /// Maximum number of loop iterations rendered in full, or `None` for no limit.
+    pub max_loop_iterations: Option<usize>,
     /// Capture the source code locations of operations and qubit declarations
     /// in the circuit diagram
     pub source_locations: bool,
@@ -1481,10 +1551,13 @@ impl OperationOrGroup {
         }
     }
 
+    /// Converts to a circuit operation. When `has_non_z_measurements` is set, `M` measurements
+    /// are relabeled `MZ` so the Z basis is explicit next to other measurement bases.
     fn into_operation(
         mut self,
         source_lookup: &impl SourceLookup,
         loop_id_cache: &mut LoopIdCache,
+        has_non_z_measurements: bool,
     ) -> Operation {
         if let Some(location) = self.location {
             let package_offset =
@@ -1497,7 +1570,15 @@ impl OperationOrGroup {
         }
 
         match self.kind {
-            OperationOrGroupKind::Single => self.op,
+            OperationOrGroupKind::Single => {
+                if has_non_z_measurements
+                    && let Operation::Measurement(measurement) = &mut self.op
+                    && measurement.gate == "M"
+                {
+                    measurement.gate = "MZ".to_string();
+                }
+                self.op
+            }
             OperationOrGroupKind::Group {
                 scope_stack,
                 children,
@@ -1528,7 +1609,9 @@ impl OperationOrGroup {
                 u.children = vec![ComponentColumn {
                     components: children
                         .into_iter()
-                        .map(|o| o.into_operation(source_lookup, loop_id_cache))
+                        .map(|o| {
+                            o.into_operation(source_lookup, loop_id_cache, has_non_z_measurements)
+                        })
                         .collect(),
                 }];
                 self.op
@@ -1554,6 +1637,7 @@ pub(crate) struct OperationListBuilder {
     top: OperationOrGroup,
     user_package_ids: Vec<PackageId>,
     grouping_config: GroupingConfig,
+    has_non_z_measurements: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -1578,6 +1662,7 @@ impl OperationListBuilder {
                 group_by_scope,
             },
             user_package_ids,
+            has_non_z_measurements: false,
         }
     }
 
@@ -1620,6 +1705,11 @@ impl OperationListBuilder {
 
     fn operations(&self) -> &Vec<OperationOrGroup> {
         self.top.children().expect("container should be a group")
+    }
+
+    /// Returns whether any measurement other than `M` or `MResetZ` was recorded.
+    pub(crate) fn has_non_z_measurements(&self) -> bool {
+        self.has_non_z_measurements
     }
 
     pub(crate) fn into_operations(self) -> Vec<OperationOrGroup> {
@@ -1726,6 +1816,9 @@ impl OperationReceiver for OperationListBuilder {
                 call_stack.clone(),
                 wire_map,
             );
+        }
+        if name != "M" && name != "MResetZ" {
+            self.has_non_z_measurements = true;
         }
     }
 

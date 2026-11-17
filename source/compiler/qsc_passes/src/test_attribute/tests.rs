@@ -62,7 +62,7 @@ fn callable_cant_have_type_params() {
         indoc! {"
         namespace test {
             @Test()
-            operation A<'T>() : Unit {
+            operation A<'T>(x : 'T) : Unit {
 
             }
         }
@@ -73,6 +73,12 @@ fn callable_cant_have_type_params() {
                     Span {
                         lo: 43,
                         hi: 44,
+                    },
+                ),
+                CallableHasParameters(
+                    Span {
+                        lo: 33,
+                        hi: 72,
                     },
                 ),
             ]

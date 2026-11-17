@@ -6,14 +6,14 @@ use crate::tests::{noiseless_tests, noisy_tests};
 
 #[test]
 fn check_measuring_plus_state_yields_zero_with_50_percent_probability() {
-    noiseless_tests::check_measuring_plus_state_yields_zero_with_50_percent_probability::<
+    noiseless_tests::check_measuring_plus_state_in_mz_yields_zero_with_50_percent_probability::<
         DensityMatrixSimulator,
     >();
 }
 
 #[test]
 fn check_measuring_plus_state_yields_one_with_50_percent_probability() {
-    noiseless_tests::check_measuring_plus_state_yields_one_with_50_percent_probability::<
+    noiseless_tests::check_measuring_plus_state_in_mz_yields_one_with_50_percent_probability::<
         DensityMatrixSimulator,
     >();
 }
@@ -24,7 +24,7 @@ fn check_bell_pair_sampling_yields_same_outcome_for_both_qubits() {
     for seed in 0..20 {
         noiseless_tests::check_bell_pair_sampling_yields_same_outcome_for_both_qubits::<
             DensityMatrixSimulator,
-        >(seed);
+        >(seed, &noiseless_tests::Targets::MZ);
     }
 }
 

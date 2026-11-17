@@ -521,20 +521,48 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
    * Shows a confirmation modal before saving the workspace.
    */
   const connectWorkspaceUriHandler: UriRouteHandler = async (params) => {
+    log.info("Handling connectWorkspace URI route");
     const connStr = params.get("connectionString");
+    log.debug(`Received connection string: ${connStr}`);
     if (!connStr) {
       vscode.window.showErrorMessage(
         "No connection string provided in the workspace URI.",
+      );
+      log.error(
+        `VS Code deep link has missing or empty connection string: ${params.toString()}`,
       );
       return;
     }
 
     const workspace = parseConnectionString(connStr);
+    log.debug(`Parsed workspace connection: ${JSON.stringify(workspace)}`);
 
     if (!workspace) {
       vscode.window.showErrorMessage(
         "The workspace URI contained an invalid connection string.",
       );
+      log.error(`Received invalid connection string: ${connStr}`);
+      return;
+    }
+
+    // For security, verify the workspace endpoint URI is valid and points to Azure Quantum.
+    // Parse the URL before validating it; string checks can be bypassed by placing
+    // the expected suffix in credentials or the path of a URL for another host.
+    try {
+      const endpointUrl = new URL(workspace.endpointUri);
+      if (
+        endpointUrl.protocol !== "https:" ||
+        !endpointUrl.hostname.endsWith(".quantum.azure.com") ||
+        endpointUrl.username !== "" ||
+        endpointUrl.password !== ""
+      ) {
+        throw new Error("Invalid workspace endpoint URI");
+      }
+    } catch {
+      vscode.window.showErrorMessage(
+        "The workspace endpoint URI is not valid. It must be an HTTPS URL pointing to azure.com.",
+      );
+      log.error(`Invalid endpoint URI in connection string: ${connStr}`);
       return;
     }
 

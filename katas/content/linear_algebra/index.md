@@ -219,7 +219,7 @@ A square matrix has a property called the **determinant**, with the determinant 
 
 For a $2 \times 2$ matrix $A$, the determinant is defined as $|A| = A_{0,0} \cdot A_{1,1} - A_{0,1} \cdot A_{1,0}$.
 
-For larger matrices, the determinant is defined through determinants of sub-matrices. You can learn more about the determinant of matrices from [Wikipedia](https://en.wikipedia.org/wiki/Determinant) or from [Wolfram MathWorld](http://mathworld.wolfram.com/Determinant.html).
+For larger matrices, the determinant is defined through determinants of sub-matrices. You can learn more about the determinant of matrices from [Wikipedia](https://en.wikipedia.org/wiki/Determinant) or from [Wolfram MathWorld](https://mathworld.wolfram.com/Determinant.html).
 
 @[exercise]({ 
     "id": "linear_algebra__inverse_matrix_ex", 

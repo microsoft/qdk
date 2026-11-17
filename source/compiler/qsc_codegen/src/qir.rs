@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
+use qsc_data_structures::{
+    language_features::LanguageFeatures,
+    target::{Profile, TargetCapabilityFlags},
+};
 use qsc_eval::val::Value;
 use qsc_partial_eval::{
     PartialEvalConfig, Program, ProgramEntry, partially_evaluate, partially_evaluate_call,
@@ -37,6 +40,7 @@ pub fn fir_to_rir(
 pub fn fir_to_qir(
     fir_store: &qsc_fir::fir::PackageStore,
     capabilities: TargetCapabilityFlags,
+    language_features: LanguageFeatures,
     compute_properties: &PackageStoreComputeProperties,
     entry: &ProgramEntry,
 ) -> Result<String, qsc_partial_eval::Error> {
@@ -47,6 +51,7 @@ pub fn fir_to_qir(
         capabilities,
         PartialEvalConfig {
             generate_debug_metadata: false,
+            ignore_stack_limit: language_features.contains(LanguageFeatures::IgnoreStackLimit),
         },
     )?;
     check_and_transform(&mut program);
@@ -61,6 +66,7 @@ pub fn fir_to_qir(
 pub fn fir_to_qir_from_callable(
     fir_store: &qsc_fir::fir::PackageStore,
     capabilities: TargetCapabilityFlags,
+    language_features: LanguageFeatures,
     compute_properties: &PackageStoreComputeProperties,
     callable: qsc_fir::fir::StoreItemId,
     args: Value,
@@ -73,6 +79,7 @@ pub fn fir_to_qir_from_callable(
         capabilities,
         PartialEvalConfig {
             generate_debug_metadata: false,
+            ignore_stack_limit: language_features.contains(LanguageFeatures::IgnoreStackLimit),
         },
     )?;
     check_and_transform(&mut program);

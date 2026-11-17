@@ -22,6 +22,9 @@
 //!   `Var(Res::Item)` with `Ty::Arrow` outside a `Call` callee position) or as
 //!   a closure target, since indirect dispatch requires a stable parameter
 //!   layout (this also covers partial-application cases).
+//! - **Pinned callers:** entry and pinned roots share safety analysis and caller
+//!   rewriting. Pinned roots keep their signatures; their callees may promote
+//!   only when every retained use can follow the changed layout.
 //! - **Per iteration:** reachability scan → eligibility analysis
 //!   ([`check_candidates`]) → safety filters
 //!   ([`collect_first_class_callables`], [`collect_closure_targets`]) →
@@ -31,8 +34,9 @@
 //! - **Post-convergence normalization.** [`normalize_reachable_call_arg_types`]
 //!   runs once after the fixed point to make argument expression types exactly
 //!   match callable input types (e.g. `T` → `(T,)` wrapping for single-element
-//!   tuple inputs). Run once, not per round, to avoid `(T,)` churn polluting
-//!   change detection.
+//!   tuple inputs). It can also restore direct callable functors when an exact
+//!   concrete declaration proves them, without changing the callable's shape.
+//!   Run once, not per round, to avoid `(T,)` churn polluting change detection.
 //! - **Functor-applied callees** (`Adjoint`/`Controlled`) are handled directly:
 //!   [`resolve_direct_item_callee`] unwraps the `UnOp` functor wrappers and
 //!   [`rewrite_controlled_call_site`] preserves the control-tuple layers and
@@ -55,7 +59,7 @@ use crate::fir_builder::{
     functored_specs,
 };
 use crate::package_assigners::PackageAssigners;
-use crate::reachability::collect_reachable_from_entry;
+use crate::reachability::collect_reachable_with_seeds;
 use crate::walk_utils::{
     ParamUse, classify_uses_in_block, collect_expr_ids_in_entry_and_local_callables,
     collect_expr_ids_in_local_callables, for_each_expr, for_each_expr_in_callable_impl,
@@ -66,7 +70,7 @@ use qsc_fir::fir::{
     LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res,
     SpecDecl, SpecImpl, StmtId, StoreItemId, UnOp,
 };
-use qsc_fir::ty::{Prim, Ty};
+use qsc_fir::ty::{Arrow, FunctorSet, Prim, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Base name for the synthesized local that holds a materialized call
@@ -132,20 +136,32 @@ type ParamLeafRemap = (LocalVarId, Ty, LeafRemap);
 /// # Panics
 ///
 /// Panics if the package has no entry expression. The reachability scans
-/// in this pass go through [`collect_reachable_from_entry`], which asserts
+/// in this pass go through [`collect_reachable_with_seeds`], which asserts
 /// `package.entry.is_some()`.
+#[cfg(test)]
 pub fn arg_promote(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
 ) -> bool {
+    arg_promote_with_pins(store, package_id, assigners, &[])
+}
+
+/// Includes pinned bodies and dependencies in safety checks and caller rewrites,
+/// while retaining the pinned roots' externally visible input signatures.
+pub(crate) fn arg_promote_with_pins(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+    pinned: &[StoreItemId],
+) -> bool {
     let mut tmp_counter: u32 = 0;
-    let changed = promote_to_fixed_point(store, package_id, assigners, &mut tmp_counter);
-    normalize_reachable_call_arg_types(store, package_id, assigners);
+    let changed = promote_to_fixed_point(store, package_id, assigners, &mut tmp_counter, pinned);
+    normalize_reachable_call_arg_types(store, package_id, assigners, pinned);
     changed
 }
 
-/// Iterates promotion rounds until no more candidates are found.
+/// Iterates entry- and pin-reachable promotion rounds until no candidates remain.
 ///
 /// Each iteration peels one level of tuple nesting from eligible parameters,
 /// rewrites their bodies and call sites, then recomputes reachability for
@@ -163,26 +179,35 @@ pub(crate) fn promote_to_fixed_point(
     package_id: PackageId,
     assigners: &mut PackageAssigners,
     tmp_counter: &mut u32,
+    pinned: &[StoreItemId],
 ) -> bool {
     let mut changed = false;
     loop {
-        let candidates = find_promotion_candidates(store, package_id);
+        let candidates = find_promotion_candidates(store, package_id, pinned);
         if candidates.is_empty() {
             break;
         }
         changed = true;
-        apply_promotions(store, package_id, assigners, &candidates, tmp_counter);
+        apply_promotions(
+            store,
+            package_id,
+            assigners,
+            &candidates,
+            tmp_counter,
+            pinned,
+        );
     }
     changed
 }
 
 /// Finds all eligible promotion candidates in the current reachable set,
-/// excluding callables used as first-class values or closure targets.
+/// excluding pinned roots, first-class values and closure targets.
 fn find_promotion_candidates(
     store: &PackageStore,
     package_id: PackageId,
+    pinned: &[StoreItemId],
 ) -> Vec<ArgPromoCandidate> {
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = collect_reachable_with_seeds(store, package_id, pinned);
 
     // The entry callable lives in the true entry package only; resolving it
     // there keeps its input ABI excluded from flattening regardless of how many
@@ -211,7 +236,7 @@ fn find_promotion_candidates(
         // The entry-point callable's input is the program's externally-visible
         // ABI and must never be flattened, regardless of its input shape.
         // This is a forward looking check as all inputs are currently `Unit`
-        if Some(owner) == entry_item {
+        if Some(owner) == entry_item || pinned.contains(&owner) {
             continue;
         }
         if first_class.contains(&owner) || closure_targets.contains(&owner) {
@@ -246,6 +271,7 @@ fn apply_promotions(
     assigners: &mut PackageAssigners,
     candidates: &[ArgPromoCandidate],
     tmp_counter: &mut u32,
+    pinned: &[StoreItemId],
 ) {
     // Group candidates by their declaring callable so each callable's entire
     // input is flattened exactly once, dissolving all inter-parameter
@@ -294,7 +320,7 @@ fn apply_promotions(
     let promoted_map: FxHashMap<StoreItemId, PromotionResult> =
         promotions.into_iter().map(|p| (p.item_id, p)).collect();
 
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = collect_reachable_with_seeds(store, package_id, pinned);
     let mut caller_pkgs: Vec<PackageId> = Vec::new();
     for store_id in &reachable {
         if !caller_pkgs.contains(&store_id.package) {
@@ -330,25 +356,41 @@ fn apply_promotions(
 ///
 /// Runs once after the whole-closure fixed point: the expected input type of
 /// every reachable callable is snapshotted up front (keyed by `StoreItemId`, so
-/// foreign callees resolve correctly), then each reachable package body is
-/// normalized against that snapshot with the package's own assigner.
+/// foreign callees resolve correctly). Concrete signatures also prove when
+/// direct callable arguments can recover functor support lost from their stored
+/// types. Each reachable package uses its own assigner.
 pub(crate) fn normalize_reachable_call_arg_types(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
+    pinned: &[StoreItemId],
 ) {
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = collect_reachable_with_seeds(store, package_id, pinned);
 
     // Snapshot every reachable callable's current input type, package-qualified,
     // so a direct call to a foreign promoted callee resolves to the callee's own
     // (already-promoted) input shape rather than the caller package's arena.
     let mut callable_inputs: FxHashMap<StoreItemId, Ty> = FxHashMap::default();
+    let mut callable_types: FxHashMap<StoreItemId, Arrow> = FxHashMap::default();
     for store_id in &reachable {
         let package = store.get(store_id.package);
         if let Some(item) = package.items.get(store_id.item)
             && let ItemKind::Callable(decl) = &item.kind
         {
             callable_inputs.insert(*store_id, package.get_pat(decl.input).ty.clone());
+            // Pinned runtime targets may be outside monomorphization's
+            // entry-reachable scope and retain their generic declarations.
+            if decl.generics.is_empty() {
+                callable_types.insert(
+                    *store_id,
+                    Arrow {
+                        kind: decl.kind,
+                        input: Box::new(package.get_pat(decl.input).ty.clone()),
+                        output: Box::new(decl.output.clone()),
+                        functors: FunctorSet::Value(decl.functors),
+                    },
+                );
+            }
         }
     }
 
@@ -372,7 +414,13 @@ pub(crate) fn normalize_reachable_call_arg_types(
         };
         let assigner = assigners.get_mut(store, caller_pkg);
         let package = store.get_mut(caller_pkg);
-        normalize_call_arg_types(package, &callable_inputs, assigner, &reachable_expr_ids);
+        normalize_call_arg_types(
+            package,
+            &callable_inputs,
+            &callable_types,
+            assigner,
+            &reachable_expr_ids,
+        );
     }
 }
 
@@ -1678,7 +1726,7 @@ fn create_rewritten_payload_arg(
         return None;
     }
 
-    if promotion.leaves.len() == 1 {
+    if promotion.leaves.len() == 1 && promotion.leaves[0].0.is_empty() {
         let leaf_tys: Vec<Ty> = promotion.leaves.iter().map(|(_, ty)| ty.clone()).collect();
         return Some(create_single_tuple_arg(
             package, assigner, arg_id, &leaf_tys,
@@ -1783,9 +1831,9 @@ fn wrap_call_in_block(
 /// Call(Var(Foo), Tuple([arg.0, arg.1, ...]))   // or Block wrapping
 /// ```
 ///
-/// If the argument is already a `Tuple(...)` with the correct arity, the
-/// existing tuple elements are used directly. Otherwise, field-extraction
-/// expressions are created.
+/// If the argument is already a `Tuple(...)` with the correct arity and leaf
+/// types, the existing elements are used directly. Otherwise, field-extraction
+/// expressions are created, including for a single leaf nested in a tuple.
 ///
 /// # Mutations
 /// - Rewrites `call_expr_id`'s `ExprKind` in place.
@@ -1819,7 +1867,7 @@ fn rewrite_single_call_site(
         return;
     }
 
-    if promotion.leaves.len() == 1 {
+    if promotion.leaves.len() == 1 && promotion.leaves[0].0.is_empty() {
         let leaf_tys: Vec<Ty> = promotion.leaves.iter().map(|(_, ty)| ty.clone()).collect();
         let new_arg_id = create_single_tuple_arg(package, assigner, arg_id, &leaf_tys);
 
@@ -1990,10 +2038,12 @@ fn rebuild_controlled_arg_layers(
 /// # Ensures
 /// - For every direct call expression, argument type structure matches the
 ///   expected callable input type where normalization can be done locally.
-/// - Does not rewrite callee declarations; only argument expression shape.
+/// - Does not rewrite callee declarations; only argument shape and
+///   declaration-proven callable functor metadata.
 fn normalize_call_arg_types(
     package: &mut Package,
     callable_inputs: &FxHashMap<StoreItemId, Ty>,
+    callable_types: &FxHashMap<StoreItemId, Arrow>,
     assigner: &mut Assigner,
     reachable_expr_ids: &[ExprId],
 ) {
@@ -2010,7 +2060,7 @@ fn normalize_call_arg_types(
         .collect();
 
     for (arg_id, expected_input) in call_sites {
-        normalize_arg_to_expected_input(package, assigner, arg_id, &expected_input);
+        normalize_arg_to_expected_input(package, assigner, arg_id, &expected_input, callable_types);
     }
 }
 
@@ -2050,29 +2100,56 @@ fn apply_controlled_input_layers(mut input_ty: Ty, controlled_depth: usize) -> T
 /// Before, `arg_id` may still reflect the pre-promotion shape, such as a scalar
 /// where the promoted callee now expects `(scalar,)`, or nested tuple children
 /// whose wrapper structure no longer matches the updated input pattern. After,
-/// the subtree rooted at `arg_id` mirrors `expected_input`: single-element tuple
-/// wrappers are inserted only where required and tuple types are refreshed after
-/// recursive normalization.
+/// proven wrapper differences are normalized and tuple types are refreshed after
+/// recursive normalization. Direct callable functors are refined only when the
+/// declaration proves the required signature, retaining all declared capabilities
+/// for other uses of the same expression. This may also insert one singleton
+/// wrapper. Other callable values and incompatible signatures are left unchanged.
 fn normalize_arg_to_expected_input(
     package: &mut Package,
     assigner: &mut Assigner,
     arg_id: ExprId,
     expected_input: &Ty,
+    callable_types: &FxHashMap<StoreItemId, Arrow>,
 ) {
     let arg = package.get_expr(arg_id).clone();
+    // 1. Preserve exact matches without allocating or changing their representation.
     if arg.ty == *expected_input {
         return;
     }
 
+    // 2. Separate a possible singleton argument wrapper from its element type,
+    // so callable metadata repair and wrapping can be proved together.
+    let (expected_callable, needs_wrapper) = match expected_input {
+        Ty::Tuple(items) if items.len() == 1 => (&items[0], true),
+        _ => (expected_input, false),
+    };
+    // 3. Restore the declaration's full type, not the consumer's weaker type.
+    // Other uses of this expression may still need its additional functors.
+    if let Some(arrow) = proven_callable_type(&arg, expected_callable, callable_types) {
+        package.exprs.get_mut(arg_id).expect("argument exists").ty =
+            Ty::Arrow(Box::new(arrow.clone()));
+        if needs_wrapper {
+            wrap_arg_in_single_tuple(package, assigner, arg_id);
+        }
+        return;
+    }
+
+    // 4. No callable repair was proved. Only tuple-shape repairs remain;
+    // leave other mismatches unchanged rather than guessing a conversion.
     let Ty::Tuple(expected_items) = expected_input else {
         return;
     };
 
+    // 5. If the argument already has the exact element type, adding the
+    // required singleton wrapper needs no callable-specific proof.
     if expected_items.len() == 1 && arg.ty == expected_items[0] {
         wrap_arg_in_single_tuple(package, assigner, arg_id);
         return;
     }
 
+    // 6. Recursive repair requires an explicit tuple with matching arity.
+    // Do not unpack opaque values or insert, remove, or reorder elements.
     let ExprKind::Tuple(arg_items) = arg.kind else {
         return;
     };
@@ -2080,16 +2157,60 @@ fn normalize_arg_to_expected_input(
         return;
     }
 
+    // 7. Repair each child independently; an unproven child stays unchanged.
     for (arg_item, expected_item) in arg_items.iter().zip(expected_items) {
-        normalize_arg_to_expected_input(package, assigner, *arg_item, expected_item);
+        normalize_arg_to_expected_input(
+            package,
+            assigner,
+            *arg_item,
+            expected_item,
+            callable_types,
+        );
     }
 
+    // 8. Derive the parent type from the actual children, not the requested
+    // types: a child may be unchanged or retain stronger proven functors.
     let updated_tys = arg_items
         .iter()
         .map(|arg_item| package.get_expr(*arg_item).ty.clone())
         .collect();
     let arg_mut = package.exprs.get_mut(arg_id).expect("arg expr exists");
     arg_mut.ty = Ty::Tuple(updated_tys);
+}
+
+/// Returns the full type of a direct, nongeneric declaration that proves the
+/// required functors without changing the callable kind or input/output shape.
+fn proven_callable_type<'a>(
+    argument: &Expr,
+    expected: &Ty,
+    callable_types: &'a FxHashMap<StoreItemId, Arrow>,
+) -> Option<&'a Arrow> {
+    // 1. Only a direct global reference with arrow types can use this proof.
+    // Locals, closures, and functor-wrapper expressions need different reasoning.
+    let (ExprKind::Var(Res::Item(item), generics), Ty::Arrow(stored), Ty::Arrow(expected)) =
+        (&argument.kind, &argument.ty, expected)
+    else {
+        return None;
+    };
+    // 2. Restrict the repair to functor metadata. Do not instantiate generic
+    // references or reinterpret a different callable kind or input/output shape.
+    if !generics.is_empty()
+        || stored.kind != expected.kind
+        || stored.input != expected.input
+        || stored.output != expected.output
+    {
+        return None;
+    }
+    // 3. Obtain the concrete declaration using both package and item identity.
+    // A reference's stored type alone cannot prove additional capabilities.
+    let actual = callable_types.get(&StoreItemId::from((item.package, item.item)))?;
+    // 4. Require the declaration's exact signature and sufficient functors.
+    // Return its full type so satisfying a weaker use does not erase capabilities.
+    (actual.kind == expected.kind
+        && actual.input == expected.input
+        && actual.output == expected.output
+        && crate::fir_builder::functors_satisfy(actual.functors, expected.functors))
+    .then_some(actual)
 }
 
 /// Replaces `arg_id` with a one-element tuple node while preserving the

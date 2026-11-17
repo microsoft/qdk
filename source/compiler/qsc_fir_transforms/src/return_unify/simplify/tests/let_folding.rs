@@ -574,6 +574,95 @@ fn init_that_writes_merge_slot_refuses_to_fold() {
     );
 }
 
+#[test]
+fn init_that_writes_return_slot_refuses_to_fold() {
+    check_return_slot_write_refuses_to_fold(&Ty::Prim(Prim::Int), |_, _, lhs, rhs| {
+        ExprKind::Assign(lhs, rhs)
+    });
+}
+
+#[test]
+fn init_that_compound_writes_indexed_return_slot_refuses_to_fold() {
+    check_return_slot_write_refuses_to_fold(
+        &Ty::Array(Box::new(Ty::Prim(Prim::Int))),
+        |package, assigner, array, rhs| {
+            let span = package.synthetic_span();
+            let index = crate::fir_builder::alloc_int_lit(package, assigner, 0, span);
+            let lhs = alloc_expr(
+                package,
+                assigner,
+                Ty::Prim(Prim::Int),
+                ExprKind::Index(array, index),
+                span,
+            );
+            ExprKind::AssignOp(qsc_fir::fir::BinOp::Add, lhs, rhs)
+        },
+    );
+}
+
+fn check_return_slot_write_refuses_to_fold(
+    return_ty: &Ty,
+    make_write: impl FnOnce(&mut Package, &mut Assigner, ExprId, ExprId) -> ExprKind,
+) {
+    use crate::fir_builder::{alloc_block_expr, alloc_int_lit};
+
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let slots = alloc_slots(&mut assigner);
+    let span = package.synthetic_span();
+    let lhs = alloc_local_var_expr(
+        &mut package,
+        &mut assigner,
+        slots.ret_val,
+        return_ty.clone(),
+        span,
+    );
+    let rhs = alloc_int_lit(&mut package, &mut assigner, 9, span);
+    let kind = make_write(&mut package, &mut assigner, lhs, rhs);
+    let write = alloc_expr(&mut package, &mut assigner, Ty::UNIT, kind, span);
+    let write_stmt = alloc_semi_stmt(&mut package, &mut assigner, write, span);
+    let value = alloc_int_lit(&mut package, &mut assigner, 5, span);
+    let tail = if matches!(return_ty, Ty::Array(_)) {
+        alloc_expr(
+            &mut package,
+            &mut assigner,
+            return_ty.clone(),
+            ExprKind::ArrayLit(vec![value]),
+            span,
+        )
+    } else {
+        value
+    };
+    let tail_stmt = alloc_expr_stmt(&mut package, &mut assigner, tail, span);
+    let inner = alloc_block(
+        &mut package,
+        &mut assigner,
+        vec![write_stmt, tail_stmt],
+        return_ty.clone(),
+        span,
+    );
+    let init = alloc_block_expr(&mut package, &mut assigner, inner, return_ty.clone(), span);
+    let (block, _, merge) = build_let_merge_pattern(
+        &mut package,
+        &mut assigner,
+        &slots,
+        init,
+        return_ty,
+        symbols::TRAILING_RESULT,
+    );
+    let before = package.get_block(block).stmts.clone();
+    let merge_before = package.get_expr(merge).kind.clone();
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block);
+    assert!(!let_folding::apply(
+        &mut package,
+        &mut assigner,
+        block,
+        &synth_slots
+    ));
+    assert_eq!(package.get_block(block).stmts, before);
+    assert_eq!(package.get_expr(merge).kind, merge_before);
+}
+
 /// Q#-driven `check_simplify_rule_q` tests. These pin the rule's
 /// effect against what the lowerer actually emits for representative
 /// Q# bodies; the snapshot header records `fired=<bool>` so each case

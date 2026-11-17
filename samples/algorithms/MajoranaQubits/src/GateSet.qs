@@ -69,7 +69,7 @@ operation BellMeasurement(q1 : Qubit, q2 : Qubit) : (Result, Result) {
 
 /// User friendly wrapper around the Mx hardware gate.
 operation Mx(q : Qubit) : Result {
-    HardwareIntrinsics.__quantum__qis__mx__body(q)
+    HardwareIntrinsics.__quantum__qis__custom__mx__body(q)
 }
 
 /// User friendly wrapper around the Mz hardware gate.

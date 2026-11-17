@@ -9,66 +9,67 @@
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  %var_11 = alloca i1
-  %var_17 = alloca i1
-  %var_32 = alloca i1
-  %var_33 = alloca i1
-  %var_34 = alloca i64
+  %var_15 = alloca i1
+  %var_21 = alloca i1
+  %var_40 = alloca i1
+  %var_41 = alloca i1
+  %var_42 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   call void @CreateEntangledPair(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_8 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  store i1 %var_8, ptr %var_11
+  %var_12 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  store i1 %var_12, ptr %var_15
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-  %var_14 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-  store i1 %var_14, ptr %var_17
-  %var_42 = load i1, ptr %var_11
-  %var_43 = load i1, ptr %var_17
-  call void @SuperdenseEncode(i1 %var_42, i1 %var_43, ptr inttoptr (i64 0 to ptr))
+  %var_18 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  store i1 %var_18, ptr %var_21
+  %var_22 = load i1, ptr %var_15
+  %var_23 = load i1, ptr %var_21
+  call void @SuperdenseEncode(i1 zeroext %var_22, i1 zeroext %var_23, ptr inttoptr (i64 0 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @H__Adj(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-  %var_25 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+  %var_31 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__cz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @H__Adj(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
-  %var_29 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
-  store i1 %var_25, ptr %var_32
-  store i1 %var_29, ptr %var_33
-  store i64 0, ptr %var_34
+  %var_35 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
+  store i1 %var_31, ptr %var_40
+  store i1 %var_35, ptr %var_41
+  store i64 0, ptr %var_42
   br label %block_1
 block_1:
-  %var_47 = load i64, ptr %var_34
-  %var_35 = icmp slt i64 %var_47, 2
-  br i1 %var_35, label %block_2, label %block_3
+  %var_43 = load i64, ptr %var_42
+  %var_44 = icmp slt i64 %var_43, 2
+  br i1 %var_44, label %block_2, label %block_3
 block_2:
-  %var_52 = load i64, ptr %var_34
-  %var_36_offset_chk = icmp slt i64 %var_52, 0
-  %var_36_offset = select i1 %var_36_offset_chk, i64 1, i64 0
-  %var_36 = getelementptr [2 x ptr], ptr @array0, i64 %var_36_offset, i64 %var_52
-  %var_53 = load ptr, ptr %var_36
-  call void @Reset(ptr %var_53)
-  %var_39 = add i64 %var_52, 1
-  store i64 %var_39, ptr %var_34
+  %var_59 = load i64, ptr %var_42
+  %var_60_offset_chk = icmp slt i64 %var_59, 0
+  %var_60_offset = select i1 %var_60_offset_chk, i64 1, i64 0
+  %var_60 = getelementptr [2 x ptr], ptr @array0, i64 %var_60_offset, i64 %var_59
+  %var_45 = load ptr, ptr %var_60
+  call void @Reset(ptr %var_45)
+  %var_48 = load i64, ptr %var_42
+  %var_49 = add i64 %var_48, 1
+  store i64 %var_49, ptr %var_42
   br label %block_1
 block_3:
+  %var_50 = load i1, ptr %var_15
+  %var_51 = load i1, ptr %var_21
+  %var_52 = load i1, ptr %var_40
+  %var_53 = load i1, ptr %var_41
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @1)
-  %var_48 = load i1, ptr %var_11
-  call void @__quantum__rt__bool_record_output(i1 %var_48, ptr @2)
-  %var_49 = load i1, ptr %var_17
-  call void @__quantum__rt__bool_record_output(i1 %var_49, ptr @3)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_50, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_51, ptr @3)
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @4)
-  %var_50 = load i1, ptr %var_32
-  call void @__quantum__rt__bool_record_output(i1 %var_50, ptr @5)
-  %var_51 = load i1, ptr %var_33
-  call void @__quantum__rt__bool_record_output(i1 %var_51, ptr @6)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_52, ptr @5)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_53, ptr @6)
   ret i64 0
 }
 
@@ -89,9 +90,9 @@ block_5:
 
 declare void @__quantum__qis__h__body(ptr)
 
-define internal void @CNOT(ptr %var_4, ptr %var_5) {
+define internal void @CNOT(ptr %var_6, ptr %var_7) {
 block_6:
-  call void @__quantum__qis__cx__body(ptr %var_4, ptr %var_5)
+  call void @__quantum__qis__cx__body(ptr %var_6, ptr %var_7)
   ret void
 }
 
@@ -99,50 +100,50 @@ declare void @__quantum__qis__cx__body(ptr, ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
-define internal void @SuperdenseEncode(i1 %var_18, i1 %var_19, ptr %var_20) {
+define internal void @SuperdenseEncode(i1 zeroext %var_24, i1 zeroext %var_25, ptr %var_26) {
 block_7:
-  br i1 %var_18, label %block_8, label %block_9
+  br i1 %var_24, label %block_8, label %block_9
 block_8:
-  call void @Z(ptr %var_20)
+  call void @Z(ptr %var_26)
   br label %block_9
 block_9:
-  br i1 %var_19, label %block_10, label %block_11
+  br i1 %var_25, label %block_10, label %block_11
 block_10:
-  call void @X(ptr %var_20)
+  call void @X(ptr %var_26)
   br label %block_11
 block_11:
   ret void
 }
 
-define internal void @Z(ptr %var_21) {
+define internal void @Z(ptr %var_27) {
 block_12:
-  call void @__quantum__qis__z__body(ptr %var_21)
+  call void @__quantum__qis__z__body(ptr %var_27)
   ret void
 }
 
 declare void @__quantum__qis__z__body(ptr)
 
-define internal void @X(ptr %var_22) {
+define internal void @X(ptr %var_28) {
 block_13:
-  call void @__quantum__qis__x__body(ptr %var_22)
+  call void @__quantum__qis__x__body(ptr %var_28)
   ret void
 }
 
 declare void @__quantum__qis__x__body(ptr)
 
-define internal void @H__Adj(ptr %var_24) {
+define internal void @H__Adj(ptr %var_30) {
 block_14:
-  call void @__quantum__qis__h__body(ptr %var_24)
+  call void @__quantum__qis__h__body(ptr %var_30)
   ret void
 }
 
 declare void @__quantum__qis__cz__body(ptr, ptr)
 
-define internal void @Reset(ptr %var_38) {
+define internal void @Reset(ptr %var_47) {
 block_15:
-  call void @__quantum__qis__reset__body(ptr %var_38)
+  call void @__quantum__qis__reset__body(ptr %var_47)
   ret void
 }
 
@@ -150,7 +151,7 @@ declare void @__quantum__qis__reset__body(ptr) #1
 
 declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__rt__bool_record_output(i1, ptr)
+declare void @__quantum__rt__bool_record_output(i1 zeroext, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="4" }
 attributes #1 = { "irreversible" }
@@ -158,7 +159,7 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -169,3 +170,4 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

@@ -10,6 +10,9 @@ use std::str::FromStr;
 
 use crate::qir_simulation::{LossPolicy, NoiseTable};
 
+/// Each qubit takes 3 bits in the `u64` key, matching `encode_pauli`.
+const MAX_QUBITS: u32 = u64::BITS / 3;
+
 /// Errors that can occur while parsing a noise-table CSV.
 #[derive(Debug)]
 pub enum ParseError {
@@ -23,6 +26,8 @@ pub enum ParseError {
     InconsistentLength { expected: u32, found: u32 },
     /// A Pauli string contains an invalid character.
     InvalidPauliChar { line: usize, content: String },
+    /// A Pauli string acts on more qubits than its `u64` encoding can hold.
+    TooManyQubits { line: usize, found: u32 },
 }
 
 impl fmt::Display for ParseError {
@@ -46,6 +51,12 @@ impl fmt::Display for ParseError {
             Self::InvalidPauliChar { line, content } => {
                 write!(f, "Invalid Pauli string char in line {line}: {content}")
             }
+            Self::TooManyQubits { line, found } => {
+                write!(
+                    f,
+                    "Pauli string in line {line} has {found} qubits, but at most {MAX_QUBITS} are supported"
+                )
+            }
         }
     }
 }
@@ -59,9 +70,9 @@ impl From<ParseError> for pyo3::PyErr {
             ParseError::InvalidRow { .. } | ParseError::InvalidFloat { .. } => {
                 PyIOError::new_err(e.to_string())
             }
-            ParseError::InvalidProbability(_) | ParseError::InconsistentLength { .. } => {
-                PyValueError::new_err(e.to_string())
-            }
+            ParseError::InvalidProbability(_)
+            | ParseError::InconsistentLength { .. }
+            | ParseError::TooManyQubits { .. } => PyValueError::new_err(e.to_string()),
             ParseError::InvalidPauliChar { .. } => PyAttributeError::new_err(e.to_string()),
         }
     }
@@ -226,6 +237,12 @@ fn parse_noise_chunk(contents: &str, line_offset: usize) -> Result<ChunkEntries,
         }
 
         let num_qubits = u32::try_from(pauli.len()).expect("pauli string size should fit in a u32");
+        if num_qubits > MAX_QUBITS {
+            return Err(ParseError::TooManyQubits {
+                line: i,
+                found: num_qubits,
+            });
+        }
 
         match expected_qubits {
             None => expected_qubits = Some(num_qubits),

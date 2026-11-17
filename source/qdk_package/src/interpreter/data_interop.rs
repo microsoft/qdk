@@ -4,7 +4,7 @@
 //! This module contains the types and functions used to build the
 //! data-interop layer between Python and Q#.
 
-use crate::interpreter::{Closure, GlobalCallable, QasmError};
+use crate::interpreter::{Closure, GlobalCallable, QSharpError, QasmError, check_callable_owner};
 
 use super::{Pauli, Result};
 use num_bigint::BigInt;
@@ -214,13 +214,83 @@ where
     }
 }
 
+/// Finds any Q# type recursively that does not support interop with Python, meaning our code cannot convert it back and forth
+/// across the interop boundary.
+pub(super) fn first_unsupported_interop_ty<'ctx, 'ty>(
+    ctx: &'ctx interpret::Interpreter,
+    ty: &'ty Ty,
+    allow_any_primitive: bool,
+) -> Option<String>
+where
+    'ty: 'ctx,
+{
+    match ty {
+        Ty::Prim(prim_ty) => match prim_ty {
+            Prim::Pauli
+            | Prim::BigInt
+            | Prim::Bool
+            | Prim::Double
+            | Prim::Int
+            | Prim::String
+            | Prim::Result => None,
+            Prim::Qubit | Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
+                if allow_any_primitive {
+                    None
+                } else {
+                    Some(ty.to_string())
+                }
+            }
+        },
+        Ty::Tuple(tup) => tup
+            .iter()
+            .find_map(|t| first_unsupported_interop_ty(ctx, t, allow_any_primitive)),
+        Ty::Array(ty) => first_unsupported_interop_ty(ctx, ty, allow_any_primitive),
+        Ty::Udt(_, res) => {
+            let qsc::hir::Res::Item(item_id) = res else {
+                panic!("Udt should be an item");
+            };
+            let (udt, _) = ctx.udt_ty_from_item_id(item_id);
+
+            let Ok(fields) = collect_udt_fields(udt) else {
+                return Some(ty.to_string());
+            };
+
+            for field in fields {
+                if let Some(ty) = first_unsupported_interop_ty(ctx, field.1, allow_any_primitive) {
+                    return Some(ty);
+                }
+            }
+
+            None
+        }
+        Ty::Arrow(arrow) => {
+            // Callable inputs/outputs stay inside Q#, so primitive interop restrictions
+            // do not apply there. Remaining type parameters are still rejected: a
+            // checked generic instance is supported, an uninstantiated declaration is not.
+            if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.input.borrow(), true) {
+                return Some(ty);
+            }
+            if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.output.borrow(), true) {
+                return Some(ty);
+            }
+            None
+        }
+        Ty::Infer(..) | Ty::Param { .. } | Ty::Err => Some(ty.to_string()),
+    }
+}
+
 /// Given a type, convert a Python object into a Q# value of that type. This will recur through tuples and arrays,
 /// and will return an error if the type is not supported or the object cannot be converted.
+/// Opaque callable ownership is checked before resolving its interpreter-local type IDs.
+/// Arrow positions validate the instantiated signature, including callable kind,
+/// nominal identities, and required functors. Scalar Python coercions are not
+/// applied within those signatures; conversion does not infer generic arguments.
 pub(super) fn pyobj_to_value(
     ctx: &interpret::Interpreter,
     py: Python,
     obj: &Py<PyAny>,
     ty: &Ty,
+    callable_owner: &Rc<()>,
 ) -> PyResult<Value> {
     match ty {
         Ty::Prim(prim_ty) => match prim_ty {
@@ -229,7 +299,13 @@ pub(super) fn pyobj_to_value(
             Prim::BigInt => Ok(Value::BigInt(extract_obj::<BigInt>(py, obj, ty)?)),
             Prim::Double => Ok(Value::Double(extract_obj::<f64>(py, obj, ty)?)),
             Prim::String => Ok(Value::String(extract_obj::<String>(py, obj, ty)?.into())),
-            Prim::Result => Ok(Value::Result(extract_obj::<Result>(py, obj, ty)?.into())),
+            Prim::Result => {
+                let result_value = extract_obj::<Result>(py, obj, ty)?;
+                if matches!(result_value, Result::Loss) {
+                    return Err(PyTypeError::new_err("input Result value cannot be `Loss`"));
+                }
+                Ok(Value::Result(result_value.into()))
+            }
             Prim::Pauli => Ok(Value::Pauli(extract_obj::<Pauli>(py, obj, ty)?.into())),
             Prim::Qubit | Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
                 unimplemented!("primitive input type: {prim_ty:?}")
@@ -245,74 +321,34 @@ pub(super) fn pyobj_to_value(
                     objs.len()
                 )));
             }
-            if objs.len() == 1 {
-                pyobj_to_value(ctx, py, &objs[0], &tup[0])
-            } else {
-                let mut tuple = Vec::new();
-                for (obj, ty) in objs.iter().zip(tup) {
-                    tuple.push(pyobj_to_value(ctx, py, obj, ty)?);
-                }
-                Ok(Value::Tuple(tuple.into(), None))
+            let mut tuple = Vec::new();
+            for (obj, ty) in objs.iter().zip(tup) {
+                tuple.push(pyobj_to_value(ctx, py, obj, ty, callable_owner)?);
             }
+            Ok(Value::Tuple(tuple.into(), None))
         }
         Ty::Array(ty) => {
             let objs = extract_obj::<Vec<Py<PyAny>>>(py, obj, ty)?;
             let ty = &**ty;
             let mut array = Vec::new();
             for obj in &objs {
-                array.push(pyobj_to_value(ctx, py, obj, ty)?);
+                array.push(pyobj_to_value(ctx, py, obj, ty, callable_owner)?);
             }
             Ok(Value::Array(array.into()))
         }
-        Ty::Udt(_, res) => {
-            let qsc::hir::Res::Item(item_id) = res else {
-                panic!("Udt should be an item");
-            };
-            let (udt, kind) = ctx.udt_ty_from_item_id(item_id);
-
-            match kind {
-                interpret::UdtKind::Angle => {
-                    let angle = extract_obj::<f64>(py, obj, ty)?;
-                    let angle =
-                        qsc::openqasm::stdlib::angle::Angle::from_f64_maybe_sized(angle, None);
-                    let value = i64::try_from(angle.value)
-                        .expect("angles built with `None` size have at most 53 bits");
-                    let size = i64::from(angle.size);
-                    Ok(Value::Tuple(
-                        Rc::new([Value::Int(value), Value::Int(size)]),
-                        Some(Rc::new(ctx.get_angle_id())),
-                    ))
-                }
-                interpret::UdtKind::Complex => {
-                    let val = extract_obj::<num_complex::Complex64>(py, obj, ty)?;
-                    Ok(Value::Tuple(
-                        Rc::new([Value::Double(val.re), Value::Double(val.im)]),
-                        Some(Rc::new(ctx.get_complex_id())),
-                    ))
-                }
-                interpret::UdtKind::Udt => {
-                    let udt_fields = extract_obj::<UdtFields>(py, obj, ty)?;
-
-                    let mut tuple = Vec::new();
-                    for (name, ty) in collect_udt_fields(udt)? {
-                        let Some(value) = udt_fields.get(&*name) else {
-                            return Err(PyTypeError::new_err(format!(
-                                "missing field {} in {}",
-                                name, udt.name,
-                            )));
-                        };
-                        tuple.push(pyobj_to_value(ctx, py, value, ty)?);
-                    }
-                    Ok(Value::Tuple(tuple.into(), None))
-                }
-            }
-        }
+        Ty::Udt(_, res) => pyobj_to_udt(ctx, py, obj, ty, res, callable_owner),
         Ty::Arrow(..) => {
             if let Ok(callable) = extract_obj::<GlobalCallable>(py, obj, ty) {
-                return Ok(callable.into());
+                check_callable_owner(&callable.1, callable_owner)?;
+                let callable_val = callable.0;
+                check_callable_types(ctx, &callable_val, ty)?;
+                return Ok(callable_val);
             }
             if let Ok(callable) = extract_obj::<Closure>(py, obj, ty) {
-                return Ok(callable.into());
+                check_callable_owner(&callable.1, callable_owner)?;
+                let callable_val = callable.0;
+                check_callable_types(ctx, &callable_val, ty)?;
+                return Ok(callable_val);
             }
             Err(PyTypeError::new_err(format!(
                 "expected a callable, found {}",
@@ -320,6 +356,115 @@ pub(super) fn pyobj_to_value(
             )))
         }
         _ => unimplemented!("input type: {ty}"),
+    }
+}
+
+fn check_callable_types(
+    ctx: &interpret::Interpreter,
+    callable_val: &Value,
+    expected: &Ty,
+) -> PyResult<()> {
+    let arrow = ctx
+        .callable_arrow(callable_val)
+        .map_err(|error| PyTypeError::new_err(error.to_string()))?
+        .ok_or(QSharpError::new_err("callable not found"))?;
+    if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.input.borrow(), true) {
+        Err(QSharpError::new_err(format!(
+            "unsupported input type: `{ty}`"
+        )))
+    } else if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.output.borrow(), true) {
+        Err(QSharpError::new_err(format!(
+            "unsupported output type: `{ty}`"
+        )))
+    } else {
+        let actual = Ty::Arrow(Rc::new(arrow));
+        if callable_type_accepts(expected, &actual) {
+            Ok(())
+        } else {
+            Err(PyTypeError::new_err(format!(
+                "incompatible callable type: expected `{}`, found `{}`",
+                expected.display(),
+                actual.display(),
+            )))
+        }
+    }
+}
+
+/// Signature compatibility does not use Python's primitive value coercions.
+/// Inputs are contravariant, outputs covariant, and available functors must include
+/// those required by the receiving type. Non-arrow leaves retain nominal equality.
+fn callable_type_accepts(expected: &Ty, actual: &Ty) -> bool {
+    match (expected, actual) {
+        (Ty::Arrow(expected), Ty::Arrow(actual)) => {
+            // ISSUE #4222: Python callable inputs skip functor validation
+            // Uncomment these two lines and the third below once the corresponding qdk-chemistry fix has shipped
+            // let required = expected.functors.borrow().expect_value("resolved functors");
+            // let available = actual.functors.borrow().expect_value("resolved functors");
+            expected.kind == actual.kind
+                // && available.intersect(&required) == required
+                && callable_type_accepts(&actual.input.borrow(), &expected.input.borrow())
+                && callable_type_accepts(&expected.output.borrow(), &actual.output.borrow())
+        }
+        (Ty::Array(expected), Ty::Array(actual)) => callable_type_accepts(expected, actual),
+        (Ty::Tuple(expected), Ty::Tuple(actual)) => {
+            expected.len() == actual.len()
+                && expected
+                    .iter()
+                    .zip(actual)
+                    .all(|(expected, actual)| callable_type_accepts(expected, actual))
+        }
+        (Ty::Udt(_, expected), Ty::Udt(_, actual)) => expected == actual,
+        _ => expected == actual,
+    }
+}
+
+fn pyobj_to_udt(
+    ctx: &interpret::Interpreter,
+    py: Python,
+    obj: &Py<PyAny>,
+    ty: &Ty,
+    res: &qsc::hir::Res,
+    callable_owner: &Rc<()>,
+) -> PyResult<Value> {
+    let qsc::hir::Res::Item(item_id) = res else {
+        panic!("Udt should be an item");
+    };
+    let (udt, kind) = ctx.udt_ty_from_item_id(item_id);
+
+    match kind {
+        interpret::UdtKind::Angle => {
+            let angle = extract_obj::<f64>(py, obj, ty)?;
+            let angle = qsc::openqasm::stdlib::angle::Angle::from_f64_maybe_sized(angle, None);
+            let value = i64::try_from(angle.value)
+                .expect("angles built with `None` size have at most 53 bits");
+            let size = i64::from(angle.size);
+            Ok(Value::Tuple(
+                Rc::new([Value::Int(value), Value::Int(size)]),
+                Some(Rc::new(ctx.get_angle_id())),
+            ))
+        }
+        interpret::UdtKind::Complex => {
+            let val = extract_obj::<num_complex::Complex64>(py, obj, ty)?;
+            Ok(Value::Tuple(
+                Rc::new([Value::Double(val.re), Value::Double(val.im)]),
+                Some(Rc::new(ctx.get_complex_id())),
+            ))
+        }
+        interpret::UdtKind::Udt => {
+            let udt_fields = extract_obj::<UdtFields>(py, obj, ty)?;
+
+            let mut tuple = Vec::new();
+            for (name, ty) in collect_udt_fields(udt)? {
+                let Some(value) = udt_fields.get(&*name) else {
+                    return Err(PyTypeError::new_err(format!(
+                        "missing field {} in {}",
+                        name, udt.name,
+                    )));
+                };
+                tuple.push(pyobj_to_value(ctx, py, value, ty, callable_owner)?);
+            }
+            Ok(Value::Tuple(tuple.into(), None))
+        }
     }
 }
 
@@ -379,6 +524,7 @@ pub(crate) fn value_to_pyobj(
     ctx: &interpret::Interpreter,
     py: Python,
     value: &Value,
+    callable_owner: &Rc<()>,
 ) -> PyResult<Py<PyAny>> {
     match value {
         Value::Int(val) => val.into_py_any(py),
@@ -409,7 +555,7 @@ pub(crate) fn value_to_pyobj(
         Value::Tuple(values, None) => {
             let mut tuple = Vec::new();
             for val in values.iter() {
-                tuple.push(value_to_pyobj(ctx, py, val)?);
+                tuple.push(value_to_pyobj(ctx, py, val, callable_owner)?);
             }
 
             // Special case Value::UNIT maps to None.
@@ -444,7 +590,10 @@ pub(crate) fn value_to_pyobj(
                     let ty_fields = collect_udt_fields(udt)?;
                     let mut fields = Vec::new();
                     for (value, (name, _)) in values.iter().zip(ty_fields) {
-                        fields.push((name.to_string(), value_to_pyobj(ctx, py, value)?));
+                        fields.push((
+                            name.to_string(),
+                            value_to_pyobj(ctx, py, value, callable_owner)?,
+                        ));
                     }
                     UdtValue {
                         name: udt.name.to_string(),
@@ -457,16 +606,16 @@ pub(crate) fn value_to_pyobj(
         Value::Array(values) => {
             let mut array = Vec::with_capacity(values.len());
             for val in values.iter() {
-                array.push(value_to_pyobj(ctx, py, val)?);
+                array.push(value_to_pyobj(ctx, py, val, callable_owner)?);
             }
             PyList::new(py, array)?.into_py_any(py)
         }
-        Value::Global(..) => {
-            let callable: GlobalCallable = value.clone().into();
+        Value::Global(..) | Value::GlobalWithArgs(..) => {
+            let callable = GlobalCallable::new(value.clone(), callable_owner);
             callable.into_py_any(py)
         }
         Value::Closure(..) => {
-            let closure: Closure = value.clone().into();
+            let closure = Closure::new(value.clone(), callable_owner);
             closure.into_py_any(py)
         }
         Value::Qubit(..) | Value::Range(..) | Value::Var(..) => {

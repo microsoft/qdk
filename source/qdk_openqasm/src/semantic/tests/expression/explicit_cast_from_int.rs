@@ -1533,3 +1533,140 @@ fn sized_int_to_bitarray_expanding_fails() {
             ]"#]],
     );
 }
+
+#[test]
+fn negative_int_to_bitarray() {
+    let source = "
+        const int[2] a = -1;
+        const bit[2] b = bit[2](a);
+    ";
+    check(
+        source,
+        &expect![[r#"
+            ClassicalDeclarationStmt [9-29]:
+                symbol_id: 8
+                ty_span: [15-21]
+                ty_exprs:
+                    Expr [19-20]:
+                        ty: const uint
+                        const_value: Int(2)
+                        kind: Lit: Int(2)
+                init_expr: Expr [27-28]:
+                    ty: const int[2]
+                    const_value: Int(-1)
+                    kind: Cast [27-28]:
+                        ty: const int[2]
+                        ty_exprs: <empty>
+                        expr: Expr [27-28]:
+                            ty: const int
+                            kind: UnaryOpExpr [27-28]:
+                                op: Neg
+                                expr: Expr [27-28]:
+                                    ty: const int
+                                    kind: Lit: Int(1)
+                        kind: Implicit
+            ClassicalDeclarationStmt [38-65]:
+                symbol_id: 9
+                ty_span: [44-50]
+                ty_exprs:
+                    Expr [48-49]:
+                        ty: const uint
+                        const_value: Int(2)
+                        kind: Lit: Int(2)
+                init_expr: Expr [55-64]:
+                    ty: const bit[2]
+                    const_value: Bitstring("11")
+                    kind: Cast [55-64]:
+                        ty: const bit[2]
+                        ty_exprs:
+                            Expr [59-60]:
+                                ty: const uint
+                                const_value: Int(2)
+                                kind: Lit: Int(2)
+                        expr: Expr [62-63]:
+                            ty: const int[2]
+                            kind: SymbolId(8)
+                        kind: Explicit
+        "#]],
+    );
+}
+
+#[test]
+fn negative_int_to_bitarray_roundtrip() {
+    let source = "
+        const int[2] a = -1;
+        const bit[2] b = bit[2](a);
+        const int[2] c = int[2](b);
+    ";
+    check(
+        source,
+        &expect![[r#"
+            ClassicalDeclarationStmt [9-29]:
+                symbol_id: 8
+                ty_span: [15-21]
+                ty_exprs:
+                    Expr [19-20]:
+                        ty: const uint
+                        const_value: Int(2)
+                        kind: Lit: Int(2)
+                init_expr: Expr [27-28]:
+                    ty: const int[2]
+                    const_value: Int(-1)
+                    kind: Cast [27-28]:
+                        ty: const int[2]
+                        ty_exprs: <empty>
+                        expr: Expr [27-28]:
+                            ty: const int
+                            kind: UnaryOpExpr [27-28]:
+                                op: Neg
+                                expr: Expr [27-28]:
+                                    ty: const int
+                                    kind: Lit: Int(1)
+                        kind: Implicit
+            ClassicalDeclarationStmt [38-65]:
+                symbol_id: 9
+                ty_span: [44-50]
+                ty_exprs:
+                    Expr [48-49]:
+                        ty: const uint
+                        const_value: Int(2)
+                        kind: Lit: Int(2)
+                init_expr: Expr [55-64]:
+                    ty: const bit[2]
+                    const_value: Bitstring("11")
+                    kind: Cast [55-64]:
+                        ty: const bit[2]
+                        ty_exprs:
+                            Expr [59-60]:
+                                ty: const uint
+                                const_value: Int(2)
+                                kind: Lit: Int(2)
+                        expr: Expr [62-63]:
+                            ty: const int[2]
+                            kind: SymbolId(8)
+                        kind: Explicit
+            ClassicalDeclarationStmt [74-101]:
+                symbol_id: 10
+                ty_span: [80-86]
+                ty_exprs:
+                    Expr [84-85]:
+                        ty: const uint
+                        const_value: Int(2)
+                        kind: Lit: Int(2)
+                init_expr: Expr [91-100]:
+                    ty: const int[2]
+                    const_value: Int(-1)
+                    kind: Cast [91-100]:
+                        ty: const int[2]
+                        ty_exprs:
+                            Expr [95-96]:
+                                ty: const uint
+                                const_value: Int(2)
+                                kind: Lit: Int(2)
+                        expr: Expr [98-99]:
+                            ty: const bit[2]
+                            kind: SymbolId(9)
+                        kind: Explicit
+        "#]],
+    );
+}

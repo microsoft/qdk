@@ -670,7 +670,7 @@ impl Operand {
         match self {
             Operand::Literal(lit) => match lit {
                 Literal::Qubit(_) => Ty::Prim(Prim::Qubit),
-                Literal::Result(_) => Ty::Prim(Prim::Result),
+                Literal::Result(_) | Literal::ResultLit(_) => Ty::Prim(Prim::Result),
                 Literal::Bool(_) => Ty::Prim(Prim::Boolean),
                 Literal::Integer(_) => Ty::Prim(Prim::Integer),
                 Literal::Double(_) => Ty::Prim(Prim::Double),
@@ -687,6 +687,7 @@ impl Operand {
 pub enum Literal {
     Qubit(u32),
     Result(u32),
+    ResultLit(bool),
     Bool(bool),
     Integer(i64),
     Double(f64),
@@ -700,6 +701,7 @@ impl Display for Literal {
         match &self {
             Self::Qubit(id) => write!(f, "Qubit({id})")?,
             Self::Result(id) => write!(f, "Result({id})")?,
+            Self::ResultLit(b) => write!(f, "ResultLit({b})")?,
             Self::Bool(b) => write!(f, "Bool({b})")?,
             Self::Integer(i) => write!(f, "Integer({i})")?,
             Self::Double(d) => write!(f, "Double({d})")?,
@@ -752,6 +754,13 @@ impl PartialEq for Literal {
                     false
                 }
             }
+            Self::ResultLit(self_result_lit) => {
+                if let Self::ResultLit(other_result_lit) = other {
+                    self_result_lit == other_result_lit
+                } else {
+                    false
+                }
+            }
             Self::Tag(self_tag_idx, self_tag_len) => {
                 if let Self::Tag(other_tag_idx, other_tag_len) = other {
                     self_tag_idx == other_tag_idx && self_tag_len == other_tag_len
@@ -795,6 +804,46 @@ impl Display for ArrayLiteral {
 impl PartialEq for ArrayLiteral {
     fn eq(&self, other: &Self) -> bool {
         self.ty == other.ty && self.contents == other.contents
+    }
+}
+
+/// Tracks a mapping to a specific operand, indicating whether the mapping is shallow or deep.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum OperandMapping {
+    /// A shallow mapping to an operand, where the mapped value should be replaced by this operand
+    /// directly without following any further mappings.
+    Shallow(Operand),
+    /// A deep mapping to an operand, where the mapped value should be followed to its root before use.
+    Deep(Operand),
+}
+
+impl OperandMapping {
+    pub(crate) fn is_shallow(&self) -> bool {
+        matches!(self, OperandMapping::Shallow(_))
+    }
+}
+
+impl From<OperandMapping> for Operand {
+    fn from(val: OperandMapping) -> Self {
+        match val {
+            OperandMapping::Shallow(op) | OperandMapping::Deep(op) => op,
+        }
+    }
+}
+
+impl From<&OperandMapping> for Operand {
+    fn from(val: &OperandMapping) -> Self {
+        match val {
+            OperandMapping::Shallow(op) | OperandMapping::Deep(op) => *op,
+        }
+    }
+}
+
+impl From<&mut OperandMapping> for Operand {
+    fn from(val: &mut OperandMapping) -> Self {
+        match val {
+            OperandMapping::Shallow(op) | OperandMapping::Deep(op) => *op,
+        }
     }
 }
 

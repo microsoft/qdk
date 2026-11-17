@@ -1,23 +1,38 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{Callable, Instruction, Literal, Operand, Prim, Program, Ty, Variable};
+use crate::rir::{
+    Callable, Instruction, Literal, Operand, Prim, Program, Ty, Variable, VariableId,
+};
+use rustc_hash::FxHashSet;
 
 #[cfg(test)]
 mod tests;
 
 pub fn check_types(program: &Program) {
+    // Any variable that is defined more than once violates the required LLVM Single Static Assignment (SSA)
+    // form, so we track the variable IDs defined by instructions to ensure they are unique.
+    // LLVM only requires unique variables per-function, but since RIR uses global variable IDs,
+    // we enforce uniqueness across the entire program.
+    let mut defined_var_ids = FxHashSet::default();
     for (_, block) in program.blocks.iter() {
         for instr in &block.0 {
-            check_instr_types(program, instr);
+            check_instr_types(program, instr, &mut defined_var_ids);
         }
     }
 }
 
-fn check_instr_types(program: &Program, instr: &Instruction) {
+fn check_instr_types(
+    program: &Program,
+    instr: &Instruction,
+    defined_var_ids: &mut FxHashSet<VariableId>,
+) {
     match instr {
         Instruction::Call(id, args, var, _) => {
             check_call_types(program.get_callable(*id), args, *var);
+            if let Some(var) = var {
+                assert!(defined_var_ids.insert(var.variable_id));
+            }
         }
 
         Instruction::Branch(var, _, _, _) => assert_eq!(var.ty, Ty::Prim(Prim::Boolean)),
@@ -41,23 +56,29 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
         | Instruction::BitwiseXor(opr1, opr2, var) => {
             assert_eq!(opr1.get_type(), opr2.get_type());
             assert_eq!(opr1.get_type(), var.ty);
+            assert!(defined_var_ids.insert(var.variable_id));
         }
 
         Instruction::Fcmp(_, opr1, opr2, var) | Instruction::Icmp(_, opr1, opr2, var) => {
             assert_eq!(opr1.get_type(), opr2.get_type());
             assert_eq!(Ty::Prim(Prim::Boolean), var.ty);
+            assert!(defined_var_ids.insert(var.variable_id));
         }
 
         Instruction::Store(opr, var)
         | Instruction::LogicalNot(opr, var)
         | Instruction::BitwiseNot(opr, var) => {
             assert_eq!(opr.get_type(), var.ty);
+            if !matches!(instr, Instruction::Store(..)) {
+                assert!(defined_var_ids.insert(var.variable_id));
+            }
         }
 
         Instruction::Phi(args, var) => {
             for (opr, _) in args {
                 assert_eq!(opr.get_type(), var.ty);
             }
+            assert!(defined_var_ids.insert(var.variable_id));
         }
 
         Instruction::Index(array, index, var) => {
@@ -79,6 +100,7 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
                 ),
             }
             assert_eq!(index.get_type(), Ty::Prim(Prim::Integer));
+            assert!(defined_var_ids.insert(var.variable_id));
         }
 
         Instruction::StoreArray(operands, var) => {
@@ -99,11 +121,11 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             }
         }
 
-        Instruction::Convert(_, _)
-        | Instruction::Jump(_)
-        | Instruction::Alloca(..)
-        | Instruction::Load(..)
-        | Instruction::Return(..) => {}
+        Instruction::Convert(_, var) | Instruction::Alloca(var) | Instruction::Load(_, var) => {
+            assert!(defined_var_ids.insert(var.variable_id));
+        }
+
+        Instruction::Jump(_) | Instruction::Return(..) => {}
     }
 }
 

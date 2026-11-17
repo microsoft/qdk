@@ -14,6 +14,52 @@ use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_p
 use std::fmt::Write;
 
 #[test]
+fn post_select_loss_reports_error() {
+    fn check(sim: &mut impl Backend) {
+        let q = crate::Rc::new(val::Qubit(
+            sim.qubit_allocate().expect("allocation succeeds"),
+        ));
+        let arg = val::Value::Tuple(
+            vec![
+                val::Value::Result(val::Result::Loss),
+                val::Value::Qubit((&q).into()),
+            ]
+            .into(),
+            None,
+        );
+        assert_eq!(
+            sim.custom_intrinsic("PostSelectZ", arg, &qsc_fir::fir::PackageStore::new()),
+            Some(Err("cannot post-select on a Loss result".to_string()))
+        );
+        assert_eq!(
+            sim.m(q.0).expect("measurement succeeds"),
+            val::Result::Val(false)
+        );
+        sim.qubit_release(q.0).expect("release succeeds");
+    }
+    check(&mut SparseSim::new());
+    check(&mut crate::backend::CliffordSim::new(1));
+}
+
+#[test]
+fn fresh_qubit_does_not_inherit_loss() {
+    let mut sim = SparseSim::new();
+    sim.set_loss(1.0);
+    let old = sim.qubit_allocate().expect("allocation succeeds");
+    sim.x(old).expect("X succeeds");
+    assert!(sim.is_qubit_lost(old));
+    sim.qubit_release(old).expect("release succeeds");
+    sim.set_loss(0.0);
+    let fresh = sim.qubit_allocate().expect("allocation succeeds");
+    assert_eq!(fresh, old);
+    sim.y(fresh).expect("Y succeeds");
+    assert_eq!(
+        sim.mresetz(fresh).expect("measurement succeeds"),
+        val::Result::Val(true)
+    );
+}
+
+#[test]
 fn pauli_noise() {
     let noise = PauliNoise::from_probabilities(0.0, 0.0, 0.0);
     assert!(

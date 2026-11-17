@@ -26,6 +26,10 @@ pub(crate) enum TyConversionError {
     MissingTy {
         span: Span,
     },
+    UnusedGeneric {
+        span: Span,
+        name: String,
+    },
     UnrecognizedClass {
         span: Span,
         name: String,
@@ -240,14 +244,23 @@ pub(super) fn ast_ty_def(names: &Names, def: &TyDef) -> (UdtDef, Vec<TyConversio
 /// there are any type errors resulting from this.
 pub(crate) fn type_parameters_for_ast_callable(
     names: &Names,
-    generics: &[AstTypeParameter],
+    callable: &CallableDecl,
 ) -> (Vec<HirTypeParameter>, Vec<TyConversionError>) {
     let mut errors = Vec::new();
-    let mut generics_buf = Vec::with_capacity(generics.len());
-    for param in generics {
+    let mut generics_buf = Vec::with_capacity(callable.generics.len());
+    for param in &callable.generics {
         let (bounds, new_errors) =
             class_constraints_from_ast(names, &param.constraints, &mut Default::default());
         errors.extend(new_errors);
+
+        // Check for usage, as an unused type parameter indicates an error.
+        if !pat_uses_generic(&callable.input, param) && !ty_uses_generic(&callable.output, param) {
+            errors.push(TyConversionError::UnusedGeneric {
+                span: param.ty.span,
+                name: param.ty.name.to_string(),
+            });
+        }
+
         generics_buf.push(HirTypeParameter::Ty {
             name: param.ty.name.clone(),
             bounds,
@@ -256,13 +269,31 @@ pub(crate) fn type_parameters_for_ast_callable(
     (generics_buf, errors)
 }
 
+fn pat_uses_generic(input: &Pat, param: &AstTypeParameter) -> bool {
+    match input.kind.as_ref() {
+        PatKind::Bind(_, Some(ty)) | PatKind::Discard(Some(ty)) => ty_uses_generic(ty, param),
+        PatKind::Paren(pat) => pat_uses_generic(pat, param),
+        PatKind::Tuple(pats) => pats.iter().any(|pat| pat_uses_generic(pat, param)),
+        PatKind::Bind(_, None) | PatKind::Discard(None) | PatKind::Elided | PatKind::Err => false,
+    }
+}
+
+fn ty_uses_generic(output: &ast::Ty, param: &AstTypeParameter) -> bool {
+    match output.kind.as_ref() {
+        TyKind::Arrow(_, ty, ty1, _) => ty_uses_generic(ty, param) || ty_uses_generic(ty1, param),
+        TyKind::Hole | TyKind::Path(_) | TyKind::Err => false,
+        TyKind::Array(ty) | TyKind::Paren(ty) => ty_uses_generic(ty, param),
+        TyKind::Param(type_parameter) => type_parameter.ty.name == param.ty.name,
+        TyKind::Tuple(items) => items.iter().any(|ty| ty_uses_generic(ty, param)),
+    }
+}
+
 /// Given an AST callable, convert it to a HIR callable scheme (type scheme).
 pub(super) fn scheme_for_ast_callable(
     names: &Names,
     callable: &CallableDecl,
 ) -> (Scheme, Vec<TyConversionError>) {
-    let (mut type_parameters, mut errors) =
-        type_parameters_for_ast_callable(names, &callable.generics);
+    let (mut type_parameters, mut errors) = type_parameters_for_ast_callable(names, callable);
     let kind = callable_kind_from_ast(callable.kind);
 
     let (mut input, new_errors) = ast_pat_ty(names, &callable.input);

@@ -350,20 +350,36 @@ fn explicit_specialization_bodies_are_return_unified() {
         "#},
         &["Foo", "Main"],
         &expect![[r#"
-callable Foo: input_ty=(Int, Qubit), output_ty=Unit
-    body: block_ty=Unit
-        [0] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
-    adj: block_ty=Unit
-        [0] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
-    ctl: block_ty=Unit
-        [0] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
-    ctl_adj: block_ty=Unit
-        [0] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
-callable Main: input_ty=Unit, output_ty=Unit
-    body: block_ty=Unit
-        [0] Local(Immutable, q: Qubit): Call[ty=Qubit]
-        [1] Semi Call[ty=Unit]
-        [2] Semi Call[ty=Unit]"#]],
+            callable Foo: input_ty=(Int, Qubit), output_ty=Unit
+                body: block_ty=Unit
+                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, _.ret_val: Unit): Tuple(len=0)
+                    [2] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit])
+                    [3] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Unit], else=Tuple(len=0))
+                adj: block_ty=Unit
+                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, _.ret_val: Unit): Tuple(len=0)
+                    [2] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit])
+                    [3] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Unit], else=Tuple(len=0))
+                ctl: block_ty=Unit
+                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, _.ret_val: Unit): Tuple(len=0)
+                    [2] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit])
+                    [3] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Unit], else=Tuple(len=0))
+                ctl_adj: block_ty=Unit
+                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, _.ret_val: Unit): Tuple(len=0)
+                    [2] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit])
+                    [3] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Unit], else=Tuple(len=0))
+            callable Main: input_ty=Unit, output_ty=Unit
+                body: block_ty=Unit
+                    [0] Local(Immutable, q: Qubit): Call[ty=Qubit]
+                    [1] Semi Call[ty=Unit]
+                    [2] Semi Call[ty=Unit]"#]],
     );
 }
 
@@ -1242,12 +1258,9 @@ fn arrow_typed_return_simplifies_to_if() {
 }
 
 #[test]
-fn simple_if_expr_init_with_return_recovers_structured_branch() {
-    // Simple return directly in an if-branch initializer is recovered by
-    // simplification while the nested initializer return still lowers through
-    // the flag/slot model.
-    check_no_returns_q(
-        indoc! {r#"
+fn return_in_if_initializer_preserves_guard_and_final_merge() {
+    // The continuation's initializer can return, so its merge must be retained.
+    let source = indoc! {r#"
         namespace Test {
             function Main() : Int {
                 if true {
@@ -1257,23 +1270,46 @@ fn simple_if_expr_init_with_return_recovers_structured_branch() {
                 x
             }
         }
-    "#},
+    "#};
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(10),
+    );
+    check_no_returns_q(
+        source,
         &expect![[r#"
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 if true {
-                    10
-                } else {
+                    {
+                        __ret_val = 10;
+                        __has_returned = true;
+                    };
+                }
+
+                let x : Int = if (not __has_returned) {
                     if false {
                         {
                             __ret_val = 20;
                             __has_returned = true;
                         };
+                        __ret_val
                     } else {
                         30
                     }
 
+                } else {
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if (not __has_returned) {
+                        x
+                    } else {
+                        __ret_val
+                    }
                 }
 
             }
@@ -1533,6 +1569,7 @@ fn return_inside_parallel_within_limit_expr() {
                         __ret_val = 10;
                         __has_returned = true;
                     };
+                    __ret_val
                 } else {
                     4
                 };

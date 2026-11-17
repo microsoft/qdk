@@ -193,9 +193,6 @@ fn while_body_with_call_arg_return() {
                         __ret_val = 42;
                         __has_returned = true;
                     };
-                    if (not __has_returned) {
-                        i += 1;
-                    };
                 }
 
                 if __has_returned {
@@ -246,6 +243,7 @@ fn local_init_retype_in_call_arg_fix() {
                         __has_returned = true;
                     }
 
+                    __ret_val
                 } else {
                     0
                 };

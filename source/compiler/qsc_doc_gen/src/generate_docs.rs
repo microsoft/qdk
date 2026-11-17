@@ -42,7 +42,7 @@ struct Metadata {
 impl Metadata {
     fn fully_qualified_name(&self) -> String {
         let mut buf = if let PackageKind::AliasedPackage(ref package_alias) = self.package {
-            vec![format!("{package_alias}")]
+            vec![package_alias.clone()]
         } else {
             vec![]
         };

@@ -133,7 +133,7 @@ pub fn collect_reachable_with_seeds(
     visited
 }
 
-/// Returns the package closure induced by an entry-reachable callable set.
+/// Returns the package closure induced by entry-only or seed-expanded item reachability.
 ///
 /// The returned set always includes the root package, even when the entry
 /// expression reaches no other callables.

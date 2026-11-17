@@ -85,6 +85,19 @@ pub(crate) fn write_package_qsharp_parseable(
     format_str(&emitter.output)
 }
 
+/// Renders one item as parseable Q# for a focused snapshot with scoped local names.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn write_item_qsharp_parseable(
+    store: &PackageStore,
+    package_id: PackageId,
+    item: LocalItemId,
+) -> String {
+    let mut emitter = FirQSharpGen::new_with_mode(store, package_id, RenderMode::Parseable);
+    emitter.emit_item(item);
+    format_str(&emitter.output)
+}
+
 /// Renders every item reachable from the root package's entry expression as
 /// parseable Q#, spanning **all** packages rather than a single one.
 ///

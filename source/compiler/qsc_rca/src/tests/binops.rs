@@ -5,6 +5,30 @@ use super::{CompilationContext, check_last_statement_compute_properties};
 use expect_test::expect;
 
 #[test]
+fn evaluation_order_short_circuit_rhs_assignments_have_dynamic_scope() {
+    for statement in [
+        "let _ = (M(q) == One) and { set v = 0; false };",
+        "let _ = (M(q) == Zero) or { set v = 0; true };",
+        "mutable b = M(q) == One; set b and= { set v = 0; false };",
+        "mutable b = M(q) == Zero; set b or= { set v = 0; true };",
+    ] {
+        let mut context = CompilationContext::default();
+        context.update(&format!(
+            "use q = Qubit(); mutable v = 4; {statement} v == 4"
+        ));
+        check_last_statement_compute_properties(
+            context.get_compute_properties(),
+            &expect![[r#"
+                ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                        value_kind: Variable
+                    dynamic_param_applications: <empty>"#]],
+        );
+    }
+}
+
+#[test]
 fn check_rca_for_bin_op_with_classical_lhs_and_classical_rhs() {
     let mut compilation_context = CompilationContext::default();
     compilation_context.update(r#"1 + 1"#);

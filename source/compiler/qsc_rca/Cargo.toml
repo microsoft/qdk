@@ -1,7 +1,6 @@
 [package]
 name = "qsc_rca"
 authors.workspace = true
-homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,13 +13,13 @@ bitflags = { workspace = true }
 indenter = { workspace = true }
 qsc_data_structures = { path = "../qsc_data_structures" }
 qsc_fir = { path = "../qsc_fir" }
-qsc_frontend = { path = "../qsc_frontend" }
-qsc_lowerer = { path = "../qsc_lowerer" }
 rustc-hash = { workspace = true }
 miette = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+qsc_frontend = { path = "../qsc_frontend" }
+qsc_lowerer = { path = "../qsc_lowerer" }
 expect-test = { workspace = true }
 qsc = { path = "../qsc" }
 qsc_fir_transforms = { path = "../qsc_fir_transforms", features = ["testutil"] }

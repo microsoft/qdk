@@ -270,14 +270,14 @@ impl UnaryOpExpr {
             },
             UnaryOp::NotB => match operand_ty {
                 Type::Int(size, _) | Type::UInt(size, _) => rewrap_lit!(lit, Int(val), {
-                    let mask = (1 << (*size)?) - 1;
+                    let mask = 1_i64.checked_shl((*size)?).unwrap_or(0).wrapping_sub(1);
                     Int(!val & mask)
                 }),
                 Type::Angle(..) => rewrap_lit!(lit, Angle(val), Angle(!val)),
                 Type::Bit(..) => rewrap_lit!(lit, Bit(val), Bit(!val)),
                 Type::BitArray(..) => {
                     rewrap_lit!(lit, Bitstring(val, size), {
-                        let mask = BigInt::from((1 << size) - 1);
+                        let mask = (BigInt::from(1) << size) - 1;
                         Bitstring(!val & mask, size)
                     })
                 }
@@ -294,35 +294,33 @@ impl UnaryOpExpr {
 }
 
 /// Rust's `i64::Shl` panics if the rhs is greater than 63,
-/// and `i64::overflowing_shl` doesn't behaves as expected
-/// so we need to implement our own `overflowing_shl`.
-fn overflowing_shl(mut lhs: i64, mut rhs: i64) -> i64 {
-    while rhs > 0 {
-        if rhs >= 64 {
-            lhs <<= 63;
-            rhs -= 63;
-        } else {
-            lhs <<= rhs;
-            rhs = 0;
-        }
+/// and `i64::overflowing_shl` masks the rhs instead of shifting
+/// all the bits out, so we need to implement our own `overflowing_shl`.
+///
+/// This must run in constant time, since the rhs can be any `i64`.
+fn overflowing_shl(lhs: i64, rhs: i64) -> i64 {
+    assert!(rhs >= 0, "shift amount should be non-negative");
+    match rhs {
+        0 => lhs,
+        1..=63 => lhs << rhs,
+        _ => 0,
     }
-    lhs
 }
 
 /// Rust's `i64::Shr` panics if the rhs is greater than 63,
-/// and `i64::overflowing_shr` doesn't behaves as expected
-/// so we need to implement our own `overflowing_shr`.
-fn overflowing_shr(mut lhs: i64, mut rhs: i64) -> i64 {
-    while rhs > 0 {
-        if rhs >= 64 {
-            lhs >>= 63;
-            rhs -= 63;
-        } else {
-            lhs >>= rhs;
-            rhs = 0;
-        }
+/// and `i64::overflowing_shr` masks the rhs instead of shifting
+/// all the bits out, so we need to implement our own `overflowing_shr`.
+///
+/// This must run in constant time, since the rhs can be any `i64`.
+/// `UInt` values use an `i64` representation, so the shift must reinterpret
+/// the value as unsigned to avoid sign extension.
+fn overflowing_shr(lhs: i64, rhs: i64) -> i64 {
+    assert!(rhs >= 0, "shift amount should be non-negative");
+    match rhs {
+        0 => lhs,
+        1..=63 => i64::from_ne_bytes((u64::from_ne_bytes(lhs.to_ne_bytes()) >> rhs).to_ne_bytes()),
+        _ => 0,
     }
-    lhs
 }
 
 impl BinaryOpExpr {
@@ -360,26 +358,32 @@ impl BinaryOpExpr {
 
                 match lhs_ty {
                     Type::UInt(Some(size), _) => rewrap_lit!(lhs, Int(lhs), {
-                        let mask = (1 << size) - 1;
+                        let mask = 1_i64.checked_shl(*size).unwrap_or(0).wrapping_sub(1);
                         Int((overflowing_shl(lhs, rhs)) & mask)
                     }),
                     Type::UInt(..) => {
                         rewrap_lit!(lhs, Int(lhs), Int(overflowing_shl(lhs, rhs)))
                     }
-                    Type::Angle(..) => {
-                        rewrap_lit!(lhs, Angle(lhs), Angle(lhs << rhs))
-                    }
+                    Type::Angle(..) => rewrap_lit!(lhs, Angle(lhs), {
+                        if rhs >= i64::from(lhs.size) {
+                            Angle(angle::Angle::new(0, lhs.size))
+                        } else {
+                            Angle(lhs << rhs)
+                        }
+                    }),
                     Type::Bit(..) => rewrap_lit!(lhs, Bit(lhs), {
                         // The Spec says "The shift operators shift bits off the end."
                         // Therefore if the rhs is > 0 the value becomes zero.
                         Bit(rhs == 0 && lhs)
                     }),
-                    Type::BitArray(..) => {
-                        rewrap_lit!(lhs, Bitstring(lhs, size), {
-                            let mask = BigInt::from((1 << size) - 1);
+                    Type::BitArray(..) => rewrap_lit!(lhs, Bitstring(lhs, size), {
+                        if rhs >= i64::from(size) {
+                            Bitstring(BigInt::ZERO, size)
+                        } else {
+                            let mask = (BigInt::from(1) << size) - 1;
                             Bitstring((lhs << rhs) & mask, size)
-                        })
-                    }
+                        }
+                    }),
                     _ => None,
                 }
             }
@@ -401,17 +405,27 @@ impl BinaryOpExpr {
 
                 match lhs_ty {
                     Type::UInt(..) => rewrap_lit!(lhs, Int(lhs), Int(overflowing_shr(lhs, rhs))),
-                    Type::Angle(..) => {
-                        rewrap_lit!(lhs, Angle(lhs), Angle(lhs >> rhs))
-                    }
+                    Type::Angle(..) => rewrap_lit!(lhs, Angle(lhs), {
+                        if rhs >= i64::from(lhs.size) {
+                            // Angles are unsigned, so there's no sign extension
+                            Angle(angle::Angle::new(0, lhs.size))
+                        } else {
+                            Angle(lhs >> rhs)
+                        }
+                    }),
                     Type::Bit(..) => rewrap_lit!(lhs, Bit(lhs), {
                         // The Spec says "The shift operators shift bits off the end."
                         // Therefore if the rhs is > 0 the value becomes zero.
                         Bit(rhs == 0 && lhs)
                     }),
-                    Type::BitArray(..) => {
-                        rewrap_lit!(lhs, Bitstring(lhs, size), Bitstring(lhs >> rhs, size))
-                    }
+                    Type::BitArray(..) => rewrap_lit!(lhs, Bitstring(lhs, size), {
+                        if rhs >= i64::from(size) {
+                            // A Bitstring has no sign bit to extend
+                            Bitstring(BigInt::ZERO, size)
+                        } else {
+                            Bitstring(lhs >> rhs, size)
+                        }
+                    }),
                     _ => None,
                 }
             }
@@ -835,9 +849,17 @@ fn cast_to_int(cast: &Cast, ctx: &mut Lowerer) -> Option<LiteralKind> {
     match &cast.expr.ty {
         Type::Bool(..) => rewrap_lit!(lit, Bool(val), Int(i64::from(val))),
         Type::Bit(..) => rewrap_lit!(lit, Bit(val), Int(i64::from(val))),
-        Type::BitArray(..) => {
-            rewrap_lit!(lit, Bitstring(val, _), Int(i64::try_from(val).ok()?))
-        }
+        Type::BitArray(..) => rewrap_lit!(lit, Bitstring(val, _), {
+            let Type::Int(width, _) = &cast.ty else {
+                unreachable!("we got here after matching Type::Int in Cast::const_eval");
+            };
+            // An unsized `int` has a target-defined width, and the compiler
+            // stores it as an `i64`, so we treat it as 64 bits wide. As a
+            // result, `int(b)` with `b = "10"` gives `2`, while `int[2](b)`
+            // gives `-2`.
+            let width = width.unwrap_or(i64::BITS);
+            Int(i64::try_from(bit_pattern_to_signed_int(val, width)).ok()?)
+        }),
         // UInt Overflowing behavior.
         // This is tricky because the inner representation of UInt
         // is already an i64. Therefore, there is nothing to do.
@@ -998,28 +1020,84 @@ fn cast_to_bitarray(cast: &Cast, ctx: &mut Lowerer) -> Option<LiteralKind> {
             Bitstring(val, size)
         }),
         Type::Int(..) | Type::UInt(..) => rewrap_lit!(lit, Int(val), {
-            let actual_bits = number_of_bits(val);
-            if actual_bits > size {
+            let is_signed = matches!(cast.expr.ty, Type::Int(..));
+            let Some(bits) = int_to_bit_pattern(val, is_signed, size) else {
                 ctx.push_const_eval_error(ConstEvalError::ValueOverflow(
                     cast.expr.ty.to_string(),
                     cast.ty.to_string(),
                     cast.span,
                 ));
                 return None;
-            }
-            Bitstring(BigInt::from(val), size)
+            };
+            Bitstring(bits, size)
         }),
         _ => None,
     }
 }
 
-fn number_of_bits(mut val: i64) -> u32 {
-    let mut bits = 0;
-    while val != 0 {
-        val >>= 1;
-        bits += 1;
+/// Returns the `width`-bit pattern that encodes `val`, or `None` if `val`
+/// is out of range for a `width`-bit integer of the given signedness.
+///
+/// In OpenQASM, `bit[n]` behaves as a packed sequence of `n` bits, and
+/// casting an `int[n]` or `uint[n]` to `bit[n]` reinterprets the integer's
+/// bits as that sequence. So the cast doesn't preserve the numeric value; it
+/// preserves the bits the integer is stored as. For example, `bit[2](-1)`
+/// is `"11"`, and casting it back with `int[2]` gives `-1` again.
+///
+/// The compiler stores a `bit[n]` constant as a non-negative [`BigInt`] whose
+/// binary digits are the bits of the register, so the integer's bits have to
+/// be turned into that number:
+/// - Non-negative values are already their own bit pattern in plain binary.
+/// - Negative values use two's complement, the standard encoding for signed
+///   integers, where `-x` is stored as `2^width - x`. For example, with
+///   `width = 4`, `-3` is stored as `16 - 3 = 13 = 0b1101`.
+///
+/// See the OpenQASM spec for the casting rules:
+/// <https://github.com/openqasm/openqasm/blob/a7bdfe6a1dc6cb7dbf87eeb711c913d15b903510/source/language/types.rst#L215-L249>
+fn int_to_bit_pattern(val: i64, is_signed: bool, width: u32) -> Option<BigInt> {
+    let val = if is_signed {
+        BigInt::from(val)
+    } else {
+        // Unsigned values are stored in an `i64` that holds their bits.
+        #[allow(clippy::cast_sign_loss)]
+        BigInt::from(val as u64)
+    };
+    let modulus = BigInt::from(1) << width;
+
+    // A signed `width`-bit integer holds `-2^(width - 1) <= val < 2^(width - 1)`,
+    // and an unsigned one holds `0 <= val < 2^width`.
+    let (min, max) = if is_signed {
+        let half: BigInt = &modulus >> 1u32;
+        (-half.clone(), half)
+    } else {
+        (BigInt::ZERO, modulus.clone())
+    };
+    if val < min || val >= max {
+        return None;
     }
-    bits
+
+    if val < BigInt::ZERO {
+        Some(val + modulus)
+    } else {
+        Some(val)
+    }
+}
+
+/// Interprets `bits` as a `width`-bit two's complement integer.
+/// This is the inverse of [`int_to_bit_pattern`] for signed values.
+fn bit_pattern_to_signed_int(bits: BigInt, width: u32) -> BigInt {
+    // In two's complement, the top bit is the sign bit. A zero-width pattern
+    // has no bits, so it's never negative.
+    let is_negative = width > 0 && bits.bit(u64::from(width - 1));
+    if is_negative {
+        // `int_to_bit_pattern` stores a negative `-x` as `2^width - x`,
+        // so subtracting `2^width` gives back `-x`.
+        // For example, with `width = 4`, `0b1101 = 13` decodes to `13 - 16 = -3`.
+        let modulus = BigInt::from(1) << width;
+        bits - modulus
+    } else {
+        bits
+    }
 }
 
 /// +---------------+-----------------------------------------+

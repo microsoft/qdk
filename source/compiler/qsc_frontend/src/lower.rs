@@ -95,6 +95,14 @@ pub(super) enum Error {
         #[label]
         span: Span,
     },
+    #[error("unused generic type parameter `{name}`")]
+    #[diagnostic(help("remove the unused generic type parameter"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.UnusedGeneric"))]
+    UnusedGeneric {
+        #[label]
+        span: Span,
+        name: String,
+    },
     #[error("unrecognized class constraint {name}")]
     #[help(
         "supported classes are Eq, Add, Sub, Mul, Div, Mod, Signed, Ord, Exp, Integral, and Show"
@@ -136,6 +144,10 @@ pub(super) enum Error {
     #[diagnostic(help("consider reexporting items individually"))]
     #[diagnostic(code("Qdk.Qsc.LowerAst.CrossPackageNamespaceReexport"))]
     CrossPackageNamespaceReexport(#[label] Span),
+    #[error("cannot use a discard in qubit allocation")]
+    #[diagnostic(help("use a named variable binding instead of a discard"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidQubitDiscard"))]
+    InvalidQubitDiscard(#[label] Span),
 }
 
 impl From<TyConversionError> for Error {
@@ -143,6 +155,7 @@ impl From<TyConversionError> for Error {
         use TyConversionError::*;
         match err {
             MissingTy { span } => Error::MissingTy { span },
+            UnusedGeneric { span, name } => Error::UnusedGeneric { span, name },
             UnrecognizedClass { span, name } => Error::UnrecognizedClass { span, name },
             RecursiveClassConstraint { span, name } => {
                 Error::RecursiveClassConstraint { span, name }
@@ -588,10 +601,10 @@ impl With<'_> {
     /// decls.
     pub(crate) fn synthesize_callable_generics(
         &mut self,
-        generics: &[ast::TypeParameter],
+        decl: &ast::CallableDecl,
         input: &mut hir::Pat,
     ) -> (Vec<qsc_hir::ty::TypeParameter>, Vec<TyConversionError>) {
-        let (mut params, errs) = convert::type_parameters_for_ast_callable(self.names, generics);
+        let (mut params, errs) = convert::type_parameters_for_ast_callable(self.names, decl);
         let mut functor_params =
             Self::synthesize_functor_params_in_pat(&mut params.len().into(), input);
         params.append(&mut functor_params);
@@ -645,7 +658,7 @@ impl With<'_> {
         }
 
         let output = convert::ty_from_ast(self.names, &decl.output, &mut Default::default()).0;
-        let (generics, errs) = self.synthesize_callable_generics(&decl.generics, &mut input);
+        let (generics, errs) = self.synthesize_callable_generics(decl, &mut input);
         let functors = convert::ast_callable_functors(decl);
 
         let (body, adj, ctl, ctl_adj) = match decl.body.as_ref() {
@@ -831,15 +844,19 @@ impl With<'_> {
                 self.lower_pat(lhs),
                 self.lower_expr(rhs),
             )),
-            ast::StmtKind::Qubit(source, lhs, rhs, block) => Some(hir::StmtKind::Qubit(
-                match source {
-                    ast::QubitSource::Fresh => hir::QubitSource::Fresh,
-                    ast::QubitSource::Dirty => hir::QubitSource::Dirty,
-                },
-                self.lower_pat(lhs),
-                self.lower_qubit_init(rhs),
-                block.as_ref().map(|b| self.lower_block(b)),
-            )),
+            ast::StmtKind::Qubit(source, lhs, rhs, block) => {
+                let lhs_pat = self.lower_pat(lhs);
+                self.reject_any_qubit_discard(&lhs_pat);
+                Some(hir::StmtKind::Qubit(
+                    match source {
+                        ast::QubitSource::Fresh => hir::QubitSource::Fresh,
+                        ast::QubitSource::Dirty => hir::QubitSource::Dirty,
+                    },
+                    lhs_pat,
+                    self.lower_qubit_init(rhs),
+                    block.as_ref().map(|b| self.lower_block(b)),
+                ))
+            }
             ast::StmtKind::Semi(expr) => Some(hir::StmtKind::Semi(self.lower_expr(expr))),
         };
 
@@ -1367,6 +1384,22 @@ impl With<'_> {
             }
         };
         hir::ExprKind::Parallel(limit, Box::new(expr))
+    }
+
+    fn reject_any_qubit_discard(&mut self, pat: &hir::Pat) {
+        match pat.kind {
+            hir::PatKind::Discard => {
+                self.lowerer
+                    .errors
+                    .push(Error::InvalidQubitDiscard(pat.span));
+            }
+            hir::PatKind::Tuple(ref pats) => {
+                for p in pats {
+                    self.reject_any_qubit_discard(p);
+                }
+            }
+            _ => {}
+        }
     }
 }
 

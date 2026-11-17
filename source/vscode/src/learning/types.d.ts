@@ -28,6 +28,8 @@ export interface ActivityLocation {
 
 // ─── Navigation ───
 
+export type NotebookReveal = "top" | "currentActivity";
+
 export interface CurrentActivity {
   location: ActivityLocation;
   unitTitle: string;
