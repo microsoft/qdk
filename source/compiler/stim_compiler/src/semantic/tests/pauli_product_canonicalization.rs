@@ -34,7 +34,7 @@ fn factors_are_sorted_by_qubit() {
             Circuit [0-22]:
                 items:
                     [0-22] PauliProductRotation {
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [8-12],
                         product: PauliProduct {
                             factors: [
                                 PauliFactor {
@@ -138,7 +138,7 @@ fn folded_phase_negates_product() {
             Circuit [0-15]:
                 items:
                     [0-15] PauliProductMeasurement {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         product: PauliProduct {
                             factors: [
                                 PauliFactor {
@@ -190,7 +190,7 @@ fn non_adjacent_repeated_qubits_fold_together() {
             Circuit [0-25]:
                 items:
                     [0-25] PauliProductRotation {
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [8-12],
                         product: PauliProduct {
                             factors: [
                                 PauliFactor {

@@ -29,13 +29,28 @@ fn lower_without_spans(source: &str) -> Circuit {
         match &mut instruction.kind {
             InstructionKind::SingleQubitGate { q, .. }
             | InstructionKind::SingleQubitMeasurement { q, .. }
-            | InstructionKind::Reset { q, .. }
-            | InstructionKind::U3 { q, .. } => q.span = Default::default(),
+            | InstructionKind::Reset { q, .. } => q.span = Default::default(),
+            InstructionKind::U3 {
+                q,
+                theta,
+                phi,
+                lambda,
+            } => {
+                q.span = Default::default();
+                theta.span = Default::default();
+                phi.span = Default::default();
+                lambda.span = Default::default();
+            }
             InstructionKind::TwoQubitGate { q0, q1, .. } => {
                 q0.span = Default::default();
                 q1.span = Default::default();
             }
-            InstructionKind::Noise(semantic::Noise::CorrelatedError { faults, .. }) => {
+            InstructionKind::Noise(semantic::Noise::CorrelatedError {
+                probability,
+                faults,
+                ..
+            }) => {
+                probability.span = Default::default();
                 for fault in faults {
                     fault.q.span = Default::default();
                 }

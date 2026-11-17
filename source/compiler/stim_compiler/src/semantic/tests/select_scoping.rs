@@ -117,7 +117,7 @@ fn require_with_at_least_one_record_in_scope_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -126,7 +126,7 @@ fn require_with_at_least_one_record_in_scope_lowers() {
                             [17-20] SingleQubitMeasurement {
                                 reset: false,
                                 observable: Z,
-                                readout_noise: 0.0,
+                                readout_noise: 0.0 [0-0],
                                 negated: false,
                                 q: 1 [19-20],
                             }
@@ -176,7 +176,7 @@ fn measure_reset_produces_record_in_select() {
                             [13-17] SingleQubitMeasurement {
                                 reset: true,
                                 observable: Z,
-                                readout_noise: 0.0,
+                                readout_noise: 0.0 [0-0],
                                 negated: false,
                                 q: 0 [16-17],
                             }
@@ -213,7 +213,7 @@ fn pair_measurement_produces_record_in_select() {
                     SelectBlock [0-42]:
                         body:
                             [13-20] TwoQubitMeasurement {
-                                readout_noise: 0.0,
+                                readout_noise: 0.0 [0-0],
                                 observable: ZZ,
                                 negated: false,
                                 q0: 0 [17-18],
@@ -380,7 +380,7 @@ fn notleaked_with_at_least_one_record_in_scope_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -389,7 +389,7 @@ fn notleaked_with_at_least_one_record_in_scope_lowers() {
                             [17-20] SingleQubitMeasurement {
                                 reset: false,
                                 observable: Z,
-                                readout_noise: 0.0,
+                                readout_noise: 0.0 [0-0],
                                 negated: false,
                                 q: 1 [19-20],
                             }

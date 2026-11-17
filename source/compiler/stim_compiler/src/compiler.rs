@@ -28,7 +28,7 @@ use crate::ast_builder::{
     build_within_apply_stmts, fold_exprs_with_op,
 };
 use crate::parser::Pauli::{self, X, Y, Z};
-use crate::semantic::{self, Qubit};
+use crate::semantic::{self, Angle, Probability, Qubit};
 
 type StimQubitId = u32;
 pub(crate) type QubitId = u32;
@@ -139,8 +139,6 @@ const SINGLE_QUBIT_PAULIS: [&str; 3] = ["X", "Y", "Z"];
 const TWO_QUBIT_PAULIS: [&str; 15] = [
     "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI", "ZX", "ZY", "ZZ",
 ];
-
-type Radians = f64;
 
 #[derive(Clone, Debug, Error, Diagnostic)]
 pub enum Error {
@@ -885,7 +883,7 @@ impl<'noise> Compiler<'noise> {
     fn compile_single_qubit_rotation(
         &mut self,
         axis: Pauli,
-        angle: Radians,
+        angle: Angle,
         qubit: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
@@ -902,7 +900,7 @@ impl<'noise> Compiler<'noise> {
     fn compile_two_qubit_rotation(
         &mut self,
         axis: semantic::PauliPair,
-        angle: Radians,
+        angle: Angle,
         q0: Qubit,
         q1: Qubit,
         span: Span,
@@ -920,9 +918,9 @@ impl<'noise> Compiler<'noise> {
     /// `U3(θ, φ, λ) = Rz(φ) Ry(θ) Rz(λ)`, up to a global phase.
     fn compile_u3(
         &mut self,
-        theta: Radians,
-        phi: Radians,
-        lambda: Radians,
+        theta: Angle,
+        phi: Angle,
+        lambda: Angle,
         qubit: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
@@ -937,14 +935,16 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_pauli_product_rotation(
         &mut self,
-        angle: Radians,
+        mut angle: Angle,
         product: &semantic::PauliProduct,
         span: Span,
     ) -> Vec<ast::Stmt> {
         if product.factors.is_empty() {
             return vec![];
         }
-        let angle = if product.negated { -angle } else { angle };
+        if product.negated {
+            angle.radians = -angle.radians;
+        }
         self.conjugate_rotation(product, angle, span)
     }
 
@@ -972,11 +972,11 @@ impl<'noise> Compiler<'noise> {
             } => match kind {
                 // The chain's noise call is emitted when the chain is flushed.
                 semantic::CorrelatedErrorKind::Initial => {
-                    self.accumulate_correlated_noise(span, *probability, faults);
+                    self.accumulate_correlated_noise(span, probability.value, faults);
                     vec![]
                 }
                 semantic::CorrelatedErrorKind::Else => {
-                    self.continue_correlated_noise(span, *probability, faults);
+                    self.continue_correlated_noise(span, probability.value, faults);
                     vec![]
                 }
             },
@@ -988,7 +988,7 @@ impl<'noise> Compiler<'noise> {
                 let table = self.noise_accumulator.build_noise_table(
                     2,
                     TWO_QUBIT_PAULIS.map(encode_pauli).to_vec(),
-                    vec![*probability / 15.0; 15],
+                    vec![probability.value / 15.0; 15],
                 );
                 vec![self.noise_table_stmt(table, &[*q0, *q1], span)]
             }
@@ -1004,7 +1004,7 @@ impl<'noise> Compiler<'noise> {
                 let table = self.noise_accumulator.build_noise_table(
                     1,
                     SINGLE_QUBIT_PAULIS.map(encode_pauli).to_vec(),
-                    probabilities.to_vec(),
+                    probabilities.iter().map(|p| p.value).collect(),
                 );
                 vec![self.noise_table_stmt(table, &[*q], span)]
             }
@@ -1016,7 +1016,7 @@ impl<'noise> Compiler<'noise> {
                 let table = self.noise_accumulator.build_noise_table(
                     2,
                     TWO_QUBIT_PAULIS.map(encode_pauli).to_vec(),
-                    probabilities.to_vec(),
+                    probabilities.iter().map(|p| p.value).collect(),
                 );
                 vec![self.noise_table_stmt(table, &[*q0, *q1], span)]
             }
@@ -1029,7 +1029,7 @@ impl<'noise> Compiler<'noise> {
                     let table = self.noise_accumulator.build_noise_table(
                         1,
                         SINGLE_QUBIT_PAULIS.map(encode_pauli).to_vec(),
-                        vec![*probability / 3.0; 3],
+                        vec![probability.value / 3.0; 3],
                     );
                     vec![self.noise_table_stmt(table, &[*q], span)]
                 }
@@ -1037,7 +1037,7 @@ impl<'noise> Compiler<'noise> {
                     let table = self.noise_accumulator.build_noise_table(
                         1,
                         vec![encode_pauli(kind.as_str())],
-                        vec![*probability],
+                        vec![probability.value],
                     );
                     vec![self.noise_table_stmt(table, &[*q], span)]
                 }
@@ -1049,7 +1049,7 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         reset: bool,
         observable: Pauli,
-        readout_noise: f64,
+        readout_noise: Probability,
         negated: bool,
         qubit: Qubit,
         span: Span,
@@ -1060,7 +1060,7 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_two_qubit_measurement(
         &mut self,
-        readout_noise: f64,
+        readout_noise: Probability,
         observable: semantic::PauliPair,
         negated: bool,
         q0: Qubit,
@@ -1123,7 +1123,7 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_pauli_product_measurement(
         &mut self,
-        readout_noise: f64,
+        readout_noise: Probability,
         product: &semantic::PauliProduct,
         span: Span,
     ) -> Vec<ast::Stmt> {
@@ -1151,7 +1151,7 @@ impl<'noise> Compiler<'noise> {
         qubit: Qubit,
         reset: bool,
         negated: bool,
-        readout_noise: f64,
+        readout_noise: Probability,
         span: Span,
     ) -> Vec<ast::Stmt> {
         let op = if reset {
@@ -1188,7 +1188,7 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_peek_loss(
         &mut self,
-        readout_noise: f64,
+        readout_noise: Probability,
         qubit: Qubit,
         span: Span,
     ) -> Vec<ast::Stmt> {
@@ -1386,7 +1386,7 @@ impl<'noise> Compiler<'noise> {
     fn conjugate_rotation(
         &mut self,
         product: &semantic::PauliProduct,
-        angle: Radians,
+        angle: Angle,
         span: Span,
     ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
@@ -1497,11 +1497,11 @@ impl<'noise> Compiler<'noise> {
     fn rotation_stmt(
         &mut self,
         op: QSharpOp,
-        angle: Radians,
+        angle: Angle,
         qubits: &[Qubit],
         span: Span,
     ) -> ast::Stmt {
-        let mut args = vec![build_lit_double_expr(angle, span)];
+        let mut args = vec![build_lit_double_expr(angle.radians, angle.span)];
         args.extend(self.qubit_args(qubits));
         build_stmt_semi_from_expr(build_qsharp_op_call_expr(op, args, span))
     }
@@ -1551,16 +1551,16 @@ impl<'noise> Compiler<'noise> {
     /// `__quantum__rt__readout_noise(p, p, r_k);`, or nothing when `p` is 0.
     fn readout_noise_stmt(
         &mut self,
-        probability: f64,
+        readout_noise: Probability,
         result_id: ResultId,
         span: Span,
     ) -> Option<ast::Stmt> {
-        if probability <= 0.0 {
+        if readout_noise.value <= 0.0 {
             return None;
         }
         let args = vec![
-            build_lit_double_expr(probability, span),
-            build_lit_double_expr(probability, span),
+            build_lit_double_expr(readout_noise.value, readout_noise.span),
+            build_lit_double_expr(readout_noise.value, readout_noise.span),
             build_record_expr(result_id, span),
         ];
         self.declare_intrinsic(

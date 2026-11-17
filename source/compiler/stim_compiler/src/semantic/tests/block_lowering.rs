@@ -232,7 +232,7 @@ fn alternating_nested_blocks_lower() {
                                             [43-46] SingleQubitMeasurement {
                                                 reset: false,
                                                 observable: Z,
-                                                readout_noise: 0.0,
+                                                readout_noise: 0.0 [0-0],
                                                 negated: false,
                                                 q: 0 [45-46],
                                             }

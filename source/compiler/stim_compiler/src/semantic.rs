@@ -21,33 +21,8 @@ use thiserror::Error;
 
 pub type StimQubitId = u32;
 pub type Radians = f64;
-pub type Probability = f64;
 
 const MAX_COORDINATES: usize = 16;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct MeasurementRecord {
-    pub offset: u32,
-    pub span: Span,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub struct Qubit {
-    pub id: StimQubitId,
-    pub span: Span,
-}
-
-impl fmt::Debug for Qubit {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.id, self.span)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct NegatableMeasurementRecord {
-    pub record: MeasurementRecord,
-    pub negated: bool,
-}
 
 #[derive(Debug, PartialEq)]
 pub struct Circuit {
@@ -142,23 +117,23 @@ pub enum InstructionKind {
     Annotation(Annotation),
     SingleQubitRotation {
         axis: Pauli,
-        angle: Radians,
+        angle: Angle,
         q: Qubit,
     },
     TwoQubitRotation {
         axis: PauliPair,
-        angle: Radians,
+        angle: Angle,
         q0: Qubit,
         q1: Qubit,
     },
     U3 {
-        theta: Radians,
-        phi: Radians,
-        lambda: Radians,
+        theta: Angle,
+        phi: Angle,
+        lambda: Angle,
         q: Qubit,
     },
     PauliProductRotation {
-        angle: Radians,
+        angle: Angle,
         product: PauliProduct,
     },
 }
@@ -198,6 +173,54 @@ impl Display for Block {
 impl Display for Instruction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{} {:#?}", self.span, self.kind)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeasurementRecord {
+    pub offset: u32,
+    pub span: Span,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct NegatableMeasurementRecord {
+    pub record: MeasurementRecord,
+    pub negated: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct Qubit {
+    pub id: StimQubitId,
+    pub span: Span,
+}
+
+impl fmt::Debug for Qubit {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.id, self.span)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct Angle {
+    pub radians: Radians,
+    pub span: Span,
+}
+
+impl fmt::Debug for Angle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} {}", self.radians, self.span)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct Probability {
+    pub value: f64,
+    pub span: Span,
+}
+
+impl fmt::Debug for Probability {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} {}", self.value, self.span)
     }
 }
 
@@ -420,7 +443,7 @@ pub enum Noise {
         q: Qubit,
     },
     PauliChannel2 {
-        probabilities: [Probability; 15],
+        probabilities: Box<[Probability; 15]>,
         q0: Qubit,
         q1: Qubit,
     },
@@ -1406,7 +1429,7 @@ impl Lowerer {
             .map(|[(q0, _), (q1, _)]| Instruction {
                 span: instruction.span,
                 kind: InstructionKind::Noise(Noise::PauliChannel2 {
-                    probabilities,
+                    probabilities: Box::new(probabilities),
                     q0,
                     q1,
                 }),
@@ -1583,7 +1606,7 @@ impl Lowerer {
     }
 
     fn broadcast_u3(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
-        let angles: Option<[Radians; 3]> = self.expect_n_angles(instruction);
+        let angles: Option<[Angle; 3]> = self.expect_n_angles(instruction);
         let Some([theta, phi, lambda]) = angles else {
             return Vec::new();
         };
@@ -2155,17 +2178,20 @@ impl Lowerer {
         })
     }
 
-    fn expect_angle(&mut self, instruction: &parser::Instruction) -> Option<Radians> {
-        let [angle]: [Radians; 1] = self.expect_n_angles(instruction)?;
+    fn expect_angle(&mut self, instruction: &parser::Instruction) -> Option<Angle> {
+        let [angle]: [Angle; 1] = self.expect_n_angles(instruction)?;
         Some(angle)
     }
 
     fn expect_n_angles<const N: usize>(
         &mut self,
         instruction: &parser::Instruction,
-    ) -> Option<[Radians; N]> {
+    ) -> Option<[Angle; N]> {
         let args: &[parser::Arg; N] = self.expect_n_args(instruction)?;
-        let mut radians = [0.0; N];
+        let mut angles = [Angle {
+            radians: 0.0,
+            span: Span::default(),
+        }; N];
         let mut has_invalid_angle = false;
 
         for (index, arg) in args.iter().enumerate() {
@@ -2175,7 +2201,10 @@ impl Lowerer {
             };
 
             if angle_in_radians.is_finite() {
-                radians[index] = angle_in_radians;
+                angles[index] = Angle {
+                    radians: angle_in_radians,
+                    span: arg.span,
+                };
             } else {
                 self.push_error(Error::InvalidAngle {
                     instruction: instruction.name.clone(),
@@ -2188,7 +2217,7 @@ impl Lowerer {
         if has_invalid_angle {
             None
         } else {
-            Some(radians)
+            Some(angles)
         }
     }
 
@@ -2257,7 +2286,10 @@ impl Lowerer {
         instruction: &parser::Instruction,
     ) -> Option<Probability> {
         if instruction.args.is_empty() {
-            return Some(0.0);
+            return Some(Probability {
+                value: 0.0,
+                span: Span::default(),
+            });
         }
         self.expect_probability(instruction)
     }
@@ -2295,14 +2327,17 @@ impl Lowerer {
                 continue;
             }
 
-            probabilities.push(value);
+            probabilities.push(Probability {
+                value,
+                span: arg.span,
+            });
         }
 
         if has_invalid_probability {
             return None;
         }
 
-        self.validate_probability_sum(instruction, probabilities.iter().sum())?;
+        self.validate_probability_sum(instruction, probabilities.iter().map(|p| p.value).sum())?;
         Some(probabilities)
     }
 

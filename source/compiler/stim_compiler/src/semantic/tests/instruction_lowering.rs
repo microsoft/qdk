@@ -693,7 +693,7 @@ fn cx_with_record_control_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -725,7 +725,7 @@ fn cx_with_mixed_quantum_and_classical_pairs_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -762,7 +762,7 @@ fn cy_with_record_control_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -794,7 +794,7 @@ fn cz_with_record_control_on_first_target_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -826,7 +826,7 @@ fn cz_with_record_control_on_second_target_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -858,7 +858,7 @@ fn xcz_with_record_control_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -890,7 +890,7 @@ fn ycz_with_record_control_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -920,7 +920,7 @@ fn correlated_error_lowers() {
                     [0-25] Noise(
                         CorrelatedError {
                             kind: Initial,
-                            probability: 0.01,
+                            probability: 0.01 [17-21],
                             faults: [
                                 Fault {
                                     kind: X,
@@ -942,7 +942,7 @@ fn correlated_error_with_probability_one_lowers() {
                     [0-22] Noise(
                         CorrelatedError {
                             kind: Initial,
-                            probability: 1.0,
+                            probability: 1.0 [17-18],
                             faults: [
                                 Fault {
                                     kind: X,
@@ -964,7 +964,7 @@ fn correlated_error_with_loss_lowers() {
                     [0-25] Noise(
                         CorrelatedError {
                             kind: Initial,
-                            probability: 0.01,
+                            probability: 0.01 [17-21],
                             faults: [
                                 Fault {
                                     kind: Loss,
@@ -986,7 +986,7 @@ fn else_correlated_error_lowers() {
                     [0-30] Noise(
                         CorrelatedError {
                             kind: Else,
-                            probability: 0.01,
+                            probability: 0.01 [22-26],
                             faults: [
                                 Fault {
                                     kind: X,
@@ -1008,7 +1008,7 @@ fn else_correlated_error_with_loss_lowers() {
                     [0-30] Noise(
                         CorrelatedError {
                             kind: Else,
-                            probability: 0.01,
+                            probability: 0.01 [22-26],
                             faults: [
                                 Fault {
                                     kind: Loss,
@@ -1030,7 +1030,7 @@ fn depolarize1_lowers() {
                     [0-19] Noise(
                         SingleQubitNoise {
                             kind: Depolarize,
-                            probability: 0.01,
+                            probability: 0.01 [12-16],
                             q: 0 [18-19],
                         },
                     )"#]],
@@ -1046,7 +1046,7 @@ fn depolarize2_lowers() {
                 items:
                     [0-21] Noise(
                         Depolarize2 {
-                            probability: 0.01,
+                            probability: 0.01 [12-16],
                             q0: 0 [18-19],
                             q1: 1 [20-21],
                         },
@@ -1063,7 +1063,7 @@ fn heralded_erase_lowers() {
                 items:
                     [0-22] Noise(
                         HeraldedErase {
-                            probability: 0.01,
+                            probability: 0.01 [15-19],
                             q: 0 [21-22],
                         },
                     )"#]],
@@ -1080,10 +1080,10 @@ fn heralded_pauli_channel_1_lowers() {
                     [0-38] Noise(
                         HeraldedPauliChannel1 {
                             probabilities: [
-                                0.01,
-                                0.0,
-                                0.0,
-                                0.0,
+                                0.01 [25-29],
+                                0.0 [30-31],
+                                0.0 [32-33],
+                                0.0 [34-35],
                             ],
                             q: 0 [37-38],
                         },
@@ -1101,9 +1101,9 @@ fn pauli_channel_1_lowers() {
                     [0-27] Noise(
                         PauliChannel1 {
                             probabilities: [
-                                0.01,
-                                0.0,
-                                0.0,
+                                0.01 [16-20],
+                                0.0 [21-22],
+                                0.0 [23-24],
                             ],
                             q: 0 [26-27],
                         },
@@ -1121,9 +1121,9 @@ fn pauli_channel_1_with_probabilities_summing_to_one_lowers() {
                     [0-30] Noise(
                         PauliChannel1 {
                             probabilities: [
-                                0.2,
-                                0.3,
-                                0.5,
+                                0.2 [16-19],
+                                0.3 [20-23],
+                                0.5 [24-27],
                             ],
                             q: 0 [29-30],
                         },
@@ -1159,21 +1159,21 @@ fn pauli_channel_2_lowers() {
                     [0-53] Noise(
                         PauliChannel2 {
                             probabilities: [
-                                0.01,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
+                                0.01 [16-20],
+                                0.0 [21-22],
+                                0.0 [23-24],
+                                0.0 [25-26],
+                                0.0 [27-28],
+                                0.0 [29-30],
+                                0.0 [31-32],
+                                0.0 [33-34],
+                                0.0 [35-36],
+                                0.0 [37-38],
+                                0.0 [39-40],
+                                0.0 [41-42],
+                                0.0 [43-44],
+                                0.0 [45-46],
+                                0.0 [47-48],
                             ],
                             q0: 0 [50-51],
                             q1: 1 [52-53],
@@ -1194,7 +1194,7 @@ fn x_error_lowers() {
                             kind: Fault(
                                 X,
                             ),
-                            probability: 0.01,
+                            probability: 0.01 [8-12],
                             q: 0 [14-15],
                         },
                     )"#]],
@@ -1213,7 +1213,7 @@ fn y_error_lowers() {
                             kind: Fault(
                                 Y,
                             ),
-                            probability: 0.01,
+                            probability: 0.01 [8-12],
                             q: 0 [14-15],
                         },
                     )"#]],
@@ -1232,7 +1232,7 @@ fn z_error_lowers() {
                             kind: Fault(
                                 Z,
                             ),
-                            probability: 0.01,
+                            probability: 0.01 [8-12],
                             q: 0 [14-15],
                         },
                     )"#]],
@@ -1251,7 +1251,7 @@ fn loss_error_lowers() {
                             kind: Fault(
                                 Loss,
                             ),
-                            probability: 0.01,
+                            probability: 0.01 [11-15],
                             q: 0 [17-18],
                         },
                     )"#]],
@@ -1270,7 +1270,7 @@ fn m_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }"#]],
@@ -1287,7 +1287,7 @@ fn m_with_readout_noise_lowers() {
                     [0-6] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 1.0,
+                        readout_noise: 1.0 [2-3],
                         negated: false,
                         q: 0 [5-6],
                     }"#]],
@@ -1304,7 +1304,7 @@ fn m_with_negated_target_lowers() {
                     [0-4] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: true,
                         q: 0 [2-4],
                     }"#]],
@@ -1321,7 +1321,7 @@ fn m_with_readout_noise_and_negated_target_lowers() {
                     [0-9] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [2-5],
                         negated: true,
                         q: 0 [7-9],
                     }"#]],
@@ -1338,7 +1338,7 @@ fn mr_lowers() {
                     [0-4] SingleQubitMeasurement {
                         reset: true,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [3-4],
                     }"#]],
@@ -1355,7 +1355,7 @@ fn mr_with_readout_noise_lowers() {
                     [0-9] SingleQubitMeasurement {
                         reset: true,
                         observable: Z,
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [3-6],
                         negated: false,
                         q: 0 [8-9],
                     }"#]],
@@ -1372,7 +1372,7 @@ fn mr_with_negated_target_lowers() {
                     [0-5] SingleQubitMeasurement {
                         reset: true,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: true,
                         q: 0 [3-5],
                     }"#]],
@@ -1389,7 +1389,7 @@ fn mrx_lowers() {
                     [0-5] SingleQubitMeasurement {
                         reset: true,
                         observable: X,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [4-5],
                     }"#]],
@@ -1406,7 +1406,7 @@ fn mrx_with_readout_noise_lowers() {
                     [0-10] SingleQubitMeasurement {
                         reset: true,
                         observable: X,
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [4-7],
                         negated: false,
                         q: 0 [9-10],
                     }"#]],
@@ -1423,7 +1423,7 @@ fn mrx_with_negated_target_lowers() {
                     [0-6] SingleQubitMeasurement {
                         reset: true,
                         observable: X,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: true,
                         q: 0 [4-6],
                     }"#]],
@@ -1440,7 +1440,7 @@ fn mry_lowers() {
                     [0-5] SingleQubitMeasurement {
                         reset: true,
                         observable: Y,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [4-5],
                     }"#]],
@@ -1457,7 +1457,7 @@ fn mry_with_readout_noise_lowers() {
                     [0-10] SingleQubitMeasurement {
                         reset: true,
                         observable: Y,
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [4-7],
                         negated: false,
                         q: 0 [9-10],
                     }"#]],
@@ -1474,7 +1474,7 @@ fn mry_with_negated_target_lowers() {
                     [0-6] SingleQubitMeasurement {
                         reset: true,
                         observable: Y,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: true,
                         q: 0 [4-6],
                     }"#]],
@@ -1491,7 +1491,7 @@ fn mx_lowers() {
                     [0-4] SingleQubitMeasurement {
                         reset: false,
                         observable: X,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [3-4],
                     }"#]],
@@ -1508,7 +1508,7 @@ fn mx_with_readout_noise_lowers() {
                     [0-9] SingleQubitMeasurement {
                         reset: false,
                         observable: X,
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [3-6],
                         negated: false,
                         q: 0 [8-9],
                     }"#]],
@@ -1525,7 +1525,7 @@ fn mx_with_negated_target_lowers() {
                     [0-5] SingleQubitMeasurement {
                         reset: false,
                         observable: X,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: true,
                         q: 0 [3-5],
                     }"#]],
@@ -1542,7 +1542,7 @@ fn my_lowers() {
                     [0-4] SingleQubitMeasurement {
                         reset: false,
                         observable: Y,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [3-4],
                     }"#]],
@@ -1559,7 +1559,7 @@ fn my_with_readout_noise_lowers() {
                     [0-9] SingleQubitMeasurement {
                         reset: false,
                         observable: Y,
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [3-6],
                         negated: false,
                         q: 0 [8-9],
                     }"#]],
@@ -1576,7 +1576,7 @@ fn my_with_negated_target_lowers() {
                     [0-5] SingleQubitMeasurement {
                         reset: false,
                         observable: Y,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: true,
                         q: 0 [3-5],
                     }"#]],
@@ -1635,7 +1635,7 @@ fn mxx_lowers() {
             Circuit [0-7]:
                 items:
                     [0-7] TwoQubitMeasurement {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         observable: XX,
                         negated: false,
                         q0: 0 [4-5],
@@ -1652,7 +1652,7 @@ fn mxx_with_readout_noise_lowers() {
             Circuit [0-12]:
                 items:
                     [0-12] TwoQubitMeasurement {
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [4-7],
                         observable: XX,
                         negated: false,
                         q0: 0 [9-10],
@@ -1669,7 +1669,7 @@ fn mxx_with_negated_target_lowers() {
             Circuit [0-8]:
                 items:
                     [0-8] TwoQubitMeasurement {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         observable: XX,
                         negated: true,
                         q0: 0 [4-6],
@@ -1686,7 +1686,7 @@ fn myy_lowers() {
             Circuit [0-7]:
                 items:
                     [0-7] TwoQubitMeasurement {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         observable: YY,
                         negated: false,
                         q0: 0 [4-5],
@@ -1703,7 +1703,7 @@ fn myy_with_readout_noise_lowers() {
             Circuit [0-12]:
                 items:
                     [0-12] TwoQubitMeasurement {
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [4-7],
                         observable: YY,
                         negated: false,
                         q0: 0 [9-10],
@@ -1720,7 +1720,7 @@ fn myy_with_negated_target_lowers() {
             Circuit [0-8]:
                 items:
                     [0-8] TwoQubitMeasurement {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         observable: YY,
                         negated: true,
                         q0: 0 [4-6],
@@ -1737,7 +1737,7 @@ fn mzz_lowers() {
             Circuit [0-7]:
                 items:
                     [0-7] TwoQubitMeasurement {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         observable: ZZ,
                         negated: false,
                         q0: 0 [4-5],
@@ -1754,7 +1754,7 @@ fn mzz_with_readout_noise_lowers() {
             Circuit [0-12]:
                 items:
                     [0-12] TwoQubitMeasurement {
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [4-7],
                         observable: ZZ,
                         negated: false,
                         q0: 0 [9-10],
@@ -1771,7 +1771,7 @@ fn mzz_with_negated_target_lowers() {
             Circuit [0-8]:
                 items:
                     [0-8] TwoQubitMeasurement {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         observable: ZZ,
                         negated: true,
                         q0: 0 [4-6],
@@ -1790,7 +1790,7 @@ fn mpp_lowers() {
             Circuit [0-9]:
                 items:
                     [0-9] PauliProductMeasurement {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         product: PauliProduct {
                             factors: [
                                 PauliFactor {
@@ -1816,7 +1816,7 @@ fn mpp_with_readout_noise_lowers() {
             Circuit [0-14]:
                 items:
                     [0-14] PauliProductMeasurement {
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [4-7],
                         product: PauliProduct {
                             factors: [
                                 PauliFactor {
@@ -1842,7 +1842,7 @@ fn mpp_with_negated_target_lowers() {
             Circuit [0-10]:
                 items:
                     [0-10] PauliProductMeasurement {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         product: PauliProduct {
                             factors: [
                                 PauliFactor {
@@ -1984,7 +1984,7 @@ fn require_lowers() {
                             [11-14] SingleQubitMeasurement {
                                 reset: false,
                                 observable: Z,
-                                readout_noise: 0.0,
+                                readout_noise: 0.0 [0-0],
                                 negated: false,
                                 q: 0 [13-14],
                             }
@@ -2023,7 +2023,7 @@ fn require_with_negated_record_targets_lowers() {
                             [11-14] SingleQubitMeasurement {
                                 reset: false,
                                 observable: Z,
-                                readout_noise: 0.0,
+                                readout_noise: 0.0 [0-0],
                                 negated: false,
                                 q: 0 [13-14],
                             }
@@ -2062,7 +2062,7 @@ fn notleaked_lowers() {
                             [11-14] SingleQubitMeasurement {
                                 reset: false,
                                 observable: Z,
-                                readout_noise: 0.0,
+                                readout_noise: 0.0 [0-0],
                                 negated: false,
                                 q: 0 [13-14],
                             }
@@ -2090,7 +2090,7 @@ fn peek_loss_lowers() {
             Circuit [0-11]:
                 items:
                     [0-11] PeekLoss {
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         q: 0 [10-11],
                     }"#]],
     );
@@ -2104,7 +2104,7 @@ fn peek_loss_with_readout_noise_lowers() {
             Circuit [0-16]:
                 items:
                     [0-16] PeekLoss {
-                        readout_noise: 0.1,
+                        readout_noise: 0.1 [10-13],
                         q: 0 [15-16],
                     }"#]],
     );
@@ -2126,7 +2126,7 @@ fn detector_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -2205,14 +2205,14 @@ fn mpad_lowers() {
     check(
         "MPAD 0",
         &expect![[r#"
-        Circuit [0-6]:
-            items:
-                [0-6] Annotation(
-                    MeasurementPadding {
-                        readout_noise: 0.0,
-                        value: false,
-                    },
-                )"#]],
+            Circuit [0-6]:
+                items:
+                    [0-6] Annotation(
+                        MeasurementPadding {
+                            readout_noise: 0.0 [0-0],
+                            value: false,
+                        },
+                    )"#]],
     );
 }
 
@@ -2225,7 +2225,7 @@ fn mpad_with_readout_noise_lowers() {
                 items:
                     [0-11] Annotation(
                         MeasurementPadding {
-                            readout_noise: 0.1,
+                            readout_noise: 0.1 [5-8],
                             value: false,
                         },
                     )"#]],
@@ -2246,7 +2246,7 @@ fn observable_include_lowers() {
                     [0-3] SingleQubitMeasurement {
                         reset: false,
                         observable: Z,
-                        readout_noise: 0.0,
+                        readout_noise: 0.0 [0-0],
                         negated: false,
                         q: 0 [2-3],
                     }
@@ -2540,7 +2540,7 @@ fn r_x_lowers() {
                 items:
                     [0-11] SingleQubitRotation {
                         axis: X,
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [4-8],
                         q: 0 [10-11],
                     }"#]],
     );
@@ -2555,7 +2555,7 @@ fn r_x_with_angle_in_radians_lowers() {
                 items:
                     [0-11] SingleQubitRotation {
                         axis: X,
-                        angle: 1.0,
+                        angle: 1.0 [4-8],
                         q: 0 [10-11],
                     }"#]],
     );
@@ -2570,7 +2570,7 @@ fn r_y_lowers() {
                 items:
                     [0-11] SingleQubitRotation {
                         axis: Y,
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [4-8],
                         q: 0 [10-11],
                     }"#]],
     );
@@ -2585,7 +2585,7 @@ fn r_z_lowers() {
                 items:
                     [0-11] SingleQubitRotation {
                         axis: Z,
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [4-8],
                         q: 0 [10-11],
                     }"#]],
     );
@@ -2601,9 +2601,9 @@ fn u3_lowers() {
             Circuit [0-17]:
                 items:
                     [0-17] U3 {
-                        theta: 0.3141592653589793,
-                        phi: 0.6283185307179586,
-                        lambda: 0.9424777960769379,
+                        theta: 0.3141592653589793 [3-6],
+                        phi: 0.6283185307179586 [7-10],
+                        lambda: 0.9424777960769379 [11-14],
                         q: 0 [16-17],
                     }"#]],
     );
@@ -2617,9 +2617,9 @@ fn u3_with_mixed_angle_units_lowers() {
             Circuit [0-24]:
                 items:
                     [0-24] U3 {
-                        theta: 0.3141592653589793,
-                        phi: -0.2,
-                        lambda: 0.3,
+                        theta: 0.3141592653589793 [3-6],
+                        phi: -0.2 [7-14],
+                        lambda: 0.3 [15-21],
                         q: 0 [23-24],
                     }"#]],
     );
@@ -2636,7 +2636,7 @@ fn r_xx_lowers() {
                 items:
                     [0-14] TwoQubitRotation {
                         axis: XX,
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [5-9],
                         q0: 0 [11-12],
                         q1: 1 [13-14],
                     }"#]],
@@ -2652,7 +2652,7 @@ fn r_xx_with_angle_in_radians_lowers() {
                 items:
                     [0-14] TwoQubitRotation {
                         axis: XX,
-                        angle: 1.0,
+                        angle: 1.0 [5-9],
                         q0: 0 [11-12],
                         q1: 1 [13-14],
                     }"#]],
@@ -2668,7 +2668,7 @@ fn r_yy_lowers() {
                 items:
                     [0-14] TwoQubitRotation {
                         axis: YY,
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [5-9],
                         q0: 0 [11-12],
                         q1: 1 [13-14],
                     }"#]],
@@ -2684,7 +2684,7 @@ fn r_zz_lowers() {
                 items:
                     [0-14] TwoQubitRotation {
                         axis: ZZ,
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [5-9],
                         q0: 0 [11-12],
                         q1: 1 [13-14],
                     }"#]],
@@ -2701,7 +2701,7 @@ fn r_pauli_lowers() {
             Circuit [0-19]:
                 items:
                     [0-19] PauliProductRotation {
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [8-12],
                         product: PauliProduct {
                             factors: [
                                 PauliFactor {
@@ -2727,7 +2727,7 @@ fn r_pauli_with_angle_in_radians_lowers() {
             Circuit [0-19]:
                 items:
                     [0-19] PauliProductRotation {
-                        angle: 1.0,
+                        angle: 1.0 [8-12],
                         product: PauliProduct {
                             factors: [
                                 PauliFactor {
@@ -2753,7 +2753,7 @@ fn r_pauli_with_negated_target_lowers() {
             Circuit [0-20]:
                 items:
                     [0-20] PauliProductRotation {
-                        angle: 0.7853981633974483,
+                        angle: 0.7853981633974483 [8-12],
                         product: PauliProduct {
                             factors: [
                                 PauliFactor {
