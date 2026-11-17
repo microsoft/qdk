@@ -127,6 +127,24 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     }
 }
 
+#[cfg(test)]
+impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
+    /// P(One) of `site` over the site's whole weight, summed in another
+    /// order than the two values' weights: the read the probabilities
+    /// avoid, which a test uses to check that its site still rounds where
+    /// it needs.
+    pub(crate) fn one_over_the_whole_weight(
+        &self,
+        state: &CanonicalMpsState<A>,
+        site: usize,
+    ) -> Result<f64, CanonicalMpsError<A::Error>> {
+        let mut chain = state.chain.borrow_mut();
+        self.centre_on(&mut chain, site)?;
+        let centre = self.host_site(&chain, site)?;
+        Ok(centre.weight_of(1) / centre.weight())
+    }
+}
+
 /// A site's elements on the host, `T[a, s, b]` at `a + left·(s + 2b)`
 /// (the [algebra's layout](crate::algebra)), borrowed from the tensor
 /// where the algebra keeps it on the host, until a gate or a projection

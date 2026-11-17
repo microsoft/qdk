@@ -91,9 +91,9 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// [`MpsEngine::retained_weight`] reports. An MPO's factorisation of its
 /// window's operator (Sites far apart) also drops the operator's values
 /// at or below `1e-12` times its largest, which that weight does not
-/// count. A split that would take that
-/// weight below the smallest normal `f64` fails with
-/// [`CanonicalMpsError::WeightUnderflow`]: the contract keeps the weight
+/// count. A split that would take that weight below the smallest normal
+/// `f64` fails with [`CanonicalMpsError::WeightUnderflow`]: the contract
+/// keeps the weight
 /// above zero, because callers divide by it. A gate may drift from norm 1
 /// within the unitarity check's tolerance; on the centre's site it divides
 /// out, as the reads divide by the squared norm at the centre, elsewhere it
@@ -251,7 +251,9 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
         })
     }
 
-    /// Fails as a split may (Failures on [`CanonicalMpsEngine`]).
+    /// Fails as the application of a pending window may (Failures on
+    /// [`CanonicalMpsEngine`]): in the algebra's moves, splits, reads or
+    /// uploads, or in the factorisation of its operator.
     fn apply(
         &self,
         state: &mut Self::State,

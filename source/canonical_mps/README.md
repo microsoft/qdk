@@ -78,7 +78,9 @@ engine's own for the work it defers or reorders:
 - **Retained fraction, retained weight:** the share of the squared
   singular values a split keeps; the state's **retained weight** is the
   product of its splits' retained fractions, the weight its truncations
-  kept.
+  kept; the part of a window's operator that its factorisation drops, at
+  or below the operator's rank cutoff, is not counted
+  ([distant sites](docs/distant_sites.md)).
 - **Pending gate:** a gate the engine has accepted but not yet applied to
   the backend's tensors. A one-site gate waits on its site; the two-site
   gates of the pending window wait as one operator on its sites.
