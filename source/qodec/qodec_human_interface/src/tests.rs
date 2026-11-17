@@ -289,14 +289,14 @@ fn parts_add_lines_that_run_on_the_blocks_live_there() {
     assert_eq!(texts(&app)[4], "prepare_z 1");
     expect![[r#"
          qodec-hi  repetition3 · repetition3 ▸ stim+rz · bits: zero · ? help
-        ┌Map──────────────────┐┌Parts · repetition3───────┐┌Program─────────────────────────┐┌Circuit 1: stim+rz (bottom) · 1┐
-        │repetition3          ││prepare_z <out:repetition3││1  prepare_z 0                  ││  1 2                 3   4 5  │
-        │0 repetition3 (top)  ││idle <repetition3>        ││2  idle 0                       ││0 R───CX──────────────M→0 R─── │
-        │  ! prepare_z        ││measure_z <in:repetition3>││3  measure_z 0  ⟹ Z_0=0         ││1 R───┼──CX─CX────────M→0 R─── │
-        │  ✓ idle             ││rotate_z <repetition3> the││4  prepare_z 0                  ││2 R───┼──┼──┼──CX─────M→0 R─── │
-        │  ✓ measure_z        ││                          ││5  prepare_z 1                  ││3   R─CX─CX─┼──┼──M→0       R─ │
-        │  ~ rotate_z         ││                          ││                                ││4   R───────CX─CX─M→0       R─ │
-        └─────────────────────┘└──────────────────────────┘└────────────────────────────────┘└───────────────────────────────┘
+        ┌Map──────────────────┐┌Parts · repetition3───────┐┌Program────────────────┐┌Circuit 1: stim+rz (bottom) · 18/20─────┐
+        │repetition3          ││prepare_z <out:repetition3││1  prepare_z 0         ││  1 2                 3   4 5           │
+        │0 repetition3 (top)  ││idle <repetition3>        ││2  idle 0              ││0 R───CX──────────────M→0 R───          │
+        │  ! prepare_z        ││measure_z <in:repetition3>││3  measure_z 0  ⟹ Z_0=0││1 R───┼──CX─CX────────M→0 R───          │
+        │  ✓ idle             ││rotate_z <repetition3> the││4  prepare_z 0         ││2 R───┼──┼──┼──CX─────M→0 R───          │
+        │  ✓ measure_z        ││                          ││5  prepare_z 1         ││3   R─CX─CX─┼──┼──M→0       R─          │
+        │  ~ rotate_z         ││                          ││                       ││4   R───────CX─CX─M→0       R─          │
+        └─────────────────────┘└──────────────────────────┘└───────────────────────┘└────────────────────────────────────────┘
          Live at stim+rz after call 18: qubit 0–3
         ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
         │prepare_z <out:repetition3>  Prepare the logical |0> state.                                                         │
@@ -406,11 +406,11 @@ fn the_flow_shows_a_line_through_every_layer() {
     assert_eq!(app.mode, Mode::Flow);
     let text = screen(&mut app, 120, 16);
     expect![[r#"
-        │ line 1 prepare_z_all 0        │
-        │ 0: C4C6 · 1 call              │
-        │   prepare_z_all 0 → reject=0  │
-        │ ╎ 1: C4C6 · 17 calls          │
-        │ ╎   prepare_x_all 0 → reject=0│"#]]
+        │ line 1 prepare_z_all 0         │
+        │ 0: C4C6 · 1 call               │
+        │   prepare_z_all 0 → reject=0   │
+        │ ╎ 1: C4C6 · 17 calls           │
+        │ ╎   prepare_x_all 0 → reject=0 │"#]]
     .assert_eq(
         &text
             .lines()

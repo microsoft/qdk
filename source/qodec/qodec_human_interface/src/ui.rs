@@ -106,9 +106,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     match app.item.clone() {
         Item::Program => {
             let parts_width = parts_width(app).min(item.width * 3 / 10).max(16);
+            let most = item.width * 36 / 100;
+            let program_width = program_width(app).unwrap_or(most).min(most).max(20);
             let [parts, program, view] = Layout::horizontal([
                 Constraint::Length(parts_width),
-                Constraint::Percentage(36),
+                Constraint::Length(program_width),
                 Constraint::Min(20),
             ])
             .areas(item);
@@ -265,6 +267,30 @@ fn line_tail(app: &App, index: usize) -> Vec<Span<'static>> {
         Outcome::Blank => {}
     }
     tail
+}
+
+/// The width the program pane needs to show every line whole, borders
+/// included, or `None` when there are no lines and it shows its hint.
+fn program_width(app: &App) -> Option<u16> {
+    if app.program.is_empty() {
+        return None;
+    }
+    let gutter = app.program.len().to_string().len();
+    let widest = app
+        .program
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let text = match (&app.editor, index == app.line) {
+                // One more column for the cursor after the last character.
+                (Some(editor), true) => Line::from(editor.text.as_str()).width() + 1,
+                _ => Line::from(line.text.as_str()).width(),
+            };
+            gutter + 2 + text + Line::from(line_tail(app, index)).width()
+        })
+        .max()
+        .unwrap_or(0);
+    Some(u16::try_from(widest + 2).unwrap_or(u16::MAX))
 }
 
 fn render_program(frame: &mut Frame, app: &App, area: Rect) {
