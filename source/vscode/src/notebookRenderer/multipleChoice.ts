@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import type { MultipleChoicePayload } from "./schema.js";
-import { RENDERER_ID } from "./schema.js";
+import { isCorrectQuizAnswer, isLearningId, RENDERER_ID } from "./schema.js";
 import {
   appendRichTextElement,
   appendTextElement,
@@ -154,7 +154,7 @@ export function renderMultipleChoice(
     // Ids only. The question and the option text are notebook content, and
     // prose from a notebook must not reach a prompt — but an id names the
     // same thing precisely enough for the agent to look it up.
-    const posted = context.postAction({
+    const posted = context.postMessage({
       type: "qdk-learning/action",
       rendererId: RENDERER_ID,
       actionId: "why-wrong",
@@ -183,9 +183,7 @@ export function renderMultipleChoice(
         .filter((view) => view.input.checked)
         .map((view) => view.option.id),
     );
-    const isCorrect = optionViews.every(
-      (view) => selectedIds.has(view.option.id) === view.option.correct,
-    );
+    const isCorrect = isCorrectQuizAnswer(payload.options, [...selectedIds]);
 
     // Mark and explain only what the learner picked, until they get it right.
     // Marking an option they did not pick would hand them the answer, leaving
@@ -227,6 +225,15 @@ export function renderMultipleChoice(
     } else {
       controls.replaceChildren(tryAgainButton);
       showWhyWrongAction(selectedIds);
+    }
+
+    if (isLearningId(payload.payloadId)) {
+      context.postMessage({
+        type: "qdk-learning/quiz-answered",
+        rendererId: RENDERER_ID,
+        quizId: payload.payloadId,
+        optionIds: [...selectedIds],
+      });
     }
 
     // Grading detached the focused Check button, which would otherwise drop

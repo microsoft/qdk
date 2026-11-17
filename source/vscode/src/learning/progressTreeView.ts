@@ -161,7 +161,9 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
         ? "Exercise"
         : activity.type === "code-cell"
           ? "Code Cell"
-          : "Lesson";
+          : activity.type === "quiz"
+            ? "Quiz"
+            : "Lesson";
     // Vary the id by `isCurrent` so VS Code drops the stale selection when the
     // active activity changes (e.g. after pressing Next in the lesson panel).
     item.id = isCurrent
@@ -345,7 +347,7 @@ export type LearningProgressNode =
       isCurrent: boolean;
     }
   | {
-      /** Leaf node representing a lesson or exercise within a unit. */
+      /** Leaf node representing one learning activity within a unit. */
       kind: "activity";
       courseId: string;
       unitId: string;

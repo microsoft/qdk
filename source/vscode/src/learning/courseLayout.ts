@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { WORKBOOK_SUFFIX } from "./constants.js";
 import type {
   CatalogCourse,
+  CatalogActivity,
   NotebookCatalogCourse,
   NotebookCatalogUnit,
 } from "./types.js";
@@ -41,4 +42,14 @@ export function sourceNotebookUri(unit: NotebookCatalogUnit): vscode.Uri {
 export function workbookUri(unit: NotebookCatalogUnit): vscode.Uri {
   const src = unit.sourceNotebookUri;
   return src.with({ path: src.path.replace(/\.ipynb$/i, WORKBOOK_SUFFIX) });
+}
+
+/** Quizzes have their own activity identity but can share a notebook cell. */
+export function notebookCellId(activity: CatalogActivity): string | undefined {
+  if (activity.type === "quiz") {
+    return activity.cellId;
+  }
+  return activity.type === "exercise" || activity.type === "code-cell"
+    ? activity.id
+    : undefined;
 }

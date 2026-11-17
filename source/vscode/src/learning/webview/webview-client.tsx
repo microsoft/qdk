@@ -274,6 +274,8 @@ function Header({ current }: { current: CurrentActivity }) {
     badgeClass += content.isComplete ? " complete" : " exercise";
   } else if (content.type === "lesson-text") {
     badgeText = "lesson";
+  } else if (content.type === "quiz") {
+    badgeText = "quiz";
   } else {
     badgeText = "example";
   }

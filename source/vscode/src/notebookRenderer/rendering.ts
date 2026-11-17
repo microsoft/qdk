@@ -3,10 +3,10 @@
 
 import type { RendererToExtensionMessage } from "./schema.js";
 
-type PostAction = (message: RendererToExtensionMessage) => boolean;
+type PostMessage = (message: RendererToExtensionMessage) => boolean;
 
 export type RenderContext = {
-  postAction: PostAction;
+  postMessage: PostMessage;
   addDisposable(dispose: () => void): void;
 };
 

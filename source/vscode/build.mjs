@@ -155,7 +155,7 @@ const inlineStateComputeWorkerPlugin = {
  * in either type system spans that gap. Checks the values whose disagreement
  * breaks a learner: MIME type, payload kinds, schema version, the field names
  * the renderer reads, the manifest contribution VS Code routes on, and the cell
- * tag that keeps a quiz out of the progress tree.
+ * tag that distinguishes quizzes from execution-completed code cells.
  */
 export function checkRendererContract() {
   const schemaPath = join(thisDir, "src", "notebookRenderer", "schema.ts");
@@ -251,18 +251,15 @@ export function checkRendererContract() {
   // otherwise make this comparison vacuous, and the banner below would still
   // report a kind count read from TypeScript alone.
   //
-  // `SUPPORTED_KINDS` is the list `readPayload` actually gates on, so that is
-  // what Python is compared against. The union in `schema.ts` only types the
-  // payload: a kind declared there but missing from the runtime list compiles
-  // cleanly and then refuses to render.
+  // The renderer and catalog use the same runtime payload parser in schema.ts.
   const rendererIndex = readFileSync(
     join(thisDir, "src", "notebookRenderer", "index.ts"),
     "utf8",
   );
   const tsKinds = [
     ...required(
-      "SUPPORTED_KINDS in index.ts",
-      /const SUPPORTED_KINDS = \[([^\]]*)\]/.exec(rendererIndex)?.[1],
+      "SUPPORTED_KINDS in schema.ts",
+      /const SUPPORTED_KINDS = \[([^\]]*)\]/.exec(schema)?.[1],
     ).matchAll(/"([a-z-]+)"/g),
   ].map((m) => m[1]);
   const schemaKinds = [...schema.matchAll(/^\s+kind: "([a-z-]+)";/gm)].map(
@@ -289,10 +286,9 @@ export function checkRendererContract() {
 
   const tsVersion = required(
     "SUPPORTED_SCHEMA_VERSION",
-    /const SUPPORTED_SCHEMA_VERSION = (\d+)/.exec(rendererIndex)?.[1],
+    /const SUPPORTED_SCHEMA_VERSION = (\d+)/.exec(schema)?.[1],
   );
-  // The third version copy: the literal type payloads are cast to. Nothing in
-  // the compiler ties it to the constant `readPayload` compares against.
+  // Keep the declared payload type in step with the shared runtime parser.
   const schemaVersion = required(
     "schemaVersion in schema.ts",
     /^\s+schemaVersion: (\d+);/m.exec(schema)?.[1],
@@ -323,7 +319,7 @@ export function checkRendererContract() {
   // across both files that touch a payload: the validator and the view read
   // different fields, and looking at only one would let a field go unchecked
   // the moment it moved between them.
-  const rendererSources = `${renderer}\n${rendererIndex}`;
+  const rendererSources = `${renderer}\n${rendererIndex}\n${schema}`;
   const payloadFields = ["prompt", "options", "multiSelect", "payloadId"];
   const optionFields = ["id", "text", "correct", "explanation"];
   for (const field of payloadFields) {
@@ -346,9 +342,9 @@ export function checkRendererContract() {
   }
 
   // The Python source reader uses this tag, and `notebookExercises`
-  // reads it to keep quizzes out of the progress tree. If the two spellings
+  // reads it to identify question activities. If the two spellings
   // drift, a quiz cell falls through to the code-cell branch and becomes an
-  // activity — one that can never complete, because a quiz is never run.
+  // activity whose completion would incorrectly depend on cell execution.
   const tsQuizTag = required(
     "QUIZ_TAG in notebookExercises.ts",
     /^const QUIZ_TAG = "([^"]+)";/m.exec(

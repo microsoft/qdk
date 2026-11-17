@@ -10,15 +10,17 @@
 
 export const MIME_TYPE = "application/vnd.qdk.learning+json" as const;
 export const RENDERER_ID = "qsharp-vscode.qdkLearningRenderer" as const;
+export const SUPPORTED_SCHEMA_VERSION = 1;
+export const SUPPORTED_KINDS = ["multiple-choice"] as const;
 
 type LearningPayloadBase = {
   schemaVersion: 1;
   kind: string;
   /**
-   * Identifies the payload. For a quiz this is its registered id, which keeps
+   * Identifies the payload. For a quiz this is its authored id, which keeps
    * radio groups unique and names the question when the learner asks about it.
-   * Deliberately not an ipynb cell id: a quiz cell is not an activity, so this
-   * must never reach anything that resolves one.
+   * Deliberately not an ipynb cell id: several quiz activities can share one
+   * notebook cell.
    */
   payloadId?: string;
 };
@@ -65,7 +67,16 @@ type RendererActionMessage = {
   optionIds?: string[];
 };
 
-export type RendererToExtensionMessage = RendererActionMessage;
+type QuizAnsweredMessage = {
+  type: "qdk-learning/quiz-answered";
+  rendererId: typeof RENDERER_ID;
+  quizId: string;
+  optionIds: string[];
+};
+
+export type RendererToExtensionMessage =
+  | RendererActionMessage
+  | QuizAnsweredMessage;
 
 /**
  * The shape every id crossing the bridge must have.
@@ -101,23 +112,172 @@ export function isRendererToExtensionMessage(
     return false;
   }
 
+  if (x.type === "qdk-learning/quiz-answered") {
+    return (
+      isLearningId(x.quizId) &&
+      isQuizOptionIds(x.optionIds) &&
+      x.optionIds.length > 0 &&
+      new Set(x.optionIds).size === x.optionIds.length
+    );
+  }
+
   if (x.type !== "qdk-learning/action" || !isCopilotActionId(x.actionId)) {
     return false;
   }
 
-  if (
-    x.quizId !== undefined &&
-    !(typeof x.quizId === "string" && ID_PATTERN.test(x.quizId))
-  ) {
+  if (x.quizId !== undefined && !isLearningId(x.quizId)) {
     return false;
   }
 
+  return x.optionIds === undefined || isQuizOptionIds(x.optionIds);
+}
+
+export function isLearningId(value: unknown): value is string {
   return (
-    x.optionIds === undefined ||
-    (Array.isArray(x.optionIds) &&
-      x.optionIds.length <= MAX_OPTION_IDS &&
-      x.optionIds.every((id) => typeof id === "string" && ID_PATTERN.test(id)))
+    typeof value === "string" &&
+    value === value.trim() &&
+    ID_PATTERN.test(value)
   );
+}
+
+export function isQuizOptionIds(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_OPTION_IDS &&
+    value.every(isLearningId)
+  );
+}
+
+export function isCorrectQuizAnswer(
+  options: MultipleChoicePayload["options"],
+  optionIds: readonly string[],
+): boolean {
+  const selected = new Set(optionIds);
+  return (
+    selected.size > 0 &&
+    selected.size === optionIds.length &&
+    optionIds.every((id) => options.some((option) => option.id === id)) &&
+    options.every((option) => selected.has(option.id) === option.correct)
+  );
+}
+
+/** Validate saved payloads identically in the renderer and course catalog. */
+export function parseLearningPayload(value: unknown): LearningPayload {
+  if (!isRecord(value)) {
+    throw new Error("Expected a QDK learning payload object.");
+  }
+  const payload = value;
+  if (payload.schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
+    const ahead =
+      typeof payload.schemaVersion === "number" &&
+      payload.schemaVersion > SUPPORTED_SCHEMA_VERSION;
+    throw new Error(
+      `This output uses QDK learning payload version ${String(payload.schemaVersion)}, ` +
+        `but this renderer supports version ${SUPPORTED_SCHEMA_VERSION}. ` +
+        (ahead
+          ? "Update the QDK extension to view it."
+          : "Use Reset Unit on this notebook's toolbar to get an up-to-date copy."),
+    );
+  }
+  if (!SUPPORTED_KINDS.some((kind) => kind === payload.kind)) {
+    throw new Error(
+      `Unknown QDK learning output kind "${String(payload.kind)}". ` +
+        `This renderer knows: ${SUPPORTED_KINDS.join(", ")}.`,
+    );
+  }
+  if (
+    payload.payloadId !== undefined &&
+    typeof payload.payloadId !== "string"
+  ) {
+    throw new Error("QDK learning payload has a non-string payloadId.");
+  }
+  if (typeof payload.prompt !== "string" || payload.prompt.length === 0) {
+    throw new Error("QDK learning payload has no question text.");
+  }
+  if (
+    payload.multiSelect !== undefined &&
+    typeof payload.multiSelect !== "boolean"
+  ) {
+    throw new Error("QDK learning payload has a non-boolean multiSelect.");
+  }
+  if (!Array.isArray(payload.options) || payload.options.length === 0) {
+    throw new Error("QDK learning payload has no options.");
+  }
+
+  const options: MultipleChoicePayload["options"] = [];
+  const ids = new Set<string>();
+  for (const option of payload.options) {
+    if (!isRecord(option)) {
+      throw new Error("QDK learning payload has a malformed option.");
+    }
+    if (typeof option.id !== "string" || option.id.length === 0) {
+      throw new Error("QDK learning payload has an option with no id.");
+    }
+    if (ids.has(option.id)) {
+      throw new Error(
+        `QDK learning payload reuses the option id "${option.id}".`,
+      );
+    }
+    ids.add(option.id);
+    if (typeof option.text !== "string" || option.text.length === 0) {
+      throw new Error(
+        `QDK learning option "${option.id}" has no text to show.`,
+      );
+    }
+    if (typeof option.correct !== "boolean") {
+      throw new Error(
+        `QDK learning option "${option.id}" does not say whether it is correct.`,
+      );
+    }
+    if (
+      option.explanation !== undefined &&
+      typeof option.explanation !== "string"
+    ) {
+      throw new Error(
+        `QDK learning option "${option.id}" has a non-string explanation.`,
+      );
+    }
+    options.push({
+      id: option.id,
+      text: option.text,
+      correct: option.correct,
+      ...(option.explanation !== undefined
+        ? { explanation: option.explanation }
+        : {}),
+    });
+  }
+  const correct = options.filter((option) => option.correct).length;
+  if (correct === 0) {
+    throw new Error("QDK learning payload has no correct option.");
+  }
+  if (payload.multiSelect === true) {
+    if (correct < 2) {
+      throw new Error(
+        "QDK learning payload says select all that apply but marks one option correct.",
+      );
+    }
+    if (correct === options.length) {
+      throw new Error(
+        "QDK learning payload marks every option correct, so it cannot be answered wrongly.",
+      );
+    }
+  } else if (correct > 1) {
+    throw new Error(
+      `QDK learning payload marks ${correct} options correct but is not multi-select.`,
+    );
+  }
+  return {
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    kind: "multiple-choice",
+    prompt: payload.prompt,
+    options,
+    ...(payload.payloadId !== undefined
+      ? { payloadId: payload.payloadId }
+      : {}),
+    ...(payload.multiSelect !== undefined
+      ? { multiSelect: payload.multiSelect }
+      : {}),
+  };
 }
 
 function isCopilotActionId(value: unknown): value is CopilotActionId {

@@ -64,7 +64,8 @@ Exercises are one of the main value-adds of the QDK Learning courses.
 You can tag individual code cells as exercises and associate hints, solutions, and explanations with them.
 Each exercise also has associated validation logic to tell a learner whether their solution is correct.
 Progress reflects learner code cells, not just the cells tagged as exercises.
-Cells tagged `quiz` or `author-only` are not currently progress activities.
+Quiz progress is tracked per question when it is answered correctly, not when
+its cell runs. Cells tagged `author-only` are not progress activities.
 
 An exercise code cell is preceded by a markdown cell giving the name of the exercise (as a header) and a brief description of what's to be accomplished.
 The exercise code cell itself is tagged `exercise` using the `Add Cell Tag` functionality in VS Code (or by editing the JSON directly).
@@ -122,7 +123,9 @@ Once the cell runs successfully, the exercise will be considered to be complete.
 ## Quizzes
 
 A quiz is a multiple-choice question the learner answers in the cell output.
-Unlike an exercise, it is a self-check: answering doesn't record progress, so a quiz is a place to think rather than something to complete.
+It is a self-check with retryable feedback. Each question appears separately in
+the learning tree and is marked complete after a correct checked answer, without
+requiring a running kernel.
 
 Import `quiz` in the notebook's setup cell:
 
@@ -197,10 +200,27 @@ new helper registration. Question content stays in the author notebook.
 
 Materialization replaces full definitions with ID-only calls such as
 `quiz("grid-spacing")`, preserving the saved outputs. A cell containing multiple
-questions becomes a call such as `quiz("a", "b")`. The `quiz` tag keeps these cells
-out of the progress tree and lets subsequent code cells find their section heading.
+questions becomes a call such as `quiz("a", "b")`. The `quiz` tag identifies
+question activities and lets subsequent code cells find their section heading.
 Learner reruns read definitions from the bound author notebook's saved source,
 not its outputs.
+
+Quiz progress uses the question ID, independently of its containing notebook
+cell. Questions sharing a cell have separate tree entries and completion.
+Clicking a question in the tree opens its containing cell.
+
+The activity catalog reads saved author quiz outputs when the course loads.
+After editing a question, refresh its saved outputs and reload the learning
+workspace before testing tree/progress changes. This does not change ID-only
+runtime display, which reads the saved author source.
+
+Correct answers are recorded in the existing workspace progress file.
+Incorrect answers do not grant completion or revoke earlier completion.
+Running a quiz cell, retrying it, or reopening the notebook does not clear
+earned completion; resetting the unit clears it along with other unit progress.
+The answer controls and feedback currently start fresh when an output is
+re-rendered: completion persists, but restoring the last checked selection is
+not yet supported.
 
 Quiz ids and option ids are lowercase letters, digits and hyphens, up to 64 characters.
 An invalid ID fails when you run the cell: those ids are the only thing the renderer's Copilot action sends to the extension, so a shape it can't accept would leave that button doing less than it should.

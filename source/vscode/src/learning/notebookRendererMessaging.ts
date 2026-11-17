@@ -15,10 +15,9 @@ import type { LearningService } from "./service.js";
  *
  * A renderer webview can't execute VS Code commands, so `createRendererMessaging`
  * is the channel out. Everything arriving here is authored notebook content and
- * therefore untrusted: the renderer may name an action id from a fixed
- * allowlist and a quiz id of a fixed shape, and nothing else. No prose from a
- * notebook reaches a prompt, because no amount of escaping stops a sentence
- * from reading as an instruction.
+ * therefore untrusted: the renderer may request an allowlisted action or send
+ * bounded quiz/option IDs for a checked answer. Completion is graded against
+ * the loaded question. No notebook prose is forwarded into a chat prompt.
  */
 export function registerNotebookRendererMessaging(
   context: vscode.ExtensionContext,
@@ -58,6 +57,15 @@ export function registerNotebookRendererMessaging(
         ) {
           log.warn(
             "Learning: ignoring a renderer message from a notebook outside the loaded course.",
+          );
+          return;
+        }
+
+        if (message.type === "qdk-learning/quiz-answered") {
+          await service.recordQuizAnswer(
+            event.editor.notebook.uri,
+            message.quizId,
+            message.optionIds,
           );
           return;
         }
@@ -109,10 +117,6 @@ function buildQuery(
 }
 
 async function openChat(query: string): Promise<void> {
-  // No position move here. A quiz cell is deliberately not an activity, so
-  // there is nothing for `goToActivityByCellId` to find — the payload's quiz
-  // id is the quiz's own id, not an ipynb cell id.
-
   await vscode.commands.executeCommand("workbench.action.chat.open", {
     query,
     isPartialQuery: false,

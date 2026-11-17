@@ -2,11 +2,18 @@
 // Licensed under the MIT License.
 
 import { log } from "qsharp-lang";
-import { isRecord, MIME_TYPE } from "../notebookRenderer/schema.js";
+import {
+  isLearningId,
+  isQuizOptionIds,
+  isRecord,
+  MIME_TYPE,
+  parseLearningPayload,
+} from "../notebookRenderer/schema.js";
 import type {
   CatalogActivity,
   CatalogCodeCell,
   CatalogExercise,
+  CatalogQuiz,
 } from "./types.js";
 
 /**
@@ -46,8 +53,8 @@ const EXERCISE_TAG = "exercise";
  * Tag marking a dedicated quiz-only code cell.
  *
  * A quiz cell is learner content, so unlike the authoring tags it stays in the
- * working copy — but it is not an activity, for the reasons in
- * `parseNotebookActivities`. It is called out because it sits *inside* a
+ * working copy. Each question becomes an activity independently of its
+ * containing cell. It is called out because it sits *inside* a
  * section's prose: without the tag it would hide the section heading from the
  * code cell that follows it, which would then fall back to being named after
  * its cell id.
@@ -99,6 +106,7 @@ export function parseNotebookActivities(
   }
 
   const activities: CatalogActivity[] = [];
+  const quizIds = new Set<string>();
 
   // The exercise most recently seen, and therefore the one that any
   // subsequent authoring cells belong to. `undefined` until the first
@@ -113,13 +121,17 @@ export function parseNotebookActivities(
       continue;
     }
 
-    // A quiz cell stays in the learner's copy but is not an activity. Its
-    // outputs are already in the notebook, running it does not produce a
-    // result the service records, and whether the learner answered correctly
-    // never leaves the renderer — so a progress entry would claim tracking
-    // that does not exist. Skipped before `current` is cleared so a quiz
-    // between an exercise and its hint would not orphan the hint.
     if (tags.includes(QUIZ_TAG)) {
+      for (const quiz of parseQuizCell(cell, unitLabel)) {
+        if (quizIds.has(quiz.quizId)) {
+          log.warn(
+            `Learning: skipping duplicate quiz "${quiz.quizId}" in unit "${unitLabel}".`,
+          );
+          continue;
+        }
+        quizIds.add(quiz.quizId);
+        activities.push(quiz);
+      }
       continue;
     }
 
@@ -220,6 +232,55 @@ export function parseNotebookActivities(
   }
 
   return activities;
+}
+
+function parseQuizCell(cell: RawCell, unitLabel: string): CatalogQuiz[] {
+  try {
+    const cellId = cellIdOf(cell);
+    if (cellKind(cell) !== "code" || !cellId || !Array.isArray(cell.outputs)) {
+      throw new Error("expected a code cell with an ID and saved quiz outputs");
+    }
+    const quizzes: CatalogQuiz[] = [];
+    for (const output of cell.outputs) {
+      if (!isRecord(output)) {
+        throw new Error("malformed notebook output");
+      }
+      if (!isRecord(output.data) || !(MIME_TYPE in output.data)) {
+        continue;
+      }
+      if (output.output_type !== "display_data") {
+        throw new Error("expected a saved display_data quiz output");
+      }
+      const payload = parseLearningPayload(output.data[MIME_TYPE]);
+      if (
+        !isLearningId(payload.payloadId) ||
+        payload.options.length < 2 ||
+        !isQuizOptionIds(payload.options.map((option) => option.id))
+      ) {
+        throw new Error("invalid saved quiz identifiers or option count");
+      }
+      quizzes.push({
+        type: "quiz",
+        id: `quiz:${payload.payloadId}`,
+        quizId: payload.payloadId,
+        cellId,
+        title: payload.prompt.replace(/\s+/g, " ").trim(),
+        options: payload.options,
+      });
+    }
+    if (quizzes.length === 0) {
+      throw new Error(
+        "no saved quiz outputs; run the author quiz cells and save",
+      );
+    }
+    return quizzes;
+  } catch (error) {
+    log.warn(
+      `Learning: skipping quiz cell "${cellIdOf(cell) ?? "unknown"}" ` +
+        `in unit "${unitLabel}": ${String(error)}`,
+    );
+    return [];
+  }
 }
 
 /**
