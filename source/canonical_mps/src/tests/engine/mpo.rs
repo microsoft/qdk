@@ -4,8 +4,8 @@
 //! Gates on sites far apart, and windows on three sites, applied as a
 //! matrix product operator: they act in the caller's order, keep a state
 //! that fits the capacity, truncate only at the caller's cuts, grow the
-//! span by the operator's rank, and cost, once the centre is in the span,
-//! one split per cut and one move fewer.
+//! span by the operator's rank, and cost, once the centre is in a span of
+//! `d + 1` sites, `d` splits and `d − 1` moves.
 
 use super::*;
 
@@ -39,10 +39,10 @@ fn gates_on_distant_sites_act_in_the_callers_order() {
     }
 }
 
-/// Two Bell pairs, (0, 1) and (2, 3), then a CZ on sites 0 and 2: the state
-/// has bond 2 at every cut, and the CZ, of operator rank 2, multiplies the
-/// bond at cut 0 to 4 before the splits compress it back to 2. The splits
-/// keep every value, so the gate loses nothing on a chain of bond 2.
+/// Two Bell pairs, (0, 1) and (2, 3), then a CZ on sites 0 and 2. Unfused,
+/// the state has bond 2 at every cut before the CZ; fused, the CNOT on
+/// (2, 3) joins the CZ's window. Either way the splits keep every value,
+/// so the gates lose nothing on a chain of bond 2.
 #[test]
 fn an_mpo_keeps_a_state_that_fits_the_capacity() {
     let capacity = chain(4, 2);
@@ -62,11 +62,6 @@ fn an_mpo_keeps_a_state_that_fits_the_capacity() {
         }
         let weight = engine.retained_weight(&state).expect("weight");
         assert!((weight - 1.0).abs() < 1e-12, "{name}: {weight}");
-        assert_eq!(
-            state.split_statistics().largest_transient_bond(),
-            4,
-            "{name}"
-        );
         assert!(
             engine.shape(&state).expect("shape").fits_within(&capacity),
             "{name}"

@@ -32,7 +32,8 @@
 //!   is and drops no singular value of its own.
 //!
 //! [`HostSite`] is the host copy every read of the engine works on, the
-//! expectation's ([`expectation`](super::expectation)) included.
+//! expectation's ([`expectation`](super::expectation)) included, and the
+//! one an MPO multiplies ([`mpo`](super::mpo)).
 
 use super::{CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, chain::Chain};
 use crate::algebra::SiteAlgebra;

@@ -55,9 +55,10 @@ fn a_gate_on_neighbours_leaves_no_transient_bond() {
 }
 
 /// Two Bell pairs, (0, 1) and (2, 3), at bond 2, then a CZ on sites 0 and 2,
-/// a matrix product operator: its factors multiply the bond at cut 0 to 4,
-/// and its splits compress it back to 2, the capacity. The 4 counts as
-/// transient only: the largest bond at rest stays at the capacity.
+/// a matrix product operator (fused, the CNOT on (2, 3) joins the CZ's
+/// window): its factors multiply a bond of the span to 4, and its splits
+/// compress it back to 2, the capacity. The 4 counts as transient only:
+/// the largest bond at rest stays at the capacity.
 #[test]
 fn an_operators_grown_bond_is_transient_not_at_rest() {
     let half_turn = ry(std::f64::consts::FRAC_PI_2);

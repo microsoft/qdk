@@ -9,17 +9,17 @@
 //! A window on sites that are not neighbours, or on three sites, cannot be
 //! one split: its operator acts on more than a pair. Bringing its sites
 //! together by SWAPs and back (routing) costs two splits per site
-//! crossed, each a truncation; the MPO, once the centre is in its span,
-//! costs one split per cut of the span and one QR move fewer, and
+//! crossed, each a truncation; the MPO on a span of `d + 1` sites, once
+//! the centre is in its span, costs `d` splits and `d − 1` QR moves, and
 //! truncates only at the caller's cuts (the crate's
 //! `docs/distant_sites.md` compares them). The steps:
 //!
 //! 1. **Factor.** The operator on `k` sites becomes `k` tensors by `k − 1`
-//!    thin SVDs on the host ([`operator_mpo`]), dropping the values below
-//!    [`OPERATOR_RANK_CUTOFF`] times the largest: rounding's, or a part of
-//!    the operator of at most that relative size, which the retained
-//!    weight does not count. A CNOT has an operator bond of 2, a general
-//!    two-site gate at most 4.
+//!    thin SVDs on the host ([`operator_mpo`]), dropping the values at or
+//!    below [`OPERATOR_RANK_CUTOFF`] times the largest: rounding's, or a
+//!    part of the operator of at most that relative size, which the
+//!    retained weight does not count. A CNOT has an operator bond of 2, a
+//!    general two-site gate at most 4.
 //! 2. **Multiply.** With the centre moved into the span, each site of the
 //!    span is read, its pending gate applied, multiplied by its MPO tensor
 //!    on the host, and uploaded: the bond at each cut of the span grows by
@@ -132,7 +132,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
 
 /// One site's MPO tensor `W[kl, p, kr]`, `p = 2·out + in`, at
 /// `kl + left·(p + 4·kr)`.
-pub(super) struct MpoSite {
+struct MpoSite {
     left: usize,
     right: usize,
     w: Vec<Complex64>,
@@ -159,10 +159,7 @@ impl MpoSite {
 /// The MPO of `operator` (row-major, the first site the most significant
 /// bit) on `k` sites, one tensor per site, by `k − 1` thin SVDs, each
 /// keeping the values above [`OPERATOR_RANK_CUTOFF`] times the largest.
-pub(super) fn operator_mpo(
-    operator: &[Complex64],
-    k: usize,
-) -> Result<Vec<MpoSite>, dense_linalg::SvdError> {
+fn operator_mpo(operator: &[Complex64], k: usize) -> Result<Vec<MpoSite>, dense_linalg::SvdError> {
     let dim = 1usize << k;
     debug_assert_eq!(operator.len(), dim * dim, "an operator on `k` sites");
     // Index Σ_j p_j·4^j, p_j = 2·out_j + in_j, site 0 the fastest: as a
