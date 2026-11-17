@@ -71,13 +71,13 @@ Backend failures are returned as `Err(String)` and propagated by adapters and th
 
 ### Stream transport
 
-`StdioBackend::new(instruction_stream, result_stream)` accepts any instruction
-writer (`Write`) and result reader (`Read`). `StdioBackend::stdio()` uses stdout
+`StreamBackend::new(instruction_stream, result_stream)` accepts any instruction
+writer (`Write`) and result reader (`Read`). `StreamBackend::stdio()` uses stdout
 for instructions and stdin for results.
 
-`StdioDriver::new(backend, instruction_stream, result_stream)` owns a backend,
+`StreamDriver::new(backend, instruction_stream, result_stream)` owns a backend,
 reads instructions, executes them, and writes the returned results.
-`StdioDriver::stdio(backend)` uses stdin for instructions and stdout for results.
+`StreamDriver::stdio(backend)` uses stdin for instructions and stdout for results.
 Call `process_next_batch()` to serve one batch (`Ok(false)` means clean EOF), or
 `run()` to serve until EOF. `Driver::get_backend()` exposes the wrapped backend.
 

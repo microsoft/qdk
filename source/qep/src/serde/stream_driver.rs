@@ -9,7 +9,7 @@ use crate::{
 use std::io::{self, BufReader, Read, Stdin, Stdout, Write};
 
 /// Serves instruction batches from a stream using an owned backend.
-pub struct StdioDriver<B, R, W> {
+pub struct StreamDriver<B, R, W> {
     backend: B,
     instruction_stream: BufReader<R>,
     result_stream: W,
@@ -17,7 +17,7 @@ pub struct StdioDriver<B, R, W> {
     instructions: Vec<QuantumBackendInstruction>,
 }
 
-impl<B: QuantumBackend, R: Read, W: Write> StdioDriver<B, R, W> {
+impl<B: QuantumBackend, R: Read, W: Write> StreamDriver<B, R, W> {
     /// Connects a backend to an instruction reader and result writer.
     pub fn new(backend: B, instruction_stream: R, result_stream: W) -> Self {
         Self {
@@ -47,14 +47,14 @@ impl<B: QuantumBackend, R: Read, W: Write> StdioDriver<B, R, W> {
     }
 }
 
-impl<B: QuantumBackend> StdioDriver<B, Stdin, Stdout> {
+impl<B: QuantumBackend> StreamDriver<B, Stdin, Stdout> {
     /// Receives instructions from stdin and sends results to stdout.
     pub fn stdio(backend: B) -> Self {
         Self::new(backend, io::stdin(), io::stdout())
     }
 }
 
-impl<B: QuantumBackend, R, W> Driver for StdioDriver<B, R, W> {
+impl<B: QuantumBackend, R, W> Driver for StreamDriver<B, R, W> {
     type Backend = B;
 
     /// Returns the backend executing received instruction batches.

@@ -3,7 +3,7 @@ use qep::interface::Driver;
 use qep::{
     Batcher, DEFAULT_MAX_BATCH_SIZE, DemoModel1, OPERATION_COUNT, Parameter, Profiler,
     QuantumBackend, QuantumBackendInstruction, QuantumBackends, SequentialCountingProfiler,
-    StdioBackend, TemporalProfiler, TemporalProfilerConfig, instruction_id_to_name,
+    StreamBackend, TemporalProfiler, TemporalProfilerConfig, instruction_id_to_name,
 };
 use smallvec::{SmallVec, smallvec};
 use std::{
@@ -40,11 +40,11 @@ impl BackendWrapper {
             std::env::var_os("QDK_INSTRUCTION_FD"),
             std::env::var_os("QDK_RESULT_FD"),
         ) {
-            (None, None) => Box::new(StdioBackend::stdio()),
+            (None, None) => Box::new(StreamBackend::stdio()),
             (Some(instructions), Some(results)) => {
                 #[cfg(unix)]
                 {
-                    Box::new(StdioBackend::new(
+                    Box::new(StreamBackend::new(
                         duplicate_pipe(&instructions, "QDK_INSTRUCTION_FD"),
                         duplicate_pipe(&results, "QDK_RESULT_FD"),
                     ))

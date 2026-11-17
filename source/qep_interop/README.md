@@ -37,7 +37,7 @@ The following backends can be selected by name:
   measurement and reset operations.
 
 The stdio backend uses the [QEP stream protocol](../qep/README.md#stream-transport)
-and can connect to a `StdioDriver` wrapping a simulator or profiler. Without
+and can connect to a `StreamDriver` wrapping a simulator or profiler. Without
 dedicated descriptors, reserve stdout for instructions and stdin for results;
 print application diagnostics to stderr.
 Instructions are buffered until a measurement/result read or the batch capacity

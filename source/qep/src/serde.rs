@@ -4,6 +4,11 @@
 //! Compact JSON wire format shared by the stream backend and driver.
 //! Each message is terminated by a newline and flushed before awaiting a reply.
 
+mod stream_backend;
+mod stream_driver;
+pub use stream_backend::StreamBackend;
+pub use stream_driver::StreamDriver;
+
 use crate::{
     BatchResult, Parameter, QuantumBackendInstruction, QuantumBackendResult,
     instructions::{instruction_is_valid, parse_instruction},
@@ -188,3 +193,6 @@ pub(crate) fn write_message(writer: &mut impl Write, message: &str) -> Result<()
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod stream_tests;

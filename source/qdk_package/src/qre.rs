@@ -96,7 +96,7 @@ fn run_backend_fds(
         let instructions = duplicate(instruction_fd)?;
         let results = duplicate(result_fd)?;
         py.detach(|| {
-            qep::StdioDriver::new(backend, instructions, results)
+            qep::StreamDriver::new(backend, instructions, results)
                 .run()
                 .map_err(PyRuntimeError::new_err)
         })

@@ -8,13 +8,13 @@ use crate::{
 use std::io::{self, BufReader, Read, Stdin, Stdout, Write};
 
 /// Executes batches through a synchronous newline-delimited JSON connection.
-pub struct StdioBackend<W, R> {
+pub struct StreamBackend<W, R> {
     instruction_stream: W,
     result_stream: BufReader<R>,
     message: String,
 }
 
-impl<W: Write, R: Read> StdioBackend<W, R> {
+impl<W: Write, R: Read> StreamBackend<W, R> {
     /// Connects an instruction writer and result reader.
     pub fn new(instruction_stream: W, result_stream: R) -> Self {
         Self {
@@ -25,7 +25,7 @@ impl<W: Write, R: Read> StdioBackend<W, R> {
     }
 }
 
-impl StdioBackend<Stdout, Stdin> {
+impl StreamBackend<Stdout, Stdin> {
     /// Sends instructions to stdout and receives results from stdin.
     #[must_use]
     pub fn stdio() -> Self {
@@ -33,7 +33,7 @@ impl StdioBackend<Stdout, Stdin> {
     }
 }
 
-impl<W: Write, R: Read> QuantumBackend for StdioBackend<W, R> {
+impl<W: Write, R: Read> QuantumBackend for StreamBackend<W, R> {
     /// Sends and flushes a batch, then waits for its corresponding result.
     fn execute_batch(
         &mut self,

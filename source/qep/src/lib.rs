@@ -19,7 +19,6 @@ mod tests;
 
 mod adapters;
 mod backends;
-mod drivers;
 pub mod instructions;
 pub mod interface;
 mod models;
@@ -28,8 +27,7 @@ mod runner;
 pub mod serde;
 mod transpilers;
 pub use adapters::{ResultAdapter, TranspilingAdapter};
-pub use backends::{QsBackendShim, QuantumBackends, StdioBackend};
-pub use drivers::StdioDriver;
+pub use backends::{QsBackendShim, QuantumBackends};
 pub use instructions::{
     InstructionId, OPERATION_COUNT, instruction_id_to_name, instruction_name_to_id,
     validate_instruction,
@@ -47,6 +45,7 @@ pub use runner::{
     Batcher, DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, QsharpRunError, RunOutput,
     run_adaptive_program, run_qsharp_call, run_qsharp_expr,
 };
+pub use serde::{StreamBackend, StreamDriver};
 pub use transpilers::{
     CliffordTranspiler, MzResetTranspiler, RzQftTranspiler, RzTranspiler, SwapTransplier,
     Transpiler,
