@@ -5,7 +5,7 @@ use serde::Serialize;
 use smallvec::SmallVec;
 use std::fmt;
 
-use crate::{InstructionId, instructions};
+use crate::{InstructionId, instructions as instr};
 
 #[derive(Clone, PartialEq, Serialize)]
 pub enum Parameter {
@@ -105,8 +105,8 @@ impl fmt::Debug for Parameter {
 impl fmt::Debug for QuantumBackendInstruction {
     /// Formats the instruction name followed by space-separated qubits and classical values.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.instruction_id < instructions::OPERATION_COUNT {
-            f.write_str(instructions::instruction_id_to_name(self.instruction_id))?;
+        if self.instruction_id < instr::OPERATION_COUNT {
+            f.write_str(instr::instruction_id_to_name(self.instruction_id))?;
         } else {
             write!(f, "unknown instruction ID {}", self.instruction_id)?;
         }

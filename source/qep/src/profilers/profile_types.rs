@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{Parameter, QuantumBackendInstruction, instructions};
+use crate::{Parameter, QuantumBackendInstruction, instructions as instr};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, fmt};
@@ -92,7 +92,7 @@ impl From<&QuantumBackendInstruction> for LoggedInstruction {
     /// Copies instruction data into the trace representation without cloning the backend instruction.
     fn from(instruction: &QuantumBackendInstruction) -> Self {
         Self {
-            instruction_name: Cow::Borrowed(instructions::instruction_id_to_name(
+            instruction_name: Cow::Borrowed(instr::instruction_id_to_name(
                 instruction.instruction_id,
             )),
             parameters: instruction
@@ -192,7 +192,7 @@ mod tests {
             ],
         ] {
             let instruction = QuantumBackendInstruction {
-                instruction_id: instructions::RZ,
+                instruction_id: instr::RZ,
                 parameters,
             };
             let expected_json = serde_json::json!({

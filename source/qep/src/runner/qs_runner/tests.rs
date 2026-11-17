@@ -5,7 +5,7 @@ use super::{QsBackendReverseShim, QsharpRunError, run_qsharp_call, run_qsharp_ex
 use crate::{
     BatchResult, DEFAULT_MAX_BATCH_SIZE, QsBackendShim, QuantumBackend, QuantumBackendInstruction,
     QuantumBackendResult,
-    instructions::{self, produces_result},
+    instructions::{self as instr, produces_result},
 };
 use qsc::{
     Backend, LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
@@ -254,7 +254,7 @@ fn flushes_at_end_of_invocation() {
             .iter()
             .map(|i| i.instruction_id)
             .collect::<Vec<_>>(),
-        [instructions::H, instructions::RESET]
+        [instr::H, instr::RESET]
     );
 }
 

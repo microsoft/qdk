@@ -8,7 +8,7 @@ use super::{Batcher, DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, RunOutpu
 use crate::{
     InstructionId,
     Parameter::{self, Float, QubitId},
-    QuantumBackend, QuantumBackendInstruction, QuantumBackendResult, instructions,
+    QuantumBackend, QuantumBackendInstruction, QuantumBackendResult, instructions as instr,
 };
 use qdk_simulators::{
     MeasurementResult, OutputRecord as SimulatorOutputRecord, Simulator,
@@ -164,7 +164,7 @@ macro_rules! gates {
     ($($method:ident => $id:ident($($qubit:ident),+));+ $(;)?) => {$(
         /// Buffers the corresponding QEP gate.
         fn $method(&mut self, $($qubit: usize),+) {
-            self.send(instructions::$id, smallvec![$(QubitId($qubit)),+]);
+            self.send(instr::$id, smallvec![$(QubitId($qubit)),+]);
         }
     )+};
 }
@@ -173,7 +173,7 @@ macro_rules! rotations {
     ($($method:ident => $id:ident($($qubit:ident),+));+ $(;)?) => {$(
         /// Buffers a rotation with qubit operands preceding its angle.
         fn $method(&mut self, angle: f64, $($qubit: usize),+) {
-            self.send(instructions::$id, smallvec![$(QubitId($qubit)),+, Float(angle)]);
+            self.send(instr::$id, smallvec![$(QubitId($qubit)),+, Float(angle)]);
         }
     )+};
 }
@@ -223,12 +223,12 @@ impl<B: QuantumBackend> Simulator for BackendSimulator<'_, B> {
 
     /// Flushes a measurement barrier and writes its local result slot.
     fn mz(&mut self, target: usize, result_id: usize) {
-        self.measure(instructions::MZ, target, result_id);
+        self.measure(instr::MZ, target, result_id);
     }
 
     /// Flushes a measurement-and-reset barrier and writes its local result slot.
     fn mresetz(&mut self, target: usize, result_id: usize) {
-        self.measure(instructions::MZ_RESET, target, result_id);
+        self.measure(instr::MZ_RESET, target, result_id);
     }
 
     /// Rejects movement, which has no QEP instruction.

@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::Transpiler;
-use crate::{InstructionId, Parameter::QubitId, QuantumBackendInstruction, instructions};
+use crate::{InstructionId, Parameter::QubitId, QuantumBackendInstruction, instructions as instr};
 use smallvec::smallvec;
 
 /// Decomposes CCX into seven T/T-adjoint gates and six CNOTs without ancillas.
@@ -15,7 +15,7 @@ pub struct DecomposeToffoliTranspiler;
 impl Transpiler for DecomposeToffoliTranspiler {
     /// Returns the Toffoli instruction ID.
     fn source_instruction_id(&self) -> InstructionId {
-        instructions::CCX
+        instr::CCX
     }
 
     /// Appends the Clifford+T decomposition of a Toffoli instruction.
@@ -32,21 +32,21 @@ impl Transpiler for DecomposeToffoliTranspiler {
         };
         output.extend(
             [
-                (instructions::H, smallvec![QubitId(target)]),
-                (instructions::CX, smallvec![QubitId(ctl1), QubitId(target)]),
-                (instructions::TADJ, smallvec![QubitId(target)]),
-                (instructions::CX, smallvec![QubitId(ctl0), QubitId(target)]),
-                (instructions::T, smallvec![QubitId(target)]),
-                (instructions::CX, smallvec![QubitId(ctl1), QubitId(target)]),
-                (instructions::TADJ, smallvec![QubitId(target)]),
-                (instructions::CX, smallvec![QubitId(ctl0), QubitId(target)]),
-                (instructions::T, smallvec![QubitId(ctl1)]),
-                (instructions::T, smallvec![QubitId(target)]),
-                (instructions::H, smallvec![QubitId(target)]),
-                (instructions::CX, smallvec![QubitId(ctl0), QubitId(ctl1)]),
-                (instructions::T, smallvec![QubitId(ctl0)]),
-                (instructions::TADJ, smallvec![QubitId(ctl1)]),
-                (instructions::CX, smallvec![QubitId(ctl0), QubitId(ctl1)]),
+                (instr::H, smallvec![QubitId(target)]),
+                (instr::CX, smallvec![QubitId(ctl1), QubitId(target)]),
+                (instr::TADJ, smallvec![QubitId(target)]),
+                (instr::CX, smallvec![QubitId(ctl0), QubitId(target)]),
+                (instr::T, smallvec![QubitId(target)]),
+                (instr::CX, smallvec![QubitId(ctl1), QubitId(target)]),
+                (instr::TADJ, smallvec![QubitId(target)]),
+                (instr::CX, smallvec![QubitId(ctl0), QubitId(target)]),
+                (instr::T, smallvec![QubitId(ctl1)]),
+                (instr::T, smallvec![QubitId(target)]),
+                (instr::H, smallvec![QubitId(target)]),
+                (instr::CX, smallvec![QubitId(ctl0), QubitId(ctl1)]),
+                (instr::T, smallvec![QubitId(ctl0)]),
+                (instr::TADJ, smallvec![QubitId(ctl1)]),
+                (instr::CX, smallvec![QubitId(ctl0), QubitId(ctl1)]),
             ]
             .into_iter()
             .map(|(instruction_id, parameters)| QuantumBackendInstruction {

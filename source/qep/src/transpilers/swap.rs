@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::Transpiler;
-use crate::{InstructionId, Parameter::QubitId, QuantumBackendInstruction, instructions};
+use crate::{InstructionId, Parameter::QubitId, QuantumBackendInstruction, instructions as instr};
 use smallvec::smallvec;
 
 /// Decomposes a SWAP into three controlled-X instructions.
@@ -12,7 +12,7 @@ pub struct SwapTransplier;
 impl Transpiler for SwapTransplier {
     /// Returns the SWAP instruction ID.
     fn source_instruction_id(&self) -> InstructionId {
-        instructions::SWAP
+        instr::SWAP
     }
 
     /// Appends three controlled-X gates that exchange the source qubits.
@@ -29,9 +29,9 @@ impl Transpiler for SwapTransplier {
         };
         output.extend(
             [
-                (instructions::CX, smallvec![QubitId(q1), QubitId(q2)]),
-                (instructions::CX, smallvec![QubitId(q2), QubitId(q1)]),
-                (instructions::CX, smallvec![QubitId(q1), QubitId(q2)]),
+                (instr::CX, smallvec![QubitId(q1), QubitId(q2)]),
+                (instr::CX, smallvec![QubitId(q2), QubitId(q1)]),
+                (instr::CX, smallvec![QubitId(q1), QubitId(q2)]),
             ]
             .into_iter()
             .map(|(instruction_id, parameters)| QuantumBackendInstruction {

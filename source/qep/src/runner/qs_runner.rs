@@ -8,7 +8,7 @@ use super::batcher::{Batcher, DEFAULT_MAX_BATCH_SIZE};
 use crate::{
     InstructionId,
     Parameter::{Float, QubitId, ResultId},
-    QuantumBackend, QuantumBackendInstruction, instructions,
+    QuantumBackend, QuantumBackendInstruction, instructions as instr,
 };
 use num_bigint::BigUint;
 use num_complex::Complex;
@@ -106,7 +106,7 @@ macro_rules! gates {
         /// Buffers the corresponding gate using mapped backend qubit IDs.
         fn $name(&mut self, $($q: usize),+) -> Result<(), String> {
             self.batcher.push(QuantumBackendInstruction {
-                instruction_id: instructions::$id,
+                instruction_id: instr::$id,
                 parameters: smallvec![$(QubitId(self.qubits[$q])),+],
             })
         }
@@ -118,7 +118,7 @@ macro_rules! rotations {
         /// Buffers a rotation with qubit operands preceding the angle.
         fn $name(&mut self, theta: f64, $($q: usize),+) -> Result<(), String> {
             self.batcher.push(QuantumBackendInstruction {
-                instruction_id: instructions::$id,
+                instruction_id: instr::$id,
                 parameters: smallvec![$(QubitId(self.qubits[$q])),+, Float(theta)],
             })
         }
@@ -135,12 +135,12 @@ impl Backend for QsBackendReverseShim<'_> {
 
     /// Measures a qubit and returns a concrete result to the evaluator.
     fn m(&mut self, q: usize) -> Result<val::Result, String> {
-        self.measure(instructions::MZ_STORE, q)
+        self.measure(instr::MZ_STORE, q)
     }
 
     /// Measures and resets a qubit before returning its concrete result.
     fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
-        self.measure(instructions::MZ_STORE_RESET, q)
+        self.measure(instr::MZ_STORE_RESET, q)
     }
 
     /// Reuses a released logical qubit or assigns a new backend slot.

@@ -8,7 +8,7 @@ use super::{
 use crate::{
     BatchResult, InstructionId, OPERATION_COUNT, Parameter,
     QuantumBackendResult::{Error, One, Zero},
-    instructions::{self, instruction_id_to_name, instruction_is_valid},
+    instructions::{self as instr, instruction_id_to_name, instruction_is_valid},
 };
 use smallvec::smallvec;
 
@@ -48,15 +48,15 @@ fn all_instruction_shapes() -> Result<(), String> {
     for id in 0..OPERATION_COUNT {
         let name = instruction_id_to_name(id);
         let arguments = match id {
-            instructions::CCX | instructions::AND_ADJ => "1,2,3",
-            instructions::RX | instructions::RY | instructions::RZ => "1,-1.25e-12",
-            instructions::RXX | instructions::RYY | instructions::RZZ => "1,2,-1.25e-12",
-            instructions::CX
-            | instructions::CY
-            | instructions::CZ
-            | instructions::SWAP
-            | instructions::MZ_STORE
-            | instructions::MZ_STORE_RESET => "1,2",
+            instr::CCX | instr::AND_ADJ => "1,2,3",
+            instr::RX | instr::RY | instr::RZ => "1,-1.25e-12",
+            instr::RXX | instr::RYY | instr::RZZ => "1,2,-1.25e-12",
+            instr::CX
+            | instr::CY
+            | instr::CZ
+            | instr::SWAP
+            | instr::MZ_STORE
+            | instr::MZ_STORE_RESET => "1,2",
             _ => "1",
         };
         let instructions = deserialize_batch(&format!(r#"["{name}({arguments})"]"#))?;

@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::Transpiler;
-use crate::{InstructionId, Parameter::QubitId, QuantumBackendInstruction, instructions};
+use crate::{InstructionId, Parameter::QubitId, QuantumBackendInstruction, instructions as instr};
 use smallvec::smallvec;
 
 /// Decomposes non-native Clifford gates into H, S, S-adjoint, and CNOT.
@@ -16,9 +16,9 @@ impl Transpiler for CliffordTranspiler {
     /// Returns the source gate selected by this decomposition.
     fn source_instruction_id(&self) -> InstructionId {
         match self {
-            Self::Cy => instructions::CY,
-            Self::Cz => instructions::CZ,
-            Self::Sx => instructions::SX,
+            Self::Cy => instr::CY,
+            Self::Cz => instr::CZ,
+            Self::Sx => instr::SX,
         }
     }
 
@@ -31,30 +31,24 @@ impl Transpiler for CliffordTranspiler {
         if source.instruction_id != self.source_instruction_id() {
             return Err(format!(
                 "Expected {}, got {source:?}",
-                instructions::instruction_id_to_name(self.source_instruction_id())
+                instr::instruction_id_to_name(self.source_instruction_id())
             ));
         }
         let gates = match (self, source.parameters.as_slice()) {
             (Self::Cy, &[QubitId(control), QubitId(target)]) => [
-                (instructions::SADJ, smallvec![QubitId(target)]),
-                (
-                    instructions::CX,
-                    smallvec![QubitId(control), QubitId(target)],
-                ),
-                (instructions::S, smallvec![QubitId(target)]),
+                (instr::SADJ, smallvec![QubitId(target)]),
+                (instr::CX, smallvec![QubitId(control), QubitId(target)]),
+                (instr::S, smallvec![QubitId(target)]),
             ],
             (Self::Cz, &[QubitId(control), QubitId(target)]) => [
-                (instructions::H, smallvec![QubitId(target)]),
-                (
-                    instructions::CX,
-                    smallvec![QubitId(control), QubitId(target)],
-                ),
-                (instructions::H, smallvec![QubitId(target)]),
+                (instr::H, smallvec![QubitId(target)]),
+                (instr::CX, smallvec![QubitId(control), QubitId(target)]),
+                (instr::H, smallvec![QubitId(target)]),
             ],
             (Self::Sx, &[QubitId(target)]) => [
-                (instructions::H, smallvec![QubitId(target)]),
-                (instructions::S, smallvec![QubitId(target)]),
-                (instructions::H, smallvec![QubitId(target)]),
+                (instr::H, smallvec![QubitId(target)]),
+                (instr::S, smallvec![QubitId(target)]),
+                (instr::H, smallvec![QubitId(target)]),
             ],
             _ => return Err(format!("Malformed Clifford instruction: {source:?}")),
         };

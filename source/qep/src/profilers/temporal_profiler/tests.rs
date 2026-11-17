@@ -15,7 +15,7 @@ use crate::profilers::profile_types::LoggedInstructionParameter::{
 use crate::tests::create_qsharp_interpreter;
 use crate::{
     Parameter::QubitId, Profiler, QuantumBackend, QuantumBackendInstruction, ResultAdapter,
-    TemporalProfilerConfig, TranspilingAdapter, instructions,
+    TemporalProfilerConfig, TranspilingAdapter, instructions as instr,
 };
 use expect_test::expect;
 
@@ -65,13 +65,9 @@ fn pending_instruction_count(profiler: &TemporalProfiler<DemoModel1>) -> usize {
 #[test]
 fn computes_demo_model_error() -> Result<(), String> {
     for (ids, expected_time, expected_error) in [
+        (&[instr::H, instr::MZ][..], 6_000, 6_000.0 * 6e-12),
         (
-            &[instructions::H, instructions::MZ][..],
-            6_000,
-            6_000.0 * 6e-12,
-        ),
-        (
-            &[instructions::H, instructions::T, instructions::MZ][..],
+            &[instr::H, instr::T, instr::MZ][..],
             67_000,
             (67_000.0 + 11_000.0) * 6e-12 + 35.0 * 1e-12 + 7.1 * 3e-8,
         ),
@@ -106,23 +102,18 @@ fn does_not_charge_measured_error_twice() -> Result<(), String> {
     for factory in &mut profiler.model.t_factories {
         factory.probability_success = 1.0;
     }
-    let instructions: Vec<_> = [
-        instructions::H,
-        instructions::T,
-        instructions::MZ,
-        instructions::MZ,
-    ]
-    .into_iter()
-    .map(|instruction_id| QuantumBackendInstruction {
-        instruction_id,
-        parameters: smallvec::smallvec![QubitId(0)],
-    })
-    .collect();
+    let instructions: Vec<_> = [instr::H, instr::T, instr::MZ, instr::MZ]
+        .into_iter()
+        .map(|instruction_id| QuantumBackendInstruction {
+            instruction_id,
+            parameters: smallvec::smallvec![QubitId(0)],
+        })
+        .collect();
     assert_eq!(profiler.execute_batch(&instructions)?.results.len(), 2);
     let expected_error = (68_000.0 + 11_000.0) * 6e-12 + 35.0 * 1e-12 + 7.1 * 3e-8;
     assert!((profiler.get_result().totals.error - expected_error).abs() < 1e-18);
 
-    let instructions: Vec<_> = [instructions::RESET, instructions::H, instructions::MZ]
+    let instructions: Vec<_> = [instr::RESET, instr::H, instr::MZ]
         .into_iter()
         .map(|instruction_id| QuantumBackendInstruction {
             instruction_id,
@@ -141,16 +132,16 @@ fn starts_qubit_error_at_first_use() -> Result<(), String> {
     let mut profiler = seeded_profiler();
     profiler.execute_batch(&[
         QuantumBackendInstruction {
-            instruction_id: instructions::H,
+            instruction_id: instr::H,
             parameters: smallvec::smallvec![QubitId(0)],
         },
         QuantumBackendInstruction {
-            instruction_id: instructions::MZ,
+            instruction_id: instr::MZ,
             parameters: smallvec::smallvec![QubitId(0)],
         },
     ])?;
     profiler.execute_batch(&[QuantumBackendInstruction {
-        instruction_id: instructions::MZ,
+        instruction_id: instr::MZ,
         parameters: smallvec::smallvec![QubitId(1)],
     }])?;
     assert_eq!(profiler.state.current_time_nanos, 7_000);
@@ -168,11 +159,11 @@ fn waits_for_all_results_not_all_instructions() -> Result<(), String> {
         factory.probability_success = 1.0;
     }
     let instructions: Vec<_> = [
-        (instructions::T, 2),
-        (instructions::H, 0),
-        (instructions::MZ, 0),
-        (instructions::MZ, 1),
-        (instructions::X, 0),
+        (instr::T, 2),
+        (instr::H, 0),
+        (instr::MZ, 0),
+        (instr::MZ, 1),
+        (instr::X, 0),
     ]
     .into_iter()
     .map(|(instruction_id, qubit)| QuantumBackendInstruction {
@@ -201,7 +192,7 @@ fn waits_for_all_results_not_all_instructions() -> Result<(), String> {
     assert!(!profiler.state.operations[first_instruction + 4].done);
 
     let result = profiler.execute_batch(&[QuantumBackendInstruction {
-        instruction_id: instructions::MZ,
+        instruction_id: instr::MZ,
         parameters: smallvec::smallvec![QubitId(1)],
     }])?;
     assert_eq!(
@@ -211,7 +202,7 @@ fn waits_for_all_results_not_all_instructions() -> Result<(), String> {
     assert_eq!(profiler.state.current_time_nanos, 7_000);
 
     let result = profiler.execute_batch(&[QuantumBackendInstruction {
-        instruction_id: instructions::MZ,
+        instruction_id: instr::MZ,
         parameters: smallvec::smallvec![QubitId(2)],
     }])?;
     assert_eq!(result.results.len(), 1);
@@ -233,7 +224,7 @@ fn queues_result_free_batches_without_a_completion_barrier() -> Result<(), Strin
     let mut profiler = seeded_profiler();
     for qubit in [0, 1] {
         let result = profiler.execute_batch(&[QuantumBackendInstruction {
-            instruction_id: instructions::H,
+            instruction_id: instr::H,
             parameters: smallvec::smallvec![QubitId(qubit)],
         }])?;
         assert!(result.results.is_empty());
@@ -246,7 +237,7 @@ fn queues_result_free_batches_without_a_completion_barrier() -> Result<(), Strin
     let instructions: Vec<_> = [0, 1]
         .into_iter()
         .map(|qubit| QuantumBackendInstruction {
-            instruction_id: instructions::MZ,
+            instruction_id: instr::MZ,
             parameters: smallvec::smallvec![QubitId(qubit)],
         })
         .collect();
@@ -319,22 +310,22 @@ fn instruction_durations_use_logical_timing_assumptions() {
     for (ids, expected) in [
         (
             &[
-                instructions::CX,
-                instructions::H,
-                instructions::S,
-                instructions::SADJ,
-                instructions::X,
-                instructions::Y,
-                instructions::Z,
+                instr::CX,
+                instr::H,
+                instr::S,
+                instr::SADJ,
+                instr::X,
+                instr::Y,
+                instr::Z,
             ][..],
             5_000,
         ),
-        (&[instructions::MZ, instructions::RESET][..], 1_000),
-        (&[instructions::T, instructions::TADJ][..], 11_000),
+        (&[instr::MZ, instr::RESET][..], 1_000),
+        (&[instr::T, instr::TADJ][..], 11_000),
     ] {
         for &instruction_id in ids {
             let mut profiler = seeded_profiler();
-            let parameters = if instruction_id == instructions::CX {
+            let parameters = if instruction_id == instr::CX {
                 smallvec::smallvec![QubitId(0), QubitId(1)]
             } else {
                 smallvec::smallvec![QubitId(0)]
@@ -377,19 +368,13 @@ fn schedules_configured_instruction_durations() -> Result<(), String> {
     for factory in &mut profiler.model.t_factories {
         factory.probability_success = 1.0;
     }
-    let instructions: Vec<_> = [
-        instructions::X,
-        instructions::MZ,
-        instructions::RESET,
-        instructions::T,
-        instructions::TADJ,
-    ]
-    .into_iter()
-    .map(|instruction_id| QuantumBackendInstruction {
-        instruction_id,
-        parameters: smallvec::smallvec![QubitId(0)],
-    })
-    .collect();
+    let instructions: Vec<_> = [instr::X, instr::MZ, instr::RESET, instr::T, instr::TADJ]
+        .into_iter()
+        .map(|instruction_id| QuantumBackendInstruction {
+            instruction_id,
+            parameters: smallvec::smallvec![QubitId(0)],
+        })
+        .collect();
     profiler.execute_batch(&instructions)?;
     complete_scheduled_instructions(&mut profiler);
     let durations: Vec<_> = profiler
@@ -411,17 +396,13 @@ fn schedules_optional_single_resource_requirements() -> Result<(), String> {
     for factory in &mut profiler.model.t_factories {
         factory.probability_success = 1.0;
     }
-    let instructions: Vec<_> = [
-        (instructions::T, 0),
-        (instructions::TADJ, 1),
-        (instructions::H, 2),
-    ]
-    .into_iter()
-    .map(|(instruction_id, qubit)| QuantumBackendInstruction {
-        instruction_id,
-        parameters: smallvec::smallvec![QubitId(qubit)],
-    })
-    .collect();
+    let instructions: Vec<_> = [(instr::T, 0), (instr::TADJ, 1), (instr::H, 2)]
+        .into_iter()
+        .map(|(instruction_id, qubit)| QuantumBackendInstruction {
+            instruction_id,
+            parameters: smallvec::smallvec![QubitId(qubit)],
+        })
+        .collect();
 
     profiler.execute_batch(&instructions)?;
     complete_scheduled_instructions(&mut profiler);
@@ -597,17 +578,13 @@ fn reserves_factories_until_injection_completes() -> Result<(), String> {
     for factory in &mut profiler.model.t_factories {
         factory.probability_success = 1.0;
     }
-    let instructions: Vec<_> = [
-        (instructions::T, 0),
-        (instructions::TADJ, 1),
-        (instructions::T, 2),
-    ]
-    .into_iter()
-    .map(|(instruction_id, qubit)| QuantumBackendInstruction {
-        instruction_id,
-        parameters: smallvec::smallvec![QubitId(qubit)],
-    })
-    .collect();
+    let instructions: Vec<_> = [(instr::T, 0), (instr::TADJ, 1), (instr::T, 2)]
+        .into_iter()
+        .map(|(instruction_id, qubit)| QuantumBackendInstruction {
+            instruction_id,
+            parameters: smallvec::smallvec![QubitId(qubit)],
+        })
+        .collect();
     profiler.execute_batch(&instructions)?;
     complete_scheduled_instructions(&mut profiler);
     let injections: Vec<_> = profiler
@@ -646,7 +623,7 @@ fn reserves_factories_until_injection_completes() -> Result<(), String> {
     ));
 
     profiler.execute_batch(&[QuantumBackendInstruction {
-        instruction_id: instructions::TADJ,
+        instruction_id: instr::TADJ,
         parameters: smallvec::smallvec![QubitId(0)],
     }])?;
     complete_scheduled_instructions(&mut profiler);
@@ -676,19 +653,19 @@ fn seeded_randomness_reproduces_execution() -> Result<(), String> {
     for _ in 0..8 {
         let instructions = [
             QuantumBackendInstruction {
-                instruction_id: instructions::T,
+                instruction_id: instr::T,
                 parameters: smallvec::smallvec![QubitId(0)],
             },
             QuantumBackendInstruction {
-                instruction_id: instructions::MZ,
+                instruction_id: instr::MZ,
                 parameters: smallvec::smallvec![QubitId(0)],
             },
             QuantumBackendInstruction {
-                instruction_id: instructions::MZ_STORE_RESET,
+                instruction_id: instr::MZ_STORE_RESET,
                 parameters: smallvec::smallvec![QubitId(0), crate::Parameter::ResultId(0)],
             },
             QuantumBackendInstruction {
-                instruction_id: instructions::READ_RESULT,
+                instruction_id: instr::READ_RESULT,
                 parameters: smallvec::smallvec![crate::Parameter::ResultId(0)],
             },
         ];
@@ -711,7 +688,7 @@ fn holds_ready_states_across_resource_free_batches() -> Result<(), String> {
     profiler.execute_batch(&[])?;
     assert_eq!(profiler.state.current_time_nanos, 0);
     let h = QuantumBackendInstruction {
-        instruction_id: instructions::H,
+        instruction_id: instr::H,
         parameters: smallvec::smallvec![QubitId(0)],
     };
     profiler.execute_batch(&vec![h; 40])?;
@@ -735,7 +712,7 @@ fn holds_ready_states_across_resource_free_batches() -> Result<(), String> {
     );
 
     profiler.execute_batch(&[QuantumBackendInstruction {
-        instruction_id: instructions::T,
+        instruction_id: instr::T,
         parameters: smallvec::smallvec![QubitId(0)],
     }])?;
     complete_scheduled_instructions(&mut profiler);
@@ -801,13 +778,13 @@ fn reports_factory_utilization_in_factories() -> Result<(), String> {
         }
         profiler.execute_batch(&vec![
             QuantumBackendInstruction {
-                instruction_id: instructions::H,
+                instruction_id: instr::H,
                 parameters: smallvec::smallvec![QubitId(0)],
             };
             22
         ])?;
         profiler.execute_batch(&[QuantumBackendInstruction {
-            instruction_id: instructions::T,
+            instruction_id: instr::T,
             parameters: smallvec::smallvec![QubitId(0)],
         }])?;
         complete_scheduled_instructions(&mut profiler);

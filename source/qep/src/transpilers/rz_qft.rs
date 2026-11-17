@@ -3,7 +3,8 @@
 
 use super::Transpiler;
 use crate::{
-    InstructionId, Parameter::Float, Parameter::QubitId, QuantumBackendInstruction, instructions,
+    InstructionId, Parameter::Float, Parameter::QubitId, QuantumBackendInstruction,
+    instructions as instr,
 };
 use smallvec::smallvec;
 use std::f64::consts::PI;
@@ -60,13 +61,13 @@ impl RzQftTranspiler {
             .into_iter()
             .rev()
             .map(|gate| match gate {
-                instructions::X => instructions::X,
-                instructions::Z => instructions::Z,
-                instructions::H => instructions::H,
-                instructions::T => instructions::TADJ,
-                instructions::TADJ => instructions::T,
-                instructions::S => instructions::SADJ,
-                instructions::SADJ => instructions::S,
+                instr::X => instr::X,
+                instr::Z => instr::Z,
+                instr::H => instr::H,
+                instr::T => instr::TADJ,
+                instr::TADJ => instr::T,
+                instr::S => instr::SADJ,
+                instr::SADJ => instr::S,
                 _ => panic!("Unsupported gate in adjoint sequence: {gate}"),
             })
             .collect()
@@ -76,7 +77,7 @@ impl RzQftTranspiler {
 impl Transpiler for RzQftTranspiler {
     /// Returns the Z-rotation instruction ID.
     fn source_instruction_id(&self) -> InstructionId {
-        instructions::RZ
+        instr::RZ
     }
 
     /// Appends the synthesized rotation sequence, up to global phase.
@@ -94,11 +95,11 @@ impl Transpiler for RzQftTranspiler {
         let mut gates: Vec<_> = Self::synthesize_rz(angle.abs())?
             .chars()
             .map(|gate| match gate {
-                'x' => instructions::X,
-                'z' => instructions::Z,
-                's' => instructions::S,
-                'h' => instructions::H,
-                't' => instructions::T,
+                'x' => instr::X,
+                'z' => instr::Z,
+                's' => instr::S,
+                'h' => instr::H,
+                't' => instr::T,
                 _ => panic!("Unsupported gate in synthesized sequence: {gate}"),
             })
             .collect();
@@ -136,11 +137,11 @@ mod tests {
                 let angle = sign * 2.0_f64.powi(power) * PI;
                 let instructions = [
                     QuantumBackendInstruction {
-                        instruction_id: instructions::H,
+                        instruction_id: instr::H,
                         parameters: smallvec![QubitId(0)],
                     },
                     QuantumBackendInstruction {
-                        instruction_id: instructions::RZ,
+                        instruction_id: instr::RZ,
                         parameters: smallvec![QubitId(0), Float(angle)],
                     },
                 ];

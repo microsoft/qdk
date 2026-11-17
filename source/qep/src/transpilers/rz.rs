@@ -3,7 +3,8 @@
 
 use super::Transpiler;
 use crate::{
-    InstructionId, Parameter::Float, Parameter::QubitId, QuantumBackendInstruction, instructions,
+    InstructionId, Parameter::Float, Parameter::QubitId, QuantumBackendInstruction,
+    instructions as instr,
 };
 use rsgridsynth::{config::config_from_theta_epsilon, gridsynth::gridsynth_gates};
 use smallvec::smallvec;
@@ -71,10 +72,10 @@ impl RzTranspiler {
     fn append_sequence(sequence: &str, output: &mut Vec<InstructionId>) -> Result<(), String> {
         for gate in sequence.chars() {
             output.push(match gate {
-                'h' => instructions::H,
-                't' => instructions::T,
-                's' => instructions::S,
-                'x' => instructions::X,
+                'h' => instr::H,
+                't' => instr::T,
+                's' => instr::S,
+                'x' => instr::X,
                 _ => return Err(format!("Unsupported synthesized Rz gate: {gate}")),
             });
         }
@@ -131,11 +132,7 @@ impl RzTranspiler {
         };
         let mut residual = angle.abs() % TAU;
         let mut gates = Vec::new();
-        for (rotation, gate) in [
-            (PI, instructions::Z),
-            (FRAC_PI_2, instructions::S),
-            (FRAC_PI_4, instructions::T),
-        ] {
+        for (rotation, gate) in [(PI, instr::Z), (FRAC_PI_2, instr::S), (FRAC_PI_4, instr::T)] {
             if residual >= rotation {
                 residual -= rotation;
                 gates.push(gate);
@@ -149,8 +146,8 @@ impl RzTranspiler {
             gates.reverse();
             for gate in &mut gates {
                 *gate = match *gate {
-                    instructions::S => instructions::SADJ,
-                    instructions::T => instructions::TADJ,
+                    instr::S => instr::SADJ,
+                    instr::T => instr::TADJ,
                     other => other,
                 };
             }
@@ -162,7 +159,7 @@ impl RzTranspiler {
 impl Transpiler for RzTranspiler {
     /// Returns the Z-rotation instruction ID.
     fn source_instruction_id(&self) -> InstructionId {
-        instructions::RZ
+        instr::RZ
     }
 
     /// Appends the synthesized rotation sequence, up to global phase.
@@ -204,7 +201,7 @@ mod tests {
     /// Builds a rotation on a nonzero qubit ID to check operand preservation.
     fn rotation(angle: f64) -> QuantumBackendInstruction {
         QuantumBackendInstruction {
-            instruction_id: instructions::RZ,
+            instruction_id: instr::RZ,
             parameters: smallvec![QubitId(7), Float(angle)],
         }
     }
@@ -222,13 +219,13 @@ mod tests {
             for (top, bottom) in top.iter_mut().zip(bottom) {
                 let [a, b] = [*top, *bottom];
                 let state = match instruction.instruction_id {
-                    instructions::H => [(a + b) * FRAC_1_SQRT_2, (a - b) * FRAC_1_SQRT_2],
-                    instructions::X => [b, a],
-                    instructions::Z => [a, -b],
-                    instructions::S => [a, b * Complex64::i()],
-                    instructions::SADJ => [a, -b * Complex64::i()],
-                    instructions::T => [a, b * Complex64::from_polar(1.0, FRAC_PI_4)],
-                    instructions::TADJ => [a, b * Complex64::from_polar(1.0, -FRAC_PI_4)],
+                    instr::H => [(a + b) * FRAC_1_SQRT_2, (a - b) * FRAC_1_SQRT_2],
+                    instr::X => [b, a],
+                    instr::Z => [a, -b],
+                    instr::S => [a, b * Complex64::i()],
+                    instr::SADJ => [a, -b * Complex64::i()],
+                    instr::T => [a, b * Complex64::from_polar(1.0, FRAC_PI_4)],
+                    instr::TADJ => [a, b * Complex64::from_polar(1.0, -FRAC_PI_4)],
                     other => panic!("Unexpected synthesized gate: {other}"),
                 };
                 *top = state[0];
@@ -258,13 +255,13 @@ mod tests {
             (-0.0, vec![]),
             (TAU, vec![]),
             (-TAU, vec![]),
-            (FRAC_PI_4, vec![instructions::T]),
-            (-FRAC_PI_4, vec![instructions::TADJ]),
-            (FRAC_PI_2, vec![instructions::S]),
-            (-FRAC_PI_2, vec![instructions::SADJ]),
-            (PI, vec![instructions::Z]),
-            (PI + FRAC_PI_4, vec![instructions::Z, instructions::T]),
-            (-PI - FRAC_PI_4, vec![instructions::TADJ, instructions::Z]),
+            (FRAC_PI_4, vec![instr::T]),
+            (-FRAC_PI_4, vec![instr::TADJ]),
+            (FRAC_PI_2, vec![instr::S]),
+            (-FRAC_PI_2, vec![instr::SADJ]),
+            (PI, vec![instr::Z]),
+            (PI + FRAC_PI_4, vec![instr::Z, instr::T]),
+            (-PI - FRAC_PI_4, vec![instr::TADJ, instr::Z]),
         ] {
             let mut output = Vec::new();
             transpiler.transpile(&rotation(angle), &mut output)?;
@@ -335,15 +332,15 @@ mod tests {
         for angle in [0.125, 0.125 - precision / 2.0, 0.125 + precision / 2.0] {
             assert_eq!(transpiler.synthesize(angle)?, gates);
         }
-        let mut shifted = vec![instructions::T];
+        let mut shifted = vec![instr::T];
         shifted.extend(&gates);
         assert_eq!(transpiler.synthesize(FRAC_PI_4 + 0.125)?, shifted);
         let adjoint: Vec<_> = gates
             .iter()
             .rev()
             .map(|&gate| match gate {
-                instructions::S => instructions::SADJ,
-                instructions::T => instructions::TADJ,
+                instr::S => instr::SADJ,
+                instr::T => instr::TADJ,
                 other => other,
             })
             .collect();
@@ -382,10 +379,10 @@ mod tests {
             .cache
             .insert(0.15625_f64.to_bits(), String::from("x"));
         for (angle, expected) in [
-            (0.117_187_5, vec![instructions::H]),
-            (0.132_812_5, vec![instructions::H]),
-            (0.148_437_5, vec![instructions::X]),
-            (0.164_062_5, vec![instructions::X]),
+            (0.117_187_5, vec![instr::H]),
+            (0.132_812_5, vec![instr::H]),
+            (0.148_437_5, vec![instr::X]),
+            (0.164_062_5, vec![instr::X]),
         ] {
             assert_eq!(transpiler.synthesize(angle)?, expected);
         }
@@ -466,15 +463,15 @@ mod tests {
             rotation(f64::NEG_INFINITY),
         ];
         invalid.push(QuantumBackendInstruction {
-            instruction_id: instructions::RX,
+            instruction_id: instr::RX,
             parameters: rotation(0.1).parameters,
         });
         invalid.push(QuantumBackendInstruction {
-            instruction_id: instructions::RZ,
+            instruction_id: instr::RZ,
             parameters: smallvec![Float(0.1), QubitId(7)],
         });
         invalid.push(QuantumBackendInstruction {
-            instruction_id: instructions::RZ,
+            instruction_id: instr::RZ,
             parameters: smallvec![QubitId(7)],
         });
         for instruction in invalid {

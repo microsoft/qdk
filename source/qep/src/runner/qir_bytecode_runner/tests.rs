@@ -5,7 +5,8 @@ use super::{BackendSimulator, run_adaptive_program};
 use crate::{
     BatchResult, Batcher, DEFAULT_MAX_BATCH_SIZE, OutputValue,
     Parameter::{Float, QubitId},
-    QuantumBackend, QuantumBackendInstruction, QuantumBackendResult, QuantumBackends, instructions,
+    QuantumBackend, QuantumBackendInstruction, QuantumBackendResult, QuantumBackends,
+    instructions as instr,
 };
 use qdk_simulators::{
     MeasurementResult, Simulator,
@@ -107,7 +108,7 @@ fn names(backend: &Recorder) -> Vec<Vec<&'static str>> {
         .map(|batch| {
             batch
                 .iter()
-                .map(|inst| instructions::instruction_id_to_name(inst.instruction_id))
+                .map(|inst| instr::instruction_id_to_name(inst.instruction_id))
                 .collect()
         })
         .collect()

@@ -3,7 +3,7 @@
 
 use crate::{
     BatchResult, InstructionId, QuantumBackend, QuantumBackendInstruction, RzTranspiler,
-    instructions,
+    instructions as instr,
     interface::Driver,
     transpilers::{
         CliffordTranspiler, DecomposeToffoliTranspiler, MzResetTranspiler, SwapTransplier,
@@ -33,7 +33,7 @@ impl<B: QuantumBackend> TranspilingAdapter<B> {
         for transpiler in transpilers {
             let id = transpiler.source_instruction_id();
             if by_id.insert(id, transpiler).is_some() {
-                let name = instructions::instruction_id_to_name(id);
+                let name = instr::instruction_id_to_name(id);
                 return Err(format!("Duplicate transpiler for instruction `{name}`"));
             }
         }
