@@ -698,13 +698,7 @@ fn cx_with_record_control_lowers() {
                         q: 0 [2-3],
                     }
                     [4-16] ClassicallyControlledPauli {
-                        control: MeasurementRecord {
-                            offset: 1,
-                            span: Span {
-                                lo: 7,
-                                hi: 14,
-                            },
-                        },
+                        control: rec[-1] [7-14],
                         target: 1 [15-16],
                         pauli: X,
                     }"#]],
@@ -730,13 +724,7 @@ fn cx_with_mixed_quantum_and_classical_pairs_lowers() {
                         q: 0 [2-3],
                     }
                     [4-20] ClassicallyControlledPauli {
-                        control: MeasurementRecord {
-                            offset: 1,
-                            span: Span {
-                                lo: 7,
-                                hi: 14,
-                            },
-                        },
+                        control: rec[-1] [7-14],
                         target: 1 [15-16],
                         pauli: X,
                     }
@@ -767,13 +755,7 @@ fn cy_with_record_control_lowers() {
                         q: 0 [2-3],
                     }
                     [4-16] ClassicallyControlledPauli {
-                        control: MeasurementRecord {
-                            offset: 1,
-                            span: Span {
-                                lo: 7,
-                                hi: 14,
-                            },
-                        },
+                        control: rec[-1] [7-14],
                         target: 1 [15-16],
                         pauli: Y,
                     }"#]],
@@ -799,13 +781,7 @@ fn cz_with_record_control_on_first_target_lowers() {
                         q: 0 [2-3],
                     }
                     [4-16] ClassicallyControlledPauli {
-                        control: MeasurementRecord {
-                            offset: 1,
-                            span: Span {
-                                lo: 7,
-                                hi: 14,
-                            },
-                        },
+                        control: rec[-1] [7-14],
                         target: 1 [15-16],
                         pauli: Z,
                     }"#]],
@@ -831,13 +807,7 @@ fn cz_with_record_control_on_second_target_lowers() {
                         q: 0 [2-3],
                     }
                     [4-16] ClassicallyControlledPauli {
-                        control: MeasurementRecord {
-                            offset: 1,
-                            span: Span {
-                                lo: 9,
-                                hi: 16,
-                            },
-                        },
+                        control: rec[-1] [9-16],
                         target: 1 [7-8],
                         pauli: Z,
                     }"#]],
@@ -863,13 +833,7 @@ fn xcz_with_record_control_lowers() {
                         q: 0 [2-3],
                     }
                     [4-17] ClassicallyControlledPauli {
-                        control: MeasurementRecord {
-                            offset: 1,
-                            span: Span {
-                                lo: 10,
-                                hi: 17,
-                            },
-                        },
+                        control: rec[-1] [10-17],
                         target: 1 [8-9],
                         pauli: X,
                     }"#]],
@@ -895,13 +859,7 @@ fn ycz_with_record_control_lowers() {
                         q: 0 [2-3],
                     }
                     [4-17] ClassicallyControlledPauli {
-                        control: MeasurementRecord {
-                            offset: 1,
-                            span: Span {
-                                lo: 10,
-                                hi: 17,
-                            },
-                        },
+                        control: rec[-1] [10-17],
                         target: 1 [8-9],
                         pauli: Y,
                     }"#]],
@@ -1991,13 +1949,7 @@ fn require_lowers() {
                             [17-32] Require {
                                 records: [
                                     NegatableMeasurementRecord {
-                                        record: MeasurementRecord {
-                                            offset: 1,
-                                            span: Span {
-                                                lo: 25,
-                                                hi: 32,
-                                            },
-                                        },
+                                        record: rec[-1] [25-32],
                                         negated: false,
                                     },
                                 ],
@@ -2030,13 +1982,7 @@ fn require_with_negated_record_targets_lowers() {
                             [17-33] Require {
                                 records: [
                                     NegatableMeasurementRecord {
-                                        record: MeasurementRecord {
-                                            offset: 1,
-                                            span: Span {
-                                                lo: 25,
-                                                hi: 33,
-                                            },
-                                        },
+                                        record: rec[-1] [25-33],
                                         negated: true,
                                     },
                                 ],
@@ -2068,13 +2014,7 @@ fn notleaked_lowers() {
                             }
                             [17-34] NotLeaked {
                                 records: [
-                                    MeasurementRecord {
-                                        offset: 1,
-                                        span: Span {
-                                            lo: 27,
-                                            hi: 34,
-                                        },
-                                    },
+                                    rec[-1] [27-34],
                                 ],
                             }"#]],
     );
@@ -2134,13 +2074,7 @@ fn detector_lowers() {
                         Detector {
                             coordinates: [],
                             records: [
-                                MeasurementRecord {
-                                    offset: 1,
-                                    span: Span {
-                                        lo: 13,
-                                        hi: 20,
-                                    },
-                                },
+                                rec[-1] [13-20],
                             ],
                         },
                     )"#]],
@@ -2255,13 +2189,7 @@ fn observable_include_lowers() {
                             logical_observable: 0,
                             targets: [
                                 Record(
-                                    MeasurementRecord {
-                                        offset: 1,
-                                        span: Span {
-                                            lo: 26,
-                                            hi: 33,
-                                        },
-                                    },
+                                    rec[-1] [26-33],
                                 ),
                                 Pauli(
                                     PauliFactor {

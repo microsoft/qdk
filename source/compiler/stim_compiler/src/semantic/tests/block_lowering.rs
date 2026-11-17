@@ -239,13 +239,7 @@ fn alternating_nested_blocks_lower() {
                                     [57-72] Require {
                                         records: [
                                             NegatableMeasurementRecord {
-                                                record: MeasurementRecord {
-                                                    offset: 1,
-                                                    span: Span {
-                                                        lo: 65,
-                                                        hi: 72,
-                                                    },
-                                                },
+                                                record: rec[-1] [65-72],
                                                 negated: false,
                                             },
                                         ],

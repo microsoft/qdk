@@ -133,23 +133,11 @@ fn require_with_at_least_one_record_in_scope_lowers() {
                             [25-48] Require {
                                 records: [
                                     NegatableMeasurementRecord {
-                                        record: MeasurementRecord {
-                                            offset: 1,
-                                            span: Span {
-                                                lo: 33,
-                                                hi: 40,
-                                            },
-                                        },
+                                        record: rec[-1] [33-40],
                                         negated: false,
                                     },
                                     NegatableMeasurementRecord {
-                                        record: MeasurementRecord {
-                                            offset: 2,
-                                            span: Span {
-                                                lo: 41,
-                                                hi: 48,
-                                            },
-                                        },
+                                        record: rec[-2] [41-48],
                                         negated: false,
                                     },
                                 ],
@@ -183,13 +171,7 @@ fn measure_reset_produces_record_in_select() {
                             [22-37] Require {
                                 records: [
                                     NegatableMeasurementRecord {
-                                        record: MeasurementRecord {
-                                            offset: 1,
-                                            span: Span {
-                                                lo: 30,
-                                                hi: 37,
-                                            },
-                                        },
+                                        record: rec[-1] [30-37],
                                         negated: false,
                                     },
                                 ],
@@ -222,13 +204,7 @@ fn pair_measurement_produces_record_in_select() {
                             [25-40] Require {
                                 records: [
                                     NegatableMeasurementRecord {
-                                        record: MeasurementRecord {
-                                            offset: 1,
-                                            span: Span {
-                                                lo: 33,
-                                                hi: 40,
-                                            },
-                                        },
+                                        record: rec[-1] [33-40],
                                         negated: false,
                                     },
                                 ],
@@ -395,20 +371,8 @@ fn notleaked_with_at_least_one_record_in_scope_lowers() {
                             }
                             [25-50] NotLeaked {
                                 records: [
-                                    MeasurementRecord {
-                                        offset: 1,
-                                        span: Span {
-                                            lo: 35,
-                                            hi: 42,
-                                        },
-                                    },
-                                    MeasurementRecord {
-                                        offset: 2,
-                                        span: Span {
-                                            lo: 43,
-                                            hi: 50,
-                                        },
-                                    },
+                                    rec[-1] [35-42],
+                                    rec[-2] [43-50],
                                 ],
                             }"#]],
     );

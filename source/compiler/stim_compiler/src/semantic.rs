@@ -176,10 +176,16 @@ impl Display for Instruction {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct MeasurementRecord {
     pub offset: u32,
     pub span: Span,
+}
+
+impl fmt::Debug for MeasurementRecord {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "rec[-{}] {}", self.offset, self.span)
+    }
 }
 
 #[derive(Debug, PartialEq)]
