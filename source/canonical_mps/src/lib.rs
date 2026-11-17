@@ -12,8 +12,8 @@
 //!   [`SiteAlgebra`](algebra::SiteAlgebra), with its state
 //!   ([`CanonicalMpsState`]), its errors ([`CanonicalMpsError`]) and what
 //!   its splits cost ([`SplitStatistics`]). It documents what a caller may
-//!   rely on beyond the contract: how it fuses and applies gates, and the bounds
-//!   its truncations stay within.
+//!   rely on beyond the contract: how it fuses and applies gates, and the
+//!   bounds its truncations stay within.
 //! - [`CpuMpsEngine`] is the engine on [`CpuAlgebra`], the reference
 //!   algebra: the `SiteAlgebra` of the host CPU, whose answers a backend
 //!   on another library can be compared with. It needs no device, so it

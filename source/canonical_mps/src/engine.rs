@@ -104,9 +104,10 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// two-site gate that does not fit, any read, projection, fork, shape or
 /// retained weight) applies it, so the backend sees one application for
 /// all its gates, and leaves the centre on the end of the window's span
-/// nearer the site that operation names (the centre, when it names none). A one-site gate on another site waits on its
-/// site until the next split or move of the centre across it, or a
-/// projection of it, applies it; a read sees it applied. Fusion moves where
+/// nearer the site that operation names (the centre, when it names none).
+/// A one-site gate on another site waits on its site until the next split
+/// or move of the centre across it, or a projection of it, applies it; a
+/// read sees it applied. Fusion moves where
 /// the truncations fall, so a truncated run's values may differ from those
 /// of a run that applies each gate at once, within the truncation error;
 /// without truncation they agree to rounding.
@@ -124,8 +125,8 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// splits. The price is transient: while the span is multiplied, its bonds
 /// reach up to the capacity's times the operator's bond (at most 4), which
 /// [`CanonicalMpsState::split_statistics`] reports apart from the bonds at
-/// rest. The crate's `docs/distant_sites.md` lists other ways to apply gates to
-/// sites far apart, with what is known of each.
+/// rest. The crate's `docs/distant_sites.md` lists other ways to apply
+/// gates to sites far apart, with what is known of each.
 ///
 /// **Failures.** After a failure the state is unspecified, as
 /// [`MpsEngine`] says, and the caller must drop it: an application of the
