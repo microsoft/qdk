@@ -35,7 +35,11 @@ fn lower_without_spans(source: &str) -> Circuit {
                 q0.span = Default::default();
                 q1.span = Default::default();
             }
-            InstructionKind::Noise(semantic::Noise::CorrelatedError { .. }) => {}
+            InstructionKind::Noise(semantic::Noise::CorrelatedError { faults, .. }) => {
+                for fault in faults {
+                    fault.q.span = Default::default();
+                }
+            }
             kind => {
                 panic!("`{source}` lowered to an instruction this test doesn't handle: {kind:?}")
             }

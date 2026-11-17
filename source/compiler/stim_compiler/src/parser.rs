@@ -232,6 +232,7 @@ impl FromStr for Pauli {
 
 #[derive(Clone, Copy)]
 pub struct PauliTarget {
+    pub span: Span,
     pub negated: bool,
     pub pauli: Pauli,
     pub qubit: u32,
@@ -594,30 +595,24 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_target(&mut self) -> Option<Target> {
-        let negated_token = self.next_if(|t| t.kind == TokenKind::Bang);
-        let negated = negated_token.is_some();
+        let bang = self.next_if(|t| t.kind == TokenKind::Bang);
+        let negated = bang.is_some();
 
         let first_token = self.expect_any()?;
-        let mut span = Span {
-            lo: negated_token.map_or(first_token.span.lo, |token| token.span.lo),
-            hi: first_token.span.hi,
-        };
+        let mut span = Self::negatable_target_span(bang, first_token);
 
         let kind = match first_token.kind {
             TokenKind::Uint => TargetKind::Qubit {
                 negated,
                 value: self.extract_uint(first_token)?,
             },
-            TokenKind::Pauli if self.peek().is_some_and(|t| t.kind == TokenKind::Star) => {
-                self.parse_pauli_product(first_token, &mut span, negated)?
-            }
             TokenKind::Pauli => {
-                let (pauli, qubit) = self.extract_pauli_and_qubit(first_token)?;
-                TargetKind::Pauli(PauliTarget {
-                    negated,
-                    pauli,
-                    qubit,
-                })
+                let first = self.parse_pauli_target(bang, first_token)?;
+                if self.peek().is_some_and(|t| t.kind == TokenKind::Star) {
+                    self.parse_pauli_product(first, &mut span)?
+                } else {
+                    TargetKind::Pauli(first)
+                }
             }
             TokenKind::Loss => TargetKind::Loss {
                 value: self.extract_prefix_and_suffix(first_token)?.1,
@@ -661,7 +656,7 @@ impl<'a> Parser<'a> {
             }
         };
 
-        if let Some(bang) = negated_token
+        if let Some(bang) = bang
             && !matches!(
                 &kind,
                 TargetKind::Qubit { .. }
@@ -677,37 +672,36 @@ impl<'a> Parser<'a> {
         Some(Target { span, kind })
     }
 
-    fn parse_pauli_product(
-        &mut self,
-        token: Token,
-        span: &mut Span,
-        negated: bool,
-    ) -> Option<TargetKind> {
-        let (pauli, qubit) = self.extract_pauli_and_qubit(token)?;
-
-        let mut factors = vec![PauliTarget {
-            negated,
-            pauli,
-            qubit,
-        }];
-        while self
-            .next_if(|token| token.kind == TokenKind::Star)
-            .is_some()
-        {
-            let negated = self
-                .next_if(|token| token.kind == TokenKind::Bang)
-                .is_some();
+    /// Parses the factors after `first` in a product like `X0*!Y1*Z2`, extending `span` to the
+    /// last factor.
+    fn parse_pauli_product(&mut self, first: PauliTarget, span: &mut Span) -> Option<TargetKind> {
+        let mut factors = vec![first];
+        while self.next_if(|t| t.kind == TokenKind::Star).is_some() {
+            let bang = self.next_if(|t| t.kind == TokenKind::Bang);
             let token = self.expect_token(TokenKind::Pauli)?;
-            span.hi = token.span.hi;
-            let (pauli, qubit) = self.extract_pauli_and_qubit(token)?;
-            factors.push(PauliTarget {
-                negated,
-                pauli,
-                qubit,
-            });
+            let factor = self.parse_pauli_target(bang, token)?;
+            span.hi = factor.span.hi;
+            factors.push(factor);
         }
 
         Some(TargetKind::PauliProduct { factors })
+    }
+
+    fn parse_pauli_target(&mut self, bang: Option<Token>, token: Token) -> Option<PauliTarget> {
+        let (pauli, qubit) = self.extract_pauli_and_qubit(token)?;
+        Some(PauliTarget {
+            span: Self::negatable_target_span(bang, token),
+            negated: bang.is_some(),
+            pauli,
+            qubit,
+        })
+    }
+
+    fn negatable_target_span(bang: Option<Token>, token: Token) -> Span {
+        Span {
+            lo: bang.unwrap_or(token).span.lo,
+            hi: token.span.hi,
+        }
     }
 
     fn extract_pauli_and_qubit(&mut self, token: Token) -> Option<(Pauli, u32)> {

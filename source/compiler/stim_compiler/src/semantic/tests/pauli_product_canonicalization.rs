@@ -16,7 +16,7 @@ fn single_pauli_target_becomes_single_factor_product() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [4-6],
                                 },
                             ],
                             negated: false,
@@ -39,15 +39,15 @@ fn factors_are_sorted_by_qubit() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [17-19],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [20-22],
                                 },
                                 PauliFactor {
                                     pauli: Z,
-                                    q: 2,
+                                    q: 2 [14-16],
                                 },
                             ],
                             negated: false,
@@ -68,11 +68,11 @@ fn negation_on_later_factor_negates_product() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [4-6],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [7-10],
                                 },
                             ],
                             negated: true,
@@ -94,11 +94,11 @@ fn double_negation_cancels() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [8-11],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [12-15],
                                 },
                             ],
                             negated: false,
@@ -120,7 +120,7 @@ fn repeated_identical_factors_fold_to_single_factor() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [8-10],
                                 },
                             ],
                             negated: false,
@@ -143,11 +143,11 @@ fn folded_phase_negates_product() {
                             factors: [
                                 PauliFactor {
                                     pauli: Z,
-                                    q: 0,
+                                    q: 0 [4-6],
                                 },
                                 PauliFactor {
                                     pauli: Z,
-                                    q: 1,
+                                    q: 1 [10-12],
                                 },
                             ],
                             negated: true,
@@ -168,11 +168,11 @@ fn explicit_negation_cancels_folded_negative_phase() {
                             factors: [
                                 PauliFactor {
                                     pauli: Z,
-                                    q: 0,
+                                    q: 0 [4-7],
                                 },
                                 PauliFactor {
                                     pauli: Z,
-                                    q: 1,
+                                    q: 1 [11-13],
                                 },
                             ],
                             negated: false,
@@ -195,11 +195,11 @@ fn non_adjacent_repeated_qubits_fold_together() {
                             factors: [
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 0,
+                                    q: 0 [14-16],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [17-19],
                                 },
                             ],
                             negated: false,
@@ -220,7 +220,7 @@ fn factors_folding_to_identity_are_dropped() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 2,
+                                    q: 2 [20-22],
                                 },
                             ],
                             negated: false,
@@ -242,11 +242,11 @@ fn multiple_products_are_canonicalized_independently() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [7-9],
                                 },
                                 PauliFactor {
                                     pauli: Z,
-                                    q: 2,
+                                    q: 2 [4-6],
                                 },
                             ],
                             negated: false,
@@ -258,11 +258,11 @@ fn multiple_products_are_canonicalized_independently() {
                             factors: [
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [13-16],
                                 },
                                 PauliFactor {
                                     pauli: X,
-                                    q: 3,
+                                    q: 3 [10-12],
                                 },
                             ],
                             negated: true,

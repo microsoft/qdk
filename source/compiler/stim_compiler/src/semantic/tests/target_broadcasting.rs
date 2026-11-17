@@ -265,7 +265,7 @@ fn pauli_product_instructions_broadcast_over_products() {
                 product
                     .factors
                     .into_iter()
-                    .map(|factor| (factor.pauli.as_str(), factor.q))
+                    .map(|factor| (factor.pauli.as_str(), factor.q.id))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();

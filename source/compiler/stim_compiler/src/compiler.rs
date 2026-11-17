@@ -254,25 +254,38 @@ impl NoiseKey {
 /// Combines all faults acting on the same qubit into a single fault. Paulis are
 /// multiplied (ignoring the global phase). Loss absorbs any Pauli on the same qubit.
 /// Qubits whose faults cancel to the identity are omitted from the result.
+/// A combined fault keeps the span of the first fault it was combined from.
 fn combine_faults_per_qubit(faults: &[semantic::Fault]) -> Vec<semantic::Fault> {
+    let mut combined = FxHashMap::<StimQubitId, semantic::Fault>::default();
+    for fault in faults {
+        let Some(existing) = combined.get_mut(&fault.q.id) else {
+            combined.insert(fault.q.id, *fault);
+            continue;
+        };
+        match multiply_fault_kinds(existing.kind, fault.kind) {
+            Some(kind) => existing.kind = kind,
+            None => {
+                combined.remove(&fault.q.id);
+            }
+        }
+    }
+    combined.into_values().collect()
+}
+
+/// The product of two faults on the same qubit, or `None` if they cancel to the identity.
+fn multiply_fault_kinds(
+    a: semantic::FaultKind,
+    b: semantic::FaultKind,
+) -> Option<semantic::FaultKind> {
     use semantic::FaultKind::{Loss, X, Y, Z};
 
-    let mut combined = FxHashMap::<StimQubitId, Option<semantic::FaultKind>>::default();
-    for fault in faults {
-        let kind = combined.entry(fault.q).or_default();
-        *kind = match (*kind, fault.kind) {
-            (None, new) => Some(new),
-            (Some(Loss), _) | (_, Loss) => Some(Loss),
-            (Some(X), X) | (Some(Y), Y) | (Some(Z), Z) => None,
-            (Some(X), Y) | (Some(Y), X) => Some(Z),
-            (Some(Y), Z) | (Some(Z), Y) => Some(X),
-            (Some(X), Z) | (Some(Z), X) => Some(Y),
-        };
+    match (a, b) {
+        (Loss, _) | (_, Loss) => Some(Loss),
+        (X, X) | (Y, Y) | (Z, Z) => None,
+        (X, Y) | (Y, X) => Some(Z),
+        (Y, Z) | (Z, Y) => Some(X),
+        (X, Z) | (Z, X) => Some(Y),
     }
-    combined
-        .into_iter()
-        .filter_map(|(q, kind)| Some(semantic::Fault { kind: kind?, q }))
-        .collect()
 }
 
 struct NoiseAccumulator<'noise> {
@@ -321,9 +334,7 @@ impl<'noise> NoiseAccumulator<'noise> {
         }
     }
 
-    fn flush_correlated_group(
-        &mut self,
-    ) -> Result<(NoiseTable<f64>, Vec<StimQubitId>, Span), Error> {
+    fn flush_correlated_group(&mut self) -> Result<(NoiseTable<f64>, Vec<Qubit>, Span), Error> {
         let rows: Vec<CorrelatedRow> = self
             .current_correlated_group
             .take()
@@ -363,7 +374,7 @@ impl<'noise> NoiseAccumulator<'noise> {
             }
             let mut pauli_string_chars = vec!["I"; pauli_string_width];
             for fault in row.faults {
-                pauli_string_chars[column_of_qubit[&fault.q]] = fault.kind.as_str();
+                pauli_string_chars[column_of_qubit[&fault.q.id]] = fault.kind.as_str();
             }
             let pauli_string = encode_pauli(&pauli_string_chars.concat());
             let index = *outcome_indices.entry(pauli_string).or_insert_with(|| {
@@ -380,21 +391,22 @@ impl<'noise> NoiseAccumulator<'noise> {
         Ok((noise_table, qubits, span))
     }
 
-    fn collect_qubits(&self, rows: &[CorrelatedRow]) -> Vec<StimQubitId> {
-        let mut qubits: Vec<StimQubitId> = rows
+    fn collect_qubits(&self, rows: &[CorrelatedRow]) -> Vec<Qubit> {
+        let mut qubits: Vec<Qubit> = rows
             .iter()
             .flat_map(|row| row.faults.iter().map(|fault| fault.q))
             .collect();
-        qubits.sort_unstable();
-        qubits.dedup();
+        // Stable, so that each qubit keeps the span of its first fault in the chain.
+        qubits.sort_by_key(|qubit| qubit.id);
+        qubits.dedup_by_key(|qubit| qubit.id);
         qubits
     }
 
-    fn build_column_map(&self, qubits: &[StimQubitId]) -> FxHashMap<StimQubitId, usize> {
+    fn build_column_map(&self, qubits: &[Qubit]) -> FxHashMap<StimQubitId, usize> {
         qubits
             .iter()
             .enumerate()
-            .map(|(column, &qubit)| (qubit, column))
+            .map(|(column, qubit)| (qubit.id, column))
             .collect()
     }
 }
@@ -1119,10 +1131,7 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         }
         let basis_change = self.map_pauli_product_to_z(&product.factors, span);
-        let qubit = Qubit {
-            id: product.factors[0].q,
-            span,
-        };
+        let qubit = product.factors[0].q;
         self.compile_measurement(
             basis_change,
             qubit,
@@ -1326,7 +1335,6 @@ impl<'noise> Compiler<'noise> {
             // Every outcome cancelled to the identity, so there is no noise to apply.
             return None;
         }
-        let qubits: Vec<Qubit> = qubits.into_iter().map(|id| Qubit { id, span }).collect();
         Some(self.noise_table_stmt(noise_table, &qubits, span))
     }
 
@@ -1370,11 +1378,7 @@ impl<'noise> Compiler<'noise> {
         span: Span,
     ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
-        let target = Qubit {
-            id: product.factors[0].q,
-            span,
-        };
-        let apply = vec![self.op_call_stmt(op, &[target], span)];
+        let apply = vec![self.op_call_stmt(op, &[product.factors[0].q], span)];
         build_within_apply_stmts(within, apply, span)
     }
 
@@ -1386,11 +1390,7 @@ impl<'noise> Compiler<'noise> {
         span: Span,
     ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
-        let target = Qubit {
-            id: product.factors[0].q,
-            span,
-        };
-        let apply = vec![self.rotation_stmt(QSharpOp::Rz, angle, &[target], span)];
+        let apply = vec![self.rotation_stmt(QSharpOp::Rz, angle, &[product.factors[0].q], span)];
         build_within_apply_stmts(within, apply, span)
     }
 
@@ -1401,16 +1401,15 @@ impl<'noise> Compiler<'noise> {
         factors: &[semantic::PauliFactor],
         span: Span,
     ) -> Vec<ast::Stmt> {
-        let qubit = |factor: &semantic::PauliFactor| Qubit { id: factor.q, span };
-        let focus = qubit(&factors[0]);
+        let focus = factors[0].q;
         let mut stmts: Vec<ast::Stmt> = factors
             .iter()
-            .flat_map(|factor| self.rotate_to_z_basis(factor.pauli, qubit(factor), span))
+            .flat_map(|factor| self.rotate_to_z_basis(factor.pauli, factor.q, span))
             .collect();
         stmts.extend(
             factors[1..]
                 .iter()
-                .map(|factor| self.op_call_stmt(QSharpOp::CNOT, &[qubit(factor), focus], span)),
+                .map(|factor| self.op_call_stmt(QSharpOp::CNOT, &[factor.q, focus], span)),
         );
         stmts
     }

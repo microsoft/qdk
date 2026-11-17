@@ -924,7 +924,7 @@ fn correlated_error_lowers() {
                             faults: [
                                 Fault {
                                     kind: X,
-                                    q: 0,
+                                    q: 0 [23-25],
                                 },
                             ],
                         },
@@ -946,7 +946,7 @@ fn correlated_error_with_probability_one_lowers() {
                             faults: [
                                 Fault {
                                     kind: X,
-                                    q: 0,
+                                    q: 0 [20-22],
                                 },
                             ],
                         },
@@ -968,7 +968,7 @@ fn correlated_error_with_loss_lowers() {
                             faults: [
                                 Fault {
                                     kind: Loss,
-                                    q: 0,
+                                    q: 0 [23-25],
                                 },
                             ],
                         },
@@ -990,7 +990,7 @@ fn else_correlated_error_lowers() {
                             faults: [
                                 Fault {
                                     kind: X,
-                                    q: 0,
+                                    q: 0 [28-30],
                                 },
                             ],
                         },
@@ -1012,7 +1012,7 @@ fn else_correlated_error_with_loss_lowers() {
                             faults: [
                                 Fault {
                                     kind: Loss,
-                                    q: 0,
+                                    q: 0 [28-30],
                                 },
                             ],
                         },
@@ -1795,11 +1795,11 @@ fn mpp_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [4-6],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [7-9],
                                 },
                             ],
                             negated: false,
@@ -1821,11 +1821,11 @@ fn mpp_with_readout_noise_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [9-11],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [12-14],
                                 },
                             ],
                             negated: false,
@@ -1847,11 +1847,11 @@ fn mpp_with_negated_target_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [4-7],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [8-10],
                                 },
                             ],
                             negated: true,
@@ -1872,11 +1872,11 @@ fn spp_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [4-6],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [7-9],
                                 },
                             ],
                             negated: false,
@@ -1898,11 +1898,11 @@ fn spp_with_negated_target_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [4-6],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [7-10],
                                 },
                             ],
                             negated: true,
@@ -1924,11 +1924,11 @@ fn spp_dag_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [8-10],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [11-13],
                                 },
                             ],
                             negated: false,
@@ -1950,11 +1950,11 @@ fn spp_dag_with_negated_target_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [8-11],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [12-14],
                                 },
                             ],
                             negated: true,
@@ -2266,7 +2266,7 @@ fn observable_include_lowers() {
                                 Pauli(
                                     PauliFactor {
                                         pauli: X,
-                                        q: 1,
+                                        q: 1 [34-36],
                                     },
                                 ),
                             ],
@@ -2289,7 +2289,7 @@ fn observable_include_with_max_index_lowers() {
                                 Pauli(
                                     PauliFactor {
                                         pauli: X,
-                                        q: 0,
+                                        q: 0 [31-33],
                                     },
                                 ),
                             ],
@@ -2390,11 +2390,11 @@ fn tpp_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [4-6],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [7-9],
                                 },
                             ],
                             negated: false,
@@ -2416,11 +2416,11 @@ fn tpp_with_negated_target_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [4-7],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [8-10],
                                 },
                             ],
                             negated: true,
@@ -2442,11 +2442,11 @@ fn tpp_dag_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [8-10],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [11-13],
                                 },
                             ],
                             negated: false,
@@ -2468,11 +2468,11 @@ fn tpp_dag_with_negated_target_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [8-11],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [12-14],
                                 },
                             ],
                             negated: true,
@@ -2706,11 +2706,11 @@ fn r_pauli_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [14-16],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [17-19],
                                 },
                             ],
                             negated: false,
@@ -2732,11 +2732,11 @@ fn r_pauli_with_angle_in_radians_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [14-16],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [17-19],
                                 },
                             ],
                             negated: false,
@@ -2758,11 +2758,11 @@ fn r_pauli_with_negated_target_lowers() {
                             factors: [
                                 PauliFactor {
                                     pauli: X,
-                                    q: 0,
+                                    q: 0 [14-17],
                                 },
                                 PauliFactor {
                                     pauli: Y,
-                                    q: 1,
+                                    q: 1 [18-20],
                                 },
                             ],
                             negated: true,

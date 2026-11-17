@@ -371,7 +371,7 @@ pub struct PauliProduct {
 #[derive(Debug, PartialEq)]
 pub struct PauliFactor {
     pub pauli: Pauli,
-    pub q: StimQubitId,
+    pub q: Qubit,
 }
 
 #[allow(non_camel_case_types)]
@@ -467,7 +467,7 @@ impl FaultKind {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fault {
     pub kind: FaultKind,
-    pub q: StimQubitId,
+    pub q: Qubit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1852,7 +1852,10 @@ impl Lowerer {
                     };
                     observable_targets.push(ObservableTarget::Pauli(PauliFactor {
                         pauli: pauli.pauli,
-                        q: pauli.qubit,
+                        q: Qubit {
+                            id: pauli.qubit,
+                            span: pauli.span,
+                        },
                     }));
                 }
                 _ => {
@@ -1902,9 +1905,14 @@ impl Lowerer {
                 };
             }
             if let Some(pauli) = accumulated {
+                // Merged factors take the span of the qubit's first factor.
+                let first = same_qubit_factors[0];
                 canonical_factors.push(PauliFactor {
                     pauli,
-                    q: same_qubit_factors[0].qubit,
+                    q: Qubit {
+                        id: first.qubit,
+                        span: first.span,
+                    },
                 });
             }
         }
@@ -2129,7 +2137,10 @@ impl Lowerer {
         if let parser::TargetKind::Loss { value } = target.kind {
             return Some(Fault {
                 kind: FaultKind::Loss,
-                q: value,
+                q: Qubit {
+                    id: value,
+                    span: target.span,
+                },
             });
         }
 
@@ -2137,7 +2148,10 @@ impl Lowerer {
 
         Some(Fault {
             kind: FaultKind::from_pauli(pauli_target.pauli),
-            q: pauli_target.qubit,
+            q: Qubit {
+                id: pauli_target.qubit,
+                span: pauli_target.span,
+            },
         })
     }
 
