@@ -104,13 +104,13 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// two-site gate that does not fit, any read, projection, fork, shape or
 /// retained weight) applies it, so the backend sees one application for
 /// all its gates, and leaves the centre on the end of the window's span
-/// nearer the site that operation names (the centre, when it names none).
-/// A one-site gate on another site waits on its site until the next split
-/// or move of the centre across it, or a projection of it, applies it; a
-/// read sees it applied. Fusion moves where
-/// the truncations fall, so a truncated run's values may differ from those
-/// of a run that applies each gate at once, within the truncation error;
-/// without truncation they agree to rounding.
+/// nearer the site that operation names: a gate's lower site, a read's
+/// site, or the centre, when it names none. A one-site gate on another
+/// site waits on its site until the next split or move of the centre
+/// across it, or a projection of it, applies it; a read sees it applied.
+/// Fusion moves where the truncations fall, so a truncated run's values
+/// may differ from those of a run that applies each gate at once, within
+/// the truncation error; without truncation they agree to rounding.
 ///
 /// **Sites far apart.** A window on two neighbours is applied by one split.
 /// Any other, on sites further apart or on three sites, is applied as a
@@ -121,9 +121,10 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// of the centre across it and one split per cut, truncated as above. So
 /// the chain is in the caller's order after every call, every split is at
 /// a caller's cut, where the state must fit the capacity anyway, and an MPO
-/// on a span of `d + 1` sites costs `d − 1` moves of the centre and `d`
-/// splits. The price is transient: while the span is multiplied, its bonds
-/// reach up to the capacity's times the operator's bond (at most 4), which
+/// on a span of `d + 1` sites costs, once the centre is in the span,
+/// `d − 1` moves of the centre and `d` splits. The price is transient:
+/// while the span is multiplied, its bonds reach up to the capacity's
+/// times the operator's bond (at most 4), which
 /// [`CanonicalMpsState::split_statistics`] reports apart from the bonds at
 /// rest. The crate's `docs/distant_sites.md` lists other ways to apply
 /// gates to sites far apart, with what is known of each.
@@ -131,7 +132,9 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// **Failures.** After a failure the state is unspecified, as
 /// [`MpsEngine`] says, and the caller must drop it: an application of the
 /// pending window that fails may lose its gates, or leave its span half
-/// compressed.
+/// compressed. It never leaves a span half multiplied: the multiplied
+/// sites replace the span's only once every upload succeeded, so the
+/// chain's neighbours always share each bond.
 #[derive(Clone, Debug)]
 pub struct CanonicalMpsEngine<A> {
     algebra: A,

@@ -173,6 +173,28 @@ fn a_gate_on_distant_sites_fails_when_an_upload_fails() {
     assert_fails_in(&error, Method::Upload, "a gate on sites 0 and 2");
 }
 
+/// Without fusion, a CNOT on sites 0 and 2 of 3 whose second upload fails,
+/// after the first succeeded: the chain keeps the sites it had, so its
+/// neighbours still share each bond and its shape is the one before the
+/// gate, not a site of bond 2 beside one of bond 1.
+#[test]
+fn a_failed_upload_leaves_the_span_as_it_was() {
+    let sites = 3;
+    let (algebra, asked) = FailingFakeAlgebra::on_call(Method::Upload, sites + 1);
+    let engine = CanonicalMpsEngine::new(algebra).with_fusion(false);
+    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
+    let before = engine.shape(&state).expect("shape before the gate");
+    engine
+        .apply(&mut state, &[0, 2], &cnot())
+        .expect_err("the operator's second upload fails");
+    assert!(
+        asked.get() > sites + 1,
+        "precondition: the operator asked for its second upload"
+    );
+    let after = engine.shape(&state).expect("shape after the failed gate");
+    assert_eq!(after, before);
+}
+
 /// A read of a site away from the centre moves the centre there, by one
 /// move per site crossed; when a move fails, the read fails with the
 /// algebra's error.

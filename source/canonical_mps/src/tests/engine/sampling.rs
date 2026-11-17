@@ -94,9 +94,11 @@ fn a_measured_value_has_probability_exactly_one() {
 /// sample draws One, not the Zero of probability zero, and the next site's
 /// draw, given it, is not refused. The site, per fusion setting, is one on
 /// which P(One) over the site's whole weight, summed in another order than
-/// the two values' weights, rounds below that uniform: site 3 of 5 sites
-/// fused, site 1 of 5 unfused, the first such sites of 5 to 10 sites, all
-/// of which `a_measured_value_has_probability_exactly_one` measures.
+/// the two values' weights, rounds below that uniform: site 2 of 5 sites
+/// fused, site 1 of 5 unfused, found by a probe of the circuits of 5 to 10
+/// sites that `a_measured_value_has_probability_exactly_one` measures. Such
+/// sites move with any change to the splits' rounding, so they are found
+/// again after one.
 #[test]
 fn a_sample_draws_one_where_zero_has_probability_zero() {
     // COMPATIBILITY NOTE: this behavior was present in the dev line's
@@ -110,7 +112,7 @@ fn a_sample_draws_one_where_zero_has_probability_zero() {
         "the seed's first draw is 1 − 2⁻⁵³ exactly"
     );
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let (sites, site) = if name == "fused" { (5, 3) } else { (5, 1) };
+        let (sites, site) = if name == "fused" { (5, 2) } else { (5, 1) };
         let state = measured_on(&engine, sites, site, true);
         let values = engine
             .sample(&state, &[site, 0], 1, SEED_OF_THE_LARGEST_UNIFORM)

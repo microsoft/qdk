@@ -9,8 +9,9 @@
 //! A window on sites that are not neighbours, or on three sites, cannot be
 //! one split: its operator acts on more than a pair. Bringing its sites
 //! together by SWAPs and back (routing) costs two splits per site
-//! crossed, each a truncation; the MPO costs one QR move and one split per
-//! cut of the span, and truncates only at the caller's cuts (the crate's
+//! crossed, each a truncation; the MPO, once the centre is in its span,
+//! costs one split per cut of the span and one QR move fewer, and
+//! truncates only at the caller's cuts (the crate's
 //! `docs/distant_sites.md` compares them). The steps:
 //!
 //! 1. **Factor.** The operator on `k` sites becomes `k` tensors by `k − 1`
@@ -31,10 +32,11 @@
 //!    gate, from the far end back to the near end, truncates each cut as a
 //!    gate's split at rest, and leaves the centre at the near end.
 //!
-//! So a window on a span of `d + 1` sites costs `d − 1` QR moves and `d`
-//! splits. Every call is one the algebra already makes for a gate or a
-//! move of the centre; only the bonds inside the span are larger, up to
-//! the capacity's times the operator's bond.
+//! So a window on a span of `d + 1` sites costs the moves that bring the
+//! centre into the span, then `d − 1` QR moves and `d` splits. Every call
+//! is one the algebra already makes for a gate or a move of the centre;
+//! only the bonds inside the span are larger, up to the capacity's times
+//! the operator's bond.
 //!
 //! [`SplitStatistics::largest_transient_bond`]: super::SplitStatistics::largest_transient_bond
 
@@ -66,6 +68,10 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
             .into_iter();
         let centre = chain.centre.clamp(low, high);
         self.move_centre(chain, centre)?;
+        // The span's sites are committed only once every upload succeeded,
+        // so a failed upload leaves the chain's neighbours sharing each
+        // bond, as before the window.
+        let mut multiplied_span = Vec::with_capacity(high - low + 1);
         let mut bond = 1;
         for at in low..=high {
             let factor = if sites.contains(&at) {
@@ -79,16 +85,19 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
                 .algebra
                 .upload(&multiplied.elements)
                 .map_err(CanonicalMpsError::Algebra)?;
-            chain.sites[at] = Site {
+            multiplied_span.push(Site {
                 left: multiplied.left,
                 right: multiplied.right,
                 tensor,
-            };
-            chain.pending[at] = None;
+            });
+        }
+        for (at, site) in (low..=high).zip(multiplied_span) {
             if at < high {
                 let largest = &mut chain.statistics.largest_transient_bond;
-                *largest = (*largest).max(multiplied.right);
+                *largest = (*largest).max(site.right);
             }
+            chain.sites[at] = site;
+            chain.pending[at] = None;
         }
         let identity = std::array::from_fn(|at| {
             if at % 5 == 0 {
