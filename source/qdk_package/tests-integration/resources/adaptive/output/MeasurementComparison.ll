@@ -10,10 +10,6 @@ block_0:
   %var_12 = alloca i1
   %var_16 = alloca i1
   %var_19 = alloca i1
-  %var_20 = alloca i1
-  %var_21 = alloca i1
-  %var_22 = alloca i1
-  %var_23 = alloca i1
   call void @__quantum__rt__initialize(ptr null)
   call void @X(ptr inttoptr (i64 0 to ptr))
   call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -40,23 +36,15 @@ block_2:
   store i1 true, ptr %var_19
   br label %block_3
 block_3:
-  %var_28 = load i1, ptr %var_19
-  store i1 %var_28, ptr %var_20
-  %var_30 = load i1, ptr %var_9
-  store i1 %var_30, ptr %var_21
-  %var_32 = load i1, ptr %var_12
-  store i1 %var_32, ptr %var_22
-  %var_34 = load i1, ptr %var_16
-  store i1 %var_34, ptr %var_23
+  %var_20 = load i1, ptr %var_19
+  %var_21 = load i1, ptr %var_9
+  %var_22 = load i1, ptr %var_12
+  %var_23 = load i1, ptr %var_16
   call void @__quantum__rt__tuple_record_output(i64 4, ptr @0)
-  %var_36 = load i1, ptr %var_21
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_36, ptr @1)
-  %var_37 = load i1, ptr %var_22
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_37, ptr @2)
-  %var_38 = load i1, ptr %var_23
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_38, ptr @3)
-  %var_39 = load i1, ptr %var_20
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_39, ptr @4)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_21, ptr @1)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_22, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_23, ptr @3)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_20, ptr @4)
   ret i64 0
 }
 

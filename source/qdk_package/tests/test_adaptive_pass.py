@@ -12,8 +12,9 @@ from dataclasses import astuple, asdict
 import pyqir
 import pytest
 
-from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode
+from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode, GATE_MAP
 from qdk._adaptive_bytecode import *
+from qdk.simulation._simulation import DecomposeMxMyPass
 
 _HAS_GLOBAL_VARIABLES = hasattr(
     pyqir.Module(pyqir.Context(), "probe"), "global_variables"
@@ -1632,3 +1633,51 @@ def test_forward_global_ref_constant_data():
     # @row0 at offset 2: [10, 20, 30]
     # @row1 at offset 5: [40, 50, 60]
     assert r.constant_data == [2, 5, 10, 20, 30, 40, 50, 60]
+
+
+# ---------------------------------------------------------------------------
+# Test: MX/MY are native ops; DecomposeMxMyPass lowers them to basis change + M
+# ---------------------------------------------------------------------------
+
+MX_MY_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  call void @__quantum__qis__mx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__my__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  ret void
+}
+
+declare void @__quantum__qis__mx__body(%Qubit*, %Result*)
+declare void @__quantum__qis__my__body(%Qubit*, %Result*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
+"""
+
+
+def _mx_my_op_ids(decompose: bool):
+    mod = pyqir.Module.from_ir(pyqir.Context(), MX_MY_QIR, "test.ll")
+    if decompose:
+        DecomposeMxMyPass().run(mod)
+    program = AdaptiveProfilePass(Bytecode.Bit32).run(mod)
+    return [op.op_id for op in program.quantum_ops]
+
+
+def test_mx_my_are_native_by_default():
+    assert _mx_my_op_ids(decompose=False) == [GATE_MAP["mx"], GATE_MAP["my"]]
+
+
+def test_decompose_mx_my_to_basis_change_and_m():
+    expected = ["h", "m", "h", "s__adj", "h", "m", "h", "s"]
+    assert _mx_my_op_ids(decompose=True) == [GATE_MAP[g] for g in expected]
+
+
+def test_decompose_mx_my_keeps_result_ids_and_valid_ir():
+    mod = pyqir.Module.from_ir(pyqir.Context(), MX_MY_QIR, "test.ll")
+    DecomposeMxMyPass().run(mod)
+    assert mod.verify() is None
+    program = AdaptiveProfilePass(Bytecode.Bit32).run(mod)
+    measures = [i for i in program.instructions if _primary(i.opcode) == OP_MEASURE]
+    assert [m.aux2 for m in measures] == [0, 1]

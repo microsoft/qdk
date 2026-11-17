@@ -76,7 +76,7 @@ fn setup_with_dead_callee_reads(
 ) -> (fir::PackageStore, fir::PackageId, Vec<LocalItemId>) {
     let (mut store, package_id, reachable) = setup(source);
     let closures = all_closures(store.get(package_id), &reachable);
-    assert!(!closures.is_empty());
+    assert_ne!(closures.len(), 0);
     let targets = closures.iter().map(|(_, target)| *target).collect();
     assert_eq!(
         run_cleanup(

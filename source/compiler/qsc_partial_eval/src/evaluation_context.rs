@@ -547,7 +547,10 @@ mod tests {
             .env
             .update_variable_in_top_frame(0_usize.into(), value);
         scope.insert_mutable_var(0_usize.into());
-        assert!(scope.collect_updated_local_values().is_empty());
+        assert_eq!(
+            scope.collect_updated_local_values(),
+            [] as [(qsc::fir::LocalVarId, qsc::interpret::Value); 0]
+        );
     }
 
     #[test]

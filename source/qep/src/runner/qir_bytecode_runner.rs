@@ -204,6 +204,22 @@ impl<B: QuantumBackend> Simulator for BackendSimulator<'_, B> {
         self.h(target);
     }
 
+    /// Measures in the X basis while preserving the measured eigenstate.
+    fn mx(&mut self, target: usize, result_id: usize) {
+        self.h(target);
+        self.mz(target, result_id);
+        self.h(target);
+    }
+
+    /// Measures in the Y basis while preserving the measured eigenstate.
+    fn my(&mut self, target: usize, result_id: usize) {
+        self.s_adj(target);
+        self.h(target);
+        self.mz(target, result_id);
+        self.h(target);
+        self.s(target);
+    }
+
     /// Flushes a measurement barrier and writes its local result slot.
     fn mz(&mut self, target: usize, result_id: usize) {
         self.measure("mz", target, result_id);

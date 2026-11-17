@@ -3086,7 +3086,6 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_usi
             blocks:
                 Block 0: Block:
                     Variable(1, Integer) = Alloca
-                    Variable(2, Integer) = Alloca
                     Variable(0, Boolean) = Call id(1), args( )
                     Variable(1, Integer) = Store Integer(0)
                     Branch Variable(0, Boolean), 1, 2
@@ -3094,12 +3093,10 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_usi
                     Variable(1, Integer) = Store Integer(1)
                     Jump(2)
                 Block 2: Block:
-                    Variable(5, Integer) = Load Variable(1, Integer)
-                    Variable(2, Integer) = Store Variable(5, Integer)
+                    Variable(2, Integer) = Load Variable(1, Integer)
                     Variable(1, Integer) = Store Integer(2)
-                    Variable(8, Integer) = Load Variable(1, Integer)
-                    Variable(9, Integer) = Load Variable(2, Integer)
-                    Variable(3, Integer) = Add Variable(8, Integer), Variable(9, Integer)
+                    Variable(6, Integer) = Load Variable(1, Integer)
+                    Variable(3, Integer) = Add Variable(6, Integer), Variable(2, Integer)
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)

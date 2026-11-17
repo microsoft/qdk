@@ -2,10 +2,10 @@ ARG BASE_REGISTRY=qdkacr-cfgqhwddajdaebhg.azurecr.io
 ARG BASE_TAG=latest
 
 ARG LLVM_INSTALL_PREFIX=/opt/llvm-20
-ARG RUST_TOOLCHAIN=ms-prod-1.95
+ARG RUST_TOOLCHAIN=ms-prod-1.99
 ARG LLVM_ARCHIVE=llvm-project-llvmorg-20.1.8.tar.gz
-ARG PY315_ARCHIVE=Python-3.15.1.tar.xz
-ARG PY315_ARCHIVE_SHA256=673ae7232d84c894729882c8257d300ef2d26523911bfd3917ec8ce7f526f99b
+ARG PY315_ARCHIVE=Python-3.15.2.tar.xz
+ARG PY315_ARCHIVE_SHA256=8b5536d280142ecf6cdfe15d12a21ba1c65e300bbf7b28a8d0cdb849575797de
 
 # Build tools into a separate image then copy the installation into the final image
 FROM ${BASE_REGISTRY}/qdk-base:${BASE_TAG} AS builder

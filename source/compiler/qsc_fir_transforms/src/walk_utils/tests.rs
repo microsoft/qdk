@@ -1244,7 +1244,7 @@ fn collect_block_stmt_ids_handles_empty_block() {
     let package = store.get(package_id);
     let block = find_callable_block(package, "Main");
 
-    assert!(collect_stmt_ids_in_block(package, block).is_empty());
+    assert_eq!(collect_stmt_ids_in_block(package, block).len(), 0);
 }
 
 #[test]

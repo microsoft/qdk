@@ -951,7 +951,7 @@ impl State {
                     // This means we should pop the execution graph but not the current environment scope,
                     // so bound variables are still accessible after completion.
                     self.exec_graph_stack.pop();
-                    assert!(self.exec_graph_stack.is_empty());
+                    assert_eq!(self.exec_graph_stack.len(), 0);
                     continue;
                 }
             };
@@ -1782,6 +1782,15 @@ impl State {
                         update_functor_app(functor, global.functor),
                         global.type_args.clone(),
                     ));
+                }
+                // An empty tuple is the placeholder that partial evaluation
+                // produces for a value it cannot resolve at compile time, e.g.
+                // an element of an array of dynamic callables. Propagate it
+                // upward: computing or passing around an unresolved callable is
+                // not an error; only directly calling one is, which the call
+                // evaluation reports.
+                Value::Tuple(inner, None) if inner.is_empty() => {
+                    self.set_val_register(Value::Tuple(inner, None));
                 }
                 _ => panic!("value should be callable"),
             },

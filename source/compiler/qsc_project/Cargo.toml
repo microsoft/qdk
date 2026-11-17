@@ -2,7 +2,6 @@
 name = "qsc_project"
 
 authors.workspace = true
-homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -17,7 +16,6 @@ miette = { workspace = true }
 regex-lite = { workspace = true }
 async-trait = { workspace = true }
 qsc_linter = { path = "../qsc_linter" }
-qsc_circuit = { path = "../qsc_circuit" }
 qsc_data_structures = { path = "../qsc_data_structures" }
 qdk_openqasm = { path = "../../qdk_openqasm" }
 qsc_frontend = { path = "../qsc_frontend" }

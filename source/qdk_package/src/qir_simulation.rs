@@ -72,6 +72,9 @@ pub enum QirInstructionId {
     /// All instructions in the intrinsics fields of the [`NoiseConfig`]
     /// are mapped to this `QirInstructionId`.
     CorrelatedNoise,
+    /// New native measurements appended to the end to avoid shifting existing instruction IDs.
+    MX,
+    MY,
 }
 
 #[derive(Debug)]

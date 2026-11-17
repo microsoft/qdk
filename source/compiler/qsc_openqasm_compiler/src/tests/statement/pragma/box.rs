@@ -175,7 +175,7 @@ fn target_with_param_raises_error() {
          3 |         def sample_box_target(int i) {}
            `----
     "#]]
-    .assert_eq(&format!("{:?}", &errors[0]));
+    .assert_eq(&format!("{:?}", errors[0]));
 }
 
 #[test]
@@ -200,7 +200,7 @@ fn unknown_pragma_raises_error() {
          3 |         def sample_box_target(int i) {}
            `----
     "#]]
-    .assert_eq(&format!("{:?}", &errors[0]));
+    .assert_eq(&format!("{:?}", errors[0]));
 }
 
 #[test]
@@ -227,7 +227,7 @@ fn target_with_return_value_raises_error() {
          3 |         def sample_box_target() -> int {
            `----
     "#]]
-    .assert_eq(&format!("{:?}", &errors[0]));
+    .assert_eq(&format!("{:?}", errors[0]));
 }
 
 #[test]
@@ -251,5 +251,5 @@ fn unknown_target_with_return_value_raises_error() {
          3 |         box {}
            `----
     "#]]
-    .assert_eq(&format!("{:?}", &errors[0]));
+    .assert_eq(&format!("{:?}", errors[0]));
 }

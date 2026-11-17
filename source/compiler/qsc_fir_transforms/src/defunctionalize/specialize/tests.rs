@@ -446,7 +446,7 @@ fn removal_layout_keeps_empty_path_extraction_types() {
                 let ExprKind::Field(base, Field::Path(path)) = &expr.kind else {
                     panic!("nominal extraction")
                 };
-                assert!(path.indices.is_empty());
+                assert_eq!(path.indices.len(), 0);
                 let Ty::Udt(Res::Item(item)) = &fixture.package.get_expr(*base).ty else {
                     panic!("nominal base")
                 };
@@ -511,7 +511,7 @@ fn closure_call_convention_controls_zero_capture_packaging() {
             &mut fixture.assigner,
         )
         .expect("convention matches declared input");
-        assert!(result.prefix.is_empty());
+        assert_eq!(result.prefix.len(), 0);
         assert_eq!(fixture.package.get_expr(result.value).ty, expected);
         assert_eq!(
             fixture.package.get_expr(fixture.args_id).kind,
@@ -587,7 +587,7 @@ fn dispatch_layout_capability_packing_is_idempotent() {
                         &mut fixture.assigner,
                     )
                     .expect("stronger capabilities populate the declared input");
-                    assert!(result.prefix.is_empty());
+                    assert_eq!(result.prefix.len(), 0);
                     value = result.value;
                     let mut base = value;
                     for _ in 0..layers {
@@ -665,7 +665,7 @@ fn dispatch_layout_capability_packing_rejects_weaker_packed_input() {
         &mut fixture.assigner,
     )
     .expect("weaker declaration accepts weaker captures");
-    assert!(packed.prefix.is_empty());
+    assert_eq!(packed.prefix.len(), 0);
     let original = fixture.package.get_expr(packed.value).clone();
     assert!(
         build_closure_call_args(

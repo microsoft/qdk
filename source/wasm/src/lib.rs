@@ -4,6 +4,8 @@
 #![allow(unknown_lints, clippy::empty_docs)]
 #![allow(non_snake_case)]
 
+// Enable the WASM randomness backend for the transitive rand 0.8 dependency.
+use getrandom_02 as _;
 use katas::check_solution;
 use language_service::IOperationInfo;
 use num_bigint::BigUint;

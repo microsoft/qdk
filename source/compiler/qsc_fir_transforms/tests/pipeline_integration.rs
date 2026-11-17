@@ -2107,3 +2107,46 @@ fn captured_struct_callables_preserve_promoted_signatures_and_results() {
         assert_eq!(eval_entry_value(&store, pkg_id), Ok(expected));
     }
 }
+
+/// A branch-split dispatch over a callable argument must not leave sibling
+/// branches reading an argument operand that a later fixed-point iteration
+/// rewired in place while installing its binding inside only one branch.
+///
+/// Regression for <https://github.com/microsoft/qdk/issues/4226>: with a
+/// partial application of a statically selected operation selected by another
+/// static `if`, the first iteration's `create_branch_call` retained the
+/// original argument operand nodes shared across dispatch leaves, and the
+/// second iteration's evaluation-order materialization rewired the shared
+/// operand and bound its replacement inside the `then` branch only, so the
+/// `else` branch referenced an unbound local.
+#[test]
+fn branch_split_dispatch_binds_argument_materialization_outside_branches() {
+    let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
+        r#"
+        operation A(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[0]); }
+        operation B(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[1]); }
+        operation Seq(
+            a : (Qubit[] => Unit is Adj + Ctl),
+            b : (Qubit[] => Unit is Adj + Ctl),
+            qs : Qubit[]
+        ) : Unit is Adj + Ctl {
+            a(qs);
+            b(qs);
+        }
+        operation Apply(op : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl {
+            op(qs);
+        }
+
+        @EntryPoint()
+        operation Main() : Result[] {
+            use qs = Qubit[2];
+            let f = if true { A } else { B };
+            let h = if 5 > 2 { Seq(f, B, _) } else { A };
+            Apply(h, qs);
+            MResetEachZ(qs)
+        }
+        "#,
+    );
+
+    run_pipeline_successfully(&mut fir_store, fir_pkg_id);
+}
