@@ -413,6 +413,7 @@ pub struct Gpu {
     /// dispatch each (Mesa compiles lazily).
     pub create_seconds: f64,
     pub compile_seconds: f64,
+    /// The adapter's name, backend and device type.
     pub adapter_name: String,
 }
 
@@ -422,16 +423,16 @@ impl Gpu {
     }
 
     async fn make() -> Rc<Self> {
-        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-        desc.backends = wgpu::Backends::all();
-        let instance = wgpu::Instance::new(desc);
-        let adapter = instance
-            .enumerate_adapters(wgpu::Backends::all())
+        // The current simulator's selection (`QDK_GPU_BACKEND`,
+        // `QDK_GPU_ALLOW_GL`, the Adreno X1 on DX12 refused), so that a
+        // comparison runs both simulators on the same adapter.
+        let adapter = qdk_simulators::gpu_resources::GpuResources::try_get_adapter()
             .await
-            .into_iter()
-            .find(|a| a.get_info().device_type != wgpu::DeviceType::Cpu)
-            .expect("a GPU adapter (run with GALLIUM_DRIVER=d3d12)");
-        let adapter_name = adapter.get_info().name;
+            .unwrap_or_else(|why| {
+                panic!("a GPU adapter: {why} (in WSL: GALLIUM_DRIVER=d3d12 QDK_GPU_ALLOW_GL=1)")
+            });
+        let info = adapter.get_info();
+        let adapter_name = format!("{} ({:?}, {:?})", info.name, info.backend, info.device_type);
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("qir-gpu-resumer"),

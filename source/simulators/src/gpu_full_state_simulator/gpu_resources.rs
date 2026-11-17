@@ -17,8 +17,33 @@ use crate::{
 };
 
 // Checks if the given adapter is unsupported due to known issues with DX12 on Adreno X1.
-fn is_unsupported_adapter(info: &wgpu::AdapterInfo) -> bool {
+// SPIKE: public, so that the GPU resumer example's `adapters` mode can mark it.
+#[must_use]
+pub fn is_unsupported_adapter(info: &wgpu::AdapterInfo) -> bool {
     info.backend == wgpu::Backend::Dx12 && info.name.to_lowercase().contains("adreno(tm) x1")
+}
+
+/// SPIKE: `QDK_GPU_BACKEND` (`vulkan`, `dx12`, `metal` or `gl`) restricts
+/// the adapter search to one backend, so that a comparison runs every
+/// simulator on the same one. Unset, every backend the search allows is
+/// considered.
+fn backend_restriction() -> Result<Option<(String, wgpu::Backends)>, String> {
+    let Ok(name) = std::env::var("QDK_GPU_BACKEND") else {
+        return Ok(None);
+    };
+    let name = name.to_ascii_lowercase();
+    let backends = match name.as_str() {
+        "vulkan" => wgpu::Backends::VULKAN,
+        "dx12" => wgpu::Backends::DX12,
+        "metal" => wgpu::Backends::METAL,
+        "gl" => wgpu::Backends::GL,
+        _ => {
+            return Err(format!(
+                "QDK_GPU_BACKEND={name}: expected vulkan, dx12, metal or gl"
+            ));
+        }
+    };
+    Ok(Some((name, backends)))
 }
 
 #[derive(Debug, Default)]
@@ -236,6 +261,11 @@ impl GpuResources {
         } else {
             wgpu::Backends::PRIMARY
         };
+        let restriction = backend_restriction()?;
+        let backends = match &restriction {
+            Some((_, only)) => backends & *only,
+            None => backends,
+        };
         let adapters = instance.enumerate_adapters(backends).await;
 
         let score_adapter = |adapter: &Adapter| -> (u32, u32, u32, u64) {
@@ -288,7 +318,16 @@ impl GpuResources {
                 score.3 >= if allow_gl { 1u64 << 27 } else { 1u64 << 30 } /* at least 1GB storage buffers */
             })
             .max_by_key(score_adapter)
-            .ok_or_else(|| "No suitable GPU adapter found".to_string())?;
+            .ok_or_else(|| match &restriction {
+                Some((name, _)) if name == "gl" && !allow_gl => {
+                    "No suitable GPU adapter found: QDK_GPU_BACKEND=gl needs QDK_GPU_ALLOW_GL=1"
+                        .to_string()
+                }
+                Some((name, _)) => {
+                    format!("No suitable GPU adapter found on QDK_GPU_BACKEND={name}")
+                }
+                None => "No suitable GPU adapter found".to_string(),
+            })?;
 
         Ok(adapter)
     }

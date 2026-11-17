@@ -5,6 +5,8 @@
 //! (`gpu_resumer.rs`), checked and measured. One mode per run, given as one
 //! comma-separated word:
 //!
+//! - `adapters`: every adapter wgpu sees, and the one both simulators use
+//!   (`QDK_GPU_BACKEND` restricts it to one backend);
 //! - `conformance`: the `qir::conformance` kit on the resumer;
 //! - `corpus[,shots]`: the noiseless cases of the `run_shot` compatibility
 //!   corpus, against what their Python tests expect and against the CPU
@@ -51,6 +53,7 @@ use qdk_simulators::bytecode::{
 };
 use qdk_simulators::cpu_full_state_simulator::FullStateSimulator;
 use qdk_simulators::gpu_context::GpuContext;
+use qdk_simulators::gpu_resources::{self, GpuResources};
 use qdk_simulators::noise_config::{CumulativeNoiseConfig, LossPolicy, NoiseConfig, NoiseTable};
 use qdk_simulators::qir::{
     OperatorMatrix, QirCall, QirGate, QirMachine, QirOutcome, QirProgram, QirResumer, QirShotId,
@@ -72,6 +75,17 @@ fn main() {
         println!("{}", if ok { "PASS" } else { "FAIL" });
         std::io::stdout().flush().expect("stdout flushes");
         std::process::exit(i32::from(!ok));
+    }
+    if words[0] == "adapters" {
+        // Lists adapters; runs nothing on them.
+        let ok = adapters_mode();
+        println!("{}", if ok { "PASS" } else { "FAIL" });
+        std::io::stdout().flush().expect("stdout flushes");
+        unsafe extern "C" {
+            fn _exit(code: i32) -> !;
+        }
+        // SAFETY: output is flushed; nothing else needs to run.
+        unsafe { _exit(i32::from(!ok)) }
     }
     if words[0] != "conformance" {
         // A panic would hang at exit (as below): end the process at once.
@@ -773,6 +787,51 @@ fn bench_one(
 }
 
 /// The timed runs of each simulator in `compare` mode, after its warm-up.
+/// The adapter both simulators select (`GpuResources::try_get_adapter`):
+/// its name, backend and device type, or why there is none.
+fn selected_adapter() -> Result<String, String> {
+    let adapter = futures::executor::block_on(GpuResources::try_get_adapter())?;
+    let info = adapter.get_info();
+    Ok(format!(
+        "{} ({:?}, {:?})",
+        info.name, info.backend, info.device_type
+    ))
+}
+
+/// `adapters`: every adapter wgpu sees on every backend, with its backend,
+/// device type and driver, then the one both simulators select under the
+/// current `QDK_GPU_BACKEND` and `QDK_GPU_ALLOW_GL`. Fails when none is
+/// selected.
+fn adapters_mode() -> bool {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let adapters = futures::executor::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
+    for adapter in &adapters {
+        let info = adapter.get_info();
+        let note = if gpu_resources::is_unsupported_adapter(&info) {
+            "  [refused: Adreno X1 on DX12]"
+        } else {
+            ""
+        };
+        println!(
+            "ADAPTER {} | backend {:?} | device {:?} | driver {} {}{note}",
+            info.name, info.backend, info.device_type, info.driver, info.driver_info
+        );
+    }
+    if adapters.is_empty() {
+        println!("ADAPTER none: wgpu sees no adapter");
+    }
+    match selected_adapter() {
+        Ok(selected) => {
+            println!("SELECTED (current simulator and resumer): {selected}");
+            true
+        }
+        Err(why) => {
+            println!("SELECTED none: {why}");
+            false
+        }
+    }
+}
+
 const COMPARE_RUNS: usize = 5;
 
 /// A timed run: its seconds and every shot's records, or why it failed.
@@ -794,9 +853,14 @@ type TimedRun<'a> = Box<dyn FnMut() -> Result<(f64, Vec<Vec<OutputRecord>>), Str
 /// ratios of best to best and median to median, and how far the current
 /// simulator's outcomes are from each resumer's (z above 5 fails). When a
 /// shot of the current simulator fails, prints why and times the resumer
-/// alone.
+/// alone. Opens with each simulator's adapter and backend (`ADAPTER`).
 #[allow(clippy::too_many_lines)]
 fn compare_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
+    match selected_adapter() {
+        Ok(current) => println!("ADAPTER current: {current}"),
+        Err(why) => println!("ADAPTER current: none ({why})"),
+    }
+    println!("ADAPTER resumer: {}", gpu.adapter_name);
     let programs = load_programs(words[0]);
     let programs32 = load_programs32(words[0]);
     let mut ok = true;
