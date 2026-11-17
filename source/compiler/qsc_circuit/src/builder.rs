@@ -131,9 +131,16 @@ impl Tracer for CircuitTracer {
         }
     }
 
-    fn measure_two_qubits(&mut self, stack: &[Frame], name: &str, q0: usize, q1: usize, r: &val::Result) {
-        todo!("Pending")
-    }
+    // fn measure_two_qubits(
+    //     &mut self,
+    //     _stack: &[Frame],
+    //     _name: &str,
+    //     _q0: usize,
+    //     _q1: usize,
+    //     _r: &val::Result,
+    // ) {
+    //     todo!("Pending")
+    // }
 
     fn reset(&mut self, stack: &[Frame], q: usize) {
         let called_at = LogicalStack::from_evaluator_trace(stack);

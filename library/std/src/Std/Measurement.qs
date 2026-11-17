@@ -243,14 +243,11 @@ operation IsLossResult(res : Result) : Bool {
 ///
 /// # Output
 /// The result of measuring in the `X ⊗ X` basis.
-operation MXX(target : Qubit[]) : Result {
-    if (Length(target) != 2) {
-        fail "MXX operation requires exactly 2 qubits.";
-    }
-    if (target[0] == target[1]) {
+operation MXX(target_1 : Qubit, target_2 : Qubit) : Result {
+    if (target_1 == target_2) {
         fail "MXX operation requires two distinct qubits.";
     }
-    __quantum__qis__mxx__body(target)
+    __quantum__qis__mxx__body(target_1, target_2)
 }
 
 /// # Summary
@@ -267,14 +264,11 @@ operation MXX(target : Qubit[]) : Result {
 ///
 /// # Output
 /// The result of measuring in the `Y ⊗ Y` basis.
-operation MYY(target : Qubit[]) : Result {
-    if (Length(target) != 2) {
-        fail "MYY operation requires exactly 2 qubits.";
-    }
-    if (target[0] == target[1]) {
+operation MYY(target_1 : Qubit, target_2 : Qubit) : Result {
+    if (target_1 == target_2) {
         fail "MYY operation requires two distinct qubits.";
     }
-    __quantum__qis__myy__body(target)
+    __quantum__qis__myy__body(target_1, target_2)
 }
 
 /// # Summary
@@ -291,14 +285,11 @@ operation MYY(target : Qubit[]) : Result {
 ///
 /// # Output
 /// The result of measuring in the `Z ⊗ Z` basis.
-operation MZZ(target : Qubit[]) : Result {
-    if (Length(target) != 2) {
-        fail "MZZ operation requires exactly 2 qubits.";
-    }
-    if (target[0] == target[1]) {
+operation MZZ(target_1 : Qubit, target_2 : Qubit) : Result {
+    if (target_1 == target_2) {
         fail "MZZ operation requires two distinct qubits.";
     }
-    __quantum__qis__mzz__body(target)
+    __quantum__qis__mzz__body(target_1, target_2)
 }
 
 /// # Summary
@@ -315,14 +306,11 @@ operation MZZ(target : Qubit[]) : Result {
 ///
 /// # Output
 /// The result of measuring in the `Z ⊗ Y` basis.
-operation MZY(target : Qubit[]) : Result {
-    if (Length(target) != 2) {
-        fail "MZY operation requires exactly 2 qubits.";
-    }
-    if (target[0] == target[1]) {
+operation MZY(target_1 : Qubit, target_2 : Qubit) : Result {
+    if (target_1 == target_2) {
         fail "MZY operation requires two distinct qubits.";
     }
-    __quantum__qis__mzy__body(target)
+    __quantum__qis__mzy__body(target_1, target_2)
 }
 
 export MeasureAllZ, MeasureEachZ, MResetEachZ, MResetX, MResetY, MResetZ, MeasureInteger, MeasureBigInt, MResetZChecked, IsLossResult, MXX, MYY, MZZ, MZY;

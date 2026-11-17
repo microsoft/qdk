@@ -10,7 +10,7 @@ pub mod nearly_zero;
 #[cfg(test)]
 mod matrix_testing;
 #[cfg(test)]
-mod pauli_testing;
+mod measurement_tests;
 #[cfg(test)]
 mod tests;
 
@@ -417,8 +417,45 @@ impl SparseStateSim {
         }
     }
 
-    pub fn measure_two_qubits(&mut self, q0: usize, q1: usize, paulis: JointMeasurementBasis) -> bool {
-        todo!("Pending")
+    /// Measures the parity of the two qubits in the given joint basis, collapsing the state onto the
+    /// eigenspace of the measured parity.
+    ///
+    /// Unlike `measure_single_qubit`, pending gates that commute with the measurement can't be dropped,
+    /// since they change the relative phase between the two states with the same parity.
+    /// # Panics
+    ///
+    /// This function will panic if either identifier does not correspond to an allocated qubit, or if they are equal.
+    pub fn measure_two_qubits(
+        &mut self,
+        q0: usize,
+        q1: usize,
+        bases: JointMeasurementBasis,
+    ) -> bool {
+        match bases {
+            JointMeasurementBasis::XX => {
+                self.h(q0);
+                self.h(q1);
+                let res = self.joint_measure(&[q0, q1]);
+                self.h_flag.set_bit(q0 as u64, true);
+                self.h_flag.set_bit(q1 as u64, true);
+                res
+            }
+            JointMeasurementBasis::YY => {
+                self.rx(FRAC_PI_2, q0);
+                self.rx(FRAC_PI_2, q1);
+                let res = self.joint_measure(&[q0, q1]);
+                self.rx(-FRAC_PI_2, q0);
+                self.rx(-FRAC_PI_2, q1);
+                res
+            }
+            JointMeasurementBasis::ZZ => self.joint_measure(&[q0, q1]),
+            JointMeasurementBasis::ZY => {
+                self.rx(FRAC_PI_2, q1);
+                let res = self.joint_measure(&[q0, q1]);
+                self.rx(-FRAC_PI_2, q1);
+                res
+            }
+        }
     }
 
     /// Forces the collapse of the qubit with the given id to the specified value,

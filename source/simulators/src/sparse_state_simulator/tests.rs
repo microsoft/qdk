@@ -1,11 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-use super::pauli_testing::{
-    Pending::{H, Rx, Ry},
-    check_measure_pauli,
-};
 use super::*;
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, PI};
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, PI};
 
 fn almost_equal(a: f64, b: f64) -> bool {
     a.max(b) - b.min(a) <= 1e-10
@@ -85,47 +81,6 @@ fn test_measure() {
     assert!(almost_equal(sim.joint_probability(&[q]), 0.0));
     sim.release(extra);
     sim.release(q);
-}
-
-/// Measures in each Pauli basis with different combinations of pending H, Rx and Ry on the target.
-#[test]
-fn test_measure_pauli() {
-    for gates in [
-        &[][..],
-        &[H],
-        &[Ry(FRAC_PI_2)],
-        &[Ry(-FRAC_PI_2)],
-        &[Ry(0.3)],
-        &[Rx(0.3)],
-        &[Rx(FRAC_PI_2)],
-        &[Rx(-FRAC_PI_2)],
-        &[Ry(FRAC_PI_4), Ry(FRAC_PI_4)],
-        &[Rx(FRAC_PI_4), Rx(FRAC_PI_4)],
-        &[H, Ry(FRAC_PI_2)],
-        &[H, Ry(-FRAC_PI_2)],
-        &[H, Ry(0.42)],
-        &[Rx(0.42), Ry(FRAC_PI_2)],
-        &[Rx(0.42), Ry(-FRAC_PI_2)],
-        &[Rx(FRAC_PI_2), Ry(-PI)],
-        &[Rx(-FRAC_PI_2), Ry(PI)],
-        &[Rx(-PI), Ry(FRAC_PI_2)],
-        &[Rx(PI), Ry(-FRAC_PI_2)],
-        &[Rx(0.6), Ry(0.9)],
-    ] {
-        for p1 in [
-            MeasurementBasis::Z,
-            MeasurementBasis::X,
-            MeasurementBasis::Y,
-        ] {
-            for p2 in [
-                MeasurementBasis::Z,
-                MeasurementBasis::X,
-                MeasurementBasis::Y,
-            ] {
-                check_measure_pauli([p1, p2], gates);
-            }
-        }
-    }
 }
 
 /// The eigenstate checks must give the right answer and must not change the state.
@@ -231,6 +186,33 @@ fn test_joint_measurement() {
         if res { 1.0 } else { 0.0 },
         sim.joint_probability(&[q0, q1])
     ));
+    sim.release(q1);
+    sim.release(q0);
+}
+
+/// Verify joint collapse keeps only the states with the given parity, renormalized, without
+/// collapsing either qubit on its own.
+#[test]
+fn test_joint_collapse() {
+    let mut sim = SparseStateSim::default();
+    let q0 = sim.allocate();
+    let q1 = sim.allocate();
+    sim.h(q0);
+    sim.h(q1);
+    sim.flush_queue(&[q0, q1], FlushLevel::HRxRy);
+    let locs = [
+        *sim.id_map.get(q0).expect("q0 should be allocated"),
+        *sim.id_map.get(q1).expect("q1 should be allocated"),
+    ];
+    let prob = sim.check_joint_probability(&locs);
+    assert!(almost_equal(0.5, prob));
+    sim.joint_collapse(&locs, true, prob);
+    assert_eq!(sim.state.len(), 2);
+    assert!(almost_equal(1.0, sim.joint_probability(&[q0, q1])));
+    assert!(almost_equal(0.5, sim.joint_probability(&[q0])));
+    assert!(almost_equal(0.5, sim.joint_probability(&[q1])));
+    sim.force_collapse(true, q0);
+    assert!(almost_equal(0.0, sim.joint_probability(&[q1])));
     sim.release(q1);
     sim.release(q0);
 }

@@ -105,19 +105,19 @@ operation __quantum__qis__my__body(target : Qubit) : Result {
     body intrinsic;
 }
 
-operation __quantum__qis__mxx__body(target : Qubit[]) : Result {
+operation __quantum__qis__mxx__body(target_1 : Qubit, target_2 : Qubit) : Result {
     body intrinsic;
 }
 
-operation __quantum__qis__myy__body(target : Qubit[]) : Result {
+operation __quantum__qis__myy__body(target_1 : Qubit, target_2 : Qubit) : Result {
     body intrinsic;
 }
 
-operation __quantum__qis__mzz__body(target : Qubit[]) : Result {
+operation __quantum__qis__mzz__body(target_1 : Qubit, target_2 : Qubit) : Result {
     body intrinsic;
 }
 
-operation __quantum__qis__mzy__body(target : Qubit[]) : Result {
+operation __quantum__qis__mzy__body(target_1 : Qubit, target_2 : Qubit) : Result {
     body intrinsic;
 }
 
