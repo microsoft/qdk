@@ -80,11 +80,11 @@ fn x_string(sites: &[usize]) -> PauliSum {
     .expect("an observable")
 }
 
-/// Bell pairs on sites (0, 1) and (2, 3) fit a capacity whose bonds are
-/// 2, 1 and 2: the middle cut separates the pairs. A Z⊗Z on sites 0 and 3
-/// spans the middle cut, whose split keeps at most 1: the Z⊗Z, which
-/// commutes with X⊗X⊗X⊗X, leaves the pairs apart, so the split keeps all
-/// the weight and the value of X⊗X⊗X⊗X at 1.
+/// A Bell pair on sites (0, 1), site 2 in |0⟩ and site 3 in |+⟩ fit a
+/// capacity whose bonds are 2, 1 and 2. A CNOT from site 0 to site 3, of
+/// operator rank 2, grows the middle cut's bond to 2, above its capacity
+/// of 1, and its splits cut it back: X on |+⟩ is the identity, so the
+/// state is unchanged and the cut keeps all the weight.
 #[test]
 fn an_mpo_keeps_a_state_that_fits_uneven_bonds() {
     let capacity = MpsShape::new(vec![vec![2, 2], vec![2, 2, 1], vec![1, 2, 2], vec![2, 2]])
@@ -95,22 +95,28 @@ fn an_mpo_keeps_a_state_that_fits_uneven_bonds() {
         for (on, gate) in [
             (&[0][..], &half_turn),
             (&[0, 1], &cnot()),
-            (&[2], &half_turn),
-            (&[2, 3], &cnot()),
+            (&[3], &half_turn),
         ] {
-            engine.apply(&mut state, on, gate).expect("a Bell pair");
+            engine.apply(&mut state, on, gate).expect("the state");
         }
-        engine.apply(&mut state, &[0, 3], &zz()).expect("apply");
+        engine.apply(&mut state, &[0, 3], &cnot()).expect("apply");
         let weight = engine.retained_weight(&state).expect("weight");
+        let statistics = state.split_statistics();
+        assert!(
+            statistics.largest_transient_bond() >= 2,
+            "{name}: precondition, the MPO grew the span's bonds"
+        );
         assert!((weight - 1.0).abs() < 1e-12, "{name}: {weight}");
-        let xxxx = engine
-            .expectation(&state, &x_string(&[0, 1, 2, 3]))
-            .expect("expectation");
-        assert!((xxxx - real(1.0)).norm() < 1e-12, "{name}: {xxxx}");
         assert!(
             engine.shape(&state).expect("shape").fits_within(&capacity),
             "{name}"
         );
+        for sites in [&[0, 1][..], &[3]] {
+            let value = engine
+                .expectation(&state, &x_string(sites))
+                .expect("expectation");
+            assert!((value - real(1.0)).norm() < 1e-12, "{name}: {value}");
+        }
     }
 }
 
@@ -154,9 +160,11 @@ fn an_mpo_truncates_only_at_the_callers_cuts() {
 /// rank 1, leaves them at 1. A factorisation that kept rounding's values
 /// would grow every one to 4, and only the cuts inside the span count, not
 /// the bond of 2 beside it. A rotation `exp(−iε Z⊗Z)` has a second
-/// operator value of `ε` relative to the first: at `ε` of `1e-9` it is kept,
-/// a bond of 2, and at `1e-13`, below the operator's cutoff of `1e-12`, it
-/// is dropped, a bond of 1.
+/// operator value of `tan ε` relative to the first: at `ε` of `1e-9` and
+/// `2e-12` it is kept, a bond of 2, and at `5e-13` and `1e-13`, below the
+/// operator's cutoff of `1e-12`, it is dropped, a bond of 1. The rows next
+/// to the cutoff are robust: rounding moves `tan ε` by about `1e-16`
+/// absolute, `1e-4` of it at `2e-12`.
 #[test]
 fn an_mpo_grows_the_span_by_the_operators_rank() {
     for (gate, rank) in [
@@ -164,6 +172,8 @@ fn an_mpo_grows_the_span_by_the_operators_rank() {
         (entangler(0.9), 4),
         (zz(), 1),
         (zz_rotation(1e-9), 2),
+        (zz_rotation(2e-12), 2),
+        (zz_rotation(5e-13), 1),
         (zz_rotation(1e-13), 1),
     ] {
         for (engine, name) in both_fusions(DEFAULT_CUTOFF) {

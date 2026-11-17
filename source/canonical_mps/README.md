@@ -222,7 +222,10 @@ names the phases that follow.
 
 A split that would take the retained weight below the smallest normal
 `f64` fails with `CanonicalMpsError::WeightUnderflow`, since callers divide
-by the weight. After any failure the state is unspecified, as the
+by the weight, and the window fails with
+`CanonicalMpsError::OperatorDecomposition` when the host's factorisation
+of its operator fails, which checked gates are not expected to reach.
+After any failure the state is unspecified, as the
 contract says, and the caller drops it.
 
 ### Settings and statistics

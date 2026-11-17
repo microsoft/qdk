@@ -35,10 +35,11 @@
 //!    gate's split at rest, and leaves the centre at the near end.
 //!
 //! So a window on a span of `d + 1` sites costs the moves that bring the
-//! centre into the span, then `d − 1` QR moves and `d` splits. Every call
-//! is one the algebra already makes for a gate or a move of the centre;
-//! only the bonds inside the span are larger, up to the capacity's times
-//! the operator's bond.
+//! centre into the span, then `d − 1` QR moves and `d` splits. Every
+//! backend call is one of the operations the engine already makes
+//! elsewhere: moves and splits as for a gate, reads and uploads as for a
+//! projection; only the bonds inside the span are larger, up to the
+//! capacity's times the operator's bond.
 //!
 //! [`SplitStatistics::largest_transient_bond`]: super::SplitStatistics::largest_transient_bond
 
