@@ -26,8 +26,10 @@ neighbours is applied by one split. Any other is applied in three steps:
 
 1. **Factor.** The window's operator, on `k` sites, is factored on the
    host by `k − 1` SVDs into one tensor per site, linked by operator
-   bonds, keeping only the values above rounding's: a CNOT's bond is 2, a
-   general two-site gate's at most 4. The sites of the span between the
+   bonds, keeping the values above `1e-12` times the largest: those at or
+   below it are rounding's, or a part of the operator that small, which
+   the retained weight does not count. A CNOT's bond is 2, a general
+   two-site gate's at most 4. The sites of the span between the
    window's carry the identity, with the bond that crosses them.
 2. **Multiply.** With the centre in the span, each site of the span is
    multiplied by its tensor, on the host, and uploaded: the bond at each
@@ -45,8 +47,9 @@ sites outside the span isometries towards it, and the sites they have
 passed isometries away from the cut, so each factors the state's exact
 Schmidt decomposition at a caller's cut, where the state must fit the
 capacity anyway. So an MPO discards nothing beyond what the cutoff drops
-at its splits (negligible at the default 1e-14) and what the capacity
-cuts at the caller's cuts.
+at its splits (negligible at the default 1e-14), what the capacity cuts
+at the caller's cuts, and, in the factorisation of step 1, a part of the
+operator of at most `1e-12` relative.
 
 **The transient bond.** During step 2 the bond at a cut of the span is the
 chain's bond there times the operator's: at most the capacity's times 4.

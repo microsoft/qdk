@@ -25,9 +25,11 @@
 //! - **When.** The first operation the window does not serve applies it:
 //!   a two-site gate that does not fit, any read, projection, fork, shape
 //!   or retained weight. It leaves the centre on the end of the window's
-//!   span nearer the site that operation names (a gate's lower site, a
-//!   read's site, or the centre, when it names none), the lower end on a
-//!   tie, so the operation finds it there or close.
+//!   span nearer the site that operation names (a gate's lower site; a
+//!   read's site, but for a conditional read with conditions, which forks;
+//!   or the centre, for an expectation, a fork, a shape or the retained
+//!   weight), the lower end on a tie, so the operation finds it there or
+//!   close.
 //!
 //! Without fusion (the tests' comparison), each two-site gate is its own
 //! window, applied at once, and leaves the centre on the side of its sites
@@ -70,9 +72,8 @@ impl Window {
         self.sites.contains(&site)
     }
 
-    /// Multiplies `gate`, on the sites `on` of the window, into the
-    /// operator.
-    pub(super) fn apply(&mut self, gate: &[Complex64], on: &[usize]) {
+    /// Absorbs `gate`, on the sites `on` of the window, into the operator.
+    pub(super) fn absorb(&mut self, gate: &[Complex64], on: &[usize]) {
         self.operator = gates::multiply(&gates::widen(gate, on, &self.sites), &self.operator);
     }
 
@@ -100,7 +101,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
             let window = chain.window.as_mut().expect("the window the gate joins");
             window.operator = gates::widen(&window.operator, &window.sites, &sites);
             window.sites = sites;
-            window.apply(gate, on);
+            window.absorb(gate, on);
         } else {
             // The lower site took the fewest moves of the centre on H₂, or
             // the least time on the polyene, against the first operand

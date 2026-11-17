@@ -100,12 +100,13 @@ impl<T> Chain<T> {
             })
             .collect::<Result<_, _>>()
             .map_err(CanonicalMpsError::Algebra)?;
+        debug_assert!(self.window.is_none(), "a fork applies the window first");
         Ok(Self {
             sites,
             pending: self.pending.clone(),
             centre: self.centre,
             capacity_bonds: self.capacity_bonds.clone(),
-            window: self.window.clone(),
+            window: None,
             retained_weight: self.retained_weight,
             statistics: self.statistics,
         })
@@ -116,7 +117,7 @@ impl<T> Chain<T> {
     /// otherwise into the site's pending gate.
     pub(super) fn apply_one(&mut self, site: usize, m: &[Complex64]) {
         match self.window.as_mut() {
-            Some(window) if window.holds(site) => window.apply(m, &[site]),
+            Some(window) if window.holds(site) => window.absorb(m, &[site]),
             _ => {
                 let m: [Complex64; 4] = std::array::from_fn(|at| m[at]);
                 let pending = &mut self.pending[site];
@@ -206,8 +207,8 @@ impl SplitStatistics {
 
     /// The largest bond a window applied as a matrix product operator grew
     /// a cut of its span to, before its splits compressed it: at most the
-    /// capacity's largest bond times the operator's (4 for a window of two
-    /// or three sites); 1 for a state without such windows.
+    /// capacity's largest bond times the operator's (at most 4 for a window
+    /// of two or three sites); 1 for a state without such windows.
     #[must_use]
     pub fn largest_transient_bond(&self) -> usize {
         self.largest_transient_bond.max(1)

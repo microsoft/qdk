@@ -164,14 +164,16 @@ assert!((given - 1.0).abs() < 1e-12);
   gates, and the arithmetic of their operators;
 - [`split.rs`](src/engine/split.rs), [`mpo.rs`](src/engine/mpo.rs) and
   [`canonical_form.rs`](src/engine/canonical_form.rs): a window applied by
-  one split of two neighbours, the one place the engine truncates, or as
-  an [MPO](#terms) across its span, and the centre's moves;
+  one split of two neighbours, the one place where the state's bonds are
+  truncated, or as an [MPO](#terms) across its span, and the centre's
+  moves;
 - [`reads.rs`](src/engine/reads.rs) and
   [`expectation.rs`](src/engine/expectation.rs): the reads of one site, and
   an observable's expectation;
 - [`policy.rs`](src/engine/policy.rs) and
-  [`error.rs`](src/engine/error.rs): the default cutoff, with its reason,
-  and `CanonicalMpsError`, why a call was refused or failed.
+  [`error.rs`](src/engine/error.rs): the default cutoff and the
+  operator's rank cutoff, with their reasons, and `CanonicalMpsError`, why
+  a call was refused or failed.
 
 ### Phases
 

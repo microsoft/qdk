@@ -73,22 +73,44 @@ fn a_read_applies_the_pending_window_toward_its_site() {
     }
 }
 
+/// An operation on a state that reads it.
+type Operation = fn(&Engine, &State);
+
+/// The expectation of Z on site 0.
+fn expectation(engine: &Engine, state: &State) {
+    engine
+        .expectation(state, &z_string(&[0]))
+        .expect("an expectation");
+}
+
+/// P(One) of site 1 given site 0 found Zero, on a fork.
+fn conditional_read(engine: &Engine, state: &State) {
+    engine
+        .conditional_probability_of_one(state, 1, &[(0, false)])
+        .expect("P(One | given)");
+}
+
 /// A gate left pending with the centre where a read had left it, then an
-/// expectation, which applies the window toward the centre: a gate on
-/// sites 1 and 2 of 4 with the centre on site 3 ends it on site 2; a gate
-/// on sites 0 and 2 with the centre on site 1, as near one end of the span
-/// as the other, ends it on the lower end, site 0. So a read of that site
-/// after the expectation makes no move.
+/// expectation or a conditional read with a condition, which forks: each
+/// applies the window toward the centre. A gate on sites 1 and 2 of 4 with
+/// the centre on site 3 ends it on site 2, where a conditional read of
+/// site 1 would end it on site 1 had it applied the window toward the site
+/// it reads; a gate on sites 0 and 2 with the centre on site 1, as near
+/// one end of the span as the other, ends it on the lower end, site 0. So
+/// a read of that site after the operation makes no move.
 #[test]
-fn an_expectation_applies_the_pending_window_toward_the_centre() {
-    for (on, centre, end, splits) in [([1, 2], 3, 2, 1), ([0, 2], 1, 0, 2)] {
+fn an_expectation_or_a_fork_applies_the_pending_window_toward_the_centre() {
+    let rows: [(Operation, [usize; 2], usize, usize, u64); 3] = [
+        (expectation, [1, 2], 3, 2, 1),
+        (expectation, [0, 2], 1, 0, 2),
+        (conditional_read, [1, 2], 3, 2, 1),
+    ];
+    for (operation, on, centre, end, splits) in rows {
         let engine = Engine::new(CpuAlgebra);
         let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
         engine.probability_of_one(&state, centre).expect("P(One)");
         engine.apply(&mut state, &on, &cnot()).expect("apply");
-        engine
-            .expectation(&state, &z_string(&[0]))
-            .expect("an expectation");
+        operation(&engine, &state);
         let moves = state.split_statistics().centre_moves();
         engine.probability_of_one(&state, end).expect("P(One)");
         let statistics = state.split_statistics();
@@ -177,40 +199,53 @@ fn a_gate_that_would_make_a_fourth_site_opens_a_new_window() {
     assert_eq!(counts(gates), [(4, 1), (4, 2)]);
 }
 
-/// A window on sites 1 and 4 of 6, then a gate on sites 5 and 2, which
+/// A window on sites 1 and 4 of 6, then a gate on sites 2 and 5, which
 /// does not fit: the window is applied toward the gate's lower site, 2,
 /// which leaves the centre on site 1, so the new window on sites 2 to 5
-/// takes one move to reach its span. Applied toward site 5, the gate's
-/// first operand, the centre would be on site 4, inside the new span, one
-/// move fewer. The lower site was chosen by the H₂ and polyene runs, where
-/// it took the fewest moves or the least time.
+/// takes one move to reach its span. Applied toward site 5, the centre
+/// would be on site 4, inside the new span, one move fewer. So the gate's
+/// operands in either order, and the centre on site 0 or, after a read,
+/// on site 5, all take the same moves: the direction is neither an
+/// operand's place nor the centre's. The lower site was chosen by the H₂
+/// and polyene runs, where it took the fewest moves or the least time.
 #[test]
 fn a_gate_that_does_not_fit_applies_the_window_toward_its_lower_site() {
-    let (algebra, calls) = SpyAlgebra::new();
-    let engine = CanonicalMpsEngine::new(algebra).with_fusion(true);
-    let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
-    for site in 0..6 {
-        engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
-    }
-    engine.apply(&mut state, &[1, 4], &cnot()).expect("apply");
-    assert_eq!(
-        calls.qr_moves.get(),
-        0,
-        "precondition: the window is pending"
-    );
-    engine
-        .apply(&mut state, &[5, 2], &entangler(0.4))
-        .expect("apply");
-    engine.retained_weight(&state).expect("weight");
     // Each window: the moves into its span, then 2 across it. Toward site
     // 2, 1 + 2 for the first and 1 + 2 for the second; toward site 5,
-    // 1 + 2 and 0 + 2.
-    assert_eq!(calls.qr_moves.get(), 6);
-    assert_eq!(
-        state.split_statistics().mpo_applications(),
-        2,
-        "precondition"
-    );
+    // 1 + 2 and 0 + 2. With the centre on site 5, the first window's
+    // moves into its span start from there.
+    for (first_read, on) in [(None, [5, 2]), (None, [2, 5]), (Some(5), [2, 5])] {
+        let (algebra, calls) = SpyAlgebra::new();
+        let engine = CanonicalMpsEngine::new(algebra).with_fusion(true);
+        let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
+        for site in 0..6 {
+            engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
+        }
+        if let Some(site) = first_read {
+            engine.probability_of_one(&state, site).expect("P(One)");
+        }
+        let before = calls.qr_moves.get();
+        engine.apply(&mut state, &[1, 4], &cnot()).expect("apply");
+        assert_eq!(
+            calls.qr_moves.get(),
+            before,
+            "precondition: the window is pending"
+        );
+        engine
+            .apply(&mut state, &on, &entangler(0.4))
+            .expect("apply");
+        engine.retained_weight(&state).expect("weight");
+        assert_eq!(
+            calls.qr_moves.get() - before,
+            6,
+            "a gate on {on:?}, the centre first on {first_read:?}"
+        );
+        assert_eq!(
+            state.split_statistics().mpo_applications(),
+            2,
+            "precondition"
+        );
+    }
 }
 
 /// A read of a state and of the reference's, which checks they agree.

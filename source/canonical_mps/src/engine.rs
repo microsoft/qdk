@@ -32,8 +32,8 @@
 //!   applies at once;
 //! - [`split`]: the split of two neighbours, a gate applied, by one
 //!   [`gate_split`](SiteAlgebra::gate_split), the one place where the
-//!   engine truncates; it applies a window on two neighbours, and leaves
-//!   the centre on the side it is asked for;
+//!   state's bonds are truncated; it applies a window on two neighbours,
+//!   and leaves the centre on the side it is asked for;
 //! - [`mpo`]: any other window, applied as a matrix product operator
 //!   across its span, compressed back by splits;
 //! - [`canonical_form`]: moving the centre by one
@@ -88,7 +88,10 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// [`MpsEngine::prepare`]). A split normalises the values it keeps,
 /// so the chain keeps a norm of about 1, and multiplies the state's
 /// retained weight by the share of the squared values they held, which
-/// [`MpsEngine::retained_weight`] reports. A split that would take that
+/// [`MpsEngine::retained_weight`] reports. An MPO's factorisation of its
+/// window's operator (Sites far apart) also drops the operator's values
+/// at or below `1e-12` times its largest, which that weight does not
+/// count. A split that would take that
 /// weight below the smallest normal `f64` fails with
 /// [`CanonicalMpsError::WeightUnderflow`]: the contract keeps the weight
 /// above zero, because callers divide by it. A gate may drift from norm 1
@@ -105,12 +108,14 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// retained weight) applies it, so the backend sees one application for
 /// all its gates, and leaves the centre on the end of the window's span
 /// nearer the site that operation names (the lower end on a tie): a gate's
-/// lower site, a read's site, or the centre, when it names none. A one-site
-/// gate on another site waits on its site until the next split or move of
-/// the centre across it, or a projection of it, applies it; a read sees it
-/// applied. Fusion moves where the truncations fall, so a truncated run's
-/// values may differ from those of a run that applies each gate at once,
-/// within the truncation error; without truncation they agree to rounding.
+/// lower site; a read's site, but for a conditional read with conditions,
+/// which forks; or the centre, for an expectation, a fork, a shape or the
+/// retained weight. A one-site gate on another site waits on its site
+/// until the next split or move of the centre across it, a projection of
+/// it, or a window whose span holds it applies it; a read sees it applied.
+/// Fusion moves where the truncations fall, so a truncated run's values
+/// may differ from those of a run that applies each gate at once, within
+/// the truncation error; without truncation they agree to rounding.
 ///
 /// **Sites far apart.** A window on two neighbours is applied by one split.
 /// Any other, on sites further apart or on three sites, is applied as a

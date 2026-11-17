@@ -68,8 +68,8 @@ the window's sites:
 
 The centre moves only as far as an operation needs, and the application of
 a window leaves it on the end of the window's span the next operation
-needs, so a sequence of operations on nearby sites moves it little. After each method, with `c` the
-centre before it:
+needs, so a sequence of operations on nearby sites moves it little. After
+each method, with `c` the centre before it:
 
 | `MpsEngine` method                 | The centre after it                                                                                                                       |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -77,6 +77,7 @@ centre before it:
 | `apply`, one site                  | `c`: the gate waits, pending                                                                                                              |
 | `apply`, two sites                 | `c` when the gate joins the window, which stays pending; else the end of the applied window's span nearer the gate's lower site           |
 | `probability_of_one`, `project`    | the site read: the pending window is applied toward it first, which leaves the centre on its span's end nearer the site                   |
+| `conditional_probability_of_one`   | with conditions, as for `fork`, the conditions and the read on the fork; without, as for `probability_of_one`                             |
 | `expectation`                      | `c`, or the end of the pending window's span nearer `c`, when a window is pending; the reads copy the sites to the host without moving it |
 | `fork`, `shape`, `retained_weight` | as for `expectation`; a fork starts with its parent's centre                                                                              |
 
