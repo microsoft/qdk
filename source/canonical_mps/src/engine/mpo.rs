@@ -23,8 +23,8 @@
 //!    CNOT has an operator bond of 2, a general two-site gate at most 4.
 //! 2. **Multiply.** With the centre moved into the span, each site of the
 //!    span is read, its pending gate applied, multiplied by its MPO tensor
-//!    on the host, and uploaded: the bond at each cut of the span grows by
-//!    the operator's bond there, a transient bond
+//!    on the host, and uploaded: the bond at each cut of the span becomes
+//!    the chain's bond there times the operator's, a transient bond
 //!    ([`SplitStatistics::largest_transient_bond`]).
 //! 3. **Sweep.** The span is now any tensors, while the sites outside it
 //!    are still isometries towards it. Exact moves of the centre

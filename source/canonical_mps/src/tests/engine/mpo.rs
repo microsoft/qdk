@@ -5,7 +5,8 @@
 //! matrix product operator: they act in the caller's order, keep a state
 //! that fits the capacity, truncate only at the caller's cuts, grow the
 //! span by the operator's rank, and cost, once the centre is in a span of
-//! `d + 1` sites, `d` splits and `d − 1` moves.
+//! `d + 1` sites, `d` splits, `d − 1` moves, and one read and one upload
+//! of each site.
 
 use super::*;
 
@@ -205,29 +206,49 @@ fn zz_rotation(epsilon: f64) -> Vec<Complex64> {
     m
 }
 
-/// A read of site 2 leaves the centre inside the span of a CNOT on sites
-/// 0 and 4: the span of 5 sites takes 3 moves of the centre and 4 splits,
-/// and no move to reach the span.
+/// A window's MPO on a span of `d + 1` sites, flushed by the retained
+/// weight toward the centre a read left: a CNOT on sites 0 and 4 of 6 with
+/// the centre on site 2, inside the span, fused or not; a CNOT on sites 1
+/// and 5 of 7 with the centre on site 0 or 6, outside it; and a window of
+/// sites 0, 2 and 6 of 7 with the centre on site 3. The centre makes the
+/// moves to reach the span's nearer end, if any, then `d − 1`; the span
+/// takes `d` splits, and one read and one upload of each of its sites, so
+/// a backend that keeps its tensors on a device moves each across once.
 #[test]
-fn an_mpo_inside_its_span_costs_d_minus_1_moves_and_d_splits() {
-    for fuses in [true, false] {
+fn an_mpo_costs_d_minus_1_moves_d_splits_and_one_transfer_per_site() {
+    for (fuses, sites, gates, read, expected) in [
+        (true, 6, &[&[0, 4][..]][..], 2, (3, 4, 5, 5)),
+        (false, 6, &[&[0, 4]], 2, (3, 4, 5, 5)),
+        (true, 7, &[&[1, 5]], 0, (1 + 3, 4, 5, 5)),
+        (true, 7, &[&[1, 5]], 6, (1 + 3, 4, 5, 5)),
+        (true, 7, &[&[0, 2], &[6, 2]], 3, (5, 6, 7, 7)),
+    ] {
         let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(fuses);
-        let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
-        for site in 0..6 {
+        let mut state = engine.prepare(&chain(sites, 8)).expect("prepare");
+        for site in 0..sites {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
         }
-        engine.probability_of_one(&state, 2).expect("P(One)");
-        let (moves, splits) = (calls.qr_moves.get(), state.split_statistics().splits());
-        engine.apply(&mut state, &[0, 4], &cnot()).expect("apply");
+        engine.probability_of_one(&state, read).expect("P(One)");
+        let before = (
+            calls.qr_moves.get(),
+            state.split_statistics().splits(),
+            calls.reads.get(),
+            calls.uploads.borrow().len(),
+        );
+        for gate in gates {
+            engine.apply(&mut state, gate, &cnot()).expect("apply");
+        }
         engine.retained_weight(&state).expect("weight");
         assert_eq!(
             (
-                calls.qr_moves.get() - moves,
-                state.split_statistics().splits() - splits
+                calls.qr_moves.get() - before.0,
+                state.split_statistics().splits() - before.1,
+                calls.reads.get() - before.2,
+                calls.uploads.borrow().len() - before.3,
             ),
-            (3, 4),
-            "fuses {fuses}"
+            expected,
+            "fuses {fuses}, gates {gates:?}, centre on {read}"
         );
     }
 }

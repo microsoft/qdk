@@ -34,7 +34,7 @@ pub enum CanonicalMpsError<E> {
     /// A call the contract refuses: one whose arguments break the
     /// contract, refused before the state changed, or a projection or
     /// condition on a value of probability zero, refused after the engine
-    /// applied its pending window, as any read does, so that the state every
+    /// applied its pending window, as a read does, so that the state every
     /// read sees is unchanged. It displays as the refusal, word for word.
     #[error(transparent)]
     Refused(#[from] Refusal),
@@ -73,9 +73,8 @@ pub enum CanonicalMpsError<E> {
     /// ([`SvdError`](dense_linalg::SvdError), its source) did not converge
     /// or failed its checks. The state is then unspecified, as for
     /// [`Self::Algebra`], and the caller must drop it. It is not expected:
-    /// a window holds only
-    /// gates checked finite and unitary, whose SVD converges, so only a
-    /// fault of the host's SVD would reach it.
+    /// a window holds only gates checked finite and unitary, whose SVD
+    /// converges, so only a fault of the host's SVD would reach it.
     #[error("the factorisation of a window's operator failed")]
     OperatorDecomposition(#[source] dense_linalg::SvdError),
 }

@@ -51,10 +51,19 @@ fn a_fork_applies_the_pending_window_once() {
 /// splits the pair toward the site it reads, which leaves the centre
 /// there, so the centre makes no other move. With the centre already on
 /// site 1, where a read of site 1 had left it, a read of site 2 makes no
-/// move before the split.
+/// move before the split. A conditional read with no conditions forks
+/// nothing and reads as `probability_of_one` does, with the same moves;
+/// its rows are the two where a flush toward the centre would take one
+/// move more.
 #[test]
 fn a_read_applies_the_pending_window_toward_its_site() {
-    for (first_read, read, expected) in [(None, 2, 1), (Some(3), 1, 1), (Some(1), 2, 0)] {
+    for (read_of, first_read, read, expected) in [
+        (probability_of_one as SiteRead, None, 2, 1),
+        (probability_of_one, Some(3), 1, 1),
+        (probability_of_one, Some(1), 2, 0),
+        (unconditional_read, Some(3), 1, 1),
+        (unconditional_read, Some(1), 2, 0),
+    ] {
         let engine = Engine::new(CpuAlgebra);
         let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
         if let Some(site) = first_read {
@@ -62,7 +71,7 @@ fn a_read_applies_the_pending_window_toward_its_site() {
         }
         let moves = state.split_statistics().centre_moves();
         engine.apply(&mut state, &[1, 2], &cnot()).expect("apply");
-        engine.probability_of_one(&state, read).expect("P(One)");
+        read_of(&engine, &state, read);
         let statistics = state.split_statistics();
         assert_eq!(statistics.splits(), 1, "precondition, the pair's split");
         assert_eq!(
@@ -71,6 +80,21 @@ fn a_read_applies_the_pending_window_toward_its_site() {
             "a read of site {read}"
         );
     }
+}
+
+/// A read of one site of a state.
+type SiteRead = fn(&Engine, &State, usize);
+
+/// P(One) of `site`.
+fn probability_of_one(engine: &Engine, state: &State, site: usize) {
+    engine.probability_of_one(state, site).expect("P(One)");
+}
+
+/// P(One) of `site` given no conditions.
+fn unconditional_read(engine: &Engine, state: &State, site: usize) {
+    engine
+        .conditional_probability_of_one(state, site, &[])
+        .expect("P(One | nothing)");
 }
 
 /// An operation on a state that reads it.

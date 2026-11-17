@@ -34,12 +34,13 @@ sequenceDiagram
   Note over E,A: window (see below)
   E->>A: qr_move and read, as probability_of_one
   E->>A: upload, of site s projected
-  Note over S,A: conditional_probability_of_one: check, a fork, then project per condition, then a read
+  Note over S,A: conditional_probability_of_one: check; with conditions, a fork, then project per condition, then a read on the fork; without, as probability_of_one
   S->>E: conditional_probability_of_one(state, s, given)
-  Note over E,A: window (see below)
+  Note over E,A: with conditions: window (see below), toward the centre
   E->>A: duplicate, once per site
   E->>A: per condition, as project, on the fork
   E->>A: as probability_of_one, on the fork
+  Note over E,A: without conditions: as probability_of_one, no duplicate
   Note over S,A: expectation: check, window, read, contract
   S->>E: expectation(state, observable)
   Note over E,A: window (see below)
@@ -88,8 +89,8 @@ value and drops values whose squares sum to at most the cutoff times the
 sum of all their squares, unless the cap cuts more: the capacity's bond at
 the cut. Every split, an MPO's included, is at a caller's cut, so every
 split leaves a bond at rest; inside an MPO's span, a bond grows, before
-its split, to at most the capacity's times the operator's bond, at most 4
-([`distant_sites.md`](distant_sites.md)). These are the bounds of
+its split, to at most the capacity's times the operator's bond (at most
+4; [`distant_sites.md`](distant_sites.md)). These are the bounds of
 `gate_split`'s contract ([`algebra.rs`](../src/algebra.rs)); which values
 a split drops within them is the algebra's to choose. A split normalises
 the values it keeps, so the chain keeps a norm of about 1.
