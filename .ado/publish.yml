@@ -23,6 +23,9 @@ variables:
   RUST_TOOLCHAIN_VERSION: "1.99"
   # Windows/macOS provisioning; Linux uses the interpreter already in qdkBuild.
   PYTHON_FREETHREADED_VERSION: "3.15.2"
+  # Expected macOS archive digests; update alongside PYTHON_FREETHREADED_VERSION.
+  PYTHON_MAC_X64_SHA256: 40d77d85d5293256e0fdaafc43faac628ceb1dafaa6ebcd9d2f78232b0ba9c7c
+  PYTHON_MAC_ARM64_SHA256: 0c164aca56952e34683717fe92b534d9cc995340fb89e3decc98c43956d43708
   # CFS requires that we have a .npmrc next to each package.json.  If we set this variable, it will
   # synthesize everything it requires during the pipeline run, leaving our external contributors
   # free to continue using the default npmjs.org registry.
@@ -97,8 +100,6 @@ parameters:
 # - BUILD_TYPE
 # - cratesIoFeedOverride
 # - OwnerPersonalAlias
-# - pythonMacArm64Sha256
-# - pythonMacX64Sha256
 # - toolchainFeed
 
 extends:
@@ -615,12 +616,11 @@ extends:
                               Write-Host "##vso[task.setvariable variable=pythonLocation;isOutput=true]$location"
                             name: Python315t
                             displayName: Install Python 3.15 free-threaded
-                            # Expected archive digests; update alongside PYTHON_FREETHREADED_VERSION.
                             env:
                               ${{ if eq(target.arch, 'aarch64') }}:
-                                PYTHON_FREETHREADED_SHA256: $(pythonMacArm64Sha256)
+                                PYTHON_FREETHREADED_SHA256: $(PYTHON_MAC_ARM64_SHA256)
                               ${{ else }}:
-                                PYTHON_FREETHREADED_SHA256: $(pythonMacX64Sha256)
+                                PYTHON_FREETHREADED_SHA256: $(PYTHON_MAC_X64_SHA256)
 
                       - pwsh: |
                           $ErrorActionPreference = "Stop"
