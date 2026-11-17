@@ -81,13 +81,11 @@ impl Profiler for SequentialCountingProfiler {
                 continue;
             }
             let name = instruction_id_to_name(id);
-            let gate_time_sec = if let Some(&duration) = self.gate_time_sec.get(name) {
-                calls_per_operation.insert(name.to_string(), calls);
-                duration
-            } else {
+            let Some(&gate_time_sec) = self.gate_time_sec.get(name) else {
                 missing_timings.push(name);
-                0.0
+                continue;
             };
+            calls_per_operation.insert(name.to_string(), calls);
             #[allow(clippy::cast_precision_loss)] // Profiling runtimes are represented as f64.
             let runtime = calls as f64 * gate_time_sec;
             total_runtime_sec += runtime;
@@ -398,12 +396,7 @@ mod tests {
         );
         assert_eq!(
             result.totals.runtime_sec_per_operation,
-            FxHashMap::from_iter([
-                ("cx".into(), 0.0),
-                ("h".into(), 0.25),
-                ("mz_store".into(), 0.0),
-                ("read_result".into(), 0.0),
-            ])
+            FxHashMap::from_iter([("h".into(), 0.25)])
         );
         assert_eq!(
             result.infos,
@@ -431,10 +424,7 @@ mod tests {
         ])?;
         let result = profiler.get_result();
         assert!(result.totals.calls_per_operation.is_empty());
-        assert_eq!(
-            result.totals.runtime_sec_per_operation,
-            FxHashMap::from_iter([("h".into(), 0.0)])
-        );
+        assert!(result.totals.runtime_sec_per_operation.is_empty());
         assert_eq!(result.totals.logical_qubits, 5);
         assert_eq!(
             result.infos,
@@ -577,9 +567,9 @@ mod tests {
     }
 
     #[test]
-    /// Reports one message listing executed gates whose timings were omitted.
+    /// Reports omitted timings while retaining explicitly configured zero-duration gates.
     fn reports_missing_gate_timings() {
-        let timings = FxHashMap::from_iter([("h".to_string(), 0.25)]);
+        let timings = FxHashMap::from_iter([("h".to_string(), 0.0)]);
         let mut profiler = SequentialCountingProfiler::new(10, timings).expect("valid timings");
         profiler
             .execute_batch(&[
@@ -627,11 +617,7 @@ mod tests {
         );
         assert_eq!(
             result.totals.runtime_sec_per_operation,
-            FxHashMap::from_iter([
-                ("h".to_string(), 0.25),
-                ("mz_store".to_string(), 0.0),
-                ("read_result".to_string(), 0.0),
-            ])
+            FxHashMap::from_iter([("h".to_string(), 0.0)])
         );
     }
 }
