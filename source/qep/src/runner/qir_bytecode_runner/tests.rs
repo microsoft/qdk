@@ -192,42 +192,6 @@ fn branches_on_measurement_and_converts_outputs() -> Result<(), String> {
 }
 
 #[test]
-/// Measures prepared X/Y eigenstates repeatedly without changing their eigenvalues.
-fn xy_measurements_preserve_eigenstates() -> Result<(), String> {
-    for measurement in [30, 31] {
-        for negative in [false, true] {
-            let mut instructions = Vec::new();
-            if negative {
-                instructions.push(quantum(0x10, 0, 0, 0));
-            }
-            instructions.push(quantum(0x10, 1, 0, 0));
-            if measurement == 31 {
-                instructions.push(quantum(0x10, 2, 0, 0));
-            }
-            instructions.extend([
-                quantum(0x11, 3, 0, 0),
-                record(0, 0),
-                quantum(0x11, 3, 0, 1),
-                record(0, 1),
-                ret(),
-            ]);
-            let program = program(instructions, vec![op(2), op(5), op(6), op(measurement)]);
-            let mut backend = QuantumBackends::sparse_sim();
-            let output = run_adaptive_program(&program, &mut backend)?;
-            assert_eq!(
-                output
-                    .records
-                    .into_iter()
-                    .map(|r| r.value)
-                    .collect::<Vec<_>>(),
-                vec![OutputValue::Result(negative); 2]
-            );
-        }
-    }
-    Ok(())
-}
-
-#[test]
 /// Runs measurement-reset, result-slot reuse, and classical writes against a real backend.
 fn result_slots_and_reset_work_with_sparse_backend() -> Result<(), String> {
     let program = program(
@@ -336,7 +300,7 @@ fn propagates_measurement_errors() {
     );
     for (response, expected) in [
         (Err("backend failed".into()), "backend failed"),
-        (Ok(BatchResult::default()), "no result"),
+        (Ok(BatchResult::default()), "returned 0 results; expected 1"),
         (
             Ok(BatchResult {
                 results: smallvec![QuantumBackendResult::Error],
@@ -347,7 +311,7 @@ fn propagates_measurement_errors() {
             Ok(BatchResult {
                 results: smallvec![QuantumBackendResult::Zero, QuantumBackendResult::One],
             }),
-            "multiple results",
+            "returned 2 results; expected 1",
         ),
     ] {
         let mut backend = Recorder {

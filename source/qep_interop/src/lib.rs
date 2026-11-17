@@ -1,3 +1,4 @@
+use qep::Parameter::ResultId;
 use qep::interface::Driver;
 use qep::{
     Batcher, DEFAULT_MAX_BATCH_SIZE, DemoModel1, OPERATION_COUNT, Parameter, Profiler,
@@ -464,6 +465,53 @@ pub extern "C" fn qdk_mz_reset(qubit_id: usize) -> usize {
     instruction_with_result("mz_reset", smallvec![Parameter::QubitId(qubit_id)])
 }
 
+/// Reads stored result IDs `0..count` into consecutive bytes of `output`.
+///
+/// Writes results to `output[0], ..., output[count - 1]`, using 0/1/2 for Zero/One/Error.
+///
+/// This function exists to allow deferred measurement of multiple qubits in a single batch.
+/// Users must first call [`qdk_mz_store`] or [`qdk_mz_store_reset`] to measure qubits
+/// and write them into the corresponding result IDs. All requested result IDs must
+/// be initialized before calling this function. Stored results are not consumed.
+///
+/// It is not guaranteed that all results will be read in a single batch, but the
+/// library will attempt to do so. Batching is best effort.
+/// Backend execution failures or an unexpected result count abort the process.
+///
+/// If `count` is zero, pending instructions are still flushed, but `output` is not
+/// accessed and may be null.
+///
+/// # Safety
+///
+/// For nonzero `count`, `output` must point to a single allocation containing at
+/// least `count` writable bytes from that pointer, valid for the duration of this
+/// call. These bytes must not be accessed concurrently by other threads.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qdk_read_results(count: usize, output: *mut u8) {
+    let mut profiler = lock_backend();
+    for i in 0..count {
+        profiler.batcher.push_no_flush(QuantumBackendInstruction {
+            instruction_name: "read_result",
+            parameters: smallvec![Parameter::ResultId(i)],
+        });
+    }
+    let result = profiler
+        .batcher
+        .flush(count)
+        .unwrap_or_else(|error| abort_with_error(&format!("qdk_read_results failed: {error}")));
+    debug_assert!(result.results.len() == count);
+    for i in 0..count {
+        // SAFETY: The caller guarantees output points to count writable bytes.
+        unsafe {
+            output.add(i).write(match result.results[i] {
+                qep::QuantumBackendResult::Zero => 0,
+                qep::QuantumBackendResult::One => 1,
+                qep::QuantumBackendResult::Error => 2,
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -667,6 +715,31 @@ mod tests {
                 .len(),
             expected.len() + 1
         );
+        *lock_backend() = BackendWrapper::stdio();
+    }
+
+    #[test]
+    /// Reads stored sparse-simulator results in ID order without overwriting adjacent bytes.
+    fn reads_multiple_results_with_sparse_sim() {
+        let _test_lock = TEST_LOCK.lock().expect("test mutex must not be poisoned");
+        // SAFETY: The backend name is a static, NUL-terminated string.
+        unsafe { qdk_init(c"sparse_sim".as_ptr()) };
+        qdk_x(2);
+        qdk_x(1);
+        qdk_mz_store_reset(2, 0);
+        qdk_mz_store(0, 1);
+        qdk_mz_store(1, 2);
+
+        let mut output = [255_u8; 5];
+        // SAFETY: The output allocation has three writable bytes after the first byte.
+        unsafe { qdk_read_results(3, output.as_mut_ptr().add(1)) };
+        assert_eq!(output, [255, 1, 0, 1, 255]);
+        assert_eq!(qdk_mz(2), 0);
+
+        output.fill(255);
+        // SAFETY: The output allocation has three writable bytes after the first byte.
+        unsafe { qdk_read_results(3, output.as_mut_ptr().add(1)) };
+        assert_eq!(output, [255, 1, 0, 1, 255]);
         *lock_backend() = BackendWrapper::stdio();
     }
 

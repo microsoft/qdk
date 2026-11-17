@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
+    BatchResult, Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
     instructions::produces_result, interface::Driver,
 };
 use smallvec::smallvec;
@@ -40,12 +40,17 @@ impl<B: QuantumBackend> Batcher<B> {
         }
     }
 
+    /// Buffers instruction. Guaranteed to not send a batch.
+    pub fn push_no_flush(&mut self, instruction: QuantumBackendInstruction) {
+        self.instructions.push(instruction);
+    }
+
     /// Buffers a non-blocking instruction and flushes a full batch.
     pub fn push(&mut self, instruction: QuantumBackendInstruction) -> Result<(), String> {
         debug_assert!(!produces_result(&instruction));
         self.instructions.push(instruction);
         if self.instructions.len() == self.max_batch_size {
-            self.flush(false)?;
+            self.flush(0)?;
         }
         Ok(())
     }
@@ -65,48 +70,39 @@ impl<B: QuantumBackend> Batcher<B> {
 
     /// Flushes at a result barrier, preserving a single backend-reported error value.
     ///
-    /// Unlike [`Self::push_with_result`], this returns `QuantumBackendResult::Error`
+    /// Unlike [`Self::read_result`], this returns `QuantumBackendResult::Error`
     /// as a value. Execution failures and invalid result counts remain errors.
     pub fn push_with_result(
         &mut self,
         instruction: QuantumBackendInstruction,
     ) -> Result<QuantumBackendResult, String> {
         debug_assert!(produces_result(&instruction));
-        let name = instruction.instruction_name;
         self.instructions.push(instruction);
-        self.flush(true)?
-            .ok_or_else(|| format!("QIR backend returned no result for a batch ending in {name}"))
+        let batch = self.flush(1)?;
+        Ok(batch.results[0])
     }
 
     /// Flushes instructions remaining at the end of execution.
     pub fn finish(&mut self) -> Result<(), String> {
         if !self.instructions.is_empty() {
-            self.flush(false)?;
+            self.flush(0)?;
         }
         Ok(())
     }
 
-    /// Executes the buffered instructions and validates the backend response.
-    fn flush(&mut self, expects_result: bool) -> Result<Option<QuantumBackendResult>, String> {
+    /// Executes the buffered instructions and validates only the result count.
+    pub fn flush(&mut self, expected_batch_size: usize) -> Result<BatchResult, String> {
         let batch = self.backend.execute_batch(&self.instructions);
         self.instructions.clear();
         let batch = batch?;
 
-        if batch.results.contains(&QuantumBackendResult::Error)
-            && !(expects_result && batch.results.len() == 1)
-        {
-            return Err("QIR backend returned an error result".into());
+        if batch.results.len() != expected_batch_size {
+            return Err(format!(
+                "QIR backend returned {} results; expected {expected_batch_size}",
+                batch.results.len()
+            ));
         }
-        match (expects_result, batch.results.as_slice()) {
-            (_, []) => Ok(None),
-            (true, [result]) => Ok(Some(*result)),
-            (false, _) => {
-                Err("QIR backend returned a result for a batch without read_result".into())
-            }
-            (true, _) => Err(
-                "QIR backend returned multiple results for a batch ending in read_result".into(),
-            ),
-        }
+        Ok(batch)
     }
 }
 
@@ -253,14 +249,14 @@ mod tests {
         use QuantumBackendResult::{Error, One, Zero};
 
         let cases: &[(bool, &[QuantumBackendResult], &str)] = &[
-            (true, &[], "returned no result"),
-            (true, &[Zero, One], "returned multiple results"),
-            (false, &[Zero], "returned a result"),
-            (false, &[One, Zero], "returned a result"),
+            (true, &[], "returned 0 results; expected 1"),
+            (true, &[Zero, One], "returned 2 results; expected 1"),
+            (false, &[Zero], "returned 1 results; expected 0"),
+            (false, &[One, Zero], "returned 2 results; expected 0"),
             (true, &[Error], "returned an error result"),
-            (false, &[Error], "returned an error result"),
-            (true, &[Zero, Error], "returned an error result"),
-            (false, &[Error, One], "returned an error result"),
+            (false, &[Error], "returned 1 results; expected 0"),
+            (true, &[Zero, Error], "returned 2 results; expected 1"),
+            (false, &[Error, One], "returned 2 results; expected 0"),
         ];
         for &(expects_result, results, expected) in cases {
             let mut backend = RecordingBackend {
