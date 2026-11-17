@@ -158,10 +158,19 @@ fn an_mpo_truncates_only_at_the_callers_cuts() {
 /// entangler, a partial iSWAP with a phase, of rank 4, to 4, and Z⊗Z, of
 /// rank 1, leaves them at 1. A factorisation that kept rounding's values
 /// would grow every one to 4, and only the cuts inside the span count, not
-/// the bond of 2 beside it.
+/// the bond of 2 beside it. A rotation `exp(−iε Z⊗Z)` has a second
+/// operator value of `ε` relative to the first: at `ε` of `1e-9` it is kept,
+/// a bond of 2, and at `1e-13`, below the operator's cutoff of `1e-12`, it
+/// is dropped, a bond of 1.
 #[test]
 fn an_mpo_grows_the_span_by_the_operators_rank() {
-    for (gate, rank) in [(cnot(), 2), (entangler(0.9), 4), (zz(), 1)] {
+    for (gate, rank) in [
+        (cnot(), 2),
+        (entangler(0.9), 4),
+        (zz(), 1),
+        (zz_rotation(1e-9), 2),
+        (zz_rotation(1e-13), 1),
+    ] {
         for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
             let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
             for site in 0..6 {
@@ -177,6 +186,15 @@ fn an_mpo_grows_the_span_by_the_operators_rank() {
             assert_eq!(statistics.largest_transient_bond(), rank, "{name}");
         }
     }
+}
+
+/// `exp(−iε Z⊗Z)`, whose operator values are `cos ε` and `sin ε`, times 2.
+fn zz_rotation(epsilon: f64) -> Vec<Complex64> {
+    let mut m = vec![real(0.0); 16];
+    for (at, sign) in [-1.0, 1.0, 1.0, -1.0].into_iter().enumerate() {
+        m[5 * at] = Complex64::from_polar(1.0, sign * epsilon);
+    }
+    m
 }
 
 /// A read of site 2 leaves the centre inside the span of a CNOT on sites

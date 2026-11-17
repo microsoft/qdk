@@ -15,9 +15,11 @@
 //! `docs/distant_sites.md` compares them). The steps:
 //!
 //! 1. **Factor.** The operator on `k` sites becomes `k` tensors by `k − 1`
-//!    thin SVDs on the host ([`operator_mpo`]), dropping only rounding's
-//!    values ([`OPERATOR_RANK_CUTOFF`]): a CNOT has an operator bond of 2,
-//!    a general two-site gate at most 4.
+//!    thin SVDs on the host ([`operator_mpo`]), dropping the values below
+//!    [`OPERATOR_RANK_CUTOFF`] times the largest: rounding's, or a part of
+//!    the operator of at most that relative size, which the retained
+//!    weight does not count. A CNOT has an operator bond of 2, a general
+//!    two-site gate at most 4.
 //! 2. **Multiply.** With the centre moved into the span, each site of the
 //!    span is read, its pending gate applied, multiplied by its MPO tensor
 //!    on the host, and uploaded: the bond at each cut of the span grows by
@@ -54,7 +56,8 @@ use std::borrow::Cow;
 impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     /// Applies `operator` (row-major, `sites[0]` the most significant bit)
     /// to `sites` (ascending, at least two) as an MPO, compresses the span,
-    /// and leaves the centre on the span's end nearer `toward`.
+    /// and leaves the centre on the span's end nearer `toward`, the lower
+    /// end on a tie.
     pub(super) fn apply_mpo(
         &self,
         chain: &mut Chain<A::Tensor>,
