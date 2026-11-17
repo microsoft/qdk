@@ -868,10 +868,7 @@ fn mono_code(block_ops: &[Op], b: u32) -> Option<Vec<[f32; 4]>> {
             Op::G1 { q, m } => (vec![*q], 2, m),
             Op::G2 { a, b, m } => (vec![*a, *b], 4, m),
             Op::Noise { targets, .. } => {
-                let images = targets
-                    .iter()
-                    .map(|&t| [1 << t, 0, 0, 1 << t])
-                    .collect();
+                let images = targets.iter().map(|&t| [1 << t, 0, 0, 1 << t]).collect();
                 sites.push((op, images));
                 continue;
             }
@@ -935,6 +932,7 @@ fn mono_code(block_ops: &[Op], b: u32) -> Option<Vec<[f32; 4]>> {
             }
             (out, c ^ parity(mask & pvec))
         };
+        #[allow(clippy::needless_range_loop)] // `i` also indexes the bits of `a`
         for i in 0..b as usize {
             let (row, ai) = subst(rows[i], (a >> i) & 1);
             rows[i] = row;
@@ -1017,7 +1015,11 @@ fn conjugate_pauli(m: &[Complex64], d: usize, x: usize, z: usize) -> Option<(usi
     let pauli = |x: usize, z: usize| {
         let mut p = vec![zero; d * d];
         for c in 0..d {
-            let s = if (c & z).count_ones() % 2 == 1 { -1.0 } else { 1.0 };
+            let s = if (c & z).count_ones() % 2 == 1 {
+                -1.0
+            } else {
+                1.0
+            };
             p[(c ^ x) * d + c] = Complex64::new(s, 0.0);
         }
         p
@@ -1043,7 +1045,11 @@ fn conjugate_pauli(m: &[Complex64], d: usize, x: usize, z: usize) -> Option<(usi
             if !lambda.re.is_finite() || (lambda.norm() - 1.0).abs() > 1e-9 {
                 continue;
             }
-            if conj.iter().zip(&q).all(|(c, q)| (c - lambda * q).norm() < 1e-9) {
+            if conj
+                .iter()
+                .zip(&q)
+                .all(|(c, q)| (c - lambda * q).norm() < 1e-9)
+            {
                 return Some((qx, qz));
             }
         }
@@ -1283,6 +1289,7 @@ enum SegKind {
 /// SPIKE: an entry of a Pauli frame: a Pauli on a qubit (`x`, `z`: whether
 /// it has an X and a Z part), or a noise site (`Op::Noise`).
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)] // spike code: boxing `Op` was not measured
 enum FrameEntry {
     Pauli { q: u32, x: bool, z: bool },
     Noise(Op),
@@ -1290,7 +1297,8 @@ enum FrameEntry {
 
 /// SPIKE: the Pauli `m` is up to a phase (X, Y or Z), as (x, z) parts.
 fn pauli_parts(m: &[Complex64; 4]) -> Option<(bool, bool)> {
-    let is = |c: Complex64, re: f64, im: f64| (c.re - re).abs() < 1e-12 && (c.im - im).abs() < 1e-12;
+    let is =
+        |c: Complex64, re: f64, im: f64| (c.re - re).abs() < 1e-12 && (c.im - im).abs() < 1e-12;
     let zero = |c: Complex64| is(c, 0.0, 0.0);
     if zero(m[0]) && zero(m[3]) && is(m[1], 1.0, 0.0) && is(m[2], 1.0, 0.0) {
         Some((true, false))
@@ -1525,10 +1533,9 @@ fn translate(
                 SegKind::Gate2 { a, b, .. } => format!("Gate2({a},{b})"),
                 SegKind::Pauli(_) => "Pauli".to_string(),
                 SegKind::Meas { q, .. } => format!("Meas({q})"),
-                SegKind::Joint(ms) => format!(
-                    "Joint({:?})",
-                    ms.iter().map(|m| m.0).collect::<Vec<_>>()
-                ),
+                SegKind::Joint(ms) => {
+                    format!("Joint({:?})", ms.iter().map(|m| m.0).collect::<Vec<_>>())
+                }
                 SegKind::Guarded { op, guard } => format!("Guarded({:?}: {op:?})", guard.meas),
                 SegKind::Frame(entries) => format!("Frame({} entries)", entries.len()),
             })
@@ -2024,7 +2031,9 @@ pub fn common_ends(batches: &[Vec<QirCall>]) -> (usize, usize) {
 /// The `partial` entries a shot needs: `prob`'s `per_shot`, or (SPIKE) a
 /// joint measurement's, at most `2^k * C` (`max(256, 2^(n-4))`).
 fn partial_per_shot(n: u32, per_shot: u32) -> u64 {
-    u64::from(per_shot).max(256).max(1u64 << n.saturating_sub(4))
+    u64::from(per_shot)
+        .max(256)
+        .max(1u64 << n.saturating_sub(4))
 }
 
 /// The passes of a round being laid out: their parameters, op lists and
@@ -2548,11 +2557,14 @@ impl QirGpuResumer {
         let high = n - 1;
         // The spread block set of rep_9's third block per round (when n
         // allows), and a CX chain along it.
-        let spread: u64 = if n >= 17 { 0x1c1e7 } else { (1 << BLOCK_QUBITS.min(n)) - 1 };
-        let spread_qubits: Vec<u32> = (0..64u32).filter(|q| spread >> q & 1 == 1).collect();
-        let spread_chain = || -> Vec<Op> {
-            spread_qubits.windows(2).map(|w| cx(w[0], w[1])).collect()
+        let spread: u64 = if n >= 17 {
+            0x1c1e7
+        } else {
+            (1 << BLOCK_QUBITS.min(n)) - 1
         };
+        let spread_qubits: Vec<u32> = (0..64u32).filter(|q| spread >> q & 1 == 1).collect();
+        let spread_chain =
+            || -> Vec<Op> { spread_qubits.windows(2).map(|w| cx(w[0], w[1])).collect() };
         let block_qubits = BLOCK_QUBITS.min(n);
         let rx_m = |q, t| match rx(q, t) {
             Op::G1 { m, .. } => m,
@@ -2697,7 +2709,16 @@ impl QirGpuResumer {
                 "frame of 9 guarded X, guards false (SPIKE)",
                 SegKind::Frame(
                     (0..9)
-                        .map(|q| (guard(0), FrameEntry::Pauli { q, x: true, z: false }))
+                        .map(|q| {
+                            (
+                                guard(0),
+                                FrameEntry::Pauli {
+                                    q,
+                                    x: true,
+                                    z: false,
+                                },
+                            )
+                        })
                         .collect(),
                 ),
             ),
@@ -2705,7 +2726,16 @@ impl QirGpuResumer {
                 "frame of 9 guarded X, guards true (SPIKE)",
                 SegKind::Frame(
                     (0..9)
-                        .map(|q| (guard(0xf), FrameEntry::Pauli { q, x: true, z: false }))
+                        .map(|q| {
+                            (
+                                guard(0xf),
+                                FrameEntry::Pauli {
+                                    q,
+                                    x: true,
+                                    z: false,
+                                },
+                            )
+                        })
                         .collect(),
                 ),
             ),
