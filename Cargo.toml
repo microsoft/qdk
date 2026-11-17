@@ -33,6 +33,7 @@ members = [
     "source/qep",
     "source/qep_interop",
     "source/qre",
+    "source/qsp",
     "source/resource_estimator",
     "source/samples_test",
     "source/wasm",

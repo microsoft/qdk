@@ -21,6 +21,7 @@ qdk_simulators = { path = "../simulators", features = ["gpu"] }
 resource_estimator = { path = "../resource_estimator" }
 qre = { path = "../qre" }
 qep = { path = "../qep" }
+qsp = { path = "../qsp" }
 miette = { workspace = true, features = ["fancy"] }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

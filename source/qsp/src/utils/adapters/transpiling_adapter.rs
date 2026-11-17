@@ -5,7 +5,7 @@ use crate::{
     BatchResult, InstructionId, QuantumBackend, QuantumBackendInstruction, RzTranspiler,
     instructions as instr,
     interface::Driver,
-    transpilers::{
+    utils::transpilers::{
         CliffordTranspiler, DecomposeToffoliTranspiler, MzResetTranspiler, SwapTransplier,
         Transpiler,
     },

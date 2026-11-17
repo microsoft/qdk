@@ -8,23 +8,19 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+qsp = { path = "../qsp" }
 rand = { workspace = true }
-rsgridsynth = "0.2.2"
 rustc-hash = { workspace = true }
 smallvec = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-num-bigint = { workspace = true }
-num-complex = { workspace = true }
 qdk_simulators = { path = "../simulators", default-features = false }
-qsc_eval = { path = "../compiler/qsc_eval" }
 qsc = { path = "../compiler/qsc" }
-thiserror = { workspace = true }
 strum = { version = "0.27", features = ["derive"] }
 
 [dev-dependencies]
 expect-test = { workspace = true }
-resource_estimator = { path = "../resource_estimator" }
+qsc_eval = { path = "../compiler/qsc_eval" }
 
 [lints]
 workspace = true

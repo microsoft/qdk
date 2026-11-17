@@ -1,0 +1,28 @@
+[package]
+name = "qsp"
+
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rsgridsynth = "0.2.2"
+rustc-hash = { workspace = true }
+smallvec = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+num-bigint = { workspace = true }
+num-complex = { workspace = true }
+qdk_simulators = { path = "../simulators", default-features = false }
+qsc_eval = { path = "../compiler/qsc_eval" }
+qsc = { path = "../compiler/qsc" }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }
+resource_estimator = { path = "../resource_estimator" }
+
+[lints]
+workspace = true

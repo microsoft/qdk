@@ -2081,6 +2081,7 @@ dependencies = [
  "qep",
  "qre",
  "qsc",
+ "qsp",
  "rand 0.10.2",
  "rayon",
  "resource_estimator",
@@ -2136,20 +2137,16 @@ name = "qep"
 version = "0.0.0"
 dependencies = [
  "expect-test",
- "num-bigint",
- "num-complex",
  "qdk_simulators",
  "qsc",
  "qsc_eval",
+ "qsp",
  "rand 0.10.2",
- "resource_estimator",
- "rsgridsynth",
  "rustc-hash",
  "serde",
  "serde_json",
  "smallvec",
  "strum",
- "thiserror",
 ]
 
 [[package]]
@@ -2607,6 +2604,25 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "qsp"
+version = "0.0.0"
+dependencies = [
+ "expect-test",
+ "num-bigint",
+ "num-complex",
+ "qdk_simulators",
+ "qsc",
+ "qsc_eval",
+ "resource_estimator",
+ "rsgridsynth",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "thiserror",
 ]
 
 [[package]]

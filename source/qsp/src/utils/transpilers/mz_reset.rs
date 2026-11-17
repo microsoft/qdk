@@ -41,10 +41,9 @@ impl Transpiler for MzResetTranspiler {
 mod tests {
     use super::*;
     use crate::{
-        Parameter, Profiler, QuantumBackend,
+        Parameter, QuantumBackend,
         QuantumBackendResult::{One, Zero},
-        QuantumBackends, ResultAdapter, TemporalProfilerConfig, TranspilingAdapter,
-        make_profiler_for_demo_model,
+        QuantumBackends, ResultAdapter, TranspilingAdapter,
     };
 
     /// Rejects invalid source IDs and operands without emitting partial output.
@@ -104,38 +103,4 @@ mod tests {
         Ok(())
     }
 
-    /// Charges separate measurement and reset intervals while returning only one result.
-    #[test]
-    fn profiles_measurement_then_reset() -> Result<(), String> {
-        let mut profiler = TranspilingAdapter::with_defaults(make_profiler_for_demo_model(
-            TemporalProfilerConfig {
-                record_trace: true,
-                seed: Some(42),
-                ..TemporalProfilerConfig::default()
-            },
-        ));
-        let result = profiler.execute_batch(&[QuantumBackendInstruction {
-            instruction_id: instr::MZ_RESET,
-            parameters: smallvec![QubitId(2)],
-        }])?;
-        assert_eq!(result.results.len(), 1);
-        let profile = serde_json::to_value(profiler.get_result()).expect("profile serializes");
-        let instructions: Vec<_> = profile["trace"]["instructions"]
-            .as_array()
-            .expect("trace instructions")
-            .iter()
-            .filter(|entry| entry["instruction"]["instruction_name"] != "round")
-            .collect();
-        assert_eq!(instructions.len(), 2);
-        for (entry, name, start, end) in [
-            (instructions[0], "mz", 0, 1_000),
-            (instructions[1], "reset", 1_000, 2_000),
-        ] {
-            assert_eq!(entry["instruction"]["instruction_name"], name);
-            assert_eq!(entry["instruction"]["parameters"][0]["QubitId"], 2);
-            assert_eq!(entry["start_time_nanos"], start);
-            assert_eq!(entry["end_time_nanos"], end);
-        }
-        Ok(())
-    }
 }

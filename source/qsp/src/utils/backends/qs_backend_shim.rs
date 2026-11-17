@@ -264,7 +264,7 @@ impl<B: Backend> QuantumBackend for QsBackendShim<B> {
 #[cfg(test)]
 mod tests {
     use super::QsBackendShim;
-    use crate::tests::run_qsharp_main;
+    use crate::utils::test_utils::run_qsharp_main;
     use expect_test::expect;
     use qsc_eval::backend::{CliffordSim, SparseSim};
     use resource_estimator::counts::LogicalCounter;

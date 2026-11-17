@@ -123,7 +123,7 @@ define_instructions! {
 }
 
 /// Identifies instructions that produce a result.
-pub(crate) fn produces_result(instruction: &QuantumBackendInstruction) -> bool {
+pub fn produces_result(instruction: &QuantumBackendInstruction) -> bool {
     matches!(instruction.instruction_id, READ_RESULT | MZ | MZ_RESET)
 }
 

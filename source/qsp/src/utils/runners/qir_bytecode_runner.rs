@@ -4,7 +4,8 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Batcher, DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, RunOutput};
+use super::super::batcher::{Batcher, DEFAULT_MAX_BATCH_SIZE};
+use super::{OutputRecord, OutputValue, RunOutput};
 use crate::{
     InstructionId,
     Parameter::{self, Float, QubitId},

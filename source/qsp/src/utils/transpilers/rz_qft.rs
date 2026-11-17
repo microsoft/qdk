@@ -122,7 +122,8 @@ impl Transpiler for RzQftTranspiler {
 mod tests {
     use super::*;
     use crate::{
-        BatchResult, QuantumBackend, QuantumBackends, TranspilingAdapter, tests::run_qsharp_main,
+        BatchResult, QuantumBackend, QuantumBackends, TranspilingAdapter,
+        utils::test_utils::run_qsharp_main,
     };
     use num_bigint::BigUint;
     use num_complex::Complex64;

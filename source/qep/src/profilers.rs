@@ -10,6 +10,7 @@ mod temporal_profiler;
 use crate::{QuantumBackend, StreamDriver, run_adaptive_program, run_qsharp_call, run_qsharp_expr};
 use qdk_simulators::bytecode::AdaptiveProgram;
 use qsc::interpret::{Interpreter, Value};
+use qsp::utils::adapters::Adapter;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,
@@ -83,6 +84,17 @@ impl ProfilerResult {
         writer
             .flush()
             .map_err(|error| format!("Failed to flush {}: {error}", path.display()))
+    }
+}
+
+/// Any adapter on top of `Profiler` produces a `Profiler`.
+impl<A: Adapter> Profiler for A
+where
+    A::Backend: Profiler,
+{
+    /// Returns profiling data collected by the wrapped backend.
+    fn get_result(&self) -> crate::ProfilerResult {
+        self.get_backend().get_result()
     }
 }
 

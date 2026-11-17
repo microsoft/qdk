@@ -76,7 +76,7 @@ pyo3::create_exception!(qsharp.qre, EstimationError, PyException);
 /// Serves a backend on duplicated Unix pipe descriptors with the GIL released.
 fn run_backend_fds(
     py: Python<'_>,
-    backend: &mut (impl qep::QuantumBackend + Send),
+    backend: &mut (impl qsp::QuantumBackend + Send),
     instruction_fd: i32,
     result_fd: i32,
 ) -> PyResult<()> {
@@ -96,7 +96,7 @@ fn run_backend_fds(
         let instructions = duplicate(instruction_fd)?;
         let results = duplicate(result_fd)?;
         py.detach(|| {
-            qep::StreamDriver::new(backend, instructions, results)
+            qsp::StreamDriver::new(backend, instructions, results)
                 .run()
                 .map_err(PyRuntimeError::new_err)
         })
@@ -113,7 +113,7 @@ fn run_backend_fds(
 /// Collects a trace until instruction EOF, preserving ownership of both descriptors.
 #[pyfunction]
 fn trace_fds(py: Python<'_>, instruction_fd: i32, result_fd: i32) -> PyResult<Trace> {
-    let mut backend = qep::QsBackendShim::new(qre::TraceBuilder::default());
+    let mut backend = qsp::QsBackendShim::new(qre::TraceBuilder::default());
     run_backend_fds(py, &mut backend, instruction_fd, result_fd)?;
     Ok(Trace::from_qre_trace(backend.into_backend().into_trace()))
 }
@@ -309,10 +309,10 @@ impl Profiler {
         let backend = self.backend.take().expect("no backend");
         match adapter {
             "transpiler" => {
-                self.backend = Some(Box::new(qep::TranspilingAdapter::with_defaults(backend)));
+                self.backend = Some(Box::new(qsp::TranspilingAdapter::with_defaults(backend)));
             }
             "result_adapter" => {
-                self.backend = Some(Box::new(qep::ResultAdapter::new(backend)));
+                self.backend = Some(Box::new(qsp::ResultAdapter::new(backend)));
             }
             _ => {
                 self.backend = Some(backend);
