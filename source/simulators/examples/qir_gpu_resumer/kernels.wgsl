@@ -1018,3 +1018,101 @@ fn jcollapse(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgrou
     s[base | k] = vec2(0.0, 0.0);
   }
 }
+
+// ---------------------------------------------------------------------------
+// SPIKE: a Pauli frame. Conditioned Paulis and their noise sites, in one
+// pass. Its code (ops, from op_off) opens with a table of the entries'
+// offsets (op_len of them, four per vec4, from op_off); each entry is a
+// guard (table in two 16-bit halves, its length, its five measurement
+// indices), then a Pauli (qubit, x | z << 1) or a noise site's code. A shot
+// XORs the (x, z) masks of the entries whose guard holds, then the pass
+// applies the product (up to a global phase) as `pauli` applies one fault.
+
+var<workgroup> fmask: vec2<u32>;
+var<workgroup> fx: atomic<u32>;
+var<workgroup> fz: atomic<u32>;
+
+fn frame_guard(slot: u32, a: vec4<f32>, b: vec4<f32>, c: vec4<f32>) -> bool {
+  let len = ival(a.z);
+  if (len == 0u) { return true; }
+  let ms = array<u32, 5>(ival(b.x), ival(b.y), ival(b.z), ival(b.w), ival(c.x));
+  var index = 0u;
+  for (var i = 0u; i < len; i++) {
+    index |= (outcomes[ms[i] * p.slots + slot] & 1u) << i;
+  }
+  let table = ival(a.x) | (ival(a.y) << 16u);
+  return ((table >> index) & 1u) == 1u;
+}
+
+// The (x, z) masks entry `e` contributes on the shot in `slot`.
+fn frame_entry(slot: u32, e: u32) -> vec2<u32> {
+  let at = p.op_off + ival(ops[p.op_off + e / 4u][e % 4u]);
+  let a = ops[at];
+  let c = ops[at + 2u];
+  if (!frame_guard(slot, a, ops[at + 1u], c)) { return vec2(0u, 0u); }
+  if (ival(a.w) == 0u) {
+    let bit = 1u << ival(c.y);
+    let code = ival(c.z);
+    return vec2(select(0u, bit, (code & 1u) == 1u), select(0u, bit, (code & 2u) == 2u));
+  }
+  let h = at + 3u;
+  return fault_masks(draw(slot, ops[h]), h);
+}
+
+fn frame_masks(slot: u32) -> vec2<u32> {
+  var m = vec2(0u, 0u);
+  for (var e = 0u; e < p.op_len; e++) {
+    m ^= frame_entry(slot, e);
+  }
+  return m;
+}
+
+// A thread per pair of amplitudes. With n >= 9 a workgroup lies in one
+// shot, and evaluates the shot's masks once, for all its threads.
+@compute @workgroup_size(256)
+fn frame(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+  let t = flat_group(wid, nw) * WG + lid.x;
+  let j = t >> (p.n - 1u);
+  var m = vec2(0u, 0u);
+  if (p.n >= 9u) {
+    // The workgroup's threads evaluate the entries, a thread each.
+    if (lid.x == 0u) {
+      atomicStore(&fx, 0u);
+      atomicStore(&fz, 0u);
+    }
+    workgroupBarrier();
+    if (j < p.shot_len) {
+      let slot = shots[p.shot_off + j];
+      for (var e = lid.x; e < p.op_len; e += WG) {
+        let f = frame_entry(slot, e);
+        if (f.x != 0u) { atomicXor(&fx, f.x); }
+        if (f.y != 0u) { atomicXor(&fz, f.y); }
+      }
+    }
+    workgroupBarrier();
+    if (lid.x == 0u) {
+      fmask = vec2(atomicLoad(&fx), atomicLoad(&fz));
+    }
+    m = workgroupUniformLoad(&fmask);
+  }
+  if (j >= p.shot_len) { return; }
+  let slot = shots[p.shot_off + j];
+  if (p.n < 9u) { m = frame_masks(slot); }
+  if (m.x == 0u && m.y == 0u) { return; }
+  let k = t & ((1u << (p.n - 1u)) - 1u);
+  let base = slot << p.n;
+  if (m.x == 0u) {
+    let i0 = insert0(k, 0u);
+    let i1 = i0 | 1u;
+    s[base | i0] = s[base | i0] * sign_of(i0, m.y);
+    s[base | i1] = s[base | i1] * sign_of(i1, m.y);
+  } else {
+    let pivot = firstLeadingBit(m.x);
+    let i0 = insert0(k, pivot);
+    let i1 = i0 ^ m.x;
+    let a = s[base | i0];
+    let b = s[base | i1];
+    s[base | i1] = a * sign_of(i0, m.y);
+    s[base | i0] = b * sign_of(i1, m.y);
+  }
+}

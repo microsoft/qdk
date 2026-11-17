@@ -130,6 +130,11 @@ pub struct Strategy {
     /// their qubits between them run as one joint measurement (up to
     /// `JOINT_MAX` qubits, n >= 8): three passes for all of them.
     pub joint: bool,
+    /// SPIKE: whether consecutive conditioned Paulis (X, Y, Z) and their
+    /// noise sites run as one Pauli-frame pass: each shot XORs the X and Z
+    /// masks of the entries whose guard holds (and its drawn faults), and
+    /// the pass applies the product once.
+    pub frame: bool,
 }
 
 impl Strategy {
@@ -150,6 +155,7 @@ impl Strategy {
         plain_kernels: true,
         conditions: false,
         joint: false,
+        frame: false,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -168,6 +174,7 @@ impl Strategy {
         plain_kernels: false,
         conditions: false,
         joint: false,
+        frame: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -186,6 +193,7 @@ impl Strategy {
         plain_kernels: true,
         conditions: false,
         joint: false,
+        frame: false,
     };
 
     pub fn named(name: &str) -> Option<Self> {
@@ -203,6 +211,17 @@ impl Strategy {
             },
             "jointall" => Self {
                 joint: true,
+                ..Self::ALL
+            },
+            "frame" => Self {
+                conditions: true,
+                joint: true,
+                frame: true,
+                ..Self::ALL
+            },
+            "condframe" => Self {
+                conditions: true,
+                frame: true,
                 ..Self::ALL
             },
             "fused" => Self::FUSED,
@@ -358,6 +377,7 @@ pub struct Gpu {
     jprob: wgpu::ComputePipeline,
     jsample: wgpu::ComputePipeline,
     jcollapse: wgpu::ComputePipeline,
+    frame: wgpu::ComputePipeline,
     /// Seconds to create the pipelines, and to compile them at a first
     /// dispatch each (Mesa compiles lazily).
     pub create_seconds: f64,
@@ -463,6 +483,7 @@ impl Gpu {
             jprob: make("jprob"),
             jsample: make("jsample"),
             jcollapse: make("jcollapse"),
+            frame: make("frame"),
             create_seconds: started.elapsed().as_secs_f64(),
             compile_seconds: 0.0,
             adapter_name,
@@ -504,6 +525,7 @@ impl Gpu {
             ("jprob", &self.jprob),
             ("jsample", &self.jsample),
             ("jcollapse", &self.jcollapse),
+            ("frame", &self.frame),
         ] {
             let t = Instant::now();
             let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -983,6 +1005,9 @@ enum SegKind {
     /// SPIKE: measurements on distinct qubits, `(q, kind, meas)` each, in
     /// one joint measurement.
     Joint(Vec<(u32, u32, u32)>),
+    /// SPIKE: conditioned Paulis and their noise sites, each with its
+    /// guard, in one Pauli-frame pass.
+    Frame(Vec<(Guard, FrameEntry)>),
     /// A noise site in a pass of its own (an `Op::Noise`).
     Pauli(Op),
     /// A conditioned gate (`Op::G1`, `Op::G2`) or its noise site
@@ -992,6 +1017,29 @@ enum SegKind {
         op: Op,
         guard: Guard,
     },
+}
+
+/// SPIKE: an entry of a Pauli frame: a Pauli on a qubit (`x`, `z`: whether
+/// it has an X and a Z part), or a noise site (`Op::Noise`).
+#[derive(Clone, Debug)]
+enum FrameEntry {
+    Pauli { q: u32, x: bool, z: bool },
+    Noise(Op),
+}
+
+/// SPIKE: the Pauli `m` is up to a phase (X, Y or Z), as (x, z) parts.
+fn pauli_parts(m: &[Complex64; 4]) -> Option<(bool, bool)> {
+    let is = |c: Complex64, re: f64, im: f64| (c.re - re).abs() < 1e-12 && (c.im - im).abs() < 1e-12;
+    let zero = |c: Complex64| is(c, 0.0, 0.0);
+    if zero(m[0]) && zero(m[3]) && is(m[1], 1.0, 0.0) && is(m[2], 1.0, 0.0) {
+        Some((true, false))
+    } else if zero(m[0]) && zero(m[3]) && is(m[1], 0.0, -1.0) && is(m[2], 0.0, 1.0) {
+        Some((true, true))
+    } else if zero(m[1]) && zero(m[2]) && is(m[0], 1.0, 0.0) && is(m[3], -1.0, 0.0) {
+        Some((false, true))
+    } else {
+        None
+    }
 }
 
 /// A call's condition, on the round's outcomes: its truth table over the
@@ -1153,6 +1201,34 @@ fn translate(
             // After every segment so far (the measurements its guard reads
             // among them); a later op on its qubits comes after it.
             let guard = guard_of(&condition.condition, &results, call)?;
+            let pauli = match &op {
+                Op::G1 { q, m } if strategy.frame => pauli_parts(m).map(|(x, z)| (*q, x, z)),
+                _ => None,
+            };
+            if let Some((q, x, z)) = pauli {
+                let mut entries = vec![(guard, FrameEntry::Pauli { q, x, z })];
+                let mut mask = 1u64 << q;
+                if let Some(noise_op) = noise_op {
+                    mask |= qubit_mask(&noise_op);
+                    entries.push((guard, FrameEntry::Noise(noise_op)));
+                }
+                match segments.last_mut() {
+                    Some(Segment {
+                        kind: SegKind::Frame(frame),
+                        nondiag,
+                        ..
+                    }) => {
+                        frame.extend(entries);
+                        *nondiag |= mask;
+                    }
+                    _ => segments.push(Segment {
+                        nondiag: mask,
+                        diag: 0,
+                        kind: SegKind::Frame(entries),
+                    }),
+                }
+                continue;
+            }
             for op in std::iter::once(op).chain(noise_op) {
                 segments.push(Segment {
                     nondiag: qubit_mask(&op),
@@ -1193,6 +1269,7 @@ fn translate(
                     ms.iter().map(|m| m.0).collect::<Vec<_>>()
                 ),
                 SegKind::Guarded { op, guard } => format!("Guarded({:?}: {op:?})", guard.meas),
+                SegKind::Frame(entries) => format!("Frame({} entries)", entries.len()),
             })
             .collect();
         eprintln!("PLAN {} calls: {}", batch.len(), summary.join(" | "));
@@ -1969,6 +2046,45 @@ impl Layout<'_, '_> {
                         Op::Meas { .. } => unreachable!("only gates are conditioned"),
                     }
                 }
+                SegKind::Frame(entries) => {
+                    p.op_off = op_off;
+                    p.op_len = u32::try_from(entries.len()).expect("fits");
+                    // The offsets table, then the entries.
+                    let table_at = self.ops.len();
+                    self.ops
+                        .resize(table_at + entries.len().div_ceil(4), [0.0; 4]);
+                    #[allow(clippy::cast_precision_loss)]
+                    for (i, (guard, entry)) in entries.iter().enumerate() {
+                        self.ops[table_at + i / 4][i % 4] = (self.ops.len() - table_at) as f32;
+                        let w = guard.words(meas_off);
+                        let kind = match entry {
+                            FrameEntry::Pauli { .. } => 0.0,
+                            FrameEntry::Noise(_) => 1.0,
+                        };
+                        self.ops.push([
+                            (w[0] & 0xffff) as f32,
+                            (w[0] >> 16) as f32,
+                            w[1] as f32,
+                            kind,
+                        ]);
+                        self.ops
+                            .push([w[2] as f32, w[3] as f32, w[4] as f32, w[5] as f32]);
+                        match entry {
+                            FrameEntry::Pauli { q, x, z } => self.ops.push([
+                                w[6] as f32,
+                                *q as f32,
+                                f32::from(u8::from(*x) | (u8::from(*z) << 1)),
+                                0.0,
+                            ]),
+                            FrameEntry::Noise(op) => {
+                                self.ops.push([w[6] as f32, 0.0, 0.0, 0.0]);
+                                self.ops.extend(noise_code(op, -1.0));
+                            }
+                        }
+                    }
+                    self.passes
+                        .push((&gpu.frame, slot, (len << (n - 1)).div_ceil(WG)));
+                }
                 SegKind::Joint(ms) => {
                     let mask = ms.iter().fold(0u32, |m, &(q, _, _)| m | 1 << q);
                     let reset = ms
@@ -2149,6 +2265,14 @@ impl QirGpuResumer {
             Op::G1 { m, .. } => m,
             _ => unreachable!(),
         };
+        let zero = Complex64::new(0.0, 0.0);
+        let x_m = [zero, one, one, zero];
+        // A guard on two outcomes, true where `table` says.
+        let guard = |table: u32| Guard {
+            table,
+            len: 2,
+            meas: [0, 1, 0, 0, 0],
+        };
         let kinds: Vec<(&str, SegKind)> = vec![
             (
                 "gate1 (high qubit)",
@@ -2233,6 +2357,36 @@ impl QirGpuResumer {
             (
                 "joint mresetz of 1 qubit (SPIKE)",
                 SegKind::Joint(vec![(0, 1, 0)]),
+            ),
+            (
+                "guarded X, guard false (cond's noiseless correction)",
+                SegKind::Guarded {
+                    op: Op::G1 { q: 0, m: x_m },
+                    guard: guard(0),
+                },
+            ),
+            (
+                "guarded X, guard true",
+                SegKind::Guarded {
+                    op: Op::G1 { q: 0, m: x_m },
+                    guard: guard(0xf),
+                },
+            ),
+            (
+                "frame of 9 guarded X, guards false (SPIKE)",
+                SegKind::Frame(
+                    (0..9)
+                        .map(|q| (guard(0), FrameEntry::Pauli { q, x: true, z: false }))
+                        .collect(),
+                ),
+            ),
+            (
+                "frame of 9 guarded X, guards true (SPIKE)",
+                SegKind::Frame(
+                    (0..9)
+                        .map(|q| (guard(0xf), FrameEntry::Pauli { q, x: true, z: false }))
+                        .collect(),
+                ),
             ),
         ];
         let mut times = Vec::new();
