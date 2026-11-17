@@ -4,10 +4,13 @@
 
 # Development only (not for review): the A100 qualification of
 # qdk_cutensornet::CudaMpsEngine, canonical_mps's engine on CudaAlgebra,
-# before its push. Every GPU result is checked against the CPU engine
-# (canonical_mps::CpuMpsEngine) on the same input, computed beforehand and
-# shipped in INPUTS, and every time is set beside the dev line's
-# CudaMpsEngine on the same A100 (its runs of 2026-11-12 to 2026-11-15).
+# with the engine's own fusion (windows of up to three sites, far ones as
+# MPOs), before its push. Every GPU result is checked against the CPU
+# engine (canonical_mps::CpuMpsEngine, the same fused engine) on the same
+# input, computed beforehand and shipped in INPUTS, and every time is set
+# beside the dev line's fused CudaMpsEngine on the same A100 (its runs of
+# 2026-11-12 to 2026-11-15), with run 1's (the engine gate by gate, on the
+# same A100, 2026-11-16) beside it.
 #
 # The parts, in the order they run (PARTS selects among them), each with
 # one line in summary.txt and its own log, with ESTIMATED durations from
@@ -33,12 +36,15 @@
 #   h2          recorded H2 shots replayed on the GPU (h2_replay), each
 #               dump against the CPU engine's dump of the same recording:
 #               every projection probability, the retained weight and the
-#               readout distribution within H2_TOLERANCE, the split and
-#               swap counts equal. Its steps:
+#               readout distribution within H2_TOLERANCE, the work
+#               counts (splits, MPOs, centre moves) equal, since they
+#               follow from the gates alone. Its steps:
 #                 h2-solo      shot 0 alone, without the MPS daemon: one
-#                              process's time (the dev line's h2_dev shot
-#                              took 301 s alone; a replay does less work,
-#                              see below). About 2-5 min.
+#                              process's time (run 1: 1147 s, 313,350
+#                              splits; the dev line's h2_dev shot, a
+#                              different fusion of the full program: 301 s,
+#                              83,322 splits; this replay: 57,643 splits on
+#                              the CPU). About 3-5 min.
 #                 mps-start    the CUDA MPS daemon (NVIDIA's Multi-Process
 #                              Service, which lets processes share the
 #                              GPU at once), its pipe and log under
@@ -56,8 +62,9 @@
 #                 mps-quit     the daemon stopped (on every exit path).
 #                 h2-compare   the dumps against the CPU's; the first
 #                              wave's rate (the first P shots to start)
-#                              against the dev line's 60.6 shots/h.
-#               About 1 h in all at the dev line's rate.
+#                              against the dev line's 60.6 shots/h (slow
+#                              below it), run 1's 13.2 shots/h beside it.
+#               About 1 h in all at the dev line's rate (run 1: 3 h 47 min).
 #   mps-prep    #540's state preparations (mps_prep_check), MPS_CASES
 #               (default n16-chi32, n20-chi64, n12-chi128), placement
 #               "following": the driver's check (verdict=Agrees), the
@@ -66,22 +73,29 @@
 #               on the dev line within 10% of the dev line's time (slower:
 #               verdict=slow). Dev line: 256 s, 1919 s and 4548 s, about
 #               1 h 52 min; each limited to 3 times its dev time.
-#   polyene     the polyene QPE prefix at N = 16 and N = 20, chi 128, gate
-#               by gate (variant base): every c_p read and the final
-#               energy within 1e-4 of the CPU engine's, the driver's
-#               verdict against its reference the CPU's; each step's time
-#               beside the dev line's. Dev line: 5053 s and 6928 s, about
-#               3 h 20 min; each limited to 4 h.
+#   polyene     the polyene QPE prefix at N = 16 and N = 20, chi 128, the
+#               gates sent one by one (the driver's variant base) and fused
+#               by the engine: every c_p read and the final energy within
+#               1e-4 of the CPU engine's, the driver's verdict against its
+#               reference the CPU's, the work counts equal to the CPU's;
+#               the prefix's time against the dev line's fused run
+#               (seq3-mpo: 1409 s and 2010 s), slow when more than 10%
+#               longer, its work counts beside the dev line's (N = 16:
+#               91,386 splits, 9,776 MPOs, 104,110 QR moves), run 1's
+#               time beside it (N = 16: 5042 s). About 57 min; each
+#               limited to 4 times the dev line's time.
 #
-# Expected in all: about 7 h 15 min (build 20 min, gpu-tests 5, sanitizer
-# 40, h2 60, mps-prep 112, polyene 200). BUDGET_SECONDS (default 32400,
-# 9 h) bounds the whole run: a part that would start past it is skipped
-# (verdict=skipped-budget), and each run's limit is cut to what is left.
+# Expected in all: about 4 h (build 20 min, gpu-tests 5, sanitizer 40,
+# h2 60, mps-prep 112, polyene 57), less if #540's preparations gain from
+# the fusion. BUDGET_SECONDS (default 32400, 9 h) bounds the whole run: a
+# part that would start past it is skipped (verdict=skipped-budget), and
+# each run's limit is cut to what is left.
 #
 # The last line printed gives the verdict: PASS when every part passed;
 # FAIL (exit 1) when one failed; SLOW (exit 4) when none failed but a
-# #540 phase or H2's rate missed the dev line's time; INCOMPLETE (exit 3)
-# when a part could not run (a missing tool, the budget).
+# #540 phase, H2's rate or a polyene prefix missed the dev line's time;
+# INCOMPLETE (exit 3) when a part could not run (a missing tool, the
+# budget).
 #
 # Before it starts, the script checks that the GPU is free: no compute
 # process in nvidia-smi and no gpu-polyene-full script running (FORCE=1
@@ -151,15 +165,22 @@ SUMMARY=$OUT/summary.txt
 BUILD_BOX=3600
 TESTS_BOX=1800
 SANITIZER_BOX=3600
-POLYENE_BOX=14400
 # compute-sanitizer's package in NVIDIA's CUDA 12.9 apt repository.
 SANITIZER_INSTALL="sudo apt-get install -y cuda-sanitizer-12-9"
 # The acceptance's site order for H2 (qubit q on site ORDER[q]), the one
 # its CPU dumps used.
 H2_ORDER=26,25,27,24,21,6,8,4,3,18,17,15,16,1,5,28,23,22,20,19,10,2,0,11,12,14,13,9,7
 # The dev line's CudaMpsEngine H2 throughput, its first wave of 22
-# processes under MPS (2026-11-13).
+# processes under MPS (2026-11-13); its h2_dev shot alone and that shot's
+# work (seq3-mpo, χ 128, 2026-11-13): informational, since h2_dev fuses
+# the full program differently from the engine's replay.
 H2_DEV_PER_HOUR=60.6
+H2_DEV_SOLO_SECONDS=301
+H2_DEV_WORK=(--dev-splits 83322 --dev-mpos 17939 --dev-moves 93090)
+# Run 1's H2 (the engine gate by gate, 2026-11-16): its whole run's rate
+# under MPS and shot 0 alone.
+H2_RUN1_PER_HOUR=13.2
+H2_RUN1_SOLO_SECONDS=1147
 CALIBRATION_INTERVAL=5
 CPU_RESERVE=2
 GPU_MEMORY_PERCENT=80
@@ -170,6 +191,10 @@ MPS_CLIENT_LIMIT=48
 declare -A MPS_DEV_SECONDS=([n16-chi32]=256 [n20-chi64]=1919 [n12-chi128]=4548)
 # The polyene's reference per size: the driver's own check.
 declare -A POLYENE_REFERENCE=([16]=ppp16.cpu-ic-seq3-chi128.reference [20]=ppp20.cpu-ic-seq3-chi256.reference)
+# The dev line's fused (seq3-mpo) polyene prefix seconds on the A100, the
+# limit four times that; run 1's (gate by gate, N = 16 only).
+declare -A POLYENE_DEV_SECONDS=([16]=1409 [20]=2010)
+declare -A POLYENE_RUN1_SECONDS=([16]=5041.5 [20]=-)
 export CUDA_MPS_PIPE_DIRECTORY=$HOME/mps/pipe CUDA_MPS_LOG_DIRECTORY=$HOME/mps/log
 
 # A positive integer $2 for setting $1, or the script stops.
@@ -622,7 +647,9 @@ if wanted h2 && within_budget h2; then
     # shellcheck disable=SC2046
     run_part "$(capped "$SHOT_LIMIT")" "$log" $(shot_command 0)
     compare h2 --shots "$OUT/h2/solo" --schedule /dev/null --cpu "$INPUTS/h2/cpu" --chi "$H2_CHI" \
-      --tolerance "$H2_TOLERANCE" --expect 1 --first-wave 1 --bar 0 --table "$OUT/h2/solo.md"
+      --tolerance "$H2_TOLERANCE" --expect 1 --first-wave 1 --bar 0 \
+      --dev-solo-seconds "$H2_DEV_SOLO_SECONDS" --run1-solo-seconds "$H2_RUN1_SOLO_SECONDS" \
+      "${H2_DEV_WORK[@]}" --table "$OUT/h2/solo.md"
     [ "$STATUS" = 0 ] || VERDICT_OF=fail
     summary h2-solo "$STATUS" "$SECONDS_TAKEN" "$COMPARED (h2/solo/, h2/solo.md)"
     record h2-solo "$VERDICT_OF"
@@ -655,7 +682,8 @@ if wanted h2 && within_budget h2; then
       echo "DRY shot i: timeout -k 60 $SHOT_LIMIT $(shot_command 1) (recording i mod ${#RECORDINGS[@]})"
       compare h2 --shots "$OUT/h2/shots" --schedule "$OUT/h2/schedule.log" --cpu "$INPUTS/h2/cpu" \
         --chi "$H2_CHI" --tolerance "$H2_TOLERANCE" --expect "$SHOTS" --first-wave P \
-        --bar "$H2_DEV_PER_HOUR" --table "$OUT/h2/shots.md"
+        --bar "$H2_DEV_PER_HOUR" --run1-per-hour "$H2_RUN1_PER_HOUR" "${H2_DEV_WORK[@]}" \
+        --table "$OUT/h2/shots.md"
     else
       # calibration: shot 0 alone under MPS.
       start=$SECONDS
@@ -733,7 +761,8 @@ if wanted h2 && within_budget h2; then
       quit_mps
       compare h2 --shots "$OUT/h2/shots" --schedule "$OUT/h2/schedule.log" --cpu "$INPUTS/h2/cpu" \
         --chi "$H2_CHI" --tolerance "$H2_TOLERANCE" --expect "$SHOTS" --first-wave "$P" \
-        --bar "$H2_DEV_PER_HOUR" --table "$OUT/h2/shots.md"
+        --bar "$H2_DEV_PER_HOUR" --run1-per-hour "$H2_RUN1_PER_HOUR" "${H2_DEV_WORK[@]}" \
+        --table "$OUT/h2/shots.md"
       [ -z "$nonzero" ] || VERDICT_OF=fail
       summary h2-compare - 0 "$COMPARED (h2/shots.md)"
       record h2 "$VERDICT_OF"
@@ -758,19 +787,20 @@ if wanted mps-prep; then
   done
 fi
 
-# --- polyene: N = 16 and 20, gate by gate ------------------------------------
+# --- polyene: N = 16 and 20, fused by the engine -----------------------------
 if wanted polyene; then
   for n in $POLYENE_SIZES; do
     within_budget "polyene:n$n" || continue
-    log=$OUT/polyene/n$n-chi128-cuda-mps-base.log
-    run_part "$(capped "$POLYENE_BOX")" "$log" "$BIN/polyene_qpe_prefix" --engine cuda-mps --n "$n" \
-      --chi 128 --order interleave-centre --variant base --reference "${POLYENE_REFERENCE[$n]}"
-    compare polyene --gpu "$log" --cpu "$INPUTS/polyene/cpu-n$n-chi128-base.log" \
-      --dev "$INPUTS/polyene/dev-gpu-n$n-chi128-cuda-mps-base.log" \
-      --table "$OUT/polyene/n$n-steps.md"
+    log=$OUT/polyene/n$n-chi128-cuda-mps.log
+    run_part "$(capped $((4 * ${POLYENE_DEV_SECONDS[$n]})))" "$log" "$BIN/polyene_qpe_prefix" \
+      --engine cuda-mps --n "$n" --chi 128 --order interleave-centre --variant base \
+      --reference "${POLYENE_REFERENCE[$n]}"
+    compare polyene --gpu "$log" --cpu "$INPUTS/polyene/cpu-n$n-chi128.log" \
+      --dev "$INPUTS/polyene/dev-gpu-n$n-chi128-cuda-mps-seq3-mpo.log" \
+      --run1-seconds "${POLYENE_RUN1_SECONDS[$n]}" --table "$OUT/polyene/n$n-steps.md"
     [ "$STATUS" = 0 ] || VERDICT_OF=fail
     summary "polyene:n$n" "$STATUS" "$SECONDS_TAKEN" \
-      "$COMPARED (polyene/n$n-chi128-cuda-mps-base.log, polyene/n$n-steps.md)"
+      "$COMPARED (polyene/n$n-chi128-cuda-mps.log, polyene/n$n-steps.md)"
     record "polyene:n$n" "$VERDICT_OF"
   done
 fi

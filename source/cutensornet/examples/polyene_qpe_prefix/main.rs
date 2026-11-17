@@ -5,9 +5,12 @@
 //! `canonical_mps`'s CPU engine (`cpu`) or `qdk_cutensornet::CudaMpsEngine`
 //! (`cuda-mps`, on the GPU), read and checked. Ported from the development
 //! line's driver of the same name with the engines' base options only:
-//! gate by gate, no fusion (`--variant seq3-mpo` is refused), no QR-move or
-//! SVD-algorithm switches (`--no-qr-moves`, `--svd-algo` are refused), no
-//! `CuTensorNetEngine` and no engine counters.
+//! the gates go to the engine one by one, and the engine fuses them itself
+//! (windows of up to three sites), so the driver's own fusion
+//! (`--variant seq3-mpo`) is refused; no QR-move or SVD-algorithm switches
+//! (`--no-qr-moves`, `--svd-algo` are refused) and no `CuTensorNetEngine`.
+//! Each step's line and the `stats` line carry the engine's split
+//! statistics.
 //!
 //! Polyene (the PPP model of a carbon chain, `N` sites, `2N + 1` qubits) is
 //! a development case for large bonds, and a candidate relevant case,
@@ -121,7 +124,7 @@ impl Options {
                 "base" => false,
                 other => {
                     return Err(format!(
-                        "--variant {other}: base only (no fusion layer on this stack)"
+                        "--variant {other}: base only (the engine fuses the gates itself)"
                     )
                     .into());
                 }
@@ -204,7 +207,7 @@ fn run_case() -> Res<()> {
             &canonical_mps::CpuMpsEngine::new(canonical_mps::CpuAlgebra),
             &case,
             &options,
-            &|| {},
+            &statistics::<canonical_mps::CpuAlgebra>,
         )?,
         "cuda-mps" => run_on_cuda_mps(&case, &options)?,
         other => {
@@ -223,7 +226,12 @@ fn run_on_cuda_mps(case: &Case, options: &Options) -> Res<Verdict> {
     println!("POLYENE availability {:?}", availability.report());
     let engine =
         qdk_cutensornet::CudaMpsEngine::new(qdk_cutensornet::CudaAlgebra::new(&availability)?);
-    run(&engine, case, options, &|| {})
+    run(
+        &engine,
+        case,
+        options,
+        &statistics::<qdk_cutensornet::CudaAlgebra>,
+    )
 }
 
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
@@ -231,8 +239,24 @@ fn run_on_cuda_mps(_case: &Case, _options: &Options) -> Res<Verdict> {
     Err("cuda-mps runs on Linux x86-64 only".into())
 }
 
+/// The engine's split statistics so far, as `key=value` words.
+fn statistics<A: canonical_mps::algebra::SiteAlgebra>(
+    state: &canonical_mps::CanonicalMpsState<A>,
+) -> String {
+    let s = state.split_statistics();
+    format!(
+        "splits={} mpo_applications={} centre_moves={} largest_bond_at_rest={} \
+         largest_transient_bond={}",
+        s.splits(),
+        s.mpo_applications(),
+        s.centre_moves(),
+        s.largest_bond_at_rest(),
+        s.largest_transient_bond(),
+    )
+}
+
 /// The prefix on `engine`, with every reading printed, checked against the
-/// case's reference; `after_step` runs after each step's line.
+/// case's reference; `statistics_of` gives the engine's split statistics.
 #[expect(
     clippy::too_many_lines,
     reason = "development only: one run, read top to bottom"
@@ -241,7 +265,7 @@ fn run<E: MpsEngine>(
     engine: &E,
     case: &Case,
     options: &Options,
-    after_step: &dyn Fn(),
+    statistics_of: &dyn Fn(&E::State) -> String,
 ) -> Res<Verdict> {
     let (prefix, hamiltonian) = (&case.prefix, &case.hamiltonian);
     let ancilla = hamiltonian.ancilla;
@@ -292,12 +316,12 @@ fn run<E: MpsEngine>(
         }
         let bonds = bonds(&engine.shape(&state)?);
         println!(
-            "POLYENE step p={p} seconds={:.1} one_minus_w={:.4e} largest_bond={}",
+            "POLYENE step p={p} seconds={:.1} one_minus_w={:.4e} largest_bond={} {}",
             started.elapsed().as_secs_f64(),
             1.0 - weight,
             bonds.iter().max().unwrap_or(&1),
+            statistics_of(&state),
         );
-        after_step();
         if p.is_power_of_two() || p == prefix.steps {
             let (c, ancilla_z) = hadamard_test(engine, &state, ancilla)?;
             println!(
@@ -329,6 +353,7 @@ fn run<E: MpsEngine>(
         end.ancilla_one,
         bonds.iter().max().unwrap_or(&1),
     );
+    println!("POLYENE stats {}", statistics_of(&state));
     if let Some(c) = last_c {
         let from_c = (1.0 - c.re) / 2.0;
         println!(
