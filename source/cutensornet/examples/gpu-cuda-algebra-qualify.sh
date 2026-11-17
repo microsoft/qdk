@@ -87,9 +87,9 @@
 #               against the CPU's dump made with the same switch
 #               (INPUTS/h2/cpu-lowsweep; leftward 0), its time beside
 #               h2-solo's (versus_ratio: low-sweep / default). On the CPU
-#               at chi 128 the default was 5% faster (16.4 s against
-#               17.2 s, 19% more centre moves when sweeping low). About
-#               3-5 min.
+#               the two times are within noise (16.4 s and 17.2 s), with
+#               19% more centre moves when sweeping low (62,969 against
+#               52,848), the same 57,643 splits. About 3-5 min.
 #   mps-prep    #540's state preparations (mps_prep_check), MPS_CASES
 #               (default n16-chi32, n20-chi64, n12-chi128), placement
 #               "following": the driver's check (verdict=Agrees), the
@@ -97,7 +97,11 @@
 #               tolerance, and each phase (MPSPREP span) of at least 5 s
 #               on the dev line within 10% of the dev line's time (slower:
 #               verdict=slow). Dev line: 256 s, 1919 s and 4548 s, about
-#               1 h 52 min; each limited to 3 times its dev time.
+#               1 h 52 min; each limited to 3 times its dev time. The
+#               dev line did not fuse: the fused engine does other work
+#               in each phase (the mark's reads flush the pending gates,
+#               so a phase's time holds its own gates), and a slow phase
+#               is read beside the case's total (ratio).
 #   polyene     the polyene QPE prefix at N = 16 and N = 20, chi 128, the
 #               gates sent one by one (the driver's variant base) and fused
 #               by the engine: every c_p read and the final energy within
@@ -112,9 +116,9 @@
 #
 # Expected in all: about 4 h (build 20 min, gpu-tests 5, sanitizer 50,
 # h2 60, h2-lowsweep 5, mps-prep 112, polyene 57), less if #540's
-# preparations gain from the fusion. BUDGET_SECONDS (default 32400, 9 h) bounds the whole run: a
-# part that would start past it is skipped (verdict=skipped-budget), and
-# each run's limit is cut to what is left.
+# preparations gain from the fusion. BUDGET_SECONDS (default 32400, 9 h)
+# bounds the whole run: a part that would start past it is skipped
+# (verdict=skipped-budget), and each run's limit is cut to what is left.
 #
 # The last line printed gives the verdict: PASS when every part passed;
 # FAIL (exit 1) when one failed; SLOW (exit 4) when none failed but a
