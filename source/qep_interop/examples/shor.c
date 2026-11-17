@@ -98,9 +98,18 @@ static int measure_reset(size_t qubit) {
 /* Measures a little-endian register and restores it to zero. */
 static void read_register(mpz_t value, size_t start, int bits) {
     mpz_set_ui(value, 0);
+    if (bits <= 0) return;
+    uint8_t *results = malloc((size_t)bits * sizeof(*results));
+    if (results == NULL) fail("could not allocate register results");
     for (int i = 0; i < bits; ++i) {
-        if (measure_reset(start + (size_t)i) != 0) mpz_setbit(value, (mp_bitcnt_t)i);
+        qdk_mz_store_reset(start + (size_t)i, (size_t)i);
     }
+    qdk_read_results((size_t)bits, results);
+    for (int i = 0; i < bits; ++i) {
+        if (results[i] > 1) fail("backend returned a measurement error");
+        if (results[i] != 0) mpz_setbit(value, (mp_bitcnt_t)i);
+    }
+    free(results);
 }
 
 /* Caches generator^(2^i) modulo N by repeated squaring. */
@@ -383,9 +392,11 @@ static void test_wide_arithmetic(void) {
 
 /* Verifies all arithmetic work qubits are restored rather than hiding garbage by resetting it. */
 static void check_clean(const Circuit *circuit) {
-    for (size_t qubit = 0; qubit < (size_t)(3 * circuit->bits + 4); ++qubit) {
-        if (measure_reset(qubit) != 0) fail("arithmetic left a dirty ancilla");
-    }
+    mpz_t value;
+    mpz_init(value);
+    read_register(value, 0, 3 * circuit->bits + 4);
+    if (mpz_sgn(value) != 0) fail("arithmetic left a dirty ancilla");
+    mpz_clear(value);
 }
 
 /* Exhaustively tests controlled modular arithmetic on small basis-state inputs. */

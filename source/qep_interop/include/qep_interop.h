@@ -50,6 +50,9 @@ size_t qdk_read_result(size_t result_id);
 size_t qdk_mz(size_t qubit_id);
 size_t qdk_mz_reset(size_t qubit_id);
 
+/* Reads stored result IDs 0..count-1 into output using 0/1/2 for Zero/One/Error. */
+void qdk_read_results(size_t count, uint8_t *output);
+
 #ifdef __cplusplus
 }
 #endif

@@ -172,6 +172,13 @@ interface
         integer(c_size_t) :: outcome
     end function qdk_read_result
 
+    ! Reads stored IDs 0..count-1 into output(1:count): 0 = zero, 1 = one, 2 = backend error.
+    subroutine qdk_read_results(count, output) bind(C, name="qdk_read_results")
+        use, intrinsic :: iso_c_binding, only: c_size_t, c_int8_t
+        integer(c_size_t), value :: count
+        integer(c_int8_t), intent(out) :: output(*)
+    end subroutine qdk_read_results
+
     ! Measures in Z: 0 = zero, 1 = one, 2 = backend error.
     function qdk_mz(qubit_id) bind(C, name="qdk_mz") result(outcome)
         use, intrinsic :: iso_c_binding, only: c_size_t
