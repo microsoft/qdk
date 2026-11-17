@@ -75,7 +75,7 @@ each method, with `c` the centre before it:
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `prepare`                          | site 0                                                                                                                                    |
 | `apply`, one site                  | `c`: the gate waits, pending                                                                                                              |
-| `apply`, two sites                 | `c` when the gate joins the window, which stays pending; else the end of the applied window's span nearer the gate's lower site           |
+| `apply`, two sites                 | `c` when the gate joins the pending window or opens one; else the end of the applied window's span nearer the gate's lower site           |
 | `probability_of_one`, `project`    | the site read: the pending window is applied toward it first, which leaves the centre on its span's end nearer the site                   |
 | `conditional_probability_of_one`   | with conditions, as for `fork`, the conditions and the read on the fork; without, as for `probability_of_one`                             |
 | `expectation`                      | `c`, or the end of the pending window's span nearer `c`, when a window is pending; the reads copy the sites to the host without moving it |
@@ -89,15 +89,17 @@ sum of all their squares, unless the cap cuts more: the capacity's bond at
 the cut. Every split, an MPO's included, is at a caller's cut, so every
 split is at rest; inside an MPO's span, a bond grows, before its split,
 to at most the capacity's times the operator's bond, at most 4
-([`distant_sites.md`](distant_sites.md)).
-These are the bounds of `gate_split`'s contract
-([`algebra.rs`](../src/algebra.rs)); which values a split drops within
-them is the algebra's to choose. A split normalises the values it keeps,
-so the chain keeps a norm of about 1.
+([`distant_sites.md`](distant_sites.md)). These are the bounds of
+`gate_split`'s contract ([`algebra.rs`](../src/algebra.rs)); which values
+a split drops within them is the algebra's to choose. A split normalises
+the values it keeps, so the chain keeps a norm of about 1.
 
 **The retained weight.** Each split returns the share `f ∈ (0, 1]` of the
 squared singular values it kept, and the state's retained weight is the
-product of the shares, `W = Π fᵢ`. The engine keeps `W` apart from the
+product of the shares, `W = Π fᵢ`; the part of a window's operator that
+its factorisation drops, at or below the operator's rank cutoff, is not
+counted ([`distant_sites.md`](distant_sites.md)). The engine keeps `W`
+apart from the
 chain's norm, and fails a split with `WeightUnderflow` when `W` would fall
 below the smallest normal `f64`, about `2.2e-308`, rather than let it reach
 zero, by which callers divide.

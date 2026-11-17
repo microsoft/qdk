@@ -5,7 +5,7 @@
 //! sites, by one [`gate_split`](SiteAlgebra::gate_split), the one place
 //! where the engine truncates the state's bonds to keep the state small;
 //! an MPO's factorisation drops only an operator's values at or below
-//! `1e-12` relative ([`OPERATOR_RANK_CUTOFF`]).
+//! [`OPERATOR_RANK_CUTOFF`] relative.
 //!
 //! A window on two neighbours ends in one split, its operator the split's
 //! gate; a window applied as a matrix product operator

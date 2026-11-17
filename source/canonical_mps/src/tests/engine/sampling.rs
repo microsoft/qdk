@@ -97,8 +97,9 @@ fn a_measured_value_has_probability_exactly_one() {
 /// the two values' weights, rounds below that uniform: site 2 of 5 sites
 /// fused, site 1 of 5 unfused, found by a probe of the circuits of 5 to 10
 /// sites that `a_measured_value_has_probability_exactly_one` measures. Such
-/// sites move with any change to the splits' rounding, so they are found
-/// again after one.
+/// sites move with any change to the splits' rounding: a precondition
+/// checks that the chosen site still rounds so, and asks to re-probe when
+/// it does not.
 #[test]
 fn a_sample_draws_one_where_zero_has_probability_zero() {
     // COMPATIBILITY NOTE: this behavior was present in the dev line's
@@ -114,6 +115,15 @@ fn a_sample_draws_one_where_zero_has_probability_zero() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
         let (sites, site) = if name == "fused" { (5, 2) } else { (5, 1) };
         let state = measured_on(&engine, sites, site, true);
+        let whole = engine
+            .one_over_the_whole_weight(&state, site)
+            .expect("a read");
+        assert!(
+            whole < 1.0,
+            "{name}: precondition, P(One) of site {site} over its whole weight \
+             rounds below 1 ({whole}); the splits' rounding changed, so re-probe \
+             the site as the doc says"
+        );
         let values = engine
             .sample(&state, &[site, 0], 1, SEED_OF_THE_LARGEST_UNIFORM)
             .expect("a sample");

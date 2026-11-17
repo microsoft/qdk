@@ -15,11 +15,12 @@
 //! `docs/distant_sites.md` compares them). The steps:
 //!
 //! 1. **Factor.** The operator on `k` sites becomes `k` tensors by `k − 1`
-//!    thin SVDs on the host ([`operator_mpo`]), dropping the values at or
-//!    below [`OPERATOR_RANK_CUTOFF`] times the largest: rounding's, or a
-//!    part of the operator of at most that relative size, which the
-//!    retained weight does not count. A CNOT has an operator bond of 2, a
-//!    general two-site gate at most 4.
+//!    thin SVDs on the host ([`operator_mpo`]). Each SVD leaves out the
+//!    rounding values it can tell apart, and the factorisation also drops
+//!    the values at or below [`OPERATOR_RANK_CUTOFF`] times the largest:
+//!    rounding the SVD kept, or a part of the operator of at most that
+//!    relative size, which the retained weight does not count. A CNOT has
+//!    an operator bond of 2, a general two-site gate at most 4.
 //! 2. **Multiply.** With the centre moved into the span, each site of the
 //!    span is read, its pending gate applied, multiplied by its MPO tensor
 //!    on the host, and uploaded: the bond at each cut of the span grows by
@@ -66,6 +67,12 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         operator: &[Complex64],
         toward: usize,
     ) -> Result<(), CanonicalMpsError<A::Error>> {
+        // `Window` keeps its sites ascending, and sends a window on one pair
+        // of neighbours to one split instead.
+        debug_assert!(
+            sites.len() >= 2 && sites.is_sorted(),
+            "an MPO's sites are at least two, ascending"
+        );
         let (low, high) = (sites[0], sites[sites.len() - 1]);
         let mut factors = operator_mpo(operator, sites.len())
             .map_err(CanonicalMpsError::OperatorDecomposition)?

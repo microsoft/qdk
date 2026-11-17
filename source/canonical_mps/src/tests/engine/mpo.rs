@@ -157,14 +157,17 @@ fn an_mpo_truncates_only_at_the_callers_cuts() {
 /// the span) and the others in a product state, then a gate on sites 0 and
 /// 2: the CNOT, of operator rank 2, grows the span's bonds to 2, the
 /// entangler, a partial iSWAP with a phase, of rank 4, to 4, and Z⊗Z, of
-/// rank 1, leaves them at 1. A factorisation that kept rounding's values
-/// would grow every one to 4, and only the cuts inside the span count, not
-/// the bond of 2 beside it. A rotation `exp(−iε Z⊗Z)` has a second
-/// operator value of `tan ε` relative to the first: at `ε` of `1e-9` and
-/// `2e-12` it is kept, a bond of 2, and at `5e-13` and `1e-13`, below the
-/// operator's cutoff of `1e-12`, it is dropped, a bond of 1. The rows next
-/// to the cutoff are robust: rounding moves `tan ε` by about `1e-16`
-/// absolute, `1e-4` of it at `2e-12`.
+/// rank 1, leaves them at 1; only the cuts inside the span count, not the
+/// bond of 2 beside it. These rows pin the operator's rank: `Svd::of`
+/// already leaves out these operators' rounding values. The rotations
+/// `exp(−iε Z⊗Z)` pin the operator's cutoff, `1e-12` times the largest
+/// value: their values are `2 cos ε` and `2 sin ε`, so the second is
+/// `tan ε` relative to the first. At `ε` of `1e-9` and `1.1e-12` it is
+/// kept, a bond of 2; at `9e-13` and `1e-13` it is dropped, a bond of 1.
+/// The largest value is 2, so a cutoff not scaled by it would keep the
+/// second value at `9e-13`, `1.8e-12`. The rows next to the cutoff are
+/// 10% from it, about a thousand times what rounding moves `tan ε` there
+/// (a few `1e-16` absolute).
 #[test]
 fn an_mpo_grows_the_span_by_the_operators_rank() {
     for (gate, rank) in [
@@ -172,8 +175,8 @@ fn an_mpo_grows_the_span_by_the_operators_rank() {
         (entangler(0.9), 4),
         (zz(), 1),
         (zz_rotation(1e-9), 2),
-        (zz_rotation(2e-12), 2),
-        (zz_rotation(5e-13), 1),
+        (zz_rotation(1.1e-12), 2),
+        (zz_rotation(9e-13), 1),
         (zz_rotation(1e-13), 1),
     ] {
         for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
