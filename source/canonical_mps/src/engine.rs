@@ -140,8 +140,7 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// its span half compressed. A failed read or upload of a site of an MPO's
 /// span leaves the span's sites unmultiplied, since the multiplied sites
 /// replace them only once every upload succeeded, so neighbours still
-/// share each bond; a failed factorisation of the window's operator keeps
-/// the window and changes nothing ([`CanonicalMpsError`]).
+/// share each bond ([`CanonicalMpsError`]).
 #[derive(Clone, Debug)]
 pub struct CanonicalMpsEngine<A> {
     algebra: A,

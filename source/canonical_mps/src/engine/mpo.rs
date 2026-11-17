@@ -71,8 +71,8 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
             window.sites.len() >= 2 && window.sites.is_sorted(),
             "an MPO's sites are at least two, ascending"
         );
-        // Factored before the window leaves the chain, so that a failed
-        // factorisation keeps the window and changes nothing.
+        // Factored before the window leaves the chain, for robustness only:
+        // the state after a failure is unspecified all the same.
         let factors = operator_mpo(&window.operator, window.sites.len())
             .map_err(CanonicalMpsError::OperatorDecomposition)?;
         let sites = chain.window.take().expect("the window factored").sites;
