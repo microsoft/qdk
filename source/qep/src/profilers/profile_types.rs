@@ -100,7 +100,6 @@ impl From<&QuantumBackendInstruction> for LoggedInstruction {
                     Parameter::Float(value) => LoggedInstructionParameter::Float(*value),
                     Parameter::ResultId(value) => LoggedInstructionParameter::ResultId(*value),
                     Parameter::QubitId(value) => LoggedInstructionParameter::QubitId(*value),
-                    Parameter::FactoryId(value) => LoggedInstructionParameter::FactoryId(*value),
                 })
                 .collect(),
         }
@@ -188,7 +187,6 @@ mod tests {
                 Parameter::Float(-0.25),
                 Parameter::ResultId(2),
                 Parameter::QubitId(3),
-                Parameter::FactoryId(4),
             ],
         ] {
             let instruction = QuantumBackendInstruction {

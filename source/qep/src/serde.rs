@@ -47,9 +47,9 @@ pub(crate) fn serialize_batch_into(
             }
             match parameter {
                 Parameter::Float(value) => write!(encoded, "{value}"),
-                Parameter::QubitId(value)
-                | Parameter::ResultId(value)
-                | Parameter::FactoryId(value) => write!(encoded, "{value}"),
+                Parameter::QubitId(value) | Parameter::ResultId(value) => {
+                    write!(encoded, "{value}")
+                }
             }
             .expect("formatting into a string cannot fail");
         }
