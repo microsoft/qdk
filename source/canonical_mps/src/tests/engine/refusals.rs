@@ -101,7 +101,7 @@ fn reads(engine: &Engine, state: &State) -> [f64; 3] {
 
 /// A projection on the value of site 0 that the capacity drops from
 /// `a_pair_truncated_to_zero_zero`: with fusion the projection first
-/// applies the pending window, as any read does, so both engines refuse it
+/// applies the pending window, as a read does, so both engines refuse it
 /// (`ZeroProbabilityOutcome`), and the reads after it are the reads
 /// before it, the same with or without fusion: P(One) 0 on both sites and
 /// the retained weight `cos²0.4`.

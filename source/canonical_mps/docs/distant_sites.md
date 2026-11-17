@@ -3,10 +3,12 @@
 A split factors the tensor of two neighbouring sites, so it applies a gate
 on neighbours; a gate on sites further apart, or the gates that fusion
 gathers on three sites, act on more than a pair. This page gives the
-approach the engine uses, a matrix product operator (MPO) across the span,
+approach the engine uses, a matrix product operator (MPO) across the span;
 why it loses no weight beyond what the capacity and the cutoff drop at the
-caller's cuts, how routing by SWAPs compares, with the ways its splits
-may truncate, and the alternatives that could be explored later. The crate's
+caller's cuts, and, in the factorisation of the operator, a part of the
+operator at or below the operator's rank cutoff; how routing by SWAPs
+compares, with the ways its splits may truncate; and the alternatives that
+could be explored later. The crate's
 [README](../README.md#how-each-mpsengine-method-is-implemented) summarizes
 it, and [`src/engine/mpo.rs`](../src/engine/mpo.rs) implements it.
 
@@ -36,7 +38,7 @@ neighbours is applied by one split. Any other is applied in three steps:
    the window's carry the identity, with the bond that crosses them.
 2. **Multiply.** With the centre in the span, each site of the span is
    multiplied by its tensor, on the host, and uploaded: the bond at each
-   cut of the span grows by the operator's bond there.
+   cut of the span becomes the chain's bond there times the operator's.
 3. **Compress.** Exact moves of the centre across the span, then one split
    per cut, the identity as gate, compress it back, each split truncating
    its cut as a gate's split does.
