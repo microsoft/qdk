@@ -15,12 +15,12 @@ pub use rz_qft::RzQftTranspiler;
 pub use swap::SwapTransplier;
 pub use tolffoli::DecomposeToffoliTranspiler;
 
-use crate::QuantumBackendInstruction;
+use crate::{InstructionId, QuantumBackendInstruction};
 
 /// Replaces an instruction of one type with an exact or approximate sequence.
 pub trait Transpiler: Send + Sync {
-    /// Returns the instruction name accepted by this transpiler.
-    fn source_instruction_name(&self) -> &'static str;
+    /// Returns the instruction ID accepted by this transpiler.
+    fn source_instruction_id(&self) -> InstructionId;
 
     /// Appends replacement instructions, updating transpiler state and rejecting invalid input.
     fn transpile(

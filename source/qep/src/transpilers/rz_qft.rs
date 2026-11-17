@@ -2,7 +2,9 @@
 // Licensed under the MIT License.
 
 use super::Transpiler;
-use crate::{Parameter::Float, Parameter::QubitId, QuantumBackendInstruction};
+use crate::{
+    InstructionId, Parameter::Float, Parameter::QubitId, QuantumBackendInstruction, instructions,
+};
 use smallvec::smallvec;
 use std::f64::consts::PI;
 
@@ -53,18 +55,18 @@ impl RzQftTranspiler {
     }
 
     /// Reverses a gate sequence and replaces each gate with its adjoint.
-    fn make_adjoint(gates: Vec<&'static str>) -> Vec<&'static str> {
+    fn make_adjoint(gates: Vec<InstructionId>) -> Vec<InstructionId> {
         gates
             .into_iter()
             .rev()
             .map(|gate| match gate {
-                "x" => "x",
-                "z" => "z",
-                "h" => "h",
-                "t" => "tadj",
-                "tadj" => "t",
-                "s" => "sadj",
-                "sadj" => "s",
+                instructions::X => instructions::X,
+                instructions::Z => instructions::Z,
+                instructions::H => instructions::H,
+                instructions::T => instructions::TADJ,
+                instructions::TADJ => instructions::T,
+                instructions::S => instructions::SADJ,
+                instructions::SADJ => instructions::S,
                 _ => panic!("Unsupported gate in adjoint sequence: {gate}"),
             })
             .collect()
@@ -72,9 +74,9 @@ impl RzQftTranspiler {
 }
 
 impl Transpiler for RzQftTranspiler {
-    /// Returns the Z-rotation instruction name.
-    fn source_instruction_name(&self) -> &'static str {
-        "rz"
+    /// Returns the Z-rotation instruction ID.
+    fn source_instruction_id(&self) -> InstructionId {
+        instructions::RZ
     }
 
     /// Appends the synthesized rotation sequence, up to global phase.
@@ -83,7 +85,7 @@ impl Transpiler for RzQftTranspiler {
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String> {
-        if source.instruction_name != self.source_instruction_name() {
+        if source.instruction_id != self.source_instruction_id() {
             return Err(format!("Expected an Rz instruction, got {source:?}"));
         }
         let &[QubitId(qubit_id), Float(angle)] = source.parameters.as_slice() else {
@@ -92,11 +94,11 @@ impl Transpiler for RzQftTranspiler {
         let mut gates: Vec<_> = Self::synthesize_rz(angle.abs())?
             .chars()
             .map(|gate| match gate {
-                'x' => "x",
-                'z' => "z",
-                's' => "s",
-                'h' => "h",
-                't' => "t",
+                'x' => instructions::X,
+                'z' => instructions::Z,
+                's' => instructions::S,
+                'h' => instructions::H,
+                't' => instructions::T,
                 _ => panic!("Unsupported gate in synthesized sequence: {gate}"),
             })
             .collect();
@@ -106,8 +108,8 @@ impl Transpiler for RzQftTranspiler {
         output.extend(
             gates
                 .into_iter()
-                .map(|instruction_name| QuantumBackendInstruction {
-                    instruction_name,
+                .map(|instruction_id| QuantumBackendInstruction {
+                    instruction_id,
                     parameters: smallvec![QubitId(qubit_id)],
                 }),
         );
@@ -134,11 +136,11 @@ mod tests {
                 let angle = sign * 2.0_f64.powi(power) * PI;
                 let instructions = [
                     QuantumBackendInstruction {
-                        instruction_name: "h",
+                        instruction_id: instructions::H,
                         parameters: smallvec![QubitId(0)],
                     },
                     QuantumBackendInstruction {
-                        instruction_name: "rz",
+                        instruction_id: instructions::RZ,
                         parameters: smallvec![QubitId(0), Float(angle)],
                     },
                 ];

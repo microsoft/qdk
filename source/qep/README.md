@@ -30,6 +30,9 @@ We define a universal interface between 2 components of a quantum system.
 
 The driver passes ordered slices of instructions to the backend. Batching avoids the
 per-instruction synchronization and allocation costs of communicating through channels.
+Each `QuantumBackendInstruction` stores an `instruction_id` and typed parameters.
+Use constants such as `instructions::CCX` from `qep::instructions` for construction
+and dispatch, and `instruction_id_to_name` for human-readable names.
 The runners accumulate instructions until they reach either:
 
 * A result-producing instruction (`read_result`, `mz`, or `mz_reset`), which is

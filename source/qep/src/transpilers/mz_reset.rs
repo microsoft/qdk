@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::Transpiler;
-use crate::{Parameter::QubitId, QuantumBackendInstruction};
+use crate::{InstructionId, Parameter::QubitId, QuantumBackendInstruction, instructions};
 use smallvec::smallvec;
 
 /// Decomposes measurement with reset into an immediate measurement followed by reset.
@@ -10,9 +10,9 @@ use smallvec::smallvec;
 pub struct MzResetTranspiler;
 
 impl Transpiler for MzResetTranspiler {
-    /// Returns the measurement-with-reset instruction name.
-    fn source_instruction_name(&self) -> &'static str {
-        "mz_reset"
+    /// Returns the measurement-with-reset instruction ID.
+    fn source_instruction_id(&self) -> InstructionId {
+        instructions::MZ_RESET
     }
 
     /// Appends one measurement result and a reset on the same qubit.
@@ -21,16 +21,18 @@ impl Transpiler for MzResetTranspiler {
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String> {
-        if source.instruction_name != self.source_instruction_name() {
+        if source.instruction_id != self.source_instruction_id() {
             return Err(format!("Expected an MZ_RESET instruction, got {source:?}"));
         }
         let &[QubitId(qubit)] = source.parameters.as_slice() else {
             return Err(format!("Malformed MZ_RESET instruction: {source:?}"));
         };
         output.extend(
-            ["mz", "reset"].map(|instruction_name| QuantumBackendInstruction {
-                instruction_name,
-                parameters: smallvec![QubitId(qubit)],
+            [instructions::MZ, instructions::RESET].map(|instruction_id| {
+                QuantumBackendInstruction {
+                    instruction_id,
+                    parameters: smallvec![QubitId(qubit)],
+                }
             }),
         );
         Ok(())
@@ -47,21 +49,21 @@ mod tests {
         make_profiler_for_demo_model,
     };
 
-    /// Rejects invalid source names and operands without emitting partial output.
+    /// Rejects invalid source IDs and operands without emitting partial output.
     #[test]
     fn rejects_invalid_instructions() {
-        for (instruction_name, parameters) in [
-            ("mz", smallvec![QubitId(0)]),
-            ("mz_reset", smallvec![]),
-            ("mz_reset", smallvec![Parameter::ResultId(0)]),
-            ("mz_reset", smallvec![QubitId(0), QubitId(1)]),
+        for (instruction_id, parameters) in [
+            (instructions::MZ, smallvec![QubitId(0)]),
+            (instructions::MZ_RESET, smallvec![]),
+            (instructions::MZ_RESET, smallvec![Parameter::ResultId(0)]),
+            (instructions::MZ_RESET, smallvec![QubitId(0), QubitId(1)]),
         ] {
             let mut output = Vec::new();
             assert!(
                 MzResetTranspiler
                     .transpile(
                         &QuantumBackendInstruction {
-                            instruction_name,
+                            instruction_id,
                             parameters
                         },
                         &mut output,
@@ -79,25 +81,25 @@ mod tests {
             QuantumBackends::sparse_sim(),
         ));
         let instructions = [
-            ("x", smallvec![QubitId(0)]),
-            ("mz_reset", smallvec![QubitId(0)]),
-            ("mz", smallvec![QubitId(0)]),
-            ("x", smallvec![QubitId(0)]),
+            (instructions::X, smallvec![QubitId(0)]),
+            (instructions::MZ_RESET, smallvec![QubitId(0)]),
+            (instructions::MZ, smallvec![QubitId(0)]),
+            (instructions::X, smallvec![QubitId(0)]),
             (
-                "mz_store_reset",
+                instructions::MZ_STORE_RESET,
                 smallvec![QubitId(0), Parameter::ResultId(0)],
             ),
-            ("read_result", smallvec![Parameter::ResultId(0)]),
-            ("mz", smallvec![QubitId(0)]),
+            (instructions::READ_RESULT, smallvec![Parameter::ResultId(0)]),
+            (instructions::MZ, smallvec![QubitId(0)]),
         ]
-        .map(|(instruction_name, parameters)| QuantumBackendInstruction {
-            instruction_name,
+        .map(|(instruction_id, parameters)| QuantumBackendInstruction {
+            instruction_id,
             parameters,
         });
         let results = backend.execute_batch(&instructions)?;
         assert_eq!(results.results.as_slice(), &[One, Zero, One, Zero]);
         let results = backend.execute_batch(&[QuantumBackendInstruction {
-            instruction_name: "read_result",
+            instruction_id: instructions::READ_RESULT,
             parameters: smallvec![Parameter::ResultId(0)],
         }])?;
         assert_eq!(results.results.as_slice(), &[One]);
@@ -115,7 +117,7 @@ mod tests {
             },
         ));
         let result = profiler.execute_batch(&[QuantumBackendInstruction {
-            instruction_name: "mz_reset",
+            instruction_id: instructions::MZ_RESET,
             parameters: smallvec![QubitId(2)],
         }])?;
         assert_eq!(result.results.len(), 1);

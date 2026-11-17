@@ -1,9 +1,10 @@
 use qep::Parameter::ResultId;
 use qep::interface::Driver;
 use qep::{
-    Batcher, DEFAULT_MAX_BATCH_SIZE, DemoModel1, OPERATION_COUNT, Parameter, Profiler,
-    QuantumBackend, QuantumBackendInstruction, QuantumBackends, SequentialCountingProfiler,
-    StreamBackend, TemporalProfiler, TemporalProfilerConfig, instruction_id_to_name,
+    Batcher, DEFAULT_MAX_BATCH_SIZE, DemoModel1, InstructionId, OPERATION_COUNT, Parameter,
+    Profiler, QuantumBackend, QuantumBackendInstruction, QuantumBackends,
+    SequentialCountingProfiler, StreamBackend, TemporalProfiler, TemporalProfilerConfig,
+    instruction_id_to_name, instructions,
 };
 use smallvec::{SmallVec, smallvec};
 use std::{
@@ -118,32 +119,38 @@ fn lock_backend() -> MutexGuard<'static, BackendWrapper> {
 }
 
 /// Internal helper to call for instructions with no results.
-fn instruction(instruction_name: &'static str, arguments: SmallVec<[Parameter; 3]>) {
+fn instruction(instruction_id: InstructionId, arguments: SmallVec<[Parameter; 3]>) {
     let mut profiler = lock_backend();
     let instruction = QuantumBackendInstruction {
-        instruction_name,
+        instruction_id,
         parameters: arguments,
     };
     if let Err(error) = profiler.batcher.push(instruction) {
-        abort_with_error(&format!("qdk_{instruction_name} failed: {error}"));
+        abort_with_error(&format!(
+            "qdk_{} failed: {error}",
+            instruction_id_to_name(instruction_id)
+        ));
     }
 }
 
 /// Internal helper to call for instructions with single result.
 fn instruction_with_result(
-    instruction_name: &'static str,
+    instruction_id: InstructionId,
     arguments: SmallVec<[Parameter; 3]>,
 ) -> usize {
     let mut profiler = lock_backend();
     let instruction = QuantumBackendInstruction {
-        instruction_name,
+        instruction_id,
         parameters: arguments,
     };
     let result = profiler
         .batcher
         .push_with_result(instruction)
         .unwrap_or_else(|error| {
-            abort_with_error(&format!("qdk_{instruction_name} failed: {error}"))
+            abort_with_error(&format!(
+                "qdk_{} failed: {error}",
+                instruction_id_to_name(instruction_id)
+            ))
         });
     match result {
         qep::QuantumBackendResult::Zero => 0,
@@ -245,7 +252,7 @@ pub unsafe extern "C" fn qdk_save_profile(path: *const c_char) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_ccx(control0: usize, control1: usize, target: usize) {
     instruction(
-        "ccx",
+        instructions::CCX,
         smallvec![
             Parameter::QubitId(control0),
             Parameter::QubitId(control1),
@@ -258,7 +265,7 @@ pub extern "C" fn qdk_ccx(control0: usize, control1: usize, target: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_and_adj(control0: usize, control1: usize, target: usize) {
     instruction(
-        "and_adj",
+        instructions::AND_ADJ,
         smallvec![
             Parameter::QubitId(control0),
             Parameter::QubitId(control1),
@@ -271,7 +278,7 @@ pub extern "C" fn qdk_and_adj(control0: usize, control1: usize, target: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_cx(control: usize, target: usize) {
     instruction(
-        "cx",
+        instructions::CX,
         smallvec![Parameter::QubitId(control), Parameter::QubitId(target)],
     );
 }
@@ -280,7 +287,7 @@ pub extern "C" fn qdk_cx(control: usize, target: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_cy(control: usize, target: usize) {
     instruction(
-        "cy",
+        instructions::CY,
         smallvec![Parameter::QubitId(control), Parameter::QubitId(target)],
     );
 }
@@ -289,7 +296,7 @@ pub extern "C" fn qdk_cy(control: usize, target: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_cz(control: usize, target: usize) {
     instruction(
-        "cz",
+        instructions::CZ,
         smallvec![Parameter::QubitId(control), Parameter::QubitId(target)],
     );
 }
@@ -298,7 +305,7 @@ pub extern "C" fn qdk_cz(control: usize, target: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_rx(qubit_id: usize, angle: f64) {
     instruction(
-        "rx",
+        instructions::RX,
         smallvec![Parameter::QubitId(qubit_id), Parameter::Float(angle)],
     );
 }
@@ -307,7 +314,7 @@ pub extern "C" fn qdk_rx(qubit_id: usize, angle: f64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_rxx(qubit0: usize, qubit1: usize, angle: f64) {
     instruction(
-        "rxx",
+        instructions::RXX,
         smallvec![
             Parameter::QubitId(qubit0),
             Parameter::QubitId(qubit1),
@@ -320,7 +327,7 @@ pub extern "C" fn qdk_rxx(qubit0: usize, qubit1: usize, angle: f64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_ry(qubit_id: usize, angle: f64) {
     instruction(
-        "ry",
+        instructions::RY,
         smallvec![Parameter::QubitId(qubit_id), Parameter::Float(angle)],
     );
 }
@@ -329,7 +336,7 @@ pub extern "C" fn qdk_ry(qubit_id: usize, angle: f64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_ryy(qubit0: usize, qubit1: usize, angle: f64) {
     instruction(
-        "ryy",
+        instructions::RYY,
         smallvec![
             Parameter::QubitId(qubit0),
             Parameter::QubitId(qubit1),
@@ -342,7 +349,7 @@ pub extern "C" fn qdk_ryy(qubit0: usize, qubit1: usize, angle: f64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_rz(qubit_id: usize, angle: f64) {
     instruction(
-        "rz",
+        instructions::RZ,
         smallvec![Parameter::QubitId(qubit_id), Parameter::Float(angle)],
     );
 }
@@ -351,7 +358,7 @@ pub extern "C" fn qdk_rz(qubit_id: usize, angle: f64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_rzz(qubit0: usize, qubit1: usize, angle: f64) {
     instruction(
-        "rzz",
+        instructions::RZZ,
         smallvec![
             Parameter::QubitId(qubit0),
             Parameter::QubitId(qubit1),
@@ -363,62 +370,62 @@ pub extern "C" fn qdk_rzz(qubit0: usize, qubit1: usize, angle: f64) {
 /// Applies a Hadamard gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_h(qubit_id: usize) {
-    instruction("h", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::H, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies an S phase gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_s(qubit_id: usize) {
-    instruction("s", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::S, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies the adjoint of an S phase gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_sadj(qubit_id: usize) {
-    instruction("sadj", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::SADJ, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies a square-root X gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_sx(qubit_id: usize) {
-    instruction("sx", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::SX, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies a T phase gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_t(qubit_id: usize) {
-    instruction("t", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::T, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies the adjoint of a T phase gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_tadj(qubit_id: usize) {
-    instruction("tadj", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::TADJ, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies an X gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_x(qubit_id: usize) {
-    instruction("x", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::X, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies a Y gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_y(qubit_id: usize) {
-    instruction("y", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::Y, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies a Z gate.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_z(qubit_id: usize) {
-    instruction("z", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::Z, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Swaps two qubits.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_swap(qubit0: usize, qubit1: usize) {
     instruction(
-        "swap",
+        instructions::SWAP,
         smallvec![Parameter::QubitId(qubit0), Parameter::QubitId(qubit1)],
     );
 }
@@ -426,14 +433,14 @@ pub extern "C" fn qdk_swap(qubit0: usize, qubit1: usize) {
 /// Resets a qubit to zero.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_reset(qubit_id: usize) {
-    instruction("reset", smallvec![Parameter::QubitId(qubit_id)]);
+    instruction(instructions::RESET, smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Measures a qubit in Z and stores the outcome in a result register.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_mz_store(qubit_id: usize, result_id: usize) {
     instruction(
-        "mz_store",
+        instructions::MZ_STORE,
         smallvec![Parameter::QubitId(qubit_id), Parameter::ResultId(result_id)],
     );
 }
@@ -442,7 +449,7 @@ pub extern "C" fn qdk_mz_store(qubit_id: usize, result_id: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_mz_store_reset(qubit_id: usize, result_id: usize) {
     instruction(
-        "mz_store_reset",
+        instructions::MZ_STORE_RESET,
         smallvec![Parameter::QubitId(qubit_id), Parameter::ResultId(result_id)],
     );
 }
@@ -450,19 +457,25 @@ pub extern "C" fn qdk_mz_store_reset(qubit_id: usize, result_id: usize) {
 /// Reads a stored result as zero, one, or the backend error value two.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_read_result(result_id: usize) -> usize {
-    instruction_with_result("read_result", smallvec![Parameter::ResultId(result_id)])
+    instruction_with_result(
+        instructions::READ_RESULT,
+        smallvec![Parameter::ResultId(result_id)],
+    )
 }
 
 /// Measures a qubit in Z and returns zero, one, or the backend error value two.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_mz(qubit_id: usize) -> usize {
-    instruction_with_result("mz", smallvec![Parameter::QubitId(qubit_id)])
+    instruction_with_result(instructions::MZ, smallvec![Parameter::QubitId(qubit_id)])
 }
 
 /// Measures a qubit in Z and resets it, returning zero, one, or the backend error value two.
 #[unsafe(no_mangle)]
 pub extern "C" fn qdk_mz_reset(qubit_id: usize) -> usize {
-    instruction_with_result("mz_reset", smallvec![Parameter::QubitId(qubit_id)])
+    instruction_with_result(
+        instructions::MZ_RESET,
+        smallvec![Parameter::QubitId(qubit_id)],
+    )
 }
 
 /// Reads stored result IDs `0..count` into consecutive bytes of `output`.
@@ -491,7 +504,7 @@ pub unsafe extern "C" fn qdk_read_results(count: usize, output: *mut u8) {
     let mut profiler = lock_backend();
     for i in 0..count {
         profiler.batcher.push_no_flush(QuantumBackendInstruction {
-            instruction_name: "read_result",
+            instruction_id: instructions::READ_RESULT,
             parameters: smallvec![Parameter::ResultId(i)],
         });
     }
@@ -602,10 +615,10 @@ mod tests {
                     .lock()
                     .expect("recording mutex must not be poisoned")
                     .push(instruction.clone());
-                match instruction.instruction_name {
-                    "read_result" => result.results.push(QuantumBackendResult::Zero),
-                    "mz" => result.results.push(QuantumBackendResult::One),
-                    "mz_reset" => result.results.push(QuantumBackendResult::Error),
+                match instruction.instruction_id {
+                    instructions::READ_RESULT => result.results.push(QuantumBackendResult::Zero),
+                    instructions::MZ => result.results.push(QuantumBackendResult::One),
+                    instructions::MZ_RESET => result.results.push(QuantumBackendResult::Error),
                     _ => {}
                 }
             }
@@ -614,7 +627,7 @@ mod tests {
     }
 
     #[test]
-    /// Checks every public instruction's name, operand order, and result mapping.
+    /// Checks every public instruction's ID, operand order, and result mapping.
     fn forwards_all_public_instructions() {
         use Parameter::{Float, QubitId, ResultId};
 
@@ -659,36 +672,54 @@ mod tests {
         assert_eq!(qdk_mz_reset(1), 2);
 
         let expected = [
-            ("ccx", smallvec![QubitId(1), QubitId(2), QubitId(3)]),
-            ("and_adj", smallvec![QubitId(1), QubitId(2), QubitId(3)]),
-            ("cx", smallvec![QubitId(1), QubitId(2)]),
-            ("cy", smallvec![QubitId(1), QubitId(2)]),
-            ("cz", smallvec![QubitId(1), QubitId(2)]),
-            ("rx", smallvec![QubitId(1), Float(0.25)]),
-            ("rxx", smallvec![QubitId(1), QubitId(2), Float(0.25)]),
-            ("ry", smallvec![QubitId(1), Float(0.25)]),
-            ("ryy", smallvec![QubitId(1), QubitId(2), Float(0.25)]),
-            ("rz", smallvec![QubitId(1), Float(0.25)]),
-            ("rzz", smallvec![QubitId(1), QubitId(2), Float(0.25)]),
-            ("h", smallvec![QubitId(1)]),
-            ("s", smallvec![QubitId(1)]),
-            ("sadj", smallvec![QubitId(1)]),
-            ("sx", smallvec![QubitId(1)]),
-            ("t", smallvec![QubitId(1)]),
-            ("tadj", smallvec![QubitId(1)]),
-            ("x", smallvec![QubitId(1)]),
-            ("y", smallvec![QubitId(1)]),
-            ("z", smallvec![QubitId(1)]),
-            ("swap", smallvec![QubitId(1), QubitId(2)]),
-            ("reset", smallvec![QubitId(1)]),
-            ("mz_store", smallvec![QubitId(1), ResultId(4)]),
-            ("mz_store_reset", smallvec![QubitId(1), ResultId(4)]),
-            ("read_result", smallvec![ResultId(4)]),
-            ("mz", smallvec![QubitId(1)]),
-            ("mz_reset", smallvec![QubitId(1)]),
+            (
+                instructions::CCX,
+                smallvec![QubitId(1), QubitId(2), QubitId(3)],
+            ),
+            (
+                instructions::AND_ADJ,
+                smallvec![QubitId(1), QubitId(2), QubitId(3)],
+            ),
+            (instructions::CX, smallvec![QubitId(1), QubitId(2)]),
+            (instructions::CY, smallvec![QubitId(1), QubitId(2)]),
+            (instructions::CZ, smallvec![QubitId(1), QubitId(2)]),
+            (instructions::RX, smallvec![QubitId(1), Float(0.25)]),
+            (
+                instructions::RXX,
+                smallvec![QubitId(1), QubitId(2), Float(0.25)],
+            ),
+            (instructions::RY, smallvec![QubitId(1), Float(0.25)]),
+            (
+                instructions::RYY,
+                smallvec![QubitId(1), QubitId(2), Float(0.25)],
+            ),
+            (instructions::RZ, smallvec![QubitId(1), Float(0.25)]),
+            (
+                instructions::RZZ,
+                smallvec![QubitId(1), QubitId(2), Float(0.25)],
+            ),
+            (instructions::H, smallvec![QubitId(1)]),
+            (instructions::S, smallvec![QubitId(1)]),
+            (instructions::SADJ, smallvec![QubitId(1)]),
+            (instructions::SX, smallvec![QubitId(1)]),
+            (instructions::T, smallvec![QubitId(1)]),
+            (instructions::TADJ, smallvec![QubitId(1)]),
+            (instructions::X, smallvec![QubitId(1)]),
+            (instructions::Y, smallvec![QubitId(1)]),
+            (instructions::Z, smallvec![QubitId(1)]),
+            (instructions::SWAP, smallvec![QubitId(1), QubitId(2)]),
+            (instructions::RESET, smallvec![QubitId(1)]),
+            (instructions::MZ_STORE, smallvec![QubitId(1), ResultId(4)]),
+            (
+                instructions::MZ_STORE_RESET,
+                smallvec![QubitId(1), ResultId(4)],
+            ),
+            (instructions::READ_RESULT, smallvec![ResultId(4)]),
+            (instructions::MZ, smallvec![QubitId(1)]),
+            (instructions::MZ_RESET, smallvec![QubitId(1)]),
         ]
-        .map(|(instruction_name, parameters)| QuantumBackendInstruction {
-            instruction_name,
+        .map(|(instruction_id, parameters)| QuantumBackendInstruction {
+            instruction_id,
             parameters,
         });
         assert_eq!(

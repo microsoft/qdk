@@ -3,7 +3,7 @@
 
 use crate::{
     BatchResult, Parameter::ResultId, QuantumBackend, QuantumBackendInstruction,
-    QuantumBackendResult, interface::Driver,
+    QuantumBackendResult, instructions, interface::Driver,
 };
 
 /// Adapts result-register instructions for a backend without a result register.
@@ -27,7 +27,7 @@ use crate::{
 ///
 /// The local result register is a vector that grows as needed.
 ///
-/// Input instructions must have valid names and operand shapes. These are
+/// Input instructions must have valid IDs and operand shapes. These are
 /// checked only when debug assertions are enabled.
 ///
 /// For each input batch, the adapter replaces `MZ_STORE` with `MZ` and
@@ -64,7 +64,7 @@ use crate::{
 ///
 /// # Panics
 ///
-/// Panics if debug assertions are enabled and an input instruction has an invalid name
+/// Panics if debug assertions are enabled and an input instruction has an invalid ID
 /// or operand shape.
 pub struct ResultAdapter<B> {
     backend: B,
@@ -108,16 +108,16 @@ impl<B: QuantumBackend> QuantumBackend for ResultAdapter<B> {
             #[cfg(debug_assertions)]
             crate::validate_instruction(instruction);
             let mut instruction = instruction.clone();
-            match instruction.instruction_name {
-                "mz_store" => {
-                    instruction.instruction_name = "mz";
+            match instruction.instruction_id {
+                instructions::MZ_STORE => {
+                    instruction.instruction_id = instructions::MZ;
                     instruction.parameters.truncate(1);
                 }
-                "mz_store_reset" => {
-                    instruction.instruction_name = "mz_reset";
+                instructions::MZ_STORE_RESET => {
+                    instruction.instruction_id = instructions::MZ_RESET;
                     instruction.parameters.truncate(1);
                 }
-                "read_result" => continue,
+                instructions::READ_RESULT => continue,
                 _ => {}
             }
             transformed.push(instruction);
@@ -128,10 +128,10 @@ impl<B: QuantumBackend> QuantumBackend for ResultAdapter<B> {
         let mut output = BatchResult::default();
         for instruction in instructions {
             match (
-                instruction.instruction_name,
+                instruction.instruction_id,
                 instruction.parameters.as_slice(),
             ) {
-                ("mz" | "mz_reset", &[crate::Parameter::QubitId(_)]) => {
+                (instructions::MZ | instructions::MZ_RESET, &[crate::Parameter::QubitId(_)]) => {
                     output.results.push(
                         results
                             .next()
@@ -139,7 +139,7 @@ impl<B: QuantumBackend> QuantumBackend for ResultAdapter<B> {
                     );
                 }
                 (
-                    "mz_store" | "mz_store_reset",
+                    instructions::MZ_STORE | instructions::MZ_STORE_RESET,
                     &[crate::Parameter::QubitId(_), ResultId(result)],
                 ) => {
                     let value = results
@@ -148,7 +148,7 @@ impl<B: QuantumBackend> QuantumBackend for ResultAdapter<B> {
                     self.ensure_result_size(result);
                     self.results_register[result] = Some(value);
                 }
-                ("read_result", &[ResultId(result)]) => {
+                (instructions::READ_RESULT, &[ResultId(result)]) => {
                     let value = self
                         .results_register
                         .get(result)
@@ -171,9 +171,10 @@ impl<B: QuantumBackend> QuantumBackend for ResultAdapter<B> {
 mod tests {
     use super::ResultAdapter;
     use crate::{
-        BatchResult, Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
+        BatchResult, InstructionId, Parameter, QuantumBackend, QuantumBackendInstruction,
+        QuantumBackendResult,
         QuantumBackendResult::{Error, One, Zero},
-        QuantumBackends, validate_instruction,
+        QuantumBackends, instructions, validate_instruction,
     };
     use std::collections::VecDeque;
 
@@ -206,8 +207,10 @@ mod tests {
             for instruction in instructions {
                 validate_instruction(instruction);
                 assert!(!matches!(
-                    instruction.instruction_name,
-                    "mz_store" | "mz_store_reset" | "read_result"
+                    instruction.instruction_id,
+                    instructions::MZ_STORE
+                        | instructions::MZ_STORE_RESET
+                        | instructions::READ_RESULT
                 ));
             }
             self.batches.push(instructions.to_vec());
@@ -223,9 +226,12 @@ mod tests {
     }
 
     /// Builds an instruction with explicit quantum and classical operands.
-    fn instruction(name: &'static str, parameters: &[Parameter]) -> QuantumBackendInstruction {
+    fn instruction(
+        instruction_id: InstructionId,
+        parameters: &[Parameter],
+    ) -> QuantumBackendInstruction {
         QuantumBackendInstruction {
-            instruction_name: name,
+            instruction_id,
             parameters: parameters.iter().cloned().collect(),
         }
     }
@@ -239,9 +245,12 @@ mod tests {
         let mut adapter = ResultAdapter::new(backend);
         let output = adapter
             .execute_batch(&[
-                instruction("mz_store", &[crate::Parameter::QubitId(0), ResultId(5)]),
                 instruction(
-                    "mz_store_reset",
+                    instructions::MZ_STORE,
+                    &[crate::Parameter::QubitId(0), ResultId(5)],
+                ),
+                instruction(
+                    instructions::MZ_STORE_RESET,
                     &[crate::Parameter::QubitId(1), ResultId(2)],
                 ),
             ])
@@ -250,19 +259,22 @@ mod tests {
 
         let output = adapter
             .execute_batch(&[
-                instruction("read_result", &[ResultId(5)]),
-                instruction("read_result", &[ResultId(2)]),
-                instruction("read_result", &[ResultId(5)]),
+                instruction(instructions::READ_RESULT, &[ResultId(5)]),
+                instruction(instructions::READ_RESULT, &[ResultId(2)]),
+                instruction(instructions::READ_RESULT, &[ResultId(5)]),
             ])
             .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[One, Zero, One]);
 
         let output = adapter
             .execute_batch(&[
-                instruction("x", &[crate::Parameter::QubitId(0)]),
-                instruction("mz_store", &[crate::Parameter::QubitId(0), ResultId(5)]),
-                instruction("read_result", &[ResultId(5)]),
-                instruction("read_result", &[ResultId(2)]),
+                instruction(instructions::X, &[crate::Parameter::QubitId(0)]),
+                instruction(
+                    instructions::MZ_STORE,
+                    &[crate::Parameter::QubitId(0), ResultId(5)],
+                ),
+                instruction(instructions::READ_RESULT, &[ResultId(5)]),
+                instruction(instructions::READ_RESULT, &[ResultId(2)]),
             ])
             .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[Zero, Zero]);
@@ -270,13 +282,13 @@ mod tests {
             adapter.backend.batches,
             [
                 vec![
-                    instruction("mz", &[crate::Parameter::QubitId(0)]),
-                    instruction("mz_reset", &[crate::Parameter::QubitId(1)]),
+                    instruction(instructions::MZ, &[crate::Parameter::QubitId(0)]),
+                    instruction(instructions::MZ_RESET, &[crate::Parameter::QubitId(1)]),
                 ],
                 vec![],
                 vec![
-                    instruction("x", &[crate::Parameter::QubitId(0)]),
-                    instruction("mz", &[crate::Parameter::QubitId(0)])
+                    instruction(instructions::X, &[crate::Parameter::QubitId(0)]),
+                    instruction(instructions::MZ, &[crate::Parameter::QubitId(0)])
                 ],
             ]
         );
@@ -291,30 +303,39 @@ mod tests {
         let mut adapter = ResultAdapter::new(backend);
         let output = adapter
             .execute_batch(&[
-                instruction("h", &[crate::Parameter::QubitId(0)]),
-                instruction("rx", &[crate::Parameter::QubitId(1), Float(0.5)]),
-                instruction("mz_store", &[crate::Parameter::QubitId(0), ResultId(3)]),
-                instruction("read_result", &[ResultId(3)]),
-                instruction("mz", &[crate::Parameter::QubitId(1)]),
+                instruction(instructions::H, &[crate::Parameter::QubitId(0)]),
                 instruction(
-                    "mz_store_reset",
+                    instructions::RX,
+                    &[crate::Parameter::QubitId(1), Float(0.5)],
+                ),
+                instruction(
+                    instructions::MZ_STORE,
+                    &[crate::Parameter::QubitId(0), ResultId(3)],
+                ),
+                instruction(instructions::READ_RESULT, &[ResultId(3)]),
+                instruction(instructions::MZ, &[crate::Parameter::QubitId(1)]),
+                instruction(
+                    instructions::MZ_STORE_RESET,
                     &[crate::Parameter::QubitId(2), ResultId(3)],
                 ),
-                instruction("read_result", &[ResultId(3)]),
-                instruction("mz_reset", &[crate::Parameter::QubitId(4)]),
-                instruction("read_result", &[ResultId(3)]),
+                instruction(instructions::READ_RESULT, &[ResultId(3)]),
+                instruction(instructions::MZ_RESET, &[crate::Parameter::QubitId(4)]),
+                instruction(instructions::READ_RESULT, &[ResultId(3)]),
             ])
             .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[One, Zero, Zero, One, Zero]);
         assert_eq!(
             adapter.backend.batches,
             [vec![
-                instruction("h", &[crate::Parameter::QubitId(0)]),
-                instruction("rx", &[crate::Parameter::QubitId(1), Float(0.5)]),
-                instruction("mz", &[crate::Parameter::QubitId(0)]),
-                instruction("mz", &[crate::Parameter::QubitId(1)]),
-                instruction("mz_reset", &[crate::Parameter::QubitId(2)]),
-                instruction("mz_reset", &[crate::Parameter::QubitId(4)]),
+                instruction(instructions::H, &[crate::Parameter::QubitId(0)]),
+                instruction(
+                    instructions::RX,
+                    &[crate::Parameter::QubitId(1), Float(0.5)]
+                ),
+                instruction(instructions::MZ, &[crate::Parameter::QubitId(0)]),
+                instruction(instructions::MZ, &[crate::Parameter::QubitId(1)]),
+                instruction(instructions::MZ_RESET, &[crate::Parameter::QubitId(2)]),
+                instruction(instructions::MZ_RESET, &[crate::Parameter::QubitId(4)]),
             ]]
         );
     }
@@ -328,17 +349,23 @@ mod tests {
         let mut adapter = ResultAdapter::new(backend);
         let output = adapter
             .execute_batch(&[
-                instruction("mz_store", &[crate::Parameter::QubitId(0), ResultId(7)]),
-                instruction("mz_store", &[crate::Parameter::QubitId(1), ResultId(7)]),
-                instruction("read_result", &[ResultId(7)]),
+                instruction(
+                    instructions::MZ_STORE,
+                    &[crate::Parameter::QubitId(0), ResultId(7)],
+                ),
+                instruction(
+                    instructions::MZ_STORE,
+                    &[crate::Parameter::QubitId(1), ResultId(7)],
+                ),
+                instruction(instructions::READ_RESULT, &[ResultId(7)]),
             ])
             .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[Zero]);
         assert_eq!(
             adapter.backend.batches,
             [vec![
-                instruction("mz", &[crate::Parameter::QubitId(0)]),
-                instruction("mz", &[crate::Parameter::QubitId(1)]),
+                instruction(instructions::MZ, &[crate::Parameter::QubitId(0)]),
+                instruction(instructions::MZ, &[crate::Parameter::QubitId(1)]),
             ]]
         );
     }
@@ -351,25 +378,31 @@ mod tests {
         let mut adapter = ResultAdapter::new(QuantumBackends::sparse_sim());
         let output = adapter
             .execute_batch(&[
-                instruction("x", &[crate::Parameter::QubitId(0)]),
+                instruction(instructions::X, &[crate::Parameter::QubitId(0)]),
                 instruction(
-                    "mz_store_reset",
+                    instructions::MZ_STORE_RESET,
                     &[crate::Parameter::QubitId(0), ResultId(0)],
                 ),
-                instruction("mz", &[crate::Parameter::QubitId(0)]),
+                instruction(instructions::MZ, &[crate::Parameter::QubitId(0)]),
             ])
             .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[Zero]);
 
         let output = adapter
             .execute_batch(&[
-                instruction("read_result", &[ResultId(0)]),
-                instruction("x", &[crate::Parameter::QubitId(0)]),
-                instruction("mz_store", &[crate::Parameter::QubitId(0), ResultId(0)]),
-                instruction("mz_store", &[crate::Parameter::QubitId(0), ResultId(0)]),
-                instruction("read_result", &[ResultId(0)]),
-                instruction("mz_reset", &[crate::Parameter::QubitId(0)]),
-                instruction("mz", &[crate::Parameter::QubitId(0)]),
+                instruction(instructions::READ_RESULT, &[ResultId(0)]),
+                instruction(instructions::X, &[crate::Parameter::QubitId(0)]),
+                instruction(
+                    instructions::MZ_STORE,
+                    &[crate::Parameter::QubitId(0), ResultId(0)],
+                ),
+                instruction(
+                    instructions::MZ_STORE,
+                    &[crate::Parameter::QubitId(0), ResultId(0)],
+                ),
+                instruction(instructions::READ_RESULT, &[ResultId(0)]),
+                instruction(instructions::MZ_RESET, &[crate::Parameter::QubitId(0)]),
+                instruction(instructions::MZ, &[crate::Parameter::QubitId(0)]),
             ])
             .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[One, One, One, Zero]);
@@ -388,9 +421,9 @@ mod tests {
                 .is_empty()
         );
         let gates = [
-            instruction("h", &[crate::Parameter::QubitId(2)]),
+            instruction(instructions::H, &[crate::Parameter::QubitId(2)]),
             instruction(
-                "cx",
+                instructions::CX,
                 &[crate::Parameter::QubitId(2), crate::Parameter::QubitId(0)],
             ),
         ];
@@ -410,7 +443,10 @@ mod tests {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![]]));
         assert_eq!(
             adapter
-                .execute_batch(&[instruction("mz", &[crate::Parameter::QubitId(0)])])
+                .execute_batch(&[instruction(
+                    instructions::MZ,
+                    &[crate::Parameter::QubitId(0)]
+                )])
                 .expect_err("missing result"),
             "Result adapter backend returned too few results"
         );
@@ -422,7 +458,10 @@ mod tests {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![One, Zero]]));
         assert_eq!(
             adapter
-                .execute_batch(&[instruction("mz", &[crate::Parameter::QubitId(0)])])
+                .execute_batch(&[instruction(
+                    instructions::MZ,
+                    &[crate::Parameter::QubitId(0)]
+                )])
                 .expect_err("extra results"),
             "Result adapter backend returned too many results"
         );
@@ -433,7 +472,10 @@ mod tests {
     fn rejects_unwritten_result() {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![]]));
         let error = adapter
-            .execute_batch(&[instruction("read_result", &[Parameter::ResultId(0)])])
+            .execute_batch(&[instruction(
+                instructions::READ_RESULT,
+                &[Parameter::ResultId(0)],
+            )])
             .expect_err("unwritten result");
         assert_eq!(error, "Result ID 0 has not been written");
     }
@@ -446,8 +488,11 @@ mod tests {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![One]]));
         let error = adapter
             .execute_batch(&[
-                instruction("mz_store", &[crate::Parameter::QubitId(0), ResultId(3)]),
-                instruction("read_result", &[ResultId(1)]),
+                instruction(
+                    instructions::MZ_STORE,
+                    &[crate::Parameter::QubitId(0), ResultId(3)],
+                ),
+                instruction(instructions::READ_RESULT, &[ResultId(1)]),
             ])
             .expect_err("unwritten result slot");
         assert_eq!(error, "Result ID 1 has not been written");
@@ -461,8 +506,11 @@ mod tests {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![One]]));
         let error = adapter
             .execute_batch(&[
-                instruction("read_result", &[ResultId(0)]),
-                instruction("mz_store", &[crate::Parameter::QubitId(0), ResultId(0)]),
+                instruction(instructions::READ_RESULT, &[ResultId(0)]),
+                instruction(
+                    instructions::MZ_STORE,
+                    &[crate::Parameter::QubitId(0), ResultId(0)],
+                ),
             ])
             .expect_err("read before store");
         assert_eq!(error, "Result ID 0 has not been written");
@@ -474,7 +522,10 @@ mod tests {
     /// Rejects malformed store operands before sending anything downstream.
     fn rejects_malformed_store() {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([]));
-        let _ = adapter.execute_batch(&[instruction("mz_store", &[crate::Parameter::QubitId(0)])]);
+        let _ = adapter.execute_batch(&[instruction(
+            instructions::MZ_STORE,
+            &[crate::Parameter::QubitId(0)],
+        )]);
     }
 
     #[test]
@@ -483,7 +534,7 @@ mod tests {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![Error]]));
         let error = adapter
             .execute_batch(&[instruction(
-                "mz_store",
+                instructions::MZ_STORE,
                 &[Parameter::QubitId(0), Parameter::ResultId(0)],
             )])
             .expect_err("downstream failure");

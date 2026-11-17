@@ -150,7 +150,7 @@ pub trait Profiler: QuantumBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::QuantumBackendInstruction;
+    use crate::{QuantumBackendInstruction, instructions};
     use rustc_hash::FxHashMap;
 
     /// Boxed trait objects execute instructions and return each profiler's collected data.
@@ -168,7 +168,7 @@ mod tests {
         for (mut profiler, expected_runtime) in profilers.into_iter().zip([1.0, 0.0]) {
             assert_eq!(profiler.get_result().totals.logical_compute_qubits, 0);
             profiler.execute_batch(&[QuantumBackendInstruction {
-                instruction_name: "x",
+                instruction_id: instructions::X,
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
             }])?;
             let result = profiler.get_result();

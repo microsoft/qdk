@@ -8,7 +8,7 @@ use super::{
 use crate::{
     BatchResult, OPERATION_COUNT, Parameter,
     QuantumBackendResult::{Error, One, Zero},
-    instructions::{instruction_id_to_name, instruction_is_valid},
+    instructions::{self, instruction_id_to_name, instruction_is_valid},
 };
 use smallvec::smallvec;
 
@@ -47,14 +47,20 @@ fn compact_wire_format() -> Result<(), String> {
 fn all_instruction_shapes() -> Result<(), String> {
     for id in 0..OPERATION_COUNT {
         let name = instruction_id_to_name(id);
-        let arguments = match name {
-            "ccx" | "and_adj" => "1,2,3",
-            "rx" | "ry" | "rz" => "1,-1.25e-12",
-            "rxx" | "ryy" | "rzz" => "1,2,-1.25e-12",
-            "cx" | "cy" | "cz" | "swap" | "mz_store" | "mz_store_reset" => "1,2",
+        let arguments = match id {
+            instructions::CCX | instructions::AND_ADJ => "1,2,3",
+            instructions::RX | instructions::RY | instructions::RZ => "1,-1.25e-12",
+            instructions::RXX | instructions::RYY | instructions::RZZ => "1,2,-1.25e-12",
+            instructions::CX
+            | instructions::CY
+            | instructions::CZ
+            | instructions::SWAP
+            | instructions::MZ_STORE
+            | instructions::MZ_STORE_RESET => "1,2",
             _ => "1",
         };
         let instructions = deserialize_batch(&format!(r#"["{name}({arguments})"]"#))?;
+        assert_eq!(instructions[0].instruction_id, id);
         assert!(instruction_is_valid(&instructions[0]));
         assert_eq!(
             deserialize_batch(&serialize_batch(&instructions)?)?,
@@ -104,7 +110,7 @@ fn malformed_messages_are_errors() -> Result<(), String> {
     let mut invalid = deserialize_batch(r#"["h(1)"]"#)?;
     invalid[0].parameters[0] = Parameter::ResultId(1);
     assert!(serialize_batch(&invalid).is_err());
-    invalid[0].instruction_name = "unknown";
+    invalid[0].instruction_id = OPERATION_COUNT;
     assert!(serialize_batch(&invalid).is_err());
     Ok(())
 }
@@ -138,7 +144,7 @@ fn reusable_batch_buffers() -> Result<(), String> {
     assert!(deserialize_batch_into(r#"["h(1)","unknown(2)"]"#, &mut instructions).is_err());
     deserialize_batch_into(r#"["t(3)"]"#, &mut instructions)?;
     assert_eq!(instructions, deserialize_batch(r#"["t(3)"]"#)?);
-    instructions[0].instruction_name = "invalid\"name";
+    instructions[0].instruction_id = usize::MAX;
     assert!(serialize_batch_into(&instructions, &mut encoded).is_err());
     deserialize_batch_into("[]", &mut instructions)?;
     serialize_batch_into(&instructions, &mut encoded)?;

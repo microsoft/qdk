@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::Transpiler;
-use crate::{Parameter::QubitId, QuantumBackendInstruction};
+use crate::{InstructionId, Parameter::QubitId, QuantumBackendInstruction, instructions};
 use smallvec::smallvec;
 
 /// Decomposes CCX into seven T/T-adjoint gates and six CNOTs without ancillas.
@@ -13,9 +13,9 @@ use smallvec::smallvec;
 pub struct DecomposeToffoliTranspiler;
 
 impl Transpiler for DecomposeToffoliTranspiler {
-    /// Returns the Toffoli instruction name.
-    fn source_instruction_name(&self) -> &'static str {
-        "ccx"
+    /// Returns the Toffoli instruction ID.
+    fn source_instruction_id(&self) -> InstructionId {
+        instructions::CCX
     }
 
     /// Appends the Clifford+T decomposition of a Toffoli instruction.
@@ -24,7 +24,7 @@ impl Transpiler for DecomposeToffoliTranspiler {
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String> {
-        if source.instruction_name != self.source_instruction_name() {
+        if source.instruction_id != self.source_instruction_id() {
             return Err(format!("Expected a CCX instruction, got {source:?}"));
         }
         let &[QubitId(ctl0), QubitId(ctl1), QubitId(target)] = source.parameters.as_slice() else {
@@ -32,25 +32,25 @@ impl Transpiler for DecomposeToffoliTranspiler {
         };
         output.extend(
             [
-                ("h", smallvec![QubitId(target)]),
-                ("cx", smallvec![QubitId(ctl1), QubitId(target)]),
-                ("tadj", smallvec![QubitId(target)]),
-                ("cx", smallvec![QubitId(ctl0), QubitId(target)]),
-                ("t", smallvec![QubitId(target)]),
-                ("cx", smallvec![QubitId(ctl1), QubitId(target)]),
-                ("tadj", smallvec![QubitId(target)]),
-                ("cx", smallvec![QubitId(ctl0), QubitId(target)]),
-                ("t", smallvec![QubitId(ctl1)]),
-                ("t", smallvec![QubitId(target)]),
-                ("h", smallvec![QubitId(target)]),
-                ("cx", smallvec![QubitId(ctl0), QubitId(ctl1)]),
-                ("t", smallvec![QubitId(ctl0)]),
-                ("tadj", smallvec![QubitId(ctl1)]),
-                ("cx", smallvec![QubitId(ctl0), QubitId(ctl1)]),
+                (instructions::H, smallvec![QubitId(target)]),
+                (instructions::CX, smallvec![QubitId(ctl1), QubitId(target)]),
+                (instructions::TADJ, smallvec![QubitId(target)]),
+                (instructions::CX, smallvec![QubitId(ctl0), QubitId(target)]),
+                (instructions::T, smallvec![QubitId(target)]),
+                (instructions::CX, smallvec![QubitId(ctl1), QubitId(target)]),
+                (instructions::TADJ, smallvec![QubitId(target)]),
+                (instructions::CX, smallvec![QubitId(ctl0), QubitId(target)]),
+                (instructions::T, smallvec![QubitId(ctl1)]),
+                (instructions::T, smallvec![QubitId(target)]),
+                (instructions::H, smallvec![QubitId(target)]),
+                (instructions::CX, smallvec![QubitId(ctl0), QubitId(ctl1)]),
+                (instructions::T, smallvec![QubitId(ctl0)]),
+                (instructions::TADJ, smallvec![QubitId(ctl1)]),
+                (instructions::CX, smallvec![QubitId(ctl0), QubitId(ctl1)]),
             ]
             .into_iter()
-            .map(|(instruction_name, parameters)| QuantumBackendInstruction {
-                instruction_name,
+            .map(|(instruction_id, parameters)| QuantumBackendInstruction {
+                instruction_id,
                 parameters,
             }),
         );

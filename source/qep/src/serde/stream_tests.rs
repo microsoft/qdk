@@ -6,7 +6,7 @@ use crate::{
     Parameter::{Float, QubitId, ResultId},
     QuantumBackend, QuantumBackendInstruction,
     QuantumBackendResult::{Error, One, Zero},
-    StreamBackend, StreamDriver,
+    StreamBackend, StreamDriver, instructions,
 };
 use smallvec::smallvec;
 use std::{
@@ -39,43 +39,55 @@ impl QuantumBackend for ControlledBackend {
 /// Preserves every instruction shape, operand order, and result variant over two buffered pipes.
 fn backend_driver_round_trip() -> Result<(), String> {
     let mut instructions = Vec::new();
-    for (names, parameters) in [
+    for (ids, parameters) in [
         (
-            &["ccx", "and_adj"][..],
+            &[instructions::CCX, instructions::AND_ADJ][..],
             smallvec![QubitId(1), QubitId(2), QubitId(3)],
         ),
         (
-            &["cx", "cy", "cz", "swap"][..],
+            &[
+                instructions::CX,
+                instructions::CY,
+                instructions::CZ,
+                instructions::SWAP,
+            ][..],
             smallvec![QubitId(1), QubitId(2)],
         ),
         (
             &[
-                "h", "s", "sadj", "sx", "t", "tadj", "x", "y", "z", "reset", "mz", "mz_reset",
+                instructions::H,
+                instructions::S,
+                instructions::SADJ,
+                instructions::SX,
+                instructions::T,
+                instructions::TADJ,
+                instructions::X,
+                instructions::Y,
+                instructions::Z,
+                instructions::RESET,
+                instructions::MZ,
+                instructions::MZ_RESET,
             ][..],
             smallvec![QubitId(1)],
         ),
         (
-            &["rx", "ry", "rz"][..],
+            &[instructions::RX, instructions::RY, instructions::RZ][..],
             smallvec![QubitId(3), Float(-0.125)],
         ),
         (
-            &["rxx", "ryy", "rzz"][..],
+            &[instructions::RXX, instructions::RYY, instructions::RZZ][..],
             smallvec![QubitId(2), QubitId(3), Float(-0.25)],
         ),
         (
-            &["mz_store", "mz_store_reset"][..],
+            &[instructions::MZ_STORE, instructions::MZ_STORE_RESET][..],
             smallvec![QubitId(3), ResultId(7)],
         ),
-        (&["read_result"][..], smallvec![ResultId(7)]),
+        (&[instructions::READ_RESULT][..], smallvec![ResultId(7)]),
     ] {
-        instructions.extend(
-            names
-                .iter()
-                .map(|&instruction_name| QuantumBackendInstruction {
-                    instruction_name,
-                    parameters: parameters.clone(),
-                }),
-        );
+        instructions.extend(ids.iter().map(|&instruction_id| QuantumBackendInstruction {
+            instruction_id,
+            parameters: parameters.clone(),
+        }));
     }
     let cases = [
         (
@@ -86,7 +98,7 @@ fn backend_driver_round_trip() -> Result<(), String> {
         ),
         (
             vec![QuantumBackendInstruction {
-                instruction_name: "read_result",
+                instruction_id: instructions::READ_RESULT,
                 parameters: smallvec![ResultId(7)],
             }],
             BatchResult {
@@ -95,7 +107,7 @@ fn backend_driver_round_trip() -> Result<(), String> {
         ),
         (
             vec![QuantumBackendInstruction {
-                instruction_name: "x",
+                instruction_id: instructions::X,
                 parameters: smallvec![QubitId(2)],
             }],
             BatchResult::default(),
@@ -123,16 +135,16 @@ fn numeric_boundaries_and_large_batches() -> Result<(), String> {
         f64::from_bits(1.0_f64.to_bits() + 1),
     ] {
         instructions.push(QuantumBackendInstruction {
-            instruction_name: "rzz",
+            instruction_id: instructions::RZZ,
             parameters: smallvec![QubitId(0), QubitId(usize::MAX), Float(angle)],
         });
     }
     instructions.push(QuantumBackendInstruction {
-        instruction_name: "mz_store",
+        instruction_id: instructions::MZ_STORE,
         parameters: smallvec![QubitId(usize::MAX), ResultId(0)],
     });
     instructions.extend((0..16_384).map(|index| QuantumBackendInstruction {
-        instruction_name: "read_result",
+        instruction_id: instructions::READ_RESULT,
         parameters: smallvec![ResultId(if index % 2 == 0 { 0 } else { usize::MAX })],
     }));
     let results = (0..16_384)
@@ -143,7 +155,7 @@ fn numeric_boundaries_and_large_batches() -> Result<(), String> {
         (vec![], BatchResult::default()),
         (
             vec![QuantumBackendInstruction {
-                instruction_name: "mz",
+                instruction_id: instructions::MZ,
                 parameters: smallvec![QubitId(0)],
             }],
             BatchResult {

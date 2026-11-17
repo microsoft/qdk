@@ -3,7 +3,7 @@
 
 use super::{Profiler, ProfilerResult, TemporalProfiles, TotalCounts};
 use crate::{
-    QuantumBackendResult,
+    InstructionId, QuantumBackendResult,
     instructions::{instruction_id_to_name, instruction_name_to_id, produces_result},
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
 };
@@ -17,8 +17,8 @@ pub struct SequentialCountingProfiler {
     gate_time_sec: FxHashMap<String, f64>,
     /// Call counts indexed by IDs up to the highest configured timing.
     counts: Vec<u64>,
-    /// Executed names outside the configured counter range, reported as missing timings.
-    unexpected_instructions: FxHashSet<&'static str>,
+    /// Executed IDs outside the configured counter range, reported as missing timings.
+    unexpected_instructions: FxHashSet<InstructionId>,
     /// The largest logical qubit ID observed during execution.
     max_qubit_id: Option<usize>,
 }
@@ -106,10 +106,8 @@ impl Profiler for SequentialCountingProfiler {
             runtime_sec_per_operation.insert(name.to_string(), runtime);
         }
         let mut unexpected: Vec<_> = self.unexpected_instructions.iter().copied().collect();
-        unexpected.sort_unstable_by_key(|name| {
-            (instruction_name_to_id(name).unwrap_or(usize::MAX), *name)
-        });
-        missing_timings.extend(unexpected);
+        unexpected.sort_unstable();
+        missing_timings.extend(unexpected.into_iter().map(instruction_id_to_name));
         let infos = if missing_timings.is_empty() {
             Vec::new()
         } else {
@@ -150,14 +148,18 @@ impl QuantumBackend for SequentialCountingProfiler {
     ) -> Result<BatchResult, String> {
         let mut result = BatchResult::default();
         for instruction in instructions {
+            if instruction.instruction_id >= crate::OPERATION_COUNT {
+                return Err(format!(
+                    "Unknown instruction ID {}",
+                    instruction.instruction_id
+                ));
+            }
             self.observe_qubits(instruction);
-            if let Some(count) = instruction_name_to_id(instruction.instruction_name)
-                .and_then(|id| self.counts.get_mut(id))
-            {
+            if let Some(count) = self.counts.get_mut(instruction.instruction_id) {
                 *count += 1;
             } else {
                 self.unexpected_instructions
-                    .insert(instruction.instruction_name);
+                    .insert(instruction.instruction_id);
             }
 
             if produces_result(instruction) {
@@ -173,8 +175,8 @@ impl QuantumBackend for SequentialCountingProfiler {
 #[cfg(test)]
 mod tests {
     use super::SequentialCountingProfiler;
-    use crate::Profiler;
     use crate::tests::{create_qsharp_interpreter, qsharp_sources_with_arithmetic};
+    use crate::{Profiler, instructions};
     use crate::{QuantumBackend, QuantumBackendResult};
     use rustc_hash::FxHashMap;
     use std::time::Instant;
@@ -264,17 +266,17 @@ mod tests {
         use crate::{Parameter::ResultId, QuantumBackendInstruction};
 
         let instructions: Vec<_> = [
-            ("mz", Some(4), None),
-            ("mz_reset", Some(4), None),
-            ("mz_store", Some(4), Some(1000)),
-            ("mz_store_reset", Some(4), Some(1001)),
-            ("read_result", None, Some(1000)),
-            ("read_result", None, Some(1001)),
+            (instructions::MZ, Some(4), None),
+            (instructions::MZ_RESET, Some(4), None),
+            (instructions::MZ_STORE, Some(4), Some(1000)),
+            (instructions::MZ_STORE_RESET, Some(4), Some(1001)),
+            (instructions::READ_RESULT, None, Some(1000)),
+            (instructions::READ_RESULT, None, Some(1001)),
         ]
         .into_iter()
         .map(
-            |(instruction_name, target, result)| QuantumBackendInstruction {
-                instruction_name,
+            |(instruction_id, target, result)| QuantumBackendInstruction {
+                instruction_id,
                 parameters: target
                     .into_iter()
                     .map(crate::Parameter::QubitId)
@@ -372,36 +374,36 @@ mod tests {
         assert!(profiler.counts.iter().all(|&count| count == 0));
         profiler.execute_batch(&[
             crate::QuantumBackendInstruction {
-                instruction_name: "h",
+                instruction_id: instructions::H,
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "cx",
+                instruction_id: instructions::CX,
                 parameters: smallvec::smallvec![
                     crate::Parameter::QubitId(0),
                     crate::Parameter::QubitId(1)
                 ],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "cx",
+                instruction_id: instructions::CX,
                 parameters: smallvec::smallvec![
                     crate::Parameter::QubitId(0),
                     crate::Parameter::QubitId(1)
                 ],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "read_result",
+                instruction_id: instructions::READ_RESULT,
                 parameters: smallvec::smallvec![crate::Parameter::ResultId(99)],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mz_store",
+                instruction_id: instructions::MZ_STORE,
                 parameters: smallvec::smallvec![
                     crate::Parameter::QubitId(0),
                     crate::Parameter::ResultId(99)
                 ],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mz_store",
+                instruction_id: instructions::MZ_STORE,
                 parameters: smallvec::smallvec![
                     crate::Parameter::QubitId(0),
                     crate::Parameter::ResultId(99)
@@ -435,11 +437,11 @@ mod tests {
         assert!(profiler.get_result().infos.is_empty());
         profiler.execute_batch(&[
             crate::QuantumBackendInstruction {
-                instruction_name: "h",
+                instruction_id: instructions::H,
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(4)],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "h",
+                instruction_id: instructions::H,
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(4)],
             },
         ])?;
@@ -456,40 +458,57 @@ mod tests {
     }
 
     #[test]
-    /// Counts named instructions without treating classical result IDs as qubits.
-    fn counts_named_batches_and_keeps_result_ids_classical() {
+    /// Rejects unknown IDs before they can reach name conversion in the profile report.
+    fn rejects_unknown_instruction_ids() -> Result<(), String> {
+        let mut profiler = SequentialCountingProfiler::new(1, FxHashMap::default())?;
+        for instruction_id in [crate::OPERATION_COUNT, usize::MAX] {
+            let error = profiler
+                .execute_batch(&[crate::QuantumBackendInstruction {
+                    instruction_id,
+                    parameters: smallvec::smallvec![],
+                }])
+                .expect_err("unknown instruction ID");
+            assert_eq!(error, format!("Unknown instruction ID {instruction_id}"));
+        }
+        assert!(profiler.get_result().infos.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    /// Counts instructions by ID without treating classical result IDs as qubits.
+    fn counts_batches_and_keeps_result_ids_classical() {
         let mut profiler =
             SequentialCountingProfiler::new(1, FxHashMap::from_iter([("read_result".into(), 0.0)]))
                 .expect("valid timing configuration");
         let batch = [
             crate::QuantumBackendInstruction {
-                instruction_name: "h",
+                instruction_id: instructions::H,
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(2)],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mz_store",
+                instruction_id: instructions::MZ_STORE,
                 parameters: smallvec::smallvec![
                     crate::Parameter::QubitId(2),
                     crate::Parameter::ResultId(1000)
                 ],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "read_result",
+                instruction_id: instructions::READ_RESULT,
                 parameters: smallvec::smallvec![crate::Parameter::ResultId(1000)],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mz_store_reset",
+                instruction_id: instructions::MZ_STORE_RESET,
                 parameters: smallvec::smallvec![
                     crate::Parameter::QubitId(2),
                     crate::Parameter::ResultId(2000)
                 ],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "read_result",
+                instruction_id: instructions::READ_RESULT,
                 parameters: smallvec::smallvec![crate::Parameter::ResultId(2000)],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "reset",
+                instruction_id: instructions::RESET,
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(2)],
             },
         ];
@@ -510,7 +529,7 @@ mod tests {
 
         let result = profiler
             .execute_batch(&[crate::QuantumBackendInstruction {
-                instruction_name: "read_result",
+                instruction_id: instructions::READ_RESULT,
                 parameters: smallvec::smallvec![crate::Parameter::ResultId(2000)],
             }])
             .expect("batch should succeed");
@@ -574,29 +593,29 @@ mod tests {
         profiler
             .execute_batch(&[
                 crate::QuantumBackendInstruction {
-                    instruction_name: "h",
+                    instruction_id: instructions::H,
                     parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
                 },
                 crate::QuantumBackendInstruction {
-                    instruction_name: "mz_store",
+                    instruction_id: instructions::MZ_STORE,
                     parameters: smallvec::smallvec![
                         crate::Parameter::QubitId(0),
                         crate::Parameter::ResultId(0)
                     ],
                 },
                 crate::QuantumBackendInstruction {
-                    instruction_name: "mz_store",
+                    instruction_id: instructions::MZ_STORE,
                     parameters: smallvec::smallvec![
                         crate::Parameter::QubitId(0),
                         crate::Parameter::ResultId(0)
                     ],
                 },
                 crate::QuantumBackendInstruction {
-                    instruction_name: "read_result",
+                    instruction_id: instructions::READ_RESULT,
                     parameters: smallvec::smallvec![crate::Parameter::ResultId(0)],
                 },
                 crate::QuantumBackendInstruction {
-                    instruction_name: "read_result",
+                    instruction_id: instructions::READ_RESULT,
                     parameters: smallvec::smallvec![crate::Parameter::ResultId(0)],
                 },
             ])

@@ -11,7 +11,7 @@ pub use stream_driver::StreamDriver;
 
 use crate::{
     BatchResult, Parameter, QuantumBackendInstruction, QuantumBackendResult,
-    instructions::{instruction_is_valid, parse_instruction},
+    instructions::{instruction_id_to_name, instruction_is_valid, parse_instruction},
 };
 use serde::de::{DeserializeSeed, Deserializer, Error, SeqAccess, Visitor};
 use std::{
@@ -44,7 +44,7 @@ pub(crate) fn serialize_batch_into(
         }
         // Validated canonical names and formatted numbers need no JSON escaping.
         encoded.push('"');
-        encoded.push_str(instruction.instruction_name);
+        encoded.push_str(instruction_id_to_name(instruction.instruction_id));
         encoded.push('(');
         for (index, parameter) in instruction.parameters.iter().enumerate() {
             if index != 0 {

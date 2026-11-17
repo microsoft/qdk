@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::Transpiler;
-use crate::{Parameter::QubitId, QuantumBackendInstruction};
+use crate::{InstructionId, Parameter::QubitId, QuantumBackendInstruction, instructions};
 use smallvec::smallvec;
 
 /// Decomposes a SWAP into three controlled-X instructions.
@@ -10,9 +10,9 @@ use smallvec::smallvec;
 pub struct SwapTransplier;
 
 impl Transpiler for SwapTransplier {
-    /// Returns the SWAP instruction name.
-    fn source_instruction_name(&self) -> &'static str {
-        "swap"
+    /// Returns the SWAP instruction ID.
+    fn source_instruction_id(&self) -> InstructionId {
+        instructions::SWAP
     }
 
     /// Appends three controlled-X gates that exchange the source qubits.
@@ -21,7 +21,7 @@ impl Transpiler for SwapTransplier {
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String> {
-        if source.instruction_name != self.source_instruction_name() {
+        if source.instruction_id != self.source_instruction_id() {
             return Err(format!("Expected a SWAP instruction, got {source:?}"));
         }
         let &[QubitId(q1), QubitId(q2)] = source.parameters.as_slice() else {
@@ -29,13 +29,13 @@ impl Transpiler for SwapTransplier {
         };
         output.extend(
             [
-                ("cx", smallvec![QubitId(q1), QubitId(q2)]),
-                ("cx", smallvec![QubitId(q2), QubitId(q1)]),
-                ("cx", smallvec![QubitId(q1), QubitId(q2)]),
+                (instructions::CX, smallvec![QubitId(q1), QubitId(q2)]),
+                (instructions::CX, smallvec![QubitId(q2), QubitId(q1)]),
+                (instructions::CX, smallvec![QubitId(q1), QubitId(q2)]),
             ]
             .into_iter()
-            .map(|(instruction_name, parameters)| QuantumBackendInstruction {
-                instruction_name,
+            .map(|(instruction_id, parameters)| QuantumBackendInstruction {
+                instruction_id,
                 parameters,
             }),
         );

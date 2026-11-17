@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     Parameter, QuantumBackendResult, TotalCounts,
-    instructions::produces_result,
+    instructions::{self, produces_result},
     interface::QuantumBackendInstruction,
     profilers::{
         LoggableOperation, LoggedInstruction, LoggedInstructionParameter, Precondition,
@@ -31,19 +31,32 @@ impl TryFrom<&QuantumBackendInstruction> for DemoModel1NativeOperation {
     /// Validates the backend instruction and maps it to a native operation.
     fn try_from(instruction: &QuantumBackendInstruction) -> Result<Self, Self::Error> {
         match (
-            instruction.instruction_name,
+            instruction.instruction_id,
             instruction.parameters.as_slice(),
         ) {
-            ("cx", [Parameter::QubitId(control), Parameter::QubitId(target)]) => {
+            (instructions::CX, [Parameter::QubitId(control), Parameter::QubitId(target)]) => {
                 Ok(Self::CnotGate(*control, *target))
             }
-            (name @ ("h" | "s" | "sadj" | "x" | "y" | "z"), [Parameter::QubitId(qubit)]) => {
-                Ok(Self::SingleQubitCliffordGate(name, *qubit))
+            (
+                id @ (instructions::H
+                | instructions::S
+                | instructions::SADJ
+                | instructions::X
+                | instructions::Y
+                | instructions::Z),
+                [Parameter::QubitId(qubit)],
+            ) => Ok(Self::SingleQubitCliffordGate(
+                instructions::instruction_id_to_name(id),
+                *qubit,
+            )),
+            (instructions::MZ, [Parameter::QubitId(qubit)]) => Ok(Self::Measurement(*qubit)),
+            (instructions::RESET, [Parameter::QubitId(qubit)]) => Ok(Self::Reset(*qubit)),
+            (instructions::T, [Parameter::QubitId(qubit)]) => {
+                Ok(Self::InjectT(None, *qubit, false))
             }
-            ("mz", [Parameter::QubitId(qubit)]) => Ok(Self::Measurement(*qubit)),
-            ("reset", [Parameter::QubitId(qubit)]) => Ok(Self::Reset(*qubit)),
-            ("t", [Parameter::QubitId(qubit)]) => Ok(Self::InjectT(None, *qubit, false)),
-            ("tadj", [Parameter::QubitId(qubit)]) => Ok(Self::InjectT(None, *qubit, true)),
+            (instructions::TADJ, [Parameter::QubitId(qubit)]) => {
+                Ok(Self::InjectT(None, *qubit, true))
+            }
             _ => Err(format!("Unsupported instruction: {instruction:?}")),
         }
     }
@@ -225,17 +238,23 @@ impl QpuModel for DemoModel1 {
     ) -> Result<(), String> {
         let op = DemoModel1NativeOperation::try_from(instruction)?;
 
-        let duration_nanos = match instruction.instruction_name {
-            "cx" | "h" | "s" | "sadj" | "x" | "y" | "z" => self.clifford_gate_time_nanos,
-            "mz" | "reset" => self.measurment_time_nanos,
-            "t" | "tadj" => self.inject_t_time(),
+        let duration_nanos = match instruction.instruction_id {
+            instructions::CX
+            | instructions::H
+            | instructions::S
+            | instructions::SADJ
+            | instructions::X
+            | instructions::Y
+            | instructions::Z => self.clifford_gate_time_nanos,
+            instructions::MZ | instructions::RESET => self.measurment_time_nanos,
+            instructions::T | instructions::TADJ => self.inject_t_time(),
             _ => {
                 return Err(format!("Unsupported instruction: {instruction:?}"));
             }
         };
 
-        let preconditions = match instruction.instruction_name {
-            "t" | "tadj" => vec![Precondition::ResourceIsAvailable(
+        let preconditions = match instruction.instruction_id {
+            instructions::T | instructions::TADJ => vec![Precondition::ResourceIsAvailable(
                 DemoModel1Resource::TState,
             )],
             _ => vec![],

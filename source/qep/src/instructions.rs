@@ -39,7 +39,7 @@ macro_rules! define_instructions {
             }
         }
 
-        /// Rejects unknown instruction names and malformed operand shapes.
+        /// Rejects unknown instruction IDs and malformed operand shapes.
         pub fn validate_instruction(instruction: &QuantumBackendInstruction) {
             assert!(
                 instruction_is_valid(instruction),
@@ -47,10 +47,10 @@ macro_rules! define_instructions {
             );
         }
 
-        /// Checks names and operand shapes without panicking on untrusted input.
+        /// Checks IDs and operand shapes without panicking on untrusted input.
         pub(crate) fn instruction_is_valid(instruction: &QuantumBackendInstruction) -> bool {
-            match instruction.instruction_name {
-                $($name => matches!(
+            match instruction.instruction_id {
+                $($id => matches!(
                     instruction.parameters.as_slice(),
                     [$($parameter(_)),*]
                 ),)*
@@ -63,9 +63,11 @@ macro_rules! define_instructions {
             name: &str,
             mut arguments: impl Iterator<Item = &'a str>,
         ) -> Result<QuantumBackendInstruction, String> {
-            let instruction = match name {
-                $($name => QuantumBackendInstruction {
-                    instruction_name: $name,
+            let id = instruction_name_to_id(name)
+                .ok_or_else(|| format!("Unknown instruction: {name}"))?;
+            let instruction = match id {
+                $($id => QuantumBackendInstruction {
+                    instruction_id: $id,
                     parameters: smallvec::smallvec![$(
                         $parameter(
                             arguments.next()
@@ -75,7 +77,7 @@ macro_rules! define_instructions {
                         )
                     ),*],
                 },)*
-                _ => return Err(format!("Unknown instruction: {name}")),
+                _ => unreachable!("instruction name maps to a canonical ID"),
             };
             if arguments.next().is_some() {
                 return Err(format!("Too many arguments for {name}"));
@@ -122,8 +124,50 @@ define_instructions! {
 
 /// Identifies instructions that produce a result.
 pub(crate) fn produces_result(instruction: &QuantumBackendInstruction) -> bool {
-    matches!(
-        instruction.instruction_name,
-        "read_result" | "mz" | "mz_reset"
-    )
+    matches!(instruction.instruction_id, READ_RESULT | MZ | MZ_RESET)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use smallvec::smallvec;
+
+    #[test]
+    /// Check that for every instruction its canonical name maps back to its ID.
+    fn names_round_trip() {
+        for instruction_id in 0..OPERATION_COUNT {
+            let name = instruction_id_to_name(instruction_id);
+            assert_eq!(instruction_name_to_id(name), Some(instruction_id), "{name}");
+        }
+    }
+
+    #[test]
+    /// Uses the ID to distinguish gates, immediate results, and typed result-register operands.
+    fn validates_and_classifies_instruction_ids() {
+        let mut instruction = QuantumBackendInstruction {
+            instruction_id: H,
+            parameters: smallvec![QubitId(7)],
+        };
+        assert!(instruction_is_valid(&instruction));
+        assert!(!produces_result(&instruction));
+
+        for id in [MZ, MZ_RESET] {
+            instruction.instruction_id = id;
+            assert!(instruction_is_valid(&instruction));
+            assert!(produces_result(&instruction));
+        }
+
+        instruction.instruction_id = READ_RESULT;
+        assert!(!instruction_is_valid(&instruction));
+        instruction.parameters[0] = ResultId(7);
+        assert!(instruction_is_valid(&instruction));
+        assert!(produces_result(&instruction));
+
+        for id in [OPERATION_COUNT, usize::MAX] {
+            instruction.instruction_id = id;
+            assert!(!instruction_is_valid(&instruction));
+            assert!(!produces_result(&instruction));
+            assert!(format!("{instruction:?}").contains(&id.to_string()));
+        }
+    }
 }

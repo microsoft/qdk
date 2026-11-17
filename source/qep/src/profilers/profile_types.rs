@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{Parameter, QuantumBackendInstruction};
+use crate::{Parameter, QuantumBackendInstruction, instructions};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, fmt};
@@ -92,7 +92,9 @@ impl From<&QuantumBackendInstruction> for LoggedInstruction {
     /// Copies instruction data into the trace representation without cloning the backend instruction.
     fn from(instruction: &QuantumBackendInstruction) -> Self {
         Self {
-            instruction_name: Cow::Borrowed(instruction.instruction_name),
+            instruction_name: Cow::Borrowed(instructions::instruction_id_to_name(
+                instruction.instruction_id,
+            )),
             parameters: instruction
                 .parameters
                 .iter()
@@ -190,19 +192,21 @@ mod tests {
             ],
         ] {
             let instruction = QuantumBackendInstruction {
-                instruction_name: "test",
+                instruction_id: instructions::RZ,
                 parameters,
             };
-            let expected_json =
-                serde_json::to_string(&instruction).expect("instruction serializes");
+            let expected_json = serde_json::json!({
+                "instruction_name": "rz",
+                "parameters": instruction.parameters,
+            });
             let expected_debug = format!("{instruction:?}");
             let borrowed = LoggedInstruction::from(&instruction);
             let owned = LoggedInstruction::from(instruction);
             assert_eq!(borrowed, owned);
             for logged in [borrowed, owned] {
-                assert!(matches!(logged.instruction_name, Cow::Borrowed("test")));
+                assert!(matches!(logged.instruction_name, Cow::Borrowed("rz")));
                 assert_eq!(
-                    serde_json::to_string(&logged).expect("logged instruction serializes"),
+                    serde_json::to_value(&logged).expect("logged instruction serializes"),
                     expected_json
                 );
                 assert_eq!(format!("{logged:?}"), expected_debug);

@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::{
-    BatchResult, QuantumBackend, QuantumBackendInstruction, RzTranspiler,
+    BatchResult, InstructionId, QuantumBackend, QuantumBackendInstruction, RzTranspiler,
+    instructions,
     interface::Driver,
     transpilers::{
         CliffordTranspiler, DecomposeToffoliTranspiler, MzResetTranspiler, SwapTransplier,
@@ -11,13 +12,13 @@ use crate::{
 };
 use rustc_hash::FxHashMap;
 
-/// Applies transpilers selected by source instruction name.
+/// Applies transpilers selected by source instruction ID.
 ///
 /// Unregistered instructions pass through unchanged. Generated instructions are
 /// forwarded directly to the backend, not fed into other transpilers.
 pub struct TranspilingAdapter<B> {
     backend: B,
-    transpilers: FxHashMap<&'static str, Box<dyn Transpiler>>,
+    transpilers: FxHashMap<InstructionId, Box<dyn Transpiler>>,
 }
 
 impl<B: QuantumBackend> TranspilingAdapter<B> {
@@ -26,18 +27,19 @@ impl<B: QuantumBackend> TranspilingAdapter<B> {
         &mut self.backend
     }
 
-    /// Wraps a backend, rejecting duplicate source instruction names.
+    /// Wraps a backend, rejecting duplicate source instruction IDs.
     pub fn new(backend: B, transpilers: Vec<Box<dyn Transpiler>>) -> Result<Self, String> {
-        let mut by_name = FxHashMap::default();
+        let mut by_id = FxHashMap::default();
         for transpiler in transpilers {
-            let name = transpiler.source_instruction_name();
-            if by_name.insert(name, transpiler).is_some() {
+            let id = transpiler.source_instruction_id();
+            if by_id.insert(id, transpiler).is_some() {
+                let name = instructions::instruction_id_to_name(id);
                 return Err(format!("Duplicate transpiler for instruction `{name}`"));
             }
         }
         Ok(Self {
             backend,
-            transpilers: by_name,
+            transpilers: by_id,
         })
     }
 
@@ -76,7 +78,7 @@ impl<B: QuantumBackend> QuantumBackend for TranspilingAdapter<B> {
     ) -> Result<BatchResult, String> {
         let mut transformed = Vec::with_capacity(instructions.len());
         for instruction in instructions {
-            if let Some(transpiler) = self.transpilers.get_mut(instruction.instruction_name) {
+            if let Some(transpiler) = self.transpilers.get_mut(&instruction.instruction_id) {
                 transpiler.transpile(instruction, &mut transformed)?;
             } else {
                 transformed.push(instruction.clone());

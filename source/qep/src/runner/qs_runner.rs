@@ -6,8 +6,9 @@ mod tests;
 
 use super::batcher::{Batcher, DEFAULT_MAX_BATCH_SIZE};
 use crate::{
+    InstructionId,
     Parameter::{Float, QubitId, ResultId},
-    QuantumBackend, QuantumBackendInstruction,
+    QuantumBackend, QuantumBackendInstruction, instructions,
 };
 use num_bigint::BigUint;
 use num_complex::Complex;
@@ -91,9 +92,9 @@ impl<'a> QsBackendReverseShim<'a> {
     }
 
     /// Measures into a reusable result slot and resolves it before execution continues.
-    fn measure(&mut self, name: &'static str, q: usize) -> Result<val::Result, String> {
+    fn measure(&mut self, instruction_id: InstructionId, q: usize) -> Result<val::Result, String> {
         self.batcher.push(QuantumBackendInstruction {
-            instruction_name: name,
+            instruction_id,
             parameters: smallvec![QubitId(self.qubits[q]), ResultId(0)],
         })?;
         self.batcher.read_result(0).map(val::Result::Val)
@@ -101,11 +102,11 @@ impl<'a> QsBackendReverseShim<'a> {
 }
 
 macro_rules! gates {
-    ($($name:ident($($q:ident),+));+ $(;)?) => {$(
+    ($($name:ident => $id:ident($($q:ident),+));+ $(;)?) => {$(
         /// Buffers the corresponding gate using mapped backend qubit IDs.
         fn $name(&mut self, $($q: usize),+) -> Result<(), String> {
             self.batcher.push(QuantumBackendInstruction {
-                instruction_name: stringify!($name),
+                instruction_id: instructions::$id,
                 parameters: smallvec![$(QubitId(self.qubits[$q])),+],
             })
         }
@@ -113,11 +114,11 @@ macro_rules! gates {
 }
 
 macro_rules! rotations {
-    ($($name:ident($($q:ident),+));+ $(;)?) => {$(
+    ($($name:ident => $id:ident($($q:ident),+));+ $(;)?) => {$(
         /// Buffers a rotation with qubit operands preceding the angle.
         fn $name(&mut self, theta: f64, $($q: usize),+) -> Result<(), String> {
             self.batcher.push(QuantumBackendInstruction {
-                instruction_name: stringify!($name),
+                instruction_id: instructions::$id,
                 parameters: smallvec![$(QubitId(self.qubits[$q])),+, Float(theta)],
             })
         }
@@ -126,20 +127,20 @@ macro_rules! rotations {
 
 impl Backend for QsBackendReverseShim<'_> {
     gates! {
-        ccx(ctl0, ctl1, q); cx(ctl, q); cy(ctl, q); cz(ctl, q);
-        h(q); reset(q); sadj(q); s(q); sx(q); swap(q0, q1);
-        tadj(q); t(q); x(q); y(q); z(q)
+        ccx => CCX(ctl0, ctl1, q); cx => CX(ctl, q); cy => CY(ctl, q); cz => CZ(ctl, q);
+        h => H(q); reset => RESET(q); sadj => SADJ(q); s => S(q); sx => SX(q); swap => SWAP(q0, q1);
+        tadj => TADJ(q); t => T(q); x => X(q); y => Y(q); z => Z(q)
     }
-    rotations! { rx(q); rxx(q0, q1); ry(q); ryy(q0, q1); rz(q); rzz(q0, q1) }
+    rotations! { rx => RX(q); rxx => RXX(q0, q1); ry => RY(q); ryy => RYY(q0, q1); rz => RZ(q); rzz => RZZ(q0, q1) }
 
     /// Measures a qubit and returns a concrete result to the evaluator.
     fn m(&mut self, q: usize) -> Result<val::Result, String> {
-        self.measure("mz_store", q)
+        self.measure(instructions::MZ_STORE, q)
     }
 
     /// Measures and resets a qubit before returning its concrete result.
     fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
-        self.measure("mz_store_reset", q)
+        self.measure(instructions::MZ_STORE_RESET, q)
     }
 
     /// Reuses a released logical qubit or assigns a new backend slot.

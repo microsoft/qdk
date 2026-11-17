@@ -6,8 +6,9 @@ mod tests;
 
 use super::{Batcher, DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, RunOutput};
 use crate::{
+    InstructionId,
     Parameter::{self, Float, QubitId},
-    QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
+    QuantumBackend, QuantumBackendInstruction, QuantumBackendResult, instructions,
 };
 use qdk_simulators::{
     MeasurementResult, OutputRecord as SimulatorOutputRecord, Simulator,
@@ -93,7 +94,7 @@ impl<B: QuantumBackend> BackendSimulator<'_, B> {
     /// Checks qubit operands before submitting an instruction.
     fn instruction(
         &mut self,
-        instruction_name: &'static str,
+        instruction_id: InstructionId,
         parameters: SmallVec<[Parameter; 3]>,
     ) -> Option<QuantumBackendInstruction> {
         if self.error.is_some() {
@@ -108,14 +109,14 @@ impl<B: QuantumBackend> BackendSimulator<'_, B> {
             }
         }
         Some(QuantumBackendInstruction {
-            instruction_name,
+            instruction_id,
             parameters,
         })
     }
 
     /// Buffers a gate, retaining any failure from a capacity flush.
-    fn send(&mut self, name: &'static str, parameters: SmallVec<[Parameter; 3]>) {
-        if let Some(instruction) = self.instruction(name, parameters)
+    fn send(&mut self, instruction_id: InstructionId, parameters: SmallVec<[Parameter; 3]>) {
+        if let Some(instruction) = self.instruction(instruction_id, parameters)
             && let Err(error) = self.batcher.push(instruction)
         {
             self.fail(error);
@@ -137,11 +138,11 @@ impl<B: QuantumBackend> BackendSimulator<'_, B> {
     }
 
     /// Resolves an immediate measurement and caches it for bytecode result reads.
-    fn measure(&mut self, name: &'static str, target: usize, result_id: usize) {
+    fn measure(&mut self, instruction_id: InstructionId, target: usize, result_id: usize) {
         if !self.valid_result(result_id) {
             return;
         }
-        let Some(instruction) = self.instruction(name, smallvec![QubitId(target)]) else {
+        let Some(instruction) = self.instruction(instruction_id, smallvec![QubitId(target)]) else {
             return;
         };
         match self.batcher.push_with_result(instruction) {
@@ -160,19 +161,19 @@ impl<B: QuantumBackend> BackendSimulator<'_, B> {
 }
 
 macro_rules! gates {
-    ($($method:ident => $name:literal($($qubit:ident),+));+ $(;)?) => {$(
+    ($($method:ident => $id:ident($($qubit:ident),+));+ $(;)?) => {$(
         /// Buffers the corresponding QEP gate.
         fn $method(&mut self, $($qubit: usize),+) {
-            self.send($name, smallvec![$(QubitId($qubit)),+]);
+            self.send(instructions::$id, smallvec![$(QubitId($qubit)),+]);
         }
     )+};
 }
 
 macro_rules! rotations {
-    ($($method:ident($($qubit:ident),+));+ $(;)?) => {$(
+    ($($method:ident => $id:ident($($qubit:ident),+));+ $(;)?) => {$(
         /// Buffers a rotation with qubit operands preceding its angle.
         fn $method(&mut self, angle: f64, $($qubit: usize),+) {
-            self.send(stringify!($method), smallvec![$(QubitId($qubit)),+, Float(angle)]);
+            self.send(instructions::$id, smallvec![$(QubitId($qubit)),+, Float(angle)]);
         }
     )+};
 }
@@ -187,15 +188,15 @@ impl<B: QuantumBackend> Simulator for BackendSimulator<'_, B> {
     }
 
     gates! {
-        x => "x"(q); y => "y"(q); z => "z"(q); h => "h"(q);
-        s => "s"(q); s_adj => "sadj"(q); sx => "sx"(q);
-        t => "t"(q); t_adj => "tadj"(q);
-        cx => "cx"(control, target); cy => "cy"(control, target);
-        ccx => "ccx"(control0, control1, target);
-        cz => "cz"(control, target); swap => "swap"(q1, q2);
-        resetz => "reset"(q)
+        x => X(q); y => Y(q); z => Z(q); h => H(q);
+        s => S(q); s_adj => SADJ(q); sx => SX(q);
+        t => T(q); t_adj => TADJ(q);
+        cx => CX(control, target); cy => CY(control, target);
+        ccx => CCX(control0, control1, target);
+        cz => CZ(control, target); swap => SWAP(q1, q2);
+        resetz => RESET(q)
     }
-    rotations! { rx(q); ry(q); rz(q); rxx(q1, q2); ryy(q1, q2); rzz(q1, q2) }
+    rotations! { rx => RX(q); ry => RY(q); rz => RZ(q); rxx => RXX(q1, q2); ryy => RYY(q1, q2); rzz => RZZ(q1, q2) }
 
     /// Decomposes inverse square-root X into QEP-supported Clifford gates.
     fn sx_adj(&mut self, target: usize) {
@@ -222,12 +223,12 @@ impl<B: QuantumBackend> Simulator for BackendSimulator<'_, B> {
 
     /// Flushes a measurement barrier and writes its local result slot.
     fn mz(&mut self, target: usize, result_id: usize) {
-        self.measure("mz", target, result_id);
+        self.measure(instructions::MZ, target, result_id);
     }
 
     /// Flushes a measurement-and-reset barrier and writes its local result slot.
     fn mresetz(&mut self, target: usize, result_id: usize) {
-        self.measure("mz_reset", target, result_id);
+        self.measure(instructions::MZ_RESET, target, result_id);
     }
 
     /// Rejects movement, which has no QEP instruction.
