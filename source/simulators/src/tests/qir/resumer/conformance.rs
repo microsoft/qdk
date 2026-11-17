@@ -404,7 +404,7 @@ struct Grouping(Toy);
 impl QirResumer for Grouping {
     type Error = Failed;
 
-    async fn run(&mut self, machine: &QirMachine<'_>, shots: &[QirShotId]) -> Run {
+    fn run(&mut self, machine: &QirMachine<'_>, shots: &[QirShotId]) -> impl Future<Output = Run> {
         let toy = &self.0;
         let machine = *machine;
         let mut run = GroupedRun {
@@ -437,14 +437,14 @@ impl QirResumer for Grouping {
             );
             first_round = false;
         }
-        match run.failure {
+        std::future::ready(match run.failure {
             Some((_, error)) => Err(error),
             None => Ok(run
                 .shots
                 .into_iter()
                 .map(|shot| shot.records.unwrap_or_default())
                 .collect()),
-        }
+        })
     }
 }
 

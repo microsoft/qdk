@@ -43,11 +43,27 @@ where
 {
     type Error = Infallible;
 
-    async fn run(
+    fn run(
         &mut self,
         machine: &QirMachine<'_>,
         shots: &[QirShotId],
-    ) -> Result<Vec<Vec<OutputRecord>>, QirResumeError<Infallible>> {
+    ) -> impl Future<Output = Result<Vec<Vec<OutputRecord>>, QirResumeError<Infallible>>> {
+        std::future::ready(self.run_now(machine, shots))
+    }
+}
+
+impl<F> QirSimulatorResumer<F> {
+    /// Runs `shots` one by one, to their ends, before returning: `run`'s
+    /// future is ready at once.
+    fn run_now<S>(
+        &mut self,
+        machine: &QirMachine<'_>,
+        shots: &[QirShotId],
+    ) -> Result<Vec<Vec<OutputRecord>>, QirResumeError<Infallible>>
+    where
+        S: Simulator,
+        F: FnMut(&QirProgram, QirShotId) -> S,
+    {
         // One context serves every shot: `restart_shot` makes it a new
         // shot's, reusing its memory.
         let mut context = machine.start_shot();

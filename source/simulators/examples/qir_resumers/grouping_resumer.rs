@@ -66,11 +66,11 @@ where
 {
     type Error = Infallible;
 
-    async fn run(
+    fn run(
         &mut self,
         machine: &QirMachine<'_>,
         shots: &[QirShotId],
-    ) -> Result<Vec<Vec<OutputRecord>>, QirResumeError<Infallible>> {
+    ) -> impl Future<Output = Result<Vec<Vec<OutputRecord>>, QirResumeError<Infallible>>> {
         let mut run = GroupedRun {
             shots: shots
                 .iter()
@@ -95,14 +95,14 @@ where
                 self.dispatches.push(run.dispatch(group, batch));
             }
         }
-        match run.trap {
+        std::future::ready(match run.trap {
             Some((_, error)) => Err(error),
             None => Ok(run
                 .shots
                 .into_iter()
                 .map(|shot| shot.records.expect("every shot ended"))
                 .collect()),
-        }
+        })
     }
 }
 

@@ -3063,7 +3063,19 @@ fn splitmix(mut x: u64) -> u64 {
 impl QirResumer for QirGpuResumer {
     type Error = GpuError;
 
-    async fn run(
+    fn run(
+        &mut self,
+        machine: &QirMachine<'_>,
+        shots: &[QirShotId],
+    ) -> impl Future<Output = Result<Vec<Vec<OutputRecord>>, QirResumeError<GpuError>>> {
+        std::future::ready(self.run_now(machine, shots))
+    }
+}
+
+impl QirGpuResumer {
+    /// Runs `shots` on the GPU, a chunk of at most the buffers' slots at a
+    /// time, before returning: `run`'s future is ready at once.
+    fn run_now(
         &mut self,
         machine: &QirMachine<'_>,
         shots: &[QirShotId],
@@ -3089,9 +3101,7 @@ impl QirResumer for QirGpuResumer {
         }
         Ok(records)
     }
-}
 
-impl QirGpuResumer {
     #[allow(clippy::too_many_lines)]
     fn run_chunk(
         &mut self,

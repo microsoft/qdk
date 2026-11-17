@@ -297,7 +297,7 @@ fn conditioned_calls_write_no_result() {
     else {
         panic!("a batch");
     };
-    assert!(!conditions.is_empty());
+    assert_ne!(conditions, []);
     for condition in conditions {
         assert!(matches!(calls[condition.call], QirCall::Gate { .. }));
     }
