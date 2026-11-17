@@ -13,14 +13,14 @@ use crate::{
 
 /// Simplify control flow of the program.
 /// For now, this only removes single redundant blocks where the block is the only successor of its only predecessor.
-pub fn simplify_control_flow(program: &mut Program) {
+pub(crate) fn simplify_control_flow(program: &mut Program) {
     // Use a map to track which blocks have been merged into their predecessors. This helps
     // find the ultimate target block for later merges.
     let mut merge_map = FxHashMap::default();
 
     // For each block, check if it has a single predecessor and that predecessor ends with a jump to the current block.
     // If so, the block is redundant and can be merged.
-    let preds_map = build_predecessors_map(program);
+    let preds_map = build_predecessors_map(program, false);
     for (block_id, preds) in preds_map.iter() {
         if preds.len() == 1
             && matches!(program.get_block(preds[0]).0.last(), Some(Instruction::Jump(target)) if *target == block_id)

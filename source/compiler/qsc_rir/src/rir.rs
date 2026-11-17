@@ -106,7 +106,7 @@ impl Program {
     }
 
     #[must_use]
-    pub fn all_callable_ids(&self) -> Vec<CallableId> {
+    pub(crate) fn all_callable_ids(&self) -> Vec<CallableId> {
         self.callables.iter().map(|(id, _)| id).collect()
     }
 

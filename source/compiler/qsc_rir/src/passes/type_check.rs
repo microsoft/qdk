@@ -9,7 +9,7 @@ use rustc_hash::FxHashSet;
 #[cfg(test)]
 mod tests;
 
-pub fn check_types(program: &Program) {
+pub(crate) fn check_types(program: &Program) {
     // Any variable that is defined more than once violates the required LLVM Single Static Assignment (SSA)
     // form, so we track the variable IDs defined by instructions to ensure they are unique.
     // LLVM only requires unique variables per-function, but since RIR uses global variable IDs,

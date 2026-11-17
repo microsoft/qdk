@@ -12,7 +12,7 @@ use crate::{
     utils::{get_block_successors, get_variable_assignments},
 };
 
-pub fn insert_alloca_load_instrs(program: &mut Program) {
+pub(crate) fn insert_alloca_load_instrs(program: &mut Program) {
     // Get the next available variable ID for use in newly generated loads.
     let mut next_var_id = get_variable_assignments(program)
         .iter()
@@ -51,11 +51,8 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
             &mut loaded_var_ids,
         );
         for successor_id in get_block_successors(program.get_block(block_id)) {
-            if !visited_blocks.contains(&successor_id)
-                && !blocks_to_visit_set.contains(&successor_id)
-            {
+            if !visited_blocks.contains(&successor_id) && blocks_to_visit_set.insert(successor_id) {
                 blocks_to_visit_list.push(successor_id);
-                blocks_to_visit_set.insert(successor_id);
             }
         }
     }
