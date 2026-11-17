@@ -2932,6 +2932,7 @@ dependencies = [
  "num-traits",
  "paulimer",
  "pauliverse",
+ "qodec_runtime_interface",
  "qsc_data_structures",
  "rand 0.10.2",
  "regex-lite",
@@ -3017,6 +3018,7 @@ name = "qodec_runtime_reader"
 version = "0.0.0"
 dependencies = [
  "deq-runtime",
+ "qdk_simulators",
  "qodec",
  "qodec_runtime_model",
  "qodec_runtime_recipes",
