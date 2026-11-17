@@ -742,6 +742,8 @@ fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Prog
         );
     }
     let mut body = String::new();
+    // Unlike QIR v1, QIR v2 may have multiple callables with defined bodies, so we get the blocks
+    // belonging to this callable rather than iterating over all program blocks.
     for block_id in get_callable_blocks(callable, program) {
         let block = program.get_block(block_id);
         write!(

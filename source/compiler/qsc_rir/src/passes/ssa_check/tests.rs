@@ -16,7 +16,7 @@ use crate::{
 use super::check_ssa_form;
 
 fn perform_ssa_check(program: &mut Program) {
-    let preds = build_predecessors_map(program);
+    let preds = build_predecessors_map(program, true);
     let doms = build_dominator_graph(program, &preds);
     check_ssa_form(program, &preds, &doms);
 }

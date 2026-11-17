@@ -20,7 +20,7 @@ pub(crate) fn simplify_control_flow(program: &mut Program) {
 
     // For each block, check if it has a single predecessor and that predecessor ends with a jump to the current block.
     // If so, the block is redundant and can be merged.
-    let preds_map = build_predecessors_map(program);
+    let preds_map = build_predecessors_map(program, false);
     for (block_id, preds) in preds_map.iter() {
         if preds.len() == 1
             && matches!(program.get_block(preds[0]).0.last(), Some(Instruction::Jump(target)) if *target == block_id)

@@ -649,6 +649,10 @@ impl ToQir<String> for rir::Callable {
             );
         }
         let mut body = String::new();
+        // Because QIR v1 emission assumes only a single function defined with a body, we know every
+        // block in the program belongs to the entry point. Further, because it's an `IndexMap` and
+        // RIR transforms ensure blocks have topological identifiers, iterating them produces the
+        // ordered set of blocks for the Directed Acyclic Graph of the program.
         for block_id in program.blocks.iter().map(|(block_id, _)| block_id) {
             let block = program.get_block(block_id);
             write!(

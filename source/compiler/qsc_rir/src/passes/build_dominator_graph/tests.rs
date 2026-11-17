@@ -29,7 +29,7 @@ fn display_dominator_graph(doms: &IndexMap<BlockId, BlockId>) -> String {
 
 fn build_doms(program: &mut Program) -> IndexMap<BlockId, BlockId> {
     remap_block_ids(program);
-    let preds = build_predecessors_map(program);
+    let preds = build_predecessors_map(program, true);
     build_dominator_graph(program, &preds)
 }
 
@@ -256,7 +256,7 @@ fn build_dominator_graph_intrinsic_callables_skipped() {
         .blocks
         .insert(BlockId(0), Block(vec![Instruction::Return(None)]));
 
-    let preds = build_predecessors_map(&program);
+    let preds = build_predecessors_map(&program, true);
     let doms = build_dominator_graph(&program, &preds);
 
     expect![[r#"

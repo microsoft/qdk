@@ -55,11 +55,18 @@ pub fn get_callable_blocks(callable: &Callable, program: &Program) -> Vec<BlockI
 /// The vectors used as values in the map are sorted in ascending order, ensuring that block ids
 /// for predecessors are listed lowest to highest.
 #[must_use]
-pub(crate) fn build_predecessors_map(program: &Program) -> IndexMap<BlockId, Vec<BlockId>> {
+pub(crate) fn build_predecessors_map(
+    program: &Program,
+    validate_dag: bool,
+) -> IndexMap<BlockId, Vec<BlockId>> {
     let mut preds: IndexMap<BlockId, Vec<BlockId>> = IndexMap::default();
 
     for (block_id, block) in program.blocks.iter() {
         for successor in get_block_successors(block) {
+            assert!(
+                !validate_dag || successor >= block_id,
+                "after remapping of a DAG, successors should have greater block IDs than their predecessors"
+            );
             if let Some(preds_list) = preds.get_mut(successor) {
                 preds_list.push(block_id);
             } else {
@@ -73,17 +80,6 @@ pub(crate) fn build_predecessors_map(program: &Program) -> IndexMap<BlockId, Vec
     }
 
     preds
-}
-
-/// After block remapping, verify that no block has a predecessor with a block ID greater than or equal to its own.
-/// This ensures that the control-flow graph is acyclic and topologically ordered.
-pub(crate) fn ensure_acyclic(preds: &IndexMap<BlockId, Vec<BlockId>>) {
-    for (block_id, block_preds) in preds.iter() {
-        assert!(
-            !block_preds.iter().any(|pred| *pred >= block_id),
-            "block {block_id:?} has a cycle in its predecessors"
-        );
-    }
 }
 
 #[must_use]

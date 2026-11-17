@@ -31,7 +31,7 @@ use crate::{
         prune_unneeded_stores::prune_unneeded_stores, result_literal::transform_result_literals,
     },
     rir::Program,
-    utils::{build_predecessors_map, ensure_acyclic},
+    utils::build_predecessors_map,
 };
 
 /// Run the default set of RIR check and transformation passes.
@@ -56,10 +56,9 @@ pub fn check_and_transform(program: &mut Program) {
         insert_alloca_load_instrs(program);
         transform_result_literals(program);
     } else {
-        let preds = build_predecessors_map(program);
         // Any transformation after this point assumes that the control-flow graph is acyclic.
-        // Verify that assumption here before progressing.
-        ensure_acyclic(&preds);
+        // This assumption is validated during construction of the predecessor map by passing `true`.
+        let preds = build_predecessors_map(program, true);
         transform_to_ssa(program, &preds);
         let doms = build_dominator_graph(program, &preds);
         check_ssa_form(program, &preds, &doms);

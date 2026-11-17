@@ -45,6 +45,7 @@ fn check_unreachable_instrs(program: &Program) {
 
 /// Checks for unreachable blocks in a program.
 /// Specifically, this function checks that all blocks are reachable from at least one callable in the program.
+/// Note that this check only considers direct successors of callable entry blocks, not transitive reachability.
 fn check_unreachable_blocks(program: &Program) {
     let mut live_blocks = FxHashSet::default();
     for (_, callable) in program.callables.iter() {

@@ -24,7 +24,7 @@ fn transform_program(program: &mut Program) {
 // the program. This isolates the transform from the dominator-graph build and SSA checker, which is
 // useful for exercising multi-body programs.
 fn transform_to_ssa_directly(program: &mut Program) {
-    let preds = build_predecessors_map(program);
+    let preds = build_predecessors_map(program, true);
     super::transform_to_ssa(program, &preds);
 }
 
