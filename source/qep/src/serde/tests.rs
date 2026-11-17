@@ -6,7 +6,7 @@ use super::{
     serialize_batch_into, serialize_result,
 };
 use crate::{
-    BatchResult, OPERATION_COUNT, Parameter,
+    BatchResult, InstructionId, OPERATION_COUNT, Parameter,
     QuantumBackendResult::{Error, One, Zero},
     instructions::{self, instruction_id_to_name, instruction_is_valid},
 };
@@ -144,7 +144,7 @@ fn reusable_batch_buffers() -> Result<(), String> {
     assert!(deserialize_batch_into(r#"["h(1)","unknown(2)"]"#, &mut instructions).is_err());
     deserialize_batch_into(r#"["t(3)"]"#, &mut instructions)?;
     assert_eq!(instructions, deserialize_batch(r#"["t(3)"]"#)?);
-    instructions[0].instruction_id = usize::MAX;
+    instructions[0].instruction_id = InstructionId::MAX;
     assert!(serialize_batch_into(&instructions, &mut encoded).is_err());
     deserialize_batch_into("[]", &mut instructions)?;
     serialize_batch_into(&instructions, &mut encoded)?;

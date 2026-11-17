@@ -8,7 +8,7 @@ use crate::interface::{
     QuantumBackendInstruction,
 };
 
-pub type InstructionId = usize;
+pub type InstructionId = u16;
 
 /// Defines canonical IDs, names, and operand shapes.
 macro_rules! define_instructions {
@@ -19,7 +19,7 @@ macro_rules! define_instructions {
         )*
 
         /// The number of supported QIR instruction kinds.
-        pub const OPERATION_COUNT: usize = [$($name),*].len();
+        pub const OPERATION_COUNT: InstructionId = 0 $(+ { let _ = $name; 1 })*;
 
         /// Returns the canonical name, panicking for an unknown instruction ID.
         #[must_use]
@@ -163,7 +163,7 @@ mod tests {
         assert!(instruction_is_valid(&instruction));
         assert!(produces_result(&instruction));
 
-        for id in [OPERATION_COUNT, usize::MAX] {
+        for id in [OPERATION_COUNT, InstructionId::MAX] {
             instruction.instruction_id = id;
             assert!(!instruction_is_valid(&instruction));
             assert!(!produces_result(&instruction));

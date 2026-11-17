@@ -3,11 +3,11 @@
 
 use super::{Profiler, ProfilerResult, TemporalProfiles, TotalCounts};
 use crate::{
-    InstructionId, QuantumBackendResult,
+    QuantumBackendResult,
     instructions::{instruction_id_to_name, instruction_name_to_id, produces_result},
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
 };
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 /// Profiles instructions as if every operation executes sequentially.
 pub struct SequentialCountingProfiler {
@@ -15,10 +15,8 @@ pub struct SequentialCountingProfiler {
     physical_qubits_per_logical: usize,
     /// The duration of one call, keyed by the stable QIR instruction name.
     gate_time_sec: FxHashMap<String, f64>,
-    /// Call counts indexed by IDs up to the highest configured timing.
+    /// Call counts for every supported instruction, indexed by ID.
     counts: Vec<u64>,
-    /// Executed IDs outside the configured counter range, reported as missing timings.
-    unexpected_instructions: FxHashSet<InstructionId>,
     /// The largest logical qubit ID observed during execution.
     max_qubit_id: Option<usize>,
 }
@@ -26,36 +24,24 @@ pub struct SequentialCountingProfiler {
 impl SequentialCountingProfiler {
     /// Creates a profiler, treating omitted instruction timings as zero.
     ///
-    /// Returns an error for unknown names, invalid durations, or allocation failures.
+    /// Returns an error for unknown names or invalid durations.
     pub fn new(
         physical_qubits_per_logical: usize,
         gate_time_sec: FxHashMap<String, f64>,
     ) -> Result<Self, String> {
-        let mut count_len = 0;
         for (name, duration) in &gate_time_sec {
-            let instruction_id = instruction_name_to_id(name)
+            instruction_name_to_id(name)
                 .ok_or_else(|| format!("unknown QIR instruction name `{name}`"))?;
             if !duration.is_finite() || *duration < 0.0 {
                 return Err(format!(
                     "gate timing for instruction `{name}` must be finite and non-negative"
                 ));
             }
-            count_len = count_len.max(
-                instruction_id
-                    .checked_add(1)
-                    .ok_or("Instruction counter length overflow")?,
-            );
         }
-        let mut counts = Vec::new();
-        counts
-            .try_reserve_exact(count_len)
-            .map_err(|error| format!("Cannot allocate instruction counters: {error}"))?;
-        counts.resize(count_len, 0);
         Ok(Self {
             physical_qubits_per_logical,
             gate_time_sec,
-            counts,
-            unexpected_instructions: FxHashSet::default(),
+            counts: vec![0; usize::from(crate::OPERATION_COUNT)],
             max_qubit_id: None,
         })
     }
@@ -90,24 +76,23 @@ impl Profiler for SequentialCountingProfiler {
         let mut missing_timings = Vec::new();
         let mut total_runtime_sec = 0.0;
 
-        for (id, &calls) in self.counts.iter().enumerate() {
+        for (id, &calls) in (0..crate::OPERATION_COUNT).zip(&self.counts) {
             if calls == 0 {
                 continue;
             }
             let name = instruction_id_to_name(id);
-            let gate_time_sec = self.gate_time_sec.get(name).copied().unwrap_or_else(|| {
+            let gate_time_sec = if let Some(&duration) = self.gate_time_sec.get(name) {
+                calls_per_operation.insert(name.to_string(), calls);
+                duration
+            } else {
                 missing_timings.push(name);
                 0.0
-            });
+            };
             #[allow(clippy::cast_precision_loss)] // Profiling runtimes are represented as f64.
             let runtime = calls as f64 * gate_time_sec;
             total_runtime_sec += runtime;
-            calls_per_operation.insert(name.to_string(), calls);
             runtime_sec_per_operation.insert(name.to_string(), runtime);
         }
-        let mut unexpected: Vec<_> = self.unexpected_instructions.iter().copied().collect();
-        unexpected.sort_unstable();
-        missing_timings.extend(unexpected.into_iter().map(instruction_id_to_name));
         let infos = if missing_timings.is_empty() {
             Vec::new()
         } else {
@@ -155,12 +140,7 @@ impl QuantumBackend for SequentialCountingProfiler {
                 ));
             }
             self.observe_qubits(instruction);
-            if let Some(count) = self.counts.get_mut(instruction.instruction_id) {
-                *count += 1;
-            } else {
-                self.unexpected_instructions
-                    .insert(instruction.instruction_id);
-            }
+            self.counts[usize::from(instruction.instruction_id)] += 1;
 
             if produces_result(instruction) {
                 result
@@ -176,7 +156,7 @@ impl QuantumBackend for SequentialCountingProfiler {
 mod tests {
     use super::SequentialCountingProfiler;
     use crate::tests::{create_qsharp_interpreter, qsharp_sources_with_arithmetic};
-    use crate::{Profiler, instructions};
+    use crate::{InstructionId, Profiler, instructions};
     use crate::{QuantumBackend, QuantumBackendResult};
     use rustc_hash::FxHashMap;
     use std::time::Instant;
@@ -363,14 +343,14 @@ mod tests {
     }
 
     #[test]
-    /// Counts sparse in-range IDs and deduplicates out-of-range warnings in ID order.
+    /// Counts all instructions regardless of configured timings and warns once per untimed ID.
     fn sizes_counters_from_timings_and_reports_missing_ids() -> Result<(), String> {
-        use crate::instructions::{H, T};
+        use crate::instructions::H;
         let mut profiler = SequentialCountingProfiler::new(
             1,
             FxHashMap::from_iter([("h".into(), 0.25), ("t".into(), 0.5)]),
         )?;
-        assert_eq!(profiler.counts.len(), T + 1);
+        assert_eq!(profiler.counts.len(), usize::from(crate::OPERATION_COUNT));
         assert!(profiler.counts.iter().all(|&count| count == 0));
         profiler.execute_batch(&[
             crate::QuantumBackendInstruction {
@@ -410,16 +390,20 @@ mod tests {
                 ],
             },
         ])?;
-        assert_eq!(profiler.counts[H], 1);
-        assert_eq!(profiler.unexpected_instructions.len(), 2);
+        assert_eq!(profiler.counts[usize::from(H)], 1);
         let result = profiler.get_result();
         assert_eq!(
             result.totals.calls_per_operation,
-            FxHashMap::from_iter([("cx".into(), 2), ("h".into(), 1)])
+            FxHashMap::from_iter([("h".into(), 1)])
         );
         assert_eq!(
             result.totals.runtime_sec_per_operation,
-            FxHashMap::from_iter([("cx".into(), 0.0), ("h".into(), 0.25)])
+            FxHashMap::from_iter([
+                ("cx".into(), 0.0),
+                ("h".into(), 0.25),
+                ("mz_store".into(), 0.0),
+                ("read_result".into(), 0.0),
+            ])
         );
         assert_eq!(
             result.infos,
@@ -430,10 +414,10 @@ mod tests {
     }
 
     #[test]
-    /// Uses no counters for an empty configuration while retaining warnings and qubit accounting.
+    /// Retains counts, warnings, and qubit accounting even without configured timings.
     fn empty_timings_track_unexpected_instructions() -> Result<(), String> {
         let mut profiler = SequentialCountingProfiler::new(1, FxHashMap::default())?;
-        assert!(profiler.counts.is_empty());
+        assert_eq!(profiler.counts.len(), usize::from(crate::OPERATION_COUNT));
         assert!(profiler.get_result().infos.is_empty());
         profiler.execute_batch(&[
             crate::QuantumBackendInstruction {
@@ -445,10 +429,12 @@ mod tests {
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(4)],
             },
         ])?;
-        assert_eq!(profiler.unexpected_instructions.len(), 1);
         let result = profiler.get_result();
         assert!(result.totals.calls_per_operation.is_empty());
-        assert!(result.totals.runtime_sec_per_operation.is_empty());
+        assert_eq!(
+            result.totals.runtime_sec_per_operation,
+            FxHashMap::from_iter([("h".into(), 0.0)])
+        );
         assert_eq!(result.totals.logical_qubits, 5);
         assert_eq!(
             result.infos,
@@ -461,7 +447,7 @@ mod tests {
     /// Rejects unknown IDs before they can reach name conversion in the profile report.
     fn rejects_unknown_instruction_ids() -> Result<(), String> {
         let mut profiler = SequentialCountingProfiler::new(1, FxHashMap::default())?;
-        for instruction_id in [crate::OPERATION_COUNT, usize::MAX] {
+        for instruction_id in [crate::OPERATION_COUNT, InstructionId::MAX] {
             let error = profiler
                 .execute_batch(&[crate::QuantumBackendInstruction {
                     instruction_id,
@@ -524,8 +510,13 @@ mod tests {
         let counts = profiler.get_result();
         assert_eq!(counts.totals.logical_qubits, 3);
         assert_eq!(counts.totals.calls_per_operation["read_result"], 2);
-        assert_eq!(counts.totals.calls_per_operation["mz_store"], 1);
-        assert_eq!(counts.totals.calls_per_operation["mz_store_reset"], 1);
+        assert!(!counts.totals.calls_per_operation.contains_key("mz_store"));
+        assert!(
+            !counts
+                .totals
+                .calls_per_operation
+                .contains_key("mz_store_reset")
+        );
 
         let result = profiler
             .execute_batch(&[crate::QuantumBackendInstruction {
@@ -535,7 +526,10 @@ mod tests {
             .expect("batch should succeed");
         assert_eq!(result.results.len(), 1);
         assert!(!result.results.spilled());
-        assert_eq!(profiler.counts[crate::instructions::READ_RESULT], 3);
+        assert_eq!(
+            profiler.counts[usize::from(crate::instructions::READ_RESULT)],
+            3
+        );
     }
 
     #[test]
@@ -632,11 +626,15 @@ mod tests {
         );
         assert_eq!(
             result.totals.calls_per_operation,
-            FxHashMap::from_iter([("h".to_string(), 1),])
+            FxHashMap::from_iter([("h".to_string(), 1)])
         );
         assert_eq!(
             result.totals.runtime_sec_per_operation,
-            FxHashMap::from_iter([("h".to_string(), 0.25),])
+            FxHashMap::from_iter([
+                ("h".to_string(), 0.25),
+                ("mz_store".to_string(), 0.0),
+                ("read_result".to_string(), 0.0),
+            ])
         );
     }
 }

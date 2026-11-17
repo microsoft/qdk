@@ -30,7 +30,7 @@ We define a universal interface between 2 components of a quantum system.
 
 The driver passes ordered slices of instructions to the backend. Batching avoids the
 per-instruction synchronization and allocation costs of communicating through channels.
-Each `QuantumBackendInstruction` stores an `instruction_id` and typed parameters.
+Each `QuantumBackendInstruction` stores a `u16` `instruction_id` and typed parameters.
 Use constants such as `instructions::CCX` from `qep::instructions` for construction
 and dispatch, and `instruction_id_to_name` for human-readable names.
 The runners accumulate instructions until they reach either:
@@ -186,20 +186,17 @@ bit directly to `BatchResult.results` without writing a result slot; `mz_reset` 
 resets the qubit to zero after measuring. Results from `mz`, `mz_reset`, and
 `read_result` appear in instruction order. Store variants do not append results.
 The profiler constructor converts unknown names into a string error. `validate_instruction` borrows
-a `QuantumBackendInstruction` and panics for an unknown name or invalid operand shape,
+a `QuantumBackendInstruction` and panics for an unknown ID or invalid operand shape,
 including incorrect parameter types or ordering.
 Validation can be performed explicitly before execution; the counting profiler
 does not repeat operand validation in its hot loop. Its constructor returns
 `Result<Self, String>` and rejects unknown timing names and negative or non-finite
-durations. The profiler resolves names to internal `usize` instruction IDs.
-Counters are a zero-initialized array indexed by ID, sized to the
-highest configured timing ID plus one (empty for an empty timing map).
-Executed instructions within that range retain call counts even when their timing
-is missing; they contribute zero runtime and a missing-timing warning. IDs beyond
-the range are recorded in a set and warned about once, without retaining call
-counts or per-operation runtime entries. Unknown instruction names are also
-reported once without call counts. Configure timings for all executed
-instructions to keep counting on the array-index path after name resolution.
+durations. The profiler resolves timing names to `u16` instruction IDs.
+Counters are a zero-initialized array indexed by ID, sized to `OPERATION_COUNT`
+regardless of the configured timings. Every executed instruction is counted internally,
+but only instructions with configured timings appear in `calls_per_operation` and
+contribute to `total_operations_count`. Missing timings contribute zero runtime and
+a warning once per instruction in ID order. Unknown instruction IDs return an error.
 `QuantumBackendInstruction` is the sole instruction representation used by the runner,
 backends, profiler, and tests.
 
