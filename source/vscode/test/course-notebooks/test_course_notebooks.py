@@ -1,3 +1,4 @@
+import ast
 import json
 from collections import Counter
 from pathlib import Path
@@ -36,3 +37,44 @@ def test_course_notebook(copied_course_notebook: tuple[Path, Path, Path]) -> Non
     report = run_notebook(notebook_path, display_path, kernel_specs_dir)
 
     assert not report.failures, report.format_failures()
+
+
+def test_quiz_notebooks_have_author_validation(course_dir: Path) -> None:
+    for path in discover_notebooks(course_dir):
+        notebook = json.loads(path.read_text(encoding="utf-8"))
+        if not any(
+            "quiz" in cell.get("metadata", {}).get("tags", [])
+            for cell in notebook["cells"]
+        ):
+            continue
+        last = notebook["cells"][-1]
+        tags = last.get("metadata", {}).get("tags", [])
+        assert last["cell_type"] == "code" and "author-only" in tags, (
+            f"{path}: end quiz notebooks with an author-only validation code cell"
+        )
+        assert "skip-test" not in tags, f"{path}: author validation must run in CI"
+        source = last["source"]
+        if isinstance(source, list):
+            assert all(isinstance(line, str) for line in source), (
+                f"{path}: validation cell source must contain only text lines"
+            )
+            source = "".join(source)
+        assert isinstance(source, str), f"{path}: validation cell source must be text"
+        try:
+            statements = ast.parse(source).body
+        except SyntaxError as error:
+            raise AssertionError(
+                f"{path}: final validation cell has invalid Python "
+                f"(line {error.lineno}): {error.msg}"
+            ) from error
+        assert statements and isinstance(statements[-1], ast.Expr), (
+            f"{path}: the final cell must call validate_quizzes()"
+        )
+        call = statements[-1].value
+        assert (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "validate_quizzes"
+            and not call.args
+            and not call.keywords
+        ), f"{path}: the final cell must call the notebook-bound validate_quizzes()"

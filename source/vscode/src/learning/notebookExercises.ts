@@ -23,6 +23,7 @@ import type {
  * | `hint`        | markdown  | One hint. Multiple allowed, in document order.|
  * | `solution`    | code      | A reference solution. Multiple allowed.       |
  * | `explanation` | markdown  | Prose explanation of the solution.            |
+ * | `author-only` | any       | Notebook-level author tooling or notes.       |
  *
  * `hint`, `solution` and `explanation` cells bind to the nearest preceding
  * `exercise` cell, and are stripped from the learner's working copy during
@@ -55,6 +56,9 @@ const QUIZ_TAG = "quiz";
 
 /** Tags marking author-only cells, removed from the learner's working copy. */
 const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
+
+/** Notebook-level author content, not associated with an exercise. */
+const AUTHOR_ONLY_TAG = "author-only";
 
 /** Test-only tag removed from cells in the learner's working copy. */
 const SKIP_TEST_TAG = "skip-test";
@@ -104,6 +108,10 @@ export function parseNotebookActivities(
   for (let i = 0; i < cells.length; i++) {
     const cell = cells[i];
     const tags = cellTags(cell);
+
+    if (tags.includes(AUTHOR_ONLY_TAG)) {
+      continue;
+    }
 
     // A quiz cell stays in the learner's copy but is not an activity. Its
     // outputs are already in the notebook, running it does not produce a
@@ -235,7 +243,10 @@ export function stripAuthoringCells(
 
   notebook.cells = notebook.cells.filter((cell) => {
     const tags = cellTags(cell);
-    return !AUTHORING_TAGS.some((t) => tags.includes(t));
+    return (
+      !tags.includes(AUTHOR_ONLY_TAG) &&
+      !AUTHORING_TAGS.some((t) => tags.includes(t))
+    );
   });
 
   for (const cell of notebook.cells) {
@@ -387,6 +398,9 @@ function extractTitleFromPrecedingCell(
   for (let i = exerciseIndex - 1; i >= 0; i--) {
     const cell = cells[i];
     const tags = cellTags(cell);
+    if (tags.includes(AUTHOR_ONLY_TAG)) {
+      continue;
+    }
     if (
       tags.includes(EXERCISE_TAG) ||
       AUTHORING_TAGS.some((t) => tags.includes(t))

@@ -31,6 +31,10 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 MIME_TYPE = "application/vnd.qdk.learning+json"
 
+_CELL_ROLE_TAGS = frozenset(
+    {"exercise", "quiz", "hint", "solution", "explanation", "author-only"}
+)
+
 #: A quiz or option id has to survive the trip to the extension host, which
 #: accepts only this shape from a notebook — nothing longer, and nothing that
 #: could read as prose. Enforcing it here means an author finds out when they
@@ -264,25 +268,38 @@ def read_quiz_notebook(notebook: Path) -> dict[str, Any]:
     return document
 
 
-def authored_quizzes(cell: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+def _quiz_label(quiz_id: object, cell_number: int | None = None) -> str:
+    location = f"cell {cell_number}" if cell_number is not None else ""
+    if isinstance(quiz_id, str) and quiz_id.strip():
+        return f"Quiz {quiz_id!r}" + (f" ({location})" if location else "")
+    return location.capitalize() if location else "Quiz cell"
+
+
+def _cell_source(cell: Mapping[str, Any], label: str) -> str:
+    source = cell.get("source", "")
+    if isinstance(source, list) and all(isinstance(line, str) for line in source):
+        source = "".join(source)
+    if not isinstance(source, str):
+        raise ValueError(f"{label}: expected source text")
+    return source
+
+
+def authored_quizzes(
+    cell: Mapping[str, Any], *, cell_number: int | None = None
+) -> list[tuple[str, dict[str, Any]]]:
     """Read literal quiz definitions without executing any notebook code."""
     if (
         cell.get("cell_type") != "code"
         or "quiz" not in cell.get("metadata", {}).get("tags", [])
     ):
         return []
-    label = f"quiz cell {cell.get('id', '?')}"
-    source = cell.get("source", "")
-    if isinstance(source, list) and all(isinstance(line, str) for line in source):
-        source = "".join(source)
-    if not isinstance(source, str):
-        raise ValueError(f"{label}: expected source text")
+    cell_label = _quiz_label(None, cell_number)
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(_cell_source(cell, cell_label))
     except SyntaxError as error:
-        raise ValueError(f"{label}: invalid quiz syntax: {error.msg}") from error
+        raise ValueError(f"{cell_label}: invalid quiz syntax: {error.msg}") from error
     if not tree.body:
-        raise ValueError(f"{label}: expected full quiz() definitions")
+        raise ValueError(f"{cell_label}: expected full quiz() definitions")
     authored = []
     for statement in tree.body:
         if (
@@ -291,25 +308,34 @@ def authored_quizzes(cell: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]
             or not isinstance(statement.value.func, ast.Name)
             or statement.value.func.id != "quiz"
         ):
-            raise ValueError(f"{label}: only quiz() calls and comments are allowed")
+            raise ValueError(f"{cell_label}: only quiz() calls and comments are allowed")
         call = statement.value
         if len(call.args) != 1:
-            raise ValueError(f"{label}: expected quiz(id, prompt=..., options=...)")
+            raise ValueError(f"{cell_label}: expected quiz(id, prompt=..., options=...)")
         fields: dict[str, Any] = {}
         try:
             quiz_id = ast.literal_eval(call.args[0])
-            for keyword in call.keywords:
-                if (
-                    keyword.arg is None
-                    or keyword.arg not in {"prompt", "options", "multi_select", "shuffle"}
-                    or keyword.arg in fields
-                ):
-                    raise ValueError("unsupported or duplicate quiz field")
+        except (ValueError, TypeError):
+            raise ValueError(f"{cell_label}: quiz id must be a literal string") from None
+        label = _quiz_label(quiz_id, cell_number)
+        for keyword in call.keywords:
+            if keyword.arg is None:
+                raise ValueError(
+                    f"{label}: **kwargs are not supported; write quiz arguments explicitly"
+                )
+            if (
+                keyword.arg not in {"prompt", "options", "multi_select", "shuffle"}
+                or keyword.arg in fields
+            ):
+                raise ValueError(
+                    f"{label}: unsupported or duplicate quiz field {keyword.arg!r}"
+                )
+            try:
                 fields[keyword.arg] = ast.literal_eval(keyword.value)
-        except (ValueError, TypeError) as error:
-            raise ValueError(
-                f"{label}: quiz arguments must be supported literal data: {error}"
-            ) from error
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"{label}: {keyword.arg} must be literal data, not a variable or call"
+                ) from None
         if not isinstance(quiz_id, str) or not {"prompt", "options"} <= fields.keys():
             raise ValueError(f"{label}: quiz needs a string id, prompt and options")
         if any(
@@ -330,23 +356,88 @@ def notebook_quiz_outputs(
         raise ValueError("quiz notebook must contain a cells array")
     outputs = {}
     seen_ids: set[str] = set()
-    for cell in cells:
+    for cell_number, cell in enumerate(cells, start=1):
         if not isinstance(cell, dict):
-            raise ValueError("quiz notebook contains a malformed cell")
-        definitions = authored_quizzes(cell)
+            raise ValueError(f"Cell {cell_number}: expected a notebook cell object")
+        definitions = authored_quizzes(cell, cell_number=cell_number)
         if not definitions:
             continue
         cell_id = cell.get("id")
         if not isinstance(cell_id, str) or not cell_id or cell_id in outputs:
-            raise ValueError("quiz cells need unique, nonempty notebook cell IDs")
+            raise ValueError(
+                f"{_quiz_label(definitions[0][0], cell_number)}: "
+                "quiz cells need unique, nonempty notebook cell IDs"
+            )
         rendered = []
         for quiz_id, fields in definitions:
+            label = _quiz_label(quiz_id, cell_number)
             if quiz_id in seen_ids:
-                raise ValueError(f"duplicate authored quiz id: {quiz_id!r}")
+                raise ValueError(
+                    f"{label}: duplicate quiz ID; choose a unique ID within this notebook"
+                )
             seen_ids.add(quiz_id)
-            rendered.append(_quiz_output(quiz_id, **fields))
+            try:
+                rendered.append(_quiz_output(quiz_id, **fields))
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"{label}: {error}") from None
         outputs[cell_id] = rendered
     return outputs
+
+
+def validate_cell_roles(cell: Mapping[str, Any], *, cell_number: int) -> None:
+    """Reject conflicting content roles, allowing unrelated modifier tags."""
+    roles = sorted(
+        _CELL_ROLE_TAGS.intersection(cell.get("metadata", {}).get("tags", []))
+    )
+    if len(roles) > 1:
+        names = ", ".join(repr(role) for role in roles)
+        raise ValueError(
+            f"Cell {cell_number}: conflicting content roles {names}; "
+            "keep only one content-role tag"
+        )
+
+
+def validate_quizzes(notebook: Path) -> None:
+    """Validate saved author source without running cells or changing outputs."""
+    document = read_quiz_notebook(notebook)
+    for cell_number, cell in enumerate(document["cells"], start=1):
+        label = _quiz_label(None, cell_number)
+        if not isinstance(cell, dict):
+            raise ValueError(f"{label}: expected a notebook cell object")
+        tags = cell.get("metadata", {}).get("tags", [])
+        if "quiz" in tags:
+            validate_cell_roles(cell, cell_number=cell_number)
+            if cell.get("cell_type") != "code":
+                raise ValueError(f"{label}: the 'quiz' tag belongs on a code cell")
+            continue
+        if cell.get("cell_type") != "code":
+            continue
+        source = _cell_source(cell, label)
+        if not re.search(r"\bquiz\s*\(", source):
+            continue
+        try:
+            tree = ast.parse(source)
+        except SyntaxError as error:
+            raise ValueError(
+                f"{label}: cannot check quiz calls in invalid Python: {error.msg}"
+            ) from error
+        for statement in tree.body:
+            if (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Name)
+                and statement.value.func.id == "quiz"
+            ):
+                argument = statement.value.args[0] if statement.value.args else None
+                label = _quiz_label(
+                    argument.value if isinstance(argument, ast.Constant) else None,
+                    cell_number,
+                )
+                raise ValueError(f"{label}: add the 'quiz' tag to this code cell")
+    outputs = notebook_quiz_outputs(document)
+    count = sum(len(rendered) for rendered in outputs.values())
+    noun = "quiz" if count == 1 else "quizzes"
+    print(f"Validated {count} {noun} in {notebook.name}.")
 
 
 # ---------------------------------------------------------------------------
