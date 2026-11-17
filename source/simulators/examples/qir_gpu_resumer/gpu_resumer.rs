@@ -235,6 +235,16 @@ impl Strategy {
                 monomial: true,
                 ..Self::ALL
             },
+            // SPIKE: `mono` with the final `ResetAll` run (the conservative
+            // ratio, as `notail` is for `all`).
+            "monokeep" => Self {
+                conditions: true,
+                joint: true,
+                frame: true,
+                monomial: true,
+                skip_tail: false,
+                ..Self::ALL
+            },
             "allmono" => Self {
                 monomial: true,
                 ..Self::ALL
