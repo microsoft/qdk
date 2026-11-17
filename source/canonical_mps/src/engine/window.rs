@@ -113,9 +113,20 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         if self.fuses {
             Ok(())
         } else {
-            let centre = chain.centre;
-            self.flush_window(chain, centre)
+            self.flush_window_toward_centre(chain)
         }
+    }
+
+    /// Applies the pending window, if any, toward the centre: the rule of
+    /// the operations that name no site (an expectation, a fork, a shape,
+    /// the retained weight, and an unfused gate), so the centre moves no
+    /// further than the window's span.
+    pub(super) fn flush_window_toward_centre(
+        &self,
+        chain: &mut Chain<A::Tensor>,
+    ) -> Result<(), CanonicalMpsError<A::Error>> {
+        let centre = chain.centre;
+        self.flush_window(chain, centre)
     }
 
     /// Applies the pending window, if any, and leaves the centre on the end
@@ -125,29 +136,27 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         chain: &mut Chain<A::Tensor>,
         toward: usize,
     ) -> Result<(), CanonicalMpsError<A::Error>> {
-        let Some(window) = chain.window.take() else {
-            return Ok(());
+        let (low, high) = match chain.window.as_ref().map(|window| &*window.sites) {
+            None => return Ok(()),
+            Some(&[low, high]) if high == low + 1 => (low, high),
+            Some(_) => return self.apply_mpo(chain, toward),
         };
-        match *window.sites {
-            [low, high] if high == low + 1 => {
-                let nearest = if chain.centre <= low { low } else { high };
-                self.move_centre(chain, nearest)?;
-                let first = chain.pending[low].take().unwrap_or(gates::IDENTITY);
-                let second = chain.pending[high].take().unwrap_or(gates::IDENTITY);
-                let pending = gates::multiply(
-                    &gates::widen(&first, &[low], &window.sites),
-                    &gates::widen(&second, &[high], &window.sites),
-                );
-                let operator = gates::multiply(&window.operator, &pending);
-                let side = if toward <= low {
-                    CentreSide::Left
-                } else {
-                    CentreSide::Right
-                };
-                let gate = std::array::from_fn(|at| operator[at]);
-                self.split(chain, low, gate, side)
-            }
-            _ => self.apply_mpo(chain, &window.sites, &window.operator, toward),
-        }
+        let window = chain.window.take().expect("the window on two neighbours");
+        let nearest = if chain.centre <= low { low } else { high };
+        self.move_centre(chain, nearest)?;
+        let first = chain.pending[low].take().unwrap_or(gates::IDENTITY);
+        let second = chain.pending[high].take().unwrap_or(gates::IDENTITY);
+        let pending = gates::multiply(
+            &gates::widen(&first, &[low], &window.sites),
+            &gates::widen(&second, &[high], &window.sites),
+        );
+        let operator = gates::multiply(&window.operator, &pending);
+        let side = if toward <= low {
+            CentreSide::Left
+        } else {
+            CentreSide::Right
+        };
+        let gate = std::array::from_fn(|at| operator[at]);
+        self.split(chain, low, gate, side)
     }
 }

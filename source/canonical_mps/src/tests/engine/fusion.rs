@@ -90,20 +90,34 @@ fn conditional_read(engine: &Engine, state: &State) {
         .expect("P(One | given)");
 }
 
-/// A gate left pending with the centre where a read had left it, then an
-/// expectation or a conditional read with a condition, which forks: each
-/// applies the window toward the centre. A gate on sites 1 and 2 of 4 with
-/// the centre on site 3 ends it on site 2, where a conditional read of
-/// site 1 would end it on site 1 had it applied the window toward the site
-/// it reads; a gate on sites 0 and 2 with the centre on site 1, as near
-/// one end of the span as the other, ends it on the lower end, site 0. So
-/// a read of that site after the operation makes no move.
+/// The shape of the chain's bonds.
+fn shape(engine: &Engine, state: &State) {
+    engine.shape(state).expect("a shape");
+}
+
+/// The weight the truncations kept.
+fn retained_weight(engine: &Engine, state: &State) {
+    engine.retained_weight(state).expect("a retained weight");
+}
+
+/// A gate left pending with the centre where a read had left it, then a
+/// read of the whole state, which names no site: an expectation, a
+/// conditional read with a condition (which forks), a shape or the
+/// retained weight. Each applies the window toward the centre. A gate on
+/// sites 1 and 2 of 4 with the centre on site 3 ends it on site 2, where
+/// the window applied toward site 0, toward its lower site, or, for the
+/// conditional read, toward the site read, would end it on site 1; a gate
+/// on sites 0 and 2 with the centre on site 1, as near one end of the span
+/// as the other, ends it on the lower end, site 0. So a read of that site
+/// after the operation makes no move.
 #[test]
-fn an_expectation_or_a_fork_applies_the_pending_window_toward_the_centre() {
-    let rows: [(Operation, [usize; 2], usize, usize, u64); 3] = [
+fn every_read_of_the_whole_state_applies_the_pending_window_toward_the_centre() {
+    let rows: [(Operation, [usize; 2], usize, usize, u64); 5] = [
         (expectation, [1, 2], 3, 2, 1),
         (expectation, [0, 2], 1, 0, 2),
         (conditional_read, [1, 2], 3, 2, 1),
+        (shape, [1, 2], 3, 2, 1),
+        (retained_weight, [1, 2], 3, 2, 1),
     ];
     for (operation, on, centre, end, splits) in rows {
         let engine = Engine::new(CpuAlgebra);

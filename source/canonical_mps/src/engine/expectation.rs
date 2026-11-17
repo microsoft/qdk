@@ -38,8 +38,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         chain: &mut Chain<A::Tensor>,
         observable: &PauliSum,
     ) -> Result<Complex64, CanonicalMpsError<A::Error>> {
-        let centre = chain.centre;
-        self.flush_window(chain, centre)?;
+        self.flush_window_toward_centre(chain)?;
         let mut value = observable.identity_coefficient();
         if observable.terms().is_empty() {
             return Ok(value);

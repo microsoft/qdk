@@ -136,10 +136,12 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 ///
 /// **Failures.** After a failure the state is unspecified, as
 /// [`MpsEngine`] says, and the caller must drop it: an application of the
-/// pending window that fails may lose its gates, or leave its span half
-/// compressed. It never leaves a span half multiplied: the multiplied
-/// sites replace the span's only once every upload succeeded, so the
-/// chain's neighbours always share each bond.
+/// pending window that fails in the algebra may lose its gates, or leave
+/// its span half compressed. A failed read or upload of a site of an MPO's
+/// span leaves the span's sites unmultiplied, since the multiplied sites
+/// replace them only once every upload succeeded, so neighbours still
+/// share each bond; a failed factorisation of the window's operator keeps
+/// the window and changes nothing ([`CanonicalMpsError`]).
 #[derive(Clone, Debug)]
 pub struct CanonicalMpsEngine<A> {
     algebra: A,
@@ -159,8 +161,8 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
 
     /// The same engine, whose splits each keep their largest singular value
     /// and drop values whose squares sum to at most `cutoff` times the sum
-    /// of all their squares, unless the capacity's bond, which a split at
-    /// rest keeps at most (Truncation on [`CanonicalMpsEngine`]), cuts more.
+    /// of all their squares, unless the capacity's bond, which every split
+    /// keeps at most (Truncation on [`CanonicalMpsEngine`]), cuts more.
     /// These are the bounds of [`SiteAlgebra::gate_split`]'s contract;
     /// which values a split drops within them is the algebra's to choose.
     ///
@@ -316,8 +318,7 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
     /// then duplicates every site through the algebra.
     fn fork(&self, state: &Self::State) -> Result<Self::State, Self::Error> {
         let mut chain = state.chain.borrow_mut();
-        let centre = chain.centre;
-        self.flush_window(&mut chain, centre)?;
+        self.flush_window_toward_centre(&mut chain)?;
         Ok(CanonicalMpsState {
             chain: RefCell::new(chain.duplicate(&self.algebra)?),
         })
@@ -359,15 +360,13 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
 
     fn shape(&self, state: &Self::State) -> Result<MpsShape, Self::Error> {
         let mut chain = state.chain.borrow_mut();
-        let centre = chain.centre;
-        self.flush_window(&mut chain, centre)?;
+        self.flush_window_toward_centre(&mut chain)?;
         Ok(chain.shape())
     }
 
     fn retained_weight(&self, state: &Self::State) -> Result<f64, Self::Error> {
         let mut chain = state.chain.borrow_mut();
-        let centre = chain.centre;
-        self.flush_window(&mut chain, centre)?;
+        self.flush_window_toward_centre(&mut chain)?;
         Ok(chain.retained_weight)
     }
 }

@@ -43,9 +43,9 @@ pub enum CanonicalMpsError<E> {
     /// The state is then unspecified, as [`MpsEngine`] says, and the
     /// caller must drop it: a failed application of the pending window
     /// may have lost its gates, or left its span half compressed, and a
-    /// read applies a pending window too. A failed upload of a multiplied
-    /// span leaves the chain's sites as they were, so neighbours still
-    /// share each bond.
+    /// read applies a pending window too. A failed read or upload of a site
+    /// of an MPO's span leaves the span's sites unmultiplied, so neighbours
+    /// still share each bond.
     #[error("the site algebra failed")]
     Algebra(#[source] E),
 
@@ -71,11 +71,17 @@ pub enum CanonicalMpsError<E> {
     /// The factorisation of a pending window's operator into a matrix
     /// product operator failed: the host's SVD of the operator
     /// ([`SvdError`](dense_linalg::SvdError), its source) did not converge
-    /// or failed its checks. The window is lost, so the state is
-    /// unspecified, as for [`Self::Algebra`], and the caller must drop it.
-    /// It is not expected: a window holds only gates checked finite and
-    /// unitary, whose SVD converges, so only a fault of the host's SVD
-    /// would reach it.
+    /// or failed its checks. The factorisation runs before the window
+    /// leaves the chain and before any call of the algebra, so the error
+    /// keeps the pending window, its sites and its operator, and the
+    /// chain's sites, centre, pending one-site gates, retained weight and
+    /// statistics as they were when the window's application began. The
+    /// call that applied the window has taken no other effect, except that,
+    /// without fusion, a gate's call has put its own gate in the window
+    /// first. The state is still unspecified, as for [`Self::Algebra`], and
+    /// the caller must drop it. It is not expected: a window holds only
+    /// gates checked finite and unitary, whose SVD converges, so only a
+    /// fault of the host's SVD would reach it.
     #[error("the factorisation of a window's operator failed")]
     OperatorDecomposition(#[source] dense_linalg::SvdError),
 }
