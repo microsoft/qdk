@@ -25,8 +25,6 @@ pub fn simplify_control_flow(program: &mut Program) {
         if preds.len() == 1
             && matches!(program.get_block(preds[0]).0.last(), Some(Instruction::Jump(target)) if *target == block_id)
         {
-            merge_map.insert(block_id, preds[0]);
-
             // The block to merge into may itself have been merged into another block.
             // Find the ultimate target block by iterating through the merge map until we find a predecessor
             // block that is missing from the map indicating it hasn't been merged.
@@ -34,6 +32,9 @@ pub fn simplify_control_flow(program: &mut Program) {
             while let Some(mapped_block) = merge_map.get(&target_block_id) {
                 target_block_id = *mapped_block;
             }
+
+            // Instead of pointing at preds[0] and creating a chain, just point to the target block
+            merge_map.insert(block_id, target_block_id);
 
             // Clone the instructions for the current block. This is done via clone in part to satisfy the
             // borrow checker, and in part so the check for last instruction above doesn't need to traverse
