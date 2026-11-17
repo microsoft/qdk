@@ -3,193 +3,193 @@ interface
     ! Replaces the backend with fresh state selected by a NUL-terminated name.
     ! Optional: defaults to stdio (instructions on stdout, results on stdin).
     ! On Unix, QDK_INSTRUCTION_FD and QDK_RESULT_FD select dedicated protocol pipes.
-    subroutine qdk_init(backend) bind(C, name="qdk_init")
+    subroutine qsp_init(backend) bind(C, name="qsp_init")
         use, intrinsic :: iso_c_binding, only: c_char
         character(kind=c_char), intent(in) :: backend(*)
-    end subroutine qdk_init
+    end subroutine qsp_init
 
     ! Flushes pending instructions and saves profiling data to a NUL-terminated UTF-8 path.
     ! In stdio mode, only prints guidance to stderr; does not flush or inspect path.
-    subroutine qdk_save_profile(path) bind(C, name="qdk_save_profile")
+    subroutine qsp_save_profile(path) bind(C, name="qsp_save_profile")
         use, intrinsic :: iso_c_binding, only: c_char
         character(kind=c_char), intent(in) :: path(*)
-    end subroutine qdk_save_profile
+    end subroutine qsp_save_profile
 
     ! Applies a doubly controlled X gate.
-    subroutine qdk_ccx(control0, control1, target) bind(C, name="qdk_ccx")
+    subroutine qsp_ccx(control0, control1, target) bind(C, name="qsp_ccx")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: control0, control1, target
-    end subroutine qdk_ccx
+    end subroutine qsp_ccx
 
     ! Uncomputes an AND target to zero; measurement feedback stays in the backend.
-    subroutine qdk_and_adj(control0, control1, target) bind(C, name="qdk_and_adj")
+    subroutine qsp_and_adj(control0, control1, target) bind(C, name="qsp_and_adj")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: control0, control1, target
-    end subroutine qdk_and_adj
+    end subroutine qsp_and_adj
 
     ! Applies a controlled X gate.
-    subroutine qdk_cx(control, target) bind(C, name="qdk_cx")
+    subroutine qsp_cx(control, target) bind(C, name="qsp_cx")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: control, target
-    end subroutine qdk_cx
+    end subroutine qsp_cx
 
     ! Applies a controlled Y gate.
-    subroutine qdk_cy(control, target) bind(C, name="qdk_cy")
+    subroutine qsp_cy(control, target) bind(C, name="qsp_cy")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: control, target
-    end subroutine qdk_cy
+    end subroutine qsp_cy
 
     ! Applies a controlled Z gate.
-    subroutine qdk_cz(control, target) bind(C, name="qdk_cz")
+    subroutine qsp_cz(control, target) bind(C, name="qsp_cz")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: control, target
-    end subroutine qdk_cz
+    end subroutine qsp_cz
 
     ! Rotates a qubit around X by an angle in radians.
-    subroutine qdk_rx(qubit_id, angle) bind(C, name="qdk_rx")
+    subroutine qsp_rx(qubit_id, angle) bind(C, name="qsp_rx")
         use, intrinsic :: iso_c_binding, only: c_size_t, c_double
         integer(c_size_t), value :: qubit_id
         real(c_double), value :: angle
-    end subroutine qdk_rx
+    end subroutine qsp_rx
 
     ! Applies an XX rotation by an angle in radians.
-    subroutine qdk_rxx(qubit0, qubit1, angle) bind(C, name="qdk_rxx")
+    subroutine qsp_rxx(qubit0, qubit1, angle) bind(C, name="qsp_rxx")
         use, intrinsic :: iso_c_binding, only: c_size_t, c_double
         integer(c_size_t), value :: qubit0, qubit1
         real(c_double), value :: angle
-    end subroutine qdk_rxx
+    end subroutine qsp_rxx
 
     ! Rotates a qubit around Y by an angle in radians.
-    subroutine qdk_ry(qubit_id, angle) bind(C, name="qdk_ry")
+    subroutine qsp_ry(qubit_id, angle) bind(C, name="qsp_ry")
         use, intrinsic :: iso_c_binding, only: c_size_t, c_double
         integer(c_size_t), value :: qubit_id
         real(c_double), value :: angle
-    end subroutine qdk_ry
+    end subroutine qsp_ry
 
     ! Applies a YY rotation by an angle in radians.
-    subroutine qdk_ryy(qubit0, qubit1, angle) bind(C, name="qdk_ryy")
+    subroutine qsp_ryy(qubit0, qubit1, angle) bind(C, name="qsp_ryy")
         use, intrinsic :: iso_c_binding, only: c_size_t, c_double
         integer(c_size_t), value :: qubit0, qubit1
         real(c_double), value :: angle
-    end subroutine qdk_ryy
+    end subroutine qsp_ryy
 
     ! Rotates a qubit around Z by an angle in radians.
-    subroutine qdk_rz(qubit_id, angle) bind(C, name="qdk_rz")
+    subroutine qsp_rz(qubit_id, angle) bind(C, name="qsp_rz")
         use, intrinsic :: iso_c_binding, only: c_size_t, c_double
         integer(c_size_t), value :: qubit_id
         real(c_double), value :: angle
-    end subroutine qdk_rz
+    end subroutine qsp_rz
 
     ! Applies a ZZ rotation by an angle in radians.
-    subroutine qdk_rzz(qubit0, qubit1, angle) bind(C, name="qdk_rzz")
+    subroutine qsp_rzz(qubit0, qubit1, angle) bind(C, name="qsp_rzz")
         use, intrinsic :: iso_c_binding, only: c_size_t, c_double
         integer(c_size_t), value :: qubit0, qubit1
         real(c_double), value :: angle
-    end subroutine qdk_rzz
+    end subroutine qsp_rzz
 
     ! Applies a Hadamard gate.
-    subroutine qdk_h(qubit_id) bind(C, name="qdk_h")
+    subroutine qsp_h(qubit_id) bind(C, name="qsp_h")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_h
+    end subroutine qsp_h
 
     ! Applies an S phase gate.
-    subroutine qdk_s(qubit_id) bind(C, name="qdk_s")
+    subroutine qsp_s(qubit_id) bind(C, name="qsp_s")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_s
+    end subroutine qsp_s
 
     ! Applies the adjoint of an S phase gate.
-    subroutine qdk_sadj(qubit_id) bind(C, name="qdk_sadj")
+    subroutine qsp_sadj(qubit_id) bind(C, name="qsp_sadj")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_sadj
+    end subroutine qsp_sadj
 
     ! Applies a square-root X gate.
-    subroutine qdk_sx(qubit_id) bind(C, name="qdk_sx")
+    subroutine qsp_sx(qubit_id) bind(C, name="qsp_sx")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_sx
+    end subroutine qsp_sx
 
     ! Applies a T phase gate.
-    subroutine qdk_t(qubit_id) bind(C, name="qdk_t")
+    subroutine qsp_t(qubit_id) bind(C, name="qsp_t")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_t
+    end subroutine qsp_t
 
     ! Applies the adjoint of a T phase gate.
-    subroutine qdk_tadj(qubit_id) bind(C, name="qdk_tadj")
+    subroutine qsp_tadj(qubit_id) bind(C, name="qsp_tadj")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_tadj
+    end subroutine qsp_tadj
 
     ! Applies an X gate.
-    subroutine qdk_x(qubit_id) bind(C, name="qdk_x")
+    subroutine qsp_x(qubit_id) bind(C, name="qsp_x")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_x
+    end subroutine qsp_x
 
     ! Applies a Y gate.
-    subroutine qdk_y(qubit_id) bind(C, name="qdk_y")
+    subroutine qsp_y(qubit_id) bind(C, name="qsp_y")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_y
+    end subroutine qsp_y
 
     ! Applies a Z gate.
-    subroutine qdk_z(qubit_id) bind(C, name="qdk_z")
+    subroutine qsp_z(qubit_id) bind(C, name="qsp_z")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_z
+    end subroutine qsp_z
 
     ! Swaps two qubits.
-    subroutine qdk_swap(qubit0, qubit1) bind(C, name="qdk_swap")
+    subroutine qsp_swap(qubit0, qubit1) bind(C, name="qsp_swap")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit0, qubit1
-    end subroutine qdk_swap
+    end subroutine qsp_swap
 
     ! Resets a qubit to zero.
-    subroutine qdk_reset(qubit_id) bind(C, name="qdk_reset")
+    subroutine qsp_reset(qubit_id) bind(C, name="qsp_reset")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
-    end subroutine qdk_reset
+    end subroutine qsp_reset
 
     ! Measures in Z and stores the outcome in a result register.
-    subroutine qdk_mz_store(qubit_id, result_id) bind(C, name="qdk_mz_store")
+    subroutine qsp_mz_store(qubit_id, result_id) bind(C, name="qsp_mz_store")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id, result_id
-    end subroutine qdk_mz_store
+    end subroutine qsp_mz_store
 
     ! Measures in Z, stores the outcome, and resets the qubit.
-    subroutine qdk_mz_store_reset(qubit_id, result_id) bind(C, name="qdk_mz_store_reset")
+    subroutine qsp_mz_store_reset(qubit_id, result_id) bind(C, name="qsp_mz_store_reset")
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id, result_id
-    end subroutine qdk_mz_store_reset
+    end subroutine qsp_mz_store_reset
 
     ! Reads a stored result: 0 = zero, 1 = one, 2 = backend error.
-    function qdk_read_result(result_id) bind(C, name="qdk_read_result") result(outcome)
+    function qsp_read_result(result_id) bind(C, name="qsp_read_result") result(outcome)
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: result_id
         integer(c_size_t) :: outcome
-    end function qdk_read_result
+    end function qsp_read_result
 
     ! Reads stored IDs 0..count-1 into output(1:count): 0 = zero, 1 = one, 2 = backend error.
-    subroutine qdk_read_results(count, output) bind(C, name="qdk_read_results")
+    subroutine qsp_read_results(count, output) bind(C, name="qsp_read_results")
         use, intrinsic :: iso_c_binding, only: c_size_t, c_int8_t
         integer(c_size_t), value :: count
         integer(c_int8_t), intent(out) :: output(*)
-    end subroutine qdk_read_results
+    end subroutine qsp_read_results
 
     ! Measures in Z: 0 = zero, 1 = one, 2 = backend error.
-    function qdk_mz(qubit_id) bind(C, name="qdk_mz") result(outcome)
+    function qsp_mz(qubit_id) bind(C, name="qsp_mz") result(outcome)
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
         integer(c_size_t) :: outcome
-    end function qdk_mz
+    end function qsp_mz
 
     ! Measures in Z and resets: 0 = zero, 1 = one, 2 = backend error.
-    function qdk_mz_reset(qubit_id) bind(C, name="qdk_mz_reset") result(outcome)
+    function qsp_mz_reset(qubit_id) bind(C, name="qsp_mz_reset") result(outcome)
         use, intrinsic :: iso_c_binding, only: c_size_t
         integer(c_size_t), value :: qubit_id
         integer(c_size_t) :: outcome
-    end function qdk_mz_reset
+    end function qsp_mz_reset
 end interface

@@ -5,7 +5,7 @@ various languages to send quantum instructions using QSP.
 
 It allows you to write code that drives QuantumBackend by calling C-style functions.
 
-All exposed functions use the `qdk_` prefix (for example, `qdk_x` applies an X gate).
+All exposed functions use the `qsp_` prefix (for example, `qsp_x` applies an X gate).
 
 Typical usage:
 
@@ -13,8 +13,8 @@ Typical usage:
   that calls the corresponding function exposed by the library for each quantum
   instruction (gate or measurement).
 - By default, instructions are streamed to stdout and results are read from stdin.
-  Optionally call `qdk_init()` to select a simulator or local profiler instead.
-- When using a profiler, call `qdk_save_profile()` at the end to save the profile to a
+  Optionally call `qsp_init()` to select a simulator or local profiler instead.
+- When using a profiler, call `qsp_save_profile()` at the end to save the profile to a
   JSON file (which will contain a resource estimate based on profiling).
 - Compile your code, statically linking it against the library provided by this package.
 - Execute the resulting binary.
@@ -23,12 +23,12 @@ At runtime, function calls will be turned into calls to the QuantumBackend inter
 
 See [qspnlib.h](include/qspnlib.h) for the full list of exposed functions.
 
-## Supported backends in qdk_init()
+## Supported backends in qsp_init()
 
 The following backends can be selected by name:
 
 - "stdio" - streams instructions to stdout and reads results from stdin. This is
-  also the default when `qdk_init()` has not been called. On Unix, setting both
+  also the default when `qsp_init()` has not been called. On Unix, setting both
   `QDK_INSTRUCTION_FD` and `QDK_RESULT_FD` selects dedicated protocol descriptors
   instead. Setting just one, or an invalid descriptor, is an error.
 - "sparse_sim" - a sparse simulator.
@@ -42,7 +42,7 @@ and can connect to a `StreamDriver` wrapping a simulator or profiler. Without
 dedicated descriptors, reserve stdout for instructions and stdin for results;
 print application diagnostics to stderr.
 Instructions are buffered until a measurement/result read or the batch capacity
-is reached. `qdk_save_profile()` in stdio mode only prints an informational message
+is reached. `qsp_save_profile()` in stdio mode only prints an informational message
 to stderr: it does not flush, inspect the path, or write a file. Profiling and
 saving must be handled by the profiler receiving the instruction stream.
 
@@ -75,8 +75,8 @@ Source paths are resolved from the current working directory. Arguments are pass
 as separate tokens, not split as shell commands. Extra compiler arguments follow
 the interop archive and system libraries so additional libraries link correctly.
 
-The program should call `qdk_` instructions directly, without `qdk_init()` or
-`qdk_save_profile()`. Finish with a measurement/result read to submit buffered
+The program should call `qsp_` instructions directly, without `qsp_init()` or
+`qsp_save_profile()`. Finish with a measurement/result read to submit buffered
 gates. Running the executable outside the profiler, with neither environment
 variable set, still uses stdin/stdout for the protocol.
 
@@ -111,11 +111,11 @@ on the profiler process's stdin/stdout instead.
 End the workload with a measurement/result read so buffered instructions are
 submitted, then let the program exit (or close its instruction pipe) to signal EOF. Trailing
 instructions that never reach a batch boundary are discarded;
-`qdk_save_profile()` does not flush them in stdio mode.
+`qsp_save_profile()` does not flush them in stdio mode.
 
 Coming soon: profilers will load configuration from a file. Meanwhile, if you need
 to instantiate backend with custom parameters, define custom backend name (e.g.
-"custom_profiler") and add implementation for it in `qdk_init()` in
+"custom_profiler") and add implementation for it in `qsp_init()` in
 [src/lib.rs](src/lib.rs).
 
 ## Supported languages
@@ -125,14 +125,14 @@ to instantiate backend with custom parameters, define custom backend name (e.g.
 1. Install Rust/Cargo and a C or C++ compiler. LLVM development libraries are not required.
 2. Include `qspnlib.h` in your source file. Add this package's `include`
    directory to your compiler's include path.
-3. Optionally call `qdk_init(...)` to replace the default stdio backend before
+3. Optionally call `qsp_init(...)` to replace the default stdio backend before
    executing quantum instructions.
 4. Call the instruction functions directly. Qubit and result IDs use `size_t`;
-   rotation angles use `double` and are in radians. `qdk_mz()`, `qdk_mz_reset()`, and
-   `qdk_read_result()` return `size_t`: 0 for zero, 1 for one, or 2 for a
-   backend-reported error. `qdk_mz_store()` and `qdk_mz_store_reset()` store their
-   outcomes in a result ID for later access through `qdk_read_result()`.
-5. When using a profiler, call `qdk_save_profile("profile.json")` to save the
+   rotation angles use `double` and are in radians. `qsp_mz()`, `qsp_mz_reset()`, and
+   `qsp_read_result()` return `size_t`: 0 for zero, 1 for one, or 2 for a
+   backend-reported error. `qsp_mz_store()` and `qsp_mz_store_reset()` store their
+   outcomes in a result ID for later access through `qsp_read_result()`.
+5. When using a profiler, call `qsp_save_profile("profile.json")` to save the
    accumulated profile.
 6. Build the Rust static library with `cargo build --release -p qspnlib`,
    then compile and link your program with `target/release/libqspnlib.a`.
@@ -166,11 +166,11 @@ all functions in the C header. These interfaces use `bind(C)` and
    representable by `integer(c_size_t)`. The interfaces use `value` for numeric
    arguments to match the Rust C ABI; use kind-qualified literals such as
    `0_c_size_t` and `0.5_c_double`.
-4. Pass NUL-terminated UTF-8 strings to `qdk_init` and `qdk_save_profile`, for example
+4. Pass NUL-terminated UTF-8 strings to `qsp_init` and `qsp_save_profile`, for example
    `c_char_"sparse_sim" // c_null_char`. Fortran does not append the terminator
    automatically.
 5. Use `call` for instructions without results. Assign the return value of
-   `qdk_mz`, `qdk_mz_reset`, or `qdk_read_result` to an `integer(c_size_t)` variable.
+   `qsp_mz`, `qsp_mz_reset`, or `qsp_read_result` to an `integer(c_size_t)` variable.
    The result codes are the same as in C: 0, 1, or 2 for a backend error.
 6. From the repository root, build the Rust static library with
    `cargo build --release -p qspnlib`. This produces
@@ -187,9 +187,9 @@ program example
     include 'qspnlib.fi'
     integer(c_size_t) :: outcome
 
-    call qdk_init(c_char_"sparse_sim" // c_null_char)
-    call qdk_x(0_c_size_t)
-    outcome = qdk_mz(0_c_size_t)
+    call qsp_init(c_char_"sparse_sim" // c_null_char)
+    call qsp_x(0_c_size_t)
+    outcome = qsp_mz(0_c_size_t)
     print *, 'Measurement:', outcome
 end program example
 ```
@@ -239,7 +239,7 @@ The C CLI accepts exactly one of these modes:
 - `--factor <number>`: factor the required decimal integer in `[4, 2^2048)` on `sparse_sim`.
 - `--profile <bitlen>`: profile one shot using an even bit length from 4 to 2048.
 - `--run-random <bitlen>`: run the same random-semiprime shot with the same bit-length
-  constraints, without calling `qdk_init()` or saving a profile. Instructions stream
+  constraints, without calling `qsp_init()` or saving a profile. Instructions stream
   to an external backend by default; only elapsed shot time is reported locally.
   Use `QDK_INSTRUCTION_FD` and `QDK_RESULT_FD` to keep the example's stdout logs
   separate from the protocol. The shot's factorization result is not retried.

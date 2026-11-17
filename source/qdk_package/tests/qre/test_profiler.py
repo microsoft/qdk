@@ -62,14 +62,14 @@ def test_profile_qsp_application(qsp_toolchain: None) -> None:
         std::cout << "Starting quantum workload" << std::endl;
         for (size_t repetition = 0; repetition < 3; ++repetition) {
             for (size_t qubit = 0; qubit < 4; ++qubit) {
-                qdk_h(qubit);
-                qdk_x(qubit);
+                qsp_h(qubit);
+                qsp_x(qubit);
             }
             for (size_t qubit = 1; qubit < 4; ++qubit) {
-                qdk_cx(qubit - 1, qubit);
+                qsp_cx(qubit - 1, qubit);
             }
             for (size_t qubit = 0; qubit < 4; ++qubit) {
-                if (qdk_mz(qubit) > 1) return 1;
+                if (qsp_mz(qubit) > 1) return 1;
             }
         }
         std::cout << "Quantum workload complete" << std::endl;
@@ -97,7 +97,7 @@ def test_profile_qsp_application_options(qsp_toolchain: None, tmp_path: Path) ->
         '#include "qspnlib.h"\n'
         "// Emit the number of gates configured by the compiler.\n"
         "void run_workload(void) {\n"
-        "    for (int i = 0; i < REPETITIONS; ++i) qdk_x(0);\n"
+        "    for (int i = 0; i < REPETITIONS; ++i) qsp_x(0);\n"
         "}\n",
         encoding="utf-8",
     )
@@ -110,7 +110,7 @@ def test_profile_qsp_application_options(qsp_toolchain: None, tmp_path: Path) ->
         "int main(int argc, char **argv) {\n"
         '    if (argc != 2 || strcmp(argv[1], "run workload") != 0) return 1;\n'
         "    run_workload();\n"
-        "    return qdk_mz(0) > 1;\n"
+        "    return qsp_mz(0) > 1;\n"
         "}\n",
         encoding="utf-8",
     )
@@ -136,14 +136,14 @@ def test_qsp_get_trace(qsp_toolchain: None) -> None:
     int main() {
         std::cout << "Building trace" << std::endl;
         for (size_t i = 0; i < 3; ++i) {
-            qdk_x(0);
+            qsp_x(0);
         }
-        qdk_cx(0, 1);
-        qdk_ccx(0, 1, 2);
-        qdk_mz_store(0, 7);
-        const size_t stored = qdk_read_result(7);
-        if (stored > 1 || qdk_read_result(7) != stored) return 1;
-        return qdk_mz_reset(1) > 1;
+        qsp_cx(0, 1);
+        qsp_ccx(0, 1, 2);
+        qsp_mz_store(0, 7);
+        const size_t stored = qsp_read_result(7);
+        if (stored > 1 || qsp_read_result(7) != stored) return 1;
+        return qsp_mz_reset(1) > 1;
     }
     """)
     trace = application.get_trace()

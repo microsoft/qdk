@@ -66,23 +66,23 @@ static void modular_multiply(const Circuit *circuit, const mpz_t modulus, const 
     }
     mpz_mod(shifted, constant, modulus);
     for (int i = 0; i < circuit->bits; ++i) {
-        qdk_ccx(circuit->phase, (size_t)i, circuit->enable);
+        qsp_ccx(circuit->phase, (size_t)i, circuit->enable);
         modular_add(circuit, modulus, shifted);
-        qdk_ccx(circuit->phase, (size_t)i, circuit->enable);
+        qsp_ccx(circuit->phase, (size_t)i, circuit->enable);
         double_mod(shifted, modulus);
     }
     for (int i = 0; i < circuit->bits; ++i) {
         size_t work = (size_t)(circuit->bits + i);
-        qdk_cx(work, (size_t)i);
-        qdk_ccx(circuit->phase, (size_t)i, work);
-        qdk_cx(work, (size_t)i);
+        qsp_cx(work, (size_t)i);
+        qsp_ccx(circuit->phase, (size_t)i, work);
+        qsp_cx(work, (size_t)i);
     }
     mpz_set(shifted, inverse);
     for (int i = 0; i < circuit->bits; ++i) {
         mpz_sub(complement, modulus, shifted);
-        qdk_ccx(circuit->phase, (size_t)i, circuit->enable);
+        qsp_ccx(circuit->phase, (size_t)i, circuit->enable);
         modular_add(circuit, modulus, complement);
-        qdk_ccx(circuit->phase, (size_t)i, circuit->enable);
+        qsp_ccx(circuit->phase, (size_t)i, circuit->enable);
         double_mod(shifted, modulus);
     }
     mpz_clears(shifted, inverse, complement, NULL);
@@ -90,7 +90,7 @@ static void modular_multiply(const Circuit *circuit, const mpz_t modulus, const 
 
 /* Measures and resets a qubit, rejecting backend error outcomes. */
 static int measure_reset(size_t qubit) {
-    size_t result = qdk_mz_reset(qubit);
+    size_t result = qsp_mz_reset(qubit);
     if (result > 1) fail("backend returned a measurement error");
     return (int)result;
 }
@@ -102,9 +102,9 @@ static void read_register(mpz_t value, size_t start, int bits) {
     uint8_t *results = malloc((size_t)bits * sizeof(*results));
     if (results == NULL) fail("could not allocate register results");
     for (int i = 0; i < bits; ++i) {
-        qdk_mz_store_reset(start + (size_t)i, (size_t)i);
+        qsp_mz_store_reset(start + (size_t)i, (size_t)i);
     }
-    qdk_read_results((size_t)bits, results);
+    qsp_read_results((size_t)bits, results);
     for (int i = 0; i < bits; ++i) {
         if (results[i] > 1) fail("backend returned a measurement error");
         if (results[i] != 0) mpz_setbit(value, (mp_bitcnt_t)i);
@@ -138,20 +138,20 @@ static void estimate_frequency(mpz_t frequency, const mpz_t generator, const mpz
     mpz_t *powers = make_modular_powers(generator, modulus, precision);
     mpz_set_ui(frequency, 0);
     double feedback = 0.0;
-    qdk_x(0);
+    qsp_x(0);
     for (int index = precision - 1; index >= 0; --index) {
         int step = precision - 1 - index;
-        qdk_h(circuit.phase);
+        qsp_h(circuit.phase);
         modular_multiply(&circuit, modulus, powers[index]);
         // R1Frac and Rz differ only by an irrelevant global phase here.
-        qdk_rz(circuit.phase, acos(-1.0) * feedback);
-        qdk_h(circuit.phase);
+        qsp_rz(circuit.phase, acos(-1.0) * feedback);
+        qsp_h(circuit.phase);
         int bit = measure_reset(circuit.phase);
         if (bit != 0) mpz_setbit(frequency, (mp_bitcnt_t)step);
         // Tracks frequency / 2^(step + 1) without overflowing a floating-point conversion.
         feedback = (feedback + (double)bit) * 0.5;
     }
-    for (int i = 0; i < bits; ++i) qdk_reset((size_t)i);
+    for (int i = 0; i < bits; ++i) qsp_reset((size_t)i);
     mpz_t denominator;
     mpz_init_set_ui(denominator, 0);
     mpz_setbit(denominator, (mp_bitcnt_t)precision);
@@ -265,7 +265,7 @@ static void random_prime(mpz_t prime, int bits, gmp_randstate_t random) {
 /* Prepares a little-endian basis-state register that is initially zero. */
 static void prepare_register(const mpz_t value, size_t start, int bits) {
     for (int i = 0; i < bits; ++i) {
-        if (mpz_tstbit(value, (mp_bitcnt_t)i) != 0) qdk_x(start + (size_t)i);
+        if (mpz_tstbit(value, (mp_bitcnt_t)i) != 0) qsp_x(start + (size_t)i);
     }
 }
 
@@ -336,7 +336,7 @@ static void test_wide_arithmetic(void) {
             mpz_set_ui(constant, shape == 2 ? 1 : 0);
             if (shape != 0) mpz_setbit(constant, (mp_bitcnt_t)(width - 1));
             for (int enabled = 0; enabled <= 1; ++enabled) {
-                if (enabled != 0) qdk_x(control);
+                if (enabled != 0) qsp_x(control);
                 inc_by_i(constant, qubits, (size_t)width, control, false, workspace);
                 read_register(measured, 0, width);
                 if (enabled != 0) mpz_set(expected, constant);
@@ -354,7 +354,7 @@ static void test_wide_arithmetic(void) {
                 else mpz_add_ui(value, constant, (unsigned long)offset);
                 for (int enabled = 0; enabled <= 1; ++enabled) {
                     prepare_register(value, 0, width);
-                    if (enabled != 0) qdk_x(control);
+                    if (enabled != 0) qsp_x(control);
                     apply_if_less_or_equal_l(constant, qubits, (size_t)width, target, control, workspace);
                     if (measure_reset(target) != (enabled != 0 && offset >= 0)) {
                         fail("wide comparison failed");
@@ -412,9 +412,9 @@ static void self_test(void) {
             for (int64_t value = 0; value < modulus; ++value) {
                 for (int enabled = 0; enabled <= 1; ++enabled) {
                     for (int i = 0; i < bits; ++i) {
-                        if (((value >> i) & 1) != 0) qdk_x((size_t)(bits + i));
+                        if (((value >> i) & 1) != 0) qsp_x((size_t)(bits + i));
                     }
-                    if (enabled != 0) qdk_x(circuit.enable);
+                    if (enabled != 0) qsp_x(circuit.enable);
                     modular_add(&circuit, n, c);
                     int64_t expected = enabled != 0 ? (value + constant) % modulus : value;
                     read_register(measured, (size_t)bits, bits);
@@ -424,9 +424,9 @@ static void self_test(void) {
 
                     if (mpz_gcd_ui(NULL, n, (unsigned long)constant) != 1) continue;
                     for (int i = 0; i < bits; ++i) {
-                        if (((value >> i) & 1) != 0) qdk_x((size_t)i);
+                        if (((value >> i) & 1) != 0) qsp_x((size_t)i);
                     }
-                    if (enabled != 0) qdk_x(circuit.phase);
+                    if (enabled != 0) qsp_x(circuit.phase);
                     modular_multiply(&circuit, n, c);
                     expected = enabled != 0 ? value * constant % modulus : value;
                     read_register(measured, 0, bits);
@@ -436,23 +436,23 @@ static void self_test(void) {
                 }
             }
         }
-        qdk_x((size_t)bits);
-        qdk_h(circuit.enable);
+        qsp_x((size_t)bits);
+        qsp_h(circuit.enable);
         mpz_sub_ui(c, n, 1);
         modular_add(&circuit, n, c);
         mpz_set_ui(c, 1);
         modular_add(&circuit, n, c);
-        qdk_h(circuit.enable);
+        qsp_h(circuit.enable);
         read_register(measured, (size_t)bits, bits);
         if (mpz_cmp_ui(measured, 1) != 0) fail("coherent addition did not invert");
         check_clean(&circuit);
 
-        qdk_x(0);
-        qdk_h(circuit.phase);
+        qsp_x(0);
+        qsp_h(circuit.phase);
         mpz_sub_ui(c, n, 1);
         modular_multiply(&circuit, n, c);
         modular_multiply(&circuit, n, c);
-        qdk_h(circuit.phase);
+        qsp_h(circuit.phase);
         read_register(measured, 0, bits);
         if (mpz_cmp_ui(measured, 1) != 0) fail("coherent multiplication did not invert");
         check_clean(&circuit);
@@ -516,7 +516,7 @@ static void run_random_shors_shot(int bit_len, bool profile) {
     gmp_randclear(random);
     gmp_printf("%s %Zd = %Zd * %Zd (%d-bit primes), generator=2\n",
                profile ? "Profiling" : "Running", number, p, q, bit_len / 2);
-    if (profile) qdk_init("counting_profiler");
+    if (profile) qsp_init("counting_profiler");
     struct timespec start, end;
     if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) fail("could not start profiling timer");
     shors_shot(factor, number, generator);
@@ -527,7 +527,7 @@ static void run_random_shors_shot(int bit_len, bool profile) {
         char path[64];
         int length = snprintf(path, sizeof(path), "source/profiling/profile_viewer/profiles/shor_c_%d.json", bit_len);
         if (length < 0 || (size_t)length >= sizeof(path)) fail("could not format profile path");
-        qdk_save_profile(path);
+        qsp_save_profile(path);
         uint64_t count = read_operation_count(path);
         if (count == 0) fail("profile counted no operations");
         puts("Profiling measurements are bogus; the factorization result is ignored.");
@@ -555,7 +555,7 @@ static void run_random_shors_shot(int bit_len, bool profile) {
    Profiling timing excludes initialization, prime generation, and saving the file. */
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--self-test") == 0) {
-        qdk_init("sparse_sim");
+        qsp_init("sparse_sim");
         self_test();
         return EXIT_SUCCESS;
     }
@@ -573,7 +573,7 @@ int main(int argc, char **argv) {
         gmp_randstate_t random;
         gmp_randinit_mt(random);
         gmp_randseed_ui(random, (unsigned long)time(NULL));
-        qdk_init("sparse_sim");
+        qsp_init("sparse_sim");
         factor_semiprime(factor, number, random);
         mpz_divexact(cofactor, number, factor);
         gmp_printf("Found factorization %Zd = %Zd * %Zd\n", number, factor, cofactor);
