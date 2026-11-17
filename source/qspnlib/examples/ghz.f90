@@ -1,7 +1,7 @@
 program ghz
     use, intrinsic :: iso_c_binding, only: c_char, c_null_char, c_size_t
     implicit none
-    include 'qep_interop.fi'
+    include 'qspnlib.fi'
 
     integer :: shot
     integer(c_size_t) :: outcome

@@ -1,5 +1,5 @@
 [package]
-name = "qep_interop"
+name = "qspnlib"
 
 version.workspace = true
 authors.workspace = true

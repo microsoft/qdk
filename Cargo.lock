@@ -2150,15 +2150,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "qep_interop"
-version = "0.0.0"
-dependencies = [
- "libc",
- "profiling 0.0.0",
- "smallvec",
-]
-
-[[package]]
 name = "qre"
 version = "0.0.0"
 dependencies = [
@@ -2623,6 +2614,15 @@ dependencies = [
  "serde_json",
  "smallvec",
  "thiserror",
+]
+
+[[package]]
+name = "qspnlib"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "profiling 0.0.0",
+ "smallvec",
 ]
 
 [[package]]

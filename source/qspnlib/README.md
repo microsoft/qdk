@@ -1,6 +1,7 @@
-# Compile-time interop with other languages.
+# QSPNLib
 
-This package provides interop between various programming languages and QDK.
+QSPNLib (Quantum Service Protocol Native Library) allows native programs in
+various languages to send quantum instructions using QSP.
 
 It allows you to write code that drives QuantumBackend by calling C-style functions.
 
@@ -20,7 +21,7 @@ Typical usage:
 
 At runtime, function calls will be turned into calls to the QuantumBackend interface.
 
-See [qep_interop.h](include/qep_interop.h) for the full list of exposed functions.
+See [qspnlib.h](include/qspnlib.h) for the full list of exposed functions.
 
 ## Supported backends in qdk_init()
 
@@ -48,7 +49,7 @@ saving must be handled by the profiler receiving the instruction stream.
 ### Compiling and profiling C++ from Python
 
 In a QDK source checkout on Linux or macOS, build the release interop archive
-once with `cargo build --release -p qep_interop`, then use:
+once with `cargo build --release -p qspnlib`, then use:
 
 ```python
 from qdk.qre.application import QspApplication
@@ -122,7 +123,7 @@ to instantiate backend with custom parameters, define custom backend name (e.g.
 ### C/C++
 
 1. Install Rust/Cargo and a C or C++ compiler. LLVM development libraries are not required.
-2. Include `qep_interop.h` in your source file. Add this package's `include`
+2. Include `qspnlib.h` in your source file. Add this package's `include`
    directory to your compiler's include path.
 3. Optionally call `qdk_init(...)` to replace the default stdio backend before
    executing quantum instructions.
@@ -133,8 +134,8 @@ to instantiate backend with custom parameters, define custom backend name (e.g.
    outcomes in a result ID for later access through `qdk_read_result()`.
 5. When using a profiler, call `qdk_save_profile("profile.json")` to save the
    accumulated profile.
-6. Build the Rust static library with `cargo build --release -p qep_interop`,
-   then compile and link your program with `target/release/libqep_interop.a`.
+6. Build the Rust static library with `cargo build --release -p qspnlib`,
+   then compile and link your program with `target/release/libqspnlib.a`.
    On Linux, include the system libraries shown in the command below, after
    the Rust archive in the link command.
 
@@ -144,20 +145,20 @@ state, first using a simulator and then a profiler.
 Build and run it with the following command:
 
 ```
-cargo build --release -p qep_interop && \
-cc -std=c11 -Wall -Wextra -Werror -Isource/qep_interop/include source/qep_interop/examples/ghz.c target/release/libqep_interop.a -ldl -lpthread -lm -o target/release/ghz && \
+cargo build --release -p qspnlib && \
+cc -std=c11 -Wall -Wextra -Werror -Isource/qspnlib/include source/qspnlib/examples/ghz.c target/release/libqspnlib.a -ldl -lpthread -lm -o target/release/ghz && \
 ./target/release/ghz
 ```
 
 ### Fortran
 
-Use [include/qep_interop.fi](include/qep_interop.fi) for Fortran interfaces to
+Use [include/qspnlib.fi](include/qspnlib.fi) for Fortran interfaces to
 all functions in the C header. These interfaces use `bind(C)` and
 `iso_c_binding`; no additional Rust library or wrapper is required.
 
 1. Install a Fortran compiler supporting Fortran 2008, such as `gfortran`, plus
    the Rust prerequisites listed in the C/C++ section.
-2. Include `qep_interop.fi` in the specification part of your free-form source,
+2. Include `qspnlib.fi` in the specification part of your free-form source,
    after `implicit none` and before executable statements. Add this package's
    `include` directory to the compiler's include path.
 3. Use `integer(c_size_t)` for qubit IDs, result IDs, and measurement results,
@@ -172,8 +173,8 @@ all functions in the C header. These interfaces use `bind(C)` and
    `qdk_mz`, `qdk_mz_reset`, or `qdk_read_result` to an `integer(c_size_t)` variable.
    The result codes are the same as in C: 0, 1, or 2 for a backend error.
 6. From the repository root, build the Rust static library with
-   `cargo build --release -p qep_interop`. This produces
-   `target/release/libqep_interop.a`.
+   `cargo build --release -p qspnlib`. This produces
+   `target/release/libqspnlib.a`.
 7. Compile and link your Fortran program against that archive using your
    Fortran compiler as the linker driver.
 
@@ -183,7 +184,7 @@ For example:
 program example
     use, intrinsic :: iso_c_binding, only: c_char, c_null_char, c_size_t
     implicit none
-    include 'qep_interop.fi'
+    include 'qspnlib.fi'
     integer(c_size_t) :: outcome
 
     call qdk_init(c_char_"sparse_sim" // c_null_char)
@@ -197,8 +198,8 @@ The example in [examples/ghz.f90](examples/ghz.f90) is equivalent to the C examp
 Build and run from the repository root on Linux:
 
 ```sh
-cargo build --release -p qep_interop && \
-gfortran -std=f2008 -Wall -Wextra -Werror -Isource/qep_interop/include source/qep_interop/examples/ghz.f90 target/release/libqep_interop.a -ldl -lpthread -lm -o target/release/ghz_fortran && \
+cargo build --release -p qspnlib && \
+gfortran -std=f2008 -Wall -Wextra -Werror -Isource/qspnlib/include source/qspnlib/examples/ghz.f90 target/release/libqspnlib.a -ldl -lpthread -lm -o target/release/ghz_fortran && \
 ./target/release/ghz_fortran
 ```
 
@@ -220,15 +221,15 @@ the Fortran example retains its existing fixed-width implementation.
 Build both examples from the repository root on Linux:
 
 ```sh
-cargo build --release -p qep_interop
+cargo build --release -p qspnlib
 cc -std=c11 -O2 -Wall -Wextra -Werror \
-    -Isource/qep_interop/include source/qep_interop/examples/shor.c \
-    source/qep_interop/examples/arithmetic.c \
-    target/release/libqep_interop.a -lgmp -ldl -lpthread -lm \
+    -Isource/qspnlib/include source/qspnlib/examples/shor.c \
+    source/qspnlib/examples/arithmetic.c \
+    target/release/libqspnlib.a -lgmp -ldl -lpthread -lm \
     -o target/release/shor_c
 gfortran -std=f2008 -O2 -Wall -Wextra -Werror \
-    -Isource/qep_interop/include source/qep_interop/examples/shor.f90 \
-    target/release/libqep_interop.a -ldl -lpthread -lm \
+    -Isource/qspnlib/include source/qspnlib/examples/shor.f90 \
+    target/release/libqspnlib.a -ldl -lpthread -lm \
     -o target/release/shor_fortran
 ```
 

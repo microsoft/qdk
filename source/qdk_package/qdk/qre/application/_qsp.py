@@ -59,7 +59,7 @@ class QspApplication(Application[None]):
     def compile(self) -> Path:
         """Compile sources against the release interop archive and return its executable.
 
-        Requires ``cargo build --release -p qep_interop`` in the checkout.
+        Requires ``cargo build --release -p qspnlib`` in the checkout.
         A ``.c`` main source uses ``CC`` (default ``cc``) and C11; other sources
         use ``CXX`` (default ``c++``) and C++17. Relative source paths are resolved
         from the current working directory. Compiler failures propagate as
@@ -70,12 +70,12 @@ class QspApplication(Application[None]):
         source = Path(self.source_path).resolve(strict=True)
         extra_sources = [Path(path).resolve(strict=True) for path in self.extra_sources]
         repository = Path(__file__).resolve().parents[5]
-        include = repository / "source" / "qep_interop" / "include"
-        library = repository / "target" / "release" / "libqep_interop.a"
-        if not library.is_file() or not (include / "qep_interop.h").is_file():
+        include = repository / "source" / "qspnlib" / "include"
+        library = repository / "target" / "release" / "libqspnlib.a"
+        if not library.is_file() or not (include / "qspnlib.h").is_file():
             raise FileNotFoundError(
                 "QSP compilation requires a QDK source checkout and the release "
-                "interop archive. Run `cargo build --release -p qep_interop` "
+                "interop archive. Run `cargo build --release -p qspnlib` "
                 "from the repository root."
             )
         executable = source.with_name(f"{source.stem}.exe")

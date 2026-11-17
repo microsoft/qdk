@@ -107,7 +107,7 @@ fn duplicate_pipe(value: &std::ffi::OsStr, name: &str) -> std::fs::File {
 
 /// Reports an unrecoverable C API error without unwinding across the FFI boundary.
 fn abort_with_error(message: &str) -> ! {
-    eprintln!("qep_interop: {message}");
+    eprintln!("qspnlib: {message}");
     std::process::abort();
 }
 
@@ -221,7 +221,7 @@ pub unsafe extern "C" fn qdk_save_profile(path: *const c_char) {
     let mut backend = lock_backend();
     if matches!(backend.batcher.get_backend(), BackendKind::Stdio(_)) {
         eprintln!(
-            "qep_interop: do not call qdk_save_profile() in stdio mode; use a profiler listening on the other end of the instruction stream"
+            "qspnlib: do not call qdk_save_profile() in stdio mode; use a profiler listening on the other end of the instruction stream"
         );
         return;
     }
@@ -238,7 +238,7 @@ pub unsafe extern "C" fn qdk_save_profile(path: *const c_char) {
         abort_with_error(&format!("qdk_save_profile() flush failed: {error}"))
     });
     let BackendKind::Profiler(profiler) = backend.batcher.get_backend() else {
-        eprintln!("qep_interop: qdk_save_profile() backend does not support profiling");
+        eprintln!("qspnlib: qdk_save_profile() backend does not support profiling");
         return;
     };
     let result = profiler.get_result();
@@ -538,7 +538,7 @@ mod tests {
             process::{Command, Stdio},
         };
 
-        const CHILD_ENV: &str = "QEP_INTEROP_STDIO_TEST_CHILD";
+        const CHILD_ENV: &str = "QSPNLIB_STDIO_TEST_CHILD";
         if std::env::var_os(CHILD_ENV).is_some() {
             // SAFETY: In default stdio mode, the path is ignored, including null.
             unsafe { qdk_save_profile(std::ptr::null()) };
@@ -591,7 +591,7 @@ mod tests {
                 r#"["mz_reset(8)"]"#,
             ]
         );
-        let guidance = "qep_interop: do not call qdk_save_profile() in stdio mode; use a profiler listening on the other end of the instruction stream";
+        let guidance = "qspnlib: do not call qdk_save_profile() in stdio mode; use a profiler listening on the other end of the instruction stream";
         assert_eq!(stderr.lines().collect::<Vec<_>>(), [guidance, guidance]);
     }
 
@@ -792,7 +792,7 @@ mod tests {
     fn initializes_and_runs_all_backends() {
         let _test_lock = TEST_LOCK.lock().expect("test mutex must not be poisoned");
         let path =
-            std::env::temp_dir().join(format!("qep_interop_profile_{}.json", std::process::id()));
+            std::env::temp_dir().join(format!("qspnlib_profile_{}.json", std::process::id()));
         assert!(!path.exists(), "test output must not already exist");
         let c_path = CString::new(path.to_str().expect("test path must be UTF-8"))
             .expect("test path must not contain NUL");

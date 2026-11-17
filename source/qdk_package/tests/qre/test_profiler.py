@@ -44,8 +44,8 @@ def qsp_toolchain() -> None:
     if not compiler or shutil.which(compiler[0]) is None:
         pytest.skip("QSP profiling requires a C++ compiler")
     repository = Path(__file__).resolve().parents[4]
-    if not (repository / "target" / "release" / "libqep_interop.a").is_file():
-        pytest.skip("Run `cargo build --release -p qep_interop` for QSP tests")
+    if not (repository / "target" / "release" / "libqspnlib.a").is_file():
+        pytest.skip("Run `cargo build --release -p qspnlib` for QSP tests")
 
 
 def test_profile_qsp_application(qsp_toolchain: None) -> None:
@@ -54,7 +54,7 @@ def test_profile_qsp_application(qsp_toolchain: None) -> None:
         SequentialCountingProfiler(10, {"h": 0.25, "x": 0.5, "cx": 1.0, "mz": 2.0})
     )
     application = QspApplication.for_cpp_code("""
-    #include "qep_interop.h"
+    #include "qspnlib.h"
     #include <iostream>
 
     // Exercises instruction batching and measurement replies without initialization.
@@ -94,7 +94,7 @@ def test_profile_qsp_application_options(qsp_toolchain: None, tmp_path: Path) ->
     helper = tmp_path / "workload.cpp"
     helper.write_text(
         '#include "workload.h"\n'
-        '#include "qep_interop.h"\n'
+        '#include "qspnlib.h"\n'
         "// Emit the number of gates configured by the compiler.\n"
         "void run_workload(void) {\n"
         "    for (int i = 0; i < REPETITIONS; ++i) qdk_x(0);\n"
@@ -104,7 +104,7 @@ def test_profile_qsp_application_options(qsp_toolchain: None, tmp_path: Path) ->
     source = tmp_path / "main.cpp"
     source.write_text(
         '#include "workload.h"\n'
-        '#include "qep_interop.h"\n'
+        '#include "qspnlib.h"\n'
         "#include <string.h>\n"
         "// Check argument boundaries and call the separately compiled workload.\n"
         "int main(int argc, char **argv) {\n"
@@ -129,7 +129,7 @@ def test_profile_qsp_application_options(qsp_toolchain: None, tmp_path: Path) ->
 def test_qsp_get_trace(qsp_toolchain: None) -> None:
     """Collect native C++ gates and preserve stored measurement results across batches."""
     application = QspApplication.for_cpp_code("""
-    #include "qep_interop.h"
+    #include "qspnlib.h"
     #include <iostream>
 
     // Exercise loops, multi-qubit gates, and persistent measurement slots.

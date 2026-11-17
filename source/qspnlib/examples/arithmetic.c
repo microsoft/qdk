@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 #include "arithmetic.h"
-#include "qep_interop.h"
+#include "qspnlib.h"
 
 #include <stdio.h>
 #include <stdlib.h>

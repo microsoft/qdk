@@ -105,7 +105,7 @@ The following application types are supported:
 - `QspApplication`: native source code, compiled to an executable that streams
   instructions to the profiler over dedicated pipes. Program stdout remains
   available for its own output. See the
-  [native application examples](../qep_interop/README.md).
+  [native application examples](../qspnlib/README.md).
 
 For Q# and OpenQASM, the default path compiles the program to QIR, lowers it to
 adaptive bytecode using PyQIR, and executes that bytecode. Pass `use_qir=False`

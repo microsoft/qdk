@@ -5,7 +5,7 @@ program shor
     use, intrinsic :: iso_c_binding, only: c_char, c_null_char, c_size_t, c_double
     use, intrinsic :: iso_fortran_env, only: int64, error_unit
     implicit none
-    include 'qep_interop.fi'
+    include 'qspnlib.fi'
 
     integer, parameter :: max_bits = 15, max_attempts = 100
     integer(c_size_t), parameter :: no_control = -1_c_size_t

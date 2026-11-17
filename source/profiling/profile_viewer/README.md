@@ -99,3 +99,8 @@ The page and canvases use a white background with dark text and light grid lines
 instruction colors remain consistent between profiles.
 The data helpers also expose CommonJS exports for focused Node-based tests,
 without affecting standalone browser use.
+
+## TODO
+
+Reimplement this viewer in TypeScript as a widget and/or using Python libraries like
+matplotlib/plotly for use in notebooks.

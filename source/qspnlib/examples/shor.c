@@ -14,7 +14,7 @@
 #include <time.h>
 
 #include "arithmetic.h"
-#include "qep_interop.h"
+#include "qspnlib.h"
 
 enum { MAX_BITS = 2048, MAX_ATTEMPTS = 100 };
 
