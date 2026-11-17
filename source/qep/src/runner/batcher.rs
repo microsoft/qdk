@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult, interface::Driver,
+    Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
+    instructions::produces_result, interface::Driver,
 };
 use smallvec::smallvec;
 
@@ -17,14 +18,6 @@ pub struct Batcher<B> {
     backend: B,
     instructions: Vec<QuantumBackendInstruction>,
     max_batch_size: usize,
-}
-
-/// Identifies instructions that require an immediate backend result.
-fn produces_result(instruction: &QuantumBackendInstruction) -> bool {
-    matches!(
-        instruction.instruction_name,
-        "read_result" | "mz" | "mz_reset"
-    )
 }
 
 impl<B: QuantumBackend> Driver for Batcher<B> {

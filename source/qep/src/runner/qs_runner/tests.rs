@@ -4,7 +4,7 @@
 use super::{QsBackendReverseShim, QsharpRunError, run_qsharp_call, run_qsharp_expr};
 use crate::{
     BatchResult, DEFAULT_MAX_BATCH_SIZE, QsBackendShim, QuantumBackend, QuantumBackendInstruction,
-    QuantumBackendResult,
+    QuantumBackendResult, instructions::produces_result,
 };
 use qsc::{
     Backend, LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
@@ -33,7 +33,7 @@ impl QuantumBackend for RecordingBackend {
         let mut result = BatchResult::default();
         for instruction in instructions {
             crate::validate_instruction(instruction);
-            if instruction.instruction_name == "read_result" {
+            if produces_result(instruction) {
                 result.results.push(QuantumBackendResult::from(
                     self.measurements
                         .pop_front()

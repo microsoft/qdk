@@ -6,6 +6,7 @@ use super::{
 };
 use crate::{
     Parameter, QuantumBackendResult, TotalCounts,
+    instructions::produces_result,
     interface::QuantumBackendInstruction,
     profilers::{
         LoggableOperation, LoggedInstruction, LoggedInstructionParameter, Precondition,
@@ -263,7 +264,7 @@ impl QpuModel for DemoModel1 {
             preconditions,
             targets,
             duration_nanos,
-            instruction.instruction_name == "mz",
+            produces_result(instruction),
         );
         Ok(())
     }

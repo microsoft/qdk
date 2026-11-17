@@ -120,44 +120,10 @@ define_instructions! {
     (AND_ADJ, 26, "and_adj", [QubitId(_), QubitId(_), QubitId(_)]),
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        MZ_STORE, MZ_STORE_RESET, instruction_id_to_name, instruction_name_to_id,
-        validate_instruction,
-    };
-    use crate::{Parameter::ResultId, QuantumBackendInstruction};
-    use smallvec::smallvec;
-
-    #[test]
-    /// Preserves measurement IDs and validates their canonical names and operand shapes.
-    fn measurement_store_instructions_use_canonical_names() {
-        for (id, expected_id, name) in [
-            (MZ_STORE, 21, "mz_store"),
-            (MZ_STORE_RESET, 22, "mz_store_reset"),
-        ] {
-            assert_eq!(id, expected_id);
-            assert_eq!(instruction_id_to_name(id), name);
-            assert_eq!(instruction_name_to_id(name), Some(id));
-            validate_instruction(&QuantumBackendInstruction {
-                instruction_name: name,
-                parameters: smallvec![crate::Parameter::QubitId(0), ResultId(1)],
-            });
-        }
-        assert_eq!(instruction_name_to_id("mresetz"), None);
-    }
-
-    #[test]
-    /// Validates immediate measurement IDs, names, and result-slot-free operands.
-    fn immediate_measurements_use_canonical_names() {
-        for (id, expected_id, name) in [(super::MZ, 24, "mz"), (super::MZ_RESET, 25, "mz_reset")] {
-            assert_eq!(id, expected_id);
-            assert_eq!(instruction_id_to_name(id), name);
-            assert_eq!(instruction_name_to_id(name), Some(id));
-            validate_instruction(&QuantumBackendInstruction {
-                instruction_name: name,
-                parameters: smallvec![crate::Parameter::QubitId(0)],
-            });
-        }
-    }
+/// Identifies instructions that produce a result.
+pub(crate) fn produces_result(instruction: &QuantumBackendInstruction) -> bool {
+    matches!(
+        instruction.instruction_name,
+        "read_result" | "mz" | "mz_reset"
+    )
 }

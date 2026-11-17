@@ -4,7 +4,7 @@
 use super::{Profiler, ProfilerResult, TemporalProfiles, TotalCounts};
 use crate::{
     QuantumBackendResult,
-    instructions::{instruction_id_to_name, instruction_name_to_id},
+    instructions::{instruction_id_to_name, instruction_name_to_id, produces_result},
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -160,10 +160,7 @@ impl QuantumBackend for SequentialCountingProfiler {
                     .insert(instruction.instruction_name);
             }
 
-            if matches!(
-                instruction.instruction_name,
-                "read_result" | "mz" | "mz_reset"
-            ) {
+            if produces_result(instruction) {
                 result
                     .results
                     .push(QuantumBackendResult::from(rand::random::<bool>()));
