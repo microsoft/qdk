@@ -29,7 +29,7 @@ int main(void) {
         printf("result = %d\n", result);
     }
 
-    qsp_init("temporal_profiler");
+    qsp_init("temporal_profiler_with_trace");
     ghz_example(10);
     qsp_save_profile("source/profiling/profile_viewer/profiles/ghz_profile.json");
 

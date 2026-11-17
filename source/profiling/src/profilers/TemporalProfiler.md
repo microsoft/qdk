@@ -58,6 +58,12 @@ The model accepts `cx`, `h`, `s`, `sadj`, `x`, `y`, `z`, `t`, `tadj`, `mz` and
 `reset`. T and T-adjoint become native `inject_t` and `inject_tadj` operations.
 Other instructions need adapters before reaching the model.
 
+`rx`, `ry`, `rxx`, `ryy`, `rzz` and `and_adj` are not decomposed by the current
+transpilers and are not supported by the model. Programs using the temporal
+profiler therefore cannot use these gates.
+
+TODO: add transpilers for these gates.
+
 The timings are:
 
 - Clifford gates use `clifford_gate_time_nanos`.
@@ -204,7 +210,7 @@ profiler.add_adapter("result_adapter")
 Adding adapters in this order puts `ResultAdapter` outside `TranspilingAdapter`.
 The result adapter maintains result registers across batches. It converts stored
 measurements to immediate measurements and answers `read_result` locally.
-The transpiling adapter decomposes composite gates and rotations into native
+The transpiling adapter decomposes composite gates and Rz rotations into native
 gates. It also turns `mz_reset` into separate `mz` and `reset` operations.
 Profiles describe the decomposed operations. They do not include the original
 composite gates or result-register accesses. See
@@ -219,7 +225,7 @@ ResultAdapter::new(TranspilingAdapter::with_defaults(
 ```
 
 Use `TemporalProfiler::new(model, config)` for an explicit hardware model.
-The native C temporal-profiler entry point installs the adapters automatically.
+Both native temporal-profiler variants install the adapters automatically.
 
 ## Recorded results
 

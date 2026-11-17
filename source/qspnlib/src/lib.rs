@@ -189,9 +189,9 @@ pub unsafe extern "C" fn qsp_init(backend: *const c_char) {
             });
             BackendWrapper::for_profiler(profiler)
         }
-        "temporal_profiler" => {
+        "temporal_profiler" | "temporal_profiler_with_trace" => {
             let config = TemporalProfilerConfig {
-                record_trace: true,
+                record_trace: backend == "temporal_profiler_with_trace",
                 ..TemporalProfilerConfig::default()
             };
             BackendWrapper::for_profiler(profiling::ResultAdapter::new(
@@ -202,7 +202,7 @@ pub unsafe extern "C" fn qsp_init(backend: *const c_char) {
             ))
         }
         _ => abort_with_error(&format!(
-            "qsp_init() unknown backend `{backend}`; expected stdio, sparse_sim, counting_profiler, or temporal_profiler"
+            "qsp_init() unknown backend `{backend}`; expected stdio, sparse_sim, counting_profiler, temporal_profiler, or temporal_profiler_with_trace"
         )),
     };
 }
@@ -803,6 +803,8 @@ mod tests {
             c"counting_profiler",
             c"temporal_profiler",
             c"temporal_profiler",
+            c"temporal_profiler_with_trace",
+            c"temporal_profiler_with_trace",
             c"sparse_sim",
         ] {
             // SAFETY: The backend name is a static, NUL-terminated string.
@@ -856,7 +858,10 @@ mod tests {
                         assert!(result.totals.total_runtime_sec.abs() < f64::EPSILON);
                         assert!(result.infos.is_empty());
                     } else {
-                        assert!(result.trace.is_some());
+                        assert_eq!(
+                            result.trace.is_some(),
+                            backend == c"temporal_profiler_with_trace"
+                        );
                         let x_rate = result
                             .profiles
                             .profiles
@@ -870,10 +875,11 @@ mod tests {
                 for _ in 0..2 {
                     // SAFETY: The CString remains valid for the duration of the call.
                     unsafe { qsp_save_profile(c_path.as_ptr()) };
-                    assert!(
-                        fs::read_to_string(&path)
-                            .expect("profiler must save JSON")
-                            .contains("\"totals\"")
+                    let saved = fs::read_to_string(&path).expect("profiler must save JSON");
+                    assert!(saved.contains("\"totals\""));
+                    assert_eq!(
+                        saved.contains("\"trace\": null"),
+                        backend != c"temporal_profiler_with_trace"
                     );
                     if backend == c"counting_profiler" {
                         let stored = lock_backend();

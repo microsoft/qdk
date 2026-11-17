@@ -31,10 +31,15 @@ The following backends can be selected by name:
   `QDK_INSTRUCTION_FD` and `QDK_RESULT_FD` selects dedicated protocol descriptors
   instead. Setting just one, or an invalid descriptor, is an error.
 - "sparse_sim" - a sparse simulator.
-- "counting_profiler" - CountingProfiler with default parameters.
-- "temporal_profiler" - TemporalProfiler with default parameters, result-register support,
-  and default instruction transpilers. Combined measurement/reset is profiled as separate
-  measurement and reset operations.
+- "counting_profiler" - SequentialCountingProfiler with default parameters.
+- "temporal_profiler" - TemporalProfiler with default parameters, without trace
+  recording.
+- "temporal_profiler_with_trace" - the same profiler with trace recording enabled.
+
+Both temporal backends include result-register support and default instruction
+transpilers. Combined measurement/reset is profiled as separate measurement and
+reset operations. Programs using either backend must avoid the
+[unsupported gates](../profiling/src/profilers/TemporalProfiler.md#native-instructions-and-timings).
 
 The stdio backend uses the [QSP stream protocol](../qsp/README.md#interprocess-communication-protocol)
 and can connect to a `StreamDriver` wrapping a simulator or profiler. Without
@@ -67,7 +72,7 @@ saving must be handled by the profiler receiving the instruction stream.
    the Rust archive in the link command.
 
 [examples/ghz.c](examples/ghz.c) prepares and measures a GHZ state, first using a
-simulator and then a profiler.
+simulator and then a temporal profiler with trace recording enabled.
 
 Build and run it:
 
@@ -218,12 +223,12 @@ as large modular powers, 4097-bit phase postprocessing, and 1024-bit prime gener
 
 ## Python API
 
-`QspApplication` compiles C or C++ programs written using QSPNLib. It requires a
-QDK source checkout on Linux or macOS. Build the native archive once with
-`cargo build --release -p qspnlib`.
+`QspApplication` compiles C or C++ programs written using QSPNLib, automaticlaly linking
+it with pre-built QSPNLib buinary.
 
-TODO: bundle pre-built libqspnlib.a with QDK and update QspApplication to know where it
-is located.
+_Currently for this to work, the user must manually build QSPNLib using
+`cargo build --release -p qspnlib`. TODO:
+bundle pre-built `libqspnlib.a` with QDK and update QspApplication to know where it is located._
 
 Pass `extra_sources=[...]` for additional source files, `compiler_args=[...]` for
 compiler/linker flags and `args=[...]` for executable arguments.
