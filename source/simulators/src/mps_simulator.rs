@@ -112,19 +112,20 @@ impl<E: MpsEngine> MpsResumer<E> {
     }
 
     /// The resumer stopping its runs once `stop_flag` is set: a user who
-    /// interrupts a run of hours (Ctrl-C from Python, say) gets it back
-    /// between batches, its states freed. The flag is read before a group
-    /// first runs, before a group split off by a draw runs on, and after
-    /// each resume that gives a group its next batch or a trap: before the
-    /// batch is lowered, or the trap reported. So once a batch's gates
-    /// start, all of them run before the flag is read again: a
-    /// program that is one batch (Base Profile) runs all its gates once
-    /// started. Once set before a batch a shot has not started, the run
-    /// fails with [`MpsResumerError::Stopped`], naming the first shot that
-    /// had not ended, whatever that batch would have done (trapped, or
-    /// been refused); a run whose every shot has ended returns its records,
-    /// and a run of no shots returns none. Whoever sets it clears it before
-    /// the next run.
+    /// interrupts a run of hours (Ctrl-C from Python, say) gets it back once
+    /// the batch under way ends, its states freed. The flag is read before a
+    /// group runs its steps (when it first runs, when a part split off by a
+    /// draw runs on, and once each batch is lowered), and after each resume
+    /// that gives a group its next batch or a trap, before the batch is lowered
+    /// or the trap reported. So a flag set while a group runs its batch lets
+    /// that group run the rest of the batch, and stops each part split off by a
+    /// draw before it runs on: of a Base Profile program, one batch, the group
+    /// under way runs to its end, and the parts split off do not run on. Once
+    /// read set, the flag fails the run with [`MpsResumerError::Stopped`],
+    /// naming the first shot that had not ended, whatever the batch after the
+    /// read would have done (trapped, or been refused); a run whose every shot
+    /// has ended returns its records, and a run of no shots returns none.
+    /// Whoever sets it clears it before the next run.
     #[must_use]
     pub fn with_stop_flag(mut self, stop_flag: Arc<AtomicBool>) -> Self {
         self.stop_flag = Some(stop_flag);
@@ -162,14 +163,14 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
     /// The first failing shot in the order of `shots`: its context trapped,
     /// or the resumer failed it ([`MpsResumerError`]): a noise or loss call,
     /// a gate on one qubit twice, a capacity that is no chain, the engine's
-    /// failure, or the stop flag, once set before a batch a shot has not
-    /// started, naming the first shot that had not ended
-    /// ([`MpsResumer::with_stop_flag`]). An engine's failure to fork a
-    /// group's state fails all the group's shots, as the engine leaves that
-    /// state unspecified; its failure to settle the fork (project it, and
-    /// apply a reset's X) fails only the shots that were to wait with the
-    /// fork. Either fails shots that alone would not have forked: a shot's
-    /// failure, unlike its records, may depend on the shots beside it.
+    /// failure, or the stop flag, once read set, naming the first shot that
+    /// had not ended ([`MpsResumer::with_stop_flag`]). An engine's failure
+    /// to fork a group's state fails all the group's shots, as the engine
+    /// leaves that state unspecified; its failure to settle the fork
+    /// (project it, and apply a reset's X) fails only the shots that were
+    /// to wait with the fork. Either fails shots that alone would not have
+    /// forked: a shot's failure, unlike its records, may depend on the
+    /// shots beside it.
     fn run(
         &mut self,
         machine: &QirMachine<'_>,

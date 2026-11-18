@@ -27,10 +27,11 @@ the same names.
   register, unknown before a shot), and searches for an order of a smaller
   span. Every order holds the same state (to what precision: the file's
   header). No caller sees sites.
-- **stop** (`check_stop_flag`, called by `run_group`): before a group
-  first runs, before a group split off by a draw runs on, and after each
-  resume that gives a batch or a trap (before the batch is lowered, or the
-  trap reported), a stop flag (`MpsResumer::with_stop_flag`), once set,
+- **stop** (`check_stop_flag`, called by `run_group`): a stop flag
+  (`MpsResumer::with_stop_flag`) is read before a group runs its steps
+  (when it first runs, when a part split off by a draw runs on, and once
+  each batch is lowered), and after each resume that gives a batch or a
+  trap (before the batch is lowered, or the trap reported); read set, it
   fails the run; a context that ended keeps its records.
 - **resume** (`QirMachine::resume`, called by `run_group`): the machine
   runs the group's context to its next batch, or to its end with the
@@ -56,9 +57,10 @@ the same names.
 - **split** (`split`, with `value_going_on`): when the shots drew both
   values, the part with fewer shots goes on (on a tie, the part that drew
   Zero), and the other waits on a stack, with a copy of the context and a
-  fork of the state, made after the probability is read. As the larger part waits,
-  each waiting part has at least as many shots as all the groups above it,
-  so a run of N shots holds at most ⌊log₂ N⌋ + 1 states at once.
+  fork of the state, made after the probability is read. As the larger
+  part waits, each waiting part has at least as many shots as all the
+  groups above it, so a run of N shots holds at most ⌊log₂ N⌋ + 1 states
+  at once.
 - **settle** (`settle`): each part's state is projected on its value, then
   a reset that drew One applies X. The engine has no measurement and no
   reset, only probabilities, projections and matrices.

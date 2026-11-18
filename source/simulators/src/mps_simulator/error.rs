@@ -58,7 +58,7 @@ pub enum MpsResumerError<E> {
     /// finite has a matrix that is not unitary, say).
     Engine(E),
 
-    /// The run was stopped: its stop flag was set
+    /// The run was stopped: its stop flag was read set
     /// ([`MpsResumer::with_stop_flag`]).
     Stopped,
 }
