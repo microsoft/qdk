@@ -178,7 +178,7 @@ def test_an_unknown_method_is_refused():
         run(BELL, [Sample(1)], method="contraction")
 
 
-@pytest.mark.parametrize("seed", [-1, 2**32, True, 1.5])
+@pytest.mark.parametrize("seed", [-1, 2**32, True, 1.5, "7"])
 def test_a_seed_out_of_range_is_refused(seed):
     with pytest.raises(ValueError, match="seed"):
         run(BELL, [Sample(1)], seed=seed)
@@ -199,7 +199,7 @@ def test_queries_other_than_one_sample_are_refused(queries):
         pytest.param({"queries": ["Expectation"]}, "use Sample", id="a query"),
         pytest.param(
             {"queries": Sample(1)},
-            "queries must be a sequence holding one Sample",
+            "queries must be an iterable holding one Sample",
             id="a bare Sample",
         ),
         pytest.param({"engine": 0}, "str", id="engine"),
@@ -215,6 +215,19 @@ def test_an_argument_of_another_type_raises_type_error(arguments, message):
         run(arguments.pop("input"), **arguments)
 
 
+def test_a_type_error_of_the_callers_queries_reaches_the_caller():
+    """Queries whose iteration fails with a `TypeError` of their own (a
+    caller's generator with a defect, say) raise that error, not the entry's
+    message about what ``queries`` must be."""
+
+    def queries():
+        raise TypeError("the caller's generator failed")
+        yield Sample(1)
+
+    with pytest.raises(TypeError, match="the caller's generator failed"):
+        run(BELL, queries())
+
+
 def test_an_unknown_engine_is_refused():
     """An engine name other than ``"gpu"`` and ``"cpu"``, here the library's
     name, is a `ValueError` naming the engine."""
@@ -227,10 +240,9 @@ def test_an_unknown_engine_is_refused():
 # ---------------------------------------------------------------------------
 
 
-def test_each_row_is_a_shots_results_in_recording_order(engine):
-    """A Bell pair's 32 shots: one row each, a list of the two results in
-    the order the program records them, the two agreeing, both values
-    occurring."""
+def test_a_run_gives_one_row_per_shot_with_the_programs_correlations(engine):
+    """A Bell pair's 32 shots: one row each, its two results agreeing, both
+    values occurring."""
     (rows,) = run(BELL, [Sample(32)], engine=engine)
     assert len(rows) == 32
     zeros, ones = [Result.Zero, Result.Zero], [Result.One, Result.One]
