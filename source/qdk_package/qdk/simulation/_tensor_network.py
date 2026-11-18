@@ -3,9 +3,10 @@
 
 """``tensornetwork_qir`` simulates a QIR program's shots on a matrix product
 state (MPS), for programs with too many qubits for a state vector that
-entangle them little, and returns them with the run's report: what the max bond
-dimension cost in accuracy. ``check_tensornetwork_setup`` says whether the
-GPU is set up for the GPU engine (``engine="gpu"``, the default, which needs
+entangle them little, and returns them with the run's report: the largest
+bond it held and the weight truncation discarded.
+``check_tensornetwork_setup`` says whether the GPU is set up for the GPU
+engine (``engine="gpu"``, the default, which needs
 ``pip install "qdk[tensornetwork]"``); the CPU engine (``engine="cpu"``)
 needs no setup.
 """
@@ -16,6 +17,7 @@ import os
 from typing import List, Literal, Optional, Sequence, Tuple, Union
 import warnings
 
+from .. import _native
 from .._adaptive_pass import AdaptiveProfilePass, Bytecode
 from .._native import _MPS_DEFAULT_MAX_BOND_DIMENSION
 from .._types import QirInputData
@@ -24,8 +26,6 @@ from ._simulation import (
     OutputRecordingPass,
     preprocess_simulation_input,
 )
-
-_U32_MAX = 2**32 - 1
 
 # The NVIDIA wheels that `qdk[tensornetwork]` installs, and where each puts
 # its library, relative to the environment's site-packages.
@@ -52,13 +52,7 @@ class MpsOptions:
     max_bond_dimension: int = _MPS_DEFAULT_MAX_BOND_DIMENSION
 
     def __post_init__(self) -> None:
-        bond = self.max_bond_dimension
-        if (
-            isinstance(bond, bool)
-            or not isinstance(bond, int)
-            or not 1 <= bond <= _U32_MAX
-        ):
-            raise ValueError("max_bond_dimension must be an integer in [1, 2**32)")
+        _check_u32("max_bond_dimension", self.max_bond_dimension, 1)
 
 
 @dataclass(frozen=True)
@@ -72,13 +66,7 @@ class Sample:
     shots: int
 
     def __post_init__(self) -> None:
-        shots = self.shots
-        if (
-            isinstance(shots, bool)
-            or not isinstance(shots, int)
-            or not 1 <= shots <= _U32_MAX
-        ):
-            raise ValueError("shots must be an integer in [1, 2**32)")
+        _check_u32("shots", self.shots, 1)
 
 
 # The queries `tensornetwork_qir` answers. Planned: other queries
@@ -207,7 +195,7 @@ def tensornetwork_qir(
         among them), a program the MPS simulation method does not run (a
         readout-noise call, a loss check, a gate on one qubit twice), a max
         bond dimension too large for the program's qubits, or a call the
-        engine refuses (an operator on no site, say).
+        engine refuses (a rotation by an angle that is not finite, say).
     :raises TypeError: When ``options`` is not an :class:`MpsOptions`, or a
         query not a :class:`Sample`.
     :raises OSError: When the GPU engine is not set up (no library, a version
@@ -219,8 +207,51 @@ def tensornetwork_qir(
     :raises RuntimeError: When a shot traps (a division by zero, say); the
         message names the shot.
     """
-    return _run(
-        input, queries, method=method, options=options, seed=seed, engine=engine
+    # The arguments are checked here but for `engine`, which the native side
+    # checks when it makes the engine.
+    if method != "mps":
+        raise ValueError(f'Invalid method: {method!r}. Use "mps".')
+    if options is None:
+        options = MpsOptions()
+    elif not isinstance(options, MpsOptions):
+        raise TypeError('options must be an MpsOptions instance for method="mps"')
+    if seed is not None:
+        _check_u32("seed", seed, 0)
+    queries = list(queries)
+    for query in queries:
+        if not isinstance(query, Sample):
+            raise TypeError(f"Unsupported query {query!r}; use Sample")
+    if len(queries) != 1:
+        raise ValueError("queries must hold exactly one Sample")
+    (sample,) = queries
+
+    # Lowered as `run_qir`'s CPU simulators lower an Adaptive program, with
+    # no noise config; the native side builds it, makes the engine and runs
+    # the shots; each shot's records are formatted as `run_qir` formats them.
+    mod, _, _, seed = preprocess_simulation_input(input, None, None, seed)
+    DecomposeCcxPass().run(mod)
+    program = AdaptiveProfilePass(Bytecode.Bit64).run(mod).as_dict()
+    records, report = _native._tensor_network_sample(
+        program,
+        sample.shots,
+        seed,
+        options.max_bond_dimension,
+        _packaged_libraries(),
+        _INSTALL_COMMAND,
+        engine,
+    )
+    recorder = OutputRecordingPass()
+    recorder.run(mod)
+    rows = [recorder.process_output(shot) for shot in records]
+    if report["truncation_warning"] is not None:
+        warnings.warn(report["truncation_warning"], RuntimeWarning, stacklevel=2)
+    return TensorNetworkResults(
+        [rows],
+        TensorNetworkReport(
+            largest_bond=report["largest_bond"],
+            discarded_weight=report["discarded_weight"],
+            max_bond_dimension=report["max_bond_dimension"],
+        ),
     )
 
 
@@ -241,77 +272,11 @@ def check_tensornetwork_setup() -> TensorNetworkSetup:
 
         print(check_tensornetwork_setup())
     """
-    from .. import _native
-
     ready, report, advice, native_warnings = _native._check_tensornetwork_setup(
         _packaged_libraries(), _INSTALL_COMMAND
     )
     return TensorNetworkSetup(
         ready=ready, report=report, advice=advice, warnings=tuple(native_warnings)
-    )
-
-
-def _run(
-    input: Union[QirInputData, str, bytes],
-    queries: Sequence[Sample],
-    *,
-    method: str,
-    options: Optional[MpsOptions],
-    seed: Optional[int],
-    engine: str,
-) -> TensorNetworkResults:
-    """:func:`tensornetwork_qir`, its arguments checked here but for
-    ``engine``, which the native side checks when it makes the engine.
-
-    The program is lowered as the other QIR simulators lower it
-    (``DecomposeCcxPass``, then ``AdaptiveProfilePass(Bytecode.Bit64)``,
-    with no noise config); the native side builds it, makes the engine and
-    runs the shots; each shot's records are formatted as ``run_qir``
-    formats them."""
-    if method != "mps":
-        raise ValueError(f'Invalid method: {method!r}. Use "mps".')
-    if options is None:
-        options = MpsOptions()
-    elif not isinstance(options, MpsOptions):
-        raise TypeError('options must be an MpsOptions instance for method="mps"')
-    if seed is not None and (
-        isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= _U32_MAX
-    ):
-        raise ValueError("seed must be an integer in [0, 2**32) or None")
-    queries = list(queries)
-    for query in queries:
-        if not isinstance(query, Sample):
-            raise TypeError(f"Unsupported query {query!r}; use Sample")
-    if len(queries) != 1:
-        raise ValueError("queries must hold exactly one Sample")
-    (sample,) = queries
-
-    from .. import _native
-
-    mod, _, _, seed = preprocess_simulation_input(input, None, None, seed)
-    DecomposeCcxPass().run(mod)
-    program = AdaptiveProfilePass(Bytecode.Bit64).run(mod).as_dict()
-    records, report = _native._tensor_network_sample(
-        program,
-        sample.shots,
-        seed,
-        options.max_bond_dimension,
-        _packaged_libraries(),
-        _INSTALL_COMMAND,
-        engine,
-    )
-    recorder = OutputRecordingPass()
-    recorder.run(mod)
-    rows = [recorder.process_output(shot) for shot in records]
-    if report["truncation_warning"] is not None:
-        warnings.warn(report["truncation_warning"], RuntimeWarning, stacklevel=3)
-    return TensorNetworkResults(
-        [rows],
-        TensorNetworkReport(
-            largest_bond=report["largest_bond"],
-            discarded_weight=report["discarded_weight"],
-            max_bond_dimension=report["max_bond_dimension"],
-        ),
     )
 
 
@@ -332,3 +297,17 @@ def _packaged_libraries() -> List[str]:
 
     found = (find(*library) for library in _PACKAGED_LIBRARIES)
     return [path for path in found if path is not None]
+
+
+def _check_u32(name: str, value: object, lowest: int) -> None:
+    """Refuses `value` unless it is an `int` (not a `bool`) in
+    [`lowest`, 2**32). The native side takes shots and the seed as 32-bit
+    unsigned integers; the max bond dimension shares their bound, which no
+    run reaches: a bond of 2**32 has at least 32 sites on each side, so the
+    tensor of a site beside it holds at least 2**64 numbers."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not lowest <= value < 2**32
+    ):
+        raise ValueError(f"{name} must be an integer in [{lowest}, 2**32)")

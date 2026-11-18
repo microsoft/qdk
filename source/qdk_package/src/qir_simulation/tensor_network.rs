@@ -82,7 +82,7 @@ pub(crate) fn _tensor_network_sample<'py>(
     seed: u32,
     max_bond_dimension: usize,
     packaged: Vec<PathBuf>,
-    install_command: Option<String>,
+    install_command: String,
     engine: &str,
 ) -> PyResult<(Py<PyAny>, Bound<'py, PyDict>)> {
     let bytecode = adaptive_program_from_pydict::<u64>(program)?;
@@ -100,7 +100,7 @@ pub(crate) fn _tensor_network_sample<'py>(
         "gpu" => {
             let packaged = PackagedLibraries {
                 files: packaged,
-                install_command,
+                install_command: Some(install_command),
             };
             gpu_run(py, &settings, &packaged)?
         }
@@ -131,11 +131,11 @@ pub(crate) fn _tensor_network_sample<'py>(
 pub(crate) fn _check_tensornetwork_setup(
     py: Python<'_>,
     packaged: Vec<PathBuf>,
-    install_command: Option<String>,
+    install_command: String,
 ) -> (bool, String, Option<String>, Vec<String>) {
     let packaged = PackagedLibraries {
         files: packaged,
-        install_command,
+        install_command: Some(install_command),
     };
     // The check loads the libraries and runs on the GPU, so it runs with
     // the GIL released.

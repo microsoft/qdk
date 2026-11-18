@@ -1331,7 +1331,7 @@ def _tensor_network_sample(
     seed: int,
     max_bond_dimension: int,
     packaged: List[str],
-    install_command: Optional[str],
+    install_command: str,
     engine: str,
 ) -> Tuple[List[List[Any]], Dict[str, Any]]:
     """
@@ -1349,7 +1349,7 @@ def _tensor_network_sample(
 
 def _check_tensornetwork_setup(
     packaged: List[str],
-    install_command: Optional[str],
+    install_command: str,
 ) -> Tuple[bool, str, Optional[str], List[str]]:
     """
     Check the setup of the GPU engine of the MPS simulation method, with the
