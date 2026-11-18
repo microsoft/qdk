@@ -64,7 +64,7 @@ flowchart TD
 ```
 
 - [`discover`](src/discovery.rs) does the whole check once. It selects no device,
-  allocates nothing and runs no GPU work.
+  allocates no GPU memory and runs no GPU work.
 - [`Availability`](src/discovery.rs) holds the loaded libraries and the table of
   each library's functions, typed function pointers ready to call; the MPS
   engine, added in a later change, calls cuTensorNet through them. It is
@@ -173,9 +173,9 @@ fault is recorded in the library's report:
   nothing more to check of that library;
 - looking up: `MissingRequiredSymbol`, one per missing function;
 - the versions: `VersionProbeFailed` or `UnsupportedVersion`, one per
-  version. The functions that read them are looked up on their own, so the
-  versions are read even when other functions are missing, as a wrong
-  version is the usual cause.
+  version. Each function that reads one is looked up on its own, so each
+  version is read even when other functions, another version's included,
+  are missing, as a wrong version is the usual cause.
 
 If any library has a fault, discovery returns `Unusable` with the report and
 closes the libraries it opened. Looking a function up stores its address; it
@@ -289,10 +289,7 @@ checked against them when it compiles:
   function-pointer type is checked against the symbol's declaration in the
   bindings, so no field can be looked up by another function's name. The
   version each library is accepted at is asserted to be the version its
-  header declares, and
-  [`src/libraries/cutensornet/layout.rs`](src/libraries/cutensornet/layout.rs)
-  asserts the layout of `cuDoubleComplex`, which a cuTensorNet function takes
-  by value.
+  header declares.
 
 To bind another function of a bound release, add its row, and its
 function-pointer type, to its library's module in

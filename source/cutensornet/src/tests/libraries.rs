@@ -20,7 +20,7 @@ use super::not_a_shared_object;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use super::stand_ins::ALWAYS_PRESENT_LIBRARY;
 #[cfg(unix)]
-use super::stand_ins::{StandInResolver, cutensornet_version};
+use super::stand_ins::{StandInResolver, cuda_version, cutensornet_version};
 use super::unique_temp_path;
 use crate::{LibraryFault, libraries::validate_override_path};
 #[cfg(unix)]
@@ -191,28 +191,60 @@ fn without_an_override_the_default_paths_are_tried() {
     );
 }
 
+/// cuTensorNet's state API (the state, its network operators and their
+/// expectations), which the crate does not use: an installation without it
+/// is not at fault.
+#[cfg(unix)]
+const STATE_API: &[&str] = &[
+    "cutensornetCreateState",
+    "cutensornetDestroyState",
+    "cutensornetStateApplyTensorOperator",
+    "cutensornetStateCaptureMPS",
+    "cutensornetStateCompute",
+    "cutensornetStateConfigure",
+    "cutensornetStateFinalizeMPS",
+    "cutensornetStateInitializeMPS",
+    "cutensornetStatePrepare",
+    "cutensornetCreateNetworkOperator",
+    "cutensornetDestroyNetworkOperator",
+    "cutensornetNetworkOperatorAppendProduct",
+    "cutensornetCreateExpectation",
+    "cutensornetDestroyExpectation",
+    "cutensornetExpectationCompute",
+    "cutensornetExpectationConfigure",
+    "cutensornetExpectationPrepare",
+];
+
 /// A library with no fault is bound to its table, and its versions are
-/// reported.
+/// reported; a cuTensorNet without the state API, which the crate does not
+/// use, has no fault.
 #[cfg(unix)]
 #[test]
 fn a_library_without_a_fault_is_bound_to_its_table() {
-    let mut report = opened::<CuTensorNet>();
-    let functions = inspect::<CuTensorNet, _>(&StandInResolver::audited(), &mut report);
-    assert!(functions.is_some(), "the library has no fault");
-    assert_eq!(report.faults, []);
-    assert_eq!(
-        report.versions,
-        [
-            Version {
-                component: "cuTensorNet",
-                value: 21_300
-            },
-            Version {
-                component: "cuTensorNet's CUDA Runtime",
-                value: 12_090
-            },
-        ]
-    );
+    let without_state_api = STATE_API
+        .iter()
+        .fold(StandInResolver::audited(), |resolver, &symbol| {
+            resolver.without(symbol)
+        });
+    for resolver in [StandInResolver::audited(), without_state_api] {
+        let mut report = opened::<CuTensorNet>();
+        let functions = inspect::<CuTensorNet, _>(&resolver, &mut report);
+        assert!(functions.is_some(), "the library has no fault");
+        assert_eq!(report.faults, []);
+        assert_eq!(
+            report.versions,
+            [
+                Version {
+                    component: "cuTensorNet",
+                    value: 21_300
+                },
+                Version {
+                    component: "cuTensorNet's CUDA Runtime",
+                    value: 12_090
+                },
+            ]
+        );
+    }
 }
 
 /// A user who installed cuTensorNet 2.14, which lacks functions the crate
@@ -222,8 +254,8 @@ fn a_library_without_a_fault_is_bound_to_its_table() {
 #[test]
 fn an_open_library_reports_its_missing_functions_and_its_versions_together() {
     let resolver = StandInResolver::audited()
-        .without("cutensornetCreateState")
-        .without("cutensornetStateCompute")
+        .without("cutensornetGateSplit")
+        .without("cutensornetTensorQR")
         .with(
             "cutensornetGetVersion",
             cutensornet_version::<21_400> as *const (),
@@ -235,10 +267,10 @@ fn an_open_library_reports_its_missing_functions_and_its_versions_together() {
         report.faults,
         [
             LibraryFault::MissingRequiredSymbol {
-                symbol: "cutensornetCreateState"
+                symbol: "cutensornetGateSplit"
             },
             LibraryFault::MissingRequiredSymbol {
-                symbol: "cutensornetStateCompute"
+                symbol: "cutensornetTensorQR"
             },
             LibraryFault::UnsupportedVersion {
                 component: "cuTensorNet",
@@ -265,22 +297,111 @@ fn a_library_with_only_a_version_fault_is_not_bound() {
     assert_eq!(report.faults.len(), 1);
 }
 
+/// Checks a resolver's functions as one library's, and returns its report.
+#[cfg(unix)]
+type Inspect = fn(&StandInResolver) -> LibraryReport;
+
+/// The report of `L` once `resolver`'s functions are checked as `L`'s.
+#[cfg(unix)]
+fn inspected<L: NativeLibrary>(resolver: &StandInResolver) -> LibraryReport {
+    let mut report = opened::<L>();
+    let functions = inspect::<L, _>(resolver, &mut report);
+    assert!(functions.is_none(), "a required function is missing");
+    report
+}
+
 /// A library without one of its version functions has that version not
-/// read; the missing function is its fault.
+/// read, and the missing function is its fault; every other version is
+/// still read and checked, so a wrong one is reported beside it, also when
+/// the CUDA Runtime lacks `cudaGetErrorString`, which only words a failed
+/// read.
 #[cfg(unix)]
 #[test]
-fn a_missing_version_function_is_reported_and_its_version_not_read() {
-    let resolver = StandInResolver::audited().without("cutensornetGetVersion");
-    let mut report = opened::<CuTensorNet>();
-    let functions = inspect::<CuTensorNet, _>(&resolver, &mut report);
-    assert!(functions.is_none(), "a required function is missing");
-    assert_eq!(
-        report.faults,
-        [LibraryFault::MissingRequiredSymbol {
-            symbol: "cutensornetGetVersion"
-        }]
-    );
-    assert_eq!(report.version("cuTensorNet"), None);
+fn a_missing_version_function_hides_only_its_own_version() {
+    let missing = |symbol| LibraryFault::MissingRequiredSymbol { symbol };
+    let unsupported = |component, found, supported| LibraryFault::UnsupportedVersion {
+        component,
+        found,
+        supported,
+    };
+    let cases: [(Inspect, _, _, _, _); 6] = [
+        (
+            inspected::<CuTensorNet>,
+            StandInResolver::audited().without("cutensornetGetVersion"),
+            vec![missing("cutensornetGetVersion")],
+            Some("cuTensorNet"),
+            "cuTensorNet's CUDA Runtime",
+        ),
+        (
+            inspected::<CuTensorNet>,
+            StandInResolver::audited()
+                .without("cutensornetGetVersion")
+                .with(
+                    "cutensornetGetCudartVersion",
+                    cutensornet_version::<12_080> as *const (),
+                ),
+            vec![
+                missing("cutensornetGetVersion"),
+                unsupported("cuTensorNet's CUDA Runtime", 12_080, 12_090),
+            ],
+            Some("cuTensorNet"),
+            "cuTensorNet's CUDA Runtime",
+        ),
+        (
+            inspected::<CuTensorNet>,
+            StandInResolver::audited()
+                .without("cutensornetGetCudartVersion")
+                .with(
+                    "cutensornetGetVersion",
+                    cutensornet_version::<21_400> as *const (),
+                ),
+            vec![
+                missing("cutensornetGetCudartVersion"),
+                unsupported("cuTensorNet", 21_400, 21_300),
+            ],
+            Some("cuTensorNet's CUDA Runtime"),
+            "cuTensorNet",
+        ),
+        (
+            inspected::<CudaRuntime>,
+            StandInResolver::audited().without("cudaRuntimeGetVersion"),
+            vec![missing("cudaRuntimeGetVersion")],
+            Some("CUDA Runtime"),
+            "CUDA driver",
+        ),
+        (
+            inspected::<CudaRuntime>,
+            StandInResolver::audited()
+                .without("cudaDriverGetVersion")
+                .with("cudaRuntimeGetVersion", cuda_version::<13_000> as *const ()),
+            vec![
+                missing("cudaDriverGetVersion"),
+                unsupported("CUDA Runtime", 13_000, 12_090),
+            ],
+            Some("CUDA driver"),
+            "CUDA Runtime",
+        ),
+        (
+            inspected::<CudaRuntime>,
+            StandInResolver::audited()
+                .without("cudaGetErrorString")
+                .with("cudaRuntimeGetVersion", cuda_version::<13_000> as *const ()),
+            vec![
+                missing("cudaGetErrorString"),
+                unsupported("CUDA Runtime", 13_000, 12_090),
+            ],
+            None,
+            "CUDA driver",
+        ),
+    ];
+    for (inspected, resolver, faults, unread, read) in cases {
+        let report = inspected(&resolver);
+        assert_eq!(report.faults, faults);
+        if let Some(unread) = unread {
+            assert_eq!(report.version(unread), None);
+        }
+        assert!(report.version(read).is_some(), "{read} is read");
+    }
 }
 
 /// A library that the system loader opens but that lacks a function: the C

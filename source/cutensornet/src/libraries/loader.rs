@@ -147,6 +147,7 @@ macro_rules! function_table {
             fn resolve<R: $crate::libraries::loader::SymbolResolver>(
                 resolver: &R,
             ) -> Result<Self, Vec<$crate::LibraryFault>> {
+                #[allow(unused_mut, reason = "a table of only optional rows adds no fault")]
                 let mut missing = Vec::new();
                 $(let $field = $crate::libraries::loader::function_table!(
                     @lookup $need resolver, &mut missing, $symbol
