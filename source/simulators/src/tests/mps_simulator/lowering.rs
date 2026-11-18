@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! Lowering's rules: each call acts on the site the qubit order gives its
-//! qubit; a shot that reaches a call this MPS simulation method does not
+//! qubit; a measurement in X or Y reads, and leaves, the state in that
+//! basis; a shot that reaches a call this MPS simulation method does not
 //! run fails, naming it; and a call no shot reaches fails nothing.
 
 use crate::bytecode::Instruction;
@@ -16,7 +17,9 @@ use super::programs::{
     readout_noise, reset, ret, set,
 };
 use super::{ids, results, run};
-use crate::bytecode::encoding::{OPID_CX, OPID_CZ, OPID_MRESETZ, OPID_MZ, OPID_X};
+use crate::bytecode::encoding::{
+    OPID_CX, OPID_CZ, OPID_H, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ, OPID_S, OPID_S_ADJ, OPID_X,
+};
 
 /// The refusal of a noise or loss call: its shot fails, naming the
 /// instruction and the planned item.
@@ -171,4 +174,59 @@ fn a_reset_acts_on_its_qubit_where_the_order_placed_it() {
     )
     .expect("the program runs");
     assert_eq!(records, vec![results(&[0, 1, 0, 0])]);
+}
+
+/// A measurement in X or Y reads the qubit in that basis: each of the
+/// basis's two states, prepared from |0⟩, reads its own value in every
+/// shot, 0 for |+⟩ and |+i⟩, 1 for |−⟩ and |−i⟩.
+#[test]
+fn a_measurement_in_x_or_y_reads_the_qubit_in_that_basis() {
+    let rows: [(&str, &[u64], u64, u8); 4] = [
+        ("|+⟩ read by mx", &[OPID_H], OPID_MX, 0),
+        ("|−⟩ read by mx", &[OPID_X, OPID_H], OPID_MX, 1),
+        ("|+i⟩ read by my", &[OPID_H, OPID_S], OPID_MY, 0),
+        ("|−i⟩ read by my", &[OPID_H, OPID_S_ADJ], OPID_MY, 1),
+    ];
+    for (label, preparation, measurement, value) in rows {
+        let mut block: Vec<_> = preparation.iter().map(|&gate| gate1(gate, 0)).collect();
+        block.extend([measure(measurement, 0, 0), ret()]);
+        let records = run(
+            &mut MpsResumer::new(ExactReference::new(), 7),
+            &program(1, &[&block]),
+            &QirShotId::first(16),
+        )
+        .expect("the program runs");
+        assert_eq!(records, vec![results(&[value]); 16], "{label}");
+    }
+}
+
+/// A measurement in X or Y leaves the state it read: a qubit at |0⟩, read
+/// by `mx` (or `my`), then turned from that basis to Z by `h` (or `s_adj`
+/// then `h`) and read by `mz`, gives in every shot the value the first
+/// read gave, though 16 shots read both values.
+#[test]
+fn a_measurement_in_x_or_y_leaves_the_state_it_read() {
+    let rows: [(&str, u64, &[u64]); 2] = [
+        ("mx", OPID_MX, &[OPID_H]),
+        ("my", OPID_MY, &[OPID_S_ADJ, OPID_H]),
+    ];
+    for (label, measurement, to_z) in rows {
+        let mut block = vec![measure(measurement, 0, 0)];
+        block.extend(to_z.iter().map(|&gate| gate1(gate, 0)));
+        block.extend([measure(OPID_MZ, 0, 1), ret()]);
+        let records = run(
+            &mut MpsResumer::new(ExactReference::new(), 7),
+            &program_with(1, 2, &[], &[&block]),
+            &QirShotId::first(16),
+        )
+        .expect("the program runs");
+        assert!(
+            records.contains(&results(&[0, 0])) && records.contains(&results(&[1, 1])),
+            "{label}: 16 shots read both values: {records:?}"
+        );
+        assert!(
+            records.iter().all(|shot| shot[0] == shot[1]),
+            "{label}: {records:?}"
+        );
+    }
 }
