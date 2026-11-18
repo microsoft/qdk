@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use crate::bytecode::Instruction;
+use crate::mps_simulator::shot_stream::shot_stream;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
 use crate::qir::{QirProgram, QirResumeError, QirShotId, QirTrap};
 use crate::{MeasurementResult, OutputRecord};
@@ -28,7 +29,6 @@ use super::programs::{
     read_result, reset, ret, set,
 };
 use super::reference_spy::{Call, ReferenceSpy, ReferenceSpyError};
-use super::shot_stream::shot_stream;
 use super::{LONE_SHOT_CALLS, bell, copies, ids, results, run};
 use crate::bytecode::encoding::{OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_X};
 
@@ -39,7 +39,7 @@ use crate::bytecode::encoding::{OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_X};
 fn a_qubit_at_zero_reads_zero_even_on_a_uniform_of_zero() {
     let seed = 0x7951_b2dd_10d3_4ef6;
     assert_eq!(
-        shot_stream(seed, 0).next_uniform().to_bits(),
+        shot_stream(seed, QirShotId(0)).next_uniform().to_bits(),
         0.0f64.to_bits(),
         "the seed gives shot 0 a first uniform of 0"
     );
@@ -87,7 +87,7 @@ fn a_certain_measurement_or_reset_still_draws_a_uniform() {
             .expect("the program runs");
             let first = u8::from(records_it && certain_one);
             for (&shot, records) in shots.iter().zip(records) {
-                let mut stream = shot_stream(5, shot);
+                let mut stream = shot_stream(5, QirShotId(shot));
                 let _certain = stream.next_uniform();
                 let coin = u8::from(stream.next_uniform() < 0.5);
                 assert_eq!(
