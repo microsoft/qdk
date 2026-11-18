@@ -71,8 +71,9 @@ pub enum CudaAlgebraError {
     WorkspaceLimitExceeded { required: usize, maximum: usize },
 
     /// A native call returned a value that cannot be used: a gate split's
-    /// report out of range, or an allocation that returned the buffer of
-    /// a tensor the call reads, which it must leave unchanged.
+    /// report out of range, a workspace slot's negative size, or an
+    /// allocation that returned the buffer of a tensor the call reads,
+    /// which it must leave unchanged.
     #[error("invalid native result: {reason}")]
     InvalidNativeResult { reason: String },
 
