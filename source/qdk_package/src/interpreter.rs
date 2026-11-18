@@ -30,7 +30,9 @@ use crate::{
         gpu_full_state::{
             GpuContext, run_adaptive_parallel_shots, run_parallel_shots, try_create_gpu_adapter,
         },
-        tensor_network::{_check_tensornetwork_setup, _tensor_network_sample},
+        tensor_network::{
+            _check_tensornetwork_setup, _tensor_network_sample, MPS_DEFAULT_MAX_BOND_DIMENSION,
+        },
         unbind_noise_config,
     },
     qre::register_qre_submodule,
@@ -176,6 +178,10 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_adaptive_parallel_shots, m)?)?;
     m.add_function(wrap_pyfunction!(_tensor_network_sample, m)?)?;
     m.add_function(wrap_pyfunction!(_check_tensornetwork_setup, m)?)?;
+    m.add(
+        "_MPS_DEFAULT_MAX_BOND_DIMENSION",
+        MPS_DEFAULT_MAX_BOND_DIMENSION,
+    )?;
     m.add("QSharpError", py.get_type::<QSharpError>())?;
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
@@ -1448,7 +1454,7 @@ impl StateDumpData {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[pyclass(eq, eq_int, from_py_object, ord)]
+#[pyclass(eq, eq_int, from_py_object, ord, module = "qdk._native")]
 /// A Q# measurement result.
 pub(crate) enum Result {
     Zero,
@@ -1488,6 +1494,17 @@ impl Result {
             Result::One => 1,
             Result::Loss => 2,
         }
+    }
+
+    // Pickled, and copied, as the class attribute of its name (its repr), so
+    // that saved results load back without a public `Result()` constructor.
+    #[allow(clippy::trivially_copy_pass_by_ref, clippy::type_complexity)]
+    fn __reduce__<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyType>, String))> {
+        let getattr = py.import("builtins")?.getattr("getattr")?;
+        Ok((getattr, (py.get_type::<Self>(), self.__repr__())))
     }
 }
 

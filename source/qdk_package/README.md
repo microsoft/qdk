@@ -40,6 +40,12 @@ To easily install all the above extras:
 pip install "qdk[all]"
 ```
 
+For the GPU engine of `qdk.simulation.tensornetwork_qir`, NVIDIA's cuTensorNet and CUDA Runtime (Linux x86-64 with an NVIDIA GPU only, so not in `all`):
+
+```bash
+pip install "qdk[tensornetwork]"
+```
+
 ## Quick Start
 
 ```python
@@ -673,7 +679,7 @@ Submodules:
 - `qdk.openqasm` – OpenQASM compilation, execution, parsing, semantic analysis,
   source navigation, visitors, and canonical serialization.
 - `qdk.estimator` – resource estimation utilities.
-- `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types.
+- `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types; and `tensornetwork_qir`, which simulates QIR programs on matrix product states (its GPU engine requires the `qdk[tensornetwork]` extra).
 - `qdk.code` – dynamic namespace populated at runtime with user-defined Q# and OpenQASM callables.
 - `qdk.qre` – quantum resource estimation v3: `estimate`, `Application`, `Architecture`, `ISA`, `ISATransform`, and related types.
 - `qdk.applications` – domain-specific quantum applications (e.g. `qdk.applications.magnets`).

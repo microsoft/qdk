@@ -42,13 +42,18 @@ use canonical_mps::{CpuAlgebra, CpuMpsEngine};
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
 use qdk_cutensornet::{GpuSetup, PackagedLibraries};
 use qdk_simulators::OutputRecord;
-use qdk_simulators::mps_simulator::{MpsResumer, MpsRunReport};
+use qdk_simulators::mps_simulator::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsRunReport};
 use qdk_simulators::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use tensornet::MpsEngine;
 
-use super::{adaptive_program_from_pydict, cpu_simulators::output_records_to_pylist};
+use super::{adaptive_program_from_pydict, output_records_to_pylist};
 use detached_run::run_detached;
 use run_failure::{RunFailure, gpu_not_set_up};
+
+/// The max bond dimension χ the MPS simulation method takes by default,
+/// which Python's `MpsOptions` reads as `_MPS_DEFAULT_MAX_BOND_DIMENSION`,
+/// so that the default is stated once.
+pub(crate) const MPS_DEFAULT_MAX_BOND_DIMENSION: usize = DEFAULT_MAX_BOND_DIMENSION.get();
 
 /// Runs `shots` shots (ids `0..shots`) of `program`, a dict as
 /// `AdaptiveProfilePass(Bytecode.Bit64).as_dict()` gives it, by the MPS

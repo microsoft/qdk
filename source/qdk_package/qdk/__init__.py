@@ -40,6 +40,9 @@ Optional extras enable additional submodules:
   (``qdk.widgets``).
 - ``qdk[ec]`` — develop and test quantum error correction schemes
   (:mod:`qdk.ec`).
+- ``qdk[tensornetwork]``: the GPU engine of
+  :func:`~qdk.simulation.tensornetwork_qir` (Linux x86-64 with an NVIDIA
+  GPU only).
 """
 
 from .telemetry_events import on_qdk_import

@@ -13,6 +13,8 @@ engine alone.
 """
 
 import _thread
+import copy
+import pickle
 import platform
 import threading
 import time
@@ -213,6 +215,8 @@ def test_the_report_comes_with_the_results(engine):
 
 
 def test_a_seed_reproduces_each_shots_rows_whatever_the_count(engine):
+    """Exactly on the CPU engine; on the GPU engine to rounding, which
+    almost never decides a draw."""
     (five,) = run(coins(4), [Sample(5)], engine=engine, seed=11)
     (ten,) = run(coins(4), [Sample(10)], engine=engine, seed=11)
     assert five == ten[:5]
@@ -234,6 +238,23 @@ def test_a_run_that_lost_weight_warns(engine):
         )
     assert results.report.discarded_weight > 1e-3
     assert results.report.largest_bond == 1
+
+
+@pytest.mark.parametrize(
+    "duplicate",
+    [
+        pytest.param(lambda results: pickle.loads(pickle.dumps(results)), id="pickle"),
+        pytest.param(copy.deepcopy, id="deepcopy"),
+    ],
+)
+def test_results_survive_pickling_and_copying(duplicate):
+    """A user saves an hours-long run's results: the copy keeps the rows and
+    the report."""
+    results = run(ghz(3), [Sample(4)])
+    saved = duplicate(results)
+    assert type(saved) is type(results)
+    assert tuple(saved) == tuple(results)
+    assert saved.report == results.report
 
 
 def test_an_exact_run_does_not_warn(engine):
@@ -397,11 +418,12 @@ def test_the_cpu_engine_runs_whatever_the_gpu_setup(unusable_setup):
 
 
 def test_the_setup_check_reports_a_problem_without_raising(unusable_setup):
-    """A setup that cannot work is reported as not ready; the check raises
-    nothing."""
+    """A setup that cannot work is reported as not ready, and printing the
+    result shows its report; the check raises nothing."""
     setup = check_tensornetwork_setup()
     assert isinstance(setup, TensorNetworkSetup)
     assert not setup.ready
+    assert str(setup) == setup.report
 
 
 def test_the_setup_checks_advice_names_the_fix(unusable_setup):
@@ -413,12 +435,6 @@ def test_the_setup_checks_advice_names_the_fix(unusable_setup):
         assert "QDK_CUTENSORNET_LIBRARY" in advice
     else:
         assert "Linux x86-64" in advice
-
-
-def test_the_setup_check_prints_as_its_report(unusable_setup):
-    """`print(check_tensornetwork_setup())` shows the report."""
-    setup = check_tensornetwork_setup()
-    assert str(setup) == setup.report
 
 
 def test_the_setup_check_gives_the_native_warnings(monkeypatch):
