@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import sys
 
 from .boundary import verify_boundary
@@ -100,6 +101,45 @@ def _get_running_agents(name: str | None = None, *, owned: bool = False) -> list
 def _ensure_idle(name: str) -> None:
     if _get_running_agents(name):
         raise LauncherError(f"An agent is already running for instance '{name}'.")
+
+
+def _stop_agent(container: str) -> None:
+    try:
+        result = run(
+            [
+                "docker",
+                "exec",
+                "--user",
+                "1000:1000",
+                container,
+                "timeout",
+                "--signal=KILL",
+                "30s",
+                "bash",
+                "-c",
+                """
+pidfile=$1
+[[ -f $pidfile ]] || exit 0
+read -r pid < "$pidfile"
+[[ $pid =~ ^[1-9][0-9]*$ ]] || exit 1
+kill -TERM "$pid" 2>/dev/null || exit 0
+while [[ -e $pidfile ]] && kill -0 "$pid" 2>/dev/null; do
+    sleep 0.1
+done
+""",
+                "sandbox-stop",
+                "/tmp/qdk-sandbox-entrypoint.pid",
+            ],
+            check=False,
+        )
+        if result.returncode:
+            LOGGER.warning("Graceful agent shutdown failed or timed out; forcing removal.")
+    except (LauncherError, OSError, ValueError, KeyboardInterrupt) as error:
+        LOGGER.warning(
+            "Graceful agent shutdown interrupted or failed; forcing removal.\n%s",
+            format_error(error),
+        )
+    run(["docker", "rm", "--force", container])
 
 
 def _check_project_owner(name: str) -> None:
@@ -378,7 +418,7 @@ def _run_session(
         token = ""
         try:
             for container in _get_running_agents(args.instance, owned=True):
-                run(["docker", "rm", "--force", container])
+                _stop_agent(container)
         except (LauncherError, OSError, ValueError) as error:
             cleanup_failed = True
             LOGGER.warning(
@@ -663,7 +703,14 @@ def main(argv: list[str] | None = None) -> int:
                     _delete_instance(args, directory, config)
                 return 0
             _ensure_idle(args.instance)
-            return _run_session(args, directory, config, architecture)
+            # Route termination signals through session cleanup, then restore the original handlers.
+            with ExitStack() as stack:
+                for name in ("SIGTERM", "SIGHUP"):
+                    signum = getattr(signal, name, None)
+                    if signum is not None:
+                        previous = signal.signal(signum, signal.default_int_handler)
+                        stack.callback(signal.signal, signum, previous)
+                return _run_session(args, directory, config, architecture)
     except KeyboardInterrupt:
         print("Sandbox interrupted.", file=sys.stderr)
         return 130

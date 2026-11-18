@@ -2,6 +2,8 @@
 set -euo pipefail
 umask 0022
 
+ENTRYPOINT_PID_FILE=/tmp/qdk-sandbox-entrypoint.pid
+
 info() { printf '[sandbox] %s\n' "$*" >&2; }
 
 verify_policy() {
@@ -141,6 +143,12 @@ sync_outbox() {
     fi
 }
 
+cleanup() {
+    trap '' TERM INT HUP
+    sync_outbox
+    rm -f "$ENTRYPOINT_PID_FILE"
+}
+
 main() {
     verify_policy
     REPO=/work/qdk
@@ -148,8 +156,12 @@ main() {
     OUTBOX=/outbox.git
     SANDBOX=/opt/sandbox
     export QDK_LIB_OVERRIDE_MICROSOFT_QDK=$REPO
+    trap cleanup EXIT
+    trap 'exit 143' TERM
+    trap 'exit 130' INT
+    trap 'exit 129' HUP
+    printf '%s\n' "$$" > "$ENTRYPOINT_PID_FILE"
     configure_git
-    trap sync_outbox EXIT
     setup_repo
     setup_chemistry_repo
     load_token

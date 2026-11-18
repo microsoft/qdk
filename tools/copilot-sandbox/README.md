@@ -163,6 +163,9 @@ The default command is `copilot --allow-all`.
 You can pass your own after `--`, for example `copilot --resume=SESSIONID --allow-all`.
 The `--` separator is required for custom commands; put all sandbox options, including `--instance`, before it.
 
+When interrupted, the launcher requests a graceful workload shutdown and allows up to 30 seconds for exit and outbox sync before force-removing the container.
+A second interrupt during that wait forces removal immediately.
+
 You may find it convenient to launch a bash prompt in the same session:
 
 ```sh
