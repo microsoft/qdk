@@ -158,7 +158,7 @@ def test_a_query_other_than_sample_is_refused():
 def test_an_unknown_engine_is_refused():
     """An engine name other than ``"gpu"`` and ``"cpu"``, here the library's
     name, is a `ValueError` naming the engine."""
-    with pytest.raises(ValueError, match="engine"):
+    with pytest.raises(ValueError, match="Invalid engine: 'cutensornet'"):
         run(BELL, [Sample(1)], engine="cutensornet")
 
 
@@ -167,15 +167,15 @@ def test_an_unknown_engine_is_refused():
 # ---------------------------------------------------------------------------
 
 
-def test_rows_are_the_shots_in_run_qirs_format(engine):
-    """A Bell pair's 32 shots: one row each, formatted as `run_qir` formats
-    them, the two readouts agreeing, both values occurring."""
+def test_each_row_is_a_shots_results_in_recording_order(engine):
+    """A Bell pair's 32 shots: one row each, a list of the two results in
+    the order the program records them, the two agreeing, both values
+    occurring."""
     (rows,) = run(BELL, [Sample(32)], engine=engine)
-    expected_shape = qdk.simulation.run_qir(BELL, shots=1, seed=7, type="cpu")[0]
     assert len(rows) == 32
-    assert all(type(row) is type(expected_shape) for row in rows)
-    readouts = {bits(row) for row in rows}
-    assert readouts == {"00", "11"}
+    zeros, ones = [Result.Zero, Result.Zero], [Result.One, Result.One]
+    assert all(row in (zeros, ones) for row in rows)
+    assert zeros in rows and ones in rows
 
 
 def test_an_adaptive_program_steers_its_shots_later_gates(engine):
@@ -224,21 +224,16 @@ def test_another_seed_gives_other_rows(engine):
     assert one != other
 
 
-def test_a_run_that_lost_weight_warns(monkeypatch, engine):
-    """The run's truncation warning, from the native report, is raised as a
-    `RuntimeWarning` with its text (a Bell pair's bond fits, so the run
-    loses nothing: the report is altered after a real run)."""
-    native = _native._tensor_network_sample
-    text = "the matrix product states lost up to 1.000e-2 of their weight"
-
-    def lossy(*args):
-        records, report = native(*args)
-        report["truncation_warning"] = text
-        return records, report
-
-    monkeypatch.setattr(_native, "_tensor_network_sample", lossy)
+def test_a_run_that_lost_weight_warns(engine):
+    """A Bell pair at max bond dimension 1: the bond the `cx` makes is cut
+    to 1, losing about half the state's weight, so the run warns with
+    `RuntimeWarning` and its report gives the loss."""
     with pytest.warns(RuntimeWarning, match="lost up to"):
-        run(BELL, [Sample(2)], engine=engine)
+        results = run(
+            BELL, [Sample(2)], engine=engine, options=MpsOptions(max_bond_dimension=1)
+        )
+    assert results.report.discarded_weight > 1e-3
+    assert results.report.largest_bond == 1
 
 
 def test_an_exact_run_does_not_warn(engine):
@@ -253,11 +248,15 @@ def test_an_exact_run_does_not_warn(engine):
 
 _QIR_DECLS = """\
 declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__x__body(%Qubit*)
 declare void @__quantum__qis__cnot__body(%Qubit*, %Qubit*)
 declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 declare i1 @__quantum__qis__read_result__body(%Result*)
+declare void @__quantum__qis__peek_loss__body(%Qubit*, %Result*)
+declare void @__quantum__rt__readout_noise(double, double, %Result*)
 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 declare void @__quantum__rt__int_record_output(i64, i8*)
+declare void @bit_flip_noise(%Qubit*) #2
 """
 
 
@@ -275,6 +274,7 @@ entry:
 {_QIR_DECLS}
 attributes #0 = {{ "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="{qubits}" "required_num_results"="{results}" }}
 attributes #1 = {{ "irreversible" }}
+attributes #2 = {{ "qdk_noise" }}
 """
 
 
@@ -295,18 +295,58 @@ def test_a_trap_raises_runtime_error_naming_the_shot(engine):
         run(qir, [Sample(3)], engine=engine)
 
 
-def test_a_call_the_method_cannot_run_raises_value_error(engine):
-    """A `cx` on one qubit twice, which no two-qubit matrix applies."""
-    qir = adaptive_qir(
-        """\
-  call void @__quantum__qis__cnot__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))
+_MEASURE_AND_RECORD = """
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)""",
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"""
+
+
+@pytest.mark.parametrize(
+    "call, message",
+    [
+        pytest.param(
+            "call void @__quantum__qis__cnot__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))",
+            "twice",
+            id="a gate on one qubit twice",
+        ),
+        pytest.param(
+            "call void @__quantum__rt__readout_noise(double 0.1, double 0.1, %Result* inttoptr (i64 0 to %Result*))",
+            "not run on matrix product states",
+            id="readout noise",
+        ),
+        pytest.param(
+            "call void @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))",
+            "not run on matrix product states",
+            id="a loss check",
+        ),
+    ],
+)
+def test_a_call_the_method_cannot_run_raises_value_error(engine, call, message):
+    """A call the MPS simulation method does not run: a `cx` on one qubit
+    twice, which no two-qubit matrix applies; readout noise; a loss check."""
+    qir = adaptive_qir(f"  {call}{_MEASURE_AND_RECORD}", qubits=1, results=1)
+    with pytest.raises(ValueError, match=message):
+        run(qir, [Sample(1)], engine=engine)
+
+
+@pytest.mark.parametrize("flipped", [False, True])
+def test_a_noise_intrinsic_runs_as_identity(engine, flipped):
+    """A bit-flip noise intrinsic (a function with the ``qdk_noise``
+    attribute) after a qubit is set: no noise model is given, so every shot
+    reads the value set, 1 after an `x`, 0 without."""
+    set_qubit = (
+        "  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))\n"
+        if flipped
+        else ""
+    )
+    qir = adaptive_qir(
+        set_qubit
+        + "  call void @bit_flip_noise(%Qubit* inttoptr (i64 0 to %Qubit*))"
+        + _MEASURE_AND_RECORD,
         qubits=1,
         results=1,
     )
-    with pytest.raises(ValueError, match="twice"):
-        run(qir, [Sample(1)], engine=engine)
+    (rows,) = run(qir, [Sample(8)], engine=engine)
+    assert {bits(row) for row in rows} == {"1" if flipped else "0"}
 
 
 def test_a_max_bond_dimension_too_large_for_the_qubits_raises_value_error(engine):
@@ -429,16 +469,10 @@ def only_cutensornet_installed(monkeypatch, cutensornet_wheel):
     return library
 
 
-def test_a_wheels_library_file_is_found_through_its_distribution(
-    only_cutensornet_installed,
-):
-    """The file NVIDIA's wheel installed is found through the installed
-    distribution."""
-    assert only_cutensornet_installed in _tensor_network._packaged_libraries()
-
-
-def test_a_wheel_not_installed_adds_no_file(only_cutensornet_installed):
-    """The CUDA Runtime, whose wheel is not installed, adds no file."""
+def test_only_the_installed_wheels_file_is_found(only_cutensornet_installed):
+    """The file cuTensorNet's wheel installed is found through the
+    installed distribution; the CUDA Runtime, whose wheel is not installed,
+    adds no file."""
     assert _tensor_network._packaged_libraries() == [only_cutensornet_installed]
 
 
@@ -453,17 +487,48 @@ def test_a_file_the_wheel_lacks_adds_no_file(monkeypatch, cutensornet_wheel):
     assert _tensor_network._packaged_libraries() == [library]
 
 
-def test_the_setup_check_passes_the_install_command(monkeypatch):
-    """The setup check hands the native check the command that installs the
-    libraries, which its advice gives when a library is missing."""
-    received = []
+def _spy_check(received):
+    """A native setup check that records the install command it is given."""
 
     def check(packaged, install_command):
         received.append(install_command)
         return True, "ready", None, []
 
-    monkeypatch.setattr(_native, "_check_tensornetwork_setup", check)
-    check_tensornetwork_setup()
+    return "_check_tensornetwork_setup", check, check_tensornetwork_setup
+
+
+def _spy_sample(received):
+    """A native run that records the install command it is given, which its
+    setup report gives when the GPU is not set up."""
+
+    def sample(program, shots, seed, max_bond, packaged, install_command, engine):
+        received.append(install_command)
+        report = {
+            "largest_bond": 1,
+            "discarded_weight": 0.0,
+            "max_bond_dimension": max_bond,
+            "truncation_warning": None,
+        }
+        return [], report
+
+    return "_tensor_network_sample", sample, lambda: tensornetwork_qir(BELL, [Sample(1)])
+
+
+@pytest.mark.parametrize(
+    "spy",
+    [
+        pytest.param(_spy_check, id="check_tensornetwork_setup"),
+        pytest.param(_spy_sample, id="tensornetwork_qir"),
+    ],
+)
+def test_each_entry_passes_the_install_command(monkeypatch, spy):
+    """The setup check and a run each hand the native side the command that
+    installs the libraries, which the setup check's advice gives when a
+    library is missing (a run's `OSError` holds that advice)."""
+    received = []
+    native, fake, call = spy(received)
+    monkeypatch.setattr(_native, native, fake)
+    call()
     assert received == ['pip install "qdk[tensornetwork]"']
 
 
@@ -547,8 +612,8 @@ def test_ctrl_c_stops_a_run_with_keyboard_interrupt():
     early, at the next batch (the program has one per measured round): in
     less than half the time the whole run takes (Python would also raise it
     once a run that ignored it had ended). A run checks for signals only
-    every 0.1 s (`SIGNAL_CHECK` in `tensor_network/detached_run.rs`), so the
-    whole run lasts at least a second, many times longer."""
+    every 0.1 s, so the whole run lasts at least a second, many times
+    longer."""
     program, shots, whole = _run_lasting(1.0)
     timer = threading.Timer(whole / 10, _thread.interrupt_main)
     started = time.perf_counter()

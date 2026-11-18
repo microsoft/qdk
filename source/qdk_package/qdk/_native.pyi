@@ -1261,40 +1261,6 @@ def run_cpu_adaptive(
     """
     ...
 
-def _tensor_network_sample(
-    program: dict,
-    shots: int,
-    seed: int,
-    max_bond_dimension: int,
-    packaged: List[str],
-    install_command: Optional[str],
-    engine: str,
-) -> Tuple[List[List[Any]], Dict[str, Any]]:
-    """
-    Run shots 0..shots of an `AdaptiveProgram` (converted with `.as_dict()`,
-    64-bit bytecode) with the MPS simulation method, on the engine named
-    `engine` ("gpu" or "cpu"), and return each shot's output records and the
-    run's report: `largest_bond`, `discarded_weight`, `max_bond_dimension`
-    and `truncation_warning` (text or None).
-
-    `packaged` holds the library files that Python packages installed, and
-    `install_command` the command that installs them; the GPU engine's
-    discovery tries those files, and its setup report gives that command.
-    """
-    ...
-
-def _check_tensornetwork_setup(
-    packaged: List[str],
-    install_command: Optional[str],
-) -> Tuple[bool, str, Optional[str], List[str]]:
-    """
-    Check the setup of the GPU engine of the MPS simulation method, with the
-    library files `packaged` names and the packager's `install_command`:
-    whether it is ready, the report, the fix for the first problem, and the
-    warnings (other copies of a library). Never raises.
-    """
-    ...
-
 def run_clifford_adaptive(
     input: dict,
     shots: int,
@@ -1356,6 +1322,40 @@ def run_adaptive_parallel_shots(
     Returns a list of result strings. Each result string is composed
     of '0's, '1's, and 'L's, representing if each measurement result
     was a Zero, One, or Loss respectively.
+    """
+    ...
+
+def _tensor_network_sample(
+    program: dict,
+    shots: int,
+    seed: int,
+    max_bond_dimension: int,
+    packaged: List[str],
+    install_command: Optional[str],
+    engine: str,
+) -> Tuple[List[List[Any]], Dict[str, Any]]:
+    """
+    Run shots 0..shots of an `AdaptiveProgram` (converted with `.as_dict()`,
+    64-bit bytecode) with the MPS simulation method, on the engine named
+    `engine` ("gpu" or "cpu"), and return each shot's output records and the
+    run's report: `largest_bond`, `discarded_weight`, `max_bond_dimension`
+    and `truncation_warning` (text or None).
+
+    `packaged` holds the library files that Python packages installed, and
+    `install_command` the command that installs them; the GPU engine's
+    discovery tries those files, and its setup report gives that command.
+    """
+    ...
+
+def _check_tensornetwork_setup(
+    packaged: List[str],
+    install_command: Optional[str],
+) -> Tuple[bool, str, Optional[str], List[str]]:
+    """
+    Check the setup of the GPU engine of the MPS simulation method, with the
+    library files `packaged` names and the packager's `install_command`:
+    whether it is ready, the report, the fix for the first problem, and the
+    warnings (other copies of a library). Never raises.
     """
     ...
 

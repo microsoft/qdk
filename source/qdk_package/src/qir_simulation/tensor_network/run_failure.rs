@@ -8,10 +8,9 @@
 //! party:
 //!
 //! - `OSError`, the machine: the GPU engine cannot be made (its libraries
-//!   not usable, no device), with the setup check's report as the message,
-//!   after the engine's error when discovery succeeded but no engine was
-//!   made, and a last line saying that `engine="cpu"` runs without a GPU;
-//!   or the engine failing during the run, with the failure's message.
+//!   not usable, no device), with the message `gpu_not_set_up` or
+//!   `engine_not_made` composes; or the engine failing during the run,
+//!   with the failure's message.
 //! - `ValueError`, the program or the settings: the program's faults, a
 //!   call the MPS simulation method does not run, a max bond dimension that
 //!   makes no chain, or a call the engine refuses.
