@@ -128,10 +128,20 @@ fn counts_the_splits_and_matrix_product_operators() {
 
 /// Reads of site 4 of 5, then of site 1, from the centre on site 0: the
 /// centre moves by four sites, then by three, each move counted, and a
-/// gate on neighbours, whose split carries the centre, adds none.
+/// gate on neighbours, whose split carries the centre, adds none. A sample
+/// leaves the centre on the first site it samples, its first read, or where
+/// it was when it reads nothing (refused, or of no shots).
 #[test]
 fn counts_the_moves_of_the_centre() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+        let state = engine.prepare(&capacity(5, 4)).expect("prepare");
+        engine.sample(&state, &[5], 8, 0).expect_err("refused");
+        engine.sample(&state, &[3], 0, 0).expect("no shots");
+        assert_eq!(state.statistics().centre_moves(), 0, "{name}");
+        engine.sample(&state, &[3, 0, 1], 8, 0).expect("a sample");
+        assert_eq!(state.statistics().centre_moves(), 3, "{name}: sample");
+        engine.probability_of_one(&state, 3).expect("P(One)");
+        assert_eq!(state.statistics().centre_moves(), 3, "{name}: on 3");
         let mut state = engine.prepare(&capacity(5, 4)).expect("prepare");
         engine.probability_of_one(&state, 4).expect("P(One)");
         assert_eq!(state.statistics().centre_moves(), 4, "{name}");
