@@ -168,10 +168,12 @@ def tensornetwork_qir(
         rows, = results
         results.report.largest_bond, results.report.discarded_weight
 
-    The run leaves the Python thread, and Ctrl-C stops it. Noise is not
-    simulated: a noise intrinsic (a function with the ``qdk_noise``
-    attribute) runs as identity, as no noise model is given, and a
-    readout-noise call or a loss check raises ``ValueError``.
+    The run leaves the Python thread, and Ctrl-C stops it between batches
+    of gates (a Base profile program is one batch, so it runs all its gates
+    before Ctrl-C takes effect). Noise is not simulated: a noise intrinsic
+    (a function with the ``qdk_noise`` attribute) runs as identity, as no
+    noise model is given, and a readout-noise call or a loss check raises
+    ``ValueError``.
 
     :param input: The QIR program, Base or Adaptive profile, as text or
         bitcode.
