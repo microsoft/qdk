@@ -13,7 +13,7 @@
 //! entry it takes below the normal range (more than about 2¹⁰²² times
 //! smaller than the largest), which it rounds.
 
-use crate::matrix::Matrix;
+use crate::dense_linalg::matrix::Matrix;
 use num_complex::Complex64;
 use std::ops::Div;
 

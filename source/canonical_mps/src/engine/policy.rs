@@ -18,18 +18,17 @@
 /// the run took about 2.7 times as long.
 pub const DEFAULT_CUTOFF: f64 = 1e-14;
 
-/// The singular values a window's operator keeps when it is factored into
-/// a matrix product operator ([`mpo`](super::mpo)): those above `1e-12`
-/// times the largest. [`Svd::of`](dense_linalg::Svd::of) already trims the
-/// values its rank-revealing QR finds to be rounding; this cutoff drops
-/// what remains at or below that relative size: rounding the trim kept, or
-/// a genuine part of the operator that small (a two-qubit rotation by an
-/// angle below about `1e-12`), which the retained weight does not count.
-/// It is kept on top of the SVD's own trim because a pivoted QR is not
-/// perfectly rank-revealing, and because it also drops genuinely small
-/// parts. Keeping them would grow the operator's bond, and with it every
-/// bond of the span before its splits, for at most that part. The
-/// threshold sits about four decades above `f64::EPSILON` (about
-/// `2.2e-16`), so values of rounding, a few times that relative to the
-/// largest, fall well below it.
+/// The singular values a window's operator keeps when it is factored into a
+/// matrix product operator ([`mpo`](super::mpo)): those above `1e-12` times the
+/// largest. [`Svd::of`](crate::dense_linalg::Svd::of) already trims the values
+/// its rank-revealing QR finds to be rounding; this cutoff drops what remains
+/// at or below that relative size: rounding the trim kept, or a genuine part of
+/// the operator that small (a two-qubit rotation by an angle below about
+/// `1e-12`), which the retained weight does not count. It is kept on top of the
+/// SVD's own trim because a pivoted QR is not perfectly rank-revealing, and
+/// because it also drops genuinely small parts. Keeping them would grow the
+/// operator's bond, and with it every bond of the span before its splits, for
+/// at most that part. The threshold sits about four decades above
+/// `f64::EPSILON` (about `2.2e-16`), so values of rounding, a few times that
+/// relative to the largest, fall well below it.
 pub(super) const OPERATOR_RANK_CUTOFF: f64 = 1e-12;

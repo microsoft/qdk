@@ -23,7 +23,7 @@
 
 use super::truncation::Truncation;
 use super::{CentreSide, GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
-use dense_linalg::{Matrix, MatrixRef, Qr, Svd, SvdError};
+use crate::dense_linalg::{Matrix, MatrixRef, Qr, Svd, SvdError};
 use num_complex::Complex64;
 use std::borrow::Cow;
 

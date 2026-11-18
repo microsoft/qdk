@@ -8,12 +8,20 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# The reference algebra's product, QR and SVD (src/algebra/cpu_algebra.rs),
-# and the expectation's products on the host.
-dense_linalg = { path = "../dense_linalg" }
 num-complex = { workspace = true }
+# The dense linear algebra's products, QR decompositions and fast SVD route
+# (src/dense_linalg/kernels/t4a_faer.rs), and only theirs. Pinned to one
+# version: its owner publishes semver-major releases days apart, so each
+# update needs the SVD's checks and timings rerun.
+# Its library is named `faer`; renamed so that code never reads as faer's.
+t4a_faer = { package = "t4a-faer", version = "=0.31.0", default-features = false, features = ["std", "linalg"] }
 tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
+
+[features]
+# Exposes what another crate needs to check its own `SiteAlgebra`: the dense
+# linear algebra (`dense_linalg`), for the test doubles of a backend library.
+conformance = []
 
 [dev-dependencies]
 # The integration tests compare with the stabilizer simulator, whose

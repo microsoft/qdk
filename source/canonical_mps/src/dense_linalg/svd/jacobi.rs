@@ -33,9 +33,9 @@
 //! compiler vectorizes; they multiply and add without fused multiply-add (see
 //! [`dot`]).
 //!
-//! [`SvdError::DidNotConverge`]: crate::SvdError::DidNotConverge
+//! [`SvdError::DidNotConverge`]: crate::dense_linalg::SvdError::DidNotConverge
 
-use crate::kernels::ColumnMajorSvd;
+use crate::dense_linalg::kernels::ColumnMajorSvd;
 use num_complex::Complex64;
 
 /// The sweeps the rotations allow, after which they report a failure:
@@ -158,8 +158,9 @@ fn column(m: &[f64], rows: usize, j: usize) -> &[f64] {
 /// These loops (`dot`, [`norm_sqr`] and the rotations) multiply and add
 /// without fused multiply-add, which some targets lack, so that the
 /// rotations round alike on every target. The library's steps
-/// ([`Kernels`](crate::kernels::Kernels): the pivoted QR before them, the
-/// fast route and the products) may use it where the target has it.
+/// ([`Kernels`](crate::dense_linalg::kernels::Kernels): the pivoted QR
+/// before them, the fast route and the products) may use it where the
+/// target has it.
 fn dot(x: &[f64], y: &[f64]) -> (f64, f64) {
     let len = x.len() / 2;
     let (x_re, x_im) = x.split_at(len);

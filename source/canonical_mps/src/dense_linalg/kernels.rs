@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Kernels`]: the steps of the crate's computations that a linear
+//! [`Kernels`]: the steps of the module's computations that a linear
 //! algebra library provides, so that the library is one file.
 //!
-//! The SVD's rules are the crate's own and computed once, on top of these
+//! The SVD's rules are the module's own and computed once, on top of these
 //! steps: the checks, the trim's choice of rows, the scaling (the thin
 //! QR's too), the one-sided Jacobi rotations and the rule that routes a
 //! matrix to the fast route. A library brings only what it computes faster
@@ -16,8 +16,8 @@
 
 mod t4a_faer;
 
-use crate::matrix::{Matrix, MatrixRef};
-use crate::qr::Qr;
+use crate::dense_linalg::matrix::{Matrix, MatrixRef};
+use crate::dense_linalg::qr::Qr;
 use num_complex::Complex64;
 
 /// The implementation of [`Kernels`] the public API computes with.
@@ -29,7 +29,7 @@ pub(crate) type Shipped = self::t4a_faer::T4aFaer;
 /// ([`Kernels::tall_svd`]) and the rotations.
 pub(crate) type ColumnMajorSvd = (Vec<Complex64>, Vec<f64>, Vec<Complex64>);
 
-/// The steps a linear algebra library computes for the crate, each on the
+/// The steps a linear algebra library computes for the module, each on the
 /// calling thread.
 pub(crate) trait Kernels {
     /// What [`Kernels::q_kept_times`] needs of a column-pivoted QR to apply

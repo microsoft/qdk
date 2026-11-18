@@ -8,7 +8,7 @@
 //! the last sweep allowed still rotates.
 
 use super::super::{adjoint, distance, identity, matrix, naive_product};
-use crate::{
+use crate::dense_linalg::{
     Matrix,
     svd::jacobi::{MAX_SWEEPS, one_sided},
 };

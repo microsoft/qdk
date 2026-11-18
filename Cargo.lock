@@ -289,10 +289,10 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 name = "canonical_mps"
 version = "0.0.0"
 dependencies = [
- "dense_linalg",
  "num-complex",
  "paulimer",
  "qdk_simulators",
+ "t4a-faer",
  "tensornet",
  "thiserror 2.0.20",
 ]
@@ -509,15 +509,6 @@ name = "defer"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "930c7171c8df9fb1782bdf9b918ed9ed2d33d1d22300abb754f9085bc48bf8e8"
-
-[[package]]
-name = "dense_linalg"
-version = "0.0.0"
-dependencies = [
- "num-complex",
- "t4a-faer",
- "thiserror 2.0.20",
-]
 
 [[package]]
 name = "derive_more"
