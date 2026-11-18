@@ -6,7 +6,7 @@
 //!
 //! A shot of a chemistry program (H₂'s phase estimation, 29 qubits after
 //! the compiler's decomposition into Clifford+T) is recorded as the
-//! operations a sparse state received: about 390,000 gates and 1,400
+//! operations the program applied: about 390,000 gates and 1,400
 //! mid-circuit measurements, each with the outcome the shot drew. The
 //! example replays each shot on the engine, projecting each measurement on
 //! the recorded outcome with the engine's own probability, then reads the
@@ -22,8 +22,8 @@
 //!
 //! `--order` puts qubit `q` on site `order[q]`.
 //!
-//! The shots are recorded by a run of the program on a sparse state
-//! simulator outside this crate, which writes two files per shot:
+//! The shots are recorded by a run of the program on a simulator outside
+//! this crate, which writes two files per shot:
 //!
 //! - `SHOT.replay`, the operations in order, one per line (`#` starts a
 //!   comment): `<Gate> <q> [<angle>]` for a one-qubit gate (`X`, `Y`, `Z`,

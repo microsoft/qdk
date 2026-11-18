@@ -1,16 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A circuit run on the engine and on the sparse simulator: the state
-//! each one ends in and the seconds it took, and the process's peak
-//! memory.
+//! A circuit run on the engine: the state it ends in and the seconds it
+//! took, and the process's peak memory.
 
 use super::{
     Res,
     circuit::{Circuit, Op},
 };
 use canonical_mps::{CanonicalMpsState, CpuAlgebra, CpuMpsEngine};
-use qdk_simulators::SparseStateSim;
 use std::{fs, hint::black_box, time::Instant};
 use tensornet::{MpsEngine, MpsShape};
 
@@ -59,51 +57,6 @@ pub fn run_engine(
     black_box(engine.retained_weight(&state)?);
     Ok(EngineRun {
         state,
-        seconds: started.elapsed().as_secs_f64(),
-        max_projection_gap,
-    })
-}
-
-/// The sparse simulator's run of a circuit: its state, the seconds it took
-/// and the largest gap between a projection's probability and the
-/// recorded one.
-pub struct SparseRun {
-    pub sim: SparseStateSim,
-    pub seconds: f64,
-    pub max_projection_gap: f64,
-}
-
-/// Runs `circuit` on the sparse simulator, through its native operations,
-/// and reads it once so that no gate stays queued.
-pub fn run_sparse(circuit: &Circuit) -> Res<SparseRun> {
-    let mut sim = SparseStateSim::new(None);
-    for _ in 0..circuit.qubits {
-        let _ = sim.allocate();
-    }
-    let mut max_projection_gap: f64 = 0.0;
-    let started = Instant::now();
-    for op in &circuit.ops {
-        match op {
-            Op::Gate { natives, .. } => {
-                for native in natives.as_ref().ok_or("a gate with no native form")? {
-                    native.on(&mut sim);
-                }
-            }
-            Op::Project {
-                qubit,
-                one,
-                probability,
-            } => {
-                let p = sim.force_collapse(*one, *qubit);
-                max_projection_gap = max_projection_gap.max((p - probability).abs());
-            }
-        }
-    }
-    // The simulator queues some gates until a read; this read applies them.
-    let every: Vec<usize> = (0..circuit.qubits).collect();
-    black_box(sim.joint_probability(&every));
-    Ok(SparseRun {
-        sim,
         seconds: started.elapsed().as_secs_f64(),
         max_projection_gap,
     })

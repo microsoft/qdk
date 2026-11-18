@@ -8,7 +8,6 @@ use super::{
     circuit::{Circuit, Op},
     gates::{pauli_x, pauli_y, pauli_z},
 };
-use qdk_simulators::SparseStateSim;
 use tensornet::Pauli;
 
 /// A state vector, qubit `q` as bit `q` of the index.
@@ -29,21 +28,6 @@ impl StateVector {
             }
         }
         state
-    }
-
-    /// The sparse simulator's state, normalized.
-    pub fn of_sparse(sim: &mut SparseStateSim) -> Self {
-        let (entries, qubits) = sim.get_state();
-        let mut psi = vec![c(0.0, 0.0); 1 << qubits];
-        for (index, amplitude) in entries {
-            let index = index.iter_u64_digits().next().unwrap_or(0);
-            psi[usize::try_from(index).expect("a small index")] = amplitude;
-        }
-        let norm = psi.iter().map(C::norm_sqr).sum::<f64>().sqrt();
-        for x in &mut psi {
-            *x /= norm;
-        }
-        Self { psi }
     }
 
     fn apply(&mut self, qubits: &[usize], m: &[C]) {
