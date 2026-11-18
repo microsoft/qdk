@@ -253,6 +253,14 @@ pub enum Error {
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-limit-in-parallel-expr"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicLimitInParallelExpr"))]
     UseOfDynamicLimitInParallelExpr(#[label] PackageSpan),
+
+    #[error("cannot use dynamic fail")]
+    #[diagnostic(help(
+        "using a fail expression that must be evaluated at runtime is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-fail"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicFail"))]
+    UseOfDynamicFail(#[label] PackageSpan),
 }
 
 impl Error {
@@ -289,7 +297,8 @@ impl Error {
             | Self::UseOfDynamicGeneric(span)
             | Self::UseOfDynamicQubitRelease(span)
             | Self::UseOfDynamicBranchingInParallelExpr(span)
-            | Self::UseOfDynamicLimitInParallelExpr(span) => *span,
+            | Self::UseOfDynamicLimitInParallelExpr(span)
+            | Self::UseOfDynamicFail(span) => *span,
         }
     }
 }
@@ -345,12 +354,6 @@ pub fn generate_errors_from_runtime_features(
     }
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicUdt) {
         errors.push(Error::UseOfDynamicUdt(span));
-    }
-    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicArrowFunction) {
-        errors.push(Error::UseOfDynamicArrowFunction(span));
-    }
-    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicArrowOperation) {
-        errors.push(Error::UseOfDynamicArrowOperation(span));
     }
     if runtime_features.contains(RuntimeFeatureFlags::CallToDynamicCallee) {
         errors.push(Error::CallToDynamicCallee(span));

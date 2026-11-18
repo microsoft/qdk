@@ -630,6 +630,7 @@ fn constraint_arguments_for_class_with_no_args() {
             #15 70-106 "{\n                true\n            }" : Bool
             #17 88-92 "true" : Bool
             Error(Type(Error(IncorrectNumberOfConstraintParameters { expected: 0, found: 1, span: Span { lo: 52, hi: 54 } })))
+            Error(Type(Error(UnusedGeneric { span: Span { lo: 48, hi: 50 }, name: "'T" })))
         "##]],
     );
 }

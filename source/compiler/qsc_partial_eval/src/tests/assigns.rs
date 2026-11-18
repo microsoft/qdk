@@ -84,7 +84,9 @@ fn assigning_result_register_updates_value() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
+                Variable(0, Result) = Store ResultLit(false)
                 Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Result) = Store Result(0)
                 Call id(3), args( Result(0), Tag(0, 3), )
                 Return Integer(0)"#]],
     );
@@ -474,8 +476,8 @@ fn assigning_classical_int_within_dynamic_if_else_expression_adds_store_instruct
 }
 
 #[test]
-fn assigning_result_literal_within_dynamic_if_expression_produces_error() {
-    let error = get_partial_evaluation_error(indoc! {r#"
+fn assigning_result_literal_within_dynamic_if_expression_produces_rir_literal() {
+    let program = get_rir_program(indoc! {r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Result {
@@ -488,11 +490,24 @@ fn assigning_result_literal_within_dynamic_if_expression_produces_error() {
             }
         }
     "#});
-    assert_error(
-        &error,
-        &expect![[
-            r#"Unexpected("re-assignment within a dynamic branch is unsupported for type Result", PackageSpan { package: PackageId(2), span: Span { lo: 166, hi: 167 } })"#
-        ]],
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Result) = Store ResultLit(false)
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(3), args( Result(0), )
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Branch Variable(2, Boolean), 2, 1
+        Block 1:Block:
+            Variable(3, Result) = Store Variable(0, Result)
+            Call id(4), args( Variable(3, Result), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(0, Result) = Store ResultLit(true)
+            Jump(1)"#]],
     );
 }
 
@@ -641,12 +656,14 @@ fn array_of_bools_update_element_at_index_with_dynamic_content() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(3, Boolean) = Call id(3), args( Result(1), )
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Integer(2), Tag(0, 3), )
-                Call id(5), args( Variable(1, Boolean), Tag(1, 5), )
-                Call id(5), args( Variable(3, Boolean), Tag(2, 5), )
+                Call id(5), args( Variable(2, Boolean), Tag(1, 5), )
+                Call id(5), args( Variable(5, Boolean), Tag(2, 5), )
                 Return Integer(0)"#]],
     );
 }
@@ -1363,18 +1380,19 @@ fn logical_and_assign_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_i
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
                 Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Bool(false)
-                Branch Variable(2, Boolean), 2, 1
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(false)
+                Branch Variable(3, Boolean), 2, 1
             Block 1:Block:
-                Variable(2, Boolean) = Store Variable(3, Boolean)
-                Variable(6, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
+                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(7, Boolean) = Store Variable(2, Boolean)
+                Call id(4), args( Variable(7, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true)
-                Variable(3, Boolean) = Store Variable(5, Boolean)
+                Variable(5, Boolean) = Call id(3), args( Result(1), )
+                Variable(6, Boolean) = Icmp Ne, Variable(5, Boolean), Bool(true)
+                Variable(4, Boolean) = Store Variable(6, Boolean)
                 Jump(1)"#]],
     );
 }
@@ -1591,18 +1609,19 @@ fn logical_or_assign_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_is
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
                 Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Bool(true)
-                Branch Variable(2, Boolean), 1, 2
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(true)
+                Branch Variable(3, Boolean), 1, 2
             Block 1:Block:
-                Variable(2, Boolean) = Store Variable(3, Boolean)
-                Variable(6, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
+                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(7, Boolean) = Store Variable(2, Boolean)
+                Call id(4), args( Variable(7, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true)
-                Variable(3, Boolean) = Store Variable(5, Boolean)
+                Variable(5, Boolean) = Call id(3), args( Result(1), )
+                Variable(6, Boolean) = Icmp Ne, Variable(5, Boolean), Bool(true)
+                Variable(4, Boolean) = Store Variable(6, Boolean)
                 Jump(1)"#]],
     );
 }
@@ -1755,10 +1774,11 @@ fn integer_assign_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Sub Variable(3, Integer), Integer(1)
-                Variable(3, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Sub Variable(4, Integer), Integer(1)
+                Variable(3, Integer) = Store Variable(5, Integer)
+                Variable(6, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -1836,10 +1856,11 @@ fn integer_assign_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(5, Boolean) = Call id(3), args( Result(1), )
+                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false)
+                Branch Variable(6, Boolean), 5, 6
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -1847,16 +1868,16 @@ fn integer_assign_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
                 Variable(2, Integer) = Store Integer(1)
                 Jump(1)
             Block 4:Block:
-                Variable(7, Integer) = Mul Variable(3, Integer), Variable(6, Integer)
-                Variable(3, Integer) = Store Variable(7, Integer)
-                Variable(8, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
+                Variable(8, Integer) = Mul Variable(4, Integer), Variable(7, Integer)
+                Variable(3, Integer) = Store Variable(8, Integer)
+                Variable(9, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1)
+                Variable(7, Integer) = Store Integer(1)
                 Jump(4)
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0)
+                Variable(7, Integer) = Store Integer(0)
                 Jump(4)"#]],
     );
 }
@@ -2009,10 +2030,11 @@ fn integer_assign_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Srem Variable(3, Integer), Integer(1)
-                Variable(3, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Srem Variable(4, Integer), Integer(1)
+                Variable(3, Integer) = Store Variable(5, Integer)
+                Variable(6, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2136,10 +2158,11 @@ fn integer_assign_exp_with_lhs_dynamic_integer_and_rhs_classical_zero_integer() 
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Store Integer(1)
-                Variable(3, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Store Integer(1)
+                Variable(3, Integer) = Store Variable(5, Integer)
+                Variable(6, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2217,13 +2240,14 @@ fn integer_assign_exp_with_lhs_dynamic_integer_and_rhs_classical_positive_intege
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Store Integer(1)
-                Variable(5, Integer) = Mul Variable(4, Integer), Variable(3, Integer)
-                Variable(6, Integer) = Mul Variable(5, Integer), Variable(3, Integer)
-                Variable(7, Integer) = Mul Variable(6, Integer), Variable(3, Integer)
-                Variable(3, Integer) = Store Variable(7, Integer)
-                Variable(8, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Store Integer(1)
+                Variable(6, Integer) = Mul Variable(5, Integer), Variable(4, Integer)
+                Variable(7, Integer) = Mul Variable(6, Integer), Variable(4, Integer)
+                Variable(8, Integer) = Mul Variable(7, Integer), Variable(4, Integer)
+                Variable(3, Integer) = Store Variable(8, Integer)
+                Variable(9, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2324,10 +2348,11 @@ fn integer_assign_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer()
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(5, Boolean) = Call id(3), args( Result(1), )
+                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false)
+                Branch Variable(6, Boolean), 5, 6
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2335,16 +2360,16 @@ fn integer_assign_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer()
                 Variable(2, Integer) = Store Integer(1)
                 Jump(1)
             Block 4:Block:
-                Variable(7, Integer) = BitwiseAnd Variable(3, Integer), Variable(6, Integer)
-                Variable(3, Integer) = Store Variable(7, Integer)
-                Variable(8, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
+                Variable(8, Integer) = BitwiseAnd Variable(4, Integer), Variable(7, Integer)
+                Variable(3, Integer) = Store Variable(8, Integer)
+                Variable(9, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1)
+                Variable(7, Integer) = Store Integer(1)
                 Jump(4)
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0)
+                Variable(7, Integer) = Store Integer(0)
                 Jump(4)"#]],
     );
 }
@@ -2497,10 +2522,11 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = BitwiseXor Variable(3, Integer), Integer(1)
-                Variable(3, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = BitwiseXor Variable(4, Integer), Integer(1)
+                Variable(3, Integer) = Store Variable(5, Integer)
+                Variable(6, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2578,10 +2604,11 @@ fn integer_assign_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_dynamic_in
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(5, Boolean) = Call id(3), args( Result(1), )
+                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false)
+                Branch Variable(6, Boolean), 5, 6
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2589,16 +2616,23 @@ fn integer_assign_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_dynamic_in
                 Variable(2, Integer) = Store Integer(1)
                 Jump(1)
             Block 4:Block:
-                Variable(7, Integer) = Shl Variable(3, Integer), Variable(6, Integer)
-                Variable(3, Integer) = Store Variable(7, Integer)
-                Variable(8, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
+                Variable(8, Integer) = Ashr Variable(7, Integer), Integer(63)
+                Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
+                Variable(10, Integer) = Sub Variable(9, Integer), Variable(8, Integer)
+                Variable(11, Integer) = Shl Variable(4, Integer), Variable(10, Integer)
+                Variable(12, Integer) = Ashr Variable(4, Integer), Variable(10, Integer)
+                Variable(13, Integer) = BitwiseXor Variable(11, Integer), Variable(12, Integer)
+                Variable(14, Integer) = BitwiseAnd Variable(13, Integer), Variable(8, Integer)
+                Variable(15, Integer) = BitwiseXor Variable(11, Integer), Variable(14, Integer)
+                Variable(3, Integer) = Store Variable(15, Integer)
+                Variable(16, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(16, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1)
+                Variable(7, Integer) = Store Integer(1)
                 Jump(4)
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0)
+                Variable(7, Integer) = Store Integer(0)
                 Jump(4)"#]],
     );
 }
@@ -2670,10 +2704,17 @@ fn integer_assign_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic
                 Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
                 Branch Variable(2, Boolean), 2, 3
             Block 1:Block:
-                Variable(4, Integer) = Ashr Integer(0), Variable(3, Integer)
-                Variable(0, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Ashr Variable(3, Integer), Integer(63)
+                Variable(5, Integer) = BitwiseXor Variable(3, Integer), Variable(4, Integer)
+                Variable(6, Integer) = Sub Variable(5, Integer), Variable(4, Integer)
+                Variable(7, Integer) = Ashr Integer(0), Variable(6, Integer)
+                Variable(8, Integer) = Shl Integer(0), Variable(6, Integer)
+                Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
+                Variable(10, Integer) = BitwiseAnd Variable(9, Integer), Variable(4, Integer)
+                Variable(11, Integer) = BitwiseXor Variable(7, Integer), Variable(10, Integer)
+                Variable(0, Integer) = Store Variable(11, Integer)
+                Variable(12, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(12, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(3, Integer) = Store Integer(0)
@@ -2832,10 +2873,11 @@ fn double_assign_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Variable(4, Double) = Fsub Variable(3, Double), Double(1)
-                Variable(3, Double) = Store Variable(4, Double)
-                Variable(5, Double) = Store Variable(3, Double)
-                Call id(4), args( Variable(5, Double), Tag(0, 3), )
+                Variable(4, Double) = Store Variable(3, Double)
+                Variable(5, Double) = Fsub Variable(4, Double), Double(1)
+                Variable(3, Double) = Store Variable(5, Double)
+                Variable(6, Double) = Store Variable(3, Double)
+                Call id(4), args( Variable(6, Double), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
@@ -2913,10 +2955,11 @@ fn double_assign_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
+                Variable(4, Double) = Store Variable(3, Double)
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(5, Boolean) = Call id(3), args( Result(1), )
+                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false)
+                Branch Variable(6, Boolean), 5, 6
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -2924,16 +2967,16 @@ fn double_assign_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
                 Variable(2, Double) = Store Double(1)
                 Jump(1)
             Block 4:Block:
-                Variable(7, Double) = Fmul Variable(3, Double), Variable(6, Double)
-                Variable(3, Double) = Store Variable(7, Double)
-                Variable(8, Double) = Store Variable(3, Double)
-                Call id(4), args( Variable(8, Double), Tag(0, 3), )
+                Variable(8, Double) = Fmul Variable(4, Double), Variable(7, Double)
+                Variable(3, Double) = Store Variable(8, Double)
+                Variable(9, Double) = Store Variable(3, Double)
+                Call id(4), args( Variable(9, Double), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
-                Variable(6, Double) = Store Double(1.1)
+                Variable(7, Double) = Store Double(1.1)
                 Jump(4)
             Block 6:Block:
-                Variable(6, Double) = Store Double(0.1)
+                Variable(7, Double) = Store Double(0.1)
                 Jump(4)"#]],
     );
 }

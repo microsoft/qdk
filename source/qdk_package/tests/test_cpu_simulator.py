@@ -16,11 +16,19 @@ from qdk import TargetProfile
 from qdk import openqasm
 
 from qdk.simulation import NoiseConfig
-from qdk.simulation._simulation import run_qir_cpu
+from qdk.simulation._simulation import OutputRecordingPass, run_qir_cpu
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
 current_dir = current_file_path.parent
+
+
+def test_output_recording_pass_state_is_per_instance():
+    first = OutputRecordingPass()
+    second = OutputRecordingPass()
+
+    assert first._closers is not second._closers
+    assert first._counters is not second._counters
 
 
 def read_file(file_name: str) -> str:

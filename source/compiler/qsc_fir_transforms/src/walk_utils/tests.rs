@@ -576,6 +576,44 @@ fn int_lit(package: &mut Package, assigner: &mut Assigner, value: i64) -> ExprId
 }
 
 #[test]
+fn scoped_postorder_deduplicates_nested_roots_without_visiting_unrelated_nodes() {
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let unrelated = int_lit(&mut package, &mut assigner, 99);
+    let outer = int_lit(&mut package, &mut assigner, 0);
+    let inner = int_lit(&mut package, &mut assigner, 0);
+    let shared = int_lit(&mut package, &mut assigner, 1);
+    let statement = alloc_expr_stmt(&mut package, &mut assigner, shared, PackageSpan::default());
+    let block = alloc_block(
+        &mut package,
+        &mut assigner,
+        vec![statement],
+        Ty::Prim(Prim::Int),
+        PackageSpan::default(),
+    );
+    package.exprs.get_mut(inner).expect("inner exists").kind = ExprKind::Block(block);
+    let tuple = package.exprs.get_mut(outer).expect("outer exists");
+    tuple.kind = ExprKind::Tuple(vec![inner, shared]);
+    tuple.ty = Ty::Tuple(vec![Ty::Prim(Prim::Int); 2]);
+    for (roots, expected) in [
+        (vec![], vec![]),
+        (vec![shared, shared], vec![shared]),
+        (vec![outer], vec![shared, inner, outer]),
+        (vec![inner, outer, inner], vec![shared, inner, outer]),
+        (vec![outer, shared, inner], vec![shared, inner, outer]),
+    ] {
+        assert_eq!(
+            expressions_in_postorder_from_roots(&package, roots),
+            expected
+        );
+    }
+    assert_eq!(
+        expressions_in_postorder(&package),
+        vec![unrelated, shared, inner, outer]
+    );
+}
+
+#[test]
 fn given_lit_is_side_effect_free() {
     let mut package = Package::default();
     let mut assigner = Assigner::default();
@@ -1198,6 +1236,77 @@ fn structural_walker_covers_blocks_locals_and_spec_inputs() {
     // Statements and expressions are collected too.
     assert!(!stmts.is_empty(), "expected statements to be visited");
     assert!(!exprs.is_empty(), "expected expressions to be visited");
+}
+
+#[test]
+fn collect_block_stmt_ids_handles_empty_block() {
+    let (store, package_id) = compile_to_fir("function Main() : Unit {}");
+    let package = store.get(package_id);
+    let block = find_callable_block(package, "Main");
+
+    assert_eq!(collect_stmt_ids_in_block(package, block).len(), 0);
+}
+
+#[test]
+fn collect_block_stmt_ids_covers_nested_blocks_without_entering_callables() {
+    let (store, package_id) = compile_to_fir(
+        r#"
+        function Other() : Int {
+            let outside = 4;
+            outside
+        }
+        function Main() : Int {
+            function Nested() : Int {
+                let inNamed = 5;
+                inNamed
+            }
+            let top = {
+                let inInitializer = 1;
+                inInitializer
+            };
+            if true {
+                let inBranch = 2;
+            }
+            mutable counter = 0;
+            while counter < 1 {
+                let inLoop = 3;
+                counter += 1;
+            }
+            let closure = x -> {
+                let inClosure = x + 1;
+                inClosure
+            };
+            top + closure(1) + Nested() + Other()
+        }
+        "#,
+    );
+    let package = store.get(package_id);
+    let statements = collect_stmt_ids_in_block(package, find_callable_block(package, "Main"));
+    let mut bindings: Vec<_> = statements
+        .iter()
+        .filter_map(|&statement| {
+            let StmtKind::Local(_, pat, _) = package.get_stmt(statement).kind else {
+                return None;
+            };
+            let PatKind::Bind(binding) = &package.get_pat(pat).kind else {
+                return None;
+            };
+            Some(binding.name.as_ref())
+        })
+        .collect();
+    bindings.sort_unstable();
+
+    assert_eq!(
+        bindings,
+        [
+            "closure",
+            "counter",
+            "inBranch",
+            "inInitializer",
+            "inLoop",
+            "top"
+        ]
+    );
 }
 
 #[test]

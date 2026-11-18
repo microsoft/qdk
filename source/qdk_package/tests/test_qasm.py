@@ -339,6 +339,34 @@ def test_run_with_result_callback_from_callable_with_args(capsys) -> None:
     assert called
 
 
+def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> None:
+    init()
+    import_openqasm(
+        'include "stdgates.inc";qubit[32] qs;h qs;bit[32] c = measure qs;',
+        program_type=ProgramType.File,
+    )
+    result1 = run(
+        code.qasm_import.program,
+        shots=10,
+        seed=42,
+    )
+    result2 = run(
+        code.qasm_import.program,
+        shots=10,
+        seed=42,
+    )
+    assert (
+        result1[0] != result1[2]
+    )  # Check that we actually got some randomness in the results
+    assert result1 == result2
+    result3 = run(
+        code.qasm_import.program,
+        shots=10,
+        seed=None,
+    )
+    assert result1 != result3
+
+
 def test_run_with_invalid_shots_produces_error() -> None:
     init()
     import_openqasm("output bit[2] c;", name="Foo")
@@ -512,7 +540,7 @@ def test_compile_qir_str_from_callable_with_mresetzchecked() -> None:
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
-        "call i1 @__quantum__rt__read_loss(%Result* inttoptr (i64 0 to %Result*))"
+        "call zeroext i1 @__quantum__rt__read_loss(%Result* inttoptr (i64 0 to %Result*))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir

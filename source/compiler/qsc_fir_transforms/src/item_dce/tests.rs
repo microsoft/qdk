@@ -38,6 +38,41 @@ fn ty_item_names(package: &qsc_fir::fir::Package) -> Vec<String> {
 }
 
 #[test]
+fn dce_prunes_packages_outside_entry_closure() {
+    let (store, entry) = compile_and_run_pipeline_to_with_library(
+        r#"
+        namespace Library {
+            struct Unused { Value : Int }
+            function Read(value : Unused) : Int { value.Value }
+            export Unused, Read;
+        }
+        "#,
+        "@EntryPoint() operation Main() : Int { 42 }",
+        PipelineStage::Full,
+    );
+    for (id, package) in &store {
+        if id != entry {
+            assert!(
+                package.items.is_empty(),
+                "unreachable package {id} retains items"
+            );
+            assert!(
+                package.exprs.is_empty(),
+                "unreachable package {id} retains expressions"
+            );
+            assert!(
+                package.stmts.is_empty(),
+                "unreachable package {id} retains statements"
+            );
+            assert!(
+                package.entry.is_none(),
+                "unreachable package {id} retains an entry"
+            );
+        }
+    }
+}
+
+#[test]
 fn dce_removes_unreachable_generic_after_monomorphize() {
     // After monomorphization, the original generic callable is unreachable
     // because it has been replaced by monomorphized copies.
@@ -84,11 +119,9 @@ fn dce_preserves_all_reachable_items() {
 }
 
 #[test]
-fn dce_on_entry_less_package_is_noop() {
-    // Library packages have no entry expression. The pipeline guards against
-    // calling collect_reachable_from_entry (which panics) on entry-less
-    // packages. Verify the guard works by running the full pipeline — core
-    // and std are entry-less, and they must survive untouched.
+fn dce_prunes_unreachable_entryless_libraries() {
+    // Foreign libraries are rooted in the program's reachability, not in their
+    // own entries or exports. An empty program needs no core library items.
     let source = indoc! {"
         namespace Test {
             @EntryPoint()
@@ -96,15 +129,14 @@ fn dce_on_entry_less_package_is_noop() {
         }
     "};
     let (store, _pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
-    // The core package has no entry expression and should still have items.
     let core_id = qsc_fir::fir::PackageId::CORE;
     assert!(
         store.get(core_id).entry.is_none(),
         "core package should have no entry expression"
     );
     assert!(
-        item_count(store.get(core_id)) > 0,
-        "core package items should be untouched by item DCE"
+        item_count(store.get(core_id)) == 0,
+        "unreachable core package items should be removed by item DCE"
     );
 }
 
@@ -474,7 +506,8 @@ mod item_dce_contracts {
 
         let (mut store, pkg_id) = compile_to_fir(source);
         let mut assigners = PackageAssigners::new(&store, pkg_id);
-        crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
+        crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners)
+            .expect("monomorphization should succeed");
         let dead_id = callable_id_by_name(store.get(pkg_id), "Dead");
         let assigner = assigners.get_mut(&store, pkg_id);
         insert_item_stmt_in_main(&mut store, pkg_id, assigner, dead_id);

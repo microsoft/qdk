@@ -1277,41 +1277,49 @@ fn generate_adj_invert_with_range_loop() {
                                     Stmt 45 [0-0]: Expr: Expr 46 [0-0] [Type Unit]: For:
                                         Pat 47 [118-119] [Type Int]: Bind: Ident 48 [118-119] "i"
                                         Expr 49 [0-0] [Type Range]: Range:
-                                            Expr 50 [0-0] [Type Int]: BinOp (Add):
-                                                Expr 51 [0-0] [Type Int]: Field:
-                                                    Expr 52 [0-0] [Type Range]: Var: Local 41
-                                                    Prim(Start)
-                                                Expr 53 [0-0] [Type Int]: BinOp (Mul):
-                                                    Expr 54 [0-0] [Type Int]: BinOp (Div):
-                                                        Expr 55 [0-0] [Type Int]: BinOp (Sub):
-                                                            Expr 56 [0-0] [Type Int]: Field:
-                                                                Expr 57 [0-0] [Type Range]: Var: Local 41
-                                                                Prim(End)
-                                                            Expr 58 [0-0] [Type Int]: Field:
-                                                                Expr 59 [0-0] [Type Range]: Var: Local 41
-                                                                Prim(Start)
-                                                        Expr 60 [0-0] [Type Int]: Field:
-                                                            Expr 61 [0-0] [Type Range]: Var: Local 41
+                                            Expr 50 [0-0] [Type Int]: BinOp (Sub):
+                                                Expr 51 [0-0] [Type Int]: BinOp (Add):
+                                                    Expr 52 [0-0] [Type Int]: Field:
+                                                        Expr 53 [0-0] [Type Range]: Var: Local 41
+                                                        Prim(Start)
+                                                    Expr 54 [0-0] [Type Int]: BinOp (Mul):
+                                                        Expr 55 [0-0] [Type Int]: BinOp (Div):
+                                                            Expr 56 [0-0] [Type Int]: BinOp (Add):
+                                                                Expr 57 [0-0] [Type Int]: BinOp (Sub):
+                                                                    Expr 58 [0-0] [Type Int]: Field:
+                                                                        Expr 59 [0-0] [Type Range]: Var: Local 41
+                                                                        Prim(End)
+                                                                    Expr 60 [0-0] [Type Int]: Field:
+                                                                        Expr 61 [0-0] [Type Range]: Var: Local 41
+                                                                        Prim(Start)
+                                                                Expr 62 [0-0] [Type Int]: Field:
+                                                                    Expr 63 [0-0] [Type Range]: Var: Local 41
+                                                                    Prim(Step)
+                                                            Expr 64 [0-0] [Type Int]: Field:
+                                                                Expr 65 [0-0] [Type Range]: Var: Local 41
+                                                                Prim(Step)
+                                                        Expr 66 [0-0] [Type Int]: Field:
+                                                            Expr 67 [0-0] [Type Range]: Var: Local 41
                                                             Prim(Step)
-                                                    Expr 62 [0-0] [Type Int]: Field:
-                                                        Expr 63 [0-0] [Type Range]: Var: Local 41
-                                                        Prim(Step)
-                                            Expr 64 [0-0] [Type Int]: UnOp (Neg):
-                                                Expr 65 [0-0] [Type Int]: Field:
-                                                    Expr 66 [0-0] [Type Range]: Var: Local 41
+                                                Expr 68 [0-0] [Type Int]: Field:
+                                                    Expr 69 [0-0] [Type Range]: Var: Local 41
                                                     Prim(Step)
-                                            Expr 67 [0-0] [Type Int]: Field:
-                                                Expr 68 [0-0] [Type Range]: Var: Local 41
+                                            Expr 70 [0-0] [Type Int]: UnOp (Neg):
+                                                Expr 71 [0-0] [Type Int]: Field:
+                                                    Expr 72 [0-0] [Type Range]: Var: Local 41
+                                                    Prim(Step)
+                                            Expr 73 [0-0] [Type Int]: Field:
+                                                Expr 74 [0-0] [Type Range]: Var: Local 41
                                                 Prim(Start)
-                                        Block 69 [128-175] [Type Unit]:
-                                            Stmt 70 [160-165]: Semi: Expr 71 [160-164] [Type Unit]: Call:
-                                                Expr 72 [160-161] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
-                                                    Expr 73 [160-161] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
-                                                Expr 74 [162-163] [Type Int]: Lit: Int(2)
-                                            Stmt 75 [142-147]: Semi: Expr 76 [142-146] [Type Unit]: Call:
-                                                Expr 77 [142-143] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
-                                                    Expr 78 [142-143] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
-                                                Expr 79 [144-145] [Type Int]: Lit: Int(1)
+                                        Block 75 [128-175] [Type Unit]:
+                                            Stmt 76 [160-165]: Semi: Expr 77 [160-164] [Type Unit]: Call:
+                                                Expr 78 [160-161] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                    Expr 79 [160-161] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                                Expr 80 [162-163] [Type Int]: Lit: Int(2)
+                                            Stmt 81 [142-147]: Semi: Expr 82 [142-146] [Type Unit]: Call:
+                                                Expr 83 [142-143] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                    Expr 84 [142-143] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                                Expr 85 [144-145] [Type Int]: Lit: Int(1)
                         ctl: <none>
                         ctl-adj: <none>"#]],
     );

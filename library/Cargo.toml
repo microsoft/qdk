@@ -3,7 +3,6 @@ name = "library"
 
 version.workspace = true
 authors.workspace = true
-homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,6 +10,7 @@ license.workspace = true
 [dev-dependencies]
 indoc = { workspace = true }
 num-bigint = { workspace = true }
+num-complex = { workspace = true }
 expect-test = { workspace = true }
 qsc = { path = "../source/compiler/qsc" }
 

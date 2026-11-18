@@ -64,6 +64,13 @@ const packageChoices: PackageChoice[] = [
   },
   {
     packageName: "qdk",
+    extra: "ec",
+    description: "QDK optional support for quantum error correction",
+    detail: "Develop and test quantum error correction schemes",
+    picked: false,
+  },
+  {
+    packageName: "qdk",
     extra: "jupyter",
     description: "QDK optional support for Jupyter notebooks",
     detail:

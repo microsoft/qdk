@@ -17,5 +17,8 @@ export {
   type SourceLocation,
 } from "../../../src/data-structures/circuit.js";
 
-export { CURRENT_VERSION } from "../../../src/data-structures/circuit.js";
+export {
+  CURRENT_VERSION,
+  OMITTED_LOOP_ITERATIONS_GATE,
+} from "../../../src/data-structures/circuit.js";
 export { toCircuitGroup } from "../../../src/data-structures/legacyCircuitUpdate.js";

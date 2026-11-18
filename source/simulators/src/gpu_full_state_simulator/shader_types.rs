@@ -31,6 +31,7 @@ pub const MIN_REGISTERS: usize = 128;
 
 // Memory reserved for alloca'd memory.
 pub const MAX_ALLOCA_SIZE: usize = 1024;
+pub const MAX_CALL_DEPTH: usize = 8;
 
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::cast_possible_wrap)]
@@ -1086,7 +1087,9 @@ pub struct CallStackFrame {
     return_pc: u32,
     /// Where to write the return value.
     return_reg: u32,
-    /// This is for alignment.
+    previous_block_id: u32,
+    /// Start of the saved caller registers in per-shot memory.
+    memory_base: u32,
     reserved: u32,
 }
 
@@ -1110,12 +1113,16 @@ pub struct InterpreterState {
     pub exit_code: u32,
     /// Call stack pointer.
     pub call_sp: u32,
-    /// Call stack frames (4 u32 per frame × 14 frames = 56).
-    pub call_stack_frames: [CallStackFrame; 14],
+    pub memory_top: u32,
+    // Keep the fixed interpreter prefix at 256 bytes, matching the shader layout.
+    reserved: [u32; 7],
+    pub call_stack_frames: [CallStackFrame; MAX_CALL_DEPTH],
 }
-// Total struct size = 64 u32 = 256 bytes (which is aligned to 128 bytes)
-// safety check to make sure Op is the correct size with padding at compile time
-const _: () = assert!(std::mem::size_of::<InterpreterState>() == 256);
+const _: () = {
+    assert!(std::mem::size_of::<CallStackFrame>() == 24);
+    assert!(std::mem::offset_of!(InterpreterState, call_stack_frames) == 64);
+    assert!(std::mem::size_of::<InterpreterState>() == 256);
+};
 
 /// Build a pool of [`Op`] structs from compact `(op_id, q1, q2, q3, angle)` tuples.
 ///

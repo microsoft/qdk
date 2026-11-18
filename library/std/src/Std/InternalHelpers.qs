@@ -28,36 +28,39 @@ internal operation CCH(control1 : Qubit, control2 : Qubit, target : Qubit) : Uni
     }
 }
 
-internal operation ApplyGlobalPhase(theta : Double) : Unit is Ctl + Adj {
+// Global phase is not relevant for physical systems, but controlled global phase is physical.
+operation ApplyGlobalPhase(theta : Double) : Unit is Ctl + Adj {
     body ... {
-        ControllableGlobalPhase(theta);
-    }
-    adjoint ... {
-        ControllableGlobalPhase(-theta);
-    }
-}
-
-// Global phase is not relevant for physical systems, but controlled global phase is physical. We use
-// the Rz gate to implement controlled global phase physically, and then correct for the extra global phase it
-// introduces in simulation using additional calls to the simulation-only global phase intrinsic.
-// We use a separate operation for this controlled case to avoid recursive calls to the same operation
-// that can interfere with runtime capabilities analysis.
-internal operation ControllableGlobalPhase(theta : Double) : Unit is Ctl {
-    body ... {
-        GlobalPhase([], theta);
+        GlobalPhase(theta);
     }
     controlled (ctls, ...) {
         if Length(ctls) == 0 {
-            GlobalPhase([], theta);
+            GlobalPhase(theta);
+        } elif Length(ctls) == 1 {
+            Rz(theta, ctls[0]);
+            GlobalPhase(theta / 2.0);
+        } elif Length(ctls) == 2 {
+            Rz(theta / 2.0, ctls[1]);
+            CRz(ctls[1], theta, ctls[0]);
+            GlobalPhase(theta / 4.0);
         } else {
-            Controlled Rz(ctls[1...], (theta, ctls[0]));
-            GlobalPhase(ctls[1...], theta / 2.0);
+            let remainingControls = ctls[1...];
+            use aux = Qubit[Length(ctls) - 2];
+            within {
+                CollectControls(remainingControls, aux, 0);
+                AdjustForSingleControl(remainingControls, aux);
+            } apply {
+                Controlled ApplyGlobalPhase([ctls[0], aux[Length(aux) - 1]], theta);
+            }
         }
+    }
+    adjoint ... {
+        ApplyGlobalPhase(-theta);
     }
 }
 
-// Global phase intrinsic, which only has affect in simulation and is a no-op otherwise.
-internal operation GlobalPhase(ctls : Qubit[], theta : Double) : Unit {
+// Global phase intrinsic, which only has effect in simulation and is a no-op otherwise.
+internal operation GlobalPhase(theta : Double) : Unit {
     body intrinsic;
 }
 

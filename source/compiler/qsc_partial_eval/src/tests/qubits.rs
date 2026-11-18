@@ -559,7 +559,7 @@ fn qubit_relabel_uses_expected_ids_in_adaptive_global_arrays() {
                     input_type:
                         [0]: Qubit
                     input_vars:
-                        [0]: 6
+                        [0]: 7
                     output_type: <VOID>
                     body: 4
                 Callable 3: Callable:
@@ -589,33 +589,37 @@ fn qubit_relabel_uses_expected_ids_in_adaptive_global_arrays() {
                     Variable(2, Integer) = Store Integer(0)
                     Jump(1)
                 Block 1: Block:
-                    Variable(3, Boolean) = Icmp Slt, Variable(2, Integer), Integer(2)
-                    Branch Variable(3, Boolean), 3, 2
+                    Variable(3, Integer) = Store Variable(2, Integer)
+                    Variable(4, Boolean) = Icmp Slt, Variable(3, Integer), Integer(2)
+                    Branch Variable(4, Boolean), 3, 2
                 Block 2: Block:
-                    Variable(8, Integer) = Store Integer(0)
+                    Variable(10, Integer) = Store Integer(0)
                     Jump(5)
                 Block 3: Block:
-                    Variable(4, Qubit) = Index Array(0), Variable(2, Integer)
-                    Variable(5, Qubit) = Store Variable(4, Qubit)
-                    Call id(2), args( Variable(5, Qubit), )
-                    Variable(7, Integer) = Add Variable(2, Integer), Integer(1)
-                    Variable(2, Integer) = Store Variable(7, Integer)
+                    Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+                    Variable(6, Qubit) = Store Variable(5, Qubit)
+                    Call id(2), args( Variable(6, Qubit), )
+                    Variable(8, Integer) = Store Variable(2, Integer)
+                    Variable(9, Integer) = Add Variable(8, Integer), Integer(1)
+                    Variable(2, Integer) = Store Variable(9, Integer)
                     Jump(1)
                 Block 4: Block:
-                    Call id(3), args( Variable(6, Qubit), )
+                    Call id(3), args( Variable(7, Qubit), )
                     Return
                 Block 5: Block:
-                    Variable(9, Boolean) = Icmp Slt, Variable(8, Integer), Integer(2)
-                    Branch Variable(9, Boolean), 7, 6
+                    Variable(11, Integer) = Store Variable(10, Integer)
+                    Variable(12, Boolean) = Icmp Slt, Variable(11, Integer), Integer(2)
+                    Branch Variable(12, Boolean), 7, 6
                 Block 6: Block:
                     Call id(4), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 7: Block:
-                    Variable(10, Qubit) = Index Array(0), Variable(8, Integer)
-                    Variable(11, Qubit) = Store Variable(10, Qubit)
-                    Call id(2), args( Variable(11, Qubit), )
-                    Variable(12, Integer) = Add Variable(8, Integer), Integer(1)
-                    Variable(8, Integer) = Store Variable(12, Integer)
+                    Variable(13, Qubit) = Index Array(0), Variable(10, Integer)
+                    Variable(14, Qubit) = Store Variable(13, Qubit)
+                    Call id(2), args( Variable(14, Qubit), )
+                    Variable(15, Integer) = Store Variable(10, Integer)
+                    Variable(16, Integer) = Add Variable(15, Integer), Integer(1)
+                    Variable(10, Integer) = Store Variable(16, Integer)
                     Jump(5)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)

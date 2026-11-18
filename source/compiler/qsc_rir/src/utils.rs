@@ -1,13 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{Block, BlockId, Instruction, Operand, Program, Variable, VariableId};
+use std::collections::VecDeque;
+
+use crate::rir::{
+    Block, BlockId, Callable, Instruction, Operand, OperandMapping, Program, Variable, VariableId,
+};
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Given a block, return the block IDs of its successors.
 #[must_use]
-pub fn get_block_successors(block: &Block) -> Vec<BlockId> {
+pub(crate) fn get_block_successors(block: &Block) -> Vec<BlockId> {
     let mut successors = Vec::new();
     // Assume that the block is well-formed and that terminators only appear as the last instruction.
     match &block
@@ -25,35 +29,44 @@ pub fn get_block_successors(block: &Block) -> Vec<BlockId> {
     successors
 }
 
-/// Given a block ID and a containing program, return the block IDs of all blocks reachable from the given block including itself.
-/// The returned block IDs are sorted in ascending order.
 #[must_use]
-pub fn get_all_block_successors(block: BlockId, program: &Program) -> Vec<BlockId> {
-    let mut blocks_to_visit = get_block_successors(program.get_block(block));
+pub fn get_callable_blocks(callable: &Callable, program: &Program) -> Vec<BlockId> {
+    let Some(entry) = callable.body else {
+        return Vec::new();
+    };
+    let mut blocks_to_visit = VecDeque::default();
+    blocks_to_visit.push_front(entry);
     let mut blocks_visited = FxHashSet::default();
-    while let Some(block_id) = blocks_to_visit.pop() {
-        if blocks_visited.contains(&block_id) {
+    while let Some(block_id) = blocks_to_visit.pop_front() {
+        if !blocks_visited.insert(block_id) {
             continue;
         }
-        blocks_visited.insert(block_id);
         let block = program.get_block(block_id);
-        let block_successors = get_block_successors(block);
-        blocks_to_visit.extend(block_successors.clone());
+        for successor in get_block_successors(block) {
+            blocks_to_visit.push_front(successor);
+        }
     }
-    let mut successors = blocks_visited.into_iter().collect::<Vec<_>>();
-    successors.sort_unstable();
-    successors
+    let mut blocks = blocks_visited.into_iter().collect::<Vec<_>>();
+    blocks.sort_unstable();
+    blocks
 }
 
 /// Given a program, return a map from block IDs to the block IDs of their predecessors.
 /// The vectors used as values in the map are sorted in ascending order, ensuring that block ids
 /// for predecessors are listed lowest to highest.
 #[must_use]
-pub fn build_predecessors_map(program: &Program) -> IndexMap<BlockId, Vec<BlockId>> {
+pub(crate) fn build_predecessors_map(
+    program: &Program,
+    validate_dag: bool,
+) -> IndexMap<BlockId, Vec<BlockId>> {
     let mut preds: IndexMap<BlockId, Vec<BlockId>> = IndexMap::default();
 
     for (block_id, block) in program.blocks.iter() {
         for successor in get_block_successors(block) {
+            assert!(
+                !validate_dag || successor >= block_id,
+                "after remapping of a DAG, successors should have greater block IDs than their predecessors"
+            );
             if let Some(preds_list) = preds.get_mut(successor) {
                 preds_list.push(block_id);
             } else {
@@ -70,7 +83,9 @@ pub fn build_predecessors_map(program: &Program) -> IndexMap<BlockId, Vec<BlockI
 }
 
 #[must_use]
-pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (BlockId, usize)> {
+pub(crate) fn get_variable_assignments(
+    program: &Program,
+) -> IndexMap<VariableId, (BlockId, usize)> {
     let mut assignments = IndexMap::default();
     let mut has_store = false;
     let mut has_phi = false;
@@ -136,33 +151,53 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
 // usage of the variable with the stored value.
 pub(crate) fn map_variable_use_in_block(
     block: &mut Block,
-    var_map: &mut FxHashMap<VariableId, Operand>,
+    var_map: &mut FxHashMap<VariableId, OperandMapping>,
     var_stor_to_keep: &FxHashSet<VariableId>,
+    used_vars: Option<&FxHashSet<VariableId>>,
 ) {
-    let instrs = block.0.drain(..).collect::<Vec<_>>();
+    let mut reverse_deep_map = populate_reverse_deep_map(var_map);
+
+    let instrs = std::mem::take(&mut block.0);
 
     for mut instr in instrs {
         match &mut instr {
-            // Track the new value of the variable and omit the store instruction.
             Instruction::Store(operand, var) => {
+                if !used_vars.is_none_or(|uv| uv.contains(&var.variable_id)) {
+                    // We were given a set of used variables that is missing the variable being stored, so this store is unnecessary.
+                    // Continue to drop it from the block.
+                    continue;
+                }
                 if var_stor_to_keep.contains(&var.variable_id) {
-                    // Only keep stores to variables that are in the set to keep.
+                    // The variable we are storing into is in the set of stored variables to keep,
+                    // so we must remove any prior mapping that might exist and keep the store.
+                    // We also update the operand being read for the store instruction with its current mapped value.
                     *operand = operand.mapped(var_map);
+                    var_map.remove(&var.variable_id);
+                } else if let Operand::Variable(mapped_var) = operand.mapped(var_map)
+                    && var_stor_to_keep.contains(&mapped_var.variable_id)
+                {
+                    // ...otherwise, if the variable we are are reading from in this store instruction is tracked as a variable whose stores must be kept,
+                    // meaning its value may change over time, and the variable written to by this store instruction is used later in the program,
+                    // then this store instruction represents a copy of the target value at this point in the program.
+                    // However, if we preserve the current store instruction then the variable we are storing into needs a backing allocation that will
+                    // be inserted by later (along with corresponding load instructions) by later passes, causing unnecessary memory operations.
+                    // Instead, we replace the store instruction with a direct load from the mapped variable to create a copy without needing additional
+                    // allocated memory. This is safe at this point in compilation because RIR does not track the difference between a pointer
+                    // and a non-pointer variable, so `Store i64 %v1, i64 %v2` can be safely replaced with `%v2 = Load i64 %v1`, then further optimized by later passes.
+                    block.0.push(Instruction::Load(mapped_var, *var));
+                    var_map.remove(&var.variable_id);
+                    continue;
                 } else {
-                    // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable
-                    // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
-                    // copy of the operand.
-                    var_map.insert(var.variable_id, operand.mapped(var_map));
+                    // Otherwise, update the variable mappings and skip this store instruction, propagating the known
+                    // mapped value into the later instructions.
+                    update_variable_mapping(var_map, &mut reverse_deep_map, operand, var);
                     continue;
                 }
             }
             Instruction::StoreArray(operand, var) => {
                 if var_stor_to_keep.contains(&var.variable_id) {
                     // Only keep stores to variables that are in the set to keep.
-                    *operand = operand
-                        .iter()
-                        .map(|op| op.mapped(var_map))
-                        .collect::<Vec<_>>();
+                    *operand = operand.iter().map(|op| op.mapped(var_map)).collect();
                 } else {
                     // Otherwise drop the store array by continuing the loop.
                     continue;
@@ -171,18 +206,7 @@ pub(crate) fn map_variable_use_in_block(
 
             // Replace any arguments with the new values of stored variables.
             Instruction::Call(_, args, _, _) => {
-                *args = args
-                    .iter()
-                    .map(|arg| match arg {
-                        Operand::Variable(var) => {
-                            // If the variable is not in the map, it is not something whose value has been updated via store in this block,
-                            // so just fallback to use the `arg` value directly.
-                            // `map_to_operand` does this automatically by returning `self`` when the variable is not in the map.
-                            var.map_to_operand(var_map)
-                        }
-                        Operand::Literal(_) => *arg,
-                    })
-                    .collect();
+                *args = args.iter().map(|arg| arg.mapped(var_map)).collect();
             }
 
             // Replace the branch condition with the new value of the variable.
@@ -231,51 +255,138 @@ pub(crate) fn map_variable_use_in_block(
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
 
-            Instruction::Alloca(..) => {
-                panic!("alloca not supported in ssa transformation")
-            }
-            Instruction::Load(..) => {
-                panic!("load not supported in ssa transformation")
+            Instruction::Alloca(..) | Instruction::Load(..) => {
+                panic!("alloca/load not supported in ssa transformation")
             }
         }
         block.0.push(instr);
     }
 }
 
+fn populate_reverse_deep_map(
+    var_map: &FxHashMap<VariableId, OperandMapping>,
+) -> FxHashMap<VariableId, FxHashSet<VariableId>> {
+    let mut reverse_deep_map: FxHashMap<VariableId, FxHashSet<VariableId>> = FxHashMap::default();
+    for (key, value) in var_map {
+        if let OperandMapping::Deep(Operand::Variable(mapped_var)) = value {
+            reverse_deep_map
+                .entry(mapped_var.variable_id)
+                .or_default()
+                .insert(*key);
+        }
+    }
+    reverse_deep_map
+}
+
+fn update_variable_mapping(
+    var_map: &mut FxHashMap<VariableId, OperandMapping>,
+    reverse_deep_map: &mut FxHashMap<VariableId, FxHashSet<VariableId>>,
+    operand: &Operand,
+    var: &Variable,
+) {
+    // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable
+    // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
+    // copy of the operand. However, it will create a mapping that matches the last mapping of the operand, ensuring
+    // that a shallow mapping is not incorrectly treated as a deep mapping.
+    let new_mapping = operand.terminal_mapping(var_map);
+    let old_mapping = var_map.insert(var.variable_id, new_mapping);
+    if let Some(OperandMapping::Deep(Operand::Variable(prior_var))) = old_mapping {
+        reverse_deep_map
+            .entry(prior_var.variable_id)
+            .or_default()
+            .remove(&var.variable_id);
+    }
+    if let OperandMapping::Deep(Operand::Variable(mapped_var)) = new_mapping {
+        reverse_deep_map
+            .entry(mapped_var.variable_id)
+            .or_default()
+            .insert(var.variable_id);
+    }
+
+    // For all existing deep mappings to this variable, downgrade them to shallow mappings.
+    // This ensures those previous mappings represent the value at the time they were created, rather than the new value being stored.
+    if let Some(deep_mappings) = reverse_deep_map.remove(&var.variable_id) {
+        for mapped_var_id in deep_mappings {
+            if let Some(mapping) = var_map.get_mut(&mapped_var_id)
+                && let OperandMapping::Deep(Operand::Variable(existing)) = mapping
+                && existing.variable_id == var.variable_id
+            {
+                *mapping = OperandMapping::Shallow(Operand::Variable(*existing));
+            }
+        }
+    }
+}
+
 impl Operand {
     #[must_use]
-    pub fn mapped(&self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
+    pub(crate) fn mapped(&self, var_map: &FxHashMap<VariableId, OperandMapping>) -> Operand {
         match self {
             Operand::Literal(_) => *self,
             Operand::Variable(var) => var.map_to_operand(var_map),
+        }
+    }
+
+    /// Returns the terminal mapping for this operand, following the chain of variable mappings until a
+    /// literal value, a terminal deep mapping, or a shallow mapping is reached.
+    #[must_use]
+    pub(crate) fn terminal_mapping(
+        &self,
+        var_map: &FxHashMap<VariableId, OperandMapping>,
+    ) -> OperandMapping {
+        match self {
+            Operand::Literal(_) => OperandMapping::Deep(*self),
+            Operand::Variable(var) => {
+                let mut var = *var;
+                while let Some(mapping) = var_map.get(&var.variable_id) {
+                    if let Operand::Variable(new_var) = mapping.into() {
+                        if new_var.variable_id == var.variable_id {
+                            break;
+                        }
+                        var = new_var;
+                        if mapping.is_shallow() {
+                            return *mapping;
+                        }
+                    } else {
+                        return *mapping;
+                    }
+                }
+                OperandMapping::Deep(Operand::Variable(var))
+            }
         }
     }
 }
 
 impl Variable {
     #[must_use]
-    pub fn map_to_operand(self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
+    pub(crate) fn map_to_operand(self, var_map: &FxHashMap<VariableId, OperandMapping>) -> Operand {
         let mut var = self;
-        while let Some(operand) = var_map.get(&var.variable_id) {
-            if let Operand::Variable(new_var) = operand {
+        while let Some(mapping) = var_map.get(&var.variable_id) {
+            if let Operand::Variable(new_var) = mapping.into() {
                 if new_var.variable_id == var.variable_id {
                     // The variable maps to itself, as happens when a live-in parameter is seeded as
                     // its own definition. It is already at its root, so stop following the chain.
                     break;
                 }
-                var = *new_var;
+                var = new_var;
+                if mapping.is_shallow() {
+                    // Stop following the chain for shallow mappings and use the current mapping as is.
+                    break;
+                }
             } else {
-                return *operand;
+                return mapping.into();
             }
         }
         Operand::Variable(var)
     }
 
     #[must_use]
-    pub fn map_to_variable(self, var_map: &FxHashMap<VariableId, Operand>) -> Variable {
+    pub(crate) fn map_to_variable(
+        self,
+        var_map: &FxHashMap<VariableId, OperandMapping>,
+    ) -> Variable {
         let mut var = self;
-        while let Some(operand) = var_map.get(&var.variable_id) {
-            let Operand::Variable(new_var) = operand else {
+        while let Some(mapping) = var_map.get(&var.variable_id) {
+            let Operand::Variable(new_var) = mapping.into() else {
                 panic!("literal not supported in this context");
             };
             if new_var.variable_id == var.variable_id {
@@ -283,7 +394,11 @@ impl Variable {
                 // own definition. It is already at its root, so stop following the chain.
                 break;
             }
-            var = *new_var;
+            var = new_var;
+            if mapping.is_shallow() {
+                // Stop following the chain for shallow mappings and use the current mapping as is.
+                break;
+            }
         }
         var
     }

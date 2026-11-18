@@ -1307,8 +1307,8 @@ fn if_else_expression_with_dynamic_condition_and_subsequent_call_to_operation() 
 }
 
 #[test]
-fn if_else_expression_with_result_literal_fails() {
-    let error = get_partial_evaluation_error(indoc! {
+fn if_else_expression_with_result_literal() {
+    let program = get_rir_program(indoc! {
         r#"
         namespace Test {
             @EntryPoint()
@@ -1320,11 +1320,27 @@ fn if_else_expression_with_result_literal_fails() {
         "#,
     });
 
-    assert_error(
-        &error,
-        &expect![[
-            r#"Unexpected("dynamic value of type Result in conditional expression", PackageSpan { package: PackageId(2), span: Span { lo: 101, hi: 137 } })"#
-        ]],
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(0, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Store Variable(0, Boolean)
+            Branch Variable(1, Boolean), 2, 3
+        Block 1:Block:
+            Variable(3, Result) = Store Variable(2, Result)
+            Call id(4), args( Variable(3, Result), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(2, Result) = Store ResultLit(true)
+            Jump(1)
+        Block 3:Block:
+            Call id(2), args( Qubit(0), Result(1), )
+            Variable(2, Result) = Store Result(1)
+            Jump(1)"#]],
     );
 }
 
@@ -1709,13 +1725,15 @@ fn if_expression_with_classical_operand_from_hybrid_booleans_array() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
                 Call id(4), args( Qubit(1), )
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(3, Boolean) = Call id(3), args( Result(1), )
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(5), args( Integer(2), Tag(0, 3), )
-                Call id(6), args( Variable(1, Boolean), Tag(1, 5), )
-                Call id(6), args( Variable(3, Boolean), Tag(2, 5), )
+                Call id(6), args( Variable(2, Boolean), Tag(1, 5), )
+                Call id(6), args( Variable(5, Boolean), Tag(2, 5), )
                 Return Integer(0)"#]],
     );
 }
@@ -1815,14 +1833,16 @@ fn if_expression_with_dynamic_operand_from_hybrid_booleans_array() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 1
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(3, Boolean) = Call id(3), args( Result(1), )
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(5), args( Integer(2), Tag(0, 3), )
-                Call id(6), args( Variable(1, Boolean), Tag(1, 5), )
-                Call id(6), args( Variable(3, Boolean), Tag(2, 5), )
+                Call id(6), args( Variable(2, Boolean), Tag(1, 5), )
+                Call id(6), args( Variable(5, Boolean), Tag(2, 5), )
                 Return Integer(0)
             Block 2:Block:
                 Call id(4), args( Qubit(1), )
@@ -1927,11 +1947,12 @@ fn if_expression_with_classical_operand_from_hybrid_integers_array() {
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
+                Variable(3, Integer) = Store Variable(2, Integer)
                 Call id(4), args( Qubit(1), )
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
-                Branch Variable(4, Boolean), 5, 6
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
+                Branch Variable(5, Boolean), 5, 6
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -1939,15 +1960,16 @@ fn if_expression_with_classical_operand_from_hybrid_integers_array() {
                 Variable(2, Integer) = Store Integer(1)
                 Jump(1)
             Block 4:Block:
+                Variable(7, Integer) = Store Variable(6, Integer)
                 Call id(5), args( Integer(2), Tag(0, 3), )
-                Call id(6), args( Variable(2, Integer), Tag(1, 5), )
-                Call id(6), args( Variable(5, Integer), Tag(2, 5), )
+                Call id(6), args( Variable(3, Integer), Tag(1, 5), )
+                Call id(6), args( Variable(7, Integer), Tag(2, 5), )
                 Return Integer(0)
             Block 5:Block:
-                Variable(5, Integer) = Store Integer(0)
+                Variable(6, Integer) = Store Integer(0)
                 Jump(4)
             Block 6:Block:
-                Variable(5, Integer) = Store Integer(1)
+                Variable(6, Integer) = Store Integer(1)
                 Jump(4)"#]],
     );
 }
@@ -2049,8 +2071,10 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Integer), Integer(0)
-                Branch Variable(3, Boolean), 5, 4
+                Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Integer), Integer(0)
+                Branch Variable(5, Boolean), 5, 4
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2059,22 +2083,23 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
                 Jump(1)
             Block 4:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 7, 8
+                Variable(6, Boolean) = Call id(3), args( Result(1), )
+                Variable(7, Boolean) = Icmp Eq, Variable(6, Boolean), Bool(false)
+                Branch Variable(7, Boolean), 7, 8
             Block 5:Block:
                 Call id(4), args( Qubit(1), )
                 Jump(4)
             Block 6:Block:
+                Variable(9, Integer) = Store Variable(8, Integer)
                 Call id(5), args( Integer(2), Tag(0, 3), )
-                Call id(6), args( Variable(2, Integer), Tag(1, 5), )
-                Call id(6), args( Variable(6, Integer), Tag(2, 5), )
+                Call id(6), args( Variable(3, Integer), Tag(1, 5), )
+                Call id(6), args( Variable(9, Integer), Tag(2, 5), )
                 Return Integer(0)
             Block 7:Block:
-                Variable(6, Integer) = Store Integer(0)
+                Variable(8, Integer) = Store Integer(0)
                 Jump(6)
             Block 8:Block:
-                Variable(6, Integer) = Store Integer(1)
+                Variable(8, Integer) = Store Integer(1)
                 Jump(6)"#]],
     );
 }
@@ -2176,11 +2201,12 @@ fn if_expression_with_classical_operand_from_hybrid_doubles_array() {
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
+                Variable(3, Double) = Store Variable(2, Double)
                 Call id(4), args( Qubit(1), )
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
-                Branch Variable(4, Boolean), 5, 6
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
+                Branch Variable(5, Boolean), 5, 6
             Block 2:Block:
                 Variable(2, Double) = Store Double(0.1)
                 Jump(1)
@@ -2188,15 +2214,16 @@ fn if_expression_with_classical_operand_from_hybrid_doubles_array() {
                 Variable(2, Double) = Store Double(1.1)
                 Jump(1)
             Block 4:Block:
+                Variable(7, Double) = Store Variable(6, Double)
                 Call id(5), args( Integer(2), Tag(0, 3), )
-                Call id(6), args( Variable(2, Double), Tag(1, 5), )
-                Call id(6), args( Variable(5, Double), Tag(2, 5), )
+                Call id(6), args( Variable(3, Double), Tag(1, 5), )
+                Call id(6), args( Variable(7, Double), Tag(2, 5), )
                 Return Integer(0)
             Block 5:Block:
-                Variable(5, Double) = Store Double(0.1)
+                Variable(6, Double) = Store Double(0.1)
                 Jump(4)
             Block 6:Block:
-                Variable(5, Double) = Store Double(1.1)
+                Variable(6, Double) = Store Double(1.1)
                 Jump(4)"#]],
     );
 }
@@ -2298,8 +2325,10 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
-                Variable(3, Boolean) = Fcmp Oeq, Variable(2, Double), Double(0)
-                Branch Variable(3, Boolean), 5, 4
+                Variable(3, Double) = Store Variable(2, Double)
+                Variable(4, Double) = Store Variable(3, Double)
+                Variable(5, Boolean) = Fcmp Oeq, Variable(4, Double), Double(0)
+                Branch Variable(5, Boolean), 5, 4
             Block 2:Block:
                 Variable(2, Double) = Store Double(0.1)
                 Jump(1)
@@ -2308,22 +2337,23 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
                 Jump(1)
             Block 4:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 7, 8
+                Variable(6, Boolean) = Call id(3), args( Result(1), )
+                Variable(7, Boolean) = Icmp Eq, Variable(6, Boolean), Bool(false)
+                Branch Variable(7, Boolean), 7, 8
             Block 5:Block:
                 Call id(4), args( Qubit(1), )
                 Jump(4)
             Block 6:Block:
+                Variable(9, Double) = Store Variable(8, Double)
                 Call id(5), args( Integer(2), Tag(0, 3), )
-                Call id(6), args( Variable(2, Double), Tag(1, 5), )
-                Call id(6), args( Variable(6, Double), Tag(2, 5), )
+                Call id(6), args( Variable(3, Double), Tag(1, 5), )
+                Call id(6), args( Variable(9, Double), Tag(2, 5), )
                 Return Integer(0)
             Block 7:Block:
-                Variable(6, Double) = Store Double(0.1)
+                Variable(8, Double) = Store Double(0.1)
                 Jump(6)
             Block 8:Block:
-                Variable(6, Double) = Store Double(1.1)
+                Variable(8, Double) = Store Double(1.1)
                 Jump(6)"#]],
     );
 }
@@ -2366,6 +2396,146 @@ fn if_expression_with_implicit_return_in_callable_supported() {
             Block 3:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)"#]],
+    );
+}
+
+#[test]
+fn short_circuit_andl_with_potentially_skipped_mutable_update_with_literal() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            mutable n = 0;
+            let _ = MResetZ(q) == One and (if true { n = 5; true } else { false });
+            n
+        }
+    "#
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(false)
+                Branch Variable(3, Boolean), 2, 1
+            Block 1:Block:
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(0, Integer) = Store Integer(5)
+                Variable(4, Boolean) = Store Bool(true)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn short_circuit_orl_with_potentially_skipped_mutable_update_with_literal() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            mutable n = 0;
+            let _ = MResetZ(q) == One or (if true { n = 5; true } else { false });
+            n
+        }
+    "#
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(true)
+                Branch Variable(3, Boolean), 1, 2
+            Block 1:Block:
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(0, Integer) = Store Integer(5)
+                Variable(4, Boolean) = Store Bool(true)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn assign_to_unit_tuple_with_block_updating_mutable_in_dynamic_branch() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            let d = MResetZ(q) == One;
+            mutable z = 3;
+            set () = { if d { set z = 5; } () };
+            z
+        }
+    "#
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(0, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Store Variable(0, Boolean)
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Variable(3, Integer) = Store Integer(3)
+            Branch Variable(2, Boolean), 2, 1
+        Block 1:Block:
+            Variable(4, Integer) = Store Variable(3, Integer)
+            Call id(4), args( Variable(4, Integer), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(3, Integer) = Store Integer(5)
+            Jump(1)"#]],
+    );
+}
+
+#[test]
+fn assign_to_unit_tuple_with_block_applying_gate_in_dynamic_branch() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use (q, t) = (Qubit(), Qubit());
+            let d = MResetZ(q) == One;
+            set () = { if d { X(t); } () };
+            MResetZ(t)
+        }
+    "#
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(0, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Store Variable(0, Boolean)
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Branch Variable(2, Boolean), 2, 1
+        Block 1:Block:
+            Call id(2), args( Qubit(1), Result(1), )
+            Call id(5), args( Result(1), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Call id(4), args( Qubit(1), )
+            Jump(1)"#]],
     );
 }
 

@@ -8,10 +8,7 @@ mod instruction_tests;
 mod tests;
 
 use qsc_data_structures::{attrs::Attributes, target::TargetCapabilityFlags};
-use qsc_rir::{
-    rir::{self, ConditionCode, FcmpConditionCode},
-    utils::get_all_block_successors,
-};
+use qsc_rir::rir::{self, ConditionCode, FcmpConditionCode};
 use std::fmt::Write;
 
 use super::name::llvm_global_name;
@@ -47,6 +44,9 @@ impl ToQir<String> for rir::Literal {
             }
             rir::Literal::Array(_) => {
                 panic!("array literals are not supported in QIR v1 generation")
+            }
+            rir::Literal::ResultLit(..) => {
+                panic!("result literal values are not supported in QIR v1 generation")
             }
         }
     }
@@ -337,7 +337,7 @@ fn call_to_qir(
 ) -> String {
     let args = args
         .iter()
-        .map(|arg| ToQir::<String>::to_qir(arg, program))
+        .map(|arg| i1_zeroext(&ToQir::<String>::to_qir(arg, program)))
         .collect::<Vec<_>>()
         .join(", ");
     let callable = program.get_callable(call_id);
@@ -346,7 +346,7 @@ fn call_to_qir(
         format!(
             "  {} = call {} {}({args})",
             ToQir::<String>::to_qir(&output.variable_id, program),
-            ToQir::<String>::to_qir(&callable.output_type, program),
+            zeroext_i1(&ToQir::<String>::to_qir(&callable.output_type, program)),
             callable_name
         )
     } else {
@@ -548,6 +548,9 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
             rir::Literal::Array(..) => {
                 panic!("array literals are not supported in QIR v1 generation")
             }
+            rir::Literal::ResultLit(..) => {
+                panic!("result literal values are not supported in QIR v1 generation")
+            }
         },
         rir::Operand::Variable(var) => ToQir::<String>::to_qir(&var.variable_id, program),
     }
@@ -564,6 +567,9 @@ fn get_value_ty(lhs: &rir::Operand) -> &str {
             rir::Literal::NullPointer | rir::Literal::Tag(..) => "i8*",
             rir::Literal::Array(_) => {
                 panic!("array literals are not supported in QIR v1 generation")
+            }
+            rir::Literal::ResultLit(..) => {
+                panic!("result literal values are not supported in QIR v1 generation")
             }
         },
         rir::Operand::Variable(var) => get_variable_ty(*var),
@@ -624,11 +630,11 @@ impl ToQir<String> for rir::Callable {
         let input_type = self
             .input_type
             .iter()
-            .map(|t| ToQir::<String>::to_qir(t, program))
+            .map(|t| i1_zeroext(&ToQir::<String>::to_qir(t, program)))
             .collect::<Vec<_>>()
             .join(", ");
-        let output_type = ToQir::<String>::to_qir(&self.output_type, program);
-        let Some(entry_id) = self.body else {
+        let output_type = zeroext_i1(&ToQir::<String>::to_qir(&self.output_type, program));
+        if self.body.is_none() {
             let callable_name = llvm_global_name(&self.name);
             return format!(
                 "declare {output_type} {callable_name}({input_type}){}",
@@ -641,11 +647,13 @@ impl ToQir<String> for rir::Callable {
                     _ => "",
                 }
             );
-        };
+        }
         let mut body = String::new();
-        let mut all_blocks = vec![entry_id];
-        all_blocks.extend(get_all_block_successors(entry_id, program));
-        for block_id in all_blocks {
+        // Because QIR v1 emission assumes only a single function defined with a body, we know every
+        // block in the program belongs to the entry point. Further, because it's an `IndexMap` and
+        // RIR transforms ensure blocks have topological identifiers, iterating them produces the
+        // ordered set of blocks for the Directed Acyclic Graph of the program.
+        for block_id in program.blocks.iter().map(|(block_id, _)| block_id) {
             let block = program.get_block(block_id);
             write!(
                 body,
@@ -768,4 +776,12 @@ fn get_module_metadata(program: &rir::Program) -> String {
     }
     writeln!(metadata_def, "!{}}}", index - 1).expect("writing to string should succeed");
     metadata_def + &flags
+}
+
+fn zeroext_i1(input: &str) -> String {
+    input.replace("i1", "zeroext i1")
+}
+
+fn i1_zeroext(input: &str) -> String {
+    input.replace("i1", "i1 zeroext")
 }

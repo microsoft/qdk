@@ -44,7 +44,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
                     self.mresetz_func = func
                 case "__quantum__qis__sx__body":
                     self.sx_func = func
-        if not hasattr(self, "sx_fun"):
+        if not hasattr(self, "sx_func"):
             self.sx_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
@@ -86,13 +86,18 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
                 and self.qubit_ops[key][-2][1] == "h"
             ):
                 # We have a sequence of h s h, which can be replaced with a single sx.
+                target = instr.args[0]
                 self.builder.insert_before(instr)
-                self.builder.call(self.sx_func, [instr.args[0]])
+                self.builder.call(self.sx_func, [target])
                 instr.erase()
                 (other_instr, _) = self.qubit_ops[key].pop()
                 other_instr.erase()
                 (other_instr, _) = self.qubit_ops[key].pop()
                 other_instr.erase()
+                # The new sx is not visited, so handle it like an existing sx: drop the tracked
+                # ops for its qubit, so gates before it do not cancel with gates after it.
+                self._drop_ops([target])
+                return
             else:
                 # The last operation was not the adjoint of this one, so add this instruction to the list.
                 self.qubit_ops[key].append((instr, name))

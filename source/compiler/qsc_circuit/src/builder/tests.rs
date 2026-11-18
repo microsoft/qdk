@@ -352,6 +352,7 @@ fn exceed_max_operations() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 2,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -381,6 +382,7 @@ fn source_locations_enabled() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -419,6 +421,7 @@ fn source_locations_disabled() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -451,6 +454,7 @@ fn source_locations_multiple_user_frames() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -490,6 +494,7 @@ fn source_locations_library_frames_excluded() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -523,6 +528,7 @@ fn source_locations_only_library_frames() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -556,6 +562,7 @@ fn source_locations_enabled_no_stack() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -582,6 +589,7 @@ fn qubit_source_locations_via_stack() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -607,6 +615,7 @@ fn qubit_labels_for_preallocated_qubits() {
     let mut builder = CircuitTracer::with_qubit_input_params(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -648,6 +657,7 @@ fn measurement_target_propagated_to_group() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: usize::MAX,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -949,6 +959,7 @@ fn source_locations_for_groups() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -973,4 +984,55 @@ fn source_locations_for_groups() {
         q_0    ─ [ [Main] ─── [ [Foo@user_code.qs:0:10] ── X@user_code.qs:0:10 ─── ] ──── ] ──
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
+}
+
+/// Traces one measurement per name on its own qubit and returns the rendered measurement gates.
+fn traced_measurement_gates(names: &[&str]) -> Vec<String> {
+    let c = FakeCompilation::default();
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: usize::MAX,
+            max_loop_iterations: None,
+            source_locations: false,
+            group_by_scope: false,
+            prune_classical_qubits: false,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    for (id, name) in names.iter().enumerate() {
+        builder.qubit_allocate(&[], id);
+        builder.measure(&[], name, id, &id.into());
+    }
+
+    builder
+        .finish(&c)
+        .component_grid
+        .iter()
+        .flat_map(|column| &column.components)
+        .filter_map(|operation| match operation {
+            Operation::Measurement(measurement) => Some(measurement.gate.clone()),
+            Operation::Unitary(_) | Operation::Ket(_) => None,
+        })
+        .collect()
+}
+
+#[test]
+fn mx_my_mz_name_is_preserved() {
+    assert_eq!(
+        traced_measurement_gates(&["MX", "MY", "MZ"]),
+        ["MX", "MY", "MZ"]
+    );
+}
+
+#[test]
+fn z_measurements_stay_m_without_other_bases() {
+    assert_eq!(traced_measurement_gates(&["M"]), ["M"]);
+    assert_eq!(traced_measurement_gates(&["MResetZ"]), ["M"]);
+}
+
+#[test]
+fn z_measurements_labeled_mz_with_other_bases() {
+    assert_eq!(traced_measurement_gates(&["MX", "M"]), ["MX", "MZ"]);
+    assert_eq!(traced_measurement_gates(&["MY", "MResetZ"]), ["MY", "MZ"]);
 }

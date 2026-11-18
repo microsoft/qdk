@@ -83,8 +83,16 @@ pub fn rir_to_circuit(
 
     // All operations from the program collected, finalize the circuit.
     let qubits = wire_map_builder.into_wire_map().to_qubits(source_lookup);
+    let has_non_z_measurements = builder.has_non_z_measurements();
     let operations = builder.into_operations();
-    let circuit = finish_circuit(source_lookup, operations, qubits, config.group_by_scope);
+    let circuit = finish_circuit(
+        source_lookup,
+        operations,
+        qubits,
+        config.group_by_scope,
+        config.max_loop_iterations,
+        has_non_z_measurements,
+    );
 
     Ok(circuit)
 }
@@ -1491,7 +1499,7 @@ fn callable_spec<'a>(
                 o => {
                     return Err(Error::UnsupportedFeature(format!(
                         "unsupported operand for custom gate {}: {o:?}",
-                        &callable.name
+                        callable.name
                     )));
                 }
             }
@@ -1636,6 +1644,8 @@ fn known_gate_spec(callable_name: &str) -> Option<GateSpec<'static>> {
         // measurement gates
         "__quantum__qis__mresetz__body" => GateSpec::measurement_gate("MResetZ"),
         "__quantum__qis__m__body" => GateSpec::measurement_gate("M"),
+        "__quantum__qis__mx__body" => GateSpec::measurement_gate("MX"),
+        "__quantum__qis__my__body" => GateSpec::measurement_gate("MY"),
         _ => return None,
     };
     Some(name)

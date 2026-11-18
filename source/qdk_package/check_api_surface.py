@@ -13,11 +13,15 @@ ABC, protocol) is an implementation detail that users never need to
 reference directly, so it does not constitute actionable leakage.
 
 Types that are defined in a private module but re-exported through a
-public module's ``__all__`` are **not** flagged — they are considered
-public.
+public module's ``__all__`` or public attributes of an exported class
+are **not** flagged — they are considered public.
 
 Exit code 0  - no violations found.
 Exit code 1  - one or more violations found (details printed to stderr).
+Exit code 2  - scan incomplete because the qdk package or a declared export is unavailable.
+
+Public submodules that fail to import (for example, because an optional extra
+is not installed) are skipped with a warning.
 
 Usage::
 
@@ -91,7 +95,7 @@ def _type_fqn(tp: type) -> str:
     return qual
 
 
-def _extract_leaf_types(annotation) -> list:
+def _extract_leaf_types(annotation: typing.Any) -> list:
     """Recursively unwrap generic aliases and return leaf types."""
     origin = getattr(annotation, "__origin__", None)
     args = getattr(annotation, "__args__", None)
@@ -147,6 +151,10 @@ class Violation:
         )
 
 
+class ScanIncomplete(RuntimeError):
+    """A required public module or export could not be inspected."""
+
+
 def _build_public_types(
     modules: list[tuple[str, types.ModuleType]],
 ) -> tuple[set[int], set[str]]:
@@ -155,30 +163,54 @@ def _build_public_types(
     Returns:
         A tuple of (public_type_ids, public_type_names) where:
         - public_type_ids is a set of ``id()`` values for type objects
-          found in any public module's ``__all__``.
+          reachable through a public module's ``__all__`` or public
+          attributes of its exported classes.
         - public_type_names is a set of unqualified names (e.g. "Config")
           for resolving forward-reference strings.
     """
     public_type_ids: set[int] = set()
     public_type_names: set[str] = set()
+    pending_types: list[tuple[str, type]] = []
 
     for mod_name, mod in modules:
         all_symbols = getattr(mod, "__all__", None)
         if all_symbols is None:
             continue
         for sym_name in all_symbols:
-            obj = getattr(mod, sym_name, None)
+            obj = _lazy_getattr(mod, mod_name, sym_name)
             if obj is None:
                 continue
             if isinstance(obj, type):
-                public_type_ids.add(id(obj))
-                public_type_names.add(sym_name)
+                pending_types.append((sym_name, obj))
+
+    while pending_types:
+        type_name, public_type = pending_types.pop()
+        public_type_names.add(type_name)
+        if id(public_type) in public_type_ids:
+            continue
+        public_type_ids.add(id(public_type))
+        for attr_name in dir(public_type):
+            if attr_name.startswith("_"):
+                continue
+            attr = _lazy_getattr(public_type, _type_fqn(public_type), attr_name)
+            if isinstance(attr, type):
+                pending_types.append((attr_name, attr))
 
     return public_type_ids, public_type_names
 
 
+def _lazy_getattr(mod: types.ModuleType | type, mod_name: str, sym_name: str):
+    """Resolve a declared export; missing dependencies make the scan incomplete."""
+    try:
+        return getattr(mod, sym_name)
+    except (ImportError, AttributeError) as error:
+        raise ScanIncomplete(
+            f"could not resolve {mod_name}.{sym_name}: {error}"
+        ) from error
+
+
 def _check_annotation(
-    annotation,
+    annotation: typing.Any,
     module_name: str,
     symbol_name: str,
     context: str,
@@ -223,7 +255,7 @@ def _check_annotation(
 
 
 def _check_callable(
-    obj,
+    obj: typing.Any,
     module_name: str,
     symbol_name: str,
     violations: list[Violation],
@@ -272,10 +304,7 @@ def _check_class(
     for attr_name in dir(cls):
         if attr_name.startswith("_") and not attr_name.startswith("__"):
             continue  # skip private methods
-        try:
-            attr = getattr(cls, attr_name)
-        except Exception:
-            continue
+        attr = _lazy_getattr(cls, _type_fqn(cls), attr_name)
         if not callable(attr):
             continue
         if not (inspect.isfunction(attr) or inspect.ismethod(attr)):
@@ -341,7 +370,10 @@ def _import_root_package() -> types.ModuleType:
 
 def _iter_qdk_modules() -> list[tuple[str, types.ModuleType]]:
     """Import and yield all public qdk submodules."""
-    root = _import_root_package()
+    try:
+        root = _import_root_package()
+    except ImportError as error:
+        raise ScanIncomplete(f"could not import {ROOT_PACKAGE}: {error}") from error
     result: list[tuple[str, types.ModuleType]] = [(ROOT_PACKAGE, root)]
 
     for importer, modname, ispkg in pkgutil.walk_packages(
@@ -373,7 +405,7 @@ def scan() -> list[Violation]:
             continue  # only check modules that declare __all__
 
         for sym_name in all_symbols:
-            obj = getattr(mod, sym_name, None)
+            obj = _lazy_getattr(mod, mod_name, sym_name)
             if obj is None:
                 continue
 
@@ -411,7 +443,14 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Output violations as JSON")
     args = parser.parse_args()
 
-    violations = scan()
+    try:
+        violations = scan()
+    except ScanIncomplete as error:
+        if args.json:
+            print(json.dumps({"error": "incomplete scan", "detail": str(error)}))
+        else:
+            print(f"API scan incomplete: {error}", file=sys.stderr)
+        return 2
 
     if not violations:
         print("No private API leakage detected.", file=sys.stderr)

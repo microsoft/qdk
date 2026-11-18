@@ -10,7 +10,12 @@ import {
   groupTopPadding,
   groupBottomPadding,
 } from "./constants.js";
-import { ComponentGrid, Operation, SourceLocation } from "../data/circuit.js";
+import {
+  ComponentGrid,
+  OMITTED_LOOP_ITERATIONS_GATE,
+  Operation,
+  SourceLocation,
+} from "../data/circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import { LayoutScope } from "./layoutMap.js";
 import { Register, RegisterMap } from "../data/register.js";
@@ -415,8 +420,16 @@ const _opToRenderData = (
     if (isExpanded) {
       _processChildren(renderData, children!, registers, renderLocations);
     }
+  } else if (op.kind === "unitary" && gate === OMITTED_LOOP_ITERATIONS_GATE) {
+    renderData.type = GateType.Ellipsis;
+    renderData.label = "...";
+    const omittedIterations = Number(args?.[0]);
+    if (Number.isInteger(omittedIterations) && omittedIterations > 0) {
+      renderData.displayArgs = omittedIterations.toString();
+    }
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
+    renderData.label = gate;
   } else if (op.kind === "ket") {
     renderData.type = GateType.Ket;
     renderData.label = gate;
@@ -464,7 +477,13 @@ const _opToRenderData = (
   if (isAdjoint && renderData.label.length > 0) renderData.label += "'";
 
   // If gate has extra arguments, display them For now, we only display the first argument
-  if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
+  if (
+    renderData.type !== GateType.Ellipsis &&
+    args !== undefined &&
+    args.length > 0
+  ) {
+    renderData.displayArgs = args[0];
+  }
 
   // Minimum width is calculated based on the label and args. If this is a collapsed composite
   // (GateType.Group with no children render data), its width should be based on the summary gate
@@ -803,4 +822,4 @@ function _processChildren(
   };
 }
 
-export { processOperations };
+export { processOperations, _opToRenderData };

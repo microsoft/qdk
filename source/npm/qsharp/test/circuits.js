@@ -8,6 +8,7 @@
 
 // @ts-check
 
+import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import fs, { readFileSync } from "node:fs";
 import path from "node:path";
@@ -311,3 +312,47 @@ async function generateAndDrawCircuit(
     container.appendChild(pre);
   }
 }
+
+/**
+ * Generate a circuit for `source`, draw it, and return the rendered
+ * measurement-basis labels in document order.
+ * @param {string} source
+ */
+async function renderedMeasurementBases(source) {
+  const compiler = await getCompiler();
+  const circuit = await compiler.getCircuit(
+    { sources: [["test.qs", source]], languageFeatures: [] },
+    {
+      generationMethod: "classicalEval",
+      groupByScope: false,
+      maxOperations: 100,
+      sourceLocations: false,
+    },
+    undefined,
+  );
+  const container = createContainerElement("circuit");
+  draw(circuit, container);
+  return [...container.querySelectorAll("text.measurement-basis")].map(
+    (el) => el.textContent,
+  );
+}
+
+test("measurement basis labels for mixed bases", async () => {
+  const bases = await renderedMeasurementBases(`operation Main() : Result[] {
+    use qs = Qubit[3];
+    let rs = [MZ(qs[0]), MX(qs[1]), MY(qs[2])];
+    ResetAll(qs);
+    rs
+  }`);
+  assert.deepEqual(bases, ["Z", "X", "Y"]);
+});
+
+test("no measurement basis label when only Z measurements exist", async () => {
+  const bases = await renderedMeasurementBases(`operation Main() : Result[] {
+    use qs = Qubit[2];
+    let rs = [M(qs[0]), MZ(qs[1])];
+    ResetAll(qs);
+    rs
+  }`);
+  assert.deepEqual(bases, []);
+});

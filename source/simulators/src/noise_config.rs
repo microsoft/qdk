@@ -590,12 +590,17 @@ pub fn is_pauli_identity(pauli_string: PauliAndLossString) -> bool {
     pauli_string == 0
 }
 
-/// Encode a validated Pauli string as a `u128` using 3 bits per character
-/// (I=0, X=1, Z=2, Y=3, L=4). Supports up to 42 qubits.
+/// Encode a validated Pauli string as a `u64` using 3 bits per character
+/// (I=0, X=1, Z=2, Y=3, L=4). Supports up to 21 qubits.
 #[must_use]
 pub fn encode_pauli(pauli: &str) -> PauliAndLossString {
+    let max_qubits = PauliAndLossString::BITS as usize / 3;
+    assert!(
+        pauli.len() <= max_qubits,
+        "Pauli string {pauli:?} has {} qubits, but at most {max_qubits} are supported",
+        pauli.len()
+    );
     let pauli = pauli.as_bytes();
-    debug_assert!(pauli.len() <= 42);
     let mut result: PauliAndLossString = 0;
     for &b in pauli {
         let bits = match b {

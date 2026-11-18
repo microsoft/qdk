@@ -52,6 +52,31 @@ fn check_rca_for_quantum_rt_qubit_release() {
 }
 
 #[test]
+fn check_rca_for_quantum_rt_read_loss() {
+    let compilation_context = CompilationContext::default();
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "__quantum__rt__read_loss",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Static
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Variable
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Variable
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
 fn check_rca_for_quantum_qis_m_body() {
     let compilation_context = CompilationContext::default();
     check_callable_compute_properties(

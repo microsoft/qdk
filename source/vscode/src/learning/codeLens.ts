@@ -15,7 +15,7 @@ export const exerciseDocumentSelector: vscode.DocumentSelector = {
 
 /**
  * CodeLens provider for learning exercise files. Shows a "Check Solution"
- * action and a link to open the corresponding section in the Quantum Katas panel.
+ * action.
  */
 export function createLearningCodeLensProvider(): vscode.CodeLensProvider {
   return {
@@ -33,11 +33,6 @@ export function createLearningCodeLensProvider(): vscode.CodeLensProvider {
           title: "$(discard) Reset Exercise",
           command: "qsharp-vscode.learningResetExercise",
           tooltip: "Reset the exercise to its original state",
-        }),
-        new vscode.CodeLens(range, {
-          title: "$(mortar-board) Show in Quantum Katas",
-          command: "qsharp-vscode.learningShowActivity",
-          tooltip: "Open the Quantum Katas panel for this exercise",
         }),
       ];
     },

@@ -19,6 +19,8 @@ const NOISE_TABLE_COUNT: u32 = 1; // REPLACE
 const NOISE_ENTRY_COUNT: u32 = 1; // REPLACE
 const MAX_REGISTERS: u32 = 256; // REPLACE
 const MAX_MEMORY: u32 = 256; // REPLACE
+const MAX_PROGRAM_MEMORY: u32 = 256; // REPLACE
+const MAX_CALL_DEPTH: u32 = 8; // REPLACE
 const INSTRUCTIONS_SIZE: u32 = 0; // REPLACE
 const BLOCK_TABLE_SIZE: u32 = 0; // REPLACE
 const FUNCTION_TABLE_SIZE: u32 = 0; // REPLACE
@@ -184,6 +186,7 @@ const OP_RECORD_OUTPUT: u32 = 0x14;
 const OP_READ_LOSS:     u32 = 0x15;
 const OP_PEEK_LOSS:     u32 = 0x16;
 const OP_READOUT_NOISE: u32 = 0x17;
+const OP_WRITE_RESULT:  u32 = 0x18;
 
 // -- Integer Arithmetic -------------------------------------------------------
 const OP_ADD:           u32 = 0x20;
@@ -361,7 +364,9 @@ struct CallStackFrame {
     return_pc: u32,
     /// Where to write the return value.
     return_reg: u32,
-    /// This is for alignment.
+    previous_block_id: u32,
+    /// Start of the saved caller registers in per-shot memory.
+    memory_base: u32,
     reserved: u32,
 }
 
@@ -383,8 +388,15 @@ struct InterpreterState {
     exit_code: u32,
     /// Call stack pointer.
     call_sp: u32,
-    /// Call stack frames (4 u32 per frame × 14 frames = 56).
-    call_stack_frames: array<CallStackFrame, 14>,
+    memory_top: u32,
+    reserved_0: u32,
+    reserved_1: u32,
+    reserved_2: u32,
+    reserved_3: u32,
+    reserved_4: u32,
+    reserved_5: u32,
+    reserved_6: u32,
+    call_stack_frames: array<CallStackFrame, MAX_CALL_DEPTH>,
     /// Per-shot register file.
     registers: array<u32, MAX_REGISTERS>,
     /// Per-shot memory (constant_data + alloca'd values).
@@ -731,6 +743,7 @@ fn reset_all(shot_idx: i32) {
     // After init, start execution from the first op
     shot.next_op_idx = 0u;
 
+    shot.rng_state.counter = 0u;
     shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot_id);
     shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot_id + 1);
     shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot_id + 2);
@@ -2724,14 +2737,8 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // The function_table entry is vec4(entry_block, param_count,
             // param_base_reg, reserved).
             //
-            // Steps:
-            //   1. Push a return frame onto the per-shot call stack. Each
-            //      frame stores: (return_block, return_pc, return_reg,
-            //      reserved) — 4 u32 words. The stack supports up to 8 frames.
-            //   2. Copy each argument from caller registers (looked up via
-            //      call_arg_table) into callee parameter registers starting
-            //      at param_base_reg.
-            //   3. Jump to the function's entry block.
+            // Save caller registers before binding arguments so recursive calls
+            // and overlapping argument registers cannot overwrite caller values.
             case OP_CALL {
                 let func_id = instr.aux0;
                 let arg_count = instr.aux1;
@@ -2739,8 +2746,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let func = batch_data.program.function_table[func_id];
                 // Push return info onto the call stack
                 let sp = shots[shot_idx].interp.call_sp;
-                // Guard: prevent call stack overflow (max 8 frames)
-                if sp >= 8u {
+                if sp >= MAX_CALL_DEPTH {
                     shots[shot_idx].interp.exit_code = ERR_CALL_STACK_OVERFLOW;
                     let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                     atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_OVERFLOW);
@@ -2752,12 +2758,28 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 shots[shot_idx].interp.call_stack_frames[sp].block_id = block_id;    // return_block — resume here on return
                 shots[shot_idx].interp.call_stack_frames[sp].return_pc = pc + 1u;    // return_pc — instruction after the CALL
                 shots[shot_idx].interp.call_stack_frames[sp].return_reg = instr.dst; // return_reg — where to write result
+                let memory_base = shots[shot_idx].interp.memory_top;
+                if MAX_REGISTERS > MAX_MEMORY - memory_base {
+                    shots[shot_idx].interp.exit_code = ERR_ALLOCA_OUT_OF_BOUNDS;
+                    let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                    atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_ALLOCA_OUT_OF_BOUNDS);
+                    shots[shot_idx].interp.status = STATUS_ERROR;
+                    atomicAdd(&diagnostics.termination_count, 1u);
+                    should_break = true;
+                    break;
+                }
+                shots[shot_idx].interp.call_stack_frames[sp].previous_block_id = prev_block;
+                shots[shot_idx].interp.call_stack_frames[sp].memory_base = memory_base;
+                for (var r = 0u; r < MAX_REGISTERS; r++) {
+                    shots[shot_idx].interp.memory[memory_base + r] = read_reg(shot_idx, r);
+                }
+                shots[shot_idx].interp.memory_top = memory_base + MAX_REGISTERS;
                 shots[shot_idx].interp.call_sp = sp + 1u;
                 // Copy caller arguments into the callee's parameter registers
                 let param_base = func.param_base_reg;
                 for (var i = 0u; i < arg_count; i++) {
                     let arg_reg = batch_data.program.call_arg_table[arg_offset + i];
-                    write_reg(shot_idx, param_base + i, read_reg(shot_idx, arg_reg));
+                    write_reg(shot_idx, param_base + i, shots[shot_idx].interp.memory[memory_base + arg_reg]);
                 }
                 // Transfer control to the function entry block
                 block_id = func.entry_block_id;
@@ -2787,8 +2809,18 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 block_id = shots[shot_idx].interp.call_stack_frames[sp].block_id;
                 pc = shots[shot_idx].interp.call_stack_frames[sp].return_pc;
                 let return_reg = shots[shot_idx].interp.call_stack_frames[sp].return_reg;
+                var return_value = 0u;
                 if return_reg != VOID_RETURN {
-                    write_reg(shot_idx, return_reg, resolve_u32(shot_idx, instr.src0, flags, 0u));
+                    return_value = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                }
+                let memory_base = shots[shot_idx].interp.call_stack_frames[sp].memory_base;
+                for (var r = 0u; r < MAX_REGISTERS; r++) {
+                    write_reg(shot_idx, r, shots[shot_idx].interp.memory[memory_base + r]);
+                }
+                shots[shot_idx].interp.memory_top = memory_base;
+                prev_block = shots[shot_idx].interp.call_stack_frames[sp].previous_block_id;
+                if return_reg != VOID_RETURN {
+                    write_reg(shot_idx, return_reg, return_value);
                 }
             }
 
@@ -2869,6 +2901,14 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                 let result_val = read_measurement_result(shot_idx, result_id);
                 write_reg(shot_idx, instr.dst, select(0u, 1u, result_val));
+                pc++;
+            }
+
+            // WRITE_RESULT: Writes a boolean value to the result with the given `result_id`.
+            case OP_WRITE_RESULT {
+                let value = resolve_u32(shot_idx, instr.src0, flags, 0u); // value is i1, so it can only be 0 or 1
+                let result_id = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                atomicStore(&results[shot_idx * RESULT_COUNT + result_id], value);
                 pc++;
             }
 
@@ -3310,11 +3350,12 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // -------------------------------------------------------------
 
             // ALLOCA: Reserve memory and write the address to dst.
-            // Encoding: src0 = number of words, src1 = compile-time assigned address.
+            // Encoding: src0 = number of words; the legacy static src1 address is unused.
             case OP_ALLOCA {
                 let num_words = resolve_u32(shot_idx, instr.src0, flags, 0u);
-                let addr = resolve_u32(shot_idx, instr.src1, flags, 1u);
-                if addr + num_words > MAX_MEMORY {
+                let addr = shots[shot_idx].interp.memory_top;
+                let program_memory = addr - shots[shot_idx].interp.call_sp * MAX_REGISTERS;
+                if num_words > MAX_PROGRAM_MEMORY - program_memory {
                     shots[shot_idx].interp.exit_code = ERR_ALLOCA_OUT_OF_BOUNDS;
                     let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                     atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_ALLOCA_OUT_OF_BOUNDS);
@@ -3323,6 +3364,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                     should_break = true;
                     break;
                 }
+                shots[shot_idx].interp.memory_top = addr + num_words;
                 write_reg(shot_idx, instr.dst, addr);
                 pc++;
             }

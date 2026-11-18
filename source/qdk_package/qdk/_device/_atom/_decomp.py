@@ -17,7 +17,7 @@ from pyqir import (
     required_num_results,
     Value,
 )
-from math import pi
+from math import fmod, pi
 from ._utils import TOLERANCE
 from typing import cast
 
@@ -450,7 +450,9 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
     def _on_qis_rz(self, call: Call, angle: Value, target: Value) -> None:
         if not isinstance(angle, FloatConstant):
             raise ValueError("Angle used in RZ must be a constant")
-        angle_value = cast(FloatConstant, angle).value
+        original_value = cast(FloatConstant, angle).value
+        # Reduce into (-2π, 2π), the range handled below, preserving the sign.
+        angle_value = fmod(original_value, self.TWO_PI)
 
         self.builder.insert_before(call)
 
@@ -467,7 +469,7 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
         ):
             self.builder.call(self.s_func, [target])
         elif (
-            angle_value < TOLERANCE
+            abs(angle_value) < TOLERANCE
             or abs(angle_value - self.TWO_PI) < TOLERANCE
             or abs(angle_value + self.TWO_PI) < TOLERANCE
         ):
@@ -475,7 +477,7 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
             pass
         else:
             raise ValueError(
-                f"Angle {angle_value} used in RZ is not a Clifford compatible rotation angle"
+                f"Angle {original_value} used in RZ is not a Clifford compatible rotation angle"
             )
 
         call.erase()

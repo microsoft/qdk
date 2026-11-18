@@ -10,9 +10,13 @@ A Kata is a top-level container of educational items which are used to explain a
 
 Visit [Learn with Microsoft Quantum katas](https://quantum.microsoft.com/experience/quantum-katas) to try the new online Microsoft Quantum katas experience, with integrated assistance from Copilot in Microsoft Quantum.
 
-## Build Katas Locally
+## Validate Katas Locally
 
-We need to build the `playground` module to see the built katas locally. For the detailed instructions, refer to [Building Playground Locally](../source/playground/README.md#building-the-playground-locally).
+The Quantum Katas learning experience is part of the VS Code extension. To validate kata content locally:
+
+1. From the repository root, build the extension and its dependencies with `python ./build.py --wasm --npm --vscode`.
+2. In VS Code, press F5 (or select **Run > Start Debugging**) to launch the extension development host.
+3. Open the QDK Learning experience and select the built-in Quantum Katas course.
 
 ## Rust crate
 

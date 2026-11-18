@@ -8,17 +8,17 @@ import pytest
 
 
 @pytest.fixture
-def qsharp():
+def qsharp(monkeypatch: pytest.MonkeyPatch):
     from qdk import qsharp
     import qdk._fs
     import qdk._http
 
-    qdk._fs.read_file = read_file_memfs
-    qdk._fs.list_directory = list_directory_memfs
-    qdk._fs.exists = exists_memfs
-    qdk._fs.join = join_memfs
-    qdk._fs.resolve = resolve_memfs
-    qdk._http.fetch_github = fetch_github_test
+    monkeypatch.setattr(qdk._fs, "read_file", read_file_memfs)
+    monkeypatch.setattr(qdk._fs, "list_directory", list_directory_memfs)
+    monkeypatch.setattr(qdk._fs, "exists", exists_memfs)
+    monkeypatch.setattr(qdk._fs, "join", join_memfs)
+    monkeypatch.setattr(qdk._fs, "resolve", resolve_memfs)
+    monkeypatch.setattr(qdk._http, "fetch_github", fetch_github_test)
 
     return qsharp
 

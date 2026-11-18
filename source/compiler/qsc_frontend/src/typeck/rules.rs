@@ -143,9 +143,7 @@ impl<'a> Context<'a> {
             or as an importable, as there is syntactic differentiation."
                 ),
             },
-            TyKind::Param(TypeParameter {
-                ty, constraints: _, ..
-            }) => match self.names.get(ty.id) {
+            TyKind::Param(TypeParameter { ty, .. }) => match self.names.get(ty.id) {
                 Some(Res::Param { id, bounds }) => {
                     let (bounds, errs) = convert::class_constraints_from_ast(
                         self.names,
@@ -394,7 +392,7 @@ impl<'a> Context<'a> {
                     }
                 };
                 Partial {
-                    diverges: cond.diverges || (if_true.diverges && if_false_diverges),
+                    diverges: if_true.diverges && if_false_diverges,
                     ..if_true
                 }
             }
@@ -581,7 +579,7 @@ impl<'a> Context<'a> {
                 self.inferrer
                     .eq(if_false_span, if_true.ty.clone(), if_false.ty);
                 Partial {
-                    diverges: cond.diverges || (if_true.diverges && if_false.diverges),
+                    diverges: if_true.diverges && if_false.diverges,
                     ..if_true
                 }
             }
@@ -786,8 +784,7 @@ impl<'a> Context<'a> {
     fn infer_unop(&mut self, op: UnOp, operand: &Expr) -> Partial<Ty> {
         let span = operand.span;
         let operand = self.infer_expr(operand);
-        let diverges = operand.diverges;
-        let ty = match op {
+        match op {
             UnOp::Functor(Functor::Adj) => {
                 self.inferrer.class(span, Class::Adj(operand.ty.clone()));
                 operand
@@ -801,7 +798,7 @@ impl<'a> Context<'a> {
                         with_ctls: with_ctls.clone(),
                     },
                 );
-                converge(with_ctls)
+                converge(with_ctls).diverge_if(operand.diverges)
             }
             UnOp::Neg | UnOp::Pos => {
                 self.inferrer.class(span, Class::Signed(operand.ty.clone()));
@@ -815,7 +812,7 @@ impl<'a> Context<'a> {
             UnOp::NotL => {
                 self.inferrer
                     .eq(span, Ty::Prim(Prim::Bool), operand.ty.clone());
-                operand
+                converge(Ty::Prim(Prim::Bool))
             }
             UnOp::Unwrap => {
                 let base = self.inferrer.fresh_ty(TySource::not_divergent(span));
@@ -826,11 +823,9 @@ impl<'a> Context<'a> {
                         base: base.clone(),
                     },
                 );
-                converge(base)
+                converge(base).diverge_if(operand.diverges)
             }
-        };
-
-        ty.diverge_if(diverges)
+        }
     }
 
     fn infer_binop(&mut self, span: Span, op: BinOp, lhs: &Expr, rhs: &Expr) -> Partial<Ty> {
@@ -844,14 +839,12 @@ impl<'a> Context<'a> {
         let lhs = self.infer_expr(lhs);
         let rhs_span = rhs.span;
         let rhs = self.infer_expr(rhs);
-        let diverges = lhs.diverges || rhs.diverges;
 
-        let ty = match op {
+        match op {
             BinOp::AndL | BinOp::OrL => {
-                self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
-                self.inferrer
-                    .eq(lhs_span, Ty::Prim(Prim::Bool), lhs.ty.clone());
-                lhs
+                self.inferrer.eq(rhs_span, Ty::Prim(Prim::Bool), rhs.ty);
+                self.inferrer.eq(lhs_span, Ty::Prim(Prim::Bool), lhs.ty);
+                converge(Ty::Prim(Prim::Bool))
             }
             BinOp::Eq | BinOp::Neq => {
                 self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
@@ -865,7 +858,7 @@ impl<'a> Context<'a> {
                 } else {
                     self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
                     self.inferrer.class(lhs_span, Class::Add(lhs.ty.clone()));
-                    lhs
+                    lhs.diverge_if(rhs.diverges)
                 }
             }
             BinOp::Gt | BinOp::Gte | BinOp::Lt | BinOp::Lte => {
@@ -877,17 +870,17 @@ impl<'a> Context<'a> {
                 self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
                 self.inferrer
                     .class(lhs_span, Class::Integral(lhs.ty.clone()));
-                lhs
+                lhs.diverge_if(rhs.diverges)
             }
             BinOp::Div => {
                 self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
                 self.inferrer.class(lhs_span, Class::Div(lhs.ty.clone()));
-                lhs
+                lhs.diverge_if(rhs.diverges)
             }
             BinOp::Mul => {
                 self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
                 self.inferrer.class(lhs_span, Class::Mul(lhs.ty.clone()));
-                lhs
+                lhs.diverge_if(rhs.diverges)
             }
             BinOp::Sub => {
                 if is_complex_literal {
@@ -896,13 +889,13 @@ impl<'a> Context<'a> {
                 } else {
                     self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
                     self.inferrer.class(lhs_span, Class::Sub(lhs.ty.clone()));
-                    lhs
+                    lhs.diverge_if(rhs.diverges)
                 }
             }
             BinOp::Mod => {
                 self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
                 self.inferrer.class(lhs_span, Class::Mod(lhs.ty.clone()));
-                lhs
+                lhs.diverge_if(rhs.diverges)
             }
             BinOp::Exp => {
                 self.inferrer.class(
@@ -912,7 +905,7 @@ impl<'a> Context<'a> {
                         power: rhs.ty,
                     },
                 );
-                lhs
+                lhs.diverge_if(rhs.diverges)
             }
             BinOp::Shl | BinOp::Shr => {
                 self.inferrer
@@ -920,9 +913,7 @@ impl<'a> Context<'a> {
                 self.inferrer.eq(rhs_span, Ty::Prim(Prim::Int), rhs.ty);
                 lhs
             }
-        };
-
-        ty.diverge_if(diverges)
+        }
     }
 
     fn infer_update(

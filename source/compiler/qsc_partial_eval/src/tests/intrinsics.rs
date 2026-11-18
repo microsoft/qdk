@@ -631,6 +631,82 @@ fn call_to_intrinsic_m_adds_callable_and_generates_instruction() {
 }
 
 #[test]
+fn call_to_intrinsic_mx_adds_callable_and_generates_instruction() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                QIR.Intrinsic.__quantum__qis__mx__body(q);
+            }
+        }
+        "#,
+    });
+    let op_callable_id = CallableId(1);
+    assert_callable(
+        &program,
+        op_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn call_to_intrinsic_my_adds_callable_and_generates_instruction() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                QIR.Intrinsic.__quantum__qis__my__body(q);
+            }
+        }
+        "#,
+    });
+    let op_callable_id = CallableId(1);
+    assert_callable(
+        &program,
+        op_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
 fn call_to_intrinsic_mresetz_adds_callable_and_generates_instruction() {
     let program = get_rir_program(indoc! {
         r#"
@@ -798,6 +874,7 @@ fn call_to_intrinsic_begin_estimate_caching_with_dynamic_values_yields_true() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Qubit(0), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)

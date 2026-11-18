@@ -45,9 +45,16 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    /// A `[` that is not closed with `]` before the end of the line
+    #[error("'[' was not closed with ']' before the end of the line")]
+    #[diagnostic(code("Qdk.Stim.Lex.UnterminatedBracket"))]
+    UnterminatedBracket {
+        #[label]
+        span: Span,
+    },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
@@ -269,26 +276,37 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn scan_identifier(&mut self, lo: usize) -> TokenKind {
+    fn scan_identifier(&mut self, lo: usize) -> Result<TokenKind, Error> {
         self.eat_while(|c| c.is_alphanumeric() || c == '_');
         let hi: usize = self.pos() as usize;
         let identifier = &self.input[lo..hi];
         match identifier {
-            "rec" => {
-                self.eat_while(|c| c != ']');
-                self.chars.next_if(|(_, c)| *c == ']');
-                TokenKind::Rec
-            }
-            "sweep" => {
-                self.eat_while(|c| c != ']');
-                self.chars.next_if(|(_, c)| *c == ']');
-                TokenKind::Sweep
-            }
-            _ => match identifier.split_at_checked(1) {
+            "rec" => self.scan_rec_or_sweep(lo as u32, TokenKind::Rec),
+            "sweep" => self.scan_rec_or_sweep(lo as u32, TokenKind::Sweep),
+            _ => Ok(match identifier.split_at_checked(1) {
                 Some(("X" | "Y" | "Z", digits)) if is_ascii_uint(digits) => TokenKind::Pauli,
                 Some(("L", digits)) if is_ascii_uint(digits) => TokenKind::Loss,
                 _ => TokenKind::InstructionName,
-            },
+            }),
+        }
+    }
+
+    fn scan_rec_or_sweep(&mut self, lo: u32, kind: TokenKind) -> Result<TokenKind, Error> {
+        if self.chars.next_if(|(_, c)| *c == '[').is_some() {
+            self.scan_to_close_bracket(lo, kind)
+        } else {
+            Ok(TokenKind::InstructionName)
+        }
+    }
+
+    fn scan_to_close_bracket(&mut self, lo: u32, kind: TokenKind) -> Result<TokenKind, Error> {
+        self.eat_while(|c| c != ']' && c != '\n');
+        if self.chars.next_if(|(_, c)| *c == ']').is_some() {
+            Ok(kind)
+        } else {
+            Err(Error::UnterminatedBracket {
+                span: Span { lo, hi: self.pos() },
+            })
         }
     }
 }
@@ -332,12 +350,14 @@ impl Iterator for Lexer<'_> {
                 Ok(kind) => kind,
                 Err(error) => return Some(Err(error)),
             },
-            'A'..='Z' | 'a'..='z' => self.scan_identifier(lo as usize),
-            '[' => {
-                self.eat_while(|c| c != ']');
-                self.chars.next_if(|(_, c)| *c == ']');
-                TokenKind::Tag
-            }
+            'A'..='Z' | 'a'..='z' => match self.scan_identifier(lo as usize) {
+                Ok(kind) => kind,
+                Err(error) => return Some(Err(error)),
+            },
+            '[' => match self.scan_to_close_bracket(lo, TokenKind::Tag) {
+                Ok(kind) => kind,
+                Err(error) => return Some(Err(error)),
+            },
             _ => {
                 return Some(Err(Error::UnrecognizedCharacter {
                     span: Span { lo, hi: self.pos() },

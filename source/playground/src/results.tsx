@@ -56,7 +56,6 @@ function resultIsSame(a: ShotResult, b: ShotResult): boolean {
 export function ResultsTab(props: {
   evtTarget: QscEventTarget;
   onShotError?: (err?: VSDiagnostic) => void;
-  kataMode?: boolean;
   activeTab: ActiveTab;
 }) {
   const [resultState, setResultState] = useState<ResultsState>(newRunState());
@@ -222,20 +221,16 @@ export function ResultsTab(props: {
               shotsHeader={false}
             ></Histogram>
           ) : null}
-          {props.kataMode ? null : (
-            <>
-              <div class="output-header">
-                <div>
-                  Shot {currIndex + 1} of {countForFilter}
-                </div>
-                <div class="prev-next">
-                  <span onClick={onPrev}>Prev</span> |{" "}
-                  <span onClick={onNext}>Next</span>
-                </div>
-              </div>
-              <div class="result-label">Result: {resultLabel}</div>
-            </>
-          )}
+          <div class="output-header">
+            <div>
+              Shot {currIndex + 1} of {countForFilter}
+            </div>
+            <div class="prev-next">
+              <span onClick={onPrev}>Prev</span> |{" "}
+              <span onClick={onNext}>Next</span>
+            </div>
+          </div>
+          <div class="result-label">Result: {resultLabel}</div>
           <div>
             {resultState.currResult?.events.map((evt) => {
               return evt.type === "Message" ? (

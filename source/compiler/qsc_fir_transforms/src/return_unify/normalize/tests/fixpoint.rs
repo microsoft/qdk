@@ -49,6 +49,7 @@ fn hoist_outer_return_wraps_if_with_return_in_then_branch() {
                                 __has_returned = true;
                             };
                         };
+                        __ret_val
                     } else {
                         2
                     };
@@ -98,7 +99,7 @@ fn hoist_outer_return_wraps_if_with_returns_in_both_branches() {
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 {
-                    let _generated_ident_36 : Unit = if M(q) == One {
+                    let _generated_ident_36 : Int = if M(q) == One {
                         {
                             let _generated_ident_37 : Int = 1;
                             __quantum__rt__qubit_release(q);
@@ -107,6 +108,7 @@ fn hoist_outer_return_wraps_if_with_returns_in_both_branches() {
                                 __has_returned = true;
                             };
                         };
+                        __ret_val
                     } else {
                         {
                             let _generated_ident_49 : Int = 2;
@@ -116,6 +118,7 @@ fn hoist_outer_return_wraps_if_with_returns_in_both_branches() {
                                 __has_returned = true;
                             };
                         };
+                        __ret_val
                     };
                     if (not __has_returned) {
                         __quantum__rt__qubit_release(q);

@@ -11,7 +11,7 @@ use qsc_data_structures::attrs::Attributes;
 use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_rir::{
     rir::{self, ConditionCode, FcmpConditionCode},
-    utils::get_all_block_successors,
+    utils::get_callable_blocks,
 };
 use std::fmt::Write;
 
@@ -42,6 +42,7 @@ impl ToQir<String> for rir::Literal {
             rir::Literal::Result(r) => format!("ptr inttoptr (i64 {r} to ptr)"),
             rir::Literal::Tag(idx, _) => format!("ptr @{idx}"),
             rir::Literal::Array(idx) => format!("ptr @array{idx}"),
+            rir::Literal::ResultLit(..) => panic!("Result literals are not supported in QIR"),
         }
     }
 }
@@ -448,7 +449,7 @@ fn call_to_qir(
 ) -> String {
     let args = args
         .iter()
-        .map(|arg| ToQir::<String>::to_qir(arg, program))
+        .map(|arg| i1_zeroext(&ToQir::<String>::to_qir(arg, program)))
         .collect::<Vec<_>>()
         .join(", ");
     let callable = program.get_callable(call_id);
@@ -457,7 +458,7 @@ fn call_to_qir(
         format!(
             "  {} = call {} {}({args})",
             ToQir::<String>::to_qir(&output.variable_id, program),
-            ToQir::<String>::to_qir(&callable.output_type, program),
+            zeroext_i1(&ToQir::<String>::to_qir(&callable.output_type, program)),
             callable_name
         )
     } else {
@@ -618,11 +619,12 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
             }
             rir::Literal::Integer(i) => format!("{i}"),
             rir::Literal::NullPointer => "null".to_string(),
-            rir::Literal::Qubit(q) => format!("{q}"),
-            rir::Literal::Result(r) => format!("{r}"),
+            rir::Literal::Qubit(q) => format!("inttoptr (i64 {q} to ptr)"),
+            rir::Literal::Result(r) => format!("inttoptr (i64 {r} to ptr)"),
             rir::Literal::Array(idx) => {
                 format!("@array{idx}")
             }
+            rir::Literal::ResultLit(..) => panic!("Result literals are not supported in QIR"),
             rir::Literal::Tag(..) => panic!(
                 "tag literals should not be used as string values outside of output recording"
             ),
@@ -639,6 +641,7 @@ fn get_value_ty(lhs: &rir::Operand) -> String {
             rir::Literal::Double(_) => get_f64_ty(),
             rir::Literal::Qubit(_)
             | rir::Literal::Result(_)
+            | rir::Literal::ResultLit(..)
             | rir::Literal::NullPointer
             | rir::Literal::Tag(..)
             | rir::Literal::Array(_) => "ptr",
@@ -711,12 +714,12 @@ impl ToQir<String> for rir::Callable {
 /// real LLVM `define internal void @<name>(<params>)` IR function with typed parameters named after
 /// the callable's `input_vars`. Bodyless callables (intrinsics) always render as `declare`.
 fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Program) -> String {
-    let output_type = ToQir::<String>::to_qir(&callable.output_type, program);
-    let Some(entry_id) = callable.body else {
+    let output_type = zeroext_i1(&ToQir::<String>::to_qir(&callable.output_type, program));
+    if callable.body.is_none() {
         let input_type = callable
             .input_type
             .iter()
-            .map(|t| ToQir::<String>::to_qir(t, program))
+            .map(|t| i1_zeroext(&ToQir::<String>::to_qir(t, program)))
             .collect::<Vec<_>>()
             .join(", ");
         let callable_name = llvm_global_name(&callable.name);
@@ -737,11 +740,11 @@ fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Prog
                 }
             }
         );
-    };
+    }
     let mut body = String::new();
-    let mut all_blocks = vec![entry_id];
-    all_blocks.extend(get_all_block_successors(entry_id, program));
-    for block_id in all_blocks {
+    // Unlike QIR v1, QIR v2 may have multiple callables with defined bodies, so we get the blocks
+    // belonging to this callable rather than iterating over all program blocks.
+    for block_id in get_callable_blocks(callable, program) {
         let block = program.get_block(block_id);
         write!(
             body,
@@ -766,7 +769,7 @@ fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Prog
             .map(|(ty, var_id)| {
                 format!(
                     "{} {}",
-                    ToQir::<String>::to_qir(ty, program),
+                    i1_zeroext(&ToQir::<String>::to_qir(ty, program)),
                     ToQir::<String>::to_qir(var_id, program)
                 )
             })
@@ -849,4 +852,12 @@ fn get_additional_module_attributes(program: &rir::Program) -> String {
     }
 
     attrs
+}
+
+fn zeroext_i1(input: &str) -> String {
+    input.replace("i1", "zeroext i1")
+}
+
+fn i1_zeroext(input: &str) -> String {
+    input.replace("i1", "i1 zeroext")
 }

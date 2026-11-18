@@ -4,8 +4,23 @@
 use miette::Diagnostic;
 pub use qsc_data_structures::error::WithSource;
 use qsc_frontend::compile::PackageStore;
-use std::fmt::{self, Debug, Display, Formatter};
+use std::fmt::{self, Debug, Display, Formatter, Write};
 use thiserror::Error;
+
+/// Formats a diagnostic's message, source chain, and help without source snippets.
+///
+/// Language bindings use this to retain the same diagnostic detail as editor messages.
+#[must_use]
+pub fn diagnostic_message(error: &impl Diagnostic) -> String {
+    let mut message = error.to_string();
+    for source in std::iter::successors(std::error::Error::source(error), |error| error.source()) {
+        write!(message, ": {source}").expect("message should be writable");
+    }
+    if let Some(help) = error.help() {
+        write!(message, "\n\nhelp: {help}").expect("message should be writable");
+    }
+    message
+}
 
 #[derive(Clone, Debug, Error)]
 pub struct WithStack<E> {

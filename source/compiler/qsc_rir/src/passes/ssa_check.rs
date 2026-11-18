@@ -18,7 +18,7 @@ mod tests;
 /// - Each variable is used after it is assigned.
 /// - Each variable is used in a block that is dominated by the block in which it is assigned.
 /// - Each phi node references only its predecessors.
-pub fn check_ssa_form(
+pub(crate) fn check_ssa_form(
     program: &Program,
     preds: &IndexMap<BlockId, Vec<BlockId>>,
     doms: &IndexMap<BlockId, BlockId>,
