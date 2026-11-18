@@ -2,9 +2,7 @@
 // Licensed under the MIT License.
 
 //! The MPS simulator: runs QIR programs on matrix product states (MPS), on
-//! any engine of the `tensornet` contract (for instance `tensornet`'s exact
-//! reference, or one over cuTensorNet, NVIDIA's tensor network library, on
-//! a GPU).
+//! any [`MpsEngine`], the `tensornet` contract.
 //!
 //! An MPS simulates many more qubits than a state vector when a program
 //! entangles them little, as chemistry programs do. A caller builds an
@@ -13,22 +11,22 @@
 //! record alone, and on a report of what truncation cost.
 //!
 //! [`qir`](crate::qir) runs a program's classical part and hands each
-//! shot's quantum calls to a resumer ([`QirResumer`]); an engine
-//! ([`MpsEngine`]) holds states and knows only sites and matrices. This module joins them: [`MpsResumer`] runs the calls of
-//! each shot on an MPS that an engine holds. Everything that maps qubits to
-//! sites is here: [`MpsResumer`] and its settings in this file, and what it
-//! runs a program with in `mps_simulator/`, one file per part, each saying
-//! in its header what it holds; how a run goes, shots that drew the same
-//! values sharing one state, is in `mps_simulator/grouped_run.rs`.
+//! shot's quantum calls to a resumer; an engine holds states and knows only
+//! sites and matrices. This module joins them: [`MpsResumer`], in this
+//! file, runs the calls of each shot on an MPS that an engine holds, and
+//! its parts, in `mps_simulator/`, map qubits to sites (`qubit_order.rs`),
+//! turn calls into steps on sites (`lowering.rs`), run the shots in groups
+//! (`grouped_run.rs`), give each shot its stream (`shot_stream.rs`), and
+//! report and fail a run (`run_report.rs`, `error.rs`).
 //!
 //! Shots that drew the same values share one state, forked where their
 //! draws differ, so a run costs what its distinct histories cost; each shot
 //! draws from its own stream, so its records do not depend on the shots
 //! beside it.
 //!
-//! An overview, with the module's files and which uses which, the phases of
-//! a run and an example, is in `src/mps_simulator/README.md`; the calls
-//! each phase makes, in `src/mps_simulator/design.md`.
+//! An overview, with the phases of a run, the public types and an example,
+//! is in `src/mps_simulator/README.md`; each phase's mechanics and engine
+//! calls, in `src/mps_simulator/design.md`.
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -63,11 +61,11 @@ use grouped_run::GroupedRun;
 /// nor on earlier runs.
 ///
 /// The qubit order, which site holds each qubit, chosen from the program's
-/// two-qubit gates, changes the bonds and the time, not the state (to rounding, and
-/// within the truncation error of an engine that truncates): on an exact
-/// engine, a record differs between two orders only where a uniform falls
-/// within rounding of a probability, and the shot's later draws may then
-/// differ.
+/// two-qubit gates, changes the bonds and the time, not the state (to
+/// rounding, and within the truncation error of an engine that truncates):
+/// on an exact engine, a record differs between two orders only where a
+/// uniform falls within rounding of a probability, and the shot's later
+/// draws may then differ.
 ///
 /// The cutoff below which an engine drops singular values is the engine's
 /// own setting: the engine contract takes only a capacity (here
