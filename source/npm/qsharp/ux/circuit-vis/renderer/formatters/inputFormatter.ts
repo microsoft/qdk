@@ -213,20 +213,13 @@ const qubitInput = (
   subscript?: string,
   link?: { href: string; title: string },
 ): SVGElement => {
-  const el = text("", leftPadding, y, 16);
-  el.append("|");
-  const state = createSvgElement("tspan", { class: "qs-mathtext" });
-  state.append(mathChars.psi);
-  el.appendChild(state);
-  if (subscript) {
-    const subtext = createSvgElement("tspan", {
-      "baseline-shift": "sub",
-      "font-size": "65%",
-    });
-    subtext.append(subscript);
-    el.appendChild(subtext);
-  }
-  el.append(mathChars.rangle);
+  const el: SVGElement = text("", leftPadding, y, 16);
+
+  const subtext = subscript
+    ? `<tspan baseline-shift="sub" font-size="65%">${subscript}</tspan>`
+    : "";
+
+  el.innerHTML = `|<tspan class="qs-mathtext">${mathChars.psi}</tspan>${subtext}${mathChars.rangle}</tspan>`;
 
   el.setAttribute("text-anchor", "start");
   el.setAttribute("dominant-baseline", "middle");

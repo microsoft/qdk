@@ -89,14 +89,14 @@ const _classicalRegister = (
   const g = [];
   if (gateY != null) {
     // Draw vertical lines
-    const vLine1 = line(
+    const vLine1: SVGElement = line(
       startX + wirePadding,
       gateY,
       startX + wirePadding,
       wireY - wirePadding,
       "register-classical",
     );
-    const vLine2 = line(
+    const vLine2: SVGElement = line(
       startX - wirePadding,
       gateY,
       startX - wirePadding,
@@ -107,14 +107,14 @@ const _classicalRegister = (
   }
 
   // Draw horizontal lines
-  const hLine1 = line(
+  const hLine1: SVGElement = line(
     startX + wirePadding,
     wireY - wirePadding,
     endX,
     wireY - wirePadding,
     "register-classical",
   );
-  const hLine2 = line(
+  const hLine2: SVGElement = line(
     startX - wirePadding,
     wireY + wirePadding,
     endX,

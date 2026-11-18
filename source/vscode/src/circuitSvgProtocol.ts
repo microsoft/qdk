@@ -12,10 +12,14 @@ const MAX_SVG_BYTES = 8 * 1024 * 1024;
 const STANDALONE_SVG_ROOT =
   /^(?:<\?xml version="1\.0" encoding="UTF-8"\?>\s*)?<svg\b(?=[^>]*\bxmlns="http:\/\/www\.w3\.org\/2000\/svg")[^>]*>/;
 const ACTIVE_SVG_CONTENT = /<[^>]+\s(?:href|xlink:href|src|on[a-z]+)\s*=/i;
+// Exported labels reuse glyph outlines defined in the same document.
+const GLYPH_REFERENCE =
+  /(<use\b[^>]*?)\sxlink:href="#qdk-glyph-(?:main|math)-[0-9a-f]+"/g;
 const UNSAFE_SVG_CSS =
   /@import\b|(?:^|[;:{\s])(?:url|image-set|expression)\s*\(/i;
 const ALLOWED_SVG_ELEMENTS = new Set([
   "circle",
+  "defs",
   "desc",
   "g",
   "line",
@@ -26,22 +30,13 @@ const ALLOWED_SVG_ELEMENTS = new Set([
   "text",
   "title",
   "tspan",
+  "use",
 ]);
 
 export function isCircuitSvgSaveRequest(
   value: unknown,
 ): value is Record<string, unknown> & { type: CircuitSvgSaveMessage["type"] } {
   return isRecord(value) && value.type === "qdk.circuit/save-svg";
-}
-
-export function isCircuitSvgSaveMessage(
-  value: unknown,
-): value is CircuitSvgSaveMessage {
-  if (!isCircuitSvgSaveRequest(value)) {
-    return false;
-  }
-
-  return getCircuitSvgSaveMessageError(value) === undefined;
 }
 
 export function getCircuitSvgSaveMessageError(
@@ -65,7 +60,7 @@ export function getCircuitSvgSaveMessageError(
   }
   if (
     !STANDALONE_SVG_ROOT.test(value.contents) ||
-    ACTIVE_SVG_CONTENT.test(value.contents) ||
+    ACTIVE_SVG_CONTENT.test(value.contents.replace(GLYPH_REFERENCE, "$1")) ||
     hasUnexpectedSvgElement(value.contents) ||
     hasUnsafeSvgCss(value.contents)
   ) {

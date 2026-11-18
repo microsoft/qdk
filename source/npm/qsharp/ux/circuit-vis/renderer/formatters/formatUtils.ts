@@ -17,11 +17,11 @@ export const createSvgElement = (
   type: string,
   attributes: { [attr: string]: string } = {},
 ): SVGElement => {
-  const element = document.createElementNS(svgNS, type);
-  for (const [name, value] of Object.entries(attributes)) {
-    element.setAttribute(name, value);
-  }
-  return element;
+  const el: SVGElement = document.createElementNS(svgNS, type);
+  Object.entries(attributes).forEach(([attrName, attrVal]) =>
+    el.setAttribute(attrName, attrVal),
+  );
+  return el;
 };
 
 /**
@@ -36,8 +36,8 @@ export const group = (
   svgElems: SVGElement[],
   attributes: { [attr: string]: string } = {},
 ): SVGElement => {
-  const el = createSvgElement("g", attributes);
-  svgElems.forEach((child) => el.appendChild(child));
+  const el: SVGElement = createSvgElement("g", attributes);
+  svgElems.forEach((child: SVGElement) => el.appendChild(child));
   return el;
 };
 
@@ -199,7 +199,7 @@ export const dashedLine = (
   y2: number,
   className?: string,
 ): SVGElement => {
-  const el = line(x1, y1, x2, y2, className);
+  const el: SVGElement = line(x1, y1, x2, y2, className);
   el.setAttribute("stroke-dasharray", "8, 8");
   return el;
 };
@@ -222,7 +222,7 @@ export const dashedBox = (
   height: number,
   className: string,
 ): SVGElement => {
-  const el = box(x, y, width, height, className);
+  const el: SVGElement = box(x, y, width, height, className);
   el.setAttribute("fill-opacity", "0");
   el.setAttribute("stroke-dasharray", "8, 8");
   return el;

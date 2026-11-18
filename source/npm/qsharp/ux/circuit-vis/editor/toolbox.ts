@@ -142,7 +142,7 @@ const _gate = (
   if (gate == null) throw new Error(`Gate ${type} not available`);
   const renderData = toRenderData(gate, x, y);
   renderData.dataAttributes = { type: type };
-  const gateElem = formatGate(renderData);
+  const gateElem = formatGate(renderData).cloneNode(true) as SVGElement;
   gateElem.setAttribute("toolbox-item", "true");
 
   return gateElem;

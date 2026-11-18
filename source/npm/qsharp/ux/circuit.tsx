@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { CircuitProps } from "./data.js";
 import { Spinner } from "./spinner.js";
 import { SourceLocation, toCircuitGroup } from "./circuit-vis/data/circuit.js";
+import { readCircuitSvgTextFallback } from "./circuit-vis/renderer/circuitSvgDocument.js";
 
 // For perf reasons we set a limit on how many gates/qubits
 // we attempt to render. This is still a lot higher than a human would
@@ -89,6 +90,7 @@ function ZoomableCircuit(
   const [rendering, setRendering] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
+  const [exportNotice, setExportNotice] = useState("");
 
   const isEditable = props.editor != null;
 
@@ -148,6 +150,11 @@ function ZoomableCircuit(
           {exportError}
         </p>
       ) : null}
+      {exportNotice ? (
+        <p class="qs-circuit-export-notice" role="status">
+          {exportNotice}
+        </p>
+      ) : null}
       <div>
         {rendering
           ? `Rendering diagram with ${props.circuitGroup.circuits[0].componentGrid.length} gates...`
@@ -173,6 +180,7 @@ function ZoomableCircuit(
     const title = props.title?.trim() || DEFAULT_EXPORT_TITLE;
     const suggestedName = `${slugFromTitle(title)}.svg`;
     setExportError("");
+    setExportNotice("");
     setExporting(true);
     try {
       const contents = renderer.exportSvg({ title });
@@ -183,6 +191,15 @@ function ZoomableCircuit(
           circuitDiv.current?.ownerDocument ?? document,
           suggestedName,
           contents,
+        );
+      }
+      const fallback = readCircuitSvgTextFallback(contents);
+      if (fallback !== undefined) {
+        const characters =
+          fallback.length > 0 ? ` (${fallback.join(", ")})` : "";
+        setExportNotice(
+          `Some labels use characters without vector outlines${characters}. ` +
+            "Those labels remain text, so other apps may draw them in a different font.",
         );
       }
     } catch (error) {
@@ -268,7 +285,9 @@ function slugFromTitle(title: string): string {
     .replace(/^-+|-+$/g, "")
     .toLowerCase()
     .slice(0, MAX_EXPORT_BASE_NAME_LENGTH);
-  return slug || "quantum-circuit";
+  return slug && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/.test(slug)
+    ? slug
+    : "quantum-circuit";
 }
 
 function downloadInBrowser(

@@ -100,7 +100,10 @@ const createGateGhost = (
 ) => {
   const ghost = isControl
     ? controlDot(20, 20, [])
-    : formatGate(toRenderData(selectedOperation, 0, 0));
+    : (() => {
+        const ghostRenderData = toRenderData(selectedOperation, 0, 0);
+        return formatGate(ghostRenderData).cloneNode(true) as SVGElement;
+      })();
 
   _createGhostElement(container, ev, ghost, isControl);
 };
@@ -123,7 +126,7 @@ const createQubitLabelGhost = (
     targets: [],
   };
   const ghostRenderData = toRenderData(ghostGate, 0, 0);
-  const ghost = formatGate(ghostRenderData);
+  const ghost = formatGate(ghostRenderData) as SVGElement;
 
   // Replace the placeholder text with the label element
   const placeholderText = ghost.querySelector(".qs-maintext");

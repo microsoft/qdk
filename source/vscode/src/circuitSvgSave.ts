@@ -5,7 +5,6 @@ import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import {
   getCircuitSvgSaveMessageError,
-  isCircuitSvgSaveMessage,
   isCircuitSvgSaveRequest,
   type CircuitSvgSaveMessage,
 } from "./circuitSvgProtocol.js";
@@ -18,15 +17,13 @@ export async function handleCircuitSvgSaveMessage(
   }
 
   const validationError = getCircuitSvgSaveMessageError(message);
-  if (validationError !== undefined || !isCircuitSvgSaveMessage(message)) {
-    await reportCircuitSvgSaveError(
-      new Error(validationError ?? "The SVG export request is invalid."),
-    );
+  if (validationError !== undefined) {
+    await reportCircuitSvgSaveError(new Error(validationError));
     return true;
   }
 
   try {
-    await saveCircuitSvg(message);
+    await saveCircuitSvg(message as CircuitSvgSaveMessage);
   } catch (error) {
     await reportCircuitSvgSaveError(error);
   }

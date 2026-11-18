@@ -52,6 +52,10 @@
   color: var(--vscode-errorForeground, #a1260d);
 }
 
+.qs-circuit-export-notice {
+  margin: 0 0 8px;
+}
+
 /* Circuit widget */
 .qs-circuit {
   /* Background color for the circuit diagram */

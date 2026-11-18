@@ -296,7 +296,7 @@ const _measure = (x: number, y: number, wireYs: number[]): SVGElement => {
     "gate-measure",
   );
   const mArc: SVGElement = arc(x + 5, y + 2, width / 2 - 5, height / 2 - 8);
-  mArc.setAttribute("style", "pointer-events: none;");
+  mArc.style.pointerEvents = "none";
   const meter: SVGElement = line(
     x + width / 2,
     y + 8,
@@ -304,7 +304,7 @@ const _measure = (x: number, y: number, wireYs: number[]): SVGElement => {
     y - height / 2 + 8,
     "qs-line-measure",
   );
-  meter.setAttribute("style", "pointer-events: none;");
+  meter.style.pointerEvents = "none";
   mBox.setAttribute("data-wire-ys", JSON.stringify(wireYs));
   mBox.setAttribute("data-width", `${width}`);
   return group([mBox, mArc, meter]);
@@ -327,39 +327,44 @@ function createLinkElement(href: string, title: string) {
 
 function _style_gate_text(gate: SVGTextElement) {
   if (!use_katex) return;
-  const label = gate.textContent ?? "";
+  const label = gate.textContent || "";
 
   // In general, use the regular math font
   gate.classList.add("qs-maintext");
-  gate.replaceChildren();
 
-  const styledText =
-    label.endsWith("'") && label.length > 0 ? label.slice(0, -1) : label;
-  const tokenPattern = /_(\d+)|[a-zA-Z\u{0370}-\u{03ff}]+/gu;
+  // Build the label from DOM nodes rather than markup so that characters such as `<` and `&` in
+  // operation names stay text.
+  gate.replaceChildren();
+  const styledText = label.endsWith("'") ? label.slice(0, -1) : label;
+
+  // Wrap any latin or greek letters in tspan with KaTeX_Math font Style the entire Greek + Coptic
+  // block (https://unicodeplus.com/block/0370) Note this deliberately leaves ASCII digits [0-9]
+  // non-italic. Subscript any `_0`, `_1`, etc. in the label.
   let offset = 0;
-  for (const match of styledText.matchAll(tokenPattern)) {
+  for (const match of styledText.matchAll(
+    /_(\d+)|[a-zA-Z\u{0370}-\u{03ff}]+/gu,
+  )) {
     const index = match.index;
     if (index > offset) {
       gate.append(styledText.slice(offset, index));
     }
-    if (match[1] !== undefined) {
-      const subscript = createSvgElement("tspan", {
-        "baseline-shift": "sub",
-        "font-size": "65%",
-      });
-      subscript.append(match[1]);
-      gate.appendChild(subscript);
-    } else {
-      const mathText = createSvgElement("tspan", { class: "qs-mathtext" });
-      mathText.append(match[0]);
-      gate.appendChild(mathText);
-    }
+    const tspan =
+      match[1] === undefined
+        ? createSvgElement("tspan", { class: "qs-mathtext" })
+        : createSvgElement("tspan", {
+            "baseline-shift": "sub",
+            "font-size": "65%",
+          });
+    tspan.append(match[1] ?? match[0]);
+    gate.appendChild(tspan);
     offset = index + match[0].length;
   }
   if (offset < styledText.length) {
     gate.append(styledText.slice(offset));
   }
-  if (styledText.length !== label.length) {
+
+  // Replace a trailing ' with the proper unicode dagger symbol
+  if (styledText !== label) {
     const dagger = createSvgElement("tspan", {
       dx: "2",
       dy: "-3",
@@ -478,7 +483,7 @@ const _unitaryBox = (
 
     const argButton = text(displayArgs, x, argStrY, argsFontSize);
     _style_gate_text(argButton);
-    argButton.classList.add("arg-button");
+    argButton.setAttribute("class", "arg-button");
     elems.push(argButton);
   }
 
@@ -512,7 +517,7 @@ const _swap = (renderData: GateRenderData): SVGElement => {
   );
   const crosses: SVGElement[] = ys.map((y) => _cross(centerX, y));
   const vertLine: SVGElement = line(centerX, ys[0], centerX, ys[1]);
-  vertLine.setAttribute("style", "pointer-events: none;");
+  vertLine.style.pointerEvents = "none";
   return group([bg, ...crosses, vertLine]);
 };
 
@@ -623,7 +628,7 @@ const _controlledGate = (renderData: GateRenderData): SVGElement => {
   const maxY: number = Math.max(...controlsY, ...(targetsY as number[]));
   const minY: number = Math.min(...controlsY, ...(targetsY as number[]));
   const vertLine: SVGElement = line(x, minY, x, maxY, "control-line");
-  vertLine.setAttribute("style", "pointer-events: none;");
+  vertLine.style.pointerEvents = "none";
   const svg: SVGElement = _createGate(
     [vertLine, ...controlledDotsSvg, ...targetGateSvgs],
     renderData,
@@ -744,7 +749,7 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
   if (renderData.link) {
     const link = createLinkElement(renderData.link.href, renderData.link.title);
     // Make the text element clickable
-    labelText.setAttribute("style", "pointer-events: all;");
+    labelText.style.pointerEvents = "all";
     link.appendChild(labelText);
     elems.push(link);
   } else {
@@ -790,11 +795,11 @@ const _renderQuantumGroupControls = (
     elems.push(controlDot(centerX, y, [y]));
     if (y < boxYTop) {
       const ln = line(centerX, y, centerX, boxYTop, "control-line");
-      ln.setAttribute("style", "pointer-events: none;");
+      ln.style.pointerEvents = "none";
       elems.push(ln);
     } else if (y > boxYBottom) {
       const ln = line(centerX, boxYBottom, centerX, y, "control-line");
-      ln.setAttribute("style", "pointer-events: none;");
+      ln.style.pointerEvents = "none";
       elems.push(ln);
     }
     // y inside [boxYTop, boxYBottom]: no extra connector — the wire already crosses the box, so the
@@ -887,14 +892,14 @@ function controlLabel(x: number, y: number, label: number | null): SVGElement {
   const el: SVGElement = text("", x, y, labelFontSize);
 
   // Create text content "c"
-  el.append("c");
+  el.appendChild(document.createTextNode("c"));
 
   // Create tspan with subscript label
   const tspan = createSvgElement("tspan", {
     "baseline-shift": "sub",
     "font-size": "65%",
   });
-  tspan.append(String(label));
+  tspan.appendChild(document.createTextNode(String(label)));
   el.appendChild(tspan);
 
   el.setAttribute("text-anchor", "start");
