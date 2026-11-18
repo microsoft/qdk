@@ -2,8 +2,8 @@
 # Licensed under the MIT License.
 
 """``tensornetwork_qir`` simulates a QIR program's shots on a matrix product
-state (MPS), for programs too entangled for a sparse simulator and too large
-for a state vector, and returns them with the run's report: what the max bond
+state (MPS), for programs with too many qubits for a state vector that
+entangle them little, and returns them with the run's report: what the max bond
 dimension cost in accuracy. ``check_tensornetwork_setup`` says whether the
 GPU is set up for the GPU engine (``engine="gpu"``, the default, which needs
 ``pip install "qdk[tensornetwork]"``); the CPU engine (``engine="cpu"``)
@@ -17,6 +17,7 @@ from typing import List, Literal, Optional, Sequence, Tuple, Union
 import warnings
 
 from .._adaptive_pass import AdaptiveProfilePass, Bytecode
+from .._native import _MPS_DEFAULT_MAX_BOND_DIMENSION
 from .._types import QirInputData
 from ._simulation import (
     DecomposeCcxPass,
@@ -48,7 +49,7 @@ class MpsOptions:
         what truncating to it lost.
     """
 
-    max_bond_dimension: int = 128
+    max_bond_dimension: int = _MPS_DEFAULT_MAX_BOND_DIMENSION
 
     def __post_init__(self) -> None:
         bond = self.max_bond_dimension
@@ -80,8 +81,9 @@ class Sample:
             raise ValueError("shots must be an integer in [1, 2**32)")
 
 
-# The queries `tensornetwork_qir` will answer: planned, as M2 adds others
-# beside `Sample`; signatures name `Sample` until then.
+# The queries `tensornetwork_qir` answers. Planned: other queries
+# (expectation values, states) will join `Sample`; signatures name `Sample`
+# until then.
 Query = Sample
 
 
@@ -122,6 +124,11 @@ class TensorNetworkResults(tuple):
         """The run's report. Read-only, as the frozen dataclasses beside
         it are."""
         return self._report
+
+    def __getnewargs__(self) -> Tuple[Tuple[object, ...], TensorNetworkReport]:
+        # `copy`, `deepcopy` and `pickle` rebuild a tuple subclass with
+        # `__new__(cls, *__getnewargs__())`; tuple's gives no report.
+        return (tuple(self), self._report)
 
 
 @dataclass(frozen=True)
@@ -183,27 +190,32 @@ def tensornetwork_qir(
         ``options.max_bond_dimension``.
     :param options: :class:`MpsOptions`; ``None`` takes the defaults.
     :param seed: Reproduces the shots: the same seed gives each shot the same
-        records, whichever number of shots runs. In [0, 2**32); ``None``
-        draws one.
-    :param engine: Where the matrix product state lives: ``"gpu"``, the
-        canonical MPS engine on CUDA device 0 (cuTensorNet's tensor calls),
-        which needs the setup :func:`check_tensornetwork_setup` checks; or
-        ``"cpu"``, the same engine on the host CPU, which needs no setup.
+        records, whichever number of shots runs: exactly on the CPU engine;
+        on the GPU engine, to rounding (a draw that rounding decides may
+        differ). In [0, 2**32); ``None`` draws one.
+    :param engine: Where the matrix product state lives, both engines
+        running the same method: ``"gpu"``, an NVIDIA GPU through NVIDIA's
+        cuTensorNet library, on CUDA device 0, the first GPU the process
+        sees (``CUDA_VISIBLE_DEVICES`` selects which), which needs the setup
+        :func:`check_tensornetwork_setup` checks; or ``"cpu"``, the host
+        CPU, which needs no setup.
     :return: One result per query, in order, with the run's report as
-        ``.report``. A run whose truncation lost more than 10⁻³ of a shot's
-        weight also warns (``RuntimeWarning``).
+        ``.report``. A run whose truncation lost more of a shot's weight
+        than the method tolerates also warns (``RuntimeWarning``, whose
+        message gives the loss and the tolerance).
     :raises ValueError: For invalid arguments (an unknown ``engine``
         among them), a program the MPS simulation method does not run (a
         readout-noise call, a loss check, a gate on one qubit twice), a max
         bond dimension too large for the program's qubits, or a call the
         engine refuses (an operator on no site, say).
-    :raises TypeError: For an argument of the wrong type.
+    :raises TypeError: When ``options`` is not an :class:`MpsOptions`, or a
+        query not a :class:`Sample`.
     :raises OSError: When the GPU engine is not set up (no library, a version
-        not supported, no device), with the :func:`check_tensornetwork_setup`
-        report as the message, after the engine's error when no engine could
-        be made, and a last line saying that ``engine="cpu"`` runs without a
-        GPU; or when the engine fails during the run, with its error as the
-        message.
+        not supported, no device): the message is the
+        :func:`check_tensornetwork_setup` report. When the setup was found
+        but no engine could be made: the engine's error, then that report.
+        Both end with a line saying that ``engine="cpu"`` runs without a
+        GPU. When the engine fails during the run: its error.
     :raises RuntimeError: When a shot traps (a division by zero, say); the
         message names the shot.
     """
@@ -304,11 +316,12 @@ def _run(
 
 
 def _packaged_libraries() -> List[str]:
-    """The library files NVIDIA's wheels installed in this environment, for
-    instance ``libcutensornet.so.2``, one for each wheel installed that holds
-    its file: Python finds them from the installed distributions, so that no
-    ``LD_LIBRARY_PATH`` is needed. The native side tries each for the
-    library of its file name."""
+    """The paths of the library files NVIDIA's wheels installed in this
+    environment, for instance
+    ``<site-packages>/cuquantum/lib/libcutensornet.so.2``, one for each wheel
+    installed that holds its file: Python finds them from the installed
+    distributions, so that no ``LD_LIBRARY_PATH`` is needed. The native side
+    tries each for the library of its file name."""
 
     def find(distribution: str, file: str) -> Optional[str]:
         try:
