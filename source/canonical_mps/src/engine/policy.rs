@@ -10,8 +10,8 @@
 /// [`with_cutoff`](super::CanonicalMpsEngine::with_cutoff) states, which
 /// also says what a smaller or larger cutoff trades.
 ///
-/// A cutoff of zero keeps every value a split returns, those just above
-/// rounding included, which grows the bonds and the time: on an Ising
+/// A cutoff of zero keeps every value above rounding's size, those just
+/// above it included, which grows the bonds and the time: on an Ising
 /// quench of 16 qubits, depth 20, with `χ` 256, run with fusion (as
 /// [`new`](super::CanonicalMpsEngine::new) makes the engine) on the CPU,
 /// the largest bond at rest measured 254 against 138 at this cutoff, and

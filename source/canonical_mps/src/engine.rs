@@ -172,8 +172,10 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
 
     /// The same engine, whose splits each keep their largest singular value
     /// and drop values whose squares sum to at most `cutoff` times the sum
-    /// of all their squares, unless the capacity's bond, which every split
-    /// keeps at most (Truncation on [`CanonicalMpsEngine`]), cuts more.
+    /// of all their squares, and beyond it values of rounding's size
+    /// ([`GateSplitCall::cutoff`](crate::site_algebra::GateSplitCall::cutoff)
+    /// says how small), unless the capacity's bond, which every split keeps
+    /// at most (Truncation on [`CanonicalMpsEngine`]), cuts more.
     /// These are the bounds of [`SiteAlgebra::gate_split`]'s contract;
     /// which values a split drops within them is the algebra's to choose.
     ///

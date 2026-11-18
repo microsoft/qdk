@@ -43,9 +43,11 @@
 //! An error on any call is a failure of its case: the kit makes only the
 //! calls the contract allows. The latitude the contract leaves is not
 //! checked: a bond larger than the cutoff needs, and the side of a tie a
-//! split takes. No fault of the algebra makes the kit panic, so a failing
-//! algebra reports every case it fails, except that a tensor shorter than
-//! the bond the algebra reported may make the algebra's own read panic.
+//! split takes. The kit's own code never panics on what an algebra returns,
+//! so a failing algebra reports every case it fails; a panic inside the
+//! algebra's own call (a read of a tensor shorter than the bond the algebra
+//! reported, for instance) is the algebra's failure, which the test harness
+//! reports, and it stops the kit.
 //! The kit needs the `conformance` feature, so it costs nothing in a build
 //! that does not test a backend.
 

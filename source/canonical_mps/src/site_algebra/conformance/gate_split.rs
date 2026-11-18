@@ -17,9 +17,10 @@ use num_complex::Complex64;
 use std::fmt;
 
 /// The share of the squared singular values a split may drop beyond its
-/// cutoff: values of rounding's size, which a backend's SVD may give where
-/// `θ`'s are zero, up to 1e-10 of the norm. A split at a cutoff of zero
-/// that drops a value of 1e-8 of the norm, a share of 1e-16, fails.
+/// cutoff, as [`GateSplitCall::cutoff`] allows: values of rounding's size,
+/// which a backend's SVD may give where `θ`'s are zero, up to 1e-10 of the
+/// norm. A split at a cutoff of zero that drops a value of 1e-8 of the
+/// norm, a share of 1e-16, fails.
 const ROUNDING_SHARE: f64 = 1e-20;
 
 /// Without truncation (a cutoff of zero, no cap), the product of the new
@@ -118,9 +119,9 @@ pub(super) fn isometry<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
 /// The squares of the dropped values sum to at most the cutoff's share of
 /// all of them, unless the cap cut the bond, at every setting; and at a
 /// cutoff of zero, a value of 1e-8 of the norm, whose square is far above
-/// underflow, is kept. Catches a cutoff applied to the values rather than
-/// their squares, a cutoff taken as larger than it is, and a cutoff of
-/// zero that drops small values.
+/// rounding's share ([`ROUNDING_SHARE`]), is kept. Catches a cutoff applied
+/// to the values rather than their squares, a cutoff taken as larger than
+/// it is, and a cutoff of zero that drops values above rounding's size.
 pub(super) fn cutoff<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     let small = 1e-8_f64;
     let mut scenes = graded_scenes()?;
