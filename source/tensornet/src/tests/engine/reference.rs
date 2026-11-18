@@ -101,15 +101,24 @@ fn basis_state_i_has_site_k_as_bit_k() {
     assert_eq!(state.amplitude(0b010), c(1.0, 0.0));
 }
 
-/// CX on [0, 1] flips site 1 when site 0 is set; on [1, 0], the reverse.
+/// CX on [a, b] flips site b when site a is set; on [b, a], the reverse:
+/// on neighbours, and on distant sites, the site between them untouched.
 #[test]
 fn the_first_site_of_an_operator_is_its_most_significant_bit() {
-    let mut state = prepared(2);
-    apply(&mut state, &[0], &Pauli::X.matrix());
-    apply(&mut state, &[0, 1], &cx());
-    assert_eq!(state.amplitude(0b11), c(1.0, 0.0));
-    apply(&mut state, &[1, 0], &cx());
-    assert_eq!(state.amplitude(0b10), c(1.0, 0.0));
+    // (sites, [a, b], the basis state after CX on [a, b], then on [b, a])
+    let rows = [(2, [0, 1], 0b11, 0b10), (3, [0, 2], 0b101, 0b100)];
+    for (sites, [a, b], after, after_reversed) in rows {
+        let mut state = prepared(sites);
+        apply(&mut state, &[a], &Pauli::X.matrix());
+        apply(&mut state, &[a, b], &cx());
+        assert_eq!(state.amplitude(after), c(1.0, 0.0), "CX on [{a}, {b}]");
+        apply(&mut state, &[b, a], &cx());
+        assert_eq!(
+            state.amplitude(after_reversed),
+            c(1.0, 0.0),
+            "CX on [{b}, {a}]"
+        );
+    }
 }
 
 #[test]
