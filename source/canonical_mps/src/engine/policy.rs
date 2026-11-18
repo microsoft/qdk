@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The engine's default setting and its fixed threshold, with their
+//! The engine's default cutoff and its operator rank cutoff, with their
 //! reasons.
 
 /// The cutoff of [`CanonicalMpsEngine::new`](super::CanonicalMpsEngine::new):

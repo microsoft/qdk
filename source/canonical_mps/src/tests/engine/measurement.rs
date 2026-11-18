@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Reads and projections: reads keep the state, a projection makes its
-//! value certain and returns its probability without recompressing, a
-//! conditional probability is the probability after its conditions, and
-//! forks once.
+//! A measurement's operations on one site: reads keep the state, a
+//! projection makes its value certain and returns its probability without
+//! recompressing, a conditional probability is the probability after its
+//! conditions, and forks once.
 
 use super::*;
 
