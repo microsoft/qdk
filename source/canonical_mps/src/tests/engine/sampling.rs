@@ -108,9 +108,9 @@ fn a_sample_never_draws_a_value_of_probability_zero() {
         // precondition checks that the chosen site still rounds so, and
         // asks to re-probe when it does not.
         ("One where Zero has probability zero", |engine, name| {
-            // COMPATIBILITY NOTE: this behavior was present in the dev
-            // line's `qdk_cpu_mps` (its test of the same name), hence we
-            // keep its rule. Its sites moved, because this crate's splits
+            // COMPATIBILITY NOTE: this behavior was present in the earlier
+            // CPU MPS engine's sampling, hence we keep its rule. The sites
+            // differ from those its test used, because this crate's splits
             // round differently from that engine's SVD, so they were found
             // again as the comment above says.
             // 1 − 2⁻⁵³ is the largest `f64` below 1, so a uniform in [0, 1) is
