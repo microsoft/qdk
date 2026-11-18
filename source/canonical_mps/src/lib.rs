@@ -15,9 +15,9 @@
 //!   rely on beyond the contract: how it fuses and applies gates, and the
 //!   bounds its truncations stay within.
 //! - [`CpuMpsEngine`] is the engine on [`CpuAlgebra`], the reference
-//!   algebra: the `SiteAlgebra` of the host CPU, whose answers a backend
-//!   on another library can be compared with. It needs no device, so it
-//!   runs wherever the QDK runs.
+//!   algebra: the `SiteAlgebra` of the host CPU, which passes the
+//!   contract's conformance kit. It needs no device, so it runs wherever
+//!   the QDK runs.
 //! - [`algebra`] is the backend contract.
 //!   [`SiteAlgebra`](algebra::SiteAlgebra) is what a backend implements: a
 //!   site tensor's storage, a gate split, and a move of the centre.
