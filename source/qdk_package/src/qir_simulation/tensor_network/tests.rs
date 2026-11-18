@@ -3,10 +3,11 @@
 
 //! Which Python exception a run's failure raises, and with what message,
 //! for the failures the package's Python tests cannot cause: an engine's
-//! errors and a stopped run ([`RunFailure::of`]), a GPU engine that was not
-//! made ([`engine_not_made`]), the line every GPU setup failure ends with,
-//! and a run thread that panicked ([`lost_run`]). A trap, which a program
-//! causes, is pinned by the Python tests alone.
+//! failure and a stopped run ([`RunFailure::of`]), a GPU engine that was
+//! not made ([`engine_not_made`]), the line every GPU setup failure ends
+//! with, and a run thread that panicked ([`lost_run`]). A trap and an
+//! engine's refusal, which a program causes, are pinned by the Python
+//! tests alone.
 
 use std::fmt;
 
@@ -69,19 +70,6 @@ fn an_engine_failure_is_an_os_error() {
     assert!(
         matches!(&failure, RunFailure::Os(message) if message.contains("ran out of memory")),
         "an engine failure is an OSError: {failure:?}"
-    );
-}
-
-/// An engine that refuses a call (an operator on no site) raises
-/// `ValueError`, as the program's other faults do.
-#[test]
-fn an_engine_refusal_is_a_value_error() {
-    let failure = shot_0_failure(MpsResumerError::Engine(FakeEngineError::from(
-        Refusal::NoSites,
-    )));
-    assert!(
-        matches!(&failure, RunFailure::Value(message) if message.contains("at least one site")),
-        "an engine refusal is a ValueError: {failure:?}"
     );
 }
 
