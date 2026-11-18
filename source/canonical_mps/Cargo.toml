@@ -19,11 +19,16 @@ tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
 
 [features]
-# Exposes what another crate needs to check its own `SiteAlgebra`: the dense
-# linear algebra (`dense_linalg`), for the test doubles of a backend library.
+# Exposes what another crate needs to check its own `SiteAlgebra`: the
+# conformance kit (`algebra::conformance`), and the dense linear algebra
+# (`dense_linalg`), for the test doubles of a backend library.
 conformance = []
 
 [dev-dependencies]
+# The crate itself with the kit, so that the kit's doctest and the
+# integration test that runs it on the reference algebra run in every
+# `cargo test`, the workspace's included.
+canonical_mps = { path = ".", features = ["conformance"] }
 # The integration tests compare with the stabilizer simulator, whose
 # observables are paulimer's, and with the sparse state simulator.
 paulimer = { workspace = true }

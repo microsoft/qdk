@@ -21,7 +21,9 @@
 //! - [`algebra`] is the backend contract.
 //!   [`SiteAlgebra`](algebra::SiteAlgebra) is what a backend implements: a
 //!   site tensor's storage, a gate split, and a move of the centre.
-//!   [`algebra`]'s documentation states the tensors' layout.
+//!   [`algebra`]'s documentation states the tensors' layout. Its
+//!   conformance kit, `algebra::conformance`, which the `conformance`
+//!   feature makes public, checks a backend against the contract.
 //! - [`SvdError`] is why the crate's checked singular value decomposition
 //!   failed: `CpuAlgebra`'s error. The SVD, with the products and QR
 //!   decompositions the reference algebra and the engine's host

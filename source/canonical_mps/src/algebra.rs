@@ -27,6 +27,8 @@
 //! packed: a site of extents `[left, 2, right]` holds exactly
 //! `left·2·right` elements.
 
+#[cfg(any(test, feature = "conformance"))]
+pub mod conformance;
 mod cpu_algebra;
 pub(crate) mod truncation;
 
