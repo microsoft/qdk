@@ -119,10 +119,14 @@ impl NativeLibrary for CuTensorNet {
     }
 
     /// Its path and version, and the CUDA Runtime it was built for.
+    #[expect(
+        clippy::unnecessary_debug_formatting,
+        reason = "paths are quoted, as in the faults, so a line break adds no line"
+    )]
     fn describe(report: &LibraryReport) -> Vec<String> {
         vec![format!(
             "cuTensorNet: {} ({}, built for CUDA Runtime {})",
-            or_unread(report.path.as_ref().map(|path| path.display())),
+            or_unread(report.path.as_ref().map(|path| format!("{path:?}"))),
             or_unread(report.version("cuTensorNet").map(cutensornet_version)),
             or_unread(
                 report

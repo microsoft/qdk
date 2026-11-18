@@ -143,6 +143,10 @@ impl NativeLibrary for CudaRuntime {
 
     /// Its path and version, and the CUDA the driver supports, or that
     /// there is no driver.
+    #[expect(
+        clippy::unnecessary_debug_formatting,
+        reason = "paths are quoted, as in the faults, so a line break adds no line"
+    )]
     fn describe(report: &LibraryReport) -> Vec<String> {
         let driver = match report.version("CUDA driver") {
             Some(NO_DRIVER) => "none".to_string(),
@@ -151,7 +155,7 @@ impl NativeLibrary for CudaRuntime {
         vec![
             format!(
                 "CUDA Runtime: {} ({})",
-                or_unread(report.path.as_ref().map(|path| path.display())),
+                or_unread(report.path.as_ref().map(|path| format!("{path:?}"))),
                 or_unread(report.version("CUDA Runtime").map(cuda_version)),
             ),
             format!("CUDA driver: {driver}"),

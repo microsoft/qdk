@@ -130,6 +130,10 @@ impl GpuSetup {
     /// stray copy can be what makes the one loaded fail, with what to do
     /// about it, which depends on whether the one loaded is at fault
     /// (`advice::other_copy_advice`).
+    #[expect(
+        clippy::unnecessary_debug_formatting,
+        reason = "paths are quoted, as in the faults, so a line break adds no line"
+    )]
     #[must_use]
     pub fn warnings(&self) -> Vec<String> {
         let report = match &self.loaded {
@@ -142,13 +146,13 @@ impl GpuSetup {
             .iter()
             .filter_map(|guide| Some((guide, report.library(guide.library)?)))
             .flat_map(|(guide, library)| {
-                let loaded = or_unread(library.path.as_ref().map(|path| path.display()));
+                let loaded = or_unread(library.path.as_ref().map(|path| format!("{path:?}")));
                 let fix = other_copy_advice(guide, library);
                 library.other_copies.iter().map(move |other| {
                     format!(
-                        "another copy of {} is at {}, beside the one loaded, {loaded}: {fix}",
+                        "another copy of {} is at {other:?}, beside the one loaded, {loaded}: \
+                         {fix}",
                         guide.library,
-                        other.display(),
                     )
                 })
             })
