@@ -437,7 +437,8 @@ apart. Anything else is expected to work, but not verified.
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the
   default paths are those of NVIDIA's apt packages); the wheels' files
-  given through `PackagedLibraries`, which no test here gives.
+  given through `PackagedLibraries`, which no test here loads from the
+  real wheels.
 - **Not supported:** other architectures (ARM included), other systems,
   and other releases of the libraries, CUDA 13 among them: each needs its
   bindings generated and audited.

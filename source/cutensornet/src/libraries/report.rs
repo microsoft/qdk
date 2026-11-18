@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! What opening and checking one library found: where it was loaded from,
-//! the versions it reports, and every fault found in it.
+//! the versions it reports, every fault found in it, the other copies
+//! visible beside it, and whether it was loaded from its override.
 //!
 //! Each library is opened and checked in `libraries`, which fills its
 //! report; discovery collects the reports, one per library, in an

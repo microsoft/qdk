@@ -57,7 +57,7 @@ fn fault_advice(library: &str, fault: &LibraryFault, install_command: Option<&st
         }
         LibraryFault::NotFound { .. } => match guide {
             Some(guide) => format!(
-                "{}, or set {} to the absolute path of {library}",
+                "{}, or set {} to the absolute path of {library}'s file",
                 install(),
                 guide.variable
             ),

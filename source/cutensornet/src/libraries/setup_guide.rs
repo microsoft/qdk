@@ -4,13 +4,18 @@
 //! [`SetupGuide`]: what the setup check tells a user about one library, as
 //! the library's module declares it.
 //!
-//! The setup check shows each library and advises what to fix, but names
-//! none: each library's module declares, as part of its `NativeLibrary`,
-//! what the check shows of it, what to install, and the problems of the
-//! host its report reveals; `LoadedLibraries::SETUP_GUIDES` lists the
-//! guides, and [`setup_guides`] gives them to the check. So a library bound
-//! later brings its own, and the check changes nothing. [`or_unread`] is
-//! how a guide, and the check, show one of a report's optional values.
+//! The setup check shows each library and advises what to fix, and its
+//! library steps name none: each library's module declares, as part of
+//! its `NativeLibrary`, what the check shows of it, what to install, the
+//! variable that overrides it, what to do when its version probe fails,
+//! and the problems of the host its report reveals;
+//! `LoadedLibraries::SETUP_GUIDES` lists the guides, and [`setup_guides`]
+//! gives them to the check. So a library bound later brings its own, and
+//! the library steps change nothing. The device step is the exception:
+//! the check holds its facts, cuTensorNet's compute-capability floor and
+//! the CUDA Runtime's driver advice.
+//! [`or_unread`] is how a guide, and the check, show one of a report's
+//! optional values.
 
 use super::report::LibraryReport;
 use std::fmt;

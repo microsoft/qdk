@@ -172,7 +172,7 @@ fn advice(setup: &GpuSetup) -> String {
     assert!(!setup.is_ready(), "a problem leaves the setup unready");
     let advice = setup.advice().expect("a problem has advice");
     assert!(
-        setup.to_string().contains(&format!("to fix: {advice}")),
+        setup.to_string().ends_with(&format!("\nto fix: {advice}")),
         "the report ends with the fix: {setup}"
     );
     advice
@@ -253,6 +253,30 @@ fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install() {
     ] {
         let advice = advice(&failed(unusable("cuTensorNet", vec![fault])));
         assert!(advice.contains(INSTALL), "{advice}");
+    }
+}
+
+/// A library found but not loaded usually misses a library it needs, so
+/// its install is advised with the dependencies: a packager's command
+/// brings them, and an install without one must include them.
+#[cfg(unix)]
+#[test]
+fn a_library_that_fails_to_load_is_advised_its_dependencies() {
+    for (install_command, ending) in [
+        (Some(PIP_INSTALL), ", which brings their dependencies"),
+        (None, ", with their dependencies"),
+    ] {
+        let advice = advice(&GpuSetup {
+            install_command: install_command.map(str::to_string),
+            ..failed(unusable(
+                "cuTensorNet",
+                vec![LibraryFault::LoadFailed {
+                    path: PathBuf::from("/usr/lib/libcutensornet.so.2"),
+                    message: "libcutensor.so.2: cannot open shared object file".to_string(),
+                }],
+            ))
+        });
+        assert!(advice.ends_with(ending), "{advice}");
     }
 }
 
@@ -773,10 +797,11 @@ fn without_a_packager_the_advice_names_no_command() {
 /// what discovery finds given the same files, whatever the host's
 /// overrides and installs, and advises a failure with the packager's
 /// command. On a host with no override, that is the packaged CUDA Runtime,
-/// here not a library, failing to load, advised the install by that
-/// command; with the default files, it would not be tried at all. On a GPU
-/// host whose overrides name working libraries, discovery succeeds and the
-/// check runs its trial run on the GPU.
+/// here not a library, failing to load; with the default files, it would
+/// not be tried at all. On a GPU host whose overrides name working
+/// libraries, discovery succeeds and the check runs its trial run on the
+/// GPU. A host with an invalid override fails this test: that override is
+/// advised first, with no command.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn the_check_discovers_with_the_packaged_files() {
@@ -802,6 +827,11 @@ fn the_check_discovers_with_the_packaged_files() {
                 install_command: Some(PIP_INSTALL.to_string()),
             };
             assert_eq!(setup.advice(), advised.advice());
+            let advice = setup.advice().expect("an unusable setup has advice");
+            assert!(
+                advice.contains(PIP_INSTALL),
+                "a host with no invalid override is advised the packager's command: {advice}"
+            );
         }
         (checked, discovered) => {
             panic!("the check found {checked:?}, discovery {discovered:?}")
