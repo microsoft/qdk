@@ -41,6 +41,10 @@ sequenceDiagram
   E->>A: per condition, as project, on the fork
   E->>A: as probability_of_one, on the fork
   Note over E,A: without conditions: as probability_of_one, no duplicate
+  Note over S,A: sample: check; per new prefix of values, as conditional_probability_of_one
+  S->>E: sample(state, sites, shots, seed)
+  Note over E,A: the empty prefix: as probability_of_one, of the first site
+  Note over E,A: each new nonempty prefix: as with conditions, on a fork
   Note over S,A: expectation: check, window, read, contract
   S->>E: expectation(state, observable)
   Note over E,A: window (see below)
@@ -72,15 +76,16 @@ a window leaves it on the end of the window's span the next operation
 needs, so a sequence of operations on nearby sites moves it little. After
 each method, with $c$ the centre before it:
 
-| `MpsEngine` method                 | The centre after it                                                                                                                       |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `prepare`                          | site 0                                                                                                                                    |
-| `apply`, one site                  | $c$: the gate waits, pending                                                                                                              |
-| `apply`, two sites                 | $c$ when the gate joins the pending window or opens one; else the end of the applied window's span nearer the gate's lower site           |
-| `probability_of_one`, `project`    | the site read: the pending window is applied toward it first, which leaves the centre on its span's end nearer the site                   |
-| `conditional_probability_of_one`   | with conditions, as for `fork`, the conditions and the read on the fork; without, as for `probability_of_one`                             |
-| `expectation`                      | $c$, or the end of the pending window's span nearer $c$, when a window is pending; the reads copy the sites to the host without moving it |
-| `fork`, `shape`, `retained_weight` | as for `expectation`; a fork starts with its parent's centre                                                                              |
+| `MpsEngine` method                 | The centre after it                                                                                                                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prepare`                          | site 0                                                                                                                                                                                |
+| `apply`, one site                  | $c$: the gate waits, pending                                                                                                                                                          |
+| `apply`, two sites                 | $c$ when the gate joins the pending window or opens one; else the end of the applied window's span nearer the gate's lower site                                                       |
+| `probability_of_one`, `project`    | the site read: the pending window is applied toward it first, which leaves the centre on its span's end nearer the site                                                               |
+| `conditional_probability_of_one`   | with conditions, as for `fork`, the conditions and the read on the fork; without, as for `probability_of_one`                                                                         |
+| `sample`                           | the first site sampled, when it asks for a probability: its first read is that site's, without conditions; $c$ when it asks for none (no shots, no sites, a refusal, too many values) |
+| `expectation`                      | $c$, or the end of the pending window's span nearer $c$, when a window is pending; the reads copy the sites to the host without moving it                                             |
+| `fork`, `shape`, `retained_weight` | as for `expectation`; a fork starts with its parent's centre                                                                                                                          |
 
 ## Numerics
 
