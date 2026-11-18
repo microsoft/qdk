@@ -59,10 +59,10 @@ use super::SiteAlgebra;
 use num_complex::Complex64;
 use std::fmt;
 
-/// How far a product, a share or an isometry may be from its formula, in
-/// the Frobenius norm of the normalised pair or the largest entry: a
-/// backend in double precision rounds far below it on the kit's largest
-/// pair (64 × 64), and a fault in the layout errs by about one.
+/// How far a product, a retained fraction or an isometry may be from its
+/// formula, in the Frobenius norm of the normalised pair or the largest entry:
+/// a backend in double precision rounds far below it on the kit's largest pair
+/// (64 × 64), and a fault in the layout errs by about one.
 pub const TOLERANCE: f64 = 1e-10;
 
 /// Runs every case against `algebra` and returns the failures, empty when
@@ -84,9 +84,18 @@ fn cases<A: SiteAlgebra>() -> [Case<A>; 15] {
         ("split bond", gate_split::bond),
         ("split isometry", gate_split::isometry),
         ("split cutoff", gate_split::cutoff),
-        ("split share", gate_split::share),
-        ("split cutoff of zero", gate_split::cutoff_of_zero),
-        ("split tie", gate_split::tie),
+        (
+            "split retains the fraction of its kept squares",
+            gate_split::retained_fraction,
+        ),
+        (
+            "split that drops nothing retains exactly 1",
+            gate_split::drops_nothing,
+        ),
+        (
+            "split at a tie retains the fraction of its bond",
+            gate_split::at_a_tie,
+        ),
         ("split inputs unchanged", gate_split::inputs_unchanged),
         ("move product", qr_move::product),
         ("move bond", qr_move::bond),

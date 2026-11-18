@@ -16,7 +16,7 @@ fn a_sample_of_no_sites_gives_no_values_at_once() {
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let engine = Engine::new(CpuAlgebra);
-        let state = engine.prepare(&chain(2, 2)).expect("prepare");
+        let state = engine.prepare(&capacity(2, 2)).expect("prepare");
         let values = engine.sample(&state, &[], usize::MAX, 0);
         sender.send(values).expect("the test waits");
     });
@@ -126,7 +126,7 @@ fn a_sample_never_draws_a_value_of_probability_zero() {
             };
             let state = measured_on(engine, sites, site, true);
             let whole = engine
-                .one_over_the_whole_weight(&state, site)
+                .probability_of_one_over_the_whole_weight(&state, site)
                 .expect("a read");
             assert!(
                 whole < 1.0,
@@ -174,7 +174,7 @@ fn a_sample_draws_from_the_splitmix64_stream_of_its_seed() {
     let h = std::f64::consts::FRAC_1_SQRT_2;
     let hadamard = [real(h), real(h), real(h), real(-h)];
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+        let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
         engine.apply(&mut state, &[0], &hadamard).expect("apply");
         let p1 = engine.probability_of_one(&state, 0).expect("P(One)");
         assert_eq!(p1.to_bits(), 0.5f64.to_bits(), "{name}: P(One) is ½");

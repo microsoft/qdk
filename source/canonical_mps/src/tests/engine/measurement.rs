@@ -50,7 +50,7 @@ fn a_projection_makes_its_value_certain() {
 #[test]
 fn a_projection_applies_the_sites_pending_gate_once() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(3, 2)).expect("prepare");
+        let mut state = engine.prepare(&capacity(3, 2)).expect("prepare");
         engine.apply(&mut state, &[0], &ry(0.9)).expect("apply");
         let p = engine.project(&mut state, 0, true).expect("project");
         let expected = 0.45f64.sin().powi(2);
@@ -106,7 +106,7 @@ fn a_projection_does_not_recompress_the_bonds() {
     let h = std::f64::consts::FRAC_1_SQRT_2;
     let hadamard = [real(h), real(h), real(h), real(-h)];
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut ghz = engine.prepare(&chain(4, 4)).expect("prepare");
+        let mut ghz = engine.prepare(&capacity(4, 4)).expect("prepare");
         engine.apply(&mut ghz, &[0], &hadamard).expect("apply");
         for site in 1..4 {
             engine

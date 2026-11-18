@@ -15,7 +15,7 @@ use std::borrow::Cow;
 /// Turns of 0.3 and 0.4 and back by 0.7: the site is Zero up to rounding,
 /// so One keeps a weight of rounding, above zero.
 fn one_of_rounding_weight(engine: &Engine) -> State {
-    let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+    let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
     for angle in [0.3, 0.4, -0.7] {
         engine.apply(&mut state, &[0], &ry(angle)).expect("apply");
     }
@@ -28,7 +28,7 @@ fn one_of_rounding_weight(engine: &Engine) -> State {
 #[test]
 fn a_value_of_probability_zero_is_refused() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+        let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
         let condition = engine
             .conditional_probability_of_one(&state, 1, &[(0, true)])
             .expect_err("an impossible condition");
@@ -79,7 +79,7 @@ fn a_value_of_rounding_weight_is_accepted() {
         // exact.
         ("a condition on Zero of weight 1e-18", |engine, name| {
             let theta = 2.0 * (1e-9f64).acos();
-            let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+            let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
             engine.apply(&mut state, &[0], &ry(theta)).expect("apply");
             engine.apply(&mut state, &[1], &ry(0.8)).expect("apply");
             let p1 = engine.probability_of_one(&state, 0).expect("P(One)");
@@ -102,7 +102,7 @@ fn a_value_of_rounding_weight_is_accepted() {
 /// chain of capacity 1: the CX's split keeps `|00⟩`, dropping the value
 /// One of site 0. With fusion the CX's window is still pending.
 fn a_pair_truncated_to_zero_zero(engine: &Engine) -> State {
-    let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+    let mut state = engine.prepare(&capacity(2, 1)).expect("prepare");
     engine.apply(&mut state, &[0], &ry(0.8)).expect("apply");
     engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
     state
@@ -154,7 +154,7 @@ fn refuses_a_gate_on_three_sites_leaving_what_reads_see() {
         .map(|at| real(if at % 9 == 0 { 1.0 } else { 0.0 }))
         .collect();
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
+        let mut state = engine.prepare(&capacity(3, 4)).expect("prepare");
         engine.apply(&mut state, &[0], &ry(0.8)).expect("apply");
         engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
         let p1 = |state: &State| -> Vec<f64> {
@@ -190,7 +190,7 @@ fn refuses_a_qutrit() {
 #[test]
 fn a_refused_call_reports_its_refusal() {
     let engine = Engine::new(CpuAlgebra);
-    let state = engine.prepare(&chain(2, 2)).expect("prepare");
+    let state = engine.prepare(&capacity(2, 2)).expect("prepare");
     let error = engine
         .probability_of_one(&state, 2)
         .expect_err("site 2 of 2");
@@ -245,7 +245,7 @@ impl SiteAlgebra for NanReadsStub {
 #[test]
 fn a_value_of_nan_probability_is_refused() {
     let engine = CanonicalMpsEngine::new(NanReadsStub);
-    let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+    let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
     let condition = engine
         .conditional_probability_of_one(&state, 1, &[(0, false)])
         .expect_err("a condition of probability NaN");

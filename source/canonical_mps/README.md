@@ -239,7 +239,7 @@ The table names the phases each method runs, in order.
 | `expectation`                    | check; window, toward the centre; read; contract                                                                | the sites between the terms and the centre are read once each; the terms walk a trie of their factors, from the plain chain's environments; the sum is divided by the squared norm at the centre                                                               | a chemistry reading holds hundreds of Pauli strings that share their sites; one walk per term would read the sites many times over                                                                                                                                       |
 | `fork`                           | window, toward the centre; duplicate                                                                            | the copy keeps the centre, the pending one-site gates, the retained weight and the statistics                                                                                                                                                                  | a pending window is applied once, in the parent, not once per fork; a fork is the same state                                                                                                                                                                             |
 | `shape`                          | window, toward the centre                                                                                       | the extents of the chain's bonds                                                                                                                                                                                                                               | a pending window's truncation sets its bonds                                                                                                                                                                                                                             |
-| `retained_weight`                | window, toward the centre                                                                                       | the product of the splits' retained fractions                                                                                                                                                                                                                  | a pending window's truncations set their share; the chain's norm stays about 1, so the weight is kept apart                                                                                                                                                              |
+| `retained_weight`                | window, toward the centre                                                                                       | the product of the splits' retained fractions                                                                                                                                                                                                                  | a pending window's truncations set their retained fractions; the chain's norm stays about 1, so the weight is kept apart                                                                                                                                                 |
 
 A split that would take the retained weight below the smallest normal
 `f64` fails with `CanonicalMpsError::WeightUnderflow`, since callers divide
@@ -292,7 +292,9 @@ factors a site read as a matrix with no copy; the
 
 A backend's tests check it against the contract with two parts, public
 under the crate's `conformance` feature, which a backend enables in its
-dev-dependencies:
+dev-dependencies (the feature also makes
+[`dense_linalg`](src/dense_linalg.rs) public, for a backend's test
+stand-ins):
 
 - [`site_algebra::conformance::check`](src/site_algebra/conformance.rs) calls each
   operation on seeded inputs, from a pair whose extents are all one ($\theta$ of
@@ -367,8 +369,9 @@ The engine reports it as `CanonicalMpsError::Algebra`.
 
 The CPU algebra's products, QR decompositions and SVD, and the
 engine's computations on the host (an MPO's operator, the expectation's
-contractions), come from the crate's private module
-[`dense_linalg`](src/dense_linalg.rs): dense complex matrices with a thin
+contractions), come from the crate's module
+[`dense_linalg`](src/dense_linalg.rs), private, and public under the
+`conformance` feature for a backend's tests: dense complex matrices with a thin
 QR and a checked SVD, which either answers factors checked against the
 matrix or reports a failure (`SvdError`, exported at the crate's root).
 [`docs/dense_linalg.md`](docs/dense_linalg.md) gives the SVD's guarantees
@@ -401,8 +404,8 @@ with `tensornet`'s exact reference, among them the
 [engine's conformance circuits](src/engine/conformance.rs). The CPU algebra passes
 the [conformance kit](tests/site_algebra_conformance.rs). The
 [integration tests](tests) also compare `CpuMpsEngine` with the QDK's
-[sparse simulator](tests/sparse_simulator.rs) on every one- and two-qubit
-gate it runs, and with its [stabilizer simulator](tests/exact_families.rs)
+[sparse simulator](tests/exact_gates_and_reads.rs) on every one- and two-qubit
+gate it runs, and with its [stabilizer simulator](tests/circuits_of_known_outcome.rs)
 on Clifford circuits of up to 48 qubits, beside mirror circuits that
 return every qubit to zero. A backend in another crate runs the
 [conformance kit](#the-conformance-kit) in its own tests.

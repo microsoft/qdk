@@ -3,8 +3,8 @@
 
 //! The contract's formulas the cases compare with: the gated pair `θ` and
 //! a gated site, each by the formula's own loops, `θ`'s singular values
-//! and the shares of their squares, and the distances from a product and
-//! from an isometry.
+//! and the fractions of their squares kept and dropped, and the distances
+//! from a product and from an isometry.
 
 use super::inputs::Pair;
 use crate::dense_linalg::{Matrix, Svd};
@@ -60,15 +60,15 @@ pub(super) fn singular_values(theta: &Matrix) -> Result<Vec<f64>, String> {
         .map_err(|error| format!("the kit's SVD of θ failed: {error}"))
 }
 
-/// The share of the squares of `values` in their first `k`, 1 when `k`
+/// The fraction of the squares of `values` in their first `k`, 1 when `k`
 /// holds them all.
-pub(super) fn kept_share(values: &[f64], k: usize) -> f64 {
-    1.0 - dropped_share(values, k)
+pub(super) fn retained_fraction_of(values: &[f64], k: usize) -> f64 {
+    1.0 - dropped_fraction_of(values, k)
 }
 
-/// The share of the squares of `values` past their first `k`, 0 when `k`
+/// The fraction of the squares of `values` past their first `k`, 0 when `k`
 /// holds them all.
-pub(super) fn dropped_share(values: &[f64], k: usize) -> f64 {
+pub(super) fn dropped_fraction_of(values: &[f64], k: usize) -> f64 {
     let total: f64 = values.iter().map(|s| s * s).sum();
     let dropped: f64 = values.iter().skip(k).map(|s| s * s).sum();
     dropped / total

@@ -27,7 +27,7 @@ mod truncation;
 
 use crate::dense_linalg::SvdError;
 use crate::engine::conformance::{
-    assert_reads_agree, chain, cnot, entangler, exact, mixed_string, real, ry,
+    assert_reads_agree, capacity, cnot, entangler, full_capacity, mixed_string, real, ry,
 };
 use crate::{
     CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, CanonicalMpsStatistics, CpuAlgebra,
@@ -105,8 +105,8 @@ fn both_fusions_and_cutoffs() -> impl Iterator<Item = (Engine, String)> {
 /// both.
 fn circuit(engine: &Engine, sites: usize) -> (State, ReferenceState) {
     let reference = ExactReference::new();
-    let mut state = engine.prepare(&chain(sites, 64)).expect("prepare");
-    let mut exact_state = reference.prepare(&exact(sites)).expect("prepare");
+    let mut state = engine.prepare(&capacity(sites, 64)).expect("prepare");
+    let mut exact_state = reference.prepare(&full_capacity(sites)).expect("prepare");
     let mut both = |on: &[usize], m: &[Complex64]| {
         engine.apply(&mut state, on, m).expect("apply");
         reference.apply(&mut exact_state, on, m).expect("apply");
@@ -151,7 +151,7 @@ fn spied_entangled_chain(
 ) {
     let (algebra, calls) = SpyAlgebra::new();
     let engine = CanonicalMpsEngine::new(algebra);
-    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
+    let mut state = engine.prepare(&capacity(sites, 4)).expect("prepare");
     for site in 0..sites {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
     }

@@ -12,7 +12,7 @@
 //! column-pivoted QR and the application of its `Q`, and the fast route's
 //! SVD.
 //!
-//! [`Shipped`] is the implementation the public API computes with.
+//! [`DefaultKernels`] is the implementation the public API computes with.
 
 mod t4a_faer;
 
@@ -21,7 +21,7 @@ use crate::dense_linalg::qr::Qr;
 use num_complex::Complex64;
 
 /// The implementation of [`Kernels`] the public API computes with.
-pub(crate) type Shipped = self::t4a_faer::T4aFaer;
+pub(crate) type DefaultKernels = self::t4a_faer::T4aFaer;
 
 /// An SVD as column-major arrays, `(U, S, V)` with `W = U·diag(S)·V†`,
 /// the values nonincreasing: `U` is `rows × r` and `V` is `cols × r`,

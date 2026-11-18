@@ -13,7 +13,7 @@ use super::*;
 #[test]
 fn an_engine_fuses_by_default() {
     let engine = Engine::new(CpuAlgebra);
-    let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+    let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
     engine.apply(&mut state, &[0], &ry(0.7)).expect("apply");
     engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
     engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
@@ -28,7 +28,7 @@ fn an_engine_fuses_by_default() {
 #[test]
 fn a_fork_applies_the_pending_window_once() {
     let engine = Engine::new(CpuAlgebra);
-    let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
+    let mut state = engine.prepare(&capacity(3, 4)).expect("prepare");
     engine.apply(&mut state, &[0], &ry(0.7)).expect("apply");
     engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
     engine.apply(&mut state, &[1, 2], &cnot()).expect("apply");
@@ -65,7 +65,7 @@ fn a_read_applies_the_pending_window_toward_its_site() {
         (unconditional_read, Some(1), 2, 0),
     ] {
         let engine = Engine::new(CpuAlgebra);
-        let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
+        let mut state = engine.prepare(&capacity(4, 2)).expect("prepare");
         if let Some(site) = first_read {
             engine.probability_of_one(&state, site).expect("P(One)");
         }
@@ -145,7 +145,7 @@ fn every_read_of_the_whole_state_applies_the_pending_window_toward_the_centre() 
     ];
     for (operation, on, centre, end, splits) in rows {
         let engine = Engine::new(CpuAlgebra);
-        let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
+        let mut state = engine.prepare(&capacity(4, 2)).expect("prepare");
         engine.probability_of_one(&state, centre).expect("P(One)");
         engine.apply(&mut state, &on, &cnot()).expect("apply");
         operation(&engine, &state);
@@ -167,7 +167,7 @@ fn every_read_of_the_whole_state_applies_the_pending_window_toward_the_centre() 
 fn fused_and_unfused(gates: &[(&[usize], Vec<Complex64>)]) -> [(Vec<f64>, (u64, u64)); 2] {
     [false, true].map(|fuses| {
         let engine = Engine::new(CpuAlgebra).with_fusion(fuses);
-        let mut state = engine.prepare(&chain(5, 8)).expect("prepare");
+        let mut state = engine.prepare(&capacity(5, 8)).expect("prepare");
         for (site, angle) in [0.3, 0.4, 0.5, 0.6, 0.7].into_iter().enumerate() {
             engine
                 .apply(&mut state, &[site], &ry(angle))
@@ -267,7 +267,7 @@ fn a_gate_that_does_not_fit_applies_the_window_toward_its_lower_site() {
     for (first_read, on) in [(None, [5, 2]), (None, [2, 5]), (Some(5), [2, 5])] {
         let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(true);
-        let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
+        let mut state = engine.prepare(&capacity(6, 8)).expect("prepare");
         for site in 0..6 {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
         }
@@ -354,8 +354,8 @@ fn every_read_sees_the_pending_windows_gates() {
     ];
     for (name, read) in reads {
         for (engine, fusion) in both_fusions(DEFAULT_CUTOFF) {
-            let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
-            let mut exact_state = reference.prepare(&exact(6)).expect("prepare");
+            let mut state = engine.prepare(&capacity(6, 8)).expect("prepare");
+            let mut exact_state = reference.prepare(&full_capacity(6)).expect("prepare");
             for (on, gate) in &gates {
                 engine.apply(&mut state, on, gate).expect("apply");
                 reference.apply(&mut exact_state, on, gate).expect("apply");
@@ -383,7 +383,7 @@ fn an_unfused_gate_leaves_the_centre_on_the_side_it_came_from() {
     for (end, expected) in [(0, 2), (5, 2), (2, 0), (3, 0)] {
         let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(false);
-        let mut state = engine.prepare(&chain(6, 4)).expect("prepare");
+        let mut state = engine.prepare(&capacity(6, 4)).expect("prepare");
         for site in 0..6 {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
         }
@@ -435,8 +435,8 @@ fn random_circuits_agree_with_the_exact_reference() {
     for seed in 0..12 {
         for (engine, name) in both_fusions(0.0) {
             let mut draws = Draws(seed);
-            let mut state = engine.prepare(&exact(SITES)).expect("prepare");
-            let mut exact_state = reference.prepare(&exact(SITES)).expect("prepare");
+            let mut state = engine.prepare(&full_capacity(SITES)).expect("prepare");
+            let mut exact_state = reference.prepare(&full_capacity(SITES)).expect("prepare");
             for step in 0..80 {
                 let context = format!("{name}, seed {seed}, step {step}");
                 match draws.below(20) {
