@@ -16,9 +16,8 @@
 //!
 //! [`read_devices`] reads them through [`DeviceCalls`]
 //! (`cudaGetDeviceCount`, then, on the engine's device, `cudaSetDevice`,
-//! `cudaMemGetInfo` and `cudaDeviceGetAttribute`), so that the rules run on
-//! a host with no GPU; `loaded_libraries.rs` implements it with the
-//! engine's own native calls (Linux x86-64).
+//! `cudaMemGetInfo` and `cudaDeviceGetAttribute`), a seam so that the
+//! rules run on a host with no GPU.
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod loaded_libraries;
@@ -91,7 +90,9 @@ pub(crate) fn read_devices(calls: &impl DeviceCalls) -> Result<DeviceReport, Cud
 
 /// The CUDA Runtime calls that read the devices.
 pub(crate) trait DeviceCalls {
+    /// How many CUDA devices the process sees.
     fn device_count(&self) -> Result<i32, CudaAlgebraError>;
+    /// Makes device `ordinal` current.
     fn set_device(&self, ordinal: i32) -> Result<(), CudaAlgebraError>;
     /// The (major, minor) compute capability of device `ordinal`.
     fn compute_capability(&self, ordinal: i32) -> Result<(i32, i32), CudaAlgebraError>;
