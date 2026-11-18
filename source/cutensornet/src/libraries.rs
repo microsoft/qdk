@@ -139,8 +139,8 @@ impl LoadedLibraries {
 /// only a caller that reads the environment can find. The first file of a
 /// library's file name (`libcutensornet.so.2`, `libcudart.so.12`) is tried
 /// for that library, before the default paths; a later file of that name,
-/// or a file of another name, is not tried. `Default` is no file and no command, which is what
-/// [`discover`](crate::discover) uses.
+/// or a file of another name, is not tried. `Default` is no file and no
+/// command, which is what [`discover`](crate::discover) uses.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PackagedLibraries {
     /// The absolute paths of the library files installed; order matters
