@@ -59,7 +59,9 @@ pub(crate) use generated::v2_13;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use super::function_table::{FunctionTable, SymbolResolver};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use super::{NativeLibrary, ProbedVersions, cuda_runtime};
+use super::{NativeLibrary, ProbedVersions, cuda_runtime, setup_guide::or_unread};
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use crate::LibraryReport;
 
 /// The cuTensorNet library (libcutensornet): where its file is looked for,
 /// the version it must have and the CUDA Runtime it must be built against,
@@ -84,10 +86,12 @@ const _: () = assert!(
 impl NativeLibrary for CuTensorNet {
     const NAME: &'static str = "cuTensorNet";
     const VARIABLE: &'static str = "QDK_CUTENSORNET_LIBRARY";
+    const FILE_NAME: &'static str = "libcutensornet.so.2";
     const DEFAULTS: &'static [&'static str] = &[
         "/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2",
-        "libcutensornet.so.2",
+        Self::FILE_NAME,
     ];
+    const INSTALL: &'static str = "cuTensorNet 2.13";
     type Functions = CuTensorNetFunctions;
 
     /// Reads cuTensorNet's version, which must be 2.13.0, and the CUDA
@@ -115,6 +119,31 @@ impl NativeLibrary for CuTensorNet {
         }
         probed
     }
+
+    /// Its path and version, and the CUDA Runtime it was built for.
+    fn describe(report: &LibraryReport) -> Vec<String> {
+        vec![format!(
+            "cuTensorNet: {} ({}, built for CUDA Runtime {})",
+            or_unread(report.path.as_ref().map(|path| path.display())),
+            or_unread(report.version("cuTensorNet").map(cutensornet_version)),
+            or_unread(
+                report
+                    .version("cuTensorNet's CUDA Runtime")
+                    .map(cuda_runtime::cuda_version)
+            ),
+        )]
+    }
+}
+
+/// cuTensorNet's `10000·major + 100·minor + patch` as `major.minor.patch`.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+fn cutensornet_version(version: i128) -> String {
+    format!(
+        "{}.{}.{}",
+        version / 10_000,
+        version / 100 % 100,
+        version % 100
+    )
 }
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]

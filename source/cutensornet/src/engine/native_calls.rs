@@ -13,7 +13,7 @@
 //!
 //! ```text
 //! NativeCalls            all three traits, which each implementation has
-//!   ├─ session_calls.rs  SessionCalls: the device, stream and handle
+//!   ├─ session_calls.rs  SessionCalls: the devices, stream and handle
 //!   ├─ memory_calls.rs   MemoryCalls: device buffers, copies, workspaces
 //!   └─ tensor_calls.rs   TensorCalls: tensor descriptors, gate splits,
 //!                        QRs, pairwise contractions
@@ -33,7 +33,21 @@ pub(crate) mod fake_libraries;
 mod loaded_libraries;
 pub(crate) mod memory_calls;
 pub(crate) mod session_calls;
-pub(crate) mod tensor_calls;
+pub(super) mod tensor_calls;
+
+// What the tests under `src/tests` name of these private modules: the size
+// of the algebra's buffers, and the traits and arguments of the calls they
+// make on the fake libraries and on the loaded ones.
+#[cfg(test)]
+pub(crate) use self::{
+    complex::{Complex64Abi, complex_bytes},
+    memory_calls::{MemoryCalls, WorkspaceSlot},
+    session_calls::SessionCalls,
+    tensor_calls::{
+        GateSplitDescriptors, GateSplitOperands, NativeContractionNetwork, SvdSetting,
+        SvdTruncation, TensorCalls, TensorModes, TensorOperand,
+    },
+};
 
 use std::{ffi::c_void, ptr::NonNull};
 
