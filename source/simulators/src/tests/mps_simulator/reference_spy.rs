@@ -6,7 +6,8 @@
 //! counts the gates it applies, the shapes it reads, the states it
 //! prepares and forks, and the states alive at once; keeps the capacities
 //! it is given; and, as a test sets it, reports a retained weight below
-//! one, as an engine that truncates would, or fails where a device would.
+//! one, as an engine that truncates would, fails where a device would, or
+//! sets a stop flag at a given gate, as a user's interrupt would.
 //! A state a call failed on is unspecified, by the `MpsEngine` contract's
 //! rule for every method's failure, which a fork's source falls under as
 //! well: the spy counts each later call given it, which it runs on the
@@ -14,6 +15,8 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use num_complex::Complex64;
 use tensornet::reference::{ExactReference, ReferenceError, ReferenceState};
@@ -67,6 +70,8 @@ pub(super) struct ReferenceSpy {
     live: Rc<Cell<usize>>,
     most_live: Cell<usize>,
     uses_after_failure: Cell<usize>,
+    /// The flag it sets when it applies its gate of this count (from 1).
+    stop_at_apply: Option<(usize, Arc<AtomicBool>)>,
 }
 
 /// A state of [`ReferenceSpy`]: the reference's, counted while it lives,
@@ -115,6 +120,15 @@ impl ReferenceSpy {
         Self::with(Weight::Exact, Failing::First(call))
     }
 
+    /// The reference, setting `stop_flag` when it applies its gate number
+    /// `apply` (from 1).
+    pub(super) fn stopping_at_apply(apply: usize, stop_flag: Arc<AtomicBool>) -> Self {
+        Self {
+            stop_at_apply: Some((apply, stop_flag)),
+            ..Self::new()
+        }
+    }
+
     fn with(weight: Weight, failing: Failing) -> Self {
         Self {
             reference: ExactReference::new(),
@@ -128,6 +142,7 @@ impl ReferenceSpy {
             live: Rc::new(Cell::new(0)),
             most_live: Cell::new(0),
             uses_after_failure: Cell::new(0),
+            stop_at_apply: None,
         }
     }
 
@@ -257,6 +272,11 @@ impl MpsEngine for ReferenceSpy {
             return Err(Self::fail_on(state));
         }
         self.applies.set(self.applies.get() + 1);
+        if let Some((apply, stop_flag)) = &self.stop_at_apply
+            && *apply == self.applies.get()
+        {
+            stop_flag.store(true, Ordering::Relaxed);
+        }
         Ok(self.reference.apply(&mut state.state, sites, matrix)?)
     }
 

@@ -9,7 +9,8 @@
 //! ([`QirResumeError::Resumer`](crate::qir::QirResumeError::Resumer));
 //! this says what about the shot failed: a call the MPS simulation method
 //! does not run, a call it cannot run, a capacity that is no chain, or the
-//! engine.
+//! engine; or the run was stopped (no shot failed: the shot named is the
+//! first that had not ended).
 
 use std::fmt;
 
@@ -56,6 +57,10 @@ pub enum MpsResumerError<E> {
     /// The engine failed, or refused a call (a gate whose angle is not
     /// finite has a matrix that is not unitary, say).
     Engine(E),
+
+    /// The run was stopped: its stop flag was set
+    /// ([`MpsResumer::with_stop_flag`]).
+    Stopped,
 }
 
 impl<E: fmt::Display> fmt::Display for MpsResumerError<E> {
@@ -77,6 +82,7 @@ impl<E: fmt::Display> fmt::Display for MpsResumerError<E> {
                 "{qubits} qubits with bonds of at most {max_bond_dimension} make no chain: {source}"
             ),
             Self::Engine(error) => write!(f, "the MPS engine failed or refused a call: {error}"),
+            Self::Stopped => write!(f, "the run was stopped"),
         }
     }
 }
@@ -86,7 +92,7 @@ impl<E: std::error::Error + 'static> std::error::Error for MpsResumerError<E> {
         match self {
             Self::Capacity { source, .. } => Some(source),
             Self::Engine(error) => Some(error),
-            Self::Unsupported { .. } | Self::RepeatedQubit { .. } => None,
+            Self::Unsupported { .. } | Self::RepeatedQubit { .. } | Self::Stopped => None,
         }
     }
 }
