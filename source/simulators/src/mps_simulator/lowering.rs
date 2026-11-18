@@ -13,12 +13,16 @@
 //! takes it (`M[out][in]`, row-major, the first site the most
 //! significant), on the sites of its qubits in its operand order, so the
 //! matrix holds on them unchanged. A measurement and a reset are draws
-//! the resumer makes; `move` changes no state (a noisy simulator may
+//! the resumer makes; a measurement in X or Y is one in Z between the
+//! gates that turn that basis into Z and back, as the QDK's Python
+//! simulation lowers `mx` and `my` (`DecomposeMxMyPass`): `h` around an
+//! `mx`, `s_adj` then `h` before an `my`, and `h` then `s` after it.
+//! `move` changes no state (a noisy simulator may
 //! charge it with idle noise or loss, planned), so it is no step.
 //! Correlated noise, readout noise and loss checks are refused
 //! ([`MpsResumerError::Unsupported`]), as is a gate on one qubit twice.
 
-use crate::qir::{OperatorMatrix, QirCall};
+use crate::qir::{OperatorMatrix, QirCall, QirGate};
 use qsc_data_structures::measurement::MeasurementBasis;
 
 use super::error::MpsResumerError;
@@ -99,14 +103,26 @@ pub(crate) fn lower<E>(
                 }));
             }
             QirCall::Measure {
-                basis: MeasurementBasis::Z,
+                basis,
                 qubit,
                 result,
-            } => steps.push(SiteStep::Measure {
-                site: qubit_order.site(qubit),
-                result,
-                reset: false,
-            }),
+            } => {
+                let site = qubit_order.site(qubit);
+                let (to_z, from_z): (&[QirGate], &[QirGate]) = match basis {
+                    MeasurementBasis::Z => (&[], &[]),
+                    MeasurementBasis::X => (&[QirGate::H], &[QirGate::H]),
+                    MeasurementBasis::Y => {
+                        (&[QirGate::SAdj, QirGate::H], &[QirGate::H, QirGate::S])
+                    }
+                };
+                steps.extend(to_z.iter().map(|&gate| on_site(gate, site)));
+                steps.push(SiteStep::Measure {
+                    site,
+                    result,
+                    reset: false,
+                });
+                steps.extend(from_z.iter().map(|&gate| on_site(gate, site)));
+            }
             QirCall::MeasureReset { qubit, result } => steps.push(SiteStep::Measure {
                 site: qubit_order.site(qubit),
                 result,
@@ -116,8 +132,7 @@ pub(crate) fn lower<E>(
                 site: qubit_order.site(qubit),
             }),
             QirCall::Move { .. } => {}
-            QirCall::Measure { .. }
-            | QirCall::CorrelatedNoise { .. }
+            QirCall::CorrelatedNoise { .. }
             | QirCall::PeekLoss { .. }
             | QirCall::ReadoutNoise { .. } => {
                 return Err(MpsResumerError::Unsupported {
@@ -127,4 +142,12 @@ pub(crate) fn lower<E>(
         }
     }
     Ok(steps)
+}
+
+/// The step that applies the one-qubit `gate` on `site`.
+fn on_site(gate: QirGate, site: usize) -> SiteStep {
+    SiteStep::Apply(SiteGate {
+        site_slots: [site, 0],
+        matrix: gate.matrix_at(None),
+    })
 }
