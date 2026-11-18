@@ -5,7 +5,7 @@
 //! a matrix product state an [`MpsEngine`] holds.
 //!
 //! A user runs a QIR program on an MPS through it: a CPU or a GPU engine
-//! beneath, the max bond dimension χ and the gate fusion as settings, and
+//! beneath, the max bond dimension χ as a setting, and
 //! records that do not depend on which shots run together, as the
 //! [`QirResumer::run`] contract requires. What a run cost, and whether it
 //! lost enough weight to truncation to warn, is in its report
@@ -26,13 +26,11 @@ pub(crate) mod layout;
 pub(crate) mod lowering;
 pub(super) mod report;
 pub(super) mod resumer_error;
-pub(crate) mod rewrites;
 pub(crate) mod shot_stream;
 
 use grouped_run::GroupedRun;
 use report::MpsRunReport;
 use resumer_error::MpsResumerError;
-use rewrites::fusion::GateFusion;
 
 /// Runs a QIR program's shots on matrix product states held by the engine
 /// `E`, shots that drew the same values sharing one state (how: the header
@@ -60,7 +58,6 @@ pub struct MpsResumer<E: MpsEngine> {
     engine: E,
     seed: u64,
     max_bond_dimension: NonZeroUsize,
-    fusion: GateFusion,
     last_run: MpsRunReport,
 }
 
@@ -72,14 +69,12 @@ pub const DEFAULT_MAX_BOND_DIMENSION: NonZeroUsize =
 
 impl<E: MpsEngine> MpsResumer<E> {
     /// The resumer running shots on `engine`, drawing from streams derived
-    /// from `seed`, with bonds of at most [`DEFAULT_MAX_BOND_DIMENSION`] and
-    /// gates fused in pairs ([`GateFusion::Pairs`]).
+    /// from `seed`, with bonds of at most [`DEFAULT_MAX_BOND_DIMENSION`].
     pub fn new(engine: E, seed: u64) -> Self {
         Self {
             engine,
             seed,
             max_bond_dimension: DEFAULT_MAX_BOND_DIMENSION,
-            fusion: GateFusion::default(),
             last_run: MpsRunReport::new(DEFAULT_MAX_BOND_DIMENSION.get()),
         }
     }
@@ -94,16 +89,8 @@ impl<E: MpsEngine> MpsResumer<E> {
         self
     }
 
-    /// The resumer grouping the gates between measurements and resets into
-    /// operators as `fusion` says.
-    #[must_use]
-    pub fn with_gate_fusion(mut self, fusion: GateFusion) -> Self {
-        self.fusion = fusion;
-        self
-    }
-
     /// What the last run cost: the largest bond any of its states held
-    /// where a run of operators ended, and the least weight kept by a shot
+    /// where a run of gates ended, and the least weight kept by a shot
     /// that ended, with the warning they call for
     /// ([`MpsRunReport::truncation_warning`]). After a failed run, what it
     /// read until it stopped: groups holding a shot before the failing one
@@ -155,7 +142,6 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
                 shots,
                 self.seed,
                 self.max_bond_dimension,
-                self.fusion,
                 &mut self.last_run,
             )
             .and_then(GroupedRun::run),
