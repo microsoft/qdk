@@ -91,7 +91,7 @@ the cut. Every split, an MPO's included, is at a caller's cut, so every
 split leaves a bond at rest; inside an MPO's span, a bond grows, before
 its split, to at most the capacity's times the operator's bond (at most
 4; [`distant_sites.md`](distant_sites.md)). These are the bounds of
-`gate_split`'s contract ([`algebra.rs`](../src/algebra.rs)); which values
+`gate_split`'s contract ([`algebra.rs`](../src/site_algebra.rs)); which values
 a split drops within them is the algebra's to choose. A split normalises
 the values it keeps, so the chain keeps a norm of about 1.
 

@@ -23,9 +23,9 @@
 //!   right environment with its Pauli;
 //! - the contractions are products of `dense_linalg` matrices.
 
-use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain, reads::HostSite};
-use crate::algebra::SiteAlgebra;
+use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain, host_site::HostSite};
 use crate::dense_linalg::{Matrix, MatrixRef};
+use crate::site_algebra::SiteAlgebra;
 use num_complex::Complex64;
 use std::borrow::Cow;
 use std::collections::BTreeMap;

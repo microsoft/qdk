@@ -11,14 +11,14 @@ use super::*;
 /// A caller that takes the engine by `new`: two CNOTs on one pair,
 /// then a read, take one split and no matrix product operator.
 #[test]
-fn new_fuses() {
+fn an_engine_fuses_by_default() {
     let engine = Engine::new(CpuAlgebra);
     let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
     engine.apply(&mut state, &[0], &ry(0.7)).expect("apply");
     engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
     engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
     engine.probability_of_one(&state, 1).expect("P(One)");
-    let statistics = state.split_statistics();
+    let statistics = state.statistics();
     assert_eq!((statistics.splits(), statistics.mpo_applications()), (1, 0));
 }
 
@@ -32,15 +32,15 @@ fn a_fork_applies_the_pending_window_once() {
     engine.apply(&mut state, &[0], &ry(0.7)).expect("apply");
     engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
     engine.apply(&mut state, &[1, 2], &cnot()).expect("apply");
-    assert_eq!(state.split_statistics().splits(), 0, "a pending window");
+    assert_eq!(state.statistics().splits(), 0, "a pending window");
     let forks = [
         engine.fork(&state).expect("fork"),
         engine.fork(&state).expect("fork"),
     ];
     for read in forks.iter().chain([&state]) {
-        assert_eq!(read.split_statistics().splits(), 2, "after the forks");
+        assert_eq!(read.statistics().splits(), 2, "after the forks");
         engine.probability_of_one(read, 1).expect("P(One)");
-        assert_eq!(read.split_statistics().splits(), 2, "after a read");
+        assert_eq!(read.statistics().splits(), 2, "after a read");
     }
 }
 
@@ -69,10 +69,10 @@ fn a_read_applies_the_pending_window_toward_its_site() {
         if let Some(site) = first_read {
             engine.probability_of_one(&state, site).expect("P(One)");
         }
-        let moves = state.split_statistics().centre_moves();
+        let moves = state.statistics().centre_moves();
         engine.apply(&mut state, &[1, 2], &cnot()).expect("apply");
         read_of(&engine, &state, read);
-        let statistics = state.split_statistics();
+        let statistics = state.statistics();
         assert_eq!(statistics.splits(), 1, "precondition, the pair's split");
         assert_eq!(
             statistics.centre_moves() - moves,
@@ -149,9 +149,9 @@ fn every_read_of_the_whole_state_applies_the_pending_window_toward_the_centre() 
         engine.probability_of_one(&state, centre).expect("P(One)");
         engine.apply(&mut state, &on, &cnot()).expect("apply");
         operation(&engine, &state);
-        let moves = state.split_statistics().centre_moves();
+        let moves = state.statistics().centre_moves();
         engine.probability_of_one(&state, end).expect("P(One)");
-        let statistics = state.split_statistics();
+        let statistics = state.statistics();
         assert_eq!(
             statistics.splits(),
             splits,
@@ -179,7 +179,7 @@ fn fused_and_unfused(gates: &[(&[usize], Vec<Complex64>)]) -> [(Vec<f64>, (u64, 
         let p = (0..5)
             .map(|site| engine.probability_of_one(&state, site).expect("P(One)"))
             .collect();
-        let statistics = state.split_statistics();
+        let statistics = state.statistics();
         (p, (statistics.splits(), statistics.mpo_applications()))
     })
 }
@@ -290,11 +290,7 @@ fn a_gate_that_does_not_fit_applies_the_window_toward_its_lower_site() {
             6,
             "a gate on {on:?}, the centre first on {first_read:?}"
         );
-        assert_eq!(
-            state.split_statistics().mpo_applications(),
-            2,
-            "precondition"
-        );
+        assert_eq!(state.statistics().mpo_applications(), 2, "precondition");
     }
 }
 
@@ -365,7 +361,7 @@ fn every_read_sees_the_pending_windows_gates() {
             }
             if fusion == "fused" {
                 assert_eq!(
-                    state.split_statistics().splits(),
+                    state.statistics().splits(),
                     0,
                     "precondition: a pending window, before {name}"
                 );
@@ -431,7 +427,7 @@ impl Draws {
 /// product operators change nothing but rounding when nothing is
 /// truncated.
 #[test]
-fn random_circuits_agree_with_the_reference() {
+fn random_circuits_agree_with_the_exact_reference() {
     const SITES: usize = 7;
     let reference = ExactReference::new();
     let mut operators = [0, 0];
@@ -511,7 +507,7 @@ fn random_circuits_agree_with_the_reference() {
                 }
             }
             assert_reads_agree(&engine, &state, &exact_state, 1e-10);
-            operators[usize::from(name == "fused")] += state.split_statistics().mpo_applications();
+            operators[usize::from(name == "fused")] += state.statistics().mpo_applications();
         }
     }
     assert!(

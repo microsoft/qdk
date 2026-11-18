@@ -7,7 +7,7 @@
 //! squares, against the largest's, underflow; and what is kept,
 //! normalised, with its share of the weight; and the arguments it refuses.
 
-use crate::algebra::cpu_algebra::truncation::Truncation;
+use crate::site_algebra::cpu_algebra::truncation::Truncation;
 
 /// The singular values whose squares are `weights`.
 fn values_of(weights: &[f64]) -> Vec<f64> {

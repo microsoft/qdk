@@ -95,7 +95,7 @@ fn an_mpo_keeps_a_state_that_fits_its_bonds() {
             }
             let weight = engine.retained_weight(&state).expect("weight");
             assert!(
-                state.split_statistics().largest_transient_bond() >= 2,
+                state.statistics().largest_transient_bond() >= 2,
                 "{row}, {name}: precondition, the MPO grew the span's bonds"
             );
             assert!((weight - 1.0).abs() < 1e-12, "{row}, {name}: {weight}");
@@ -175,7 +175,7 @@ fn transient_bond_of_a_gate_on_sites_0_and_2(engine: &Engine, gate: &[Complex64]
     assert_eq!(bonds.bond_dim(2), Some(2), "precondition: a bond of 2");
     engine.apply(&mut state, &[0, 2], gate).expect("apply");
     engine.retained_weight(&state).expect("weight");
-    let statistics = state.split_statistics();
+    let statistics = state.statistics();
     assert_eq!(
         statistics.mpo_applications(),
         1,
@@ -210,7 +210,7 @@ fn an_mpo_grows_the_span_by_the_operators_rank() {
 /// thousand times what rounding moves `tan ε` there (a few `1e-16`
 /// absolute).
 #[test]
-fn an_mpos_factorisation_drops_operator_values_at_or_below_1e_12_of_the_largest() {
+fn an_mpos_factorisation_drops_operator_values_at_or_below_the_operator_rank_cutoff() {
     for (epsilon, rank) in [(1e-9, 2), (1.1e-12, 2), (9e-13, 1), (1e-13, 1)] {
         for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
             let bond = transient_bond_of_a_gate_on_sites_0_and_2(&engine, &zz_rotation(epsilon));
@@ -254,7 +254,7 @@ fn an_mpo_costs_d_minus_1_moves_d_splits_and_one_transfer_per_site() {
         engine.probability_of_one(&state, read).expect("P(One)");
         let before = (
             calls.qr_moves.get(),
-            state.split_statistics().splits(),
+            state.statistics().splits(),
             calls.reads.get(),
             calls.uploads.borrow().len(),
         );
@@ -265,7 +265,7 @@ fn an_mpo_costs_d_minus_1_moves_d_splits_and_one_transfer_per_site() {
         assert_eq!(
             (
                 calls.qr_moves.get() - before.0,
-                state.split_statistics().splits() - before.1,
+                state.statistics().splits() - before.1,
                 calls.reads.get() - before.2,
                 calls.uploads.borrow().len() - before.3,
             ),

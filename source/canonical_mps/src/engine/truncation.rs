@@ -37,7 +37,7 @@ use super::{
     CanonicalMpsEngine, CanonicalMpsError,
     chain::{Chain, Site},
 };
-use crate::algebra::{CentreSide, GateSplitCall, SiteAlgebra};
+use crate::site_algebra::{CentreSide, GateSplitCall, SiteAlgebra};
 use num_complex::Complex64;
 
 impl<A: SiteAlgebra> CanonicalMpsEngine<A> {

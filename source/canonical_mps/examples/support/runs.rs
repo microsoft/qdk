@@ -55,7 +55,7 @@ pub fn run_engine(
         }
     }
     // The engine leaves the last fused pair unsplit until a read; this read
-    // splits it, so the time and the split statistics include that split.
+    // splits it, so the time and the statistics include that split.
     black_box(engine.retained_weight(&state)?);
     Ok(EngineRun {
         state,

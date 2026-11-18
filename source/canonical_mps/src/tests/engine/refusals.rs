@@ -7,7 +7,9 @@
 //! three sites; a qutrit; and the refusal a refused call reports.
 
 use super::*;
-use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
+use crate::site_algebra::{
+    GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
+};
 use std::borrow::Cow;
 
 /// Turns of 0.3 and 0.4 and back by 0.7: the site is Zero up to rounding,

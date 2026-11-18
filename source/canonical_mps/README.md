@@ -11,11 +11,11 @@ operations, the host CPU's included. It has three parts:
   set of rules. [`CpuMpsEngine`](src/lib.rs) is the engine on the reference
   algebra.
 - **[The backend contract](#the-backend-contract):**
-  [`SiteAlgebra`](src/algebra.rs), the tensor operations a backend
+  [`SiteAlgebra`](src/site_algebra.rs), the tensor operations a backend
   implements, and the [conformance kit](#the-conformance-kit) that checks
   a backend against it.
 - **[The reference algebra](#the-reference-algebra):**
-  [`CpuAlgebra`](src/algebra/cpu_algebra.rs), the contract on the host CPU,
+  [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), the contract on the host CPU,
   which passes the kit and on which the engine's tests run.
 
 **The problem.** Some of an MPS engine's rules are the same on every
@@ -108,7 +108,7 @@ engine's own for the work it defers or reorders:
 
 [`CanonicalMpsEngine`](src/engine.rs) implements `tensornet`'s
 [`MpsEngine`](../tensornet/src/engine.rs) over any
-[`SiteAlgebra`](src/algebra.rs). What the trait requires is in
+[`SiteAlgebra`](src/site_algebra.rs). What the trait requires is in
 [`tensornet`'s README](../tensornet/README.md) and the trait's rustdoc;
 this section says how this engine meets it, and why;
 [`docs/engine.md`](docs/engine.md) gives the backend calls of each phase,
@@ -172,15 +172,15 @@ assert!((given - 1.0).abs() < 1e-12);
 
 - [`chain.rs`](src/engine/chain.rs): the sites, the centre, the pending
   gates, the retained weight and the [statistics](#settings-and-statistics);
-- [`window.rs`](src/engine/window.rs) and
-  [`gates.rs`](src/engine/gates.rs): the pending window, which gathers the
+- [`fusion.rs`](src/engine/fusion.rs) and
+  [`gate_products.rs`](src/engine/gate_products.rs): the pending window, which gathers the
   gates, and the arithmetic of their operators;
-- [`split.rs`](src/engine/split.rs), [`mpo.rs`](src/engine/mpo.rs) and
-  [`canonical_form.rs`](src/engine/canonical_form.rs): a window applied by
+- [`truncation.rs`](src/engine/truncation.rs), [`mpo.rs`](src/engine/mpo.rs) and
+  [`centre_moves.rs`](src/engine/centre_moves.rs): a window applied by
   one split of two neighbours, the one place where the state's bonds are
   truncated, or as an [MPO](#terms) across its span, and the centre's
   moves;
-- [`reads.rs`](src/engine/reads.rs) and
+- [`measurement.rs`](src/engine/measurement.rs) and
   [`expectation.rs`](src/engine/expectation.rs): the reads of one site, and
   an observable's expectation;
 - [`policy.rs`](src/engine/policy.rs) and
@@ -246,14 +246,14 @@ The cutoff and the capacity's $\chi$ trade time for accuracy:
 [`CanonicalMpsEngine::with_cutoff`](src/engine.rs) says how, and
 [`policy.rs`](src/engine/policy.rs) gives the default cutoff with how it
 was chosen. A caller that tunes them reads a state's
-[`SplitStatistics`](src/engine/chain.rs): its splits, MPOs and moves of
+[`CanonicalMpsStatistics`](src/engine/statistics.rs): its splits, MPOs and moves of
 the centre, and its largest bond at rest and inside an MPO's span, apart.
 
 ## The backend contract
 
 ### The operations
 
-[`SiteAlgebra`](src/algebra.rs) has one associated type for where a site's
+[`SiteAlgebra`](src/site_algebra.rs) has one associated type for where a site's
 elements live (`Tensor`) and one for its failures (`Error`). Its rustdoc
 states each operation's guarantees, to rounding; the table says what each
 is for.
@@ -266,9 +266,9 @@ is for.
 | `gate_split` | $\theta$ factored by one SVD, truncated as the call says, the kept values normalised and absorbed on the centre's side, the other side an isometry; the bond and retained fraction | a window of gates on two neighbouring qubits, with the centre on the pair; and the compression of an MPO's span, one cut at a time, the identity as gate |
 | `qr_move`    | the centre moved across a bond, exactly, by one QR of the site it leaves, a one-site gate applied to that site first                                                               | bringing the centre to a gate or a read without truncating, applying a pending one-site gate on the way, and the exact sweep of an MPO's span            |
 
-[`GateSplitCall`](src/algebra.rs) and [`QrMoveCall`](src/algebra.rs) define
+[`GateSplitCall`](src/site_algebra.rs) and [`QrMoveCall`](src/site_algebra.rs) define
 each operation's inputs exactly, and
-[`GateSplitOutcome`](src/algebra.rs) and [`QrMoveOutcome`](src/algebra.rs)
+[`GateSplitOutcome`](src/site_algebra.rs) and [`QrMoveOutcome`](src/site_algebra.rs)
 its outputs. `gate_split` and `qr_move` leave their input tensors
 unchanged, since the caller may still hold them, as the sites of a state
 it forked.
@@ -277,7 +277,7 @@ it forked.
 
 Every tensor holds complex doubles, its first mode fastest, so a backend
 factors a site read as a matrix with no copy; the
-[module's documentation](src/algebra.rs) gives the layout in full.
+[module's documentation](src/site_algebra.rs) gives the layout in full.
 
 ### The conformance kit
 
@@ -285,7 +285,7 @@ A backend's tests check it against the contract with two parts, public
 under the crate's `conformance` feature, which a backend enables in its
 dev-dependencies:
 
-- [`algebra::conformance::check`](src/algebra/conformance.rs) calls each
+- [`site_algebra::conformance::check`](src/site_algebra/conformance.rs) calls each
   operation on seeded inputs, from a pair whose extents are all one ($\theta$ of
   2 × 2) to a gated pair of 64 × 64, and compares what it returns with the
   contract's formulas, never with another algebra. It returns every case the
@@ -293,7 +293,7 @@ dev-dependencies:
   split is checked by the Eckart–Young theorem, since its factors are not
   unique; the latitude the contract leaves (a bond larger than the cutoff needs,
   the side of a tie) is not checked.
-- [`engine_circuits`](src/engine_circuits.rs) runs a `CanonicalMpsEngine`
+- [`engine_conformance`](src/engine/conformance.rs) runs a `CanonicalMpsEngine`
   on the backend over two long circuits, one without truncation and one
   truncated, and compares its reads with `tensornet`'s exact reference:
   hundreds of calls in a row, on the backend's own memory and settings.
@@ -301,7 +301,7 @@ dev-dependencies:
 A backend's test of the contract (the kit's documentation):
 
 ```rust
-use canonical_mps::algebra::{SiteAlgebra, conformance};
+use canonical_mps::site_algebra::{SiteAlgebra, conformance};
 
 fn assert_conforms<A: SiteAlgebra>(algebra: &A) {
     let failures = conformance::check(algebra);
@@ -311,7 +311,7 @@ fn assert_conforms<A: SiteAlgebra>(algebra: &A) {
 
 ## The reference algebra
 
-[`CpuAlgebra`](src/algebra/cpu_algebra.rs), exported at the crate's root,
+[`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), exported at the crate's root,
 is the contract on the host CPU. Each operation is computed directly from
 its contract; it passes the [conformance kit](#the-conformance-kit), and
 the engine's tests run on it. It needs no device, so it runs wherever the
@@ -327,12 +327,12 @@ it.
 | `upload`     | a copy of the host values into a new vector                                                                                                                                                                                    | the tensors already live on the host                                                                                                                                                                                   |
 | `read`       | the site's elements, borrowed (the tensor may hold more)                                                                                                                                                                       | the engine's host reads need no copy                                                                                                                                                                                   |
 | `duplicate`  | a copy of the site's elements                                                                                                                                                                                                  | a fork's sites change apart from its parent's                                                                                                                                                                          |
-| `gate_split` | $\theta$ by one product and the gate's loops; one `Svd::of`; the values the [truncation rule](src/algebra/cpu_algebra/truncation.rs) keeps, normalised, multiplied into the centre's side, the other side the singular vectors | the SVD's factors are checked against $\theta$ before the truncation: when they do not give $\theta$ back, the split fails with `SvdError` rather than spread them; what it keeps is $\theta$'s truncation, normalised |
+| `gate_split` | $\theta$ by one product and the gate's loops; one `Svd::of`; the values the [truncation rule](src/site_algebra/cpu_algebra/truncation.rs) keeps, normalised, multiplied into the centre's side, the other side the singular vectors | the SVD's factors are checked against $\theta$ before the truncation: when they do not give $\theta$ back, the split fails with `SvdError` rather than spread them; what it keeps is $\theta$'s truncation, normalised |
 | `qr_move`    | the one-site gate applied to the site the centre leaves; one thin `Qr::of` of it; the small factor multiplied into the other site                                                                                              | a QR moves the centre exactly, and never fails                                                                                                                                                                         |
 
 The truncation rule drops the longest tail of singular values whose
 squares sum to at most the cutoff's share, then keeps at most the cap;
-its [documentation](src/algebra/cpu_algebra/truncation.rs) states it in
+its [documentation](src/site_algebra/cpu_algebra/truncation.rs) states it in
 full. Only `gate_split` fails, when the SVD does
 ([`SvdError`](src/dense_linalg/svd.rs)): `DidNotConverge` when its
 rotations still turn after their last sweep, `FailedChecks` when $\theta$
@@ -374,8 +374,8 @@ The [unit tests](src/tests) check the dense linear algebra, the
 truncation rule, and the engine's rules on the reference algebra; where
 the engine reads values, they compare them with closed-form values, or
 with `tensornet`'s exact reference, among them the
-[engine circuits](src/engine_circuits.rs). The reference algebra passes
-the [conformance kit](tests/algebra_conformance.rs). The
+[engine circuits](src/engine/conformance.rs). The reference algebra passes
+the [conformance kit](tests/site_algebra_conformance.rs). The
 [integration tests](tests) also compare `CpuMpsEngine` with the QDK's
 [sparse simulator](tests/sparse_simulator.rs) on every one- and two-qubit
 gate it runs, and with its [stabilizer simulator](tests/exact_families.rs)

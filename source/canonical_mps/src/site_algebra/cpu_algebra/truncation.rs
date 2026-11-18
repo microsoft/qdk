@@ -4,7 +4,7 @@
 //! [`Truncation`]: which singular values the reference algebra's split
 //! keeps, and what that keeps of the split's weight.
 //!
-//! [`SiteAlgebra::gate_split`](crate::algebra::SiteAlgebra::gate_split) bounds
+//! [`SiteAlgebra::gate_split`](crate::site_algebra::SiteAlgebra::gate_split) bounds
 //! what a split may drop; a backend whose library truncates keeps the library's
 //! rule within those bounds. The reference algebra
 //! ([`CpuAlgebra`](super::CpuAlgebra)) computes the singular values itself, and

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! `SplitStatistics`: the largest bonds at rest and inside a matrix
+//! `CanonicalMpsStatistics`: the largest bonds at rest and inside a matrix
 //! product operator's span, the splits, operators and moves of the centre
 //! counted, and a fork's history.
 
@@ -22,7 +22,7 @@ fn the_largest_bond_at_rest_is_the_bond_a_gates_split_kept() {
                 .retained_weight(&state)
                 .expect("a read splits the pair");
             assert_eq!(
-                state.split_statistics().largest_bond_at_rest(),
+                state.statistics().largest_bond_at_rest(),
                 bond,
                 "{name}, cutoff {cutoff}"
             );
@@ -74,7 +74,7 @@ fn only_an_operator_grows_a_transient_bond() {
             engine
                 .retained_weight(&state)
                 .expect("a read applies the pending gates");
-            let statistics = state.split_statistics();
+            let statistics = state.statistics();
             assert_eq!(statistics.largest_bond_at_rest(), *at_rest, "{row}, {name}");
             assert_eq!(
                 statistics.largest_transient_bond(),
@@ -92,7 +92,7 @@ fn a_state_without_splits_reports_largest_bonds_of_1() {
     let engine = Engine::new(CpuAlgebra);
     let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
     engine.apply(&mut state, &[1], &ry(0.7)).expect("apply");
-    let statistics = state.split_statistics();
+    let statistics = state.statistics();
     assert_eq!(statistics.splits(), 0, "no split yet");
     assert_eq!(
         (
@@ -114,15 +114,15 @@ fn counts_the_splits_and_matrix_product_operators() {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
     }
     assert_eq!(
-        state.split_statistics(),
-        SplitStatistics::default(),
+        state.statistics(),
+        CanonicalMpsStatistics::default(),
         "no split yet"
     );
     engine.apply(&mut state, &[3, 0], &cnot()).expect("apply");
     engine
         .apply(&mut state, &[1, 2], &entangler(0.4))
         .expect("apply");
-    let statistics = state.split_statistics();
+    let statistics = state.statistics();
     assert_eq!((statistics.splits(), statistics.mpo_applications()), (4, 1));
 }
 
@@ -134,14 +134,14 @@ fn counts_the_moves_of_the_centre() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
         let mut state = engine.prepare(&chain(5, 4)).expect("prepare");
         engine.probability_of_one(&state, 4).expect("P(One)");
-        assert_eq!(state.split_statistics().centre_moves(), 4, "{name}");
+        assert_eq!(state.statistics().centre_moves(), 4, "{name}");
         engine.probability_of_one(&state, 1).expect("P(One)");
-        assert_eq!(state.split_statistics().centre_moves(), 7, "{name}");
+        assert_eq!(state.statistics().centre_moves(), 7, "{name}");
         engine.apply(&mut state, &[1, 2], &cnot()).expect("apply");
         engine
             .retained_weight(&state)
             .expect("a read splits the pair");
-        let statistics = state.split_statistics();
+        let statistics = state.statistics();
         assert_eq!(statistics.splits(), 1, "{name}: precondition, a split");
         assert_eq!(statistics.centre_moves(), 7, "{name}");
     }
@@ -157,8 +157,8 @@ fn a_fork_starts_with_its_parents_history() {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
     }
     engine.apply(&mut state, &[3, 0], &cnot()).expect("apply");
-    let statistics = state.split_statistics();
-    assert_ne!(statistics, SplitStatistics::default(), "a history");
+    let statistics = state.statistics();
+    assert_ne!(statistics, CanonicalMpsStatistics::default(), "a history");
     let fork = engine.fork(&state).expect("fork");
-    assert_eq!(fork.split_statistics(), statistics);
+    assert_eq!(fork.statistics(), statistics);
 }

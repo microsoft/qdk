@@ -58,7 +58,7 @@ operator at or below the operator's rank cutoff.
 
 **The transient bond.** During step 2 the bond at a cut of the span is the
 chain's bond there times the operator's: at most the capacity's times 4.
-`CanonicalMpsState::split_statistics` reports the largest transient bond
+`CanonicalMpsState::statistics` reports the largest transient bond
 apart from the largest bond at rest.
 
 **The cost.** A window on a span of $d + 1$ sites costs the moves that

@@ -7,8 +7,10 @@
 //! operation takes, and what the engine hands the algebra.
 
 use crate::CpuAlgebra;
-use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
 use crate::dense_linalg::SvdError;
+use crate::site_algebra::{
+    GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
+};
 use num_complex::Complex64;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -17,22 +19,22 @@ use std::rc::Rc;
 /// How many calls of each counted method a [`SpyAlgebra`] answered,
 /// and the values of each upload, in order.
 #[derive(Default)]
-pub(super) struct SpiedCalls {
-    pub(super) qr_moves: Cell<usize>,
-    pub(super) reads: Cell<usize>,
-    pub(super) duplicates: Cell<usize>,
-    pub(super) uploads: RefCell<Vec<Vec<Complex64>>>,
+pub(crate) struct SpiedCalls {
+    pub(crate) qr_moves: Cell<usize>,
+    pub(crate) reads: Cell<usize>,
+    pub(crate) duplicates: Cell<usize>,
+    pub(crate) uploads: RefCell<Vec<Vec<Complex64>>>,
 }
 
 /// A spy: [`CpuAlgebra`], counting its moves of the centre, reads and
 /// duplicates, and recording its uploads, into the [`SpiedCalls`] it shares
 /// with the test.
 #[derive(Clone)]
-pub(super) struct SpyAlgebra(Rc<SpiedCalls>);
+pub(crate) struct SpyAlgebra(Rc<SpiedCalls>);
 
 impl SpyAlgebra {
     /// The spy, and the record of the calls it answers.
-    pub(super) fn new() -> (Self, Rc<SpiedCalls>) {
+    pub(crate) fn new() -> (Self, Rc<SpiedCalls>) {
         let calls = Rc::new(SpiedCalls::default());
         (Self(Rc::clone(&calls)), calls)
     }

@@ -26,21 +26,21 @@
 //!
 //! - [`chain`]: the sites, the centre, the gates still pending, and the
 //!   state's statistics;
-//! - [`window`]: fusion; a one-site gate waits, pending, on its site, and
+//! - [`fusion`]: fusion; a one-site gate waits, pending, on its site, and
 //!   two-site gates on up to three sites, neighbours or not, gather into
 //!   the pending window, which the first operation it does not serve
 //!   applies at once;
-//! - [`split`]: the split of two neighbours, a gate applied, by one
+//! - [`truncation`]: the split of two neighbours, a gate applied, by one
 //!   [`gate_split`](SiteAlgebra::gate_split), the one place where the
 //!   state's bonds are truncated; it applies a window on two neighbours,
 //!   and leaves the centre on the side it is asked for;
 //! - [`mpo`]: any other window, applied as a matrix product operator
 //!   across its span, compressed back by splits;
-//! - [`canonical_form`]: moving the centre by one
+//! - [`centre_moves`]: moving the centre by one
 //!   [`qr_move`](SiteAlgebra::qr_move) per site crossed, which carries the
 //!   pending gate of the site it leaves;
-//! - [`gates`]: the arithmetic of the pending gates, on the host;
-//! - [`reads`]: probabilities, projections and conditional probabilities,
+//! - [`gate_products`]: the arithmetic of the pending gates, on the host;
+//! - [`measurement`]: probabilities, projections and conditional probabilities,
 //!   at the centre;
 //! - [`expectation`]: an observable's expectation, all its terms in one
 //!   walk;
@@ -52,22 +52,26 @@
 //! `tensornet::checks` function, so the algebra never sees a refused call,
 //! then calls its part.
 
-mod canonical_form;
+mod centre_moves;
 mod chain;
+#[cfg(any(test, feature = "conformance"))]
+pub mod conformance;
 mod error;
 mod expectation;
-mod gates;
+mod fusion;
+mod gate_products;
+mod host_site;
+mod measurement;
 mod mpo;
 mod policy;
-mod reads;
-mod split;
-mod window;
+mod statistics;
+mod truncation;
 
-pub use chain::SplitStatistics;
 pub use error::CanonicalMpsError;
 pub use policy::DEFAULT_CUTOFF;
+pub use statistics::CanonicalMpsStatistics;
 
-use crate::algebra::SiteAlgebra;
+use crate::site_algebra::SiteAlgebra;
 use chain::Chain;
 use num_complex::Complex64;
 use std::cell::RefCell;
@@ -131,7 +135,7 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// `d − 1` moves of the centre and `d` splits. The price is transient:
 /// while the span is multiplied, its bonds reach up to the capacity's
 /// times the operator's bond (at most 4), which
-/// [`CanonicalMpsState::split_statistics`] reports apart from the bonds at
+/// [`CanonicalMpsState::statistics`] reports apart from the bonds at
 /// rest. The crate's `docs/distant_sites.md` lists other ways to apply
 /// gates to sites far apart, with what is known of each.
 ///
@@ -217,7 +221,7 @@ impl<A: SiteAlgebra> CanonicalMpsState<A> {
     /// What the splits and moves of this state's history cost so far. A
     /// state made by [`MpsEngine::fork`] starts with its parent's history.
     #[must_use]
-    pub fn split_statistics(&self) -> SplitStatistics {
+    pub fn statistics(&self) -> CanonicalMpsStatistics {
         self.chain.borrow().statistics
     }
 }

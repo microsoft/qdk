@@ -1,6 +1,6 @@
 # The dense linear algebra: complex matrices with a checked SVD
 
-The reference algebra ([`CpuAlgebra`](../src/algebra/cpu_algebra.rs))
+The reference algebra ([`CpuAlgebra`](../src/site_algebra/cpu_algebra.rs))
 truncates a state by the singular values of small dense complex matrices,
 many thousands of times per run, and keeps the singular vectors as an
 orthonormal basis. The crate's private module
