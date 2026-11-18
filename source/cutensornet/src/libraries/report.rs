@@ -41,8 +41,9 @@ pub struct LibraryReport {
     /// them. Empty when it was not loaded.
     pub other_copies: Vec<PathBuf>,
     /// Whether it was loaded from the path its override variable names, so
-    /// that the setup check's warning of another copy says to unset the
-    /// variable rather than set it. `false` when it was not loaded.
+    /// that the setup check's warning of another copy, when the one loaded
+    /// is at fault, says to change or unset the variable rather than set
+    /// it. `false` when it was not loaded.
     pub loaded_from_override: bool,
 }
 
