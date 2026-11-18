@@ -130,7 +130,13 @@ fn a_bell_pairs_samples_agree_on_both_sites() {
     let state = bell(&engine);
     let values = ok(engine.sample(&state, &[1, 0], 50, 3));
     assert_eq!(values.len(), 100, "two values per shot, 50 shots");
-    assert!(values.chunks_exact(2).all(|shot| shot[0] == shot[1]));
+    assert!(
+        values
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .all(|[first, second]| first == second)
+    );
 }
 
 /// A Bell pair needs a bond of two, so its realized chain is the whole
@@ -186,7 +192,7 @@ fn an_operator_on_three_sites_is_refused_as_too_many_sites() {
         Refusal::TooManySites { sites: 3 }
     );
     assert_eq!(libraries.count("allocate"), 0, "no operator tensor");
-    assert!(libraries.applied().is_empty());
+    assert_eq!(libraries.applied(), Vec::<(Vec<i32>, bool)>::new());
 }
 
 /// The engine's sites are qubits: a capacity of qutrits is refused by the
@@ -259,7 +265,7 @@ fn a_projection_after_an_operator_reads_its_probability_again() {
     let reads = libraries.count("compute_expectation");
     let p = ok(engine.project(&mut state, 1, true));
     assert_eq!(libraries.count("compute_expectation"), reads + 1);
-    let expected = 0.5 * (0.3f64.sin().powi(2) + 0.3f64.cos().powi(2));
+    let expected = f64::midpoint(0.3f64.sin().powi(2), 0.3f64.cos().powi(2));
     assert!((p - expected).abs() < 1e-12, "{p}, not {expected}");
 }
 
