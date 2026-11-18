@@ -66,6 +66,18 @@ fn identity(n: usize) -> Matrix {
     Matrix::from_fn(n, n, |i, j| c(if i == j { 1.0 } else { 0.0 }, 0.0))
 }
 
+/// The message of the panic `f` makes; it fails when `f` returns.
+fn panic_message(f: impl FnOnce() + std::panic::UnwindSafe) -> String {
+    let payload = std::panic::catch_unwind(f).expect_err("a panic");
+    match payload.downcast::<String>() {
+        Ok(message) => *message,
+        Err(payload) => (*payload
+            .downcast::<&str>()
+            .expect("a panic message is a string"))
+        .to_owned(),
+    }
+}
+
 /// Tall, wide, square and single-row shapes.
 const SHAPES: [(usize, usize); 4] = [(6, 4), (4, 6), (5, 5), (1, 3)];
 

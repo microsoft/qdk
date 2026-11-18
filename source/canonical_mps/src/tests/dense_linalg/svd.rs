@@ -86,7 +86,7 @@ mod decomposition {
 ///
 /// [`Svd::of`]: crate::dense_linalg::Svd::of
 mod errors {
-    use super::super::matrix;
+    use super::super::{matrix, panic_message};
     use crate::dense_linalg::{Matrix, Svd, SvdError};
     use num_complex::Complex64;
 
@@ -109,16 +109,16 @@ mod errors {
     /// A matrix with no rows or no columns has no singular value: the
     /// SVD panics, naming the shape, rather than answer an empty one.
     #[test]
-    #[should_panic(expected = "the SVD of an empty 0 × 3 matrix")]
-    fn panics_on_an_empty_matrix() {
-        let _ = Svd::of(Matrix::new(0, 3, Vec::new()).view());
-    }
-
-    /// The same, with no columns.
-    #[test]
-    #[should_panic(expected = "the SVD of an empty 3 × 0 matrix")]
-    fn panics_on_a_matrix_with_no_columns() {
-        let _ = Svd::of(Matrix::new(3, 0, Vec::new()).view());
+    fn panics_on_a_matrix_without_elements() {
+        for (rows, cols) in [(0, 3), (3, 0)] {
+            let message = panic_message(|| {
+                let _ = Svd::of(Matrix::new(rows, cols, Vec::new()).view());
+            });
+            assert!(
+                message.contains(&format!("the SVD of an empty {rows} × {cols} matrix")),
+                "{message}"
+            );
+        }
     }
 
     /// A matrix with a NaN or an infinite entry, in its real or imaginary
@@ -294,47 +294,53 @@ mod trim {
         assert!(values[2] > 9e-10, "{values:?}");
     }
 
-    /// A 6 × 5 matrix with four singular values of 1 and small ones near
-    /// the trim's tolerance, `max(m, n) · ε` times the largest (here
-    /// `6ε`): the SVD leaves out the smallest values only while their
-    /// joint norm stays within it. One value of 0.9 times the tolerance is
-    /// left out, one of 1.1 times is kept, and of two of 0.8 times each,
-    /// whose joint norm is 1.13 times, one is kept.
+    /// A diagonal matrix of values `c` and small ones near the trim's
+    /// tolerance, `max(m, n) · ε` times the largest: the SVD leaves out
+    /// the smallest values only while their joint norm stays within it.
+    /// Each row: the rows of a matrix of 5 columns, the small values in
+    /// units of the tolerance, the scale `c` as a power of ten, and the
+    /// values kept; at scale 1, the factors are checked too. On a
+    /// 6 × 5 matrix (a tolerance of `6ε`), one value of 0.9 times the
+    /// tolerance is left out, one of 1.1 times is kept, and of two of 0.8
+    /// times each, whose joint norm is 1.13 times, one is kept. On an 8 × 5
+    /// one, a value of `8ε`, the tolerance exactly (`8ε = 2⁻⁴⁹`, so the
+    /// rows' norms and their squares are exact): a joint norm equal to the
+    /// tolerance is within it, and the value is left out. The tolerance
+    /// scales with the matrix: the same at a scale of 1e-100 or 1e100.
     #[test]
-    fn leaves_out_small_values_only_while_their_joint_norm_is_rounding() {
-        let tolerance = 6.0 * f64::EPSILON;
-        for (small, kept) in [(&[0.9][..], 4), (&[1.1][..], 5), (&[0.8, 0.8][..], 4)] {
-            let diagonal: Vec<f64> = [1.0; 5]
-                .iter()
-                .take(5 - small.len())
-                .copied()
+    fn leaves_out_small_values_only_within_the_tolerance() {
+        let rows: [(usize, &[f64], i32, usize); 8] = [
+            (6, &[0.9], 0, 4),
+            (6, &[1.1], 0, 5),
+            (6, &[0.8, 0.8], 0, 4),
+            (8, &[1.0], 0, 4),
+            (6, &[0.9], -100, 4),
+            (6, &[1.1], -100, 5),
+            (6, &[0.9], 100, 4),
+            (6, &[1.1], 100, 5),
+        ];
+        for (rows, small, exponent, kept) in rows {
+            let scale = 10f64.powi(exponent);
+            #[expect(clippy::cast_precision_loss, reason = "a small count")]
+            let tolerance = rows as f64 * f64::EPSILON;
+            let diagonal: Vec<f64> = std::iter::repeat_n(1.0, 5 - small.len())
                 .chain(small.iter().map(|s| s * tolerance))
+                .map(|value| value * scale)
                 .collect();
-            let a = Matrix::from_fn(6, 5, |i, j| {
+            let a = Matrix::from_fn(rows, 5, |i, j| {
                 Complex64::new(if i == j { diagonal[i] } else { 0.0 }, 0.0)
             });
-            let values = check_svd(&a);
-            assert_eq!(values.len(), kept, "small values {small:?}: {values:?}");
-        }
-    }
-
-    /// An 8 × 5 diagonal matrix of four values of 1 and one of `8ε`, the
-    /// trim's tolerance exactly (`8ε = 2⁻⁴⁹`, so the rows' norms and their
-    /// squares are exact): a joint norm equal to the tolerance is within
-    /// it, and the value is left out.
-    #[test]
-    fn leaves_out_a_value_whose_norm_equals_the_tolerance() {
-        let tolerance = 8.0 * f64::EPSILON;
-        let a = Matrix::from_fn(8, 5, |i, j| {
-            let value = match (i == j, i < 4) {
-                (false, _) => 0.0,
-                (true, true) => 1.0,
-                (true, false) => tolerance,
+            let values = if exponent == 0 {
+                check_svd(&a)
+            } else {
+                Svd::of(a.view()).expect("SVD").singular_values
             };
-            Complex64::new(value, 0.0)
-        });
-        let values = check_svd(&a);
-        assert_eq!(values.len(), 4, "{values:?}");
+            assert_eq!(
+                values.len(),
+                kept,
+                "{rows} × 5, small values {small:?}, scale {scale}: {values:?}"
+            );
+        }
     }
 
     /// A 6 × 5 matrix whose pivoted QR has a first row of norm 1 and a
@@ -405,32 +411,6 @@ mod trim {
         let overlap = (column[2] + column[3]).norm() * std::f64::consts::FRAC_1_SQRT_2;
         assert!((overlap - 1.0).abs() < 1e-12, "overlap {overlap}");
     }
-
-    /// The trim's tolerance scales with the matrix: a 6 × 5 diagonal of
-    /// four values of `c` and one of 0.9 times `6ε·c` gives four values,
-    /// and one of 1.1 times gives five, whether `c` is 1e-100 or 1e100.
-    #[test]
-    fn leaves_out_the_same_small_values_at_any_scale() {
-        let tolerance = 6.0 * f64::EPSILON;
-        for scale in [1e-100, 1e100] {
-            for (small, kept) in [(0.9, 4), (1.1, 5)] {
-                let a = Matrix::from_fn(6, 5, |i, j| {
-                    let value = match (i == j, i < 4) {
-                        (false, _) => 0.0,
-                        (true, true) => scale,
-                        (true, false) => small * tolerance * scale,
-                    };
-                    Complex64::new(value, 0.0)
-                });
-                let values = Svd::of(a.view()).expect("SVD").singular_values;
-                assert_eq!(
-                    values.len(),
-                    kept,
-                    "scale {scale}, small {small}: {values:?}"
-                );
-            }
-        }
-    }
 }
 
 /// The SVD answers at any scale, down to subnormal entries, and fails on
@@ -444,7 +424,12 @@ mod scale {
     /// no MPS simulation meets but a caller's matrix may hold: their
     /// squared column norms would underflow or overflow. The SVD answers,
     /// and its factors, its values scaled back by the same power of two,
-    /// are an SVD of the matrix at scale 1, with its values.
+    /// are an SVD of the matrix at scale 1, with its values. And a matrix
+    /// of subnormal entries, just below the smallest normal number (near
+    /// 2^-1025, so of about 49 significant bits): scaling it to 1 takes
+    /// 2^1025, which overflows as one factor. The SVD answers, and its
+    /// values are those of the matrix scaled up to 1 (exactly), scaled
+    /// down.
     #[test]
     fn decomposes_matrices_at_extreme_scales() {
         let rank_3 = naive_product(matrix(8, 3, 5).view(), matrix(3, 8, 6).view());
@@ -473,54 +458,46 @@ mod scale {
                 }
             }
         }
-    }
-
-    /// A matrix of subnormal entries, just below the smallest normal
-    /// number (near 2^-1025, so of about 49 significant bits): scaling it
-    /// to 1 takes 2^1025, which overflows as one factor. The SVD answers,
-    /// and its values are those of the matrix scaled up to 1 (exactly),
-    /// scaled down.
-    #[test]
-    fn decomposes_a_matrix_of_subnormal_entries() {
-        let a = times_power_of_two(&matrix(6, 4, 1), -1025);
-        let expected = check_svd(&times_power_of_two(&a, 1025));
-        let svd = Svd::of(a.view()).expect("SVD");
+        let subnormal = times_power_of_two(&matrix(6, 4, 1), -1025);
+        let expected = check_svd(&times_power_of_two(&subnormal, 1025));
+        let svd = Svd::of(subnormal.view()).expect("SVD");
         assert_eq!(svd.singular_values.len(), expected.len());
         for (value, expected) in svd.singular_values.iter().zip(&expected) {
             let value = value * 2_f64.powi(512) * 2_f64.powi(513);
-            assert!((value - expected).abs() < 1e-13, "{value} vs {expected}");
+            assert!(
+                (value - expected).abs() < 1e-13,
+                "subnormal: {value} vs {expected}"
+            );
         }
     }
 
-    /// A matrix of deep subnormal entries (near 1e-319, of about 14
-    /// significant bits): its singular values, subnormal too, cannot be
-    /// stored to the reconstruction's bound, so the SVD fails rather than
-    /// answer factors that give back the matrix only to 2^-14.
+    /// The SVD fails rather than answer values it cannot store to the
+    /// reconstruction's bound, on the 6 × 4 matrix scaled by a power of
+    /// two. Scaled down by 2^1060, to deep subnormal entries (near 1e-319,
+    /// of about 14 significant bits), its singular values, subnormal too,
+    /// would give back the matrix only to 2^-14. Scaled up by 2^1024, to
+    /// finite entries up to 2^1023 (about 9e307), its largest singular
+    /// value, at least 2^1024, is above `f64::MAX`.
     #[test]
-    fn fails_on_a_matrix_whose_singular_values_are_too_small_to_store() {
-        let a = times_power_of_two(&matrix(6, 4, 1), -1060);
-        let error = Svd::of(a.view()).expect_err("values of 14 bits");
-        assert_eq!(error, SvdError::FailedChecks { rows: 6, cols: 4 });
-    }
-
-    /// A matrix of entries up to 2^1023 (about 9e307), the 6 × 4 matrix
-    /// of the subnormal tests scaled up by 2^1024: its largest singular
-    /// value, at least 2^1024, is above `f64::MAX`, so the SVD fails
-    /// rather than answer an infinite value.
-    #[test]
-    fn fails_on_a_matrix_whose_singular_values_are_too_large_to_store() {
+    fn fails_when_singular_values_cannot_be_stored() {
         let at_one = matrix(6, 4, 1);
         assert!(
             check_svd(&at_one)[0] >= 1.0,
-            "a largest value of at least 1 at scale 1"
+            "precondition: a largest value of at least 1 at scale 1"
         );
-        let a = times_power_of_two(&at_one, 1024);
-        assert!(
-            a.view().elements().iter().all(|x| x.is_finite()),
-            "finite entries"
-        );
-        let error = Svd::of(a.view()).expect_err("a value above f64::MAX");
-        assert_eq!(error, SvdError::FailedChecks { rows: 6, cols: 4 });
+        for exponent in [-1060, 1024] {
+            let a = times_power_of_two(&at_one, exponent);
+            assert!(
+                a.view().elements().iter().all(|x| x.is_finite()),
+                "2^{exponent}: precondition, finite entries"
+            );
+            let error = Svd::of(a.view()).expect_err("values it cannot store");
+            assert_eq!(
+                error,
+                SvdError::FailedChecks { rows: 6, cols: 4 },
+                "2^{exponent}"
+            );
+        }
     }
 }
 
@@ -557,22 +534,6 @@ mod routes {
             let values = check_svd(&real);
             assert_eq!(values.len(), rows.min(cols), "{rows} × {cols}, real");
         }
-    }
-
-    /// When the fast route reports a failure, as faer 0.24.4's QR algorithm
-    /// did on a degenerate pair one ulp apart, the rotations decompose the
-    /// matrix instead: a matrix the route takes still gets its SVD.
-    #[test]
-    fn falls_back_to_the_rotations_when_the_fast_route_fails() {
-        let a = matrix(64, 64, 2);
-        let calls = Cell::new(0);
-        let fails = |_: usize, _: usize, _: &[Complex64]| {
-            calls.set(calls.get() + 1);
-            None
-        };
-        let svd = trimmed_thin_svd::<Shipped>(a.view(), &fails).expect("the rotations answer");
-        assert!(calls.get() > 0, "the 64 × 64 matrix goes to the fast route");
-        assert_eq!(check_svd_of(&a, svd).len(), 64);
     }
 
     /// A correct SVD of `w` standing for the fast route's, so that these
@@ -614,23 +575,37 @@ mod routes {
         Some((u, values, v))
     }
 
-    /// When the fast route returns factors that are not finite, which the
-    /// checks would refuse, the rotations decompose the matrix instead: a
-    /// NaN in U, the values or V, in a real or an imaginary part, still
-    /// gives an SVD.
+    /// When the fast route fails, the rotations decompose the matrix
+    /// instead: a matrix the route takes still gets its SVD. Each row: no
+    /// answer, as faer 0.24.4's QR algorithm reported on a degenerate pair
+    /// one ulp apart; or factors that are not finite, which the checks
+    /// would refuse, a NaN in U, the values or V (by `factor`), in a real
+    /// or an imaginary part.
     #[test]
-    fn falls_back_to_the_rotations_when_the_fast_route_is_not_finite() {
+    fn falls_back_to_the_rotations_when_the_fast_route_fails() {
         let a = matrix(64, 64, 2);
-        for (factor, imaginary) in [(0, false), (0, true), (1, false), (2, false), (2, true)] {
+        let rows = [
+            None,
+            Some((0, false)),
+            Some((0, true)),
+            Some((1, false)),
+            Some((2, false)),
+            Some((2, true)),
+        ];
+        for row in rows {
             let calls = Cell::new(0);
-            let spoiled = |rows: usize, cols: usize, w: &[Complex64]| {
+            let fast_route = |rows: usize, cols: usize, w: &[Complex64]| {
                 calls.set(calls.get() + 1);
+                let (factor, imaginary) = row?;
                 spoiled(rows, cols, w, factor, imaginary)
             };
-            let svd = trimmed_thin_svd::<Shipped>(a.view(), &spoiled)
-                .unwrap_or_else(|| panic!("factor {factor}, imaginary {imaginary}"));
-            assert!(calls.get() > 0, "the 64 × 64 matrix goes to the fast route");
-            assert_eq!(check_svd_of(&a, svd).len(), 64);
+            let svd = trimmed_thin_svd::<Shipped>(a.view(), &fast_route)
+                .unwrap_or_else(|| panic!("{row:?}: the rotations answer"));
+            assert!(
+                calls.get() > 0,
+                "{row:?}: the 64 × 64 matrix goes to the fast route"
+            );
+            assert_eq!(check_svd_of(&a, svd).len(), 64, "{row:?}");
         }
     }
 

@@ -55,29 +55,20 @@ fn decomposes_an_empty_matrix_of_any_size() {
     }
 }
 
-/// `[2⁻¹⁰²³]`, a subnormal number, is its own QR decomposition, `[1]·[2⁻¹⁰²³]`
-/// to the sign: unscaled, the reflection's squared norm underflows, and
-/// the QR answered `R = [0]`.
+/// A thin QR decomposes matrices at the extremes of the `f64` range, as
+/// it scales by the largest entry: `[2⁻¹⁰²³]`, a subnormal number, is its
+/// own decomposition, `[1]·[2⁻¹⁰²³]` to the sign (unscaled, the
+/// reflection's squared norm underflows, and the QR answered `R = [0]`);
+/// and matrices whose entries are all subnormal, about `2⁻¹⁰²⁶`, or about
+/// `2¹⁰¹⁹`, whose squares overflow, on tall, wide, square and single-row
+/// shapes.
 #[test]
-fn decomposes_a_subnormal_number() {
+fn decomposes_matrices_at_extreme_scales() {
     check_qr(&Matrix::new(1, 1, vec![c(f64::MIN_POSITIVE / 2.0, 0.0)]));
-}
-
-/// Matrices whose entries are all subnormal, about `2⁻¹⁰²⁶`, on tall, wide,
-/// square and single-row shapes.
-#[test]
-fn decomposes_matrices_of_subnormal_entries() {
-    for (seed, &(rows, cols)) in (1..).zip(&SHAPES) {
-        check_qr(&times_power_of_two(&matrix(rows, cols, seed), -1025));
-    }
-}
-
-/// Matrices whose entries are about `2¹⁰¹⁹`, whose squares overflow, on
-/// tall, wide, square and single-row shapes.
-#[test]
-fn decomposes_matrices_of_huge_entries() {
-    for (seed, &(rows, cols)) in (1..).zip(&SHAPES) {
-        check_qr(&times_power_of_two(&matrix(rows, cols, seed), 1020));
+    for exponent in [-1025, 1020] {
+        for (seed, &(rows, cols)) in (1..).zip(&SHAPES) {
+            check_qr(&times_power_of_two(&matrix(rows, cols, seed), exponent));
+        }
     }
 }
 

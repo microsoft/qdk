@@ -12,6 +12,9 @@ use super::*;
 /// The error of an engine on [`FailingFakeAlgebra`].
 type Failure = CanonicalMpsError<AlgebraFailure>;
 
+/// A state of an engine on [`FailingFakeAlgebra`].
+type FakeState = CanonicalMpsState<FailingFakeAlgebra>;
+
 /// `error` is the failure of the algebra's `method`, not a refusal.
 fn assert_fails_in(error: &Failure, method: Method, context: &str) {
     assert_eq!(
@@ -49,70 +52,98 @@ fn a_sample_too_large_for_memory_fails() {
     }
 }
 
-/// A preparation uploads each site; when an upload fails, the preparation
-/// fails with the algebra's error.
+/// When a call to the algebra fails (as a backend's SVD may not
+/// converge), the engine's method that made it fails with the algebra's
+/// error, not a refusal, rather than return with sites lost or read stale
+/// ones: one row per operation and the call it makes, each with the
+/// algebra failing that call.
 #[test]
-fn a_preparation_fails_when_an_upload_fails() {
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::Upload));
-    let Err(error) = engine.prepare(&chain(3, 4)) else {
-        panic!("a preparation needs an upload");
-    };
-    assert_fails_in(&error, Method::Upload, "prepare");
+fn every_algebra_failure_reaches_the_caller() {
+    let failures = [
+        failures_of_preparations_and_gates(),
+        failures_after_a_pending_window(),
+        failures_of_reads_projections_and_forks(),
+    ];
+    for (name, method, error) in failures.iter().flatten() {
+        assert_fails_in(error, *method, name);
+    }
 }
 
-/// Without fusion, a two-site gate splits its pair by the algebra's gate
-/// split; when the split fails (as a backend's SVD may not converge), the
-/// gate fails with the algebra's error, not a refusal.
-#[test]
-fn a_gate_fails_when_its_split_fails() {
+/// A row of `every_algebra_failure_reaches_the_caller`: the operation, the
+/// call that failed, and the error the operation returned.
+type FailureRow = (String, Method, Failure);
+
+/// The chain the rows prepare: 3 sites of bond 4.
+const SITES: usize = 3;
+
+/// The rows of preparations and gates, fused or not.
+fn failures_of_preparations_and_gates() -> Vec<FailureRow> {
+    let sites = SITES;
+    let mut failures = Vec::new();
+
+    // A preparation uploads each site.
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::Upload));
+    let Err(error) = engine.prepare(&chain(sites, 4)) else {
+        panic!("a preparation needs an upload");
+    };
+    failures.push(("prepare".into(), Method::Upload, error));
+
+    // Without fusion, a two-site gate splits its pair by the algebra's
+    // gate split.
     let engine =
         CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::GateSplit)).with_fusion(false);
-    let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
+    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
     engine
         .apply(&mut state, &[1], &ry(0.4))
         .expect("a one-site gate needs no split");
     let error = engine
         .apply(&mut state, &[0, 2], &cnot())
         .expect_err("no split");
-    assert_fails_in(&error, Method::GateSplit, "a gate on sites 0 and 2");
-}
+    failures.push(("a gate on sites 0 and 2".into(), Method::GateSplit, error));
 
-/// Without fusion, a gate on neighbours splits its pair, and a gate on
-/// sites 0 and 2 of 3, a matrix product operator, takes two splits, one
-/// per cut of its span. When one of them fails, though the algebra answers
-/// the others, the gate fails with the algebra's error, whichever split it
-/// was, rather than return with the sites it was splitting lost.
-#[test]
-fn an_unfused_gate_fails_when_one_of_its_splits_fails() {
-    for (sites, splits) in [(&[0, 1][..], 1), (&[0, 2], 2)] {
+    // Without fusion, a gate on neighbours splits its pair, and a gate on
+    // sites 0 and 2 of 3, a matrix product operator, takes two splits, one
+    // per cut of its span: whichever fails, though the algebra answers the
+    // others.
+    for (on, splits) in [(&[0, 1][..], 1), (&[0, 2], 2)] {
         for failing in 0..splits {
             let (algebra, asked) = FailingFakeAlgebra::on_call(Method::GateSplit, failing);
             let engine = CanonicalMpsEngine::new(algebra).with_fusion(false);
-            let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
-            let error = engine
-                .apply(&mut state, sites, &cnot())
-                .expect_err("no split");
+            let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
+            let error = engine.apply(&mut state, on, &cnot()).expect_err("no split");
             assert!(
                 asked.get() > failing,
-                "precondition: the gate on {sites:?} asks for split {failing}"
+                "precondition: the gate on {on:?} asks for split {failing}"
             );
-            assert_fails_in(
-                &error,
-                Method::GateSplit,
-                &format!("{sites:?}, split {failing}"),
-            );
+            let name = format!("a gate on {on:?}, split {failing}");
+            failures.push((name, Method::GateSplit, error));
         }
     }
+
+    // Without fusion, a gate on sites 0 and 2 of 3 is a matrix product
+    // operator, which uploads each site of its span multiplied by its
+    // factor.
+    let (algebra, asked) = FailingFakeAlgebra::on_call(Method::Upload, sites + 1);
+    let engine = CanonicalMpsEngine::new(algebra).with_fusion(false);
+    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
+    let error = engine
+        .apply(&mut state, &[0, 2], &cnot())
+        .expect_err("the operator's second upload fails");
+    assert!(
+        asked.get() > sites + 1,
+        "precondition: the operator asked for its second upload"
+    );
+    failures.push(("an operator on sites 0 and 2".into(), Method::Upload, error));
+
+    failures
 }
 
-/// A CNOT on sites 0 and 1 of 3, which fusion leaves pending; then a read
-/// or a fork, which applies the window first. When its split fails, the
-/// read fails with the algebra's error, not a refusal, rather than read
-/// the sites the window left stale.
-#[test]
-fn a_read_fails_when_the_split_of_its_pending_window_fails() {
-    type State = CanonicalMpsState<FailingFakeAlgebra>;
-    type Read<'a> = &'a dyn Fn(&mut State) -> Result<(), Failure>;
+/// The rows of a CNOT on sites 0 and 1, which fusion leaves pending; then
+/// a read or a fork, which applies the window first.
+fn failures_after_a_pending_window() -> Vec<FailureRow> {
+    type Read<'a> = &'a dyn Fn(&mut FakeState) -> Result<(), Failure>;
+    let sites = SITES;
+    let mut failures = Vec::new();
     let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::GateSplit));
     let z = z_string(&[2]);
     let reads: [(&str, Read<'_>); 9] = [
@@ -145,32 +176,66 @@ fn a_read_fails_when_the_split_of_its_pending_window_fails() {
         ("fork", &|state| engine.fork(state).map(drop)),
     ];
     for (name, read) in reads {
-        let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
+        let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
         engine
             .apply(&mut state, &[0, 1], &cnot())
             .expect("a fused gate takes no split");
         let error = read(&mut state).expect_err(name);
-        assert_fails_in(&error, Method::GateSplit, name);
+        let name = format!("{name} after a pending window");
+        failures.push((name, Method::GateSplit, error));
     }
+    failures
 }
 
-/// Without fusion, a gate on sites 0 and 2 of 3 is a matrix product
-/// operator, which uploads each site of its span multiplied by its factor;
-/// when an upload fails, the gate fails with the algebra's error.
-#[test]
-fn a_gate_on_distant_sites_fails_when_an_upload_fails() {
-    let sites = 3;
-    let (algebra, asked) = FailingFakeAlgebra::on_call(Method::Upload, sites + 1);
-    let engine = CanonicalMpsEngine::new(algebra).with_fusion(false);
-    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
+/// The rows of reads, projections and forks.
+fn failures_of_reads_projections_and_forks() -> Vec<FailureRow> {
+    let sites = SITES;
+    let mut failures = Vec::new();
+
+    // A read of a site away from the centre moves the centre there, by one
+    // move per site crossed.
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::QrMove));
+    let state = engine.prepare(&chain(sites, 4)).expect("prepare");
     let error = engine
-        .apply(&mut state, &[0, 2], &cnot())
-        .expect_err("the operator's second upload fails");
-    assert!(
-        asked.get() > sites + 1,
-        "precondition: the operator asked for its second upload"
+        .probability_of_one(&state, 2)
+        .expect_err("the centre starts on site 0");
+    failures.push(("P(One) of site 2".into(), Method::QrMove, error));
+
+    // A read copies its sites to the host: a probability, which reads the
+    // centre, and an expectation, which reads every site its terms span.
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::Read));
+    let state = engine.prepare(&chain(sites, 4)).expect("prepare");
+    let error = engine
+        .probability_of_one(&state, 0)
+        .expect_err("a read of the centre");
+    failures.push(("P(One) of the centre".into(), Method::Read, error));
+    let error = engine
+        .expectation(&state, &z_string(&[1, 2]))
+        .expect_err("a read of sites 1 and 2");
+    failures.push(("an expectation".into(), Method::Read, error));
+
+    // A projection uploads the site it projected.
+    let (algebra, asked) = FailingFakeAlgebra::on_call(Method::Upload, sites);
+    let engine = CanonicalMpsEngine::new(algebra);
+    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
+    assert_eq!(
+        asked.get(),
+        sites,
+        "precondition: the preparation uploads one tensor per site"
     );
-    assert_fails_in(&error, Method::Upload, "a gate on sites 0 and 2");
+    let error = engine
+        .project(&mut state, 1, false)
+        .expect_err("the projection's upload fails");
+    failures.push(("project".into(), Method::Upload, error));
+
+    // A fork duplicates each site.
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::Duplicate));
+    let state = engine.prepare(&chain(sites, 4)).expect("prepare");
+    let Err(error) = engine.fork(&state) else {
+        panic!("a fork duplicates its sites");
+    };
+    failures.push(("fork".into(), Method::Duplicate, error));
+    failures
 }
 
 /// Without fusion, a CNOT on sites 0 and 2 of 3 whose read or upload of
@@ -198,65 +263,4 @@ fn a_failed_read_or_upload_leaves_the_span_as_it_was() {
         let after = engine.shape(&state).expect("shape after the failed gate");
         assert_eq!(after, before, "a failed {method:?}");
     }
-}
-
-/// A read of a site away from the centre moves the centre there, by one
-/// move per site crossed; when a move fails, the read fails with the
-/// algebra's error.
-#[test]
-fn a_read_fails_when_a_move_of_the_centre_fails() {
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::QrMove));
-    let state = engine.prepare(&chain(3, 4)).expect("prepare");
-    let error = engine
-        .probability_of_one(&state, 2)
-        .expect_err("the centre starts on site 0");
-    assert_fails_in(&error, Method::QrMove, "P(One) of site 2");
-}
-
-/// A read copies its sites to the host; when the copy fails, the read
-/// fails with the algebra's error: a probability, which reads the centre,
-/// and an expectation, which reads every site its terms span.
-#[test]
-fn a_read_fails_when_the_copy_of_a_site_fails() {
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::Read));
-    let state = engine.prepare(&chain(3, 4)).expect("prepare");
-    let error = engine
-        .probability_of_one(&state, 0)
-        .expect_err("a read of the centre");
-    assert_fails_in(&error, Method::Read, "P(One)");
-    let error = engine
-        .expectation(&state, &z_string(&[1, 2]))
-        .expect_err("a read of sites 1 and 2");
-    assert_fails_in(&error, Method::Read, "expectation");
-}
-
-/// A projection uploads the site it projected; when the upload fails, the
-/// projection fails with the algebra's error.
-#[test]
-fn a_projection_fails_when_the_upload_of_its_site_fails() {
-    let sites = 3;
-    let (algebra, asked) = FailingFakeAlgebra::on_call(Method::Upload, sites);
-    let engine = CanonicalMpsEngine::new(algebra);
-    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
-    assert_eq!(
-        asked.get(),
-        sites,
-        "precondition: the preparation uploads one tensor per site"
-    );
-    let error = engine
-        .project(&mut state, 1, false)
-        .expect_err("the projection's upload fails");
-    assert_fails_in(&error, Method::Upload, "project");
-}
-
-/// A fork duplicates each site; when a duplicate fails, the fork fails
-/// with the algebra's error.
-#[test]
-fn a_fork_fails_when_a_duplicate_fails() {
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::Duplicate));
-    let state = engine.prepare(&chain(3, 4)).expect("prepare");
-    let Err(error) = engine.fork(&state) else {
-        panic!("a fork duplicates its sites");
-    };
-    assert_fails_in(&error, Method::Duplicate, "fork");
 }
