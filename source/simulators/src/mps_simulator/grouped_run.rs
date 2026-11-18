@@ -32,10 +32,14 @@
 //! failure is dropped with its state, which the engine leaves unspecified
 //! after it fails: a failed fork fails the whole group, before its shots
 //! part, while a failure settling the fork fails only the part that waits,
-//! and drops the fork.
+//! and drops the fork. A run may also be stopped
+//! (`MpsResumer::with_stop_flag`): `run_group` reads the flag before each
+//! batch, and no shot failed then: the shot named is the first that had
+//! not ended.
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::OutputRecord;
 use crate::qir::{
@@ -63,6 +67,8 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
     /// The capacity of each state; `None` for a program of no qubits, which
     /// needs no state.
     capacity: Option<MpsShape>,
+    /// The flag that stops the run, if any.
+    stop_flag: Option<&'r AtomicBool>,
     report: &'r mut MpsRunReport,
     /// The groups split off that wait their turn, the last to run next.
     waiting: Vec<ShotGroup<E::State>>,
@@ -77,7 +83,9 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
 impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// The run of `shots` of `machine`'s program on `engine`, before any
     /// shot runs: the qubit order and the capacity, from the program, and
-    /// one group of every shot, each drawing from its stream under `seed`.
+    /// one group of every shot, each drawing from its stream under `seed`,
+    /// stopping once `stop_flag`, if any, is set
+    /// ([`MpsResumer::with_stop_flag`]).
     /// `shots` is not empty: a run of no shots needs neither the qubit order
     /// nor the capacity, so [`MpsResumer`] does not start it.
     ///
@@ -91,6 +99,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         shots: &'r [QirShotId],
         seed: u64,
         max_bond_dimension: NonZeroUsize,
+        stop_flag: Option<&'r AtomicBool>,
         report: &'r mut MpsRunReport,
     ) -> Result<Self, QirResumeError<MpsResumerError<E::Error>>> {
         let program = machine.program();
@@ -124,6 +133,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             shots,
             qubit_order: QubitOrder::for_program(program),
             capacity,
+            stop_flag,
             report,
             waiting,
             records: vec![None; shots.len()],
@@ -199,6 +209,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         group: &mut ShotGroup<E::State>,
     ) -> Result<Option<Vec<OutputRecord>>, GroupFailure<E::Error>> {
         loop {
+            self.check_stop_flag()?;
             while let Some(step) = group.steps.get(group.next).cloned() {
                 group.next += 1;
                 self.run_step(&step, group)?;
@@ -223,6 +234,17 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 }
             }
         }
+    }
+
+    /// Fails with [`MpsResumerError::Stopped`] once the stop flag is set.
+    fn check_stop_flag(&self) -> Result<(), GroupFailure<E::Error>> {
+        if self
+            .stop_flag
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+        {
+            return Err(GroupFailure::Resumer(MpsResumerError::Stopped));
+        }
+        Ok(())
     }
 
     /// Runs `step` on `group`: a gate is applied, a measurement or a reset

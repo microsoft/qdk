@@ -10,11 +10,16 @@
 //! group, a failed settle of the fork only the shots that wait); a run
 //! names its first failing shot in the order of its shots, whichever part
 //! of a split goes on, and drops the groups whose shots all come after it;
-//! and a run after a failed one is independent of it.
+//! a run after a failed one is independent of it; and a stop flag ends a
+//! run before the next batch.
+
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::bytecode::Instruction;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
 use crate::qir::{QirProgram, QirResumeError, QirShotId, QirTrap};
+use crate::{MeasurementResult, OutputRecord};
 use tensornet::reference::ExactReference;
 use tensornet::{MpsEngine, MpsShape};
 
@@ -756,4 +761,165 @@ fn on_a_tie_the_shots_that_read_zero_go_on() {
         2,
         "the coin's h, then the X of the shot that reads 0"
     );
+}
+
+/// A run whose stop flag is already set fails before any gate, naming its
+/// first shot.
+#[test]
+fn a_set_stop_flag_fails_the_run_before_any_gate() {
+    let stop_flag = Arc::new(AtomicBool::new(true));
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7).with_stop_flag(stop_flag);
+    let result = run(&mut resumer, &coins(4), &ids(&[3, 1, 2]));
+    assert!(
+        matches!(
+            result,
+            Err(QirResumeError::Resumer {
+                shot: QirShotId(3),
+                error: MpsResumerError::Stopped,
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(resumer.engine().applies(), 0);
+}
+
+/// A flag set during a run stops it between batches: set at the first gate
+/// of eight coins on 16 shots, a program of one batch whose draws split the
+/// shots into many groups, the run applies the eight gates of the group
+/// under way, none of the parts split off, and names shot 0, which was in
+/// a part that split off and had not ended.
+#[test]
+fn a_stop_flag_set_during_a_run_stops_it_once_the_batch_under_way_ends() {
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let engine = ReferenceSpy::stopping_at_apply(1, Arc::clone(&stop_flag));
+    let mut resumer = MpsResumer::new(engine, 7).with_stop_flag(stop_flag);
+    let result = run(&mut resumer, &coins(8), &QirShotId::first(16));
+    assert!(
+        matches!(
+            result,
+            Err(QirResumeError::Resumer {
+                shot: QirShotId(0),
+                error: MpsResumerError::Stopped,
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(
+        resumer.engine().applies(),
+        8,
+        "the gates of the group under way, none of the parts split off"
+    );
+}
+
+/// A stopped run names the first shot that had not ended, not the first of
+/// the run: of three shots, the first reads 0 on its coin and the others
+/// read 1. The first has no more gates, and ends before the others go on,
+/// as the part with fewer shots goes on first; the others' next batch
+/// flips and reads a second qubit, and the flag, set at the flip, stops the
+/// run before the batch after, naming the second shot.
+#[test]
+fn a_stopped_run_names_the_first_shot_that_had_not_ended() {
+    let (more_batches, end) = (1, 2);
+    let more_batches_after_a_one = program(
+        2,
+        &[
+            &[
+                gate1(OPID_H, 0),
+                mz(0),
+                read_result(0, 0),
+                branch(0, more_batches, end),
+            ],
+            &[
+                gate1(OPID_X, 1),
+                mz(1),
+                read_result(1, 1),
+                gate1(OPID_H, 1),
+                mz(1),
+                ret(),
+            ],
+            &[ret()],
+        ],
+    );
+    let shots = ids(&[0, 1, 8]);
+    let unstopped = run(
+        &mut MpsResumer::new(ExactReference::new(), 7),
+        &more_batches_after_a_one,
+        &shots,
+    )
+    .expect("the program runs");
+    assert_eq!(
+        (unstopped[0][0], unstopped[1][0], unstopped[2][0]),
+        (
+            OutputRecord::Result(MeasurementResult::Zero),
+            OutputRecord::Result(MeasurementResult::One),
+            OutputRecord::Result(MeasurementResult::One)
+        ),
+        "the first shot's coin reads 0, the others' 1"
+    );
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let engine = ReferenceSpy::stopping_at_apply(2, Arc::clone(&stop_flag));
+    let mut resumer = MpsResumer::new(engine, 7).with_stop_flag(stop_flag);
+    let result = run(&mut resumer, &more_batches_after_a_one, &shots);
+    assert!(
+        matches!(
+            result,
+            Err(QirResumeError::Resumer {
+                shot: QirShotId(1),
+                error: MpsResumerError::Stopped,
+            })
+        ),
+        "{result:?}"
+    );
+}
+
+/// The flag is read before each batch, not once per group: three shots run
+/// a coin, then gates chosen by its value, a batch the coin's result must
+/// be read for; set at the coin's gate, the flag stops the run before any
+/// gate of the second batch, naming the first of the run's shots, none of
+/// which had ended.
+#[test]
+fn a_stop_flag_is_read_before_each_batch() {
+    let gates_after_the_coin = program(
+        2,
+        &[
+            &[gate1(OPID_H, 0), mz(0), read_result(0, 0), branch(0, 1, 2)],
+            &[gate1(OPID_X, 1), gate1(OPID_H, 1), ret()],
+            &[gate1(OPID_H, 1), gate1(OPID_X, 1), ret()],
+        ],
+    );
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let engine = ReferenceSpy::stopping_at_apply(1, Arc::clone(&stop_flag));
+    let mut resumer = MpsResumer::new(engine, 7).with_stop_flag(stop_flag);
+    let result = run(&mut resumer, &gates_after_the_coin, &ids(&[2, 0, 1]));
+    assert!(
+        matches!(
+            result,
+            Err(QirResumeError::Resumer {
+                shot: QirShotId(2),
+                error: MpsResumerError::Stopped,
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(
+        resumer.engine().applies(),
+        1,
+        "only the coin's gate applied"
+    );
+}
+
+/// A flag that is never set changes no record.
+#[test]
+fn an_unset_stop_flag_changes_no_record() {
+    let shots = QirShotId::first(16);
+    let without = run(
+        &mut MpsResumer::new(ExactReference::new(), 7),
+        &coins(4),
+        &shots,
+    )
+    .expect("the program runs");
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let mut resumer = MpsResumer::new(ExactReference::new(), 7).with_stop_flag(stop_flag);
+    let with = run(&mut resumer, &coins(4), &shots).expect("the flag is never set");
+    assert_eq!(with, without);
 }

@@ -31,6 +31,8 @@
 //! each phase makes, in `src/mps_simulator/design.md`.
 
 use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::OutputRecord;
 use crate::qir::{QirMachine, QirResumeError, QirResumer, QirShotId};
@@ -74,6 +76,7 @@ pub struct MpsResumer<E: MpsEngine> {
     engine: E,
     seed: u64,
     max_bond_dimension: NonZeroUsize,
+    stop_flag: Option<Arc<AtomicBool>>,
     last_run: MpsRunReport,
 }
 
@@ -91,6 +94,7 @@ impl<E: MpsEngine> MpsResumer<E> {
             engine,
             seed,
             max_bond_dimension: DEFAULT_MAX_BOND_DIMENSION,
+            stop_flag: None,
             last_run: MpsRunReport::new(DEFAULT_MAX_BOND_DIMENSION.get()),
         }
     }
@@ -102,6 +106,20 @@ impl<E: MpsEngine> MpsResumer<E> {
     pub fn with_max_bond_dimension(mut self, max_bond_dimension: NonZeroUsize) -> Self {
         self.max_bond_dimension = max_bond_dimension;
         self.last_run = MpsRunReport::new(max_bond_dimension.get());
+        self
+    }
+
+    /// The resumer stopping its runs once `stop_flag` is set: a user who
+    /// interrupts a run of hours (Ctrl-C from Python, say) gets it back
+    /// between batches, its states freed. The flag is read before each
+    /// batch a group runs, and before a group split off by a draw runs on,
+    /// so a program that is one batch (Base profile) runs all the gates of
+    /// the group under way before the flag is read. Once it is set, the run
+    /// fails with [`MpsResumerError::Stopped`], naming the first shot that
+    /// had not ended. Whoever sets it clears it before the next run.
+    #[must_use]
+    pub fn with_stop_flag(mut self, stop_flag: Arc<AtomicBool>) -> Self {
+        self.stop_flag = Some(stop_flag);
         self
     }
 
@@ -135,8 +153,9 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
     ///
     /// The first failing shot in the order of `shots`: its context trapped,
     /// or the resumer failed it ([`MpsResumerError`]): a noise or loss call,
-    /// a gate on one qubit twice, a capacity that is no chain, or the
-    /// engine's failure. An engine's failure to fork a group's state fails
+    /// a gate on one qubit twice, a capacity that is no chain, the engine's
+    /// failure, or the stop flag, once set, naming the first shot that had
+    /// not ended. An engine's failure to fork a group's state fails
     /// all the group's shots, as the engine leaves that state unspecified;
     /// its failure to settle the fork (project it, and apply a reset's X)
     /// fails only the shots that were to wait with the fork. Either fails
@@ -158,6 +177,7 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
                 shots,
                 self.seed,
                 self.max_bond_dimension,
+                self.stop_flag.as_deref(),
                 &mut self.last_run,
             )
             .and_then(GroupedRun::run),
