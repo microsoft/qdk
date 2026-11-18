@@ -309,6 +309,21 @@ def test_a_call_the_method_cannot_run_raises_value_error(engine):
         run(qir, [Sample(1)], engine=engine)
 
 
+def test_a_max_bond_dimension_too_large_for_the_qubits_raises_value_error(engine):
+    """70 qubits with bonds of up to 2**32 - 1: the middle sites would hold
+    more elements than a machine word counts, so no chain is made."""
+    qir = adaptive_qir(
+        """\
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 69 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)""",
+        qubits=70,
+        results=1,
+    )
+    options = MpsOptions(max_bond_dimension=2**32 - 1)
+    with pytest.raises(ValueError, match="make no chain"):
+        run(qir, [Sample(1)], engine=engine, options=options)
+
+
 ON_LINUX_X86_64 = platform.system() == "Linux" and platform.machine() == "x86_64"
 
 
