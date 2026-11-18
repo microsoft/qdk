@@ -236,9 +236,10 @@ impl<'a> CallScope<'a> {
 
     /// Ends the call with `result`: waits for the device if the call failed,
     /// then releases the call's own objects and buffers, and its outputs
-    /// unless it succeeded. A failed release fails the call; a failure to
-    /// wait does too, retires the call's objects and buffers and poisons
-    /// the algebra. Both failures are kept.
+    /// unless it succeeded. A failed release fails the call, without
+    /// poisoning the algebra, and leaks its object; a failure to wait fails
+    /// the call too, retires the call's objects and buffers and poisons the
+    /// algebra. Both failures are kept.
     pub(super) fn finish<T>(
         self,
         result: Result<T, CudaAlgebraError>,

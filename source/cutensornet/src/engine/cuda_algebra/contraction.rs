@@ -52,7 +52,7 @@ struct PreparedContractionNetwork {
 
 impl PreparedContractionNetworks {
     /// Releases every network; attempts every release and returns the first
-    /// failure.
+    /// failure. A network whose destroy fails is leaked, never retried.
     pub(super) fn release(&mut self, calls: &dyn NativeCalls) -> Result<(), CudaAlgebraError> {
         let networks = std::mem::take(&mut self.networks);
         first_failure(
