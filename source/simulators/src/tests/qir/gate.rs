@@ -8,9 +8,9 @@
 use super::{correlated_noise, gate, measure, op, program, reset, ret};
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, OP_PEEK_LOSS, OP_READOUT_NOISE, OPID_CX, OPID_CY,
-    OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_RX, OPID_RXX, OPID_RY, OPID_RYY,
-    OPID_RZ, OPID_RZZ, OPID_S, OPID_S_ADJ, OPID_SWAP, OPID_SX, OPID_SX_ADJ, OPID_T, OPID_T_ADJ,
-    OPID_X, OPID_Y, OPID_Z,
+    OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ, OPID_RX, OPID_RXX,
+    OPID_RY, OPID_RYY, OPID_RZ, OPID_RZZ, OPID_S, OPID_S_ADJ, OPID_SWAP, OPID_SX, OPID_SX_ADJ,
+    OPID_T, OPID_T_ADJ, OPID_X, OPID_Y, OPID_Z,
 };
 use crate::qir::OperatorMatrix;
 use crate::qir::{QIR_INSTRUCTIONS, QirGate, QirInstruction, QirProgram};
@@ -69,6 +69,8 @@ fn every_instruction() -> Vec<QirInstruction> {
     block.extend([
         measure(OPID_MZ, 0, 0),
         measure(OPID_MRESETZ, 0, 1),
+        measure(OPID_MX, 0, 0),
+        measure(OPID_MY, 0, 0),
         reset(0),
         gate(OPID_MOVE, 0, 0),
         correlated_noise(0, 0),
@@ -127,6 +129,8 @@ fn only_the_unitary_instructions_are_gates() {
             "mz",
             "mresetz",
             "move",
+            "mx",
+            "my",
             "correlated_noise",
             "peek_loss",
             "readout_noise"

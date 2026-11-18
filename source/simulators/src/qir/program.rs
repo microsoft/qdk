@@ -99,10 +99,12 @@ pub enum TwoQubitGate {
     FromRegisters,
 }
 
-/// A measurement of a [`QirProgram`] (`mz` or `mresetz`), as the program
-/// gives its qubit and result before any run
+/// A measurement of a [`QirProgram`] (`mx`, `my`, `mz` or `mresetz`), as
+/// the program gives its qubit and result before any run
 /// ([`QirProgram::measured_qubits`]). From them a resumer learns, before
-/// any shot, which qubits a program measures and into which results. For
+/// any shot, which qubits a program measures and into which results; the
+/// basis of each is in its call
+/// ([`QirCall::Measure`](super::QirCall::Measure)). For
 /// instance, a simulator that samples the measurements at a program's end
 /// (planned) benefits from them: it draws those qubits only, all at once,
 /// rather than measuring each as the program reaches it.
@@ -163,7 +165,7 @@ impl QirProgram {
                     }
                     if matches!(
                         instruction,
-                        QirInstruction::Measure | QirInstruction::MeasureReset
+                        QirInstruction::Measure(_) | QirInstruction::MeasureReset
                     ) {
                         measured_qubits.push(match (operands.qubits[0], operands.result) {
                             (CallOperand::Known(qubit), Some(CallOperand::Known(result))) => {

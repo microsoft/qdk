@@ -10,7 +10,8 @@ mod check;
 use super::{SIZE, branch, copy_of, correlated_noise, gate, jump, measure, op, program, ret};
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, OP_MEASURE, OP_PEEK_LOSS,
-    OP_QUANTUM_GATE, OP_READ_RESULT, OPID_CX, OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RZZ,
+    OP_QUANTUM_GATE, OP_READ_RESULT, OPID_CX, OPID_H, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ,
+    OPID_RZZ,
 };
 use crate::bytecode::{AdaptiveProgram, Instruction, Op};
 use crate::qir::{MeasuredQubit, QirProgram, TwoQubitGate};
@@ -180,8 +181,8 @@ fn a_two_qubit_gate_on_a_register_s_qubit_is_known_only_in_a_shot() {
     );
 }
 
-/// A program measuring with `mz` and `mresetz`, beside a loss check and
-/// gates: each measurement is listed, with its qubit and result.
+/// A program measuring with `mz`, `mresetz`, `mx` and `my`, beside a loss
+/// check and gates: each measurement is listed, with its qubit and result.
 #[test]
 fn measurements_are_listed_with_their_qubits_and_results() {
     let bytecode = program(&[&[
@@ -190,6 +191,8 @@ fn measurements_are_listed_with_their_qubits_and_results() {
         peek_loss(),
         gate(OPID_CX, 0, 1),
         measure(OPID_MRESETZ, 1, 3),
+        measure(OPID_MX, 2, 0),
+        measure(OPID_MY, 3, 1),
         ret(),
     ]]);
     assert_eq!(
@@ -202,6 +205,14 @@ fn measurements_are_listed_with_their_qubits_and_results() {
             MeasuredQubit::Known {
                 qubit: 1,
                 result: 3
+            },
+            MeasuredQubit::Known {
+                qubit: 2,
+                result: 0
+            },
+            MeasuredQubit::Known {
+                qubit: 3,
+                result: 1
             },
         ]
     );

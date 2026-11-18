@@ -16,9 +16,11 @@ use crate::MeasurementResult::{One, Zero};
 use crate::OutputRecord;
 use crate::bytecode::AdaptiveProgram;
 use crate::bytecode::encoding::{
-    FLAG_SRC0_IMM, FLAG_SRC1_IMM, OP_READ_LOSS, OP_READ_RESULT, OP_WRITE_RESULT, OPID_MZ, OPID_X,
+    FLAG_SRC0_IMM, FLAG_SRC1_IMM, OP_READ_LOSS, OP_READ_RESULT, OP_WRITE_RESULT, OPID_MX, OPID_MY,
+    OPID_MZ, OPID_X,
 };
-use crate::qir::{QirMachine, QirOutcome, QirReadout, QirStop, QirTrap};
+use crate::qir::{QirCall, QirMachine, QirOutcome, QirReadout, QirStop, QirTrap};
+use qsc_data_structures::measurement::MeasurementBasis;
 
 /// A measurement read and recorded as a `Bool`, for each outcome.
 #[test]
@@ -352,6 +354,54 @@ fn outcomes_may_come_in_any_order() {
         },
     ];
     let records = [OutputRecord::Result(Zero), OutputRecord::Result(One)];
+    assert_eq!(
+        machine.resume(&mut context, &outcomes),
+        Ok(QirStop::Ended(&records[..]))
+    );
+}
+
+/// A program measuring qubit 0 in the X basis and qubit 1 in the Y basis,
+/// then recording both results: the batch asks for each measurement in its
+/// basis, and the outcomes answer the results as they do an `mz`'s.
+#[test]
+fn x_and_y_measurements_are_asked_in_their_basis_and_answered_into_their_results() {
+    let bytecode = program(&[&[
+        measure(OPID_MX, 0, 0),
+        measure(OPID_MY, 1, 1),
+        record_result(0),
+        record_result(1),
+        ret(),
+    ]]);
+    let program = built(&bytecode);
+    let machine = QirMachine::new(&program);
+    let mut context = machine.start_shot();
+    let calls = [
+        QirCall::Measure {
+            basis: MeasurementBasis::X,
+            qubit: 0,
+            result: 0,
+        },
+        QirCall::Measure {
+            basis: MeasurementBasis::Y,
+            qubit: 1,
+            result: 1,
+        },
+    ];
+    assert_eq!(
+        machine.resume(&mut context, &[]),
+        Ok(QirStop::Batch(&calls[..]))
+    );
+    let outcomes = [
+        QirOutcome {
+            result: 0,
+            value: QirReadout::One,
+        },
+        QirOutcome {
+            result: 1,
+            value: QirReadout::Zero,
+        },
+    ];
+    let records = [OutputRecord::Result(One), OutputRecord::Result(Zero)];
     assert_eq!(
         machine.resume(&mut context, &outcomes),
         Ok(QirStop::Ended(&records[..]))

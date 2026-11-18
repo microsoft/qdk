@@ -27,13 +27,15 @@
 //! map. The classical instructions are read with the `OP_*` constants, in
 //! `program/check.rs` and `machine/walk.rs`.
 
+use qsc_data_structures::measurement::MeasurementBasis;
+
 use super::{QirCall, QirGate, QirInstruction};
 #[cfg(doc)]
 use crate::bytecode::AdaptiveProgram;
 use crate::bytecode::encoding::{
-    OPID_CORRELATED_NOISE, OPID_CX, OPID_CY, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ,
-    OPID_RESETZ, OPID_RX, OPID_RXX, OPID_RY, OPID_RYY, OPID_RZ, OPID_RZZ, OPID_S, OPID_S_ADJ,
-    OPID_SWAP, OPID_SX, OPID_SX_ADJ, OPID_T, OPID_T_ADJ, OPID_X, OPID_Y, OPID_Z,
+    OPID_CORRELATED_NOISE, OPID_CX, OPID_CY, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MX,
+    OPID_MY, OPID_MZ, OPID_RESETZ, OPID_RX, OPID_RXX, OPID_RY, OPID_RYY, OPID_RZ, OPID_RZZ, OPID_S,
+    OPID_S_ADJ, OPID_SWAP, OPID_SX, OPID_SX_ADJ, OPID_T, OPID_T_ADJ, OPID_X, OPID_Y, OPID_Z,
 };
 
 /// Where the bytecode holds a [`QirInstruction`]: the opcode that runs
@@ -54,13 +56,14 @@ pub(crate) enum Encoding {
 }
 
 /// The machine's instructions, in their order, with where the bytecode holds
-/// each: by operation id, correlated noise (131) the last, then the loss
+/// each: by operation id, so `mx` and `my` (30 and 31) after `cy` (29),
+/// not beside `mz` (21), and correlated noise (131) the last; then the loss
 /// and readout-noise instructions, which have none. Neither the identity
 /// (operation 0) nor `ccx` (operation 20) is one ([`QirInstruction`] says
 /// why).
 ///
 /// Crate-visible so that the tests can check they cover every instruction.
-pub(crate) const QIR_INSTRUCTIONS: [(Encoding, QirInstruction); 27] = [
+pub(crate) const QIR_INSTRUCTIONS: [(Encoding, QirInstruction); 29] = [
     (Encoding::Reset(OPID_RESETZ), QirInstruction::Reset),
     (Encoding::Gate(OPID_X), QirInstruction::Gate(QirGate::X)),
     (Encoding::Gate(OPID_Y), QirInstruction::Gate(QirGate::Y)),
@@ -89,7 +92,10 @@ pub(crate) const QIR_INSTRUCTIONS: [(Encoding, QirInstruction); 27] = [
     (Encoding::Gate(OPID_RXX), QirInstruction::Gate(QirGate::Rxx)),
     (Encoding::Gate(OPID_RYY), QirInstruction::Gate(QirGate::Ryy)),
     (Encoding::Gate(OPID_RZZ), QirInstruction::Gate(QirGate::Rzz)),
-    (Encoding::Measure(OPID_MZ), QirInstruction::Measure),
+    (
+        Encoding::Measure(OPID_MZ),
+        QirInstruction::Measure(MeasurementBasis::Z),
+    ),
     (
         Encoding::Measure(OPID_MRESETZ),
         QirInstruction::MeasureReset,
@@ -100,6 +106,14 @@ pub(crate) const QIR_INSTRUCTIONS: [(Encoding, QirInstruction); 27] = [
     ),
     (Encoding::Gate(OPID_MOVE), QirInstruction::Move),
     (Encoding::Gate(OPID_CY), QirInstruction::Gate(QirGate::Cy)),
+    (
+        Encoding::Measure(OPID_MX),
+        QirInstruction::Measure(MeasurementBasis::X),
+    ),
+    (
+        Encoding::Measure(OPID_MY),
+        QirInstruction::Measure(MeasurementBasis::Y),
+    ),
     (
         Encoding::Gate(OPID_CORRELATED_NOISE),
         QirInstruction::CorrelatedNoise,
@@ -154,7 +168,7 @@ pub(super) fn shape(instruction: QirInstruction) -> Shape {
             (_, true) => Shape::TwoQubitsAngle,
         },
         QirInstruction::Reset | QirInstruction::Move => Shape::Qubit,
-        QirInstruction::Measure | QirInstruction::MeasureReset | QirInstruction::PeekLoss => {
+        QirInstruction::Measure(_) | QirInstruction::MeasureReset | QirInstruction::PeekLoss => {
             Shape::QubitResult
         }
         QirInstruction::ReadoutNoise => Shape::ReadoutNoise,
@@ -236,7 +250,11 @@ pub(super) fn build(
             qubits: (qubit, (gate.qubit_count() == 2).then_some(qubits[1])),
             angle: gate.is_rotation().then_some(reals[0]),
         },
-        QirInstruction::Measure => QirCall::Measure { qubit, result },
+        QirInstruction::Measure(basis) => QirCall::Measure {
+            basis,
+            qubit,
+            result,
+        },
         QirInstruction::MeasureReset => QirCall::MeasureReset { qubit, result },
         QirInstruction::Reset => QirCall::Reset { qubit },
         QirInstruction::Move => QirCall::Move { qubit },

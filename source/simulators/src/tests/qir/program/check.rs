@@ -16,7 +16,7 @@ use crate::bytecode::encoding::{
     OP_LSHR, OP_MOV, OP_MUL, OP_OR, OP_PEEK_LOSS, OP_READ_LOSS, OP_READ_RESULT, OP_READOUT_NOISE,
     OP_RECORD_OUTPUT, OP_RET, OP_SDIV, OP_SELECT, OP_SEXT, OP_SHL, OP_SITOFP, OP_SREM, OP_STORE,
     OP_SUB, OP_TRUNC, OP_UDIV, OP_UITOFP, OP_UREM, OP_WRITE_RESULT, OP_XOR, OP_ZEXT,
-    OPID_CORRELATED_NOISE, OPID_CX, OPID_MZ, OPID_X, VOID_RETURN,
+    OPID_CORRELATED_NOISE, OPID_CX, OPID_MX, OPID_MY, OPID_MZ, OPID_X, VOID_RETURN,
 };
 use crate::bytecode::{
     AdaptiveProgram, Block, Function, Instruction, Op, PhiNodeEntry, SwitchCase,
@@ -1280,17 +1280,22 @@ fn a_quantum_operation_must_exist() {
 }
 
 /// Operations their opcode does not run: `ccx` (20), which the Python
-/// passes decompose first, and `mz` as gates; `x` as a measurement and as
-/// a reset. The `ccx` names qubits past the last, unchecked, as what an
-/// operand means depends on the operation.
+/// passes decompose first, `mz` and `mx` as gates; `x` as a measurement;
+/// `x` and `my` as resets. The `ccx` names qubits past the last,
+/// unchecked, as what an operand means depends on the operation.
 #[test]
 fn an_operation_must_be_one_its_opcode_runs() {
     let bytecode = program(&[&[
         gate(20, 9, 9),
         gate(OPID_MZ, 0, 0),
+        gate(OPID_MX, 0, 0),
         measure(OPID_X, 0, 0),
         Instruction {
             aux0: OPID_X,
+            ..reset(0)
+        },
+        Instruction {
+            aux0: OPID_MY,
             ..reset(0)
         },
         ret(),
@@ -1300,8 +1305,10 @@ fn an_operation_must_be_one_its_opcode_runs() {
         [
             at_instruction(0, QirError::UnsupportedOperation { op_id: 20 }),
             at_instruction(1, QirError::UnsupportedOperation { op_id: OPID_MZ }),
-            at_instruction(2, QirError::UnsupportedOperation { op_id: OPID_X }),
+            at_instruction(2, QirError::UnsupportedOperation { op_id: OPID_MX }),
             at_instruction(3, QirError::UnsupportedOperation { op_id: OPID_X }),
+            at_instruction(4, QirError::UnsupportedOperation { op_id: OPID_X }),
+            at_instruction(5, QirError::UnsupportedOperation { op_id: OPID_MY }),
         ]
     );
 }

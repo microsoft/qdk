@@ -15,6 +15,8 @@
 use std::fmt;
 use std::ops::Deref;
 
+use qsc_data_structures::measurement::MeasurementBasis;
+
 use super::QirGate;
 #[cfg(doc)]
 use super::{QirMachine, QirProgram, QirTrap};
@@ -36,10 +38,12 @@ use super::{QirMachine, QirProgram, QirTrap};
 pub enum QirInstruction {
     /// A unitary gate.
     Gate(QirGate),
-    /// `mz`: measures a qubit in the Z basis into a result.
-    Measure,
+    /// `mx`, `my` or `mz`: measures a qubit in the X, Y or Z basis into a
+    /// result.
+    Measure(MeasurementBasis),
     /// `mresetz`: measures a qubit in the Z basis into a result, then
-    /// resets it to |0⟩.
+    /// resets it to |0⟩. It has no X or Y form, as the bytecode has no
+    /// operation for one.
     MeasureReset,
     /// `reset`: resets a qubit to |0⟩.
     Reset,
@@ -64,7 +68,9 @@ impl QirInstruction {
     pub fn mnemonic(self) -> &'static str {
         match self {
             Self::Gate(gate) => gate.mnemonic(),
-            Self::Measure => "mz",
+            Self::Measure(MeasurementBasis::X) => "mx",
+            Self::Measure(MeasurementBasis::Y) => "my",
+            Self::Measure(MeasurementBasis::Z) => "mz",
             Self::MeasureReset => "mresetz",
             Self::Reset => "reset",
             Self::Move => "move",
@@ -103,8 +109,12 @@ pub enum QirCall {
         qubits: (u32, Option<u32>),
         angle: Option<f64>,
     },
-    /// `mz` of `qubit` into `result`.
-    Measure { qubit: u32, result: u32 },
+    /// `mx`, `my` or `mz`, as `basis` says, of `qubit` into `result`.
+    Measure {
+        basis: MeasurementBasis,
+        qubit: u32,
+        result: u32,
+    },
     /// `mresetz` of `qubit` into `result`.
     MeasureReset { qubit: u32, result: u32 },
     /// `reset` of `qubit`.
@@ -131,7 +141,7 @@ impl QirCall {
     pub fn instruction(&self) -> QirInstruction {
         match self {
             Self::Gate { gate, .. } => QirInstruction::Gate(*gate),
-            Self::Measure { .. } => QirInstruction::Measure,
+            Self::Measure { basis, .. } => QirInstruction::Measure(*basis),
             Self::MeasureReset { .. } => QirInstruction::MeasureReset,
             Self::Reset { .. } => QirInstruction::Reset,
             Self::Move { .. } => QirInstruction::Move,
@@ -175,7 +185,7 @@ impl fmt::Display for QirCall {
                     write!(f, ", angle {angle}")?;
                 }
             }
-            Self::Measure { qubit, result }
+            Self::Measure { qubit, result, .. }
             | Self::MeasureReset { qubit, result }
             | Self::PeekLoss { qubit, result } => write!(f, "qubit {qubit}, result {result}")?,
             Self::Reset { qubit } | Self::Move { qubit } => write!(f, "qubit {qubit}")?,
