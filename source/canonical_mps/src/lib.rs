@@ -9,22 +9,22 @@
 //!
 //! - [`CanonicalMpsEngine`] is `tensornet`'s
 //!   [`MpsEngine`](tensornet::MpsEngine) on any
-//!   [`SiteAlgebra`](algebra::SiteAlgebra), with its state
+//!   [`SiteAlgebra`](site_algebra::SiteAlgebra), with its state
 //!   ([`CanonicalMpsState`]), its errors ([`CanonicalMpsError`]) and what
-//!   its splits cost ([`SplitStatistics`]). It documents what a caller may
-//!   rely on beyond the contract: how it fuses and applies gates, and the
-//!   bounds its truncations stay within.
+//!   a state's history cost ([`CanonicalMpsStatistics`]). It documents
+//!   what a caller may rely on beyond the contract: how it fuses and
+//!   applies gates, and the bounds its truncations stay within.
 //! - [`CpuMpsEngine`] is the engine on [`CpuAlgebra`], the reference
 //!   algebra: the `SiteAlgebra` of the host CPU, which passes the
 //!   contract's conformance kit. It needs no device, so it runs wherever
 //!   the QDK runs.
-//! - [`algebra`] is the backend contract.
-//!   [`SiteAlgebra`](algebra::SiteAlgebra) is what a backend implements: a
+//! - [`site_algebra`] is the backend contract.
+//!   [`SiteAlgebra`](site_algebra::SiteAlgebra) is what a backend implements: a
 //!   site tensor's storage, a gate split, and a move of the centre.
-//!   [`algebra`]'s documentation states the tensors' layout. Its
-//!   conformance kit, `algebra::conformance`, which the `conformance`
+//!   [`site_algebra`]'s documentation states the tensors' layout. Its
+//!   conformance kit, `site_algebra::conformance`, which the `conformance`
 //!   feature makes public, checks a backend against the contract, call by
-//!   call; `engine_circuits`, under the same feature, runs the engine on
+//!   call; `engine_conformance`, under the same feature, runs the engine on
 //!   the backend over two long circuits, checked against `tensornet`'s
 //!   exact reference.
 //! - [`SvdError`] is why the crate's checked singular value decomposition
@@ -71,20 +71,21 @@
 //! distant sites are applied, with the alternatives considered, and
 //! `docs/dense_linalg.md` the SVD's guarantees and steps.
 
-pub mod algebra;
 #[cfg(feature = "conformance")]
 pub mod dense_linalg;
 #[cfg(not(feature = "conformance"))]
 mod dense_linalg;
 mod engine;
-#[cfg(any(test, feature = "conformance"))]
-pub mod engine_circuits;
+pub mod site_algebra;
 
-pub use algebra::cpu_algebra::CpuAlgebra;
 pub use dense_linalg::SvdError;
+#[cfg(feature = "conformance")]
+pub use engine::conformance as engine_conformance;
 pub use engine::{
-    CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, DEFAULT_CUTOFF, SplitStatistics,
+    CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, CanonicalMpsStatistics,
+    DEFAULT_CUTOFF,
 };
+pub use site_algebra::cpu_algebra::CpuAlgebra;
 
 /// The canonical MPS engine on the host CPU: [`CanonicalMpsEngine`] on the
 /// reference algebra, [`CpuAlgebra`]. `CpuMpsEngine::new(CpuAlgebra)` makes

@@ -3,9 +3,9 @@
 
 //! The crate's tests, one module per module with run-time behaviour.
 
-mod algebra;
 mod dense_linalg;
 mod engine;
+mod site_algebra;
 
 use num_complex::Complex64;
 

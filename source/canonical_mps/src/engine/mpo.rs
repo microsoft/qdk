@@ -24,7 +24,7 @@
 //!    span is read, its pending gate applied, multiplied by its MPO tensor
 //!    on the host, and uploaded: the bond at each cut of the span becomes
 //!    the chain's bond there times the operator's, a
-//!    [transient bond](super::SplitStatistics::largest_transient_bond).
+//!    [transient bond](super::CanonicalMpsStatistics::largest_transient_bond).
 //! 3. **Sweep.** The span is now any tensors, while the sites outside it
 //!    are still isometries towards it. Exact moves of the centre
 //!    ([`qr_move`](SiteAlgebra::qr_move)) from the span's near end (the
@@ -44,11 +44,11 @@
 use super::{
     CanonicalMpsEngine, CanonicalMpsError,
     chain::{Chain, Site},
+    host_site::HostSite,
     policy::OPERATOR_RANK_CUTOFF,
-    reads::HostSite,
 };
-use crate::algebra::{CentreSide, SiteAlgebra};
 use crate::dense_linalg::{MatrixRef, Svd};
+use crate::site_algebra::{CentreSide, SiteAlgebra};
 use num_complex::Complex64;
 use std::borrow::Cow;
 

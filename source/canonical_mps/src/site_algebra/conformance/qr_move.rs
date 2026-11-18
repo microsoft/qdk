@@ -8,8 +8,8 @@
 use super::formulas::{columns_isometry_error, gated_site, relative_distance, rows_isometry_error};
 use super::inputs::{LARGE_SHAPE, MOVE_SHAPES, Pair, SHAPES, one_site_gate};
 use super::{TOLERANCE, read, upload};
-use crate::algebra::{CentreSide, QrMoveCall, SiteAlgebra};
 use crate::dense_linalg::Matrix;
+use crate::site_algebra::{CentreSide, QrMoveCall, SiteAlgebra};
 use num_complex::Complex64;
 use std::fmt;
 

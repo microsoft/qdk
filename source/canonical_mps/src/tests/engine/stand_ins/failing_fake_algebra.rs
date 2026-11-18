@@ -8,8 +8,10 @@
 //! answers.
 
 use crate::CpuAlgebra;
-use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
 use crate::dense_linalg::SvdError;
+use crate::site_algebra::{
+    GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
+};
 use num_complex::Complex64;
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -17,7 +19,7 @@ use std::rc::Rc;
 
 /// A method of [`SiteAlgebra`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Method {
+pub(crate) enum Method {
     Upload,
     Read,
     Duplicate,
@@ -28,13 +30,13 @@ pub(super) enum Method {
 /// The failure of a [`FailingFakeAlgebra`]'s call: the method that failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("the failing fake algebra's {0:?} failed")]
-pub(super) struct AlgebraFailure(pub(super) Method);
+pub(crate) struct AlgebraFailure(pub(crate) Method);
 
 /// [`CpuAlgebra`], except that the call of `method` numbered `failing`
 /// (from 0) fails, or every call of it when `failing` is `None`; `asked`
 /// counts the calls of `method` asked of it.
 #[derive(Clone)]
-pub(super) struct FailingFakeAlgebra {
+pub(crate) struct FailingFakeAlgebra {
     method: Method,
     failing: Option<usize>,
     asked: Rc<Cell<usize>>,
@@ -42,7 +44,7 @@ pub(super) struct FailingFakeAlgebra {
 
 impl FailingFakeAlgebra {
     /// A fake on which every call of `method` fails.
-    pub(super) fn every(method: Method) -> Self {
+    pub(crate) fn every(method: Method) -> Self {
         Self {
             method,
             failing: None,
@@ -52,7 +54,7 @@ impl FailingFakeAlgebra {
 
     /// A fake on which the call of `method` numbered `failing` (from 0)
     /// fails, and the count of the calls of `method` asked of it.
-    pub(super) fn on_call(method: Method, failing: usize) -> (Self, Rc<Cell<usize>>) {
+    pub(crate) fn on_call(method: Method, failing: usize) -> (Self, Rc<Cell<usize>>) {
         let asked = Rc::new(Cell::new(0));
         let algebra = Self {
             method,

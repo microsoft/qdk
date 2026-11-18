@@ -6,7 +6,7 @@
 
 use super::inputs::{Pair, values};
 use super::{read, upload};
-use crate::algebra::{CentreSide, QrMoveCall, SiteAlgebra};
+use crate::site_algebra::{CentreSide, QrMoveCall, SiteAlgebra};
 
 /// A read of the first `len` elements of an uploaded tensor returns
 /// exactly those elements, for `len` from none to all. Catches a read
