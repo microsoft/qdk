@@ -43,12 +43,13 @@ fn first_failure_returns_the_earliest_failed_release() {
 /// at the session's close too; a buffer belongs to no handle.
 #[test]
 fn a_failed_release_leaks_its_object_and_poisons_nothing() {
+    type Method = fn(&CudaAlgebra) -> Result<(), CudaAlgebraError>;
     struct Case {
         release: &'static str,
         /// The calls made before the release is made to fail.
         before: fn(&CudaAlgebra),
         /// The method whose release fails; none for the algebra's drop.
-        method: Option<fn(&CudaAlgebra) -> Result<(), CudaAlgebraError>>,
+        method: Option<Method>,
         /// The objects left once the algebra is dropped.
         left: usize,
     }
