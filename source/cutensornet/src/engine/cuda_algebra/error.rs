@@ -8,10 +8,11 @@
 //! Most of its failures are the device's or the libraries', none of them
 //! the caller's fault: no device, a native call that returned an error
 //! status, a size or a result that does not fit, host memory the allocator
-//! refuses, a workspace larger than the budget, or an algebra an earlier
-//! failure left unusable. Beside them are the algebra's two refusals of its
-//! caller's tensors: one another algebra made (`ForeignTensor`), and one
-//! shorter than the call reads (`InvalidNativeCall`). The native calls
+//! refuses, a workspace larger than the device's free memory, or an
+//! algebra an earlier failure left unusable. Beside them are the algebra's
+//! two refusals of its caller's tensors: one another algebra made
+//! (`ForeignTensor`), and one shorter than the call reads
+//! (`InvalidNativeCall`). The native calls
 //! (`engine/native_calls`) return it too, since the algebra and the device
 //! session are their only users.
 //!
@@ -63,9 +64,10 @@ pub enum CudaAlgebraError {
     #[error("the host's allocator refused {bytes} bytes of memory")]
     HostAllocationFailed { bytes: usize },
 
-    /// cuTensorNet asked for more workspace than the budget or the device's
-    /// free memory.
-    #[error("native workspace requires {required} bytes, exceeding the {maximum}-byte limit")]
+    /// cuTensorNet asked for more workspace than the device's free memory:
+    /// `required` bytes, beyond the `maximum` free when the call grew its
+    /// scratch.
+    #[error("native workspace requires {required} bytes, more than the {maximum} bytes free")]
     WorkspaceLimitExceeded { required: usize, maximum: usize },
 
     /// A native call returned a value that cannot be used: a gate split's

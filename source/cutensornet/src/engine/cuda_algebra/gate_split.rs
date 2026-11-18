@@ -28,8 +28,8 @@
 //! U's and V's extents to the reduced one, so a descriptor would not serve
 //! the next call.
 
-use super::call_scope::{CallScope, element_count};
-use super::device_tensor::DeviceTensor;
+use super::call_scope::CallScope;
+use super::device_tensor::{DeviceTensor, element_count};
 use super::error::CudaAlgebraError;
 use super::modes::{BOND, LEFT, NEW_BOND, P, P_OUT, Q, Q_OUT, RIGHT};
 use super::policy;

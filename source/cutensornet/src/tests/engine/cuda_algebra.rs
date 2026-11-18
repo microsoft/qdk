@@ -8,8 +8,12 @@
 //! meets `SiteAlgebra`'s contract (`canonical_mps`'s conformance kit), what
 //! it opens and releases, the tensors it refuses, and what it does when a
 //! call fails. The scope of one call, its gate splits' reports, its
-//! contraction networks and its scratch are in the submodules. The kit and
-//! the engine's circuits also run on a GPU
+//! contraction networks and its scratch are in the submodules. The rules
+//! of `qr_move.rs`, `device_tensor.rs` and `algebra_session.rs` have no
+//! file of their own: they are tested here, through the algebra's methods.
+//! What a read returns is the kit's rule; unlike the CPU algebra's, this
+//! algebra's read copies to the host, so no test pins a borrow. The kit
+//! and the engine's circuits also run on a GPU
 //! (`tests/cuda_algebra_on_the_gpu.rs`).
 
 mod call_scope;

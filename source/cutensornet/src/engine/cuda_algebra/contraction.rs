@@ -14,6 +14,7 @@
 //! again.
 
 use super::call_scope::CallScope;
+use super::device_tensor::native_extents;
 use super::error::{CudaAlgebraError, combine_execution_and_cleanup, first_failure};
 use super::policy;
 use crate::engine::native_calls::tensor_calls::{ContractionNetwork, TensorModes};
@@ -83,8 +84,8 @@ pub(super) fn contract(
     let [first, second] = inputs;
     let shape = NetworkShape {
         extents: [
-            super::call_scope::native_extents(first.extents)?,
-            super::call_scope::native_extents(second.extents)?,
+            native_extents(first.extents)?,
+            native_extents(second.extents)?,
         ],
         modes: [
             first.modes.to_vec(),

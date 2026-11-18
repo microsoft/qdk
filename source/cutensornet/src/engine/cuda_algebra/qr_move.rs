@@ -9,32 +9,36 @@
 //! `r` the pair's left extent, bond and right extent; `k` the new bond,
 //! `min(m, 2l)` to the right and `min(m, 2r)` to the left):
 //!
-//! | to the right        | extents       | modes                   |
-//! | ------------------- | ------------- | ----------------------- |
-//! | gate (if any), on A | `[2, 2]`      | `P_OUT, P`              |
-//! | QR input, A         | `[l, 2, m]`   | `LEFT, P, BOND`         |
-//! | Q, the new isometry | `[l, 2, k]`   | `LEFT, P, NEW_BOND`     |
-//! | R, the small factor | `[k, m]`      | `NEW_BOND, BOND`        |
-//! | the new centre, R·B | `[k, 2, r]`   | `NEW_BOND, Q, RIGHT`    |
+//! The QR's two factors are called the isometry and the small factor
+//! here, since `Q` is the right site's qubit's mode.
 //!
-//! | to the left         | extents       | modes                   |
-//! | ------------------- | ------------- | ----------------------- |
-//! | gate (if any), on B | `[2, 2]`      | `Q_OUT, Q`              |
-//! | QR input, B         | `[m, 2, r]`   | `BOND, Q, RIGHT`        |
-//! | Q, the new isometry | `[k, 2, r]`   | `NEW_BOND, Q, RIGHT`    |
-//! | R, the small factor | `[m, k]`      | `BOND, NEW_BOND`        |
-//! | the new centre, A·R | `[l, 2, k]`   | `LEFT, P, NEW_BOND`     |
+//! | to the right                | extents     | modes                |
+//! | --------------------------- | ----------- | -------------------- |
+//! | gate (if any), on A         | `[2, 2]`    | `P_OUT, P`           |
+//! | QR input, A                 | `[l, 2, m]` | `LEFT, P, BOND`      |
+//! | the isometry, the new A     | `[l, 2, k]` | `LEFT, P, NEW_BOND`  |
+//! | the small factor            | `[k, m]`    | `NEW_BOND, BOND`     |
+//! | the new centre, factor · B  | `[k, 2, r]` | `NEW_BOND, Q, RIGHT` |
 //!
-//! cuTensorNet's QR gives Q the input's modes that Q's descriptor names and
-//! R the rest, so to the left B is factored as a `2r × m` matrix, of rows
-//! `(q, r)`: its Q, read as a `k × 2r` matrix, has orthonormal rows, as the
-//! contract asks. The gate and the factor go through
+//! | to the left                 | extents     | modes                |
+//! | --------------------------- | ----------- | -------------------- |
+//! | gate (if any), on B         | `[2, 2]`    | `Q_OUT, Q`           |
+//! | QR input, B                 | `[m, 2, r]` | `BOND, Q, RIGHT`     |
+//! | the isometry, the new B     | `[k, 2, r]` | `NEW_BOND, Q, RIGHT` |
+//! | the small factor            | `[m, k]`    | `BOND, NEW_BOND`     |
+//! | the new centre, A · factor  | `[l, 2, k]` | `LEFT, P, NEW_BOND`  |
+//!
+//! cuTensorNet's QR gives the isometry the input's modes that its
+//! descriptor names and the small factor the rest, so to the left B is
+//! factored as a `2r × m` matrix, of rows `(q, r)`: its isometry, read as
+//! a `k × 2r` matrix, has orthonormal rows, as the contract asks. The gate
+//! and the small factor go through
 //! [`contraction`](super::contraction), the QR through `tensor_qr`, each
 //! waited for before the next starts.
 
-use super::call_scope::{CallScope, element_count};
+use super::call_scope::CallScope;
 use super::contraction::{ContractionInput, contract};
-use super::device_tensor::DeviceTensor;
+use super::device_tensor::{DeviceTensor, element_count};
 use super::error::CudaAlgebraError;
 use super::modes::{BOND, LEFT, NEW_BOND, P, P_OUT, Q, Q_OUT, RIGHT};
 use crate::engine::native_calls::OpaqueHandle;
@@ -66,7 +70,7 @@ pub(super) fn qr_move(
         CentreSide::Right => {
             let k = m.min(l.saturating_mul(2));
             let site = gated(scope, a, &[l, 2, m], [LEFT, P, BOND], call.gate.as_ref())?;
-            let (q, factor) = factor(
+            let (isometry, small_factor) = factor(
                 scope,
                 (site, &[l, 2, m], &[LEFT, P, BOND]),
                 (&[l, 2, k], &[LEFT, P, NEW_BOND]),
@@ -77,7 +81,7 @@ pub(super) fn qr_move(
                 scope,
                 &[
                     ContractionInput {
-                        data: factor,
+                        data: small_factor,
                         extents: &[k, m],
                         modes: &[NEW_BOND, BOND],
                     },
@@ -91,7 +95,7 @@ pub(super) fn qr_move(
                 centre,
             )?;
             Ok(MovedSites {
-                left: q,
+                left: isometry,
                 right: centre,
                 bond: k,
             })
@@ -99,7 +103,7 @@ pub(super) fn qr_move(
         CentreSide::Left => {
             let k = m.min(r.saturating_mul(2));
             let site = gated(scope, b, &[m, 2, r], [BOND, Q, RIGHT], call.gate.as_ref())?;
-            let (q, factor) = factor(
+            let (isometry, small_factor) = factor(
                 scope,
                 (site, &[m, 2, r], &[BOND, Q, RIGHT]),
                 (&[k, 2, r], &[NEW_BOND, Q, RIGHT]),
@@ -115,7 +119,7 @@ pub(super) fn qr_move(
                         modes: &[LEFT, P, BOND],
                     },
                     ContractionInput {
-                        data: factor,
+                        data: small_factor,
                         extents: &[m, k],
                         modes: &[BOND, NEW_BOND],
                     },
@@ -125,7 +129,7 @@ pub(super) fn qr_move(
             )?;
             Ok(MovedSites {
                 left: centre,
-                right: q,
+                right: isometry,
                 bond: k,
             })
         }
@@ -174,39 +178,46 @@ fn in_descriptor_layout(gate: &[Complex64; 4]) -> [Complex64; 4] {
     std::array::from_fn(|at| gate[2 * (at & 1) + (at >> 1)])
 }
 
-/// The QR of `input` (its buffer, extents and labels) into a Q of `q`'s
-/// extents and labels, returned by the call, and an R of `r`'s, freed when
-/// it returns; waited for.
+/// The QR of `input` (its buffer, extents and labels) into an isometry of
+/// `isometry`'s extents and labels, returned by the call, and a small
+/// factor of `small_factor`'s, freed when it returns; waited for.
 fn factor(
     scope: &mut CallScope<'_>,
     input: (OpaqueHandle, &[usize], &[i32]),
-    q: (&[usize], &[i32]),
-    r: (&[usize], &[i32]),
+    isometry: (&[usize], &[i32]),
+    small_factor: (&[usize], &[i32]),
 ) -> Result<(OpaqueHandle, OpaqueHandle), CudaAlgebraError> {
     let input = TensorOperand {
         descriptor: scope.descriptor(input.1, input.2)?,
         data: input.0,
     };
-    let q_descriptor = scope.descriptor(q.0, q.1)?;
-    let r_descriptor = scope.descriptor(r.0, r.1)?;
+    let isometry_descriptor = scope.descriptor(isometry.0, isometry.1)?;
+    let small_factor_descriptor = scope.descriptor(small_factor.0, small_factor.1)?;
     let (calls, handle, workspace) = (scope.calls(), scope.handle(), scope.workspace());
     calls.qr_workspace_sizes(
         handle,
         input.descriptor,
-        q_descriptor,
-        r_descriptor,
+        isometry_descriptor,
+        small_factor_descriptor,
         workspace,
     )?;
     scope.lend_workspace()?;
-    let q = TensorOperand {
-        descriptor: q_descriptor,
-        data: scope.output(element_count(q.0)?)?,
+    let isometry = TensorOperand {
+        descriptor: isometry_descriptor,
+        data: scope.output(element_count(isometry.0)?)?,
     };
-    let r = TensorOperand {
-        descriptor: r_descriptor,
-        data: scope.intermediate(element_count(r.0)?)?,
+    let small_factor = TensorOperand {
+        descriptor: small_factor_descriptor,
+        data: scope.intermediate(element_count(small_factor.0)?)?,
     };
-    calls.tensor_qr(handle, input, q, r, workspace, scope.stream())?;
+    calls.tensor_qr(
+        handle,
+        input,
+        isometry,
+        small_factor,
+        workspace,
+        scope.stream(),
+    )?;
     scope.synchronize()?;
-    Ok((q.data, r.data))
+    Ok((isometry.data, small_factor.data))
 }
