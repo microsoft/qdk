@@ -42,11 +42,11 @@ export async function rematerializeUnitWorkbook(
 /**
  * Write a unit's working copy: the authored notebook minus its author-only
  * cells (hints, solutions, explanations), with dedicated quiz-cell source
- * canonicalized to ID-only calls and their baked outputs preserved.
+ * canonicalized to cell-ID calls and any saved outputs preserved.
  *
  * If the notebook can't be parsed we fall back to copying it verbatim, so a
  * malformed notebook still leaves the learner with something to work in
- * rather than nothing. Invalid baked quiz data throws instead, preventing the
+ * rather than nothing. A missing quiz-cell ID throws instead, preventing the
  * answer-bearing source from being copied into a learner workbook.
  */
 async function materializeNotebook(

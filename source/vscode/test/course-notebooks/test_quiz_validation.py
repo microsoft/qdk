@@ -1,6 +1,7 @@
 import json
 import runpy
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -13,6 +14,7 @@ _helper = (
 _helpers = runpy.run_path(str(_helper))
 validate_quizzes = _helpers["validate_quizzes"]
 validate_cell_roles = _helpers["validate_cell_roles"]
+quiz_for_notebook = _helpers["quiz_for_notebook"]
 
 
 def _quiz_cell(*, tags: tuple[str, ...] = ("quiz",)) -> dict:
@@ -210,3 +212,48 @@ def test_course_cells_have_no_conflicting_roles(course_dir: Path) -> None:
                 validate_cell_roles(cell, cell_number=cell_number)
             except ValueError as error:
                 pytest.fail(f"{path}: {error}")
+
+
+def test_cell_caller_reads_all_source_questions_without_saved_outputs(
+    tmp_path: Path,
+) -> None:
+    cell = _quiz_cell()
+    cell["source"] += "\n" + cell["source"].replace('"example"', '"second"')
+    notebook = _write_notebook(tmp_path, cell)
+    before = notebook.read_bytes()
+
+    with patch("IPython.display.display") as display:
+        quiz_for_notebook(notebook)(cell_id=cell["id"])
+
+    assert [
+        call.args[0].payload["payloadId"] for call in display.call_args_list
+    ] == ["example", "second"]
+    assert notebook.read_bytes() == before
+
+
+def test_cell_caller_uses_updated_source_and_preserves_question_id_calls(
+    tmp_path: Path,
+) -> None:
+    cell = _quiz_cell()
+    notebook = _write_notebook(tmp_path, cell)
+    bound = quiz_for_notebook(notebook)
+    cell["source"] = cell["source"].replace('"Pick one"', '"Updated question"')
+    _write_notebook(tmp_path, cell)
+
+    with patch("IPython.display.display") as display:
+        bound(cell_id=cell["id"])
+        bound("example")
+
+    assert [call.args[0].payload["prompt"] for call in display.call_args_list] == [
+        "Updated question",
+        "Updated question",
+    ]
+
+
+def test_cell_caller_rejects_missing_cells_and_mixed_call_forms(tmp_path: Path) -> None:
+    bound = quiz_for_notebook(_write_notebook(tmp_path, _quiz_cell()))
+
+    with pytest.raises(ValueError, match="no quiz cell 'missing'"):
+        bound(cell_id="missing")
+    with pytest.raises(ValueError, match="cannot be combined"):
+        bound("example", cell_id="question-cell")

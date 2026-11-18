@@ -198,14 +198,24 @@ def quiz(
     multi_select: bool = False,
     shuffle: bool = True,
     notebook: Path | None = None,
+    cell_id: str | None = None,
 ) -> None:
-    """Display full author definitions or resolve learner IDs from source.
+    """Display author definitions or resolve learner cell/question IDs from source.
 
     Supply one id, ``prompt`` and ``options`` to construct an authored quiz
-    directly. ID-only calls read the bound notebook's saved source on every
-    rerun, never its outputs. Neither form changes the authored notebook.
+    directly. Materialized ``cell_id`` calls display every question in that
+    author cell. Existing question-ID calls remain supported. Both read saved
+    source on every rerun, never outputs, and do not change the author notebook.
     """
-    if not quiz_ids:
+    if cell_id is not None and (
+        quiz_ids
+        or prompt is not None
+        or options is not None
+        or multi_select
+        or not shuffle
+    ):
+        raise ValueError("cell_id cannot be combined with quiz IDs or author definitions")
+    if not quiz_ids and cell_id is None:
         raise ValueError('quiz() needs at least one quiz id, e.g. quiz("my-quiz")')
 
     try:
@@ -231,11 +241,18 @@ def quiz(
         return
 
     if notebook is None:
-        raise ValueError("ID-only quiz() calls need a source notebook binding")
+        raise ValueError("learner quiz() calls need a source notebook binding")
+    cell_outputs = notebook_quiz_outputs(read_quiz_notebook(notebook))
+    if cell_id is not None:
+        if cell_id not in cell_outputs:
+            raise ValueError(f"no quiz cell {cell_id!r} is authored in {notebook}")
+        for output in cell_outputs[cell_id]:
+            display(output)
+        return
     outputs = {
         output.payload["payloadId"]: output
-        for cell_outputs in notebook_quiz_outputs(read_quiz_notebook(notebook)).values()
-        for output in cell_outputs
+        for rendered in cell_outputs.values()
+        for output in rendered
     }
     for quiz_id in quiz_ids:
         if quiz_id not in outputs:

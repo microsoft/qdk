@@ -44,12 +44,11 @@ export function workbookUri(unit: NotebookCatalogUnit): vscode.Uri {
   return src.with({ path: src.path.replace(/\.ipynb$/i, WORKBOOK_SUFFIX) });
 }
 
-/** Quizzes have their own activity identity but can share a notebook cell. */
+/** Notebook activities use the stable ID of their containing cell. */
 export function notebookCellId(activity: CatalogActivity): string | undefined {
-  if (activity.type === "quiz") {
-    return activity.cellId;
-  }
-  return activity.type === "exercise" || activity.type === "code-cell"
+  return activity.type === "exercise" ||
+    activity.type === "code-cell" ||
+    activity.type === "quiz"
     ? activity.id
     : undefined;
 }

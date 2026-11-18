@@ -8,7 +8,11 @@ import { FullProgramConfig, getProgramForDocument } from "../programConfig.js";
 import { getVenvInFolder } from "../pythonEnvs.js";
 import {
   isCorrectQuizAnswer,
+  isLearningId,
   isQuizOptionIds,
+  MIME_TYPE,
+  parseLearningPayload,
+  type MultipleChoicePayload,
 } from "../notebookRenderer/schema.js";
 import { ProgramRunStatus, runProgram } from "../run.js";
 import { EventType, sendTelemetryEvent } from "../telemetry.js";
@@ -405,8 +409,7 @@ export class LearningService {
   }
 
   /**
-   * Navigate to an activity backed by the given notebook cell. Retain the
-   * selected question when several quizzes share it, otherwise use the first.
+   * Navigate to the activity backed by the given notebook cell.
    * Returns `true` when the cell belongs to an activity.
    * Only meaningful for python-notebook courses.
    *
@@ -421,9 +424,7 @@ export class LearningService {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
-    const matches = unit.activities.filter((a) => notebookCellId(a) === cellId);
-    const activity =
-      matches.find((a) => a.id === this.position.activityId) ?? matches[0];
+    const activity = unit.activities.find((a) => a.id === cellId);
     if (!activity) {
       return false;
     }
@@ -456,17 +457,11 @@ export class LearningService {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
-    const exercise = unit.activities.find(
-      (e) => e.type !== "quiz" && e.id === cellId,
-    );
+    const exercise = unit.activities.find((e) => e.id === cellId);
+    if (exercise?.type === "quiz") {
+      return false;
+    }
     if (!exercise) {
-      if (
-        unit.activities.some(
-          (activity) => activity.type === "quiz" && activity.cellId === cellId,
-        )
-      ) {
-        return false;
-      }
       log.warn(`Unable to find exercise corresponding to cell ${cellId}`);
       return false;
     }
@@ -484,14 +479,14 @@ export class LearningService {
     return true;
   }
 
-  /** Record checked answers, never notebook execution, as quiz completion. */
+  /** Aggregate checked questions into a cell activity using displayed learner outputs. */
   async recordQuizAnswer(
-    workbook: vscode.Uri,
+    workbook: vscode.NotebookDocument,
     quizId: string,
     optionIds: string[],
   ): Promise<boolean> {
     const resolved = this.workspace
-      ? this.resolveWorkbookLocation(workbook)
+      ? this.resolveWorkbookLocation(workbook.uri)
       : undefined;
     if (!resolved) {
       log.warn(
@@ -500,43 +495,114 @@ export class LearningService {
       return false;
     }
     const { course, unit } = resolved;
-    const quiz = unit.activities.find(
-      (activity) => activity.type === "quiz" && activity.quizId === quizId,
-    );
-    if (!quiz || quiz.type !== "quiz") {
-      log.warn(
-        `Learning: ignoring an unknown quiz "${quizId}" in unit "${unit.id}".`,
-      );
-      return false;
-    }
     if (
       !isQuizOptionIds(optionIds) ||
       optionIds.length === 0 ||
-      new Set(optionIds).size !== optionIds.length ||
-      !optionIds.every((id) => quiz.options.some((option) => option.id === id))
+      new Set(optionIds).size !== optionIds.length
     ) {
       log.warn(`Learning: ignoring invalid choices for quiz "${quizId}".`);
       return false;
     }
 
+    let matched:
+      | {
+          cellId: string;
+          questions: Map<string, MultipleChoicePayload>;
+          question: MultipleChoicePayload;
+        }
+      | undefined;
+    for (const cell of workbook.getCells()) {
+      const activity = unit.activities.find(
+        (entry) => entry.type === "quiz" && entry.id === cell.metadata.id,
+      );
+      if (!activity) {
+        continue;
+      }
+      const questions = new Map<string, MultipleChoicePayload>();
+      try {
+        for (const output of cell.outputs) {
+          for (const item of output.items) {
+            if (item.mime !== MIME_TYPE) {
+              continue;
+            }
+            const payload = parseLearningPayload(
+              JSON.parse(new TextDecoder().decode(item.data)),
+            );
+            if (
+              !isLearningId(payload.payloadId) ||
+              questions.has(payload.payloadId) ||
+              payload.options.length < 2 ||
+              !isQuizOptionIds(payload.options.map((option) => option.id))
+            ) {
+              throw new Error(
+                "expected distinct quiz IDs and valid option IDs",
+              );
+            }
+            questions.set(payload.payloadId, payload);
+          }
+        }
+      } catch (error) {
+        log.warn(
+          `Learning: ignoring malformed quiz outputs in "${activity.id}": ${String(error)}`,
+        );
+        continue;
+      }
+      const question = questions.get(quizId);
+      if (!question) {
+        continue;
+      }
+      if (matched) {
+        log.warn(
+          `Learning: ignoring ambiguous quiz ID "${quizId}" in this workbook.`,
+        );
+        return false;
+      }
+      matched = { cellId: activity.id, questions, question };
+    }
+    if (!matched) {
+      log.warn(
+        `Learning: ignoring unknown quiz "${quizId}" in unit "${unit.id}".`,
+      );
+      return false;
+    }
+    const { cellId, questions, question } = matched;
+    if (
+      !optionIds.every((id) =>
+        question.options.some((option) => option.id === id),
+      )
+    ) {
+      log.warn(`Learning: ignoring invalid choices for quiz "${quizId}".`);
+      return false;
+    }
     const location: ActivityLocation = {
       courseId: course.id,
       unitId: unit.id,
-      activityId: quiz.id,
+      activityId: cellId,
     };
-    const correct = isCorrectQuizAnswer(quiz.options, optionIds);
-    const newlyComplete = correct && !this.isComplete(location);
+    const questionLocation = (id: string): ActivityLocation => ({
+      ...location,
+      activityId: `quiz:${cellId}:${id}`,
+    });
+    const correct = isCorrectQuizAnswer(question.options, optionIds);
+    const newlyCorrect = correct && !this.isComplete(questionLocation(quizId));
+    if (newlyCorrect) {
+      this.markComplete(questionLocation(quizId));
+    }
+    const allCorrect = [...questions.keys()].every((id) =>
+      this.isComplete(questionLocation(id)),
+    );
+    const newlyComplete = correct && allCorrect && !this.isComplete(location);
     const positionChanged =
       this.position.courseId !== course.id ||
       this.position.unitId !== unit.id ||
-      this.position.activityId !== quiz.id;
+      this.position.activityId !== cellId;
     if (newlyComplete) {
       this.markComplete(location);
     }
     if (positionChanged) {
       this.requireWorkspace().progressData.position = location;
     }
-    if (newlyComplete || positionChanged) {
+    if (newlyCorrect || newlyComplete || positionChanged) {
       await this.saveProgress();
       this._onDidChangeState.fire(this.getState());
     }
@@ -708,12 +774,7 @@ export class LearningService {
     }
     const { course, unit } = resolved;
 
-    const matches = unit.activities.filter(
-      (activity) => notebookCellId(activity) === cellId,
-    );
-    const activity =
-      matches.find((entry) => entry.id === this.position.activityId) ??
-      matches[0];
+    const activity = unit.activities.find((entry) => entry.id === cellId);
 
     let content: ActivityContent;
     if (activity?.type === "exercise") {
@@ -2007,6 +2068,19 @@ export class LearningService {
         unitId: unit.id,
         activityId: activity.id,
       });
+      if (activity.type === "quiz") {
+        const prefix = this.completionKey({
+          courseId,
+          unitId: unit.id,
+          activityId: `quiz:${activity.id}:`,
+        });
+        const completions = this.requireWorkspace().progressData.completions;
+        for (const key of Object.keys(completions)) {
+          if (key.startsWith(prefix)) {
+            delete completions[key];
+          }
+        }
+      }
     }
   }
 

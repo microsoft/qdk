@@ -103,7 +103,7 @@ const quiz: MultipleChoicePayload = {
 };
 
 suite("Learning notebook quiz activities", () => {
-  test("keep separate question identities while sharing one notebook cell", () => {
+  test("discover one stable activity per quiz cell, independently of saved outputs", () => {
     const second = {
       ...quiz,
       payloadId: "second-question",
@@ -122,6 +122,12 @@ suite("Learning notebook quiz activities", () => {
               data: { [MIME_TYPE]: payload },
             })),
           },
+          {
+            id: "unrun-quiz",
+            cell_type: "code",
+            metadata: { tags: ["quiz"] },
+            outputs: [],
+          },
           { id: "next-code", cell_type: "code", source: "value = 1" },
         ],
       }),
@@ -131,15 +137,36 @@ suite("Learning notebook quiz activities", () => {
     assert.deepEqual(
       activities.map(({ id, type, title }) => ({ id, type, title })),
       [
-        { id: "quiz:first-question", type: "quiz", title: quiz.prompt },
-        { id: "quiz:second-question", type: "quiz", title: second.prompt },
+        { id: "quiz-cell", type: "quiz", title: "Quiz 1" },
+        { id: "unrun-quiz", type: "quiz", title: "Quiz 2" },
         { id: "next-code", type: "code-cell", title: "Section" },
       ],
     );
-    const [first, nextQuestion] = activities;
-    assert(first.type === "quiz" && nextQuestion.type === "quiz");
-    assert.equal(first.cellId, "quiz-cell");
-    assert.equal(nextQuestion.cellId, "quiz-cell");
+  });
+
+  test("materialize cell-based callers without generating or requiring outputs", () => {
+    for (const outputs of [
+      [],
+      [{ output_type: "display_data", data: { [MIME_TYPE]: quiz } }],
+    ]) {
+      const original = {
+        id: "quiz-cell",
+        cell_type: "code",
+        metadata: { tags: ["quiz"] },
+        source: ['quiz("first-question", prompt="Private answer definition")'],
+        outputs,
+      };
+      const text = stripAuthoringCells(
+        JSON.stringify({ cells: [original] }),
+        "test-unit",
+      );
+      assert(text !== undefined);
+      const learner: { cells: (typeof original)[] } = JSON.parse(text);
+      assert.deepEqual(learner.cells[0], {
+        ...original,
+        source: ['quiz(cell_id="quiz-cell")\n'],
+      });
+    }
   });
 
   test("grade exact answer sets without accepting unknown or duplicate choices", () => {

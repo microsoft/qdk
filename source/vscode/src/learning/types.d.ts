@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 import type { Uri } from "vscode";
-import type { MultipleChoicePayload } from "../notebookRenderer/schema.js";
 
 /**
  * Shared types for the QDK Learning feature.
@@ -282,12 +281,9 @@ export interface CatalogCodeCell {
 
 export interface CatalogQuiz {
   type: "quiz";
-  /** Namespaced quiz identity, distinct from an nbformat cell ID. */
+  /** Stable notebook cell ID, like an exercise or ordinary code-cell activity. */
   id: string;
-  quizId: string;
-  cellId: string;
   title: string;
-  options: MultipleChoicePayload["options"];
 }
 
 export interface CatalogLesson {

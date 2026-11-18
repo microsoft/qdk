@@ -19,8 +19,8 @@ type LearningPayloadBase = {
   /**
    * Identifies the payload. For a quiz this is its authored id, which keeps
    * radio groups unique and names the question when the learner asks about it.
-   * Deliberately not an ipynb cell id: several quiz activities can share one
-   * notebook cell.
+   * Deliberately not an ipynb cell id: one quiz-cell activity can contain
+   * several questions.
    */
   payloadId?: string;
 };
@@ -161,7 +161,7 @@ export function isCorrectQuizAnswer(
   );
 }
 
-/** Validate saved payloads identically in the renderer and course catalog. */
+/** Validate payloads identically in the renderer and checked-answer handler. */
 export function parseLearningPayload(value: unknown): LearningPayload {
   if (!isRecord(value)) {
     throw new Error("Expected a QDK learning payload object.");

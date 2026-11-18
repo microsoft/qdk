@@ -63,7 +63,7 @@ export function registerNotebookRendererMessaging(
 
         if (message.type === "qdk-learning/quiz-answered") {
           await service.recordQuizAnswer(
-            event.editor.notebook.uri,
+            event.editor.notebook,
             message.quizId,
             message.optionIds,
           );
