@@ -6,13 +6,12 @@
 //! states (MPS), on the GPU or the CPU, with the run's report; and the check
 //! of the GPU's setup.
 //!
-//! A chemistry user runs an Adaptive QIR program (H₂'s phase estimation,
-//! say) from Python, for minutes to hours. This module joins the pieces
-//! that run it, so that no Python code knows engines or resumers and no
-//! Rust crate knows Python: the program, decoded from the dict
-//! `AdaptiveProfilePass(Bytecode.Bit64)` writes, is built as a `QirProgram`
-//! (every fault reported), and `MpsResumer` runs its shots on the engine
-//! the caller named, off the Python thread.
+//! Python calls it to run an Adaptive QIR program's shots, for minutes to
+//! hours. This module joins the pieces that run it, so that no Python code
+//! knows engines or resumers and no Rust crate knows Python: the program,
+//! decoded from the dict `AdaptiveProfilePass(Bytecode.Bit64)` writes, is
+//! built as a `QirProgram` (every fault reported), and `MpsResumer` runs
+//! its shots on the engine the caller named, off the Python thread.
 //!
 //! Two kinds of method meet here. An _MPS simulation method_ is the
 //! algorithm that runs a program's gates, measurements and shots on an
@@ -24,12 +23,10 @@
 //! device 0 (`CudaMpsEngine`, on cuTensorNet), whose libraries discovery
 //! finds, with the files of NVIDIA's wheels that Python found; or `"cpu"`,
 //! the same engine on the host CPU (`CpuMpsEngine`), which needs no setup.
-//! A GPU whose setup does not let the engine be made raises the setup
-//! check's report, the report `_check_tensornetwork_setup` gives.
-//!
-//! How the run leaves the Python thread, and stops on Ctrl-C, is in
-//! `tensor_network/detached_run.rs`; which Python exception each failure
-//! raises, in `tensor_network/run_failure.rs`.
+//! Which Python exception each failure raises, and with what message (a
+//! GPU not set up among them), is in `tensor_network/run_failure.rs`; how
+//! the run leaves the Python thread, and stops on Ctrl-C, in
+//! `tensor_network/detached_run.rs`.
 
 mod detached_run;
 mod run_failure;
@@ -107,7 +104,7 @@ pub(crate) fn _tensor_network_sample<'py>(
         })?,
         other => {
             return Err(PyValueError::new_err(format!(
-                "unknown engine {other:?}: use \"gpu\" or \"cpu\""
+                "Invalid engine: '{other}'. Use \"gpu\" or \"cpu\"."
             )));
         }
     };
