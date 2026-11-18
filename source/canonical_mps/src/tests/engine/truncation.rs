@@ -3,7 +3,7 @@
 
 //! What the engine's splits discard: the tail below the engine's cutoff,
 //! a fraction of the split's own weight, which leaves the retained weight,
-//! and what exceeds the capacity's bond. The reference algebra's rule of
+//! and what exceeds the capacity's bond. The CPU algebra's rule of
 //! truncation itself is `Truncation`'s
 //! (`src/site_algebra/cpu_algebra/truncation.rs`), tested in
 //! `src/tests/site_algebra/cpu_algebra/truncation.rs`.

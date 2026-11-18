@@ -1,4 +1,4 @@
-# canonical_mps: a canonical-form MPS engine, its backend contract, and the reference algebra
+# canonical_mps: a canonical-form MPS engine, its backend contract, and the CPU algebra
 
 The `canonical_mps` crate lets a QDK simulator written against
 `tensornet`'s `MpsEngine` trait run its matrix product states (MPS) in
@@ -8,13 +8,13 @@ operations, the host CPU's included. It has three parts:
 - **[The engine](#the-engine):**
   [`CanonicalMpsEngine`](src/engine.rs) implements `tensornet::MpsEngine`
   over any `SiteAlgebra`: it fuses, applies, truncates and reads by one
-  set of rules. [`CpuMpsEngine`](src/lib.rs) is the engine on the reference
+  set of rules. [`CpuMpsEngine`](src/lib.rs) is the engine on the CPU
   algebra.
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/site_algebra.rs), the tensor operations a backend
   implements, and the [conformance kit](#the-conformance-kit) that checks
   a backend against it.
-- **[The reference algebra](#the-reference-algebra):**
+- **[The CPU algebra](#the-cpu-algebra):**
   [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), the contract on the host CPU,
   which passes the kit and on which the engine's tests run.
 
@@ -30,7 +30,7 @@ GPU library needs a way to check its operations.
 
 **How it is solved.** The engine holds the rules, written once over the
 contract, and a backend writes only the contract's operations. The
-reference algebra is this crate's backend: its tensors are vectors in the
+CPU algebra is this crate's backend: its tensors are vectors in the
 host's memory, and its products, QR and SVD are the crate's
 [dense linear algebra](#the-dense-linear-algebra)'s, on the calling
 thread. A backend's tests run the contract's conformance kit on it. A
@@ -130,7 +130,7 @@ flowchart LR
 ### On the host CPU
 
 [`CpuMpsEngine`](src/lib.rs) is the engine on the
-[reference algebra](#the-reference-algebra), `CpuAlgebra`. Its state is
+[CPU algebra](#the-cpu-algebra), `CpuAlgebra`. Its state is
 `CanonicalMpsState<CpuAlgebra>`, and its error
 `CanonicalMpsError<SvdError>`. The GHZ state on three qubits, its last
 qubit reached from the first by a gate on sites that are not neighbours
@@ -309,7 +309,7 @@ fn assert_conforms<A: SiteAlgebra>(algebra: &A) {
 }
 ```
 
-## The reference algebra
+## The CPU algebra
 
 [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), exported at the crate's root,
 is the contract on the host CPU. Each operation is computed directly from
@@ -322,13 +322,13 @@ layout, which is the column-major order of the dense linear algebra's
 matrices, so the operations read a site as a matrix without reordering
 it.
 
-| Operation    | How                                                                                                                                                                                                                            | Why                                                                                                                                                                                                                    |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `upload`     | a copy of the host values into a new vector                                                                                                                                                                                    | the tensors already live on the host                                                                                                                                                                                   |
-| `read`       | the site's elements, borrowed (the tensor may hold more)                                                                                                                                                                       | the engine's host reads need no copy                                                                                                                                                                                   |
-| `duplicate`  | a copy of the site's elements                                                                                                                                                                                                  | a fork's sites change apart from its parent's                                                                                                                                                                          |
+| Operation    | How                                                                                                                                                                                                                                 | Why                                                                                                                                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload`     | a copy of the host values into a new vector                                                                                                                                                                                         | the tensors already live on the host                                                                                                                                                                                   |
+| `read`       | the site's elements, borrowed (the tensor may hold more)                                                                                                                                                                            | the engine's host reads need no copy                                                                                                                                                                                   |
+| `duplicate`  | a copy of the site's elements                                                                                                                                                                                                       | a fork's sites change apart from its parent's                                                                                                                                                                          |
 | `gate_split` | $\theta$ by one product and the gate's loops; one `Svd::of`; the values the [truncation rule](src/site_algebra/cpu_algebra/truncation.rs) keeps, normalised, multiplied into the centre's side, the other side the singular vectors | the SVD's factors are checked against $\theta$ before the truncation: when they do not give $\theta$ back, the split fails with `SvdError` rather than spread them; what it keeps is $\theta$'s truncation, normalised |
-| `qr_move`    | the one-site gate applied to the site the centre leaves; one thin `Qr::of` of it; the small factor multiplied into the other site                                                                                              | a QR moves the centre exactly, and never fails                                                                                                                                                                         |
+| `qr_move`    | the one-site gate applied to the site the centre leaves; one thin `Qr::of` of it; the small factor multiplied into the other site                                                                                                   | a QR moves the centre exactly, and never fails                                                                                                                                                                         |
 
 The truncation rule drops the longest tail of singular values whose
 squares sum to at most the cutoff's share, then keeps at most the cap;
@@ -341,7 +341,7 @@ The engine reports it as `CanonicalMpsError::Algebra`.
 
 ## The dense linear algebra
 
-The reference algebra's products, QR decompositions and SVD, and the
+The CPU algebra's products, QR decompositions and SVD, and the
 engine's computations on the host (an MPO's operator, the expectation's
 contractions), come from the crate's private module
 [`dense_linalg`](src/dense_linalg.rs): dense complex matrices with a thin
@@ -371,10 +371,10 @@ files; run them with `--release`. What they share is in
 ## Tests
 
 The [unit tests](src/tests) check the dense linear algebra, the
-truncation rule, and the engine's rules on the reference algebra; where
+truncation rule, and the engine's rules on the CPU algebra; where
 the engine reads values, they compare them with closed-form values, or
 with `tensornet`'s exact reference, among them the
-[engine circuits](src/engine/conformance.rs). The reference algebra passes
+[engine circuits](src/engine/conformance.rs). The CPU algebra passes
 the [conformance kit](tests/site_algebra_conformance.rs). The
 [integration tests](tests) also compare `CpuMpsEngine` with the QDK's
 [sparse simulator](tests/sparse_simulator.rs) on every one- and two-qubit

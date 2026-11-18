@@ -27,7 +27,7 @@ conformance = ["tensornet/conformance"]
 
 [dev-dependencies]
 # The crate itself with the kit, so that the kit's doctest and the
-# integration test that runs it on the reference algebra run in every
+# integration test that runs it on the CPU algebra run in every
 # `cargo test`, the workspace's included.
 canonical_mps = { path = ".", features = ["conformance"] }
 # The integration tests compare with the stabilizer simulator, whose

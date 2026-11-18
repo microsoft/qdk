@@ -1,8 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`CpuAlgebra`]: the reference algebra, the [`SiteAlgebra`] of the host
-//! CPU.
+//! [`CpuAlgebra`]: the [`SiteAlgebra`] of the host CPU.
 //!
 //! Each operation is computed directly from its contract; it passes the
 //! conformance kit (`conformance`), and the engine's tests run on it. It
@@ -29,7 +28,7 @@ use num_complex::Complex64;
 use std::borrow::Cow;
 use truncation::Truncation;
 
-/// The reference algebra: the [`SiteAlgebra`] of the host CPU, each site
+/// The [`SiteAlgebra`] of the host CPU: each site
 /// tensor a vector in the host's memory, factored by `dense_linalg`.
 ///
 /// Only [`gate_split`](SiteAlgebra::gate_split) fails, when `dense_linalg`'s

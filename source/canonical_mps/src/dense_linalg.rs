@@ -3,7 +3,7 @@
 
 //! Dense complex matrices with a checked thin singular value decomposition
 //! (SVD), with the product, thin QR decomposition and adjoint that the
-//! reference algebra ([`CpuAlgebra`](crate::CpuAlgebra)) and the engine's
+//! CPU algebra ([`CpuAlgebra`](crate::CpuAlgebra)) and the engine's
 //! host computations (the MPO of a gate, the expectation's contractions)
 //! need.
 //!

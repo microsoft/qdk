@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! The tests of the engine's rules, one file per area of the contract or
-//! of the engine's own promises, on the reference algebra, [`CpuAlgebra`].
+//! of the engine's own promises, on the CPU algebra, [`CpuAlgebra`].
 //! This file holds what several areas share: the engine with and without
 //! fusion, gates and observables (with those of `engine::conformance`), and a
 //! circuit run on the engine and on the exact reference. Two stand-ins
@@ -42,7 +42,7 @@ use tensornet::{
     reference::{ExactReference, ReferenceState},
 };
 
-/// A state of [`Engine`], the engine the tests run, on the reference
+/// A state of [`Engine`], the engine the tests run, on the CPU
 /// algebra.
 type State = CanonicalMpsState<CpuAlgebra>;
 
@@ -101,7 +101,8 @@ fn both_fusions_and_cutoffs() -> impl Iterator<Item = (Engine, String)> {
 }
 
 /// Applies the same circuit, with gates on sites far apart and in both
-/// operand orders, to `engine` and to the reference, and returns both.
+/// operand orders, to `engine` and to the exact reference, and returns
+/// both.
 fn circuit(engine: &Engine, sites: usize) -> (State, ReferenceState) {
     let reference = ExactReference::new();
     let mut state = engine.prepare(&chain(sites, 64)).expect("prepare");

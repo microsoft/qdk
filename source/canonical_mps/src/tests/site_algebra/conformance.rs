@@ -4,7 +4,7 @@
 //! The conformance kit against algebras that break one rule each
 //! ([`DefectiveFakeAlgebra`]): each case catches the faults its rule names,
 //! and the kit accepts an algebra that keeps every rule and reports every
-//! case an algebra fails. That the reference algebra conforms is the
+//! case an algebra fails. That the CPU algebra conforms is the
 //! integration test `tests/site_algebra_conformance.rs`.
 
 mod defective_fake_algebra;
@@ -12,7 +12,7 @@ mod defective_fake_algebra;
 use crate::site_algebra::conformance::{self, Failure};
 use defective_fake_algebra::{Defect, DefectiveFakeAlgebra};
 
-/// The reference algebra on tensors that a drop fills with NaN and that
+/// The CPU algebra on tensors that a drop fills with NaN and that
 /// refuse a read past their end: the kit passes it, so it reads no
 /// tensor after dropping it and none past the bond the algebra reported.
 #[test]
@@ -135,12 +135,12 @@ fn move_inputs_unchanged_catches_an_overwritten_input() {
     caught_by("move inputs unchanged", &[Defect::InputsOverwritten]);
 }
 
-/// The kit's failures on the reference algebra with `defect`.
+/// The kit's failures on the CPU algebra with `defect`.
 fn failures(defect: Defect) -> Vec<Failure> {
     conformance::check(&DefectiveFakeAlgebra::with(defect))
 }
 
-/// Asserts that the kit's `case` fails on the reference algebra with each
+/// Asserts that the kit's `case` fails on the CPU algebra with each
 /// of `defects`.
 fn caught_by(case: &str, defects: &[Defect]) {
     for &defect in defects {
