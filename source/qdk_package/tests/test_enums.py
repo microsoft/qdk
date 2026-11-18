@@ -8,7 +8,7 @@ import qdk.code
 from contextlib import redirect_stdout
 import io
 
-from qdk import TargetProfile
+from qdk import Result, TargetProfile
 
 # pull in from native module for tests so that we don't have to install qiskit
 # using the interop module
@@ -112,3 +112,14 @@ def test_program_type_serialization() -> None:
     ser = pickle.dumps(input)
     de = pickle.loads(ser)
     assert de == input
+
+
+@pytest.mark.parametrize("result", [Result.Zero, Result.One, Result.Loss])
+def test_result_serialization(result) -> None:
+    """A result, as `run_qir` and `qsharp.run` return it, survives pickling
+    and copying, so that saved shots keep their results."""
+    import copy
+    import pickle
+
+    assert pickle.loads(pickle.dumps(result)) == result
+    assert copy.deepcopy(result) == result
