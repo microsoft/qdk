@@ -346,8 +346,8 @@ Discovery accepts exactly the versions the bindings were audited against:
 cuTensorNet 2.13.0 (reported as `21300`), the CUDA Runtime 12.9 (`12090`), and
 a cuTensorNet built against the CUDA Runtime 12.9. A newer release is not
 assumed compatible. Discovery reports the CUDA driver's version without
-checking it; [the GPU setup check](#the-gpu-setup-check) finds a driver
-that supports no CUDA 12. A [`LibraryReport`](src/libraries/report.rs)
+checking it; [the GPU setup check](#the-gpu-setup-check) finds no NVIDIA
+driver, or one that supports no CUDA 12. A [`LibraryReport`](src/libraries/report.rs)
 names each version by its component: `CUDA Runtime` and `CUDA driver` in
 the CUDA Runtime's, `cuTensorNet` and `cuTensorNet's CUDA Runtime` in
 cuTensorNet's.
@@ -373,8 +373,8 @@ CUDA meets first here; a **CUDA device** is defined with
 
 | Step                                                                                       | How                                                                                                                                                                                                                                                                                                | Why                                                                                                                                                                                                                                                                                                |
 | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **The libraries** ([`discovery.rs`](src/discovery.rs), [`libraries.rs`](src/libraries.rs)) | `discover_with`, given the caller's `PackagedLibraries`; each library's report also lists the other copies of it at its override, packaged file and default paths; a fault is advised with the packager's install command, when it gave one                                                        | the check loads what a GPU run would load; another copy is warned of, whether discovery succeeds or not, as it may be of another version, or hold a dependency the loaded copy picks up, and so be why a library fails; alone, it leaves the setup ready                                           |
-| **The host** ([`libraries/cuda_runtime.rs`](src/libraries/cuda_runtime.rs))                | each library reads its own report for a problem of the host: today the CUDA Runtime's, a driver that supports no CUDA 12                                                                                                                                                                           | what a library needs of the host is the library's to say, so a library bound later brings its own check                                                                                                                                                                                            |
+| **The libraries** ([`discovery.rs`](src/discovery.rs), [`libraries.rs`](src/libraries.rs)) | `discover_with`, given the caller's `PackagedLibraries`; each library's report also lists the other copies of it at its override, packaged file and default paths; the install it advises names the packager's command, when it gave one                                                           | the check loads what a GPU run would load; another copy is warned of, whether discovery succeeds or not, as it may be of another version, or hold a dependency the loaded copy picks up, and so be why a library fails; another copy alone leaves the setup ready                                  |
+| **The host** ([`libraries/cuda_runtime.rs`](src/libraries/cuda_runtime.rs))                | each library reads its own report for a problem of the host: today the CUDA Runtime's, no NVIDIA driver or one that supports no CUDA 12                                                                                                                                                            | what a library needs of the host is the library's to say, so a library bound later brings its own check                                                                                                                                                                                            |
 | **The devices** ([`gpu_setup/devices.rs`](src/gpu_setup/devices.rs))                       | how many CUDA devices the process sees, and the compute capability and memory of device 0, where the engine runs, read through the loaded CUDA Runtime; a problem when they cannot be read, when there is none, or when device 0 is below [`MINIMUM_COMPUTE_CAPABILITY`](src/gpu_setup/devices.rs) | NVIDIA supports cuTensorNet from that capability on; a device's free memory bounds the max bond dimension a run can reach; no other device is read, since reading one keeps a CUDA context on it for the life of the process, and a device the engine does not use must not make the setup unready |
 | **The trial run** ([`gpu_setup.rs`](src/gpu_setup.rs))                                     | a `CudaMpsEngine` on device 0 prepares a state of one qubit, applies a Hadamard and reads its probability of One; its error is shown with each error that caused it, and is the advice, unless it is that no device was found, advised as in the devices step                                      | the smallest run that touches the device, so a device the engine cannot use is found here, not in the user's first run                                                                                                                                                                             |
 
@@ -412,15 +412,19 @@ apart. Anything else is expected to work, but not verified.
 | A CUDA driver | [the GPU setup check](#the-gpu-setup-check): one for CUDA 12; `discover` only reports its version                                                                                        | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
 | An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one; [the GPU setup check](#the-gpu-setup-check): device 0 of [`MINIMUM_COMPUTE_CAPABILITY`](src/gpu_setup/devices.rs) or later | an A100 80GB, compute capability 8.0: run pending (below)                                        |
 
-- **On an A100 80GB:** `CudaAlgebra` passes `canonical_mps`'s
-  conformance kit; `CudaMpsEngine` passes `canonical_mps`'s engine
-  conformance circuits and reads a capped circuit as `CpuMpsEngine` does;
-  and the kit and the capped circuit pass NVIDIA's `compute-sanitizer`
-  memcheck, with its leak check, and synccheck without error. The native
-  calls' cases that also run on a GPU: rerun pending.
+- **On an A100 80GB, run pending:** the run checks that `CudaAlgebra`
+  passes `canonical_mps`'s conformance kit; that `CudaMpsEngine` passes
+  `canonical_mps`'s engine conformance circuits and reads a capped circuit
+  as `CpuMpsEngine` does; and that the kit, the capped circuit and the fake
+  libraries' cases that also run on a GPU pass NVIDIA's `compute-sanitizer`
+  memcheck, with its leak check, and synccheck without error. It also runs
+  [`tests/availability.rs`](tests/availability.rs), whose setup check finds
+  the setup ready, and `discover_with` given the files of NVIDIA's pip
+  wheels.
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the
-  default paths are those of NVIDIA's apt packages).
+  default paths are those of NVIDIA's apt packages); the wheels' files
+  given through `PackagedLibraries`, until the run above.
 - **Not supported:** other architectures (ARM included), other systems,
   and other releases of the libraries, CUDA 13 among them: each needs its
   bindings generated and audited.

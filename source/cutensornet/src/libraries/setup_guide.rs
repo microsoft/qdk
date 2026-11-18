@@ -8,9 +8,9 @@
 //! none: each library's module declares, as part of its `NativeLibrary`,
 //! what the check shows of it, what to install, and the problems of the
 //! host its report reveals; `LoadedLibraries::SETUP_GUIDES` lists the
-//! guides. So a library bound later brings its own, and the check changes
-//! nothing. [`or_unread`] is how a guide, and the check, show a value a
-//! hand-made report may lack.
+//! guides, and [`setup_guides`] gives them to the check. So a library bound
+//! later brings its own, and the check changes nothing. [`or_unread`] is
+//! how a guide, and the check, show one of a report's optional values.
 
 use super::report::LibraryReport;
 use std::fmt;
@@ -49,8 +49,23 @@ impl SetupGuide {
     }
 }
 
-/// `value`, or `unread` when the report lacks it: a usable library's report
-/// has every value, so the fallback only keeps a hand-made report shown.
+/// `value`, or `unread` when the report lacks it. The setup check shows
+/// only the values of a library that loaded, which has them all, but a
+/// `LibraryReport` serves a library that failed too, so each is optional.
 pub(crate) fn or_unread(value: Option<impl fmt::Display>) -> String {
     value.map_or_else(|| "unread".to_string(), |value| value.to_string())
+}
+
+/// The guide of each library, in the order the setup check lists them;
+/// none off Linux x86-64, where discovery fails before any library is
+/// looked at.
+pub(crate) fn setup_guides() -> &'static [SetupGuide] {
+    #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+    {
+        &super::LoadedLibraries::SETUP_GUIDES
+    }
+    #[cfg(not(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64"))))]
+    {
+        &[]
+    }
 }

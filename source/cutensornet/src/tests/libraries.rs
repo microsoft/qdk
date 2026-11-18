@@ -315,7 +315,8 @@ fn a_packaged_library_is_tried_before_the_default_paths() {
 /// A packager's list holds every file it installed, of every library: each
 /// library tries only the file of its own name, so the CUDA Runtime's file
 /// is not tried as cuTensorNet, and a file of another version of
-/// cuTensorNet is not tried at all.
+/// cuTensorNet is not tried at all; of two files of one name, only the
+/// first listed is tried.
 #[cfg(unix)]
 #[test]
 fn a_packaged_file_is_tried_only_for_the_library_it_is_named() {
@@ -323,6 +324,7 @@ fn a_packaged_file_is_tried_only_for_the_library_it_is_named() {
         files: [
             "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
             "/env/cuquantum/lib/libcutensornet.so.3",
+            "/env/torch/lib/libcudart.so.12",
         ]
         .map(PathBuf::from)
         .to_vec(),
@@ -331,10 +333,12 @@ fn a_packaged_file_is_tried_only_for_the_library_it_is_named() {
     let cudart = candidates::<CudaRuntime>(|_| None, &packaged).expect("no override is set");
     let cutensornet = candidates::<CuTensorNet>(|_| None, &packaged).expect("no override is set");
     assert_eq!(
-        cudart.first(),
-        Some(&PathBuf::from(
-            "/env/nvidia/cuda_runtime/lib/libcudart.so.12"
-        ))
+        cudart,
+        std::iter::once("/env/nvidia/cuda_runtime/lib/libcudart.so.12")
+            .chain(CudaRuntime::DEFAULTS.iter().copied())
+            .map(PathBuf::from)
+            .collect::<Vec<_>>(),
+        "the first file of its name, then the default paths"
     );
     assert_eq!(
         cutensornet,

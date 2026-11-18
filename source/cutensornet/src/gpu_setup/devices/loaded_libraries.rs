@@ -4,8 +4,7 @@
 //! `DeviceCalls` on the loaded libraries: each read is the GPU engine's own
 //! native call (`engine::native_calls`), so the setup check and the engine
 //! reach each CUDA function by one path. It compiles only on Linux x86-64,
-//! and no host test reaches it: the rules run on a fake of these calls
-//! (`FakeDevices`, in the devices' tests).
+//! the one platform where the libraries load.
 
 use super::DeviceCalls;
 use crate::CudaAlgebraError;
