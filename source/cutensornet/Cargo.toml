@@ -8,8 +8,17 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+canonical_mps = { path = "../canonical_mps" }
 libloading = { workspace = true }
+num-complex = { workspace = true }
+tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+# The algebra's conformance kit and the engine's circuits, which the tests
+# run on the fake libraries and on the GPU, and the dense SVD and QR the
+# fake libraries factor with.
+canonical_mps = { path = "../canonical_mps", features = ["conformance"] }
 
 [lints]
 workspace = true

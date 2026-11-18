@@ -25,6 +25,8 @@
 //! `open` checks a library from this machine's files: the paths to try (its
 //! override variable's, or its default paths), the file loaded (`loader`),
 //! its functions looked up (`function_table`), and its versions probed.
+//! The MPS engine calls the loaded libraries through their tables, in
+//! `engine::native_calls::loaded_libraries`.
 //!
 //! To bind another library:
 //!
@@ -78,10 +80,6 @@ use std::{ffi::OsString, io::ErrorKind, path::PathBuf};
 /// loaded while cuTensorNet needs it. It holds no device, stream, handle
 /// or state: whoever calls a function that creates one owns it.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-#[expect(
-    dead_code,
-    reason = "the libraries are held to keep the tables valid; the MPS engine, added later, reads the tables"
-)]
 pub(crate) struct LoadedLibraries {
     pub(crate) cutensornet: BoundLibrary<cutensornet::CuTensorNet>,
     pub(crate) cuda_runtime: BoundLibrary<cuda_runtime::CudaRuntime>,
@@ -135,7 +133,7 @@ pub(crate) trait NativeLibrary {
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 #[expect(
     dead_code,
-    reason = "the library is held to keep the table valid; the MPS engine, added later, reads the table"
+    reason = "the library is held, never read, to keep the table valid"
 )]
 pub(crate) struct BoundLibrary<L: NativeLibrary> {
     pub(crate) functions: L::Functions,
