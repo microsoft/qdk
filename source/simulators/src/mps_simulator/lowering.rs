@@ -21,8 +21,8 @@
 use crate::qir::{OperatorMatrix, QirCall};
 use qsc_data_structures::measurement::MeasurementBasis;
 
-use super::layout::QubitOrder;
-use super::resumer_error::MpsResumerError;
+use super::error::MpsResumerError;
+use super::qubit_order::QubitOrder;
 
 /// What the MPS simulation method does with a call, on sites. A new kind
 /// of step runs in `GroupedRun::run_step`, which decides whether it reads

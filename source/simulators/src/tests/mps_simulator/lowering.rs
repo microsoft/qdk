@@ -6,12 +6,12 @@
 //! run fails, naming it; and a call no shot reaches fails nothing.
 
 use crate::bytecode::Instruction;
-use crate::mps_simulator::resumer::layout::QubitOrder;
+use crate::mps_simulator::qubit_order::QubitOrder;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
 use crate::qir::{QirInstruction, QirProgram, QirResumeError, QirShotId};
 use tensornet::reference::ExactReference;
 
-use super::super::programs::{
+use super::programs::{
     branch, correlated_noise, gate1, gate2, jump, measure, mz, peek_loss, program, program_with,
     readout_noise, reset, ret, set,
 };

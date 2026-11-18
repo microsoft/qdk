@@ -9,8 +9,8 @@ use std::num::NonZeroUsize;
 use crate::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use tensornet::reference::ExactReference;
 
-use super::super::programs::{branch, coins, gate1, gate2, mz, program, read_result, ret, set};
-use super::super::reference_spy::{ReferenceSpy, Weight};
+use super::programs::{branch, coins, gate1, gate2, mz, program, read_result, ret, set};
+use super::reference_spy::{ReferenceSpy, Weight};
 use super::{results, run};
 use crate::bytecode::encoding::{OPID_CX, OPID_H};
 use crate::mps_simulator::{
