@@ -649,8 +649,8 @@ fn a_failed_call_that_waited_for_the_device_leaves_the_algebra_usable() {
 /// when it drops the state and keeps the algebra), and how many of the same
 /// waits that follow fail. A duplicate has one input, whose drop after the
 /// algebra's is also the last tensor's, so its cases drop it first. The
-/// session's handle and stream are destroyed whatever its wait returns, as
-/// CUDA defers a stream's release until its work completes.
+/// session's close calls the destroys of its handle and stream whatever its
+/// wait returns, as CUDA defers a stream's release until its work completes.
 #[test]
 fn a_poisoned_algebra_frees_nothing_until_a_wait_for_the_device_succeeds() {
     for (wait, inputs_dropped_first, failed_waits) in [
@@ -714,7 +714,8 @@ fn a_poisoned_algebra_frees_nothing_until_a_wait_for_the_device_succeeds() {
     }
 }
 
-/// What the session destroys after its own wait, whatever it returns.
+/// The destroys the session's close calls after its own wait, whatever it
+/// returns.
 const SESSION_DESTROYS: [&str; 2] = ["destroy_handle", "destroy_stream"];
 
 /// An algebra poisoned by a failed call whose `wait` (`synchronize_stream`,

@@ -96,7 +96,9 @@ impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
     /// caller's data for pending work to write (the workspace and every
     /// buffer are the algebra's, released or leaked by it before the
     /// session), and CUDA releases a destroyed stream only once its queued
-    /// work is done.
+    /// work is done. A handle the library refuses to destroy (one that
+    /// refuses while an object of the handle lives, which an earlier failed
+    /// release leaked) is leaked, not retried.
     fn release(&mut self) -> Result<(), CudaAlgebraError> {
         if self.stream.is_none() && self.handle.is_none() {
             return Ok(());

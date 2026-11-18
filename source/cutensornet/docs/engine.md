@@ -103,9 +103,18 @@ and buffers, the tensors dropped since and the algebra's own memory are
 freed only after a successful wait for the device (its stream and its
 copies), at the algebra's close or else at the session's; if neither
 succeeds, they are leaked. The session's close then destroys the handle
-and the stream whatever its own wait returned; CUDA releases a stream's
+(see below for a library that refuses) and the stream whatever its own
+wait returned; CUDA releases a stream's
 resources only once the device has completed its work
 ([`cudaStreamDestroy`](https://docs.nvidia.com/cuda/cuda-runtime-api/cuda_runtime_api/group__CUDART__STREAM.html#group__cudart__stream_1ga920234e40db739baab4f2459e4f68282)).
+
+A release that fails with the device idle leaks its object, never
+retried, and every other release is still made; in a method (a call's
+descriptor, or a kept network when the cache starts again), it fails only
+that method, without poisoning the algebra. On a library that refuses to
+destroy a handle while an object of it lives, any object leaked (so, or
+by a poisoned algebra) leaks the handle too: the session's close reports
+the refusal as a `Drop` reports any (stderr, in debug builds).
 
 ## Numerics
 
