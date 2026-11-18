@@ -501,8 +501,9 @@ fn capacity_of<E>(
 
 /// The value of the shots that go on as the group, given each shot's draw
 /// (One when true): the value they all drew, or, where they differ, the
-/// value of the fewer, Zero on a tie. So a group that splits keeps at
-/// most half its shots, and a run holds few states at once.
+/// value of the fewer. So a group that splits keeps at most half its
+/// shots, and a run holds few states at once. A tie goes to Zero only so
+/// that a run is deterministic: no record, bound or failure depends on it.
 fn value_going_on(draws: &[bool]) -> bool {
     let ones = draws.iter().filter(|&&one| one).count();
     if ones == 0 || ones == draws.len() {
