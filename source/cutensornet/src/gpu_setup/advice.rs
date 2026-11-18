@@ -35,7 +35,7 @@ pub(super) fn availability_advice(
                 .find(|(_, fault)| matches!(fault, LibraryFault::InvalidOverride { .. }))
                 .or_else(|| faults().next())
                 .map_or_else(
-                    || install(install_command),
+                    || install_advice(install_command),
                     |(library, fault)| fault_advice(library, fault, install_command),
                 )
         }
@@ -45,7 +45,7 @@ pub(super) fn availability_advice(
 /// What to do about `fault`, of the library named `library`.
 fn fault_advice(library: &str, fault: &LibraryFault, install_command: Option<&str>) -> String {
     let guide = setup_guide(library);
-    let install = || install(install_command);
+    let install = || install_advice(install_command);
     match fault {
         LibraryFault::InvalidOverride { variable, .. } => {
             format!("set {variable} to the absolute path of the library file, or unset it")
@@ -78,7 +78,7 @@ fn fault_advice(library: &str, fault: &LibraryFault, install_command: Option<&st
 /// What to install: each library at its audited version, in the order the
 /// check lists them, then, when the packager gave one, `install_command`
 /// as an example.
-fn install(install_command: Option<&str>) -> String {
+fn install_advice(install_command: Option<&str>) -> String {
     let libraries: Vec<&str> = setup_guides().iter().map(|guide| guide.install).collect();
     let libraries = libraries.join(" and ");
     match install_command {
