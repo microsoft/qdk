@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`NativeCalls`]: every call the CUDA algebra and its session make to the
-//! CUDA Runtime and cuTensorNet, and the two implementations that answer
-//! them.
+//! [`NativeCalls`]: every call the CUDA algebra, its session and the setup
+//! check make to the CUDA Runtime and cuTensorNet, and the two
+//! implementations that answer them.
 //!
 //! The algebra's code must run where it is tested, and CI has no GPU. So
 //! `DeviceSession` and `CudaAlgebra` make each native call through these
@@ -52,7 +52,8 @@ pub(crate) use self::{
 
 use std::{ffi::c_void, ptr::NonNull};
 
-/// Every native call the CUDA algebra and its session make.
+/// Every native call the CUDA algebra, its session and the setup check
+/// make.
 pub(crate) trait NativeCalls:
     session_calls::SessionCalls + tensor_calls::TensorCalls
 {

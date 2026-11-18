@@ -145,9 +145,9 @@ impl LoadedLibraries {
 pub struct PackagedLibraries {
     /// The absolute paths of the library files installed, in any order.
     pub files: Vec<PathBuf>,
-    /// The command that installs the libraries, which the setup check's
-    /// advice gives as an example, for instance
-    /// `pip install "qdk[tensornetwork]"`; `None` gives no command.
+    /// The command that installs the libraries with the caller's package
+    /// manager, which the setup check's advice gives as an example; `None`
+    /// gives no command.
     pub install_command: Option<String>,
 }
 

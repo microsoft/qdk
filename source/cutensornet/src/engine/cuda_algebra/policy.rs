@@ -19,7 +19,7 @@ use crate::engine::native_calls::tensor_calls::SvdSetting;
 
 /// The CUDA device every algebra runs on. A process that runs on another
 /// device selects it with `CUDA_VISIBLE_DEVICES`.
-pub(super) const DEVICE_ORDINAL: i32 = 0;
+pub(crate) const DEVICE_ORDINAL: i32 = 0;
 
 /// The SVD algorithm of every gate split: LAPACK's `gesvd`, through
 /// cuSOLVER.

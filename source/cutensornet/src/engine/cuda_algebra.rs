@@ -61,7 +61,7 @@ mod contraction;
 mod device_tensor;
 mod extents;
 mod gate_split;
-mod policy;
+pub(crate) mod policy;
 mod qr_move;
 mod resources;
 mod scratch;

@@ -25,7 +25,7 @@ use super::stand_ins::ALWAYS_PRESENT_LIBRARY;
 use super::stand_ins::{StandInResolver, cuda_version, cutensornet_version};
 use super::unique_temp_path;
 #[cfg(unix)]
-use super::{RemoveFile, not_a_shared_object};
+use super::{RemoveFile, not_a_shared_object, packaged_file, packaged_path};
 use crate::{LibraryFault, libraries::validate_override_path};
 #[cfg(unix)]
 use crate::{
@@ -367,40 +367,6 @@ fn an_override_is_tried_alone_even_beside_a_packaged_library() {
     let cudart =
         candidates::<CudaRuntime>(read_variable, &packaged).expect("the override names a file");
     assert_eq!(cudart, std::slice::from_ref(&path));
-}
-
-/// Where a package would install `L`'s file: `L::FILE_NAME` in a directory
-/// of the test's own, made now and removed, with what the test puts at the
-/// path, when the guard is dropped.
-#[cfg(unix)]
-fn packaged_path<L: NativeLibrary>(label: &str) -> (PathBuf, RemovePackage) {
-    let directory = unique_temp_path(label);
-    std::fs::create_dir(&directory).expect("the temporary directory is writable");
-    let path = directory.join(L::FILE_NAME);
-    (path.clone(), RemovePackage(path))
-}
-
-/// Removes a packaged file and its directory, even when the test fails.
-#[cfg(unix)]
-struct RemovePackage(PathBuf);
-
-#[cfg(unix)]
-impl Drop for RemovePackage {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-        if let Some(directory) = self.0.parent() {
-            let _ = std::fs::remove_dir(directory);
-        }
-    }
-}
-
-/// `L`'s file, as a package installs it, with contents that are not a
-/// shared object: see [`packaged_path`].
-#[cfg(unix)]
-fn packaged_file<L: NativeLibrary>(label: &str) -> (PathBuf, RemovePackage) {
-    let (path, remove) = packaged_path::<L>(label);
-    std::fs::write(&path, b"not an ELF shared object").expect("the directory is writable");
-    (path, remove)
 }
 
 /// The packaged files `files`, with no install command.
