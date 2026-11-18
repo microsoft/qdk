@@ -29,8 +29,7 @@
 
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
-mod cpu_algebra;
-pub(crate) mod truncation;
+pub(crate) mod cpu_algebra;
 
 pub use cpu_algebra::CpuAlgebra;
 

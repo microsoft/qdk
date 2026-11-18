@@ -3,6 +3,5 @@
 
 mod conformance;
 mod cpu_algebra;
-mod truncation;
 
 use super::*;

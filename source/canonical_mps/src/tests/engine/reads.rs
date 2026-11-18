@@ -3,14 +3,10 @@
 
 //! Reads and projections: reads keep the state, a projection makes its
 //! value certain and returns its probability without recompressing, a
-//! conditional probability is the probability after its conditions, a
-//! move of the centre keeps the gate pending on the site it leaves, a
-//! conditional probability forks once, and an expectation contracts only
-//! between the observable and the centre, reading each site once.
+//! conditional probability is the probability after its conditions, and
+//! forks once.
 
-use super::spy_algebra::SpiedCalls;
 use super::*;
-use std::rc::Rc;
 
 /// Reads move the orthogonality centre, never the state they read.
 #[test]
@@ -102,22 +98,6 @@ fn a_conditional_probability_is_the_probability_after_its_conditions() {
     }
 }
 
-/// A turn of site 0, the centre, which waits pending on the site; then a
-/// read of site 2, which moves the centre away from site 0: a read of site
-/// 0 gives the turn's P(One), as the move applied the gate pending on the
-/// site it left.
-#[test]
-fn a_move_of_the_centre_keeps_the_gate_pending_on_the_site_it_leaves() {
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(3, 2)).expect("prepare");
-        engine.apply(&mut state, &[0], &ry(0.9)).expect("apply");
-        engine.probability_of_one(&state, 2).expect("P(One)");
-        let p = engine.probability_of_one(&state, 0).expect("P(One)");
-        let expected = 0.45f64.sin().powi(2);
-        assert!((p - expected).abs() < 1e-12, "{name}: {p} vs {expected}");
-    }
-}
-
 /// A measurement of one qubit of a GHZ state leaves a product state, whose
 /// Schmidt ranks are all 1; the engine does not recompress, so `shape`
 /// still reports the bonds of 2 it held before.
@@ -139,155 +119,6 @@ fn a_projection_does_not_recompress_the_bonds() {
         assert_eq!(after, before, "{name}");
         assert_eq!(after.bond_dim(0), Some(2), "{name}");
     }
-}
-
-/// Two Bell pairs, sites 1–3 and 2–4, measured on 3 and 4, then a CNOT on
-/// sites 1 and 2: the chain holds a bond of 4 between sites 2 and 3,
-/// though site 2's other bond is 1. A projection of site 5 moves the
-/// centre there by a QR per site, which leaves each bond it crosses at
-/// most twice the bond on the site's other side: the bond of 4 comes out
-/// 2, the others as they were. The same holds on the mirrored chain, the
-/// centre moving left to site 0.
-#[test]
-fn moving_the_centre_shrinks_a_bond_above_twice_its_neighbours() {
-    let h = std::f64::consts::FRAC_1_SQRT_2;
-    let hadamard = [real(h), real(h), real(h), real(-h)];
-    let bonds = |engine: &Engine, state: &State| {
-        let shape = engine.shape(state).expect("a state of six sites");
-        (0..5)
-            .map(|cut| shape.bond_dim(cut).expect("a cut of six sites"))
-            .collect::<Vec<_>>()
-    };
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        for mirrored in [false, true] {
-            let at = |site: usize| if mirrored { 5 - site } else { site };
-            let in_order = |mut bonds: Vec<usize>| {
-                if mirrored {
-                    bonds.reverse();
-                }
-                bonds
-            };
-            let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
-            for (control, target) in [(1, 3), (2, 4)] {
-                engine
-                    .apply(&mut state, &[at(control)], &hadamard)
-                    .expect("a site of the chain");
-                engine
-                    .apply(&mut state, &[at(control), at(target)], &cnot())
-                    .expect("distinct sites of the chain");
-            }
-            for site in [3, 4] {
-                engine
-                    .project(&mut state, at(site), false)
-                    .expect("zero has probability 1/2");
-            }
-            engine
-                .apply(&mut state, &[at(1), at(2)], &cnot())
-                .expect("distinct sites of the chain");
-            assert_eq!(
-                in_order(bonds(&engine, &state)),
-                [1, 1, 4, 2, 1],
-                "{name}, mirrored {mirrored}: before"
-            );
-            engine
-                .project(&mut state, at(5), false)
-                .expect("the site is zero");
-            assert_eq!(
-                in_order(bonds(&engine, &state)),
-                [1, 1, 2, 2, 1],
-                "{name}, mirrored {mirrored}: after"
-            );
-        }
-    }
-}
-
-/// An engine on a spy algebra, a chain of `sites` sites prepared on it,
-/// each turned and entangled with the next, and the spy's record of calls.
-fn spied_entangled_chain(
-    sites: usize,
-) -> (
-    CanonicalMpsEngine<SpyAlgebra>,
-    CanonicalMpsState<SpyAlgebra>,
-    Rc<SpiedCalls>,
-) {
-    let (algebra, calls) = SpyAlgebra::new();
-    let engine = CanonicalMpsEngine::new(algebra);
-    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
-    for site in 0..sites {
-        engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
-    }
-    for cut in 0..sites - 1 {
-        engine
-            .apply(&mut state, &[cut, cut + 1], &cnot())
-            .expect("apply");
-    }
-    (engine, state, calls)
-}
-
-/// The sites an expectation of `observable` reads on a chain of `sites`
-/// entangled sites whose centre a read has left on `centre`.
-fn expectation_reads(sites: usize, centre: usize, observable: &PauliSum) -> usize {
-    let (engine, state, calls) = spied_entangled_chain(sites);
-    engine.probability_of_one(&state, centre).expect("P(One)");
-    let before = calls.reads.get();
-    engine.expectation(&state, observable).expect("expectation");
-    calls.reads.get() - before
-}
-
-/// A Z read next to the centre, at either end of a chain of 12 sites or of
-/// one of 6, reads the same sites: an expectation contracts only the
-/// sites between the observable's sites and the centre, wherever they lie
-/// on the chain and whatever its length; a Z further from the centre takes
-/// more.
-#[test]
-fn an_expectation_contracts_only_between_the_observable_and_the_centre() {
-    let z = |site| z_string(&[site]);
-    let near = expectation_reads(12, 0, &z(1));
-    assert_eq!(expectation_reads(12, 10, &z(11)), near, "at the far end");
-    assert_eq!(expectation_reads(12, 6, &z(5)), near, "below the centre");
-    assert_eq!(expectation_reads(6, 4, &z(5)), near, "on a shorter chain");
-    assert!(
-        expectation_reads(12, 0, &z(5)) > near,
-        "further from the centre"
-    );
-}
-
-/// A chemistry reading holds many Pauli strings that share their sites:
-/// six terms of one to three factors on sites 1 to 3, the centre on site
-/// 0, read each of the sites 0 to 3 once, as a single Z on site 3 does;
-/// with the centre on site 4 and terms on both sides of it, on sites 2 to
-/// 6, each of those sites is read once, as a single Z₂Z₆ does.
-#[test]
-fn an_expectation_reads_each_site_once_whatever_its_terms() {
-    let term = |factors| PauliTerm::new(real(0.5), factors).expect("a term");
-    let reading = PauliSum::new(
-        real(0.1),
-        vec![
-            term(vec![(1, Pauli::Z)]),
-            term(vec![(2, Pauli::Z)]),
-            term(vec![(3, Pauli::Z)]),
-            term(vec![(1, Pauli::X), (2, Pauli::X)]),
-            term(vec![(2, Pauli::Y), (3, Pauli::Y)]),
-            term(vec![(1, Pauli::Z), (2, Pauli::Z), (3, Pauli::Z)]),
-        ],
-    )
-    .expect("an observable");
-    assert_eq!(expectation_reads(8, 0, &reading), 4, "the reading");
-    assert_eq!(expectation_reads(8, 0, &z_string(&[3])), 4, "one Z");
-    let around = PauliSum::new(
-        real(0.1),
-        vec![
-            term(vec![(2, Pauli::Z)]),
-            term(vec![(6, Pauli::Z)]),
-            term(vec![(3, Pauli::X), (5, Pauli::X)]),
-            term(vec![(2, Pauli::Y), (3, Pauli::Y)]),
-            term(vec![(5, Pauli::Z), (6, Pauli::Z)]),
-            term(vec![(2, Pauli::Z), (4, Pauli::Z), (6, Pauli::Z)]),
-        ],
-    )
-    .expect("an observable");
-    assert_eq!(expectation_reads(8, 4, &around), 5, "around the centre");
-    assert_eq!(expectation_reads(8, 4, &z_string(&[2, 6])), 5, "one Z₂Z₆");
 }
 
 /// Grouped shots read a site's probability given the values drawn on

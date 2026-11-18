@@ -5,10 +5,13 @@
 //! which the conformance kit checks it against
 //! (`tests/algebra_conformance.rs`): a gate split reports a failed SVD,
 //! and a read borrows a site's elements rather than copying them.
+//! Its truncation rule is tested in `truncation`.
 #![expect(
     clippy::many_single_char_names,
     reason = "the contract's extents l, m, r and sites a, b"
 )]
+
+mod truncation;
 
 use super::*;
 use crate::CpuAlgebra;

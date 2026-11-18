@@ -14,18 +14,16 @@
 //! rest of the chain is made of isometries, the split's singular value
 //! decomposition is the state's Schmidt decomposition across the cut:
 //! keeping the largest values gives the closest state, in norm, of that
-//! bond, and loses exactly the weight of the dropped squares. The rules,
-//! stated for callers on [`CanonicalMpsEngine`] (Truncation):
+//! bond, and loses exactly the weight of the dropped squares. The rules a
+//! caller relies on are stated on [`CanonicalMpsEngine`] (Truncation);
+//! the split carries them out:
 //!
-//! - **What it keeps.** The algebra drops the tail within the engine's
-//!   cutoff, never the largest value, and keeps at most the capacity's
-//!   bond at the cut: every cut is a caller's cut, where the state must
-//!   fit the capacity anyway.
-//! - **The weight.** The algebra normalises the values it keeps, and the
-//!   split multiplies the state's retained weight by the share they held,
-//!   failing with [`CanonicalMpsError::WeightUnderflow`] when the weight
-//!   would fall below the smallest normal `f64`. The window is lost then,
-//!   as when the algebra fails.
+//! - **What it keeps.** It passes the algebra the engine's cutoff and the
+//!   capacity's bond at the cut, and the algebra truncates.
+//! - **The weight.** It multiplies the state's retained weight by the
+//!   fraction the algebra reports, and fails with
+//!   [`CanonicalMpsError::WeightUnderflow`] instead of storing a weight
+//!   below the smallest normal `f64`.
 //! - **Where the centre goes.** The kept values go into the side the
 //!   caller names, which becomes the centre.
 //! - **What it reports.** It counts the split and records its bond as the
