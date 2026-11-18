@@ -45,9 +45,9 @@ use std::fmt;
 pub struct Availability {
     report: AvailabilityReport,
     #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-    #[expect(
-        dead_code,
-        reason = "keeps the libraries loaded; the MPS engine, added later, reads the function tables"
+    #[cfg_attr(
+        not(all(target_os = "linux", target_arch = "x86_64")),
+        allow(dead_code, reason = "off Linux x86-64 no engine reads the libraries")
     )]
     libraries: std::sync::Arc<LoadedLibraries>,
 }
@@ -57,6 +57,15 @@ impl Availability {
     #[must_use]
     pub fn report(&self) -> &AvailabilityReport {
         &self.report
+    }
+
+    /// The loaded libraries, for the engines of this crate. They stay
+    /// private to it: a caller outside sees their paths and versions in
+    /// [`report`](Self::report), and calls them only through an engine,
+    /// which checks each call against its contract.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) fn libraries(&self) -> &std::sync::Arc<LoadedLibraries> {
+        &self.libraries
     }
 }
 

@@ -1,69 +1,205 @@
-# Loading cuTensorNet at run time
+# cuTensorNet for the QDK: the MPS engine, and the discovery and loading of its libraries
 
-The `qdk_cutensornet` crate finds, checks and loads the NVIDIA libraries a
-GPU tensor-network simulation needs, without linking them. Its first user is
-the MPS (matrix product state) simulator; another simulator would widen the
-bound functions by adding rows to the cuTensorNet table of
-[`src/libraries/cutensornet.rs`](src/libraries/cutensornet.rs).
+The `qdk_cutensornet` crate lets a QDK simulator written against
+`tensornet`'s `MpsEngine` trait run its matrix product states (MPS) on an
+NVIDIA GPU, with NVIDIA's cuTensorNet library. It has two parts:
 
-**The problem.** cuTensorNet is a tensor-network library that runs on the
-CUDA Runtime, NVIDIA's library for driving a GPU. Both are shared libraries
-(`libcutensornet.so.2`, `libcudart.so.12`) that most QDK users do not have.
-Linking them, as Rust code normally links a C library, would make every QDK
-build and every process that loads the QDK need them, and fail to start
-without them.
+- **[The MPS engine](#the-mps-engine):**
+  [`CudaMpsEngine`](src/engine.rs) is `canonical_mps`'s canonical-form MPS
+  engine on [`CudaAlgebra`](src/engine/cuda_algebra.rs), its site tensors'
+  operations run by cuTensorNet on one CUDA device.
+- **[The discovery and loading of the libraries](#the-discovery-and-loading-of-the-libraries):**
+  cuTensorNet and the CUDA Runtime are opened at run time, never linked, so
+  the QDK builds, loads and simulates on the CPU without NVIDIA software;
+  what is missing is reported, so the caller can tell the user or run on
+  the CPU.
 
-**How it is solved.** Each library is opened at run time, when a GPU run is
-asked for: [`discover`](src/discovery.rs) finds and opens the two libraries
-installed on the host, looks up by name each C function of a table per
-library (each such exported name is a _symbol_), and checks the versions the
-libraries report against the audited ones. It returns an `Availability`,
-which keeps the libraries loaded, or an `AvailabilityError` that says what
-is missing, so the caller can tell the user or run on the CPU.
+## The MPS engine
 
-Today the crate holds:
+**The problem.** An MPS engine's rules (where the orthogonality centre
+moves, how gates are fused and applied, what a truncation keeps track of)
+are the same on the CPU and on a GPU; written once per backend, they drift
+apart. What differs is where the site tensors live and which library
+factors them.
 
-- **The discovery:** [`discover`](src/discovery.rs), which opens and checks the
-  libraries, and [`Availability`](src/discovery.rs), which keeps them loaded
-  with the table of each library's functions, typed function pointers
-  ready to call; the MPS engine, added in a later change, calls cuTensorNet
-  through them.
-- **The error:** [`AvailabilityError`](src/discovery/error.rs),
-  `UnsupportedPlatform` off Linux x86-64, or else `Unusable` with the
-  report.
-- **The reports:** [`AvailabilityReport`](src/discovery/report.rs), with a
-  [`LibraryReport`](src/libraries/report.rs) per library, in the order they
-  are opened: the library's name, the path it was opened from, the
-  [`Version`](src/libraries/report.rs)s it reports, and its
-  [`LibraryFault`](src/libraries/report.rs)s, which name the variable, path,
-  function or version at fault.
+**How it is solved.** `canonical_mps` writes the engine once, over the
+five tensor operations of its `SiteAlgebra` trait, and this crate writes
+only those operations, on cuTensorNet: [`CudaMpsEngine`](src/engine.rs) is
+`CanonicalMpsEngine<CudaAlgebra>`. What the engine does, and the contract
+its algebra meets, are in
+[`canonical_mps`'s README](../canonical_mps/README.md#the-backend-contract)
+and the trait's rustdoc; this section says how this algebra meets the
+contract, and why; [`docs/engine.md`](docs/engine.md) gives the native
+calls of each phase and the numerics, and each file's header the details.
+
+**Why this approach.** The engine's rules run alike on the CPU and the
+GPU, and a fix to them reaches both; the GPU code is the operations alone,
+checked by `canonical_mps`'s conformance kit; and the GPU engine reads as
+`canonical_mps`'s `CpuMpsEngine` does, up to rounding, so the two are
+compared read by read.
+
+Here the engine's `MpsEngine` methods call the _`SiteAlgebra` methods_
+(`upload`, `read`, `duplicate`, `gate_split`, `qr_move`), which this
+algebra turns into cuTensorNet's tensor calls.
+
+```mermaid
+flowchart LR
+  S["an MPS simulation method"] -->|"MpsEngine methods"| E["CanonicalMpsEngine<br/>(canonical_mps)"]
+  E -->|"SiteAlgebra methods"| A["<b>CudaAlgebra</b>"]
+  A -->|"tensor API"| N["cuTensorNet:<br/>GateSplit, TensorQR,<br/>contraction networks"]
+```
+
+Open an engine on a discovery's `Availability` (Linux x86-64), as the
+example on [`CudaMpsEngine`](src/engine.rs) does:
+`CudaMpsEngine::try_from(&availability)`, at the engine's default cutoff,
+or `CudaMpsEngine::new(CudaAlgebra::new(&availability)?)` to set another.
+
+### The algebra's terms
+
+The contract's methods are synchronous and hand over tensors, while
+cuTensorNet's calls run asynchronously on the GPU, on tensors it knows by
+descriptors, with memory its caller lends. These terms name what the
+algebra keeps to bridge the two:
+
+- **CUDA device:** one GPU, as CUDA numbers them; the algebra runs on
+  device 0 ([`policy.rs`](src/engine/cuda_algebra/policy.rs)), and a
+  process selects another with `CUDA_VISIBLE_DEVICES`.
+- **Device session:** the algebra's device, its stream (the queue the
+  device runs the algebra's work in, in order) and its cuTensorNet handle
+  (the library's context, on which each native object is created), in a
+  [`DeviceSession`](src/engine/device_session.rs). The algebra shares it
+  with its tensors, so it closes after the last of them.
+- **Device tensor:** one site, a device buffer of complex doubles in the
+  contract's layout ([`DeviceTensor`](src/engine/cuda_algebra/device_tensor.rs)).
+  It keeps the session alive, so it may outlive the algebra; only the
+  algebra that made it accepts it.
+- **Workspace:** the memory cuTensorNet asks its caller to lend a call, in
+  four slots (device or host, scratch or cache). The algebra keeps one
+  workspace descriptor and, per slot, one buffer, its
+  [scratch](src/engine/cuda_algebra/scratch.rs), grown to the largest
+  call's and never shrunk.
+- **Prepared contraction network:** a pairwise contraction whose path
+  cuTensorNet has found and prepared, kept per shape
+  ([`contraction.rs`](src/engine/cuda_algebra/contraction.rs)), up to the
+  bound in [`policy.rs`](src/engine/cuda_algebra/policy.rs).
+- **Call scope:** what one method creates (descriptors, SVD settings,
+  intermediate buffers, its outputs), released in one place when it
+  returns ([`call_scope.rs`](src/engine/cuda_algebra/call_scope.rs)).
+- **Poison:** a failed method that cannot even wait for the device leaves
+  nothing to say when the device is done with its buffers, so the algebra
+  is poisoned: every later method returns `CudaAlgebraError::Poisoned`
+  ([`algebra_session.rs`](src/engine/cuda_algebra/algebra_session.rs)).
+
+The settings the algebra fixes, with how each was chosen, are in
+[`policy.rs`](src/engine/cuda_algebra/policy.rs);
+[`cuda_algebra.rs`](src/engine/cuda_algebra.rs) maps its files.
+
+### The algebra's phases
+
+Each `SiteAlgebra` method of this algebra combines some of these phases
+([the table below](#how-each-sitealgebra-method-is-implemented)):
+
+- **bind**: the algebra's device selected (`cudaSetDevice`), since CUDA's
+  current device is per thread.
+- **copy**: values copied to the device, to the host or on the device,
+  then waited for: the copies run on CUDA's legacy default stream, which
+  the algebra's stream does not wait for.
+- **describe**: a descriptor per tensor of the call (its extents and mode
+  labels) and, for a gate split, the SVD's settings and a record of its
+  truncation.
+- **lend**: cuTensorNet sizes the call's workspace, and the algebra lends
+  each slot the call asks memory for its scratch, grown if the call asks
+  for more; a device buffer never grows beyond the device's free memory,
+  and a host slot's growth the allocator refuses fails the call
+  (`CudaAlgebraError::HostAllocationFailed`).
+- **factor**: one `GateSplit` or one `TensorQR`, waited for.
+- **prepare**: for a contraction of a shape the algebra has not kept, a
+  network, its path found, its workspace sized and lent (as in **lend**),
+  and the network prepared for contraction, then kept for later calls of
+  that shape.
+- **contract**: for a network kept from an earlier call, its workspace
+  sized and lent (as in **lend**); then a pairwise contraction on that
+  network, waited for.
+- **release**: the call scope's descriptors, settings and intermediate
+  buffers released.
+
+### How each `SiteAlgebra` method is implemented
+
+This algebra's implementation of each `SiteAlgebra` method runs the
+phases its row names, bind first. Of the engine's arguments, it checks
+only each tensor it reads: that this algebra made it (else
+`CudaAlgebraError::ForeignTensor`, before the bind), since a tensor is
+freed through its own algebra's session, which waits only for that
+algebra's device work; and that it holds the elements the call asks for
+(else `CudaAlgebraError::InvalidNativeCall`, before any native object).
+The engine checks the others before it calls. Each method writes only
+the buffers it allocates and the algebra's own (its scratch, the gate's
+buffer), so its inputs are left unchanged, as the contract asks; an
+allocation that returns an input's buffer, which only a faulty allocator
+would, is refused (`CudaAlgebraError::InvalidNativeResult`).
+Each returns with the device idle, its stream and its copies waited for,
+so the engine may use a tensor at once and the next call may grow the
+scratch.
+
+| `SiteAlgebra` method  | Phases                                                                                                 | How                                                                                                                                                                                                                                                                                                                                                                           | Why                                                                                                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `upload`              | bind; copy                                                                                             | a new device buffer, the host values copied into it                                                                                                                                                                                                                                                                                                                           | the sites live on the device, where they are factored                                                                                                                                            |
+| `read`                | bind; copy                                                                                             | the first `len` elements copied into a host vector, with no copy for none; refused with `CudaAlgebraError::InvalidNativeCall` when the tensor holds fewer                                                                                                                                                                                                                     | the engine contracts the sites a read needs on the host; the check keeps the device from reading memory the tensor does not own                                                                  |
+| `duplicate`           | bind; copy                                                                                             | a new device buffer, the first `len` elements copied into it on the device; refused as `read` is                                                                                                                                                                                                                                                                              | a fork's sites change apart from its parent's, with no round trip through the host                                                                                                               |
+| `gate_split`          | bind; describe; copy (the gate); lend; factor; release                                                 | one `GateSplit`, cuTensorNet's reduced algorithm, with the values normalised and absorbed on the centre's side and the cutoff as a discarded weight, into factors sized by [Numerics](docs/engine.md#numerics); its report checked, a discarded weight rounded just below 0 read as nothing discarded                                                                         | one native call contracts the gate and splits the pair; a reported bond or discarded weight outside the contract's bounds is `CudaAlgebraError::InvalidNativeResult`, never passed to the engine |
+| `qr_move`             | bind; copy, prepare and contract (a one-site gate); describe; lend; factor; prepare; contract; release | the gate, if any, contracted into the site the centre leaves; one `TensorQR` of that site, its small factor contracted into the other site                                                                                                                                                                                                                                    | a QR moves the centre exactly; a network costs a path search and a preparation, and a run's moves repeat their shapes, so each shape's is made once                                              |
+| `Drop` of a tensor    | bind and free; if the algebra is poisoned, kept by the session (no native call)                        | `cudaFree`, or, if the algebra is poisoned, the buffer kept by the session; if the bind fails, the buffer leaked, as its free needs that device; a failed bind or free is not returned, and debug builds write it to stderr                                                                                                                                                   | `Drop` cannot return an error; every method returns with the device idle, so nothing uses the buffer, unless a failed method could not wait for the device                                       |
+| `Drop` of the algebra | bind; release of what it keeps; if poisoned, the device waited for first                               | the networks, the workspace descriptor, the lent memory, the gate's and singular values' buffers released; if poisoned, they are kept by the session, and released with what it kept before only once a wait for the device (its stream and its copies) succeeds; if the bind fails, nothing released (leaked); the device session closes once its last tensor is dropped too | the session's stream and handle are shared with the tensors, which free their own buffers; an unpoisoned algebra's device is idle                                                                |
+
+A method that fails also frees its outputs, once it has waited for the
+device, since the failed work may still write the call's buffers. If that
+wait fails too, nothing says when the device is done with them, with the
+method's inputs, or with the algebra's memory: the algebra is poisoned,
+every later method returns `CudaAlgebraError::Poisoned`, whatever its
+arguments, and a buffer the device may still use is freed only after a
+successful wait for the device, its stream and its copies (when the
+algebra is dropped, or else when its last tensor is); otherwise it is kept
+until one succeeds, or leaked.
+
+## The discovery and loading of the libraries
+
+[`src/discovery.rs`](src/discovery.rs), the crate's entry point, finds, opens
+and checks the libraries a GPU run needs; each library's module in
+[`src/libraries/`](src/libraries) says what the crate needs of it.
+
+**The problem.** cuTensorNet runs on the CUDA Runtime, NVIDIA's library for
+driving a GPU. Both are shared libraries (`libcutensornet.so.2`,
+`libcudart.so.12`) that most QDK users do not have; linking them would make
+every QDK build, and every process that loads the QDK, fail without them.
+
+**How it is solved.** Nothing is linked. When a GPU run is asked for,
+[`discover`](src/discovery.rs) opens the two libraries, looks up by name
+each C function the crate uses (its _symbol_), cuTensorNet's tensor API
+among them, and checks the versions the libraries report. It returns an
+`Availability`, which keeps them loaded and which
+[`CudaAlgebra::new`](src/engine/cuda_algebra.rs) takes, or an
+`AvailabilityError` that says what is missing.
 
 **Why this approach.**
 
-- **Optional by construction.** Building the QDK, loading it and simulating
-  on the CPU need no GPU, no CUDA, no NVIDIA header or library and no linker
-  setting. Off Linux x86-64, the crate still builds, and `discover` reports
-  the platform as unsupported.
-- **Failing early, with every cause.** A missing library, a missing
-  dependency of one, a missing function, or a cuTensorNet or CUDA Runtime
-  version other than the audited one is found before any GPU work, and
-  reported with the path, the function or the version at fault. Every
-  fault of every library is reported at once, so the user fixes an
-  installation in one pass.
-- **One audited surface.** The cuTensorNet functions the MPS engine may call
-  are listed once, as the rows of the cuTensorNet table in
-  [`src/libraries/cutensornet.rs`](src/libraries/cutensornet.rs); the C
-  declarations come from bindgen's output for NVIDIA's header. Each row
-  names its field, its function-pointer type and its symbol once, and the
-  type is checked against the symbol's declaration when the crate compiles.
-- **Open to more libraries.** Each library is one file that says what the
-  crate needs of it; adding one changes no public type, since the report
-  is a list with an entry per library.
-- **Explicit, no global state.** Nothing happens until `discover` is called;
-  the result is a value the caller holds, not a process-wide singleton, so
-  tests and threads choose what they share.
+- **Optional by construction.** The QDK builds, loads and simulates on the
+  CPU with no GPU, no NVIDIA header or library and no linker setting. Off
+  Linux x86-64 the crate still builds, and `discover` reports the platform
+  as unsupported.
+- **Failing early, with every cause.** A missing library, dependency or
+  function, or a version other than the audited one, is found before any
+  GPU work and reported with the path, function or version at fault, for
+  every library at once, so an installation is fixed in one pass.
+- **One audited surface.** The functions the algebra may call are the rows
+  of one table per library, each checked against NVIDIA's header when the
+  crate compiles ([The bindings](docs/loading.md#the-bindings)).
+- **Open to more libraries.** Each library is one module; adding one changes
+  no public type, as the report is a list with an entry per library.
+- **Explicit, no global state.** Nothing happens until `discover` is called,
+  and its result is a value the caller holds, so tests and threads choose
+  what they share.
 
-## The model
+### The model
 
 ```mermaid
 flowchart TD
@@ -73,17 +209,20 @@ flowchart TD
   loader -->|"Err"| error["AvailabilityError: what is missing"]
 ```
 
-What the crate guarantees, by when it holds:
-
-- **When the crate compiles:** each function the crate looks up has the
-  type its declaration has in the bindings generated from the audited
-  headers, and each library is accepted only at the version its header
-  declares.
-- **When `discover` returns:** every fault of every library is reported at
-  once; only the audited versions are accepted; no device was selected, no
-  GPU memory allocated and no GPU work run.
-- **While an `Availability` is held:** the libraries stay loaded, so their
-  functions stay ready to call; it is `Send` and `Sync`.
+- [`discover`](src/discovery.rs) selects no device, allocates no GPU memory
+  and runs no GPU work.
+- [`Availability`](src/discovery.rs) holds each library's functions as typed
+  function pointers, which the algebra calls. It is `Send` and `Sync`, so
+  one discovery serves every thread; an engine, its algebra and its states
+  stay on the thread that created them.
+- Its [`AvailabilityReport`](src/discovery/report.rs) has a
+  [`LibraryReport`](src/libraries/report.rs) per library, in the order they
+  are opened: its name, the path it was opened from, the
+  [`Version`](src/libraries/report.rs)s it reports, and its faults.
+- [`AvailabilityError`](src/discovery/error.rs) is `UnsupportedPlatform` off
+  Linux x86-64, or else `Unusable` with the report, whose
+  [`LibraryFault`](src/libraries/report.rs)s name the variable, path,
+  function or version at fault.
 
 Copied from [`tests/availability.rs`](tests/availability.rs), which runs on a
 host with the libraries installed:
@@ -102,83 +241,9 @@ assert_eq!(cuda_runtime.version("CUDA Runtime"), Some(12_090));
 println!("{report:#?}");
 ```
 
-## From a library to an `Availability`
-
-Discovery is the same for every library, and knows none of them. Each
-library's module, [`src/libraries/cutensornet.rs`](src/libraries/cutensornet.rs)
-and [`src/libraries/cuda_runtime.rs`](src/libraries/cuda_runtime.rs), says
-what the crate needs of it, as its [`NativeLibrary`](src/libraries.rs): its
-name, its override variable and default paths, the table of its functions
-([`FunctionTable`](src/libraries/function_table.rs)), and how its versions
-are read and which are accepted. One list,
-[`LoadedLibraries`](src/libraries.rs), says which libraries a GPU run needs;
-it opens every library before it requires any. The map at the top of
-[`src/libraries.rs`](src/libraries.rs) shows the steps from one to the
-other.
-
-A library's life, from discovery to the `Availability` that keeps it:
-
-```mermaid
-stateDiagram-v2
-  direction LR
-  [*] --> Located: its override path, or its default paths
-  Located --> Open: loaded by the system loader
-  Open --> Bound: functions looked up, versions checked
-  Bound --> Loaded: every library bound
-  Loaded --> Closed: the Availability dropped
-  Located --> Faulted: no file to load, or it fails to load
-  Open --> Faulted: a function missing, or a version refused
-  Bound --> Closed: another library at fault
-  Faulted --> [*]: recorded in its report, closed if open
-  Closed --> [*]
-```
-
-A loaded library stays open while the `Availability` lives, and is closed
-with it.
-
-## The steps of discovery
-
-The CUDA Runtime, and then cuTensorNet, goes through the same steps: read
-its override variable, open it, look up its functions, and read and check
-its versions. Each step records its faults in the library's report:
-
-- reading the variable and opening: `InvalidOverride` (an override that is
-  not an absolute path to a file, or cannot be read), `NotFound` or
-  `LoadFailed`. These leave nothing more to check of that library;
-- looking up: `MissingRequiredSymbol`, one per missing function;
-- the versions: `VersionProbeFailed` or `UnsupportedVersion`, one per
-  version. Each function that reads one is looked up on its own, so each
-  version is read even when other functions, another version's included,
-  are missing, as a wrong version is the usual cause.
-
-If any library has a fault, discovery returns `Unusable` with the report and
-closes the libraries it opened. Looking a function up stores its address; it
-does not call it.
-
-```mermaid
-sequenceDiagram
-  participant C as Caller
-  participant D as discover
-  participant R as CUDA Runtime
-  participant N as cuTensorNet
-  C->>D: discover()
-  D-->>C: UnsupportedPlatform, off Linux x86-64
-  D->>R: read QDK_CUDART_LIBRARY, open
-  D->>R: look up its functions
-  D->>R: cudaRuntimeGetVersion, cudaDriverGetVersion
-  D->>N: read QDK_CUTENSORNET_LIBRARY, open
-  D->>N: look up its functions
-  D->>N: cutensornetGetVersion, cutensornetGetCudartVersion
-  D-->>C: Unusable, with every library's faults
-  D->>C: Availability, if no library has a fault
-```
-
-A library is opened with `RTLD_NOW | RTLD_LOCAL`, the flags of the system
-loader (`dlopen`). A library whose own dependencies are missing fails to
-open in any mode; `RTLD_NOW` also binds, when the library is opened, every
-symbol it imports from them, so that one they lack fails discovery rather
-than a later call; `RTLD_LOCAL` keeps the library's symbols out of the rest
-of the process.
+[`docs/loading.md`](docs/loading.md) shows how discovery turns each library
+into an `Availability`, the steps it takes and the faults each one finds,
+and how the bindings are made and checked.
 
 ### Where the libraries are looked for
 
@@ -187,15 +252,14 @@ of the process.
 | cuTensorNet  | `QDK_CUTENSORNET_LIBRARY` | `/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2`, then `libcutensornet.so.2` |
 | CUDA Runtime | `QDK_CUDART_LIBRARY`      | `/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12`, then `libcudart.so.12`     |
 
-An override must be an absolute path to a file, or to a symlink to one.
-When set, it is the only path tried, so a wrong setting fails instead of
-loading another installation. A default absolute path that does not exist is
-skipped; a bare file name is searched for by the system loader on its usual
-search path, and skipped when the loader reports no file of that name
-(glibc reports so too when its search found only files of that name it
-could not use, such as another machine's). A library that is found but fails
-to load, for instance because a library it needs is missing, fails
-discovery.
+An override must be an absolute path to a file, or to a symlink to one, and
+is then the only path tried, so a wrong setting fails instead of loading
+another installation. A default path is skipped when there is no file
+there; a bare file name is searched for on the system loader's usual path,
+and skipped when the loader reports no file of that name (glibc reports so
+too when its search found only files of that name it could not use, such as
+another machine's). A library that is found but fails to load, for instance
+for a missing dependency, fails discovery.
 
 ### Versions
 
@@ -209,23 +273,40 @@ component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
 
 ## Tests
 
-The crate's [unit tests](src/tests) drive each way discovery fails, on any
-Unix host and without NVIDIA's libraries: missing and refused libraries,
-missing functions, failed version probes, refused versions, and bad override
-variables, each reported with the others. On a host with the audited
-libraries, [`tests/availability.rs`](tests/availability.rs) discovers them.
+The [engine's tests](src/tests/engine.rs) run in CI, without a GPU, on
+[fake libraries](src/engine/native_calls/fake_libraries.rs) that enforce
+cuTensorNet's call order and its rules on streams and copies; the fake
+libraries' [own tests](src/tests/engine/native_calls/fake_libraries.rs) pin
+how they simulate cuTensorNet's tensor API. On them, the
+[CUDA algebra's tests](src/tests/engine/cuda_algebra.rs) run
+`canonical_mps`'s conformance kit, and check the algebra's release of every
+native object, its scratch, its failures and its refusals.
+[`tests/cuda_algebra_on_the_gpu.rs`](tests/cuda_algebra_on_the_gpu.rs) runs
+the kit and `canonical_mps`'s engine circuits on a GPU, with the real
+libraries, and the fake libraries' tests include the cases they also run
+on a GPU; these tests are ignored unless asked for (`--ignored`), as they
+need a GPU. The [unit tests](src/tests) drive each way discovery fails
+without NVIDIA's libraries, and
+[`tests/availability.rs`](tests/availability.rs) discovers the audited
+libraries where they are installed.
 
 ## Platforms
 
 What the crate requires is checked when it runs; where it has run is listed
 apart. Anything else is expected to work, but not verified.
 
-| Requirement   | Checked by                                              | Verified on                                                                                      |
-| ------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere             | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
-| The libraries | `discover`: the exact versions of [Versions](#versions) | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
-| A CUDA driver | not checked: its version is reported only               | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
+| Requirement   | Checked by                                                   | Verified on                                                                                      |
+| ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                  | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
+| The libraries | `discover`: the exact versions of [Versions](#versions)      | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
+| A CUDA driver | not checked: its version is reported only                    | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
+| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one | an A100 80GB (below)                                                                             |
 
+- **Verified on an A100 80GB:** `CudaMpsEngine` agrees with
+  `canonical_mps`'s `CpuMpsEngine` on the phase estimation of H₂ and of a
+  polyene, and on a state preparation; the algebra's split and move, and
+  the engine on it, pass NVIDIA's `compute-sanitizer` memcheck, with its
+  leak check, and synccheck without error.
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the
   default paths are those of NVIDIA's apt packages).
@@ -236,55 +317,3 @@ apart. Anything else is expected to work, but not verified.
 The bindings generator has requirements of its own (Ubuntu 22.04's
 libclang), which
 [`scripts/generate_bindings.py`](scripts/generate_bindings.py) states.
-
-## The bindings
-
-_Bindings_ are the Rust declarations of the C functions, types and constants;
-they must match the C library's ABI (application binary interface: the sizes
-and layouts of its types, and its calling convention) exactly, as a wrong one
-is undefined behaviour when called, not a compile error. So they are
-generated from NVIDIA's headers, never written by hand, and the crate is
-checked against them:
-
-- **Generated from pinned inputs.**
-  [`scripts/generate_bindings.py`](scripts/generate_bindings.py) runs bindgen
-  on each library's header and keeps the library's whole API: every
-  function, type and constant whose name has the library's prefix, and the
-  types they reach. Its inputs are pinned, so that anyone can reproduce the
-  checked-in files:
-  [`scripts/generate_bindings.toml`](scripts/generate_bindings.toml) pins the
-  tools and NVIDIA's archives, which every library shares, and each
-  library's folder has a `bindings.toml` that says what its bindings are made
-  of (its header, the archives searched for it, its prefix, the file
-  written), as
-  [`src/libraries/cutensornet/bindings.toml`](src/libraries/cutensornet/bindings.toml).
-  The script binds every library that has one.
-- **In a `generated/` folder beside the library they declare:**
-  [`src/libraries/cutensornet/generated/v2_13.rs`](src/libraries/cutensornet/generated/v2_13.rs)
-  and
-  [`src/libraries/cuda_runtime/generated/cudart_12.rs`](src/libraries/cuda_runtime/generated/cudart_12.rs).
-  These folders hold only the script's output, which is not edited or
-  reviewed by hand; [`.gitattributes`](.gitattributes) marks them as
-  generated, so that GitHub hides them in a pull request's diff. The CUDA
-  Runtime's bindings declare CUDA's stream type, and cuTensorNet's import
-  it, so that a stream the one creates passes to the other unchanged.
-- **Checked when the crate compiles, and by its tests.** A library's
-  function table is the list of the functions the crate uses. Each row
-  names its symbol, and its function-pointer type is checked against the
-  symbol's declaration in the bindings, so each field has its symbol's
-  type; the tests check that each field is named for its symbol and that no
-  symbol is held twice, which catches two functions of one signature
-  swapped or repeated. The version each library is accepted at is asserted
-  to be the version its header declares.
-
-To bind another function of a bound release, add its row (its field,
-named for its symbol, and its function-pointer type) to its library's
-module in [`src/libraries/`](src/libraries): the bindings already declare it.
-To bind another library, follow the steps at the top of
-[`src/libraries.rs`](src/libraries.rs). The script runs once per release of
-a library; its documentation, at the top of
-[`scripts/generate_bindings.py`](scripts/generate_bindings.py), says how to
-run it and how to audit a new release.
-
-NVIDIA's headers, archives and libraries are not stored in this repository;
-their terms are those of the licenses distributed with NVIDIA's archives.
