@@ -28,13 +28,15 @@ flowchart TD
 - [`NativeLibrary`](../src/libraries.rs) is implemented once per library, in
   its module ([`cutensornet.rs`](../src/libraries/cutensornet.rs),
   [`cuda_runtime.rs`](../src/libraries/cuda_runtime.rs)): its name, override
-  variable and default paths, its [`FunctionTable`](../src/libraries/function_table.rs),
-  and how its versions are read and which are accepted. cuTensorNet's table
-  holds the functions the crate may call: its handle's, its versions' and
-  error strings', its workspaces', its tensor descriptors', its
-  decompositions' (SVD settings and reports, `GateSplit`, `TensorQR`) and its
-  contraction networks'; each is required but `cutensornetGetLastError`,
-  which only adds detail to an error message.
+  variable, file name (which picks its file among the packaged ones) and
+  default paths, its [`FunctionTable`](../src/libraries/function_table.rs), how its
+  versions are read and which are accepted, and what the GPU setup check
+  says of it. cuTensorNet's table
+  holds the functions the CUDA algebra calls: its handle's and its
+  workspaces', and those of its tensor API (tensor descriptors, SVD
+  settings and reports, `GateSplit`, `TensorQR` and contraction networks);
+  each is required but `cutensornetGetLastError`, which only adds detail to
+  an error message.
 - [`CheckLibrary`](../src/libraries.rs) is a trait so that what discovery
   concludes from the checks is tested without library files.
 - [`LoadedLibraries`](../src/libraries.rs) is the one list of the libraries a
@@ -46,7 +48,7 @@ A library's life, from discovery to the last algebra or tensor that uses it:
 ```mermaid
 stateDiagram-v2
   direction TB
-  [*] --> Located: its override path, or its default paths
+  [*] --> Located: its override path, or its packaged file and default paths
   Located --> Open: loaded by the system loader
   Open --> Bound: functions looked up, versions checked
   Bound --> Loaded: every library bound
@@ -68,8 +70,11 @@ The CUDA Runtime, then cuTensorNet, goes through the steps below, each
 library whatever the other's faults, and each fault is recorded in the
 library's report:
 
-- reading its override variable and opening it: `InvalidOverride`,
-  `NotFound` or `LoadFailed`, which end that library's checks;
+- reading its override variable and opening it, or else its packaged
+  file or default paths: `InvalidOverride`, `NotFound` or `LoadFailed`,
+  which end that library's checks; once it is open, the other copies of it
+  at those paths are recorded in its report, for the GPU setup check's
+  warnings;
 - looking up its functions: `MissingRequiredSymbol`, one per missing
   function;
 - its versions: `VersionProbeFailed` or `UnsupportedVersion`, one per

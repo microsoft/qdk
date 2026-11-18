@@ -18,6 +18,7 @@
 
 mod discovery;
 mod engine;
+mod gpu_setup;
 mod libraries;
 #[cfg(unix)]
 mod stand_ins;

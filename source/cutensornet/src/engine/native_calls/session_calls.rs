@@ -1,15 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The CUDA and cuTensorNet calls that open and close a session on a
-//! device: select the device, and create, synchronize and release its
-//! stream and its cuTensorNet handle.
+//! The CUDA and cuTensorNet calls that open and close the algebra's
+//! session: count and select the devices and read one's compute capability,
+//! and create, synchronize and release its stream and its cuTensorNet
+//! handle.
 
 use super::{OpaqueHandle, Stream};
 use crate::engine::CudaAlgebraError;
 
-/// The calls that select a CUDA device and own a session on it: CUDA's
-/// device selection and stream, and cuTensorNet's handle.
+/// The native calls a `DeviceSession` makes: CUDA's device selection and
+/// stream, and cuTensorNet's handle; and the CUDA reads of a device's
+/// properties.
 ///
 /// An implementation is shared between threads; the streams and handles it
 /// creates are not, so a caller keeps each on the thread that created it.
@@ -24,6 +26,8 @@ pub(crate) trait SessionCalls: Send + Sync {
     /// Makes device `ordinal` the calling thread's current device
     /// (`cudaSetDevice`), which every later call on this thread runs on.
     fn set_device(&self, ordinal: i32) -> Result<(), CudaAlgebraError>;
+    /// The (major, minor) compute capability of device `ordinal`.
+    fn compute_capability(&self, ordinal: i32) -> Result<(i32, i32), CudaAlgebraError>;
     /// A new non-blocking stream on the current device
     /// (`cudaStreamCreateWithFlags`), the queue the session's work runs in.
     fn create_stream(&self) -> Result<Stream, CudaAlgebraError>;

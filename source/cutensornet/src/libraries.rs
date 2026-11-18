@@ -5,8 +5,9 @@
 //!
 //! Each library has its own module, which holds everything the crate assumes
 //! of it, as its implementation of `NativeLibrary`, so a reader finds a
-//! library's settings in one place. This module holds what the libraries
-//! share: the way from one library to the set a GPU run needs.
+//! library's settings in one place, with what the setup check tells a user
+//! about it (its `SetupGuide`, in `setup_guide`). This module holds what the
+//! libraries share: the way from one library to the set a GPU run needs.
 //!
 //! ```text
 //! NativeLibrary     one library, as the crate needs it (one module per
@@ -23,33 +24,47 @@
 //! ```
 //!
 //! `open` checks a library from this machine's files: the paths to try (its
-//! override variable's, or its default paths), the file loaded (`loader`),
-//! its functions looked up (`function_table`), and its versions probed.
+//! override variable's, or else the file of its name among the
+//! `PackagedLibraries` the caller found, then its default paths), the file
+//! loaded (`loader`), its functions looked up (`function_table`), its
+//! versions probed, and the other copies of it visible beside the one
+//! loaded.
+//! `LoadedLibraries` also lists the libraries' setup guides
+//! (`SETUP_GUIDES`, checked against what it opens).
+//! The MPS engine and the setup check call the loaded libraries through
+//! their tables.
 //!
 //! To bind another library:
 //!
-//! 1. generate its bindings, the Rust declarations of its API, from its
-//!    header with `scripts/generate_bindings.py`. A `bindings.toml` in its
-//!    module's folder says what they are made of; the script writes them to
-//!    the `generated/` folder beside it (as the CUDA Runtime's `cudart_12`
-//!    and cuTensorNet's `v2_13`). Assert at compile time the layout of each
-//!    struct a bound function takes by value (no function bound today takes
-//!    one);
-//! 2. add its module here. Its type implements `NativeLibrary`: its name,
-//!    override variable and default paths, its table (`function_table!`,
-//!    one field per symbol, named for it, each type in its family's file, as
-//!    the CUDA Runtime's `device.rs`), and its accepted versions, asserted at
-//!    compile time against its header where the header declares one;
-//! 3. add its field to `LoadedLibraries`, and open it in
-//!    `LoadedLibraries::open` after the libraries it runs on, so that each
-//!    of those is listed before it in the report;
-//! 4. test its versions, and its tables with the naming rule
-//!    (`assert_each_field_is_named_for_its_symbol`), in its file under
-//!    `src/tests/libraries/`; add its variable, paths and versions to the
-//!    README.
+//! 1. generate its bindings, the Rust declarations of its API, with
+//!    `scripts/generate_bindings.py` from the library's header, into the
+//!    `generated/` folder of its module's folder (as the CUDA Runtime's
+//!    `cudart_12` and cuTensorNet's `v2_13`): a `bindings.toml` in its
+//!    module's folder, which says what they are made of, makes the script
+//!    bind it; and assert at compile time the layout of each struct a bound
+//!    function takes by value (no function bound today takes one);
+//! 2. add its module here, whose type implements `NativeLibrary`: its name,
+//!    override variable, file name and default paths, its table of
+//!    functions (`function_table!`, each field named for its symbol), how
+//!    its versions are read and which are accepted, asserted at compile time
+//!    to be the version its header declares, where the header declares one,
+//!    and what the setup check shows of it and advises;
+//! 3. add its field to `LoadedLibraries`, open it in `LoadedLibraries::open`
+//!    after the libraries it runs on, so that each of those is listed before
+//!    it in the report, and add its guide to `LoadedLibraries::SETUP_GUIDES`
+//!    in field order;
+//! 4. test its versions in `tests/libraries/`, and its tables there with the
+//!    naming rule (`assert_each_field_is_named_for_its_symbol`) and in the
+//!    case list of `function_table`'s tests; add its variable, paths and
+//!    versions to the README.
 //!
-//! Discovery and the public report, a list with one entry per library, do
-//! not change.
+//! Discovery, `PackagedLibraries` and the public report, a list with one
+//! entry per library, do not change: adding a library changes no public
+//! type.
+//!
+//! Only the audited versions are accepted: the bindings were checked against
+//! them, and a newer library is not assumed compatible, so any other version
+//! fails discovery before a function is called beyond the version probes.
 
 pub(crate) mod cuda_runtime;
 pub(crate) mod cutensornet;
@@ -58,6 +73,7 @@ pub(crate) mod function_table;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod loader;
 pub(crate) mod report;
+pub(crate) mod setup_guide;
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use function_table::{FunctionTable, SymbolResolver};
@@ -67,8 +83,13 @@ use loader::{OpenLibraryFile, load_library};
 use report::LibraryFault;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use report::{LibraryReport, Version};
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use setup_guide::SetupGuide;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use std::path::Path;
+use std::path::PathBuf;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
-use std::{ffi::OsString, io::ErrorKind, path::PathBuf};
+use std::{ffi::OsString, io::ErrorKind};
 
 /// The loaded libraries, each with its function table.
 ///
@@ -99,6 +120,35 @@ impl LoadedLibraries {
             cuda_runtime: cuda_runtime?,
         })
     }
+
+    /// What the setup check tells a user about each library, in field
+    /// order: so it lists cuTensorNet, then the CUDA Runtime it runs on.
+    pub(crate) const SETUP_GUIDES: [SetupGuide; 2] = [
+        SetupGuide::of::<cutensornet::CuTensorNet>(),
+        SetupGuide::of::<cuda_runtime::CudaRuntime>(),
+    ];
+}
+
+/// The library files a package manager installed, for
+/// [`discover_with`](crate::discover_with), and the command that installs
+/// them.
+///
+/// A package manager may install the libraries where no default path
+/// reaches: NVIDIA's Python wheels (`cutensornet-cu12`,
+/// `nvidia-cuda-runtime-cu12`) put them inside a Python environment, which
+/// only a caller that reads the environment can find. Each file is tried,
+/// before the default paths, for the library of its file name
+/// (`libcutensornet.so.2`, `libcudart.so.12`); a file of another name is
+/// not tried. `Default` is no file and no command, which is what
+/// [`discover`](crate::discover) uses.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PackagedLibraries {
+    /// The absolute paths of the library files installed, in any order.
+    pub files: Vec<PathBuf>,
+    /// The command that installs the libraries, which the setup check's
+    /// advice gives as an example, for instance
+    /// `pip install "qdk[tensornetwork]"`; `None` gives no command.
+    pub install_command: Option<String>,
 }
 
 /// One native library: where it is looked for, the table of its functions,
@@ -112,10 +162,32 @@ pub(crate) trait NativeLibrary {
     const NAME: &'static str;
     /// The variable that, when set, names the one path to load.
     const VARIABLE: &'static str;
-    /// The paths tried, in order, when the variable is not set.
+    /// The name of its file, for instance `libcudart.so.12`: a packaged file
+    /// of this name is tried for it, and the last default path is this name,
+    /// for the system loader to search for.
+    const FILE_NAME: &'static str;
+    /// The paths tried, in order, when the variable is not set, after its
+    /// packaged file, if any.
     const DEFAULTS: &'static [&'static str];
+    /// What the setup check advises installing, for instance
+    /// `cuTensorNet 2.13`: the library at its audited version.
+    const INSTALL: &'static str;
+    /// What the setup check advises when a call that reads one of its
+    /// versions fails; `None` when no such call can fail, and the check
+    /// advises the install.
+    const VERSION_PROBE_ADVICE: Option<&'static str> = None;
     /// The table of the functions looked up in it.
     type Functions: FunctionTable;
+
+    /// Its file among the `packaged` ones, the first whose file name is
+    /// `FILE_NAME`, tried before the defaults when the variable is not set.
+    fn packaged(packaged: &PackagedLibraries) -> Option<&Path> {
+        packaged
+            .files
+            .iter()
+            .map(PathBuf::as_path)
+            .find(|file| file.file_name() == Some(Self::FILE_NAME.as_ref()))
+    }
 
     /// Reads the library's versions through `resolver` and checks them.
     ///
@@ -125,6 +197,17 @@ pub(crate) trait NativeLibrary {
     /// lacks them. A version whose functions are missing is not read; the
     /// table reports them.
     fn probe_versions<R: SymbolResolver>(resolver: &R) -> ProbedVersions;
+
+    /// What the setup check shows of the library once every library is
+    /// usable, one line per item: where it was loaded from and its
+    /// versions.
+    fn describe(report: &LibraryReport) -> Vec<String>;
+
+    /// A problem of the host that the usable library's report reveals, in
+    /// words for the user with its fix: none by default.
+    fn host_problem(_report: &LibraryReport) -> Option<String> {
+        None
+    }
 }
 
 /// An open library with the table of its functions.
@@ -185,33 +268,42 @@ pub(crate) trait CheckLibrary {
 }
 
 /// The libraries installed on this machine, each opened and checked by
-/// `open`, with the override variables read by the function it holds.
+/// `open`, with the override variables read by `read_variable` and the
+/// packaged files `packaged`.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) struct InstalledLibraries<F>(pub(crate) F);
+pub(crate) struct InstalledLibraries<'a, F> {
+    pub(crate) read_variable: F,
+    pub(crate) packaged: &'a PackagedLibraries,
+}
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-impl<F: Fn(&'static str) -> Option<OsString>> CheckLibrary for InstalledLibraries<F> {
+impl<F: Fn(&'static str) -> Option<OsString>> CheckLibrary for InstalledLibraries<'_, F> {
     fn check<L: NativeLibrary>(&self) -> Checked<L> {
-        open::<L>(&self.0)
+        open::<L>(&self.read_variable, self.packaged)
     }
 }
 
 /// Opens `L` and checks it.
 ///
-/// The override comes from `read_variable`. A fault before the library is
-/// open (its override, or no file to load) is its only fault; once it is
-/// open, every missing function and every version fault is reported.
+/// The override comes from `read_variable`, and the packaged file from
+/// `packaged`. A fault before the library is open (its override, or no file
+/// to load) is its only fault; once it is open, every missing function and
+/// every version fault is reported, with the other copies of the library
+/// visible beside it.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn open<L: NativeLibrary>(
     read_variable: impl Fn(&'static str) -> Option<OsString>,
+    packaged: &PackagedLibraries,
 ) -> Checked<L> {
     let mut report = LibraryReport {
         library: L::NAME,
         path: None,
         versions: Vec::new(),
         faults: Vec::new(),
+        other_copies: Vec::new(),
+        loaded_from_override: false,
     };
-    let library = match candidates::<L>(read_variable).and_then(load_library) {
+    let library = match candidates::<L>(&read_variable, packaged).and_then(load_library) {
         Ok(library) => library,
         Err(fault) => {
             report.faults.push(fault);
@@ -219,6 +311,10 @@ pub(crate) fn open<L: NativeLibrary>(
         }
     };
     report.path = Some(library.path().to_path_buf());
+    // A set override is the only candidate, so a library loaded while it is
+    // set was loaded from it.
+    report.loaded_from_override = read_variable(L::VARIABLE).is_some();
+    report.other_copies = other_copies::<L>(library.path(), &read_variable, packaged);
     let functions = inspect::<L, _>(&library, &mut report);
     let bound = functions.map(|functions| BoundLibrary { functions, library });
     (report, bound)
@@ -241,17 +337,57 @@ pub(crate) fn inspect<L: NativeLibrary, R: SymbolResolver>(
 }
 
 /// The paths to try for `L`: the override that `read_variable` gives for its
-/// variable, alone, or else its default paths.
+/// variable, alone; or else its file in `packaged`, if any, then its default
+/// paths.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn candidates<L: NativeLibrary>(
     read_variable: impl Fn(&'static str) -> Option<OsString>,
+    packaged: &PackagedLibraries,
 ) -> Result<Vec<PathBuf>, LibraryFault> {
     Ok(
         match validate_override_path(L::VARIABLE, read_variable(L::VARIABLE))? {
             Some(path) => vec![path],
-            None => L::DEFAULTS.iter().map(PathBuf::from).collect(),
+            None => L::packaged(packaged)
+                .into_iter()
+                .map(Path::to_path_buf)
+                .chain(L::DEFAULTS.iter().map(PathBuf::from))
+                .collect(),
         },
     )
+}
+
+/// The other copies of `L` the setup makes visible beside `loaded`: the
+/// files among its override, its file in `packaged` and its default
+/// absolute paths that exist and are not `loaded` (links followed), each
+/// once, in that order. A bare file name the system loader searches for is
+/// not looked at.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) fn other_copies<L: NativeLibrary>(
+    loaded: &Path,
+    read_variable: impl Fn(&'static str) -> Option<OsString>,
+    packaged: &PackagedLibraries,
+) -> Vec<PathBuf> {
+    let loaded = loaded.canonicalize().ok();
+    let mut seen = Vec::new();
+    let mut copies = Vec::new();
+    let paths = read_variable(L::VARIABLE)
+        .map(PathBuf::from)
+        .into_iter()
+        .chain(L::packaged(packaged).map(Path::to_path_buf))
+        .chain(L::DEFAULTS.iter().map(PathBuf::from));
+    for path in paths {
+        if !path.is_absolute() || !path.is_file() {
+            continue;
+        }
+        let Ok(real) = path.canonicalize() else {
+            continue;
+        };
+        if loaded.as_ref() != Some(&real) && !seen.contains(&real) {
+            seen.push(real);
+            copies.push(path);
+        }
+    }
+    copies
 }
 
 /// The path an override variable names, if it is set.

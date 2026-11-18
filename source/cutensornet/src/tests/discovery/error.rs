@@ -18,13 +18,24 @@ fn message_of(cuda_faults: Vec<LibraryFault>, cutensornet_faults: Vec<LibraryFau
                 library: "CUDA Runtime",
                 path: Some(PathBuf::from(CUDA_PATH)),
                 versions: Vec::new(),
-                faults: cuda_faults,
+                faults: vec![
+                    LibraryFault::MissingRequiredSymbol {
+                        symbol: "cudaMalloc",
+                    },
+                    LibraryFault::MissingRequiredSymbol {
+                        symbol: "cudaStreamCreateWithFlags",
+                    },
+                ],
+                other_copies: Vec::new(),
+                loaded_from_override: false,
             },
             LibraryReport {
                 library: "cuTensorNet",
                 path: Some(PathBuf::from(CUTENSORNET_PATH)),
                 versions: Vec::new(),
-                faults: cutensornet_faults,
+                faults: Vec::new(),
+                other_copies: Vec::new(),
+                loaded_from_override: false,
             },
         ],
     };
@@ -108,6 +119,8 @@ fn a_library_not_opened_is_named_without_a_path() {
             faults: vec![LibraryFault::NotFound {
                 attempted: vec![PathBuf::from("libcudart.so.12")],
             }],
+            other_copies: Vec::new(),
+            loaded_from_override: false,
         }],
     };
     let message = AvailabilityError::Unusable(report).to_string();

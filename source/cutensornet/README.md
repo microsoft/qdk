@@ -1,4 +1,4 @@
-# cuTensorNet for the QDK: the MPS engine, and the discovery and loading of its libraries
+# cuTensorNet for the QDK: the MPS engine, the discovery and loading of its libraries, and the GPU setup check
 
 The `qdk_cutensornet` crate was designed to solve the problem of running
 the QDK's tensor-network simulations, the MPS (matrix product state)
@@ -48,6 +48,9 @@ Today the crate holds:
   [`Version`](src/libraries/report.rs)s it reports; and
   [`AvailabilityError`](src/discovery/error.rs), with the
   [`LibraryFault`](src/libraries/report.rs)s it lists.
+- **[The GPU setup check](#the-gpu-setup-check):** for a user setting the
+  GPU up, [`GpuSetup::check`](src/gpu_setup.rs) runs the same discovery,
+  reads the CUDA devices, makes one trial run, and says what to fix.
 
 The extension point is an MPS simulation method: written once against
 `tensornet::MpsEngine`, it runs unchanged on this engine, on the GPU, as on
@@ -254,7 +257,9 @@ them loaded, or an `AvailabilityError` that says what is missing.
   of one table per library, each checked against NVIDIA's header when the
   crate compiles ([The bindings](docs/loading.md#the-bindings)).
 - **Open to more libraries.** Each library is one module; adding one changes
-  no public type, as the report is a list with an entry per library.
+  no public type, as the report is a list with an entry per library, and a
+  package manager's files are a list, matched to each library by its file
+  name.
 - **Explicit, no global state.** Nothing happens until `discover` is called,
   and its result is a value the caller holds, so tests and threads choose
   what they share.
@@ -271,6 +276,11 @@ flowchart TD
 
 - [`discover`](src/discovery.rs) selects no device, allocates no GPU memory
   and runs no GPU work.
+- [`discover_with`](src/discovery.rs) is `discover` also given the
+  [`PackagedLibraries`](src/libraries.rs): the library files a package
+  manager installed where no default path reaches (NVIDIA's pip wheels, for
+  the QDK's Python package), and the command that installs them, which the
+  setup check advises. `discover` gives none.
 - [`Availability`](src/discovery.rs) holds each library's functions as typed
   function pointers, which the algebra calls. It is `Send` and `Sync`, so
   one discovery serves every thread; an engine, its algebra and its states
@@ -278,7 +288,9 @@ flowchart TD
 - Its [`AvailabilityReport`](src/discovery/report.rs) has a
   [`LibraryReport`](src/libraries/report.rs) per library, in the order they
   are opened: its name, the path it was opened from, the
-  [`Version`](src/libraries/report.rs)s it reports, and its faults.
+  [`Version`](src/libraries/report.rs)s it reports, its faults, the other
+  copies of it visible beside the one loaded, and whether it was loaded
+  from its override.
 - [`AvailabilityError`](src/discovery/error.rs) is `UnsupportedPlatform` off
   Linux x86-64, or else `Unusable` with the report, whose
   [`LibraryFault`](src/libraries/report.rs)s name the variable, path,
@@ -312,30 +324,60 @@ and how the bindings are made and checked.
 
 ### Where the libraries are looked for
 
-| Library      | Override variable         | Default paths, in order                                                                     |
-| ------------ | ------------------------- | ------------------------------------------------------------------------------------------- |
-| cuTensorNet  | `QDK_CUTENSORNET_LIBRARY` | `/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2`, then `libcutensornet.so.2` |
-| CUDA Runtime | `QDK_CUDART_LIBRARY`      | `/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12`, then `libcudart.so.12`     |
+| Library      | Override variable         | Packaged file         | Default paths, in order                                                                     |
+| ------------ | ------------------------- | --------------------- | ------------------------------------------------------------------------------------------- |
+| cuTensorNet  | `QDK_CUTENSORNET_LIBRARY` | `libcutensornet.so.2` | `/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2`, then `libcutensornet.so.2` |
+| CUDA Runtime | `QDK_CUDART_LIBRARY`      | `libcudart.so.12`     | `/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12`, then `libcudart.so.12`     |
 
 An override must be an absolute path to a file, or to a symlink to one, and
 is then the only path tried, so a wrong setting fails instead of loading
-another installation. A default path is skipped when there is no file
-there, or none the process can see (a symlink loop, or a directory it cannot
-search); a bare file name is searched for on the system loader's usual path,
-and skipped when the loader reports no file of that name (glibc reports so
-too when its search found only files of that name it could not use, such as
-another machine's). A library that is found but fails to load, for instance
-for a missing dependency, fails discovery.
+another installation. Without one, the first of the
+[`PackagedLibraries`](src/libraries.rs) files with the library's file name,
+when `discover_with` is given one, is tried before the default paths. A
+packaged or default path is skipped when there is no file there; a bare
+file name is searched for on the system loader's usual path, and skipped
+when the loader reports no file of that name (glibc reports so too when its
+search found only files of that name it could not use, such as another
+machine's). A library that is found but fails to load, for instance for a
+missing dependency, fails discovery.
 
 ### Versions
 
 Discovery accepts exactly the versions the bindings were audited against:
 cuTensorNet 2.13.0 (reported as `21300`), the CUDA Runtime 12.9 (`12090`), and
 a cuTensorNet built against the CUDA Runtime 12.9. A newer release is not
-assumed compatible. The CUDA driver's version is reported for diagnostics
-only. A [`LibraryReport`](src/libraries/report.rs) names each version by its
-component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
-`cuTensorNet` and `cuTensorNet's CUDA Runtime` in cuTensorNet's.
+assumed compatible. Discovery reports the CUDA driver's version without
+checking it; [the GPU setup check](#the-gpu-setup-check) finds a driver
+that supports no CUDA 12. A [`LibraryReport`](src/libraries/report.rs)
+names each version by its component: `CUDA Runtime` and `CUDA driver` in
+the CUDA Runtime's, `cuTensorNet` and `cuTensorNet's CUDA Runtime` in
+cuTensorNet's.
+
+## The GPU setup check
+
+[`GpuSetup::check`](src/gpu_setup.rs) is what a user runs while setting the
+GPU up, often without knowing CUDA. It never fails: the
+[`GpuSetup`](src/gpu_setup.rs) it returns lists what each step below found,
+warns of other copies of a library, and says what to fix for the first
+problem met, looked for in the order of the steps. A caller shows it on
+request, and its text with the error of a GPU run that cannot start.
+
+The check reports the GPUs in CUDA's terms, which a user who does not know
+CUDA meets first here; a **CUDA device** is defined with
+[the algebra's terms](#the-algebras-terms).
+
+- **Compute capability:** NVIDIA's version of a GPU's architecture,
+  major.minor, such as 8.0 for an A100; it says which GPUs a library
+  supports.
+- **Trial run:** the smallest GPU run of the engine, made by the check to
+  find a device the engine cannot use before the user's first run does.
+
+| Step                                                                                       | How                                                                                                                                                                                                                                         | Why                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **The libraries** ([`discovery.rs`](src/discovery.rs), [`libraries.rs`](src/libraries.rs)) | `discover_with`, given the caller's `PackagedLibraries`; each library's report also lists the other copies of it at its override, packaged file and default paths; a fault is advised with the packager's install command, when it gave one | the check loads what a GPU run would load; another copy leaves the setup ready but is warned of, as it may be of another version, or hold a dependency the loaded copy picks up |
+| **The host** ([`libraries/cuda_runtime.rs`](src/libraries/cuda_runtime.rs))                | each library reads its own report for a problem of the host: today the CUDA Runtime's, a driver that supports no CUDA 12                                                                                                                    | what a library needs of the host is the library's to say, so a library bound later brings its own check                                                                         |
+| **The devices** ([`gpu_setup/devices.rs`](src/gpu_setup/devices.rs))                       | each CUDA device's compute capability and memory, read through the loaded CUDA Runtime; a problem when they cannot be read, when there is none, or when device 0 is below [`MINIMUM_COMPUTE_CAPABILITY`](src/gpu_setup/devices.rs)          | NVIDIA supports cuTensorNet from that capability on, and the engine runs on device 0; a device's free memory bounds the max bond dimension a run can reach                      |
+| **The trial run** ([`gpu_setup.rs`](src/gpu_setup.rs))                                     | a `CudaMpsEngine` on device 0 prepares a state of one qubit, applies a Hadamard and reads its probability of One; its error is shown with each error that caused it                                                                         | the smallest run that touches the device, so a device the engine cannot use is found here, not in the user's first run                                                          |
 
 ## Tests
 
@@ -351,29 +393,25 @@ native object, its scratch, its failures and its refusals.
 the kit and `canonical_mps`'s engine circuits on a GPU, with the real
 libraries, and the native calls' tests include the cases they also run
 on a GPU; these tests are ignored unless asked for (`--ignored`), as they
-need a GPU.
-
-Discovery's [unit tests](src/tests) drive each way it fails without
-NVIDIA's libraries: on any Unix host, refused libraries, missing
-functions, failed version probes, refused versions, and bad override
-variables, each reported with the others; on Linux with glibc, the tests
-that need a library open or glibc's messages: a library found nowhere, an
-opened library at fault reported with its path, and what discovery
-concludes from each library's faults.
-[`tests/availability.rs`](tests/availability.rs) discovers the audited
-libraries where they are installed.
+need a GPU. The [unit tests](src/tests) drive each way discovery fails
+without NVIDIA's libraries, and each problem the
+[GPU setup check](#the-gpu-setup-check) finds, with its advice
+([`src/tests/gpu_setup.rs`](src/tests/gpu_setup.rs)), on CUDA devices the
+tests make up. [`tests/availability.rs`](tests/availability.rs) discovers
+the audited libraries where they are installed and, on a host with a CUDA
+device, finds the setup ready.
 
 ## Platforms
 
 What the crate requires is checked when it runs; where it has run is listed
 apart. Anything else is expected to work, but not verified.
 
-| Requirement   | Checked by                                                   | Verified on                                                                                      |
-| ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                  | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
-| The libraries | `discover`: the exact versions of [Versions](#versions)      | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
-| A CUDA driver | not checked: its version is reported only                    | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
-| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one | an A100 80GB (below)                                                                             |
+| Requirement   | Checked by                                                                                                                                                                               | Verified on                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                                                                                                                                              | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
+| The libraries | `discover`: the exact versions of [Versions](#versions)                                                                                                                                  | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
+| A CUDA driver | [the GPU setup check](#the-gpu-setup-check): one for CUDA 12; `discover` only reports its version                                                                                        | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
+| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one; [the GPU setup check](#the-gpu-setup-check): device 0 of [`MINIMUM_COMPUTE_CAPABILITY`](src/gpu_setup/devices.rs) or later | an A100 80GB, compute capability 8.0: run pending (below)                                        |
 
 - **On an A100 80GB:** `CudaAlgebra` passes `canonical_mps`'s
   conformance kit; `CudaMpsEngine` passes `canonical_mps`'s engine
