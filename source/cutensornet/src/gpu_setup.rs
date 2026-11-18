@@ -22,8 +22,8 @@
 //! 1. the libraries: [`discover_with`](crate::discover_with), which runs no
 //!    GPU work;
 //! 2. the host: each library's report may reveal a problem of the host,
-//!    today a driver that supports no CUDA 12 (its `SetupGuide`, in
-//!    `libraries::setup_guide`);
+//!    today no NVIDIA driver, or one that supports no CUDA 12 (its
+//!    `SetupGuide`, in `libraries::setup_guide`);
 //! 3. the devices: how many CUDA devices the process sees, and the compute
 //!    capability and memory of the one the GPU engine runs on, the only
 //!    one read (`devices`);
@@ -33,19 +33,19 @@
 //!
 //! What is particular to a library, in the report and in the advice, the
 //! library declares in its `SetupGuide`, so a library bound later brings
-//! its own; the words of every step's advice are in `advice`.
+//! its own; `advice` holds the advice shared by every library and that of
+//! the steps after discovery.
 
 mod advice;
 pub(crate) mod devices;
 
 use crate::engine::cuda_algebra::policy::DEVICE_ORDINAL;
-use crate::libraries::setup_guide::or_unread;
+use crate::libraries::setup_guide::{or_unread, setup_guides};
 use crate::{AvailabilityError, AvailabilityReport, CudaAlgebraError, PackagedLibraries};
-use advice::{
-    availability_advice, device_advice, gibibytes, setup_guides, trial_run_advice, with_sources,
-};
+use advice::{availability_advice, device_advice, trial_run_advice};
 use canonical_mps::CanonicalMpsError;
 use devices::DeviceReport;
+use std::error::Error;
 use std::fmt;
 
 /// The state of this machine's GPU setup, as [`GpuSetup::check`] found it:
@@ -53,19 +53,25 @@ use std::fmt;
 /// reads.
 #[derive(Debug)]
 pub struct GpuSetup {
-    /// The libraries' paths and versions, or why discovery found no usable
-    /// set.
-    pub(crate) availability: Result<AvailabilityReport, AvailabilityError>,
-    /// How many CUDA devices there are, and the one the GPU engine runs on,
-    /// or why they could not be read: `None` when discovery failed, so none
-    /// were read.
-    pub(crate) devices: Option<Result<DeviceReport, CudaAlgebraError>>,
-    /// Whether the trial run on the GPU engine's device succeeded: `None`
-    /// when discovery failed, so it was not tried.
-    pub(crate) trial_run: Option<Result<(), CanonicalMpsError<CudaAlgebraError>>>,
+    /// What the steps found once the libraries loaded, or why discovery
+    /// found no usable set, in which case no later step ran.
+    pub(crate) loaded: Result<LoadedSetup, AvailabilityError>,
     /// The command that installs the libraries, which the advice gives as
     /// an example: the packager's, from [`PackagedLibraries`].
     pub(crate) install_command: Option<String>,
+}
+
+/// The setup of a machine whose libraries loaded: their report, and the
+/// outcome of each step run on them.
+#[derive(Debug)]
+pub(crate) struct LoadedSetup {
+    /// The libraries' paths and versions.
+    pub(crate) libraries: AvailabilityReport,
+    /// How many CUDA devices there are, and the one the GPU engine runs on,
+    /// or why they could not be read.
+    pub(crate) devices: Result<DeviceReport, CudaAlgebraError>,
+    /// Whether the trial run on the GPU engine's device succeeded.
+    pub(crate) trial_run: Result<(), CanonicalMpsError<CudaAlgebraError>>,
 }
 
 impl GpuSetup {
@@ -76,20 +82,14 @@ impl GpuSetup {
     /// [`GpuSetup`].
     #[must_use]
     pub fn check(packaged: &PackagedLibraries) -> Self {
-        let install_command = packaged.install_command.clone();
-        match crate::discover_with(packaged) {
-            Err(error) => Self {
-                availability: Err(error),
-                devices: None,
-                trial_run: None,
-                install_command,
-            },
-            Ok(availability) => Self {
-                devices: Some(device_report(&availability)),
-                trial_run: Some(trial_run(&availability)),
-                availability: Ok(availability.report().clone()),
-                install_command,
-            },
+        let loaded = crate::discover_with(packaged).map(|availability| LoadedSetup {
+            devices: device_report(&availability),
+            trial_run: trial_run(&availability),
+            libraries: availability.report().clone(),
+        });
+        Self {
+            loaded,
+            install_command: packaged.install_command.clone(),
         }
     }
 
@@ -104,38 +104,23 @@ impl GpuSetup {
     /// `None` when the setup is ready. The problems, in the order they are
     /// looked for: discovery failed (an invalid override first, or else the
     /// first fault of the first library at fault, in the order they are
-    /// opened); a library reveals a problem of the host (today, a driver
-    /// that supports no CUDA 12); the devices could not be read, or the
-    /// GPU engine's device is missing, or of a compute capability
-    /// cuTensorNet does not support; the trial run failed.
+    /// opened); a library reveals a problem of the host (today, no NVIDIA
+    /// driver, or one that supports no CUDA 12); the devices could not be
+    /// read, or the GPU engine's device is missing, or of a compute
+    /// capability cuTensorNet does not support; the trial run failed.
     #[must_use]
     pub fn advice(&self) -> Option<String> {
-        let report = match &self.availability {
+        let loaded = match &self.loaded {
             Err(error) => {
                 return Some(availability_advice(error, self.install_command.as_deref()));
             }
-            Ok(report) => report,
+            Ok(loaded) => loaded,
         };
-        let host_problem = setup_guides().iter().find_map(|guide| {
-            let library = report.library(guide.library)?;
-            (guide.host_problem)(library)
-        });
-        if host_problem.is_some() {
-            return host_problem;
-        }
-        match &self.devices {
-            Some(devices) => {
-                if let Some(advice) = device_advice(devices) {
-                    return Some(advice);
-                }
-            }
-            None => return Some("the CUDA devices were not read".to_string()),
-        }
-        match &self.trial_run {
-            Some(Ok(())) => None,
-            Some(Err(error)) => Some(trial_run_advice(error)),
-            None => Some("the trial run was not tried".to_string()),
-        }
+        setup_guides()
+            .iter()
+            .find_map(|guide| (guide.host_problem)(loaded.libraries.library(guide.library)?))
+            .or_else(|| device_advice(&loaded.devices))
+            .or_else(|| loaded.trial_run.as_ref().err().map(trial_run_advice))
     }
 
     /// Warnings, whether or not the setup is ready: each other copy of a
@@ -145,8 +130,10 @@ impl GpuSetup {
     /// or unset the variable; else remove one or set the variable.
     #[must_use]
     pub fn warnings(&self) -> Vec<String> {
-        let report = match &self.availability {
-            Ok(report) | Err(AvailabilityError::Unusable(report)) => report,
+        let report = match &self.loaded {
+            Ok(LoadedSetup { libraries, .. }) | Err(AvailabilityError::Unusable(libraries)) => {
+                libraries
+            }
             Err(AvailabilityError::UnsupportedPlatform { .. }) => return Vec::new(),
         };
         setup_guides()
@@ -175,25 +162,41 @@ impl GpuSetup {
 /// one item a line.
 impl fmt::Display for GpuSetup {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.availability {
-            Ok(report) => {
-                for guide in setup_guides() {
-                    let Some(library) = report.library(guide.library) else {
-                        continue;
-                    };
-                    for line in (guide.describe)(library) {
-                        writeln!(f, "{line}")?;
-                    }
-                }
+        match &self.loaded {
+            Ok(loaded) => write!(f, "{loaded}")?,
+            Err(error) => write!(
+                f,
+                "libraries: {error}\nCUDA devices: not read\ntrial run: not tried"
+            )?,
+        }
+        for warning in self.warnings() {
+            write!(f, "\nwarning: {warning}")?;
+        }
+        if let Some(advice) = self.advice() {
+            write!(f, "\nto fix: {advice}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Lists what each step found, one item a line: each library, the
+/// devices, the trial run.
+impl fmt::Display for LoadedSetup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for guide in setup_guides() {
+            let Some(library) = self.libraries.library(guide.library) else {
+                continue;
+            };
+            for line in (guide.describe)(library) {
+                writeln!(f, "{line}")?;
             }
-            Err(error) => writeln!(f, "libraries: {error}")?,
         }
         match &self.devices {
-            Some(Ok(DeviceReport { count: 0, .. })) => writeln!(f, "CUDA devices: none")?,
-            Some(Ok(DeviceReport {
+            Ok(DeviceReport { count: 0, .. }) => writeln!(f, "CUDA devices: none")?,
+            Ok(DeviceReport {
                 count,
                 engine_device,
-            })) => {
+            }) => {
                 write!(f, "CUDA devices: {count}")?;
                 if let Some(device) = engine_device {
                     let (major, minor) = device.compute_capability;
@@ -207,25 +210,16 @@ impl fmt::Display for GpuSetup {
                 }
                 writeln!(f)?;
             }
-            Some(Err(error)) => writeln!(f, "CUDA devices: {}", with_sources(error))?,
-            None => writeln!(f, "CUDA devices: not read")?,
+            Err(error) => writeln!(f, "CUDA devices: {}", with_sources(error))?,
         }
         match &self.trial_run {
-            Some(Ok(())) => write!(f, "trial run on CUDA device {DEVICE_ORDINAL}: ready")?,
-            Some(Err(error)) => write!(
+            Ok(()) => write!(f, "trial run on CUDA device {DEVICE_ORDINAL}: ready"),
+            Err(error) => write!(
                 f,
                 "trial run on CUDA device {DEVICE_ORDINAL}: {}",
                 with_sources(error)
-            )?,
-            None => write!(f, "trial run: not tried")?,
+            ),
         }
-        for warning in self.warnings() {
-            write!(f, "\nwarning: {warning}")?;
-        }
-        if let Some(advice) = self.advice() {
-            write!(f, "\nto fix: {advice}")?;
-        }
-        Ok(())
     }
 }
 
@@ -267,4 +261,27 @@ fn trial_run(
     _availability: &crate::Availability,
 ) -> Result<(), CanonicalMpsError<CudaAlgebraError>> {
     unreachable!("discovery fails off Linux x86-64")
+}
+
+/// `error`, then each error it was caused by, separated by `: `, so a
+/// wrapping error does not hide its cause: the engine's error says only
+/// that its algebra failed.
+fn with_sources(error: &dyn Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
+}
+
+/// `bytes` in GiB, to one decimal.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a device's memory, shown to 0.1 GiB"
+)]
+fn gibibytes(bytes: usize) -> String {
+    format!("{:.1}", bytes as f64 / f64::from(1u32 << 30))
 }

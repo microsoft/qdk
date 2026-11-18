@@ -1,21 +1,20 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The words of the setup check: the advice for each step that failed, the
-//! install it advises, and how the report shows a device's memory and an
-//! error's causes.
+//! The setup check's advice: for each step that failed, what to do, in
+//! words for the user.
 //!
-//! The words about one library come from its `SetupGuide`, which its
-//! module declares; this file adds those that hold for every library (how
-//! to set an override, what to install, and when) and those of the steps
-//! after discovery.
+//! The advice about one library comes from its `SetupGuide`, which its
+//! module declares; this file adds the advice that holds for every library
+//! (how to set an override, what to install, and when) and that of the
+//! steps after discovery.
 
 use super::devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
+use super::with_sources;
 use crate::engine::cuda_algebra::policy::DEVICE_ORDINAL;
-use crate::libraries::setup_guide::SetupGuide;
+use crate::libraries::setup_guide::{SetupGuide, setup_guides};
 use crate::{AvailabilityError, CudaAlgebraError, LibraryFault};
 use canonical_mps::CanonicalMpsError;
-use std::error::Error;
 
 /// What to do about `error`: when libraries are at fault, about an invalid
 /// override if any, since an override decides what is loaded; or else
@@ -144,39 +143,6 @@ const DRIVER: &str = concat!(
     crate::libraries::cuda_runtime::minimum_driver!(),
     " or later)"
 );
-
-/// `error`, then each error it was caused by, separated by `: `, so a
-/// wrapping error does not hide its cause: the engine's error says only
-/// that its algebra failed.
-pub(super) fn with_sources(error: &dyn Error) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        text.push_str(": ");
-        text.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    text
-}
-
-/// `bytes` in GiB, to one decimal.
-#[allow(clippy::cast_precision_loss)] // A device's memory, shown to 0.1 GiB.
-pub(super) fn gibibytes(bytes: usize) -> String {
-    format!("{:.1}", bytes as f64 / f64::from(1u32 << 30))
-}
-
-/// The guide of each library, in the order the check lists them; none off
-/// Linux x86-64, where discovery fails before any library is looked at.
-pub(super) fn setup_guides() -> &'static [SetupGuide] {
-    #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-    {
-        &crate::libraries::LoadedLibraries::SETUP_GUIDES
-    }
-    #[cfg(not(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64"))))]
-    {
-        &[]
-    }
-}
 
 /// The guide of the library named `library`.
 fn setup_guide(library: &str) -> Option<&'static SetupGuide> {

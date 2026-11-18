@@ -71,6 +71,11 @@ pub(crate) struct CudaRuntime;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 const MINIMUM_DRIVER_CUDA: i128 = 12_000;
 
+/// The driver version CUDA reports, with success, when no NVIDIA driver is
+/// installed (`cudaDriverGetVersion`'s documentation).
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+const NO_DRIVER: i128 = 0;
+
 /// The oldest NVIDIA driver for CUDA 12, `525.60.13`, as every piece of
 /// advice that names it writes it. A macro rather than a `const`, since
 /// `concat!` builds the constant advice texts from it and takes literals
@@ -107,8 +112,8 @@ impl NativeLibrary for CudaRuntime {
     ];
     const INSTALL: &'static str = "the CUDA Runtime 12.9";
     const VERSION_PROBE_ADVICE: Option<&'static str> = Some(concat!(
-        "CUDA could not report its version, usually because the NVIDIA driver is missing or \
-         older than CUDA 12 needs (",
+        "CUDA could not report its version, usually because the NVIDIA driver is older than \
+         CUDA 12 needs (",
         minimum_driver!(),
         "): check `nvidia-smi`"
     ));
@@ -146,34 +151,44 @@ impl NativeLibrary for CudaRuntime {
         probed
     }
 
-    /// Its path and version, and the CUDA the driver supports.
+    /// Its path and version, and the CUDA the driver supports, or that
+    /// there is no driver.
     fn describe(report: &LibraryReport) -> Vec<String> {
+        let driver = match report.version("CUDA driver") {
+            Some(NO_DRIVER) => "none".to_string(),
+            driver => format!("supports CUDA {}", or_unread(driver.map(cuda_version))),
+        };
         vec![
             format!(
                 "CUDA Runtime: {} ({})",
                 or_unread(report.path.as_ref().map(|path| path.display())),
                 or_unread(report.version("CUDA Runtime").map(cuda_version)),
             ),
-            format!(
-                "CUDA driver: supports CUDA {}",
-                or_unread(report.version("CUDA driver").map(cuda_version))
-            ),
+            format!("CUDA driver: {driver}"),
         ]
     }
 
-    /// A driver that supports no CUDA 12.
+    /// No NVIDIA driver, or one that supports no CUDA 12.
     fn host_problem(report: &LibraryReport) -> Option<String> {
-        let driver = report.version("CUDA driver")?;
-        (driver < MINIMUM_DRIVER_CUDA).then(|| {
-            format!(
+        match report.version("CUDA driver")? {
+            NO_DRIVER => Some(
+                concat!(
+                    "no NVIDIA driver was found: install one for CUDA 12 (",
+                    minimum_driver!(),
+                    " or later)"
+                )
+                .to_string(),
+            ),
+            driver if driver < MINIMUM_DRIVER_CUDA => Some(format!(
                 concat!(
                     "the NVIDIA driver supports CUDA {} only: install a driver for CUDA 12 (",
                     minimum_driver!(),
                     " or later)"
                 ),
                 cuda_version(driver)
-            )
-        })
+            )),
+            _ => None,
+        }
     }
 }
 
