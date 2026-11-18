@@ -62,8 +62,10 @@ impl SymbolResolver for OpenLibraryFile {
 /// Opens the first of `paths`, a library's candidates in order, that exists.
 ///
 /// An absolute path that does not exist is skipped. A bare file name is
-/// searched for by the system loader, and skipped when the loader finds no
-/// file of that name. Any other failure is the library's.
+/// searched for by the system loader, and skipped when the loader reports
+/// no file of that name: glibc reports so too when its search found only
+/// files of that name it could not use (another machine's, or unreadable
+/// ones), as its own search skips them. Any other failure is the library's.
 pub(crate) fn load_library(paths: Vec<PathBuf>) -> Result<OpenLibraryFile, LibraryFault> {
     for path in &paths {
         if path.is_absolute() && !path.exists() {
@@ -105,14 +107,18 @@ pub(crate) fn load_library(paths: Vec<PathBuf>) -> Result<OpenLibraryFile, Libra
 }
 
 /// Whether the system loader's `message`, on failing to open the bare file
-/// name `candidate`, says that it found no file of that name.
+/// name `candidate`, reports that there is no file of that name.
 ///
 /// glibc's loader starts its message with the name of the file it could not
 /// open: the candidate's when there is no such file, a dependency's when the
 /// candidate was found but needs a library that is missing. Only the first
-/// lets discovery try the next candidate. Another loader's message (musl's,
-/// or macOS's when the tests run there) is never read as "no such file", so
-/// the file name is reported as a load failure rather than skipped.
+/// lets discovery try the next candidate. glibc's search skips a file of
+/// that name it cannot use (another machine's, or one it cannot read) and
+/// then reports no such file, as when there is none; telling the two apart
+/// would mean repeating glibc's search, so both are read as no file.
+/// Another loader's message (musl's, or macOS's when the tests run there)
+/// is never read as "no such file", so the file name is reported as a load
+/// failure rather than skipped.
 pub(crate) fn no_file_of_that_name(candidate: &Path, message: &str) -> bool {
     candidate
         .to_str()

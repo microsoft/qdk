@@ -88,18 +88,82 @@ fn a_relative_override_is_refused() {
     ));
 }
 
-/// A mistyped path is reported with the variable that holds it.
+/// A mistyped path is reported with the variable that holds it, and the
+/// reason says whether the path does not exist or exists but cannot be
+/// read.
 #[test]
-fn an_override_that_does_not_exist_is_refused() {
-    let path = unique_temp_path("missing-override");
-    assert!(matches!(
-        validate_override_path("QDK_CUDART_LIBRARY", Some(path.clone().into_os_string())),
-        Err(LibraryFault::InvalidOverride {
-            variable: "QDK_CUDART_LIBRARY",
-            path: found,
-            reason: "path does not exist",
-        }) if found == path
-    ));
+fn an_override_that_cannot_be_read_is_refused_with_why() {
+    let missing = unique_temp_path("missing-override");
+    #[cfg_attr(not(unix), expect(unused_mut, reason = "only Unix adds rows"))]
+    let mut rows = vec![("a mistyped path", missing, "path does not exist")];
+    #[cfg(unix)]
+    let _remove = {
+        let (looping, locked_dir, guard) = unreadable_overrides();
+        rows.push(("a symlink loop", looping, "path cannot be read"));
+        // Root reads a directory whatever its mode, so the row runs only
+        // where the mode applies.
+        if std::fs::read_dir(&locked_dir).is_err() {
+            rows.push((
+                "a file in a directory the user cannot search",
+                locked_dir.join("libcudart.so.12"),
+                "path cannot be read: permission denied",
+            ));
+        }
+        guard
+    };
+    for (case, path, expected) in rows {
+        let refused =
+            validate_override_path("QDK_CUDART_LIBRARY", Some(path.clone().into_os_string()));
+        assert!(
+            matches!(
+                &refused,
+                Err(LibraryFault::InvalidOverride {
+                    variable: "QDK_CUDART_LIBRARY",
+                    path: found,
+                    reason,
+                }) if *found == path && *reason == expected
+            ),
+            "{case}: {refused:?}"
+        );
+    }
+}
+
+/// Two links naming each other, and a directory with no permissions,
+/// removed (the directory's permissions restored first) when the guard is
+/// dropped.
+#[cfg(unix)]
+fn unreadable_overrides() -> (PathBuf, PathBuf, RemoveUnreadable) {
+    use std::os::unix::fs::PermissionsExt;
+    let (first, second) = (unique_temp_path("loop-a"), unique_temp_path("loop-b"));
+    std::os::unix::fs::symlink(&second, &first).expect("the temporary directory is writable");
+    std::os::unix::fs::symlink(&first, &second).expect("the temporary directory is writable");
+    let locked_dir = unique_temp_path("locked-dir");
+    std::fs::create_dir(&locked_dir).expect("the temporary directory is writable");
+    std::fs::set_permissions(&locked_dir, std::fs::Permissions::from_mode(0o000))
+        .expect("the test created the directory");
+    let guard = RemoveUnreadable {
+        links: [first.clone(), second],
+        locked_dir: locked_dir.clone(),
+    };
+    (first, locked_dir, guard)
+}
+
+#[cfg(unix)]
+struct RemoveUnreadable {
+    links: [PathBuf; 2],
+    locked_dir: PathBuf,
+}
+
+#[cfg(unix)]
+impl Drop for RemoveUnreadable {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        for link in &self.links {
+            let _ = std::fs::remove_file(link);
+        }
+        let _ = std::fs::set_permissions(&self.locked_dir, std::fs::Permissions::from_mode(0o700));
+        let _ = std::fs::remove_dir(&self.locked_dir);
+    }
 }
 
 /// The variable names the library's folder instead of the library.
