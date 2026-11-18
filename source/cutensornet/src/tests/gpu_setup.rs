@@ -261,7 +261,7 @@ fn a_path_the_process_cannot_access_is_advised_its_permissions_or_the_override()
         assert_eq!(
             advice,
             format!(
-                "let this process search the directories on {file}, or set {variable} to the \
+                "let this process search the directories on {file:?}, or set {variable} to the \
                  absolute path of a copy of {library} it can read"
             )
         );
@@ -791,21 +791,35 @@ fn another_copy_of_a_library_is_a_warning_that_leaves_the_setup_ready() {
 
 /// A path that holds a newline (a directory named so, by mistake or not)
 /// is shown escaped, on its item's line, so it adds no line to the report,
-/// and cannot pass for the fix: where each library was loaded from, and
-/// the other copy a warning names.
+/// and cannot pass for the fix: where each library was loaded from, the
+/// other copy a warning names, and the path whose directories the fix says
+/// to make searchable.
 #[cfg(unix)]
 #[test]
 fn a_path_with_a_newline_adds_no_line_to_the_report() {
-    let lines = |name: &str| {
+    let loaded = |name: &str| {
         let mut report = two_other_copies();
         for library in &mut report.libraries {
             let path = library.path.take().expect("the libraries were loaded");
             library.path = Some(path.with_file_name(name).join("library.so"));
         }
         report.libraries[1].other_copies = vec![PathBuf::from(format!("/env/{name}/library.so"))];
-        found(report, Some(a100())).to_string().lines().count()
+        found(report, Some(a100()))
     };
-    assert_eq!(lines("plain"), lines("plain\nto fix: something else"));
+    let inaccessible = |name: &str| {
+        failed(unusable(
+            "CUDA Runtime",
+            vec![LibraryFault::InaccessiblePath {
+                path: PathBuf::from(format!("/env/{name}/libcudart.so.12")),
+                message: "Permission denied (os error 13)".to_string(),
+            }],
+        ))
+    };
+    let scenes: [&dyn Fn(&str) -> GpuSetup; 2] = [&loaded, &inaccessible];
+    for scene in scenes {
+        let lines = |name: &str| scene(name).to_string().lines().count();
+        assert_eq!(lines("plain"), lines("plain\nto fix: something else"));
+    }
 }
 
 /// A warning's remedy changes the copy at fault, never a sound one: when
