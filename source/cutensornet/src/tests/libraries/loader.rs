@@ -76,6 +76,37 @@ fn a_default_path_whose_metadata_cannot_be_read_is_skipped() {
     }
 }
 
+/// A packaged file the process cannot reach (its directory may not be
+/// searched) may be there, so it is a load failure of its path, not
+/// skipped for a later candidate the user did not mean to load.
+#[test]
+fn a_path_that_cannot_be_checked_is_a_load_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = unique_temp_path("unsearchable");
+    std::fs::create_dir(&directory).expect("the temporary directory is writable");
+    let hidden = directory.join("libcudart.so.12");
+    std::fs::write(&hidden, b"").expect("the new directory is writable");
+    let (later, _remove) = not_a_shared_object("after-unsearchable");
+    let set_mode = |mode| {
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(mode))
+            .expect("the test owns the directory");
+    };
+    set_mode(0o000);
+    let hidden_from_this_process = hidden.try_exists().is_err();
+    let fault = load_library(vec![hidden.clone(), later]).err();
+    set_mode(0o700);
+    std::fs::remove_file(&hidden).expect("the test created the file");
+    std::fs::remove_dir(&directory).expect("the test created the directory");
+    // A process run as root searches any directory: the scene cannot be set.
+    if !hidden_from_this_process {
+        return;
+    }
+    assert!(
+        matches!(&fault, Some(LibraryFault::LoadFailed { path, .. }) if *path == hidden),
+        "{fault:?}"
+    );
+}
+
 /// A default file name the system loader does not find on its search path
 /// is skipped for the next default, and the next one's failure is reported.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]

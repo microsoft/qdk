@@ -197,8 +197,8 @@ fn a_ready_setup_lists_what_was_found_and_nothing_to_fix() {
     assert_eq!(ready.advice(), None);
     let report = ready.to_string();
     for expected in [
-        "cuTensorNet: /env/cuquantum/lib/libcutensornet.so.2 (2.13.0, built for CUDA Runtime 12.9)",
-        "CUDA Runtime: /env/nvidia/cuda_runtime/lib/libcudart.so.12 (12.9)",
+        "cuTensorNet: \"/env/cuquantum/lib/libcutensornet.so.2\" (2.13.0, built for CUDA Runtime 12.9)",
+        "CUDA Runtime: \"/env/nvidia/cuda_runtime/lib/libcudart.so.12\" (12.9)",
         "CUDA driver: supports CUDA 12.8",
         "CUDA devices: 2; CUDA device 0, where the GPU engine runs: compute capability 8.0, \
          79.0 of 80.0 GiB free",
@@ -529,7 +529,7 @@ fn a_failed_discovery_reports_what_it_found_its_faults_and_no_trial_run() {
         (
             AvailabilityError::Unusable(missing_cutensornet),
             [
-                "CUDA Runtime: /env/nvidia/cuda_runtime/lib/libcudart.so.12 (12.9)",
+                "CUDA Runtime: \"/env/nvidia/cuda_runtime/lib/libcudart.so.12\" (12.9)",
                 "CUDA driver: supports CUDA 12.8",
                 "cuTensorNet at fault: not found",
             ],
@@ -538,9 +538,9 @@ fn a_failed_discovery_reports_what_it_found_its_faults_and_no_trial_run() {
         (
             AvailabilityError::Unusable(old_cuda_runtime),
             [
-                "CUDA Runtime: /opt/cuda-12.8/libcudart.so.12 (12.8)",
+                "CUDA Runtime: \"/opt/cuda-12.8/libcudart.so.12\" (12.8)",
                 "CUDA Runtime at fault: CUDA Runtime version 12080 is unsupported",
-                "cuTensorNet: /env/cuquantum/lib/libcutensornet.so.2 (2.13.0, built for CUDA \
+                "cuTensorNet: \"/env/cuquantum/lib/libcutensornet.so.2\" (2.13.0, built for CUDA \
                  Runtime 12.9)",
             ],
             None,
@@ -751,6 +751,25 @@ fn another_copy_of_a_library_is_a_warning_that_leaves_the_setup_ready() {
             .contains(&format!("warning: {}", warnings[0])),
         "{setup}"
     );
+}
+
+/// A path that holds a newline (a directory named so, by mistake or not)
+/// is shown escaped, on its item's line, so it adds no line to the report,
+/// and cannot pass for the fix: where each library was loaded from, and
+/// the other copy a warning names.
+#[cfg(unix)]
+#[test]
+fn a_path_with_a_newline_adds_no_line_to_the_report() {
+    let lines = |name: &str| {
+        let mut report = two_other_copies();
+        for library in &mut report.libraries {
+            let path = library.path.take().expect("the libraries were loaded");
+            library.path = Some(path.with_file_name(name).join("library.so"));
+        }
+        report.libraries[1].other_copies = vec![PathBuf::from(format!("/env/{name}/library.so"))];
+        found(report, Some(a100())).to_string().lines().count()
+    };
+    assert_eq!(lines("plain"), lines("plain\nto fix: something else"));
 }
 
 /// A warning's remedy changes the copy at fault, never a sound one: when

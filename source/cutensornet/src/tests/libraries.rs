@@ -32,13 +32,13 @@ use crate::{
     LibraryReport, PackagedLibraries, Version,
     libraries::{
         InstalledLibraries, LoadedLibraries, NativeLibrary, Opening, candidates,
-        cuda_runtime::CudaRuntime, cutensornet::CuTensorNet, inspect, other_copies,
+        cuda_runtime::CudaRuntime, cutensornet::CuTensorNet, inspect, open, other_copies,
     },
 };
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use crate::{
+    libraries::ProbedVersions,
     libraries::function_table::{FunctionTable, SymbolResolver, resolve_required},
-    libraries::{ProbedVersions, open},
 };
 use std::ffi::OsString;
 #[cfg(unix)]
@@ -241,12 +241,16 @@ fn each_library_is_overridden_by_its_own_variable() {
     let read_variable =
         |variable: &'static str| (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from(&path));
     let packaged = PackagedLibraries::default();
-    let cudart =
-        candidates::<CudaRuntime>(read_variable, &packaged).expect("the override names a file");
-    let cutensornet = candidates::<CuTensorNet>(read_variable, &packaged)
-        .expect("no cuTensorNet override is set");
-    assert_eq!(cudart, std::slice::from_ref(&path));
-    assert!(!cutensornet.contains(&path));
+    let (cudart, _) = open::<CudaRuntime>(read_variable, &packaged);
+    let (cutensornet, _) = open::<CuTensorNet>(read_variable, &packaged);
+    assert!(
+        matches!(&cudart.faults[..], [LibraryFault::LoadFailed { path: tried, .. }] if *tried == path),
+        "the CUDA Runtime tries its override: {cudart:?}"
+    );
+    assert!(
+        !cutensornet.from_override && !format!("{cutensornet:?}").contains("override-candidate"),
+        "cuTensorNet does not: {cutensornet:?}"
+    );
 }
 
 /// Without an override, each library is looked for at the paths the README
@@ -255,8 +259,8 @@ fn each_library_is_overridden_by_its_own_variable() {
 #[test]
 fn without_an_override_the_default_paths_are_tried() {
     let packaged = PackagedLibraries::default();
-    let cudart = candidates::<CudaRuntime>(|_| None, &packaged).expect("no override is set");
-    let cutensornet = candidates::<CuTensorNet>(|_| None, &packaged).expect("no override is set");
+    let cudart = candidates::<CudaRuntime>(None, &packaged);
+    let cutensornet = candidates::<CuTensorNet>(None, &packaged);
     assert_eq!(
         cudart,
         [
@@ -290,8 +294,8 @@ fn a_packaged_library_is_tried_before_the_default_paths() {
         .to_vec(),
         install_command: None,
     };
-    let cudart = candidates::<CudaRuntime>(|_| None, &packaged).expect("no override is set");
-    let cutensornet = candidates::<CuTensorNet>(|_| None, &packaged).expect("no override is set");
+    let cudart = candidates::<CudaRuntime>(None, &packaged);
+    let cutensornet = candidates::<CuTensorNet>(None, &packaged);
     assert_eq!(
         cudart,
         [
@@ -330,8 +334,8 @@ fn a_packaged_file_is_tried_only_for_the_library_it_is_named() {
         .to_vec(),
         install_command: None,
     };
-    let cudart = candidates::<CudaRuntime>(|_| None, &packaged).expect("no override is set");
-    let cutensornet = candidates::<CuTensorNet>(|_| None, &packaged).expect("no override is set");
+    let cudart = candidates::<CudaRuntime>(None, &packaged);
+    let cutensornet = candidates::<CuTensorNet>(None, &packaged);
     assert_eq!(
         cudart,
         std::iter::once("/env/nvidia/cuda_runtime/lib/libcudart.so.12")
@@ -355,17 +359,14 @@ fn a_packaged_file_is_tried_only_for_the_library_it_is_named() {
 #[cfg(unix)]
 #[test]
 fn an_override_is_tried_alone_even_beside_a_packaged_library() {
-    let (path, _remove) = not_a_shared_object("override-beside-packaged");
-    let read_variable =
-        |variable: &'static str| (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from(&path));
+    let path = PathBuf::from("/opt/cuda/libcudart.so.12");
     let packaged = PackagedLibraries {
         files: vec![PathBuf::from(
             "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
         )],
         install_command: None,
     };
-    let cudart =
-        candidates::<CudaRuntime>(read_variable, &packaged).expect("the override names a file");
+    let cudart = candidates::<CudaRuntime>(Some(path.clone()), &packaged);
     assert_eq!(cudart, std::slice::from_ref(&path));
 }
 
@@ -383,14 +384,14 @@ fn packaged(files: &[&Path]) -> PackagedLibraries {
 #[cfg(unix)]
 fn other_test_copies<L: NativeLibrary>(
     loaded: &Path,
-    read_variable: impl Fn(&'static str) -> Option<OsString>,
+    override_path: Option<&Path>,
     packaged: &PackagedLibraries,
 ) -> Vec<PathBuf> {
     let temporary = unique_temp_path("");
     let directory = temporary
         .parent()
         .expect("a temporary file has a directory");
-    other_copies::<L>(loaded, read_variable, packaged)
+    other_copies::<L>(loaded, override_path, packaged)
         .into_iter()
         .filter(|path| path.starts_with(directory))
         .collect()
@@ -403,11 +404,8 @@ fn other_test_copies<L: NativeLibrary>(
 fn a_wheels_copy_beside_an_override_is_another_copy() {
     let (loaded, _remove_loaded) = not_a_shared_object("loaded-copy");
     let (wheel, _remove_wheel) = packaged_file::<CudaRuntime>("wheel-copy");
-    let read_variable = |variable: &'static str| {
-        (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from(&loaded))
-    };
     assert_eq!(
-        other_test_copies::<CudaRuntime>(&loaded, read_variable, &packaged(&[&wheel])),
+        other_test_copies::<CudaRuntime>(&loaded, Some(&loaded), &packaged(&[&wheel])),
         vec![wheel.clone()]
     );
 }
@@ -419,7 +417,7 @@ fn a_wheels_copy_beside_an_override_is_another_copy() {
 fn the_loaded_copy_is_no_other_copy() {
     let (wheel, _remove_wheel) = packaged_file::<CudaRuntime>("loaded-wheel-copy");
     assert_eq!(
-        other_test_copies::<CudaRuntime>(&wheel, |_| None, &packaged(&[&wheel])),
+        other_test_copies::<CudaRuntime>(&wheel, None, &packaged(&[&wheel])),
         Vec::<PathBuf>::new()
     );
 }
@@ -432,7 +430,7 @@ fn another_librarys_wheel_is_no_other_copy() {
     let (loaded, _remove_loaded) = not_a_shared_object("loaded-cutensornet");
     let (wheel, _remove_wheel) = packaged_file::<CudaRuntime>("cuda-runtime-wheel");
     assert_eq!(
-        other_test_copies::<CuTensorNet>(&loaded, |_| None, &packaged(&[&wheel])),
+        other_test_copies::<CuTensorNet>(&loaded, None, &packaged(&[&wheel])),
         Vec::<PathBuf>::new()
     );
 }
@@ -451,10 +449,11 @@ fn a_bare_file_name_is_not_looked_for_in_the_working_directory() {
         "tests run in the crate's directory"
     );
     let (loaded, _remove_loaded) = not_a_shared_object("loaded-beside-bare-name");
-    let read_variable = |variable: &'static str| {
-        (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from("Cargo.toml"))
-    };
-    let copies = other_copies::<CudaRuntime>(&loaded, read_variable, &PackagedLibraries::default());
+    let copies = other_copies::<CudaRuntime>(
+        &loaded,
+        Some(Path::new("Cargo.toml")),
+        &PackagedLibraries::default(),
+    );
     assert!(!copies.contains(&PathBuf::from("Cargo.toml")));
 }
 
@@ -467,7 +466,7 @@ fn a_link_to_the_loaded_file_is_no_other_copy() {
     let (link_to_loaded, _remove_link) = packaged_path::<CudaRuntime>("link-to-loaded");
     std::os::unix::fs::symlink(&loaded, &link_to_loaded).expect("a link is made");
     assert_eq!(
-        other_test_copies::<CudaRuntime>(&loaded, |_| None, &packaged(&[&link_to_loaded])),
+        other_test_copies::<CudaRuntime>(&loaded, None, &packaged(&[&link_to_loaded])),
         Vec::<PathBuf>::new()
     );
 }
@@ -482,7 +481,7 @@ fn the_file_a_loaded_link_names_is_no_other_copy() {
     std::os::unix::fs::symlink(&file, &loaded_link).expect("a link is made");
     let _remove_loaded_link = RemoveFile(loaded_link.clone());
     assert_eq!(
-        other_test_copies::<CudaRuntime>(&loaded_link, |_| None, &packaged(&[&file])),
+        other_test_copies::<CudaRuntime>(&loaded_link, None, &packaged(&[&file])),
         Vec::<PathBuf>::new()
     );
 }
@@ -496,10 +495,8 @@ fn one_file_named_twice_is_reported_once() {
     let (other, _remove_other) = not_a_shared_object("other-named-twice");
     let (link_to_other, _remove_link) = packaged_path::<CudaRuntime>("link-to-other");
     std::os::unix::fs::symlink(&other, &link_to_other).expect("a link is made");
-    let read_variable =
-        |variable: &'static str| (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from(&other));
     assert_eq!(
-        other_test_copies::<CudaRuntime>(&loaded, read_variable, &packaged(&[&link_to_other])),
+        other_test_copies::<CudaRuntime>(&loaded, Some(&other), &packaged(&[&link_to_other])),
         vec![other.clone()]
     );
 }
@@ -847,8 +844,9 @@ fn absolute_c_library() -> PathBuf {
 
 /// The copy its override names is reported so, loaded or not, for the
 /// setup check to advise changing or unsetting the variable when that copy
-/// is at fault; a copy from its defaults, or none when its override is
-/// invalid, is not.
+/// is at fault, even if the variable changes during the check (another
+/// thread unsets it); a copy from its defaults, or none when its override
+/// is invalid, is not.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 #[test]
 fn only_the_copy_its_override_names_is_reported_so() {
@@ -882,6 +880,18 @@ fn only_the_copy_its_override_names_is_reported_so() {
         failed_to_load.faults
     );
     assert!(failed_to_load.from_override);
+    let reads = std::cell::Cell::new(0);
+    let unset_after_one_read = |_: &'static str| {
+        reads.set(reads.get() + 1);
+        (reads.get() == 1).then(|| OsString::from(&not_a_library))
+    };
+    let (unset_later, _) =
+        open::<OpenedBesideAnotherFile>(unset_after_one_read, &PackagedLibraries::default());
+    assert!(
+        matches!(&unset_later.faults[..], [LibraryFault::LoadFailed { path, .. }] if *path == not_a_library),
+        "the copy the override named is tried: {unset_later:?}"
+    );
+    assert!(unset_later.from_override, "{unset_later:?}");
 }
 
 /// The setup check has advice for every library a GPU run opens, so none
