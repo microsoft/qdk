@@ -53,7 +53,7 @@ fn opened<L: NativeLibrary>() -> LibraryReport {
         versions: Vec::new(),
         faults: Vec::new(),
         other_copies: Vec::new(),
-        loaded_from_override: false,
+        from_override: false,
     }
 }
 
@@ -845,13 +845,13 @@ fn absolute_c_library() -> PathBuf {
     .expect("the C library is at one of the usual paths")
 }
 
-/// A library loaded from the path its override names is reported so, for
-/// the setup check's warning to say to change or unset the variable; one
-/// loaded from its defaults, or not loaded because its override is
+/// The copy its override names is reported so, loaded or not, for the
+/// setup check to advise changing or unsetting the variable when that copy
+/// is at fault; a copy from its defaults, or none when its override is
 /// invalid, is not.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 #[test]
-fn only_a_library_loaded_from_its_override_is_reported_so() {
+fn only_the_copy_its_override_names_is_reported_so() {
     let c_library = absolute_c_library();
     let read_variable = |variable: &'static str| {
         (variable == OpenedBesideAnotherFile::VARIABLE).then(|| OsString::from(&c_library))
@@ -863,15 +863,25 @@ fn only_a_library_loaded_from_its_override_is_reported_so() {
         Some(c_library.as_path()),
         "the override is loaded"
     );
-    assert!(from_override.loaded_from_override);
+    assert!(from_override.from_override);
     let (from_defaults, _) =
         open::<OpenedBesideAnotherFile>(|_| None, &PackagedLibraries::default());
     assert!(from_defaults.path.is_some(), "a default path is loaded");
-    assert!(!from_defaults.loaded_from_override);
+    assert!(!from_defaults.from_override);
     let relative = |_: &'static str| Some(OsString::from("libc.so.6"));
     let (not_loaded, _) = open::<OpenedBesideAnotherFile>(relative, &PackagedLibraries::default());
     assert!(not_loaded.path.is_none(), "a relative override is refused");
-    assert!(!not_loaded.loaded_from_override);
+    assert!(!not_loaded.from_override);
+    let (not_a_library, _remove) = packaged_file::<OpenedBesideAnotherFile>("override-fails");
+    let names_it = |_: &'static str| Some(OsString::from(&not_a_library));
+    let (failed_to_load, _) =
+        open::<OpenedBesideAnotherFile>(names_it, &PackagedLibraries::default());
+    assert!(
+        matches!(failed_to_load.faults[..], [LibraryFault::LoadFailed { .. }]),
+        "a file that is not a library does not load: {:?}",
+        failed_to_load.faults
+    );
+    assert!(failed_to_load.from_override);
 }
 
 /// The setup check has advice for every library a GPU run opens, so none
