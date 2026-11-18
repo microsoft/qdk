@@ -31,9 +31,11 @@ use super::qubit_order::QubitOrder;
 /// What the MPS simulation method does with a call, on sites. A new kind
 /// of step runs in `GroupedRun::run_step`, which decides whether it reads
 /// the largest bond first, as a draw does.
-// A gate's matrix is held in place, unboxed: a batch's steps live in one
-// slice, and a box would allocate once per gate.
-#[allow(clippy::large_enum_variant)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a gate's matrix is held in place, unboxed: a batch's steps \
+              live in one slice, and a box would allocate once per gate"
+)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SiteStep {
     /// Applies a gate on one or two sites.

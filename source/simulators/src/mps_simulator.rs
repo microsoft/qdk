@@ -59,11 +59,9 @@ use grouped_run::GroupedRun;
 /// nor on earlier runs.
 ///
 /// The qubit order, which site holds each qubit, chosen from the program's
-/// two-qubit gates, changes the bonds and the time, not the state (to
-/// rounding, and within the truncation error of an engine that truncates):
-/// on an exact engine, a record differs between two orders only where a
-/// uniform falls within rounding of a probability, and the shot's later
-/// draws may then differ.
+/// two-qubit gates, changes the bonds and the time, not the state (to what
+/// precision, and so which records may differ: the header of
+/// `mps_simulator/qubit_order.rs`).
 ///
 /// The cutoff below which an engine drops singular values is the engine's
 /// own setting: the engine contract takes only a capacity (here
@@ -109,8 +107,9 @@ impl<E: MpsEngine> MpsResumer<E> {
     /// interrupts a run of hours (Ctrl-C from Python, say) gets it back
     /// between batches, its states freed. The flag is read before each
     /// batch a group runs, and before a group split off by a draw runs on,
-    /// so a program that is one batch (Base profile) runs all the gates of
-    /// the group under way before the flag is read. Once it is set, the run
+    /// so once a batch's gates start, all of them run before the flag is
+    /// read again: a program that is one batch (Base Profile) runs all its
+    /// gates once started. Once it is set, the run
     /// fails with [`MpsResumerError::Stopped`], naming the first shot that
     /// had not ended. Whoever sets it clears it before the next run.
     #[must_use]

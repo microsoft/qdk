@@ -269,10 +269,6 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// Applies `gate` to `group`'s state, prepared at the group's first
     /// step: one engine call per gate; an engine that gains by fusing gates
     /// fuses them itself.
-    ///
-    /// **Known issue:** whether an engine on a GPU needs its gates fused is
-    /// not measured. If one does, the fusion goes into that engine, not
-    /// here. It blocks a GPU run only if that run is slow.
     fn apply(
         &self,
         group: &mut ShotGroup<E::State>,
