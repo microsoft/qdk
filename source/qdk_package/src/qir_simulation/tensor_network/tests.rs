@@ -12,10 +12,10 @@
 use std::fmt;
 
 use canonical_mps::CanonicalMpsError;
-use qdk_cutensornet::{GpuSetup, PackagedLibraries};
+use qdk_cutensornet::{CudaAlgebraError, GpuSetup, PackagedLibraries};
 use qdk_simulators::mps_simulator::MpsResumerError;
 use qdk_simulators::qir::{QirResumeError, QirShotId};
-use tensornet::{MpsEngineError, Refusal};
+use tensornet::{MpsEngineError, MpsShapeError, Refusal};
 
 use super::detached_run::lost_run;
 use super::run_failure::{RunFailure, engine_not_made, gpu_not_set_up};
@@ -54,19 +54,6 @@ impl MpsEngineError for FakeEngineError {
     }
 }
 
-/// A failure of an algebra's own, as a canonical MPS engine's algebra
-/// gives: a library call that failed, with its status.
-#[derive(Debug)]
-struct LibraryCallFailed;
-
-impl fmt::Display for LibraryCallFailed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("cudaMalloc failed with status 2, out of memory")
-    }
-}
-
-impl std::error::Error for LibraryCallFailed {}
-
 /// The failure of a run whose shot 0 met `error` of the MPS simulation
 /// method.
 fn shot_0_failure<E: MpsEngineError>(error: MpsResumerError<E>) -> RunFailure {
@@ -77,33 +64,57 @@ fn shot_0_failure<E: MpsEngineError>(error: MpsResumerError<E>) -> RunFailure {
 }
 
 /// An engine that fails during a run (a device out of memory) raises
-/// `OSError` with the failure's message, as a setup problem does, and its
-/// cause, once: the canonical MPS engine's algebra failure says only that
-/// the site algebra failed, and keeps the library call that failed as its
-/// source, while the MPS simulation method's error shows its engine's
-/// error in its message and gives it as its source too.
+/// `OSError`, as a setup problem does: the machine must act.
 #[test]
-fn an_engine_failure_is_an_os_error_with_its_cause() {
+fn an_engine_failure_is_an_os_error() {
+    let failure = shot_0_failure(MpsResumerError::Engine(FakeEngineError::OutOfMemory));
+    assert!(
+        matches!(&failure, RunFailure::Os(_)),
+        "an engine failure is an OSError: {failure:?}"
+    );
+}
+
+/// A failed shot's message shows each error that caused it once, whichever
+/// exception it raises: the canonical MPS engine's algebra failure says
+/// only that the site algebra failed and keeps the CUDA call that failed as
+/// its source, while the MPS simulation method's errors show their source
+/// in their message and give it as their source too.
+#[test]
+fn a_failures_message_shows_each_cause_once() {
+    let cuda_call_failed = CudaAlgebraError::NativeCallFailed {
+        component: "CUDA Runtime",
+        operation: "cudaMalloc",
+        status: 2,
+        message: "out of memory".to_string(),
+    };
     let cases = [
         (
-            "an engine's own failure",
+            "an engine's own failure, an OSError",
             shot_0_failure(MpsResumerError::Engine(FakeEngineError::OutOfMemory)),
-            "the device ran out of memory",
+            "the device ran out of memory".to_string(),
         ),
         (
-            "the canonical engine's algebra failure",
+            "the canonical engine's algebra failure on the GPU, an OSError",
             shot_0_failure(MpsResumerError::Engine(CanonicalMpsError::Algebra(
-                LibraryCallFailed,
+                cuda_call_failed,
             ))),
-            "cudaMalloc failed with status 2, out of memory",
+            "CUDA Runtime cudaMalloc failed with status 2: out of memory".to_string(),
+        ),
+        (
+            "a max bond dimension that makes no chain, a ValueError",
+            shot_0_failure(MpsResumerError::<FakeEngineError>::Capacity {
+                qubits: 70,
+                max_bond_dimension: 1 << 40,
+                source: MpsShapeError::ElementCountOverflow { site: 35 },
+            }),
+            MpsShapeError::ElementCountOverflow { site: 35 }.to_string(),
         ),
     ];
     for (case, failure, cause) in cases {
-        let RunFailure::Os(message) = &failure else {
-            panic!("{case}: an engine failure is an OSError: {failure:?}");
-        };
+        let (RunFailure::Os(message) | RunFailure::Value(message) | RunFailure::Runtime(message)) =
+            &failure;
         assert_eq!(
-            message.matches(cause).count(),
+            message.matches(&cause).count(),
             1,
             "{case}: the message gives the cause once: {message}"
         );

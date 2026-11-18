@@ -62,8 +62,8 @@ class Sample:
     recorded value alone (``Result`` for a measurement; ``bool``, ``int``
     or ``float`` for a classical value); a tuple or a list for a tuple or
     an array record, holding its values in recording order; or, when the
-    program records nothing, its measurements as a string of ``"0"``,
-    ``"1"`` and ``"L"`` (a lost qubit).
+    program records nothing, its measurements as a string of ``"0"`` and
+    ``"1"``.
 
     :param shots: The number of shots, in [1, 2**32).
     """
@@ -200,12 +200,14 @@ def tensornetwork_qir(
         ``.report``. A run whose truncation lost more of a shot's weight
         than the method tolerates also warns (``RuntimeWarning``, whose
         message gives the loss and the tolerance).
-    :raises ValueError: For an argument of the right type but an invalid
-        value (an unknown ``engine`` among them), a program the MPS
-        simulation method does not run (a readout-noise call, a loss check,
-        a gate on one qubit twice), a max bond dimension too large for the
-        program's qubits, or a call the engine refuses (a rotation by an
-        angle that is not finite, say).
+    :raises ValueError: For a ``method`` other than ``"mps"``, a ``seed``
+        that is not an ``int`` in [0, 2**32) (``1.5``, ``True`` or ``"7"``,
+        say), an ``engine`` other than ``"gpu"`` and ``"cpu"``, ``queries``
+        not holding exactly one query, a program the MPS simulation method
+        does not run (a readout-noise call, a loss check, a gate on one
+        qubit twice), a max bond dimension too large for the program's
+        qubits, or a call the engine refuses (a rotation by an angle that is
+        not finite, say).
     :raises TypeError: When ``options`` is not an :class:`MpsOptions`,
         ``queries`` is not iterable (a bare :class:`Sample`, say), a query
         is not a :class:`Sample`, ``engine`` is not a ``str``, or ``input``
@@ -231,9 +233,10 @@ def tensornetwork_qir(
     if seed is not None:
         _check_u32("seed", seed, 0)
     try:
-        queries = list(queries)
+        iterator = iter(queries)
     except TypeError:
-        raise TypeError("queries must be a sequence holding one Sample") from None
+        raise TypeError("queries must be an iterable holding one Sample") from None
+    queries = list(iterator)
     for query in queries:
         if not isinstance(query, Sample):
             raise TypeError(f"Unsupported query {query!r}; use Sample")

@@ -9,13 +9,15 @@
 //!
 //! - `OSError`, the machine: the GPU engine cannot be made (its libraries
 //!   not usable, no device), with the message `gpu_not_set_up` or
-//!   `engine_not_made` composes; or the engine failing during the run,
-//!   with the failure's message and its causes (`with_causes`).
+//!   `engine_not_made` composes; or the engine failing during the run.
 //! - `ValueError`, the program or the settings: a call the MPS simulation
 //!   method does not run, a max bond dimension that makes no chain, or a
 //!   call the engine refuses.
 //! - `RuntimeError`, the run: a shot that trapped, named; a run that was
 //!   stopped; or a run thread that panicked, a defect, with its message.
+//!
+//! A failed shot's message shows the errors that caused the failure, each
+//! once (`with_causes`), whichever exception it raises.
 //!
 //! An interrupt (Ctrl-C) raises its own exception, `KeyboardInterrupt`,
 //! which `detached_run.rs` raises.
@@ -53,24 +55,26 @@ impl RunFailure {
         reason = "a trap is matched by name, so that its exception is chosen, not a default"
     )]
     pub(super) fn of<E: MpsEngineError>(error: QirResumeError<MpsResumerError<E>>) -> Self {
-        let message = with_causes(&error);
+        let message_with_causes = with_causes(&error);
         match error {
             QirResumeError::Resumer { error, .. } => match error {
                 MpsResumerError::Stopped => Self::Runtime(error.to_string()),
-                MpsResumerError::Engine(engine) if engine.refusal().is_none() => Self::Os(message),
+                MpsResumerError::Engine(engine) if engine.refusal().is_none() => {
+                    Self::Os(message_with_causes)
+                }
                 MpsResumerError::Engine(_)
                 | MpsResumerError::Unsupported { .. }
                 | MpsResumerError::RepeatedQubit { .. }
-                | MpsResumerError::Capacity { .. } => Self::Value(message),
+                | MpsResumerError::Capacity { .. } => Self::Value(message_with_causes),
                 // `MpsResumerError` is `#[non_exhaustive]`: a variant added
                 // later raises `RuntimeError` until it is given its own
                 // exception.
-                _ => Self::Runtime(message),
+                _ => Self::Runtime(message_with_causes),
             },
-            QirResumeError::Trapped { .. } => Self::Runtime(message),
+            QirResumeError::Trapped { .. } => Self::Runtime(message_with_causes),
             // `QirResumeError` is `#[non_exhaustive]`: a variant added later
             // raises `RuntimeError` until it is given its own exception.
-            _ => Self::Runtime(message),
+            _ => Self::Runtime(message_with_causes),
         }
     }
 
@@ -84,13 +88,13 @@ impl RunFailure {
     }
 }
 
-/// `error`'s message, then each error it was caused by that the message
-/// does not already show, after `: `, so that a wrapping error does not
-/// hide its cause: the canonical MPS engine's algebra failure says only
-/// that the site algebra failed, and its cause, the CUDA call that failed
-/// and its status, is its source. A cause already shown is not repeated:
-/// the run's and the MPS simulation method's errors show their source in
-/// their message too.
+/// `error`'s message, then, after `: `, the message of each error that
+/// caused it and that the message does not already show. A wrapping error
+/// then does not hide its cause: the canonical MPS engine's algebra failure
+/// says only that the site algebra failed, and its cause (on the GPU, for
+/// instance, the CUDA call that failed and its status) is its source. A
+/// cause already shown is not repeated: the run's and the MPS simulation
+/// method's errors show their source in their message too.
 fn with_causes(error: &dyn Error) -> String {
     let mut message = error.to_string();
     let mut source = error.source();
