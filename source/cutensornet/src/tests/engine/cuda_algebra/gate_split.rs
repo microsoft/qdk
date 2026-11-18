@@ -9,17 +9,17 @@
 use super::*;
 use crate::engine::cuda_algebra::DISCARDED_WEIGHT_TOLERANCE;
 
-/// A library's report of a split (the bond it kept, the values its SVD
-/// had, the weight it discarded) is checked before the algebra reads the
-/// factors: a report it could not have made is refused as invalid, rather
-/// than read past the factors or returned as a share outside `(0, 1]`.
-/// Cases, each on a split asked to keep at most 4 values of a pair whose
-/// sides hold 4: a bond of none or more than asked (though no more than
-/// the SVD had); a bond above the values the SVD had; a weight below the
-/// tolerance, of 1 or more, or NaN. A weight rounded below zero, as an A100
-/// reported for a split that discarded nothing, down to the worst rounding
-/// over a split of 4,096 values and the tolerance itself, is read as
-/// nothing discarded: the bond reported, the share kept exactly 1.
+/// A library's report of a split (the bond it kept, the values its SVD had, the
+/// weight it discarded) is checked before the algebra reads the factors: a
+/// report it could not have made is refused as invalid, rather than read past
+/// the factors or returned as a retained fraction outside `(0, 1]`. Cases, each
+/// on a split asked to keep at most 4 values of a pair whose sides hold 4: a
+/// bond of none or more than asked (though no more than the SVD had); a bond
+/// above the values the SVD had; a weight below the tolerance, of 1 or more, or
+/// NaN. A weight rounded below zero, as an A100 reported for a split that
+/// discarded nothing, down to the worst rounding over a split of 4,096 values
+/// and the tolerance itself, is read as nothing discarded: the bond reported,
+/// the retained fraction exactly 1.
 #[test]
 fn an_impossible_gate_split_report_is_refused() {
     let report = |reduced_extent, full_extent, discarded_weight| SvdTruncation {
@@ -61,7 +61,8 @@ fn an_impossible_gate_split_report_is_refused() {
 }
 
 /// Splits a random pair of `[2, 2, 2]` sites, its library reporting
-/// `truncation`: the bond and share kept, or the split's failure.
+/// `truncation`: the bond kept and the retained fraction, or the split's
+/// failure.
 fn split_reported_as(truncation: SvdTruncation) -> Result<(usize, f64), CudaAlgebraError> {
     let (algebra, libraries) = algebra();
     let (a, b) = random_pair(2, 2, 2, 17);
