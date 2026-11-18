@@ -58,9 +58,12 @@ class MpsOptions:
 @dataclass(frozen=True)
 class Sample:
     """Query ``shots`` shots: the result is a list with one entry per shot,
-    the list of that shot's recorded output values, in recording order
-    (``Result`` for a measurement; ``bool``, ``int`` or ``float`` for a
-    classical value).
+    that shot's output in the structure the program records it: one
+    recorded value alone (``Result`` for a measurement; ``bool``, ``int``
+    or ``float`` for a classical value); a tuple or a list for a tuple or
+    an array record, holding its values in recording order; or, when the
+    program records nothing, its measurements as a string of ``"0"``,
+    ``"1"`` and ``"L"`` (a lost qubit).
 
     :param shots: The number of shots, in [1, 2**32).
     """
@@ -98,7 +101,8 @@ class TensorNetworkReport:
 class TensorNetworkResults(tuple):
     """The results of a :func:`tensornetwork_qir` call, one per query in
     order (``rows, = results``), and the run's report, a
-    :class:`TensorNetworkReport` (``results.report``)."""
+    :class:`TensorNetworkReport` (``results.report``). Equality is the
+    tuple's: it compares the results, not the reports."""
 
     _report: TensorNetworkReport
 
@@ -196,19 +200,23 @@ def tensornetwork_qir(
         ``.report``. A run whose truncation lost more of a shot's weight
         than the method tolerates also warns (``RuntimeWarning``, whose
         message gives the loss and the tolerance).
-    :raises ValueError: For invalid arguments (an unknown ``engine``
-        among them), a program the MPS simulation method does not run (a
-        readout-noise call, a loss check, a gate on one qubit twice), a max
-        bond dimension too large for the program's qubits, or a call the
-        engine refuses (a rotation by an angle that is not finite, say).
-    :raises TypeError: When ``options`` is not an :class:`MpsOptions`, or a
-        query not a :class:`Sample`.
+    :raises ValueError: For an argument of the right type but an invalid
+        value (an unknown ``engine`` among them), a program the MPS
+        simulation method does not run (a readout-noise call, a loss check,
+        a gate on one qubit twice), a max bond dimension too large for the
+        program's qubits, or a call the engine refuses (a rotation by an
+        angle that is not finite, say).
+    :raises TypeError: When ``options`` is not an :class:`MpsOptions`,
+        ``queries`` is not iterable (a bare :class:`Sample`, say), a query
+        is not a :class:`Sample`, ``engine`` is not a ``str``, or ``input``
+        is not text, bitcode or a ``QirInputData``.
     :raises OSError: When the GPU engine is not set up (no library, a version
         not supported, no device): the message is the
         :func:`check_tensornetwork_setup` report. When the setup was found
         but no engine could be made: the engine's error, then that report.
         Both end with a line saying that ``engine="cpu"`` runs without a
-        GPU. When the engine fails during the run: its error.
+        GPU. When the engine fails during the run: its error, with the
+        errors that caused it.
     :raises RuntimeError: When a shot traps (a division by zero, say); the
         message names the shot.
     """
@@ -222,7 +230,10 @@ def tensornetwork_qir(
         raise TypeError('options must be an MpsOptions instance for method="mps"')
     if seed is not None:
         _check_u32("seed", seed, 0)
-    queries = list(queries)
+    try:
+        queries = list(queries)
+    except TypeError:
+        raise TypeError("queries must be a sequence holding one Sample") from None
     for query in queries:
         if not isinstance(query, Sample):
             raise TypeError(f"Unsupported query {query!r}; use Sample")
