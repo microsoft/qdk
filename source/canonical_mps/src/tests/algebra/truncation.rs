@@ -36,16 +36,16 @@ fn the_cutoff_discards_the_tail_within_its_share() {
         ("a tail below the cutoff", values_of(&[0.8, 0.2]), 0.15, 2),
         // A Bell pair's two Schmidt values, the same float: the smaller
         // value's square is exactly the cutoff's share of the sum.
-        // COMPATIBILITY NOTE: this behavior was present in the dev line's
-        // `qdk_cpu_mps`'s `Engine::kept` (a tail is dropped while its
-        // squares sum to at most the cutoff's share), hence we keep it: it
-        // is what makes a cutoff of 0 drop the zeros.
+        // COMPATIBILITY NOTE: this behavior was present in the earlier
+        // CPU MPS engine's truncation (a tail is dropped while its squares
+        // sum to at most the cutoff's share), hence we keep it: it is what
+        // makes a cutoff of 0 drop the zeros.
         ("a tail of exactly the cutoff's share", vec![h, h], 0.5, 1),
         // A Schmidt weight of 1e-20, far below the cutoffs simulations
         // use, is kept.
         ("zeros at a cutoff of 0", vec![1.0, 1e-10, 0.0, 0.0], 0.0, 2),
-        // COMPATIBILITY NOTE: this behavior was present in the dev line's
-        // `qdk_cpu_mps`'s `Engine::kept` (its squares are of the values
+        // COMPATIBILITY NOTE: this behavior was present in the earlier
+        // CPU MPS engine's truncation (its squares are of the values
         // divided by the largest, so those below about 1e-162 of it
         // underflow), hence we keep it: no Schmidt weight that small
         // changes a simulation's result.
@@ -192,11 +192,11 @@ fn tiny_values_truncate_as_at_scale_one() {
 /// The singular values of the zero matrix, which a general SVD gives as
 /// `min(rows, cols)` zeros: one value is kept, zero, with a share of 1 and
 /// no NaN.
-// DISCUSS COMPATIBILITY: the dev line's `qdk_cpu_mps`'s SVD gave the zero
-// matrix one value, zero, so its `Engine::kept` and `kept_rescale` never
-// met an all-zero spectrum (their `0 / 0` would have failed the split with
-// a weight underflow); the engine does not reach it either, since its
-// states have norm 1 and its gates are unitary. We think a total rule is
+// DISCUSS COMPATIBILITY: the earlier CPU MPS engine's SVD gave the zero
+// matrix one value, zero, so its truncation never met an all-zero
+// spectrum (its `0 / 0` would have failed the split with a weight
+// underflow); the engine does not reach it either, since its states have
+// norm 1 and its gates are unitary. We think a total rule is
 // better than a NaN, and a share of 1 agrees with "exactly 1 when every
 // dropped value is zero", so we recommend keeping it.
 #[test]
