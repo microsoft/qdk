@@ -746,8 +746,8 @@ fn the_check_discovers_with_the_packaged_files() {
     let discovered =
         crate::discover_with(&packaged).map(|availability| availability.report().clone());
     match (&setup.availability, &discovered) {
-        (Ok(checked), Ok(discovered)) => assert_eq!(checked, discovered),
-        (
+        (Ok(checked), Ok(discovered))
+        | (
             Err(AvailabilityError::Unusable(checked)),
             Err(AvailabilityError::Unusable(discovered)),
         ) => assert_eq!(checked, discovered),
