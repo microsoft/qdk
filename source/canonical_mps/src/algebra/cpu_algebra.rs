@@ -59,8 +59,8 @@ impl SiteAlgebra for CpuAlgebra {
         Ok(tensor[..len].to_vec())
     }
 
-    /// The gated pair, one SVD, its truncation rule (`Truncation`), and the kept
-    /// values, normalised, multiplied into the centre's side.
+    /// The gated pair, one SVD, its truncation rule (`Truncation`), and the
+    /// kept values, normalised, multiplied into the centre's side.
     fn gate_split(
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,

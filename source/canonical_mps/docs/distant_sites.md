@@ -13,11 +13,11 @@ could be explored later. The crate's
 it, and [`src/engine/mpo.rs`](../src/engine/mpo.rs) implements it.
 
 The routings below were built only to be measured against each other, on
-the CPU, and are not in the crate. Their error is the infidelity 1 − F to the
-exact state, except for H₂, where it is the total variation distance (TVD)
+the CPU, and are not in the crate. Their error is the infidelity $1 - F$
+to the exact state, except for H₂, where it is the total variation distance (TVD)
 of the readout to the exact one, and for the mirror circuits, a circuit
-followed by its inverse, whose exact state is `|0…0⟩`, where it is
-1 − P(0…0).
+followed by its inverse, whose exact state is $\lvert 0 \dots 0 \rangle$, where it
+is $1 - P(0 \dots 0)$.
 
 ## The approach: a matrix product operator
 
@@ -26,8 +26,8 @@ window, whose operator acts on its sites, `low` the first and `high` the
 last; its span is the sites from `low` to `high`. A window on two
 neighbours is applied by one split. Any other is applied in three steps:
 
-1. **Factor.** The window's operator, on `k` sites, is factored on the
-   host by `k − 1` SVDs into one tensor per site, linked by operator
+1. **Factor.** The window's operator, on $k$ sites, is factored on the
+   host by $k - 1$ SVDs into one tensor per site, linked by operator
    bonds. Each SVD already trims the values its rank-revealing QR finds
    to be rounding (the dense linear algebra's `Svd::of`), and the
    factorisation also drops the values at or below the operator's rank cutoff
@@ -61,8 +61,8 @@ chain's bond there times the operator's: at most the capacity's times 4.
 `CanonicalMpsState::split_statistics` reports the largest transient bond
 apart from the largest bond at rest.
 
-**The cost.** A window on a span of `d + 1` sites costs the moves that
-bring the centre into the span, then `d − 1` moves of the centre and `d`
+**The cost.** A window on a span of $d + 1$ sites costs the moves that
+bring the centre into the span, then $d - 1$ moves of the centre and $d$
 splits, each on matrices up to the capacity's times the operator's bond
 on a side, plus the reads, products and uploads of the span's sites on
 the host. Every backend call is one of the operations the engine already
@@ -73,48 +73,51 @@ a projection.
 
 **Routing by SWAPs, `swap-back-2x`.** Moves the site at `high` down to
 `low + 1` by adjacent SWAPs (outbound), applies the gate to the pair at
-`low`, and moves the site back up by SWAPs (return): `2(d − 1) + 1`
-splits for sites `d` apart, against `d` splits and `d − 1` moves of the
+`low`, and moves the site back up by SWAPs (return): $2(d - 1) + 1$
+splits for sites $d$ apart, against $d$ splits and $d - 1$ moves of the
 centre for an MPO, and one window per gate, since a route acts on a pair
 at a time. Its outbound splits apply the cutoff alone and keep bonds up
-to 2χ, χ the capacity's largest bond, which the following paragraphs
+to $2\chi$, $\chi$ the capacity's largest bond, which the following paragraphs
 explain; they also drop a tail below the cutoff at cuts that are not the
 caller's, which an MPO never does (the case is in
 [the crate's MPO tests](../src/tests/engine/mpo.rs)).
 
 The split of each outbound SWAP drops the tail below the cutoff and
 applies no capacity. Its bond is still bounded: after the SWAP that moves
-the site down across cut `c`, the sites left of cut `c` are the caller's
-sites left of cut `c − 1`, a set `A`, and the moved site `h`. Write the
-state in `A`'s Schmidt basis, `Σᵢ sᵢ |aᵢ⟩ |bᵢ⟩` with `r` terms, `r` the bond
-the chain holds at cut `c − 1`; each `|bᵢ⟩` expands over `h`'s two levels,
-so the reduced state of `A ∪ {h}` lies in the span of the `|aᵢ⟩|x⟩`, of
-dimension at most `2r`. So the bond at cut `c` is at most twice the bond
-at cut `c − 1`, itself at most the capacity there: within 2χ. The bound
+the site down across cut $c$, the sites left of cut $c$ are the caller's
+sites left of cut $c - 1$, a set $A$, and the moved site $h$. Write the
+state in $A$'s Schmidt basis,
+$\sum_i s_i \lvert a_i \rangle \lvert b_i \rangle$ with $r$ terms, $r$ the
+bond the chain holds at cut $c - 1$; each $\lvert b_i \rangle$ expands over
+$h$'s two levels, so the reduced state of $A \cup \lbrace h \rbrace$ lies in
+the span of the $\lvert a_i \rangle \lvert x \rangle$, of dimension at most
+$2r$. So the bond at cut $c$ is at most twice the bond at cut $c - 1$,
+itself at most the capacity there: within $2\chi$. The bound
 is reached: on the random circuit of the second row of the first table
-below, the outbound splits keep bonds of 256 at χ 128.
+below, the outbound splits keep bonds of 256 at $\chi$ 128.
 
 **Truncating a route's outbound splits to the capacity.** The route
-`SwapBack` keeps at most χ at every split. The temporary order needs up
-to 2χ, so it truncates states that fit χ in the caller's order:
+`SwapBack` keeps at most $\chi$ at every split. The temporary order needs
+up to $2\chi$, so it truncates states that fit $\chi$ in the caller's
+order:
 
-| Case                                         | Truncated to χ | `swap-back-2x` |
-| -------------------------------------------- | -------------- | -------------- |
-| Two pairs and a CZ, 4 qubits, χ 2 (computed) | 0.0395         | 0              |
-| Random pairs, depth 2, seed 1, χ 128         | 2.1e-4         | 2.7e-15        |
-| PPP polyene QPE, first round, χ 128          | 2.5e-5         | 1.4e-9         |
-| QPE of 16 qubits, χ 128                      | 1.8e-3         | 9.6e-5         |
-| H₂, χ 64 (TVD of the readout)                | 4.5e-4         | 1.6e-10        |
+| Case                                              | Truncated to $\chi$ | `swap-back-2x` |
+| ------------------------------------------------- | ------------------- | -------------- |
+| Two pairs and a CZ, 4 qubits, $\chi$ 2 (computed) | 0.0395              | 0              |
+| Random pairs, depth 2, seed 1, $\chi$ 128         | 2.1e-4              | 2.7e-15        |
+| PPP polyene QPE, first round, $\chi$ 128          | 2.5e-5              | 1.4e-9         |
+| QPE of 16 qubits, $\chi$ 128                      | 1.8e-3              | 9.6e-5         |
+| H₂, $\chi$ 64 (TVD of the readout)                | 4.5e-4              | 1.6e-10        |
 
 The first row is computed, not measured: it is the case of
 [the crate's MPO tests](../src/tests/engine/mpo.rs): Bell-like pairs on
 sites (0, 1) and (2, 3), then a CZ on sites 0 and 2, at bond 2; the
-truncated route loses sin²0.2 ≈ 3.9% of the weight at the outbound split,
+truncated route loses $\sin^2 0.2 \approx 3.9\%$ of the weight at the outbound split,
 and an MPO, like `swap-back-2x`, none.
 
 **Truncating a route's outbound splits to twice the capacity's bond at the
 cut they cross.**
-This equals 2χ on a chain of even bonds, but truncates a state that fits
+This equals $2\chi$ on a chain of even bonds, but truncates a state that fits
 an uneven capacity: with bonds 2, 1 and 2, Bell pairs on sites (0, 1) and
 (2, 3) and a gate on sites 0 and 3, the SWAP at cut 1 needs a bond of 4
 (twice the bond at cut 0, below it), where this bound allows 2. The bound
@@ -123,7 +126,7 @@ of the proof above is the bond at the cut below, not the cut crossed.
 **Truncating a route's outbound splits to twice the capacity's bond at the
 cut below.**
 Correct, but it never binds: the split's matrix has `2 · left` rows,
-`left` the bond at cut `c − 1`, which no split of the route has set yet
+`left` the bond at cut $c - 1$, which no split of the route has set yet
 and which the chain holds within the capacity there. The SVD's rank is at
 most that, so the bound adds nothing, and `swap-back-2x`'s outbound
 splits apply the cutoff alone.
@@ -141,20 +144,20 @@ return, at the price of a layout that drifts from the caller's order:
 moves the lower one up, `MeetHalfway` moves both. They were measured
 against `swap-back-2x`:
 
-| Case                                | `swap-back-2x` | `MoveHigher` | `MoveLower` | `MeetHalfway` |
-| ----------------------------------- | -------------- | ------------ | ----------- | ------------- |
-| H₂, χ 64 (TVD of the readout)       | 1.6e-10        | 2.2e-10      | 1.7e-4      | 1.1e-10       |
-| Mirror circuit, depth 2, χ 64       | 0.293          | 0.016        | 4.8e-4      | 0.006         |
-| Mirror circuit, depth 3, χ 64       | 0.731          | 0.203        | 0.185       | 0.30          |
-| PPP polyene QPE, first round, χ 128 | 1.4e-9         | 0.388        | 0.166       | 0.205         |
-| QPE of 16 qubits, χ 128             | 9.6e-5         | 0.036        | 0.0082      | 0.0077        |
+| Case                                     | `swap-back-2x` | `MoveHigher` | `MoveLower` | `MeetHalfway` |
+| ---------------------------------------- | -------------- | ------------ | ----------- | ------------- |
+| H₂, $\chi$ 64 (TVD of the readout)       | 1.6e-10        | 2.2e-10      | 1.7e-4      | 1.1e-10       |
+| Mirror circuit, depth 2, $\chi$ 64       | 0.293          | 0.016        | 4.8e-4      | 0.006         |
+| Mirror circuit, depth 3, $\chi$ 64       | 0.731          | 0.203        | 0.185       | 0.30          |
+| PPP polyene QPE, first round, $\chi$ 128 | 1.4e-9         | 0.388        | 0.166       | 0.205         |
+| QPE of 16 qubits, $\chi$ 128             | 9.6e-5         | 0.036        | 0.0082      | 0.0077        |
 
 They serve two kinds of case:
 
-- **H₂, a phase ancilla that meets every system qubit:** at χ 128,
+- **H₂, a phase ancilla that meets every system qubit:** at $\chi$ 128,
   `MoveHigher` was about five times faster per shot than a returning
-  route truncated to χ, `SwapBack` above, at the same readout error.
-- **A circuit whose state needs more than χ in the caller's order,** such
+  route truncated to $\chi$, `SwapBack` above, at the same readout error.
+- **A circuit whose state needs more than $\chi$ in the caller's order,** such
   as the mirror circuits: a returning route loses what that order needs,
   and only a routing that changes the order can lose less.
 
@@ -165,19 +168,19 @@ twice the bond of the caller's order at rest (a median of 255 against
 **Bounded drift**, `MoveHigher` with the caller's order restored every `K`
 two-site gates (`K` of 50, 200 and 1000 were tried, and also 1, 5, 10
 and 20 on the polyene), was at its best `K` less accurate than
-`swap-back-2x`, or as accurate (the polyene at χ 32), except on the
+`swap-back-2x`, or as accurate (the polyene at $\chi$ 32), except on the
 mirror circuits, where it was better at depth 2 and about even at depth 3,
 and less accurate than `MoveHigher` there:
 
-| Case                                | Best `K` | Bounded drift | `swap-back-2x` | `MoveHigher` |
-| ----------------------------------- | -------- | ------------- | -------------- | ------------ |
-| H₂, χ 64 (TVD of the readout)       | 1000     | 1.5e-4        | 1.6e-10        | 2.2e-10      |
-| PPP polyene QPE, first round, χ 32  | 1        | 0.127         | 0.127          | 0.958        |
-| PPP polyene QPE, first round, χ 64  | 1        | 0.0211        | 0.0179         | 0.985        |
-| PPP polyene QPE, first round, χ 128 | 1        | 2.5e-5        | 1.4e-9         | 0.388        |
-| QPE of 16 qubits, χ 128             | 50       | 0.0040        | 9.6e-5         | 0.036        |
-| Mirror circuit, depth 2, χ 64       | 50       | 0.0237        | 0.293          | 0.016        |
-| Mirror circuit, depth 3, χ 64       | 50       | 0.727         | 0.731          | 0.203        |
+| Case                                     | Best `K` | Bounded drift | `swap-back-2x` | `MoveHigher` |
+| ---------------------------------------- | -------- | ------------- | -------------- | ------------ |
+| H₂, $\chi$ 64 (TVD of the readout)       | 1000     | 1.5e-4        | 1.6e-10        | 2.2e-10      |
+| PPP polyene QPE, first round, $\chi$ 32  | 1        | 0.127         | 0.127          | 0.958        |
+| PPP polyene QPE, first round, $\chi$ 64  | 1        | 0.0211        | 0.0179         | 0.985        |
+| PPP polyene QPE, first round, $\chi$ 128 | 1        | 2.5e-5        | 1.4e-9         | 0.388        |
+| QPE of 16 qubits, $\chi$ 128             | 50       | 0.0040        | 9.6e-5         | 0.036        |
+| Mirror circuit, depth 2, $\chi$ 64       | 50       | 0.0237        | 0.293          | 0.016        |
+| Mirror circuit, depth 3, $\chi$ 64       | 50       | 0.727         | 0.731          | 0.203        |
 
 On the polyene, `K` of 1 restores after every gate, the truncated route
 above.

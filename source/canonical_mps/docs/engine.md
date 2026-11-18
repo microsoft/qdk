@@ -59,10 +59,10 @@ the window's sites:
 
 - **two neighbours:** `qr_move`s to bring the centre onto the pair, then
   one `gate_split`;
-- **any other window**, an MPO on a span of `d + 1` sites: `qr_move`s to
+- **any other window**, an MPO on a span of $d + 1$ sites: `qr_move`s to
   bring the centre into the span; per site of the span, a `read` and an
-  `upload` of the site multiplied by its operator tensor; `d − 1`
-  `qr_move`s across the span; and `d` `gate_split`s, the identity as gate,
+  `upload` of the site multiplied by its operator tensor; $d - 1$
+  `qr_move`s across the span; and $d$ `gate_split`s, the identity as gate,
   one per cut ([`distant_sites.md`](distant_sites.md)).
 
 ## Where the centre goes
@@ -70,16 +70,16 @@ the window's sites:
 The centre moves only as far as an operation needs, and the application of
 a window leaves it on the end of the window's span the next operation
 needs, so a sequence of operations on nearby sites moves it little. After
-each method, with `c` the centre before it:
+each method, with $c$ the centre before it:
 
 | `MpsEngine` method                 | The centre after it                                                                                                                       |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `prepare`                          | site 0                                                                                                                                    |
-| `apply`, one site                  | `c`: the gate waits, pending                                                                                                              |
-| `apply`, two sites                 | `c` when the gate joins the pending window or opens one; else the end of the applied window's span nearer the gate's lower site           |
+| `apply`, one site                  | $c$: the gate waits, pending                                                                                                              |
+| `apply`, two sites                 | $c$ when the gate joins the pending window or opens one; else the end of the applied window's span nearer the gate's lower site           |
 | `probability_of_one`, `project`    | the site read: the pending window is applied toward it first, which leaves the centre on its span's end nearer the site                   |
 | `conditional_probability_of_one`   | with conditions, as for `fork`, the conditions and the read on the fork; without, as for `probability_of_one`                             |
-| `expectation`                      | `c`, or the end of the pending window's span nearer `c`, when a window is pending; the reads copy the sites to the host without moving it |
+| `expectation`                      | $c$, or the end of the pending window's span nearer $c$, when a window is pending; the reads copy the sites to the host without moving it |
 | `fork`, `shape`, `retained_weight` | as for `expectation`; a fork starts with its parent's centre                                                                              |
 
 ## Numerics
@@ -95,41 +95,44 @@ its split, to at most the capacity's times the operator's bond (at most
 a split drops within them is the algebra's to choose. A split normalises
 the values it keeps, so the chain keeps a norm of about 1.
 
-**The retained weight.** Each split returns the share `f ∈ (0, 1]` of the
+**The retained weight.** Each split returns the share $f \in (0, 1]$ of the
 squared singular values it kept, and the state's retained weight is the
-product of the shares, `W = Π fᵢ`; the part of a window's operator that
-its factorisation drops, at or below the operator's rank cutoff, is not
-counted ([`distant_sites.md`](distant_sites.md)). The engine keeps `W`
-apart from the
-chain's norm, and fails a split with `WeightUnderflow` when `W` would fall
-below the smallest normal `f64`, about `2.2e-308`, rather than let it reach
-zero, by which callers divide.
+product of the shares, $W = \prod_i f_i$; the part of a window's operator
+that its factorisation drops, at or below the operator's rank cutoff, is
+not counted ([`distant_sites.md`](distant_sites.md)). The engine keeps $W$
+apart from the chain's norm, and fails a split with `WeightUnderflow` when
+$W$ would fall below the smallest normal `f64`, about `2.2e-308`, rather
+than let it reach zero, by which callers divide.
 
-**A probability.** With the centre on site `s`, the rest of the chain drops
-out of the site's reads. The weight of a value `b` is
-`w_b = Σ_{a,c} |T[a, b, c]|²` over the centre's tensor `T`, its pending
-gate applied, and
+**A probability.** With the centre on site $s$, the rest of the chain drops
+out of the site's reads. The weight of a value $b$ is
+$w_b = \sum_{a,c} \lvert T[a, b, c] \rvert^2$ over the centre's tensor
+$T$, its pending gate applied, and
 
-`P(b) = w_b / (w₀ + w₁)`.
+$$P(b) = \frac{w_b}{w_0 + w_1}.$$
 
 Each value's probability is read from its own weight, so a value of weight
 exactly zero reads exactly 0. A gate may drift from norm 1 within the
 unitarity check's tolerance; on the centre's site it divides out, elsewhere
 it shifts reads by at most that order.
 
-**A projection.** It returns `p = P(b)`, refuses `p` of zero or NaN, zeroes
+**A projection.** It returns $p = P(b)$, refuses $p$ of zero or NaN, zeroes
 the other value's elements, and divides the site by the norm of what it
-kept. It computes the norm as `m · √(Σ |x / m|²)`, with `m` the largest
-modulus, not as `√p`, so the site it hands the algebra, and with it the
-state, has a norm of 1 to rounding, even when `p` is subnormal, and later
-projections stay possible. It truncates nothing, so `W` is unchanged,
-and it does not compress the chain again: recompressing was measured
-slower at the same accuracy, on H₂ phase estimation and a polyene's, as
-the gates that follow regrow the bonds it shrinks.
+kept. It computes the norm as $m \sqrt{\sum_x \lvert x / m \rvert^2}$
+over the kept elements $x$, with $m$ their largest modulus, not as
+$\sqrt{p}$, so the site it hands the algebra, and with it the state, has a
+norm of 1 to rounding, even when $p$ is subnormal, and later projections
+stay possible. It truncates nothing, so $W$ is unchanged, and it does not
+compress the chain again: recompressing was measured slower at the same
+accuracy, on H₂ phase estimation and a polyene's, as the gates that follow
+regrow the bonds it shrinks.
 
-**An expectation.** An observable `c₀ + Σₖ cₖ Pₖ`, each `Pₖ` a product of
-one-site Paulis, has the value `c₀ + Σₖ cₖ ⟨ψ|Pₖ|ψ⟩ / ‖T_centre‖²`; the
-division takes out a gate's drift on the centre's site, and a drift
+**An expectation.** An observable $c_0 + \sum_k c_k P_k$, each $P_k$ a
+product of one-site Paulis, has the value
+
+$$c_0 + \sum_k c_k \frac{\langle \psi \vert P_k \vert \psi \rangle}{\lVert T_\text{centre} \rVert^2}.$$
+
+The division takes out a gate's drift on the centre's site, and a drift
 elsewhere shifts the value by at most the order of the unitarity check's
 tolerance. The sites left of the centre are isometries from the left, so
 the environment on any bond left of the centre is the identity, and

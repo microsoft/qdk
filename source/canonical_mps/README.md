@@ -34,7 +34,9 @@ reference algebra is this crate's backend: its tensors are vectors in the
 host's memory, and its products, QR and SVD are the crate's
 [dense linear algebra](#the-dense-linear-algebra)'s, on the calling
 thread. A backend's tests run the contract's conformance kit on it. A
-backend on a GPU library is planned, in its own crate.
+backend on a GPU library is planned, in its own crate, for the chemistry
+instances beyond the CPU's reach, such as benzene, or N₂ at a large bond
+extent, on an NVIDIA A100 GPU.
 
 **Why this approach.**
 
@@ -43,9 +45,9 @@ backend on a GPU library is planned, in its own crate.
   and the checks of every call belong to the engine alone, so every
   backend runs them alike, and a fix reaches every backend.
 - **Small backends.** A backend writes only the trait's tensor
-  operations, on a site's storage or on two neighbouring sites; it checks no argument, since the
-  engine checks every one before it calls, and reports only its own
-  failures.
+  operations, on a site's storage or on two neighbouring sites; it checks
+  no argument, since the engine checks every one before it calls, and
+  reports only its own failures.
 - **Open to more backends.** A new backend is a new type implementing the
   trait, in its own crate; nothing here changes.
 - **Checks written once.** The conformance kit checks each operation of
@@ -69,13 +71,13 @@ engine's own for the work it defers or reorders:
 - **Canonical form, orthogonality centre:** one site, the centre, holds
   the state's norm, and every other site is an isometry towards it, so the
   state's reads and truncations at the centre are local.
-- **Gated pair:** the tensor `θ` of two neighbouring sites contracted over
+- **Gated pair:** the tensor $\theta$ of two neighbouring sites contracted over
   their bond, with a two-qubit gate applied.
-- **Truncation, cutoff, capacity:** a split factors `θ` by an SVD and
+- **Truncation, cutoff, capacity:** a split factors $\theta$ by an SVD and
   keeps only its largest singular values, which truncates the bond between
   the pair. The **cutoff** is the share of the squared singular values a
   split may drop; the **capacity** is the shape a caller prepares a state
-  with, whose bond at each cut, its `χ`, is the largest a split may keep
+  with, whose bond at each cut, its $\chi$, is the largest a split may keep
   there; the contract calls the largest bond one split may keep its
   **cap**.
 - **Retained fraction, retained weight:** the share of the squared
@@ -130,9 +132,9 @@ flowchart LR
 [`CpuMpsEngine`](src/lib.rs) is the engine on the
 [reference algebra](#the-reference-algebra), `CpuAlgebra`. Its state is
 `CanonicalMpsState<CpuAlgebra>`, and its error
-`CanonicalMpsError<SvdError>`. The GHZ state on three
-qubits, its last qubit reached from the first by a gate on sites that are
-not neighbours (the crate's doctest):
+`CanonicalMpsError<SvdError>`. The GHZ state on three qubits, its last
+qubit reached from the first by a gate on sites that are not neighbours
+(the crate's doctest):
 
 ```rust
 use canonical_mps::{CpuAlgebra, CpuMpsEngine};
@@ -218,7 +220,7 @@ The table names the phases each method runs, in order.
 
 | `MpsEngine` method               | Phases                                                                                                          | How                                                                                                                                                                                                                                                            | Why                                                                                                                                                                                                                                                                      |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `prepare`                        | check; upload                                                                                                   | a site holding \|0⟩ per qubit, its bonds of extent 1; the centre on site 0, a retained weight of 1                                                                                                                                                             | a product state needs no split; the bonds grow only as gates entangle                                                                                                                                                                                                    |
+| `prepare`                        | check; upload                                                                                                   | a site holding $\lvert 0 \rangle$ per qubit, its bonds of extent 1; the centre on site 0, a retained weight of 1                                                                                                                                               | a product state needs no split; the bonds grow only as gates entangle                                                                                                                                                                                                    |
 | `apply`, one site                | check; pend                                                                                                     | the gate joins the pending window's operator when its site is in the window, else its site's pending gate                                                                                                                                                      | the next application of the window, or move of the centre, applies it in a call it makes anyway                                                                                                                                                                          |
 | `apply`, two sites               | check; pend, or window then pend                                                                                | the gate joins the pending window when the window's sites and its own number at most three; else the window is applied, toward the gate's lower site, and the gate opens a new window                                                                          | the gates on up to three sites share one application ([fusion](#terms)): one split on two neighbours, otherwise an [MPO](#terms), which keeps the chain in the caller's order and truncates only at the caller's cuts ([`docs/distant_sites.md`](docs/distant_sites.md)) |
 | `probability_of_one`             | check; window, toward the site; move; read                                                                      | the centre's site's values' weights are summed; P(One) is the One value's weight over both values' weights                                                                                                                                                     | a value of weight exactly zero reads exactly 0; a gate's drift from norm 1, within the unitarity check's tolerance, divides out on the centre's site, and elsewhere shifts reads by at most that order                                                                   |
@@ -235,12 +237,12 @@ A split that would take the retained weight below the smallest normal
 by the weight, and the window fails with
 `CanonicalMpsError::OperatorDecomposition` when the host's factorisation
 of its operator fails, which checked gates are not expected to reach.
-After any failure the state is unspecified, as the
-contract says, and the caller drops it.
+After any failure the state is unspecified, as the contract says, and the
+caller drops it.
 
 ### Settings and statistics
 
-The cutoff and the capacity's `χ` trade time for accuracy:
+The cutoff and the capacity's $\chi$ trade time for accuracy:
 [`CanonicalMpsEngine::with_cutoff`](src/engine.rs) says how, and
 [`policy.rs`](src/engine/policy.rs) gives the default cutoff with how it
 was chosen. A caller that tunes them reads a state's
@@ -256,13 +258,13 @@ elements live (`Tensor`) and one for its failures (`Error`). Its rustdoc
 states each operation's guarantees, to rounding; the table says what each
 is for.
 
-| Operation    | What the backend computes                                                                                                                                                     | What the engine needs it for                                                                                                                             |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `upload`     | a new tensor holding host values                                                                                                                                              | a new state's sites, and the sites it computes on the host (a projected site, an MPO's multiplied site)                                                  |
-| `read`       | a tensor's elements on the host, borrowed where they already live there                                                                                                       | the reads, which contract sites on the host (a probability), and an MPO's span, multiplied on the host                                                   |
-| `duplicate`  | a new tensor holding a copy of another's elements                                                                                                                             | a fork of a state, whose sites then change independently                                                                                                 |
-| `gate_split` | `θ` factored by one SVD, truncated as the call says, the kept values normalised and absorbed on the centre's side, the other side an isometry; the bond and retained fraction | a window of gates on two neighbouring qubits, with the centre on the pair; and the compression of an MPO's span, one cut at a time, the identity as gate |
-| `qr_move`    | the centre moved across a bond, exactly, by one QR of the site it leaves, a one-site gate applied to that site first                                                          | bringing the centre to a gate or a read without truncating, applying a pending one-site gate on the way, and the exact sweep of an MPO's span            |
+| Operation    | What the backend computes                                                                                                                                                          | What the engine needs it for                                                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload`     | a new tensor holding host values                                                                                                                                                   | a new state's sites, and the sites it computes on the host (a projected site, an MPO's multiplied site)                                                  |
+| `read`       | a tensor's elements on the host, borrowed where they already live there                                                                                                            | the reads, which contract sites on the host (a probability), and an MPO's span, multiplied on the host                                                   |
+| `duplicate`  | a new tensor holding a copy of another's elements                                                                                                                                  | a fork of a state, whose sites then change independently                                                                                                 |
+| `gate_split` | $\theta$ factored by one SVD, truncated as the call says, the kept values normalised and absorbed on the centre's side, the other side an isometry; the bond and retained fraction | a window of gates on two neighbouring qubits, with the centre on the pair; and the compression of an MPO's span, one cut at a time, the identity as gate |
+| `qr_move`    | the centre moved across a bond, exactly, by one QR of the site it leaves, a one-site gate applied to that site first                                                               | bringing the centre to a gate or a read without truncating, applying a pending one-site gate on the way, and the exact sweep of an MPO's span            |
 
 [`GateSplitCall`](src/algebra.rs) and [`QrMoveCall`](src/algebra.rs) define
 each operation's inputs exactly, and
@@ -284,12 +286,12 @@ under the crate's `conformance` feature, which a backend enables in its
 dev-dependencies:
 
 - [`algebra::conformance::check`](src/algebra/conformance.rs) calls each
-  operation on seeded inputs, from a site of extent one to a gated pair
-  of 64 × 64, and compares what it returns with the contract's formulas,
-  never with another algebra. It returns every case the algebra fails,
-  each naming the pair and the setting at fault. A truncated split is
-  checked by the Eckart–Young theorem, since its factors are not unique;
-  the latitude the contract leaves (a bond larger than the cutoff needs,
+  operation on seeded inputs, from a pair whose extents are all one ($\theta$ of
+  2 × 2) to a gated pair of 64 × 64, and compares what it returns with the
+  contract's formulas, never with another algebra. It returns every case the
+  algebra fails, each naming the pair and the setting at fault. A truncated
+  split is checked by the Eckart–Young theorem, since its factors are not
+  unique; the latitude the contract leaves (a bond larger than the cutoff needs,
   the side of a tie) is not checked.
 - [`engine_circuits`](src/engine_circuits.rs) runs a `CanonicalMpsEngine`
   on the backend over two long circuits, one without truncation and one
@@ -317,25 +319,25 @@ QDK runs.
 
 `CpuAlgebra` holds each site in a `Vec<Complex64>`, in the contract's
 layout, which is the column-major order of the dense linear algebra's
-matrices, so
-the operations read a site as a matrix without reordering it.
+matrices, so the operations read a site as a matrix without reordering
+it.
 
-| Operation    | How                                                                                                                                                                                                                       | Why                                                                                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `upload`     | a copy of the host values into a new vector                                                                                                                                                                               | the tensors already live on the host                                                                                                                                                                    |
-| `read`       | the site's elements, borrowed (the tensor may hold more)                                                                                                                                                                  | the engine's host reads need no copy                                                                                                                                                                    |
-| `duplicate`  | a copy of the site's elements                                                                                                                                                                                             | a fork's sites change apart from its parent's                                                                                                                                                           |
-| `gate_split` | `θ` by one product and the gate's loops; one `Svd::of`; the values the [truncation rule](src/algebra/cpu_algebra/truncation.rs) keeps, normalised, multiplied into the centre's side, the other side the singular vectors | the SVD's factors are checked against `θ` before the truncation: when they do not give `θ` back, the split fails with `SvdError` rather than spread them; what it keeps is `θ`'s truncation, normalised |
-| `qr_move`    | the one-site gate applied to the site the centre leaves; one thin `Qr::of` of it; the small factor multiplied into the other site                                                                                         | a QR moves the centre exactly, and never fails                                                                                                                                                          |
+| Operation    | How                                                                                                                                                                                                                            | Why                                                                                                                                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload`     | a copy of the host values into a new vector                                                                                                                                                                                    | the tensors already live on the host                                                                                                                                                                                   |
+| `read`       | the site's elements, borrowed (the tensor may hold more)                                                                                                                                                                       | the engine's host reads need no copy                                                                                                                                                                                   |
+| `duplicate`  | a copy of the site's elements                                                                                                                                                                                                  | a fork's sites change apart from its parent's                                                                                                                                                                          |
+| `gate_split` | $\theta$ by one product and the gate's loops; one `Svd::of`; the values the [truncation rule](src/algebra/cpu_algebra/truncation.rs) keeps, normalised, multiplied into the centre's side, the other side the singular vectors | the SVD's factors are checked against $\theta$ before the truncation: when they do not give $\theta$ back, the split fails with `SvdError` rather than spread them; what it keeps is $\theta$'s truncation, normalised |
+| `qr_move`    | the one-site gate applied to the site the centre leaves; one thin `Qr::of` of it; the small factor multiplied into the other site                                                                                              | a QR moves the centre exactly, and never fails                                                                                                                                                                         |
 
 The truncation rule drops the longest tail of singular values whose
 squares sum to at most the cutoff's share, then keeps at most the cap;
-its [documentation](src/algebra/cpu_algebra/truncation.rs) states it in full. Only
-`gate_split` fails, when the SVD does
+its [documentation](src/algebra/cpu_algebra/truncation.rs) states it in
+full. Only `gate_split` fails, when the SVD does
 ([`SvdError`](src/dense_linalg/svd.rs)): `DidNotConverge` when its
-rotations still turn after their last sweep, `FailedChecks` when `θ` holds
-a value that is not finite or the factors fail the SVD's checks. The
-engine reports it as `CanonicalMpsError::Algebra`.
+rotations still turn after their last sweep, `FailedChecks` when $\theta$
+holds a value that is not finite or the factors fail the SVD's checks.
+The engine reports it as `CanonicalMpsError::Algebra`.
 
 ## The dense linear algebra
 

@@ -1,12 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The tests of the contract of [`Kernels`] that the SVD relies on beyond
-//! the public product and QR: the column-pivoted QR, `A·P = Q·R` with its
-//! permutation `forward`, the product of `Q`'s chosen columns, and the
-//! fast route's SVD, run on the implementation the module ships.
-//!
-//! [`Kernels`]: crate::dense_linalg::kernels::Kernels
+//! The tests of the contract of
+//! [`Kernels`](crate::dense_linalg::kernels::Kernels) that the SVD relies on
+//! beyond the public product and QR: the column-pivoted QR, `A·P = Q·R` with
+//! its permutation `forward`, the product of `Q`'s chosen columns, and the fast
+//! route's SVD, run on the implementation the module ships.
 
 use super::{SHAPES, adjoint, check_svd_of, distance, identity, matrix, naive_product};
 use crate::dense_linalg::{

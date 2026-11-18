@@ -23,8 +23,8 @@
 //! 2. **Multiply.** With the centre moved into the span, each site of the
 //!    span is read, its pending gate applied, multiplied by its MPO tensor
 //!    on the host, and uploaded: the bond at each cut of the span becomes
-//!    the chain's bond there times the operator's, a transient bond
-//!    ([`SplitStatistics::largest_transient_bond`]).
+//!    the chain's bond there times the operator's, a
+//!    [transient bond](super::SplitStatistics::largest_transient_bond).
 //! 3. **Sweep.** The span is now any tensors, while the sites outside it
 //!    are still isometries towards it. Exact moves of the centre
 //!    ([`qr_move`](SiteAlgebra::qr_move)) from the span's near end (the
@@ -40,8 +40,6 @@
 //! elsewhere: moves and splits as for a gate, reads and uploads as for a
 //! projection; only the bonds inside the span are larger, up to the
 //! capacity's times the operator's bond.
-//!
-//! [`SplitStatistics::largest_transient_bond`]: super::SplitStatistics::largest_transient_bond
 
 use super::{
     CanonicalMpsEngine, CanonicalMpsError,

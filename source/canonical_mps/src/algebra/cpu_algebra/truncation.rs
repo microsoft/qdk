@@ -4,19 +4,19 @@
 //! [`Truncation`]: which singular values the reference algebra's split
 //! keeps, and what that keeps of the split's weight.
 //!
-//! [`SiteAlgebra::gate_split`](crate::algebra::SiteAlgebra::gate_split) bounds what
-//! a split may drop; a backend whose library truncates keeps the library's
+//! [`SiteAlgebra::gate_split`](crate::algebra::SiteAlgebra::gate_split) bounds
+//! what a split may drop; a backend whose library truncates keeps the library's
 //! rule within those bounds. The reference algebra
-//! ([`CpuAlgebra`](super::CpuAlgebra)) computes the singular
-//! values itself, and truncates them by this rule: it drops the longest
-//! tail whose squares sum to at most the cutoff's share, a tail of exactly
-//! that share included, so it keeps the fewest values that meet the
-//! cutoff, then at most the cap.
+//! ([`CpuAlgebra`](super::CpuAlgebra)) computes the singular values itself, and
+//! truncates them by this rule: it drops the longest tail whose squares sum to
+//! at most the cutoff's share, a tail of exactly that share included, so it
+//! keeps the fewest values that meet the cutoff, then at most the cap.
 //!
-//! Every square is of a value divided by the largest, so every sum is at
-//! least 1 and none underflows however small the values are. A value so
-//! small, against the largest, that its square underflows to zero counts
-//! as zero: a cutoff of 0 drops it ([`Truncation::of`] says how small).
+//! Every square is of a value divided by the largest, so the total, and the sum
+//! of the values kept, are at least 1, and neither underflows however small the
+//! values are. A value so small, against the largest, that its square
+//! underflows to zero counts as zero: a cutoff of 0 drops it
+//! ([`Truncation::of`] says how small).
 
 /// Which singular values a split keeps, from [`Truncation::of`].
 #[derive(Clone, Debug, PartialEq)]

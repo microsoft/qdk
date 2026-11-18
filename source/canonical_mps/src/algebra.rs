@@ -31,8 +31,6 @@
 pub mod conformance;
 pub(crate) mod cpu_algebra;
 
-pub use cpu_algebra::CpuAlgebra;
-
 use num_complex::Complex64;
 use std::borrow::Cow;
 

@@ -29,10 +29,10 @@
 //! - `storage.rs`: [`upload`](SiteAlgebra::upload),
 //!   [`read`](SiteAlgebra::read) and
 //!   [`duplicate`](SiteAlgebra::duplicate);
-//! - `gate_split.rs`: [`gate_split`](SiteAlgebra::gate_split), on pairs
-//!   from one site of extent one to a gated pair of 32 × 16, at caps of 1,
-//!   2, 3 and none and cutoffs of 0, 0.05 and just below 1, on either
-//!   side, and on a gated pair of 64 × 64 without truncation;
+//! - `gate_split.rs`: [`gate_split`](SiteAlgebra::gate_split), on pairs, from
+//!   one whose extents are all one (`θ` of 2 × 2) to a gated pair of 32 × 16,
+//!   at caps of 1, 2, 3 and none and cutoffs of 0, 0.05 and just below 1, on
+//!   either side, and on a gated pair of 64 × 64 without truncation;
 //! - `qr_move.rs`: [`qr_move`](SiteAlgebra::qr_move), on the same pairs
 //!   and on bonds larger than the side of the site the centre leaves,
 //!   with and without a gate, either way.

@@ -325,14 +325,12 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
     }
 
     /// Draws by `tensornet`'s shared sampler,
-    /// [`sample_by_conditionals`](sampling::sample_by_conditionals), from
-    /// [`conditional_probability_of_one`][conditional]'s probabilities:
-    /// each new nonempty prefix of values projects them on a fork, so the
-    /// state is not projected. A value of probability exactly zero is never
-    /// drawn. Fails with [`CanonicalMpsError::TooManyValues`] when the
-    /// values cannot be held.
-    ///
-    /// [conditional]: MpsEngine::conditional_probability_of_one
+    /// [`sample_by_conditionals`](sampling::sample_by_conditionals), from the
+    /// [conditional probabilities](Self::conditional_probability_of_one): each
+    /// new nonempty prefix of values projects them on a fork, so the state is
+    /// not projected. A value of probability exactly zero is never drawn. Fails
+    /// with [`CanonicalMpsError::TooManyValues`] when the values cannot be
+    /// held.
     fn sample(
         &self,
         state: &Self::State,
