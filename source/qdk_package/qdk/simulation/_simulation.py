@@ -449,6 +449,9 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         self, call: Call, value: Value, target: Value
     ) -> None:
         assert isinstance(value, IntConstant)
+        if value.value == 0:
+            self._record_leaf("[]")
+            return
         self._output_str += "["
         self._closers.append("]")
         # if len(self._counters) > 0:
@@ -459,6 +462,9 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         self, call: Call, value: Value, target: Value
     ) -> None:
         assert isinstance(value, IntConstant)
+        if value.value == 0:
+            self._record_leaf("()")
+            return
         self._output_str += "("
         self._closers.append(")")
         # if len(self._counters) > 0:
