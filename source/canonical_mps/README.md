@@ -318,9 +318,9 @@ fn assert_conforms<A: SiteAlgebra>(algebra: &A) {
 }
 ```
 
-Its tests of the engine on it, each function taking the backend's algebra
-by value and building the engine itself (`engine_conformance`'s
-documentation, with `CpuAlgebra` for the backend's algebra):
+A backend's tests of the engine on its algebra; each function takes the
+algebra by value and builds the engine itself (`engine_conformance`'s
+documentation, with `CpuAlgebra` standing for the backend's algebra):
 
 ```rust
 use canonical_mps::CpuAlgebra;
