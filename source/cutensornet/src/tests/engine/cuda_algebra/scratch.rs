@@ -5,7 +5,8 @@
 //! buffer it keeps across splits: grown only when a call asks for more,
 //! the smaller buffer freed only once nothing uses it (within a move of
 //! the centre too), lent in every slot a call asks memory for, bounded by
-//! the device's free memory, and freed when the algebra closes.
+//! the device's free memory, refused, failing only its call, for a size it
+//! cannot lend, and freed when the algebra closes.
 
 use super::*;
 use crate::engine::native_calls::WorkspaceSlot;
@@ -166,36 +167,45 @@ fn scratch_is_bounded_by_the_free_memory() {
     split_once(&algebra).expect("a split asking for the free memory");
 }
 
-/// Calls whose library asks for more host memory in one host slot than
-/// the host's allocator gives, because a `Vec` cannot hold it or because
-/// the allocator returns none: each fails with `HostAllocationFailed`
-/// naming the bytes asked, not a panic or an abort, having released every
+/// Calls whose library asks, in one slot, for a size the algebra cannot
+/// lend: more host memory than the host's allocator gives (a `Vec` cannot
+/// hold it, or the allocator returns none), or a negative size, in a
+/// device or a host slot. Each fails with the error naming it
+/// (`HostAllocationFailed` with the bytes asked, `InvalidNativeResult`),
+/// not a panic or an abort, before its split runs, having released every
 /// native object it made, and the algebra serves the next call.
 #[test]
-fn a_host_slot_the_allocator_refuses_fails_only_its_call() {
+fn a_slot_size_the_algebra_cannot_lend_fails_only_its_call() {
+    use WorkspaceSlot::{DeviceCache, DeviceScratch, HostCache, HostScratch};
     // Beyond `isize::MAX` once padded, and the most that fits, with the
     // padding of 255 bytes, in `isize::MAX`: more than any host has.
-    let sizes = [i64::MAX, i64::MAX - 255];
-    let slots = [WorkspaceSlot::HostScratch, WorkspaceSlot::HostCache];
-    for (slot, bytes) in slots
+    let too_large = [i64::MAX, i64::MAX - 255];
+    let rows = [HostScratch, HostCache]
         .into_iter()
-        .flat_map(|slot| sizes.map(|bytes| (slot, bytes)))
-    {
+        .flat_map(|slot| too_large.map(|bytes| (slot, bytes)))
+        .chain([DeviceScratch, DeviceCache, HostScratch, HostCache].map(|slot| (slot, -1)));
+    for (slot, bytes) in rows {
         let (algebra, libraries) = algebra();
         split_once(&algebra).expect("a split that makes the workspace");
         let live = libraries.live_objects();
+        let splits = libraries.count("gate_split");
         libraries.set_workspace_slot_bytes(slot, bytes);
         let failed = split_once(&algebra);
-        let asked = usize::try_from(bytes).expect("a 64-bit host");
-        assert!(
-            matches!(
+        let named = match usize::try_from(bytes) {
+            Ok(asked) => matches!(
                 failed,
                 Err(CudaAlgebraError::HostAllocationFailed { bytes }) if bytes == asked
             ),
-            "{slot:?} {bytes}: {failed:?}"
-        );
+            Err(_) => matches!(failed, Err(CudaAlgebraError::InvalidNativeResult { .. })),
+        };
+        assert!(named, "{slot:?} {bytes}: {failed:?}");
+        assert_eq!(libraries.count("gate_split"), splits, "{slot:?} {bytes}");
         assert_eq!(libraries.live_objects(), live, "{slot:?} {bytes}");
-        libraries.set_workspace_slot_bytes(slot, 0);
+        let usual = match slot {
+            DeviceScratch => WORKSPACE_BYTES,
+            _ => 0,
+        };
+        libraries.set_workspace_slot_bytes(slot, usual);
         split_once(&algebra).expect("the next call");
     }
 }

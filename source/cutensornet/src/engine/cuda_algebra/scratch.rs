@@ -14,7 +14,8 @@
 //! the device's free memory. A host slot's growth that the host's allocator
 //! refuses fails the call, as an error. A slot a call asks no memory for keeps
 //! what it was lent: cuTensorNet refuses a slot lent a pointer and 0 bytes
-//! (status 7 on the A100).
+//! (status 7 on the A100). A slot that asks for a negative size fails the
+//! call before its tensor work runs, as a result the library may not give.
 
 use super::error::{CudaAlgebraError, first_failure};
 use crate::engine::device_session::DeviceSession;
@@ -150,7 +151,7 @@ impl Scratch {
 }
 
 /// The bytes `slot` of `workspace` asks for, or `None` if it asks for
-/// none.
+/// none; a negative size is an `InvalidNativeResult`.
 fn asked(
     calls: &dyn NativeCalls,
     handle: OpaqueHandle,
@@ -158,7 +159,12 @@ fn asked(
     slot: WorkspaceSlot,
 ) -> Result<Option<usize>, CudaAlgebraError> {
     let bytes = calls.workspace_size(handle, workspace, slot)?;
-    if bytes <= 0 {
+    if bytes < 0 {
+        return Err(CudaAlgebraError::InvalidNativeResult {
+            reason: format!("the workspace's {slot:?} slot asks for {bytes} bytes"),
+        });
+    }
+    if bytes == 0 {
         return Ok(None);
     }
     usize::try_from(bytes)
