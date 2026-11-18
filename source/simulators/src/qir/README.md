@@ -201,17 +201,17 @@ Most take no change to the machine; streaming took one, a batch handed
 over in pieces, since only the machine can bound what a context holds
 ([a batch whole or in pieces](design.md#a-batch-whole-or-in-pieces)):
 
-| Need                | Case                                                                                          | Status                                                               |
-| ------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| A new target        | a matrix-product-state simulator, a device                                                    | the resumer contract: built                                          |
-| Efficiency          | the CPU simulators, as fast as `run_shot`                                                     | the machine: built; [a benchmark][bench] times it against `run_shot` |
-| Many shots per call | a GPU, a device                                                                               | the machine: built; a grouping resumer: planned                      |
-| Concurrency         | a device that answers later                                                                   | the async trait: built; a device: planned                            |
-| Streaming           | a target with a bounded queue; a long batch's first part run while the machine walks the rest | the machine's pieces: built; a streaming resumer: planned            |
-| Threads             | shots run on several threads                                                                  | the machine: built; a resumer on threads: planned                    |
-| Composability       | Qodec's and QEP's codes, noise, an observer in between                                        | planned                                                              |
-| Stepping, copying   | a debugger; shots that share a prefix                                                         | a context can be left or cloned; a debugger: planned                 |
-| One runtime for all | the GPU simulator, with an interpreter in its shader                                          | planned: a GPU resumer on the shader's kernels                       |
+| Need                | Case                                                                                          | Status                                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| A new target        | a matrix-product-state simulator, a device                                                    | the resumer contract and [the MPS simulator](../mps_simulator/README.md): built; a device: planned |
+| Efficiency          | the CPU simulators, as fast as `run_shot`                                                     | the machine: built; [a benchmark][bench] times it against `run_shot`                               |
+| Many shots per call | a GPU, a device                                                                               | the machine and a grouping resumer, the MPS simulator's: built; a device's: planned                |
+| Concurrency         | a device that answers later                                                                   | the async trait: built; a device: planned                                                          |
+| Streaming           | a target with a bounded queue; a long batch's first part run while the machine walks the rest | the machine's pieces: built; a streaming resumer: planned                                          |
+| Threads             | shots run on several threads                                                                  | the machine: built; a resumer on threads: planned                                                  |
+| Composability       | Qodec's and QEP's codes, noise, an observer in between                                        | planned                                                                                            |
+| Stepping, copying   | a debugger; shots that share a prefix                                                         | a context can be left or cloned; a debugger: planned                                               |
+| One runtime for all | the GPU simulator, with an interpreter in its shader                                          | planned: a GPU resumer on the shader's kernels                                                     |
 
 [bench]: ../../benches/qir_machine/main.rs
 

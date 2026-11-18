@@ -228,8 +228,10 @@ pub trait MpsEngine {
     /// An independent copy of `state`: what one changes, the other does
     /// not see. Its cases are the default
     /// [`conditional_probability_of_one`], which projects a fork, and
-    /// grouped shots (planned): the shots of a group share one state until
-    /// a measurement splits them.
+    /// grouped shots: the shots of a group share one state until a
+    /// measurement splits them, and each split forks the state once, for
+    /// the shots that drew the other value (no fork when every shot draws
+    /// the same value).
     ///
     /// The copy holds the state it copies, truncated or not: it reads what
     /// `state` reads and has its retained weight, to rounding. So a fork
