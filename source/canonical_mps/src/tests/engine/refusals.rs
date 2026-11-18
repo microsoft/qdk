@@ -4,7 +4,8 @@
 //! The contract's refusals: a condition or a projection on a value of
 //! probability zero or NaN is refused, leaving what reads see, while a
 //! value of rounding weight or rare but possible is accepted; a gate on
-//! three sites; a qutrit; and the refusal a refused call reports.
+//! three sites; and each checked method's refusal (a qutrit, a site out
+//! of range or named twice), reported before any call of the algebra.
 
 use super::*;
 use crate::site_algebra::{
@@ -174,30 +175,110 @@ fn refuses_a_gate_on_three_sites_leaving_what_reads_see() {
     }
 }
 
-/// A capacity whose first site has three levels: the engine holds qubits
-/// only, and refuses it with the contract's refusal.
-#[test]
-fn refuses_a_qutrit() {
-    let qutrit = MpsShape::new(vec![vec![3, 1], vec![1, 2]]).expect("a shape");
-    let error = Engine::new(CpuAlgebra)
-        .prepare(&qutrit)
-        .expect_err("a qutrit");
-    assert_eq!(error, Refusal::NotTwoLevel { site: 0, levels: 3 }.into());
-}
-
 /// A simulator that gets an error asks it whether it was a refusal, to
-/// keep the state: a refused call answers with the contract's refusal.
+/// keep the state: each method the contract checks refuses an invalid call
+/// with the contract's refusal, before any call of the algebra, even with
+/// a window pending (a CX on two sites, under fusion). One row per checked
+/// method and kind of fault; `sample` also with no shot, which draws
+/// nothing yet still checks its sites.
 #[test]
-fn a_refused_call_reports_its_refusal() {
-    let engine = Engine::new(CpuAlgebra);
-    let state = engine.prepare(&capacity(2, 2)).expect("prepare");
-    let error = engine
-        .probability_of_one(&state, 2)
-        .expect_err("site 2 of 2");
-    assert_eq!(
-        error.refusal(),
-        Some(&Refusal::SiteOutOfRange { site: 2, sites: 2 })
-    );
+fn a_refused_call_reports_its_refusal_before_any_call_of_the_algebra() {
+    type SpiedEngine = CanonicalMpsEngine<SpyAlgebra>;
+    type SpiedState = CanonicalMpsState<SpyAlgebra>;
+    type Call = fn(&SpiedEngine, &mut SpiedState) -> CanonicalMpsError<SvdError>;
+    let out_of_range = Refusal::SiteOutOfRange { site: 2, sites: 2 };
+    let repeated = Refusal::RepeatedSite { site: 0 };
+    let rows: [(&str, Call, Refusal); 11] = [
+        // The engine holds qubits only.
+        (
+            "prepare a qutrit",
+            |engine, _| {
+                let qutrit = MpsShape::new(vec![vec![3, 1], vec![1, 2]]).expect("a shape");
+                engine.prepare(&qutrit).expect_err("refused")
+            },
+            Refusal::NotTwoLevel { site: 0, levels: 3 },
+        ),
+        (
+            "apply on site 2",
+            |engine, state| engine.apply(state, &[2], &ry(0.3)).expect_err("refused"),
+            out_of_range.clone(),
+        ),
+        (
+            "apply on site 0 twice",
+            |engine, state| engine.apply(state, &[0, 0], &cnot()).expect_err("refused"),
+            repeated.clone(),
+        ),
+        (
+            "probability_of_one of site 2",
+            |engine, state| engine.probability_of_one(state, 2).expect_err("refused"),
+            out_of_range.clone(),
+        ),
+        (
+            "conditional_probability_of_one given site 2",
+            |engine, state| {
+                engine
+                    .conditional_probability_of_one(state, 1, &[(2, true)])
+                    .expect_err("refused")
+            },
+            out_of_range.clone(),
+        ),
+        (
+            "project site 2",
+            |engine, state| engine.project(state, 2, true).expect_err("refused"),
+            out_of_range.clone(),
+        ),
+        (
+            "sample site 2",
+            |engine, state| engine.sample(state, &[2], 1, 5).expect_err("refused"),
+            out_of_range.clone(),
+        ),
+        (
+            "sample site 2, no shot",
+            |engine, state| engine.sample(state, &[2], 0, 5).expect_err("refused"),
+            out_of_range.clone(),
+        ),
+        (
+            "sample site 0 twice",
+            |engine, state| engine.sample(state, &[0, 0], 1, 5).expect_err("refused"),
+            repeated.clone(),
+        ),
+        (
+            "sample site 0 twice, no shot",
+            |engine, state| engine.sample(state, &[0, 0], 0, 5).expect_err("refused"),
+            repeated,
+        ),
+        (
+            "expectation on site 2",
+            |engine, state| {
+                engine
+                    .expectation(state, &z_string(&[2]))
+                    .expect_err("refused")
+            },
+            out_of_range,
+        ),
+    ];
+    let (algebra, calls) = SpyAlgebra::new();
+    let engine = CanonicalMpsEngine::new(algebra);
+    let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
+    engine.apply(&mut state, &[0], &ry(0.8)).expect("apply");
+    engine
+        .apply(&mut state, &[0, 1], &cnot())
+        .expect("a pending window");
+    let tally = |calls: &SpiedCalls| {
+        [
+            calls.gate_splits.get(),
+            calls.qr_moves.get(),
+            calls.reads.get(),
+            calls.duplicates.get(),
+            calls.uploads.borrow().len(),
+        ]
+    };
+    for (row, call, refusal) in rows {
+        let before = tally(&calls);
+        let error = call(&engine, &mut state);
+        assert_eq!(error.refusal(), Some(&refusal), "{row}");
+        assert_eq!(tally(&calls), before, "{row}: calls of the algebra");
+    }
 }
 
 /// A stub of a backend whose reads come back NaN, as a device's may after
