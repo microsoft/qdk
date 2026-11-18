@@ -40,34 +40,82 @@ fn gates_on_distant_sites_act_in_the_callers_order() {
     }
 }
 
-/// Two Bell pairs, (0, 1) and (2, 3), then a CZ on sites 0 and 2. Unfused,
-/// the state has bond 2 at every cut before the CZ; fused, the CNOT on
-/// (2, 3) joins the CZ's window. Either way the splits keep every value,
-/// so the gates lose nothing on a chain of bond 2.
+/// An MPO whose result fits the capacity loses nothing, though it grows
+/// its span's bonds on the way: the weight stays 1, the shape fits, and
+/// every read agrees with the reference. Each row: the capacity and the
+/// gates, the last on sites far apart.
 #[test]
-fn an_mpo_keeps_a_state_that_fits_the_capacity() {
-    let capacity = chain(4, 2);
+fn an_mpo_keeps_a_state_that_fits_its_bonds() {
+    type Row = (&'static str, MpsShape, Gates);
+    let half_turn = ry(std::f64::consts::FRAC_PI_2);
+    let rows: [Row; 2] = [
+        // Two Bell pairs, (0, 1) and (2, 3), then a CZ on sites 0 and 2.
+        // Unfused, the state has bond 2 at every cut before the CZ; fused,
+        // the CNOT on (2, 3) joins the CZ's window. Either way the splits
+        // keep every value, so the gates lose nothing on a chain of bond
+        // 2.
+        (
+            "a CZ on two Bell pairs",
+            chain(4, 2),
+            vec![
+                (&[0], ry(0.6)),
+                (&[0, 1], cnot()),
+                (&[2], ry(0.4)),
+                (&[2, 3], cnot()),
+                (&[0, 2], cz()),
+            ],
+        ),
+        // A Bell pair on sites (0, 1), site 2 in |0⟩ and site 3 in |+⟩ fit
+        // a capacity whose bonds are 2, 1 and 2. A CNOT from site 0 to site
+        // 3, of operator rank 2, grows the middle cut's bond to 2, above
+        // its capacity of 1, and its splits cut it back: X on |+⟩ is the
+        // identity, so the state is unchanged and the cut keeps all the
+        // weight.
+        (
+            "uneven bonds",
+            MpsShape::new(vec![vec![2, 2], vec![2, 2, 1], vec![1, 2, 2], vec![2, 2]])
+                .expect("a chain of bonds 2, 1, 2"),
+            vec![
+                (&[0], half_turn.clone()),
+                (&[0, 1], cnot()),
+                (&[3], half_turn),
+                (&[0, 3], cnot()),
+            ],
+        ),
+    ];
     let reference = ExactReference::new();
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&capacity).expect("prepare");
-        let mut exact_state = reference.prepare(&exact(4)).expect("prepare");
-        for (on, gate) in [
-            (&[0][..], ry(0.6)),
-            (&[0, 1], cnot()),
-            (&[2], ry(0.4)),
-            (&[2, 3], cnot()),
-            (&[0, 2], cz()),
-        ] {
-            engine.apply(&mut state, on, &gate).expect("apply");
-            reference.apply(&mut exact_state, on, &gate).expect("apply");
+    for (row, capacity, gates) in &rows {
+        for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+            let mut state = engine.prepare(capacity).expect("prepare");
+            let mut exact_state = reference.prepare(&exact(4)).expect("prepare");
+            for (on, gate) in gates {
+                engine.apply(&mut state, on, gate).expect("apply");
+                reference.apply(&mut exact_state, on, gate).expect("apply");
+            }
+            let weight = engine.retained_weight(&state).expect("weight");
+            assert!(
+                state.split_statistics().largest_transient_bond() >= 2,
+                "{row}, {name}: precondition, the MPO grew the span's bonds"
+            );
+            assert!((weight - 1.0).abs() < 1e-12, "{row}, {name}: {weight}");
+            assert!(
+                engine.shape(&state).expect("shape").fits_within(capacity),
+                "{row}, {name}"
+            );
+            assert_reads_agree(&engine, &state, &exact_state, 1e-12);
+            for sites in [&[0, 1][..], &[3]] {
+                let value = engine
+                    .expectation(&state, &x_string(sites))
+                    .expect("expectation");
+                let expected = reference
+                    .expectation(&exact_state, &x_string(sites))
+                    .expect("expectation");
+                assert!(
+                    (value - expected).norm() < 1e-12,
+                    "{row}, {name}: X on {sites:?}, {value} vs {expected}"
+                );
+            }
         }
-        let weight = engine.retained_weight(&state).expect("weight");
-        assert!((weight - 1.0).abs() < 1e-12, "{name}: {weight}");
-        assert!(
-            engine.shape(&state).expect("shape").fits_within(&capacity),
-            "{name}"
-        );
-        assert_reads_agree(&engine, &state, &exact_state, 1e-12);
     }
 }
 
@@ -79,46 +127,6 @@ fn x_string(sites: &[usize]) -> PauliSum {
         vec![PauliTerm::new(real(1.0), factors).expect("a term")],
     )
     .expect("an observable")
-}
-
-/// A Bell pair on sites (0, 1), site 2 in |0⟩ and site 3 in |+⟩ fit a
-/// capacity whose bonds are 2, 1 and 2. A CNOT from site 0 to site 3, of
-/// operator rank 2, grows the middle cut's bond to 2, above its capacity
-/// of 1, and its splits cut it back: X on |+⟩ is the identity, so the
-/// state is unchanged and the cut keeps all the weight.
-#[test]
-fn an_mpo_keeps_a_state_that_fits_uneven_bonds() {
-    let capacity = MpsShape::new(vec![vec![2, 2], vec![2, 2, 1], vec![1, 2, 2], vec![2, 2]])
-        .expect("a chain of bonds 2, 1, 2");
-    let half_turn = ry(std::f64::consts::FRAC_PI_2);
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&capacity).expect("prepare");
-        for (on, gate) in [
-            (&[0][..], &half_turn),
-            (&[0, 1], &cnot()),
-            (&[3], &half_turn),
-        ] {
-            engine.apply(&mut state, on, gate).expect("the state");
-        }
-        engine.apply(&mut state, &[0, 3], &cnot()).expect("apply");
-        let weight = engine.retained_weight(&state).expect("weight");
-        let statistics = state.split_statistics();
-        assert!(
-            statistics.largest_transient_bond() >= 2,
-            "{name}: precondition, the MPO grew the span's bonds"
-        );
-        assert!((weight - 1.0).abs() < 1e-12, "{name}: {weight}");
-        assert!(
-            engine.shape(&state).expect("shape").fits_within(&capacity),
-            "{name}"
-        );
-        for sites in [&[0, 1][..], &[3]] {
-            let value = engine
-                .expectation(&state, &x_string(sites))
-                .expect("expectation");
-            assert!((value - real(1.0)).norm() < 1e-12, "{name}: {value}");
-        }
-    }
 }
 
 /// A Bell pair on sites (0, 1) and a pair on (2, 3) of Schmidt weights 0.98

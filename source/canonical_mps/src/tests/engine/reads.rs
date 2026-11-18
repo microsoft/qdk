@@ -291,28 +291,29 @@ fn an_expectation_reads_each_site_once_whatever_its_terms() {
 }
 
 /// Grouped shots read a site's probability given the values drawn on
-/// others: given two values, a conditional probability duplicates the
-/// chain's sites as many times as one fork does, both values projected on
-/// that one fork.
+/// others: a conditional probability forks at most once, as many
+/// duplicates of the chain's sites as one fork makes, whatever its number
+/// of conditions; without conditions it reads the state itself and
+/// duplicates nothing.
 #[test]
-fn a_conditional_probability_forks_once_for_all_its_conditions() {
+fn a_conditional_probability_forks_at_most_once() {
     let (engine, state, calls) = spied_entangled_chain(6);
     engine.fork(&state).expect("fork");
     let one_fork = calls.duplicates.get();
-    assert!(one_fork > 0, "a fork duplicates the sites");
-    engine
-        .conditional_probability_of_one(&state, 5, &[(1, true), (3, false)])
-        .expect("possible conditions");
-    assert_eq!(calls.duplicates.get() - one_fork, one_fork);
-}
-
-/// Without conditions, a conditional probability reads the state itself:
-/// it duplicates nothing.
-#[test]
-fn a_conditional_probability_without_conditions_forks_nothing() {
-    let (engine, state, calls) = spied_entangled_chain(6);
-    engine
-        .conditional_probability_of_one(&state, 5, &[])
-        .expect("P(One)");
-    assert_eq!(calls.duplicates.get(), 0);
+    assert!(one_fork > 0, "precondition: a fork duplicates the sites");
+    for (given, forks) in [
+        (&[][..], 0),
+        (&[(1, true)], 1),
+        (&[(1, true), (3, false)], 1),
+    ] {
+        let before = calls.duplicates.get();
+        engine
+            .conditional_probability_of_one(&state, 5, given)
+            .expect("possible conditions");
+        assert_eq!(
+            calls.duplicates.get() - before,
+            forks * one_fork,
+            "given {given:?}"
+        );
+    }
 }

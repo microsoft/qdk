@@ -21,62 +21,78 @@ fn one_of_rounding_weight(engine: &Engine) -> State {
     state
 }
 
-/// A condition on |00⟩'s One: its probability is exactly zero.
+/// A condition or a projection on a value of probability exactly zero,
+/// |00⟩'s One, is refused with the contract's refusal.
 #[test]
-fn refuses_a_condition_of_probability_zero() {
+fn a_value_of_probability_zero_is_refused() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let state = engine.prepare(&chain(2, 2)).expect("prepare");
-        let error = engine
+        let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+        let condition = engine
             .conditional_probability_of_one(&state, 1, &[(0, true)])
             .expect_err("an impossible condition");
-        assert_eq!(error, Refusal::ZeroProbabilityOutcome.into(), "{name}");
-    }
-}
-
-/// A value of rounding weight is not refused as a condition: the contract
-/// (`Refusal::ZeroProbabilityOutcome`) refuses only a probability of exactly
-/// zero, and leaves a threshold to the method that needs one.
-#[test]
-fn accepts_a_condition_on_a_value_of_rounding_weight() {
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let state = one_of_rounding_weight(&engine);
-        let p1 = engine.probability_of_one(&state, 0).expect("P(One)");
-        assert!(p1 > 0.0 && p1 < 1e-20, "{name}: a weight of rounding, {p1}");
-        engine
-            .conditional_probability_of_one(&state, 1, &[(0, true)])
-            .expect("a condition of nonzero probability");
-    }
-}
-
-/// A condition on Zero where P(Zero) is 1e-18: one minus P(One) rounds to
-/// zero, but the engine reads P(Zero) from its own weight, so the
-/// condition is possible and its answer exact.
-#[test]
-fn accepts_a_condition_whose_value_is_rare_but_possible() {
-    let theta = 2.0 * (1e-9f64).acos();
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
-        engine.apply(&mut state, &[0], &ry(theta)).expect("apply");
-        engine.apply(&mut state, &[1], &ry(0.8)).expect("apply");
-        let p1 = engine.probability_of_one(&state, 0).expect("P(One)");
-        assert!((1.0 - p1).abs() < 1e-15, "{name}: P(Zero) rounds away");
-        let given = engine
-            .conditional_probability_of_one(&state, 1, &[(0, false)])
-            .expect("a possible condition");
-        let expected = 0.4f64.sin().powi(2);
-        assert!((given - expected).abs() < 1e-12, "{name}: {given}");
-    }
-}
-
-/// A projection on |00⟩'s One: its probability is exactly zero.
-#[test]
-fn refuses_a_projection_on_a_value_of_probability_zero() {
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
-        let error = engine
+        let projection = engine
             .project(&mut state, 0, true)
             .expect_err("an impossible value");
-        assert_eq!(error, Refusal::ZeroProbabilityOutcome.into(), "{name}");
+        for (call, error) in [("condition", condition), ("projection", projection)] {
+            assert_eq!(
+                error,
+                Refusal::ZeroProbabilityOutcome.into(),
+                "{name}: {call}"
+            );
+        }
+    }
+}
+
+/// A value of rounding weight, or rare but possible, is not refused: the
+/// contract (`Refusal::ZeroProbabilityOutcome`) refuses only a probability
+/// of exactly zero, and leaves a threshold to the method that needs one.
+/// One row per call: a condition and a projection on One of rounding
+/// weight, and a condition on Zero of weight 1e-18.
+#[test]
+fn a_value_of_rounding_weight_is_accepted() {
+    type Row = fn(&Engine, &str);
+    let rows: [(&str, Row); 3] = [
+        ("a condition on One of rounding weight", |engine, name| {
+            let state = one_of_rounding_weight(engine);
+            let p1 = engine.probability_of_one(&state, 0).expect("P(One)");
+            assert!(p1 > 0.0 && p1 < 1e-20, "{name}: a weight of rounding, {p1}");
+            engine
+                .conditional_probability_of_one(&state, 1, &[(0, true)])
+                .expect("a condition of nonzero probability");
+        }),
+        // The projection returns that weight, and the state it leaves keeps
+        // its norm.
+        ("a projection on One of rounding weight", |engine, name| {
+            let mut state = one_of_rounding_weight(engine);
+            let p1 = engine.probability_of_one(&state, 0).expect("P(One)");
+            let p = engine
+                .project(&mut state, 0, true)
+                .expect("a value of nonzero probability");
+            assert!((p - p1).abs() <= 1e-12 * p1, "{name}: {p} vs {p1}");
+            let weight = engine.retained_weight(&state).expect("weight");
+            assert!((weight - 1.0).abs() < 1e-9, "{name}: {weight}");
+        }),
+        // One minus P(One) rounds to zero, but the engine reads P(Zero)
+        // from its own weight, so the condition is possible and its answer
+        // exact.
+        ("a condition on Zero of weight 1e-18", |engine, name| {
+            let theta = 2.0 * (1e-9f64).acos();
+            let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+            engine.apply(&mut state, &[0], &ry(theta)).expect("apply");
+            engine.apply(&mut state, &[1], &ry(0.8)).expect("apply");
+            let p1 = engine.probability_of_one(&state, 0).expect("P(One)");
+            assert!((1.0 - p1).abs() < 1e-15, "{name}: P(Zero) rounds away");
+            let given = engine
+                .conditional_probability_of_one(&state, 1, &[(0, false)])
+                .expect("a possible condition");
+            let expected = 0.4f64.sin().powi(2);
+            assert!((given - expected).abs() < 1e-12, "{name}: {given}");
+        }),
+    ];
+    for (row, check) in rows {
+        for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+            check(&engine, &format!("{row}, {name}"));
+        }
     }
 }
 
@@ -124,22 +140,6 @@ fn a_refused_projection_leaves_what_reads_see_with_or_without_fusion() {
         for (a, b) in after.iter().zip(&before) {
             assert!((a - b).abs() < 1e-12, "{name}: {after:?} vs {before:?}");
         }
-    }
-}
-
-/// A projection on a value of rounding weight is not refused: it returns
-/// that weight, and the state it leaves keeps its norm.
-#[test]
-fn projects_on_a_value_of_rounding_weight() {
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = one_of_rounding_weight(&engine);
-        let p1 = engine.probability_of_one(&state, 0).expect("P(One)");
-        let p = engine
-            .project(&mut state, 0, true)
-            .expect("a value of nonzero probability");
-        assert!((p - p1).abs() <= 1e-12 * p1, "{name}: {p} vs {p1}");
-        let weight = engine.retained_weight(&state).expect("weight");
-        assert!((weight - 1.0).abs() < 1e-9, "{name}: {weight}");
     }
 }
 
@@ -238,26 +238,19 @@ impl SiteAlgebra for NanReadsStub {
     }
 }
 
-/// A projection on a site whose read comes back NaN: its probability is
-/// NaN, and the contract refuses it.
+/// A condition or a projection on a site whose read comes back NaN: its
+/// probability is NaN, and the contract refuses it.
 #[test]
-fn refuses_a_projection_whose_probability_is_nan() {
+fn a_value_of_nan_probability_is_refused() {
     let engine = CanonicalMpsEngine::new(NanReadsStub);
     let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
-    let error = engine
-        .project(&mut state, 0, false)
-        .expect_err("a probability of NaN");
-    assert_eq!(error, Refusal::ZeroProbabilityOutcome.into());
-}
-
-/// A condition on a site whose read comes back NaN: its probability is
-/// NaN, and the contract refuses it.
-#[test]
-fn refuses_a_condition_whose_probability_is_nan() {
-    let engine = CanonicalMpsEngine::new(NanReadsStub);
-    let state = engine.prepare(&chain(2, 2)).expect("prepare");
-    let error = engine
+    let condition = engine
         .conditional_probability_of_one(&state, 1, &[(0, false)])
         .expect_err("a condition of probability NaN");
-    assert_eq!(error, Refusal::ZeroProbabilityOutcome.into());
+    let projection = engine
+        .project(&mut state, 0, false)
+        .expect_err("a probability of NaN");
+    for (call, error) in [("condition", condition), ("projection", projection)] {
+        assert_eq!(error, Refusal::ZeroProbabilityOutcome.into(), "{call}");
+    }
 }

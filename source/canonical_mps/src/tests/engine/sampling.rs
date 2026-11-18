@@ -89,65 +89,77 @@ fn a_measured_value_has_probability_exactly_one() {
     }
 }
 
-/// A sample of a site and site 0 after a measurement of the site drew One,
-/// with the seed whose first uniform is the largest a draw gives: the
-/// sample draws One, not the Zero of probability zero, and the next site's
-/// draw, given it, is not refused. The site, per fusion setting, is one on
-/// which P(One) over the site's whole weight, summed in another order than
-/// the two values' weights, rounds below that uniform: site 2 of 5 sites
-/// fused, site 1 of 5 unfused, found by a probe of the circuits of 5 to 10
-/// sites that `a_measured_value_has_probability_exactly_one` measures. Such
-/// sites move with any change to the splits' rounding: a precondition
-/// checks that the chosen site still rounds so, and asks to re-probe when
-/// it does not.
+/// A sample never draws a value of probability zero, even with the seed
+/// whose first uniform is the edge of the draw's range. One row per value.
 #[test]
-fn a_sample_draws_one_where_zero_has_probability_zero() {
-    // COMPATIBILITY NOTE: this behavior was present in the dev line's
-    // `qdk_cpu_mps` (its test of the same name), hence we keep its rule.
-    // Its sites moved, because this crate's splits round differently from
-    // that engine's SVD, so they were found again as the doc above says.
-    // 1 − 2⁻⁵³ is the largest `f64` below 1, so a uniform in [0, 1) is not
-    // below it only when it is 1 − 2⁻⁵³ exactly.
-    assert!(
-        !first_draw(1.0 - f64::EPSILON / 2.0, SEED_OF_THE_LARGEST_UNIFORM),
-        "the seed's first draw is 1 − 2⁻⁵³ exactly"
-    );
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let (sites, site) = if name == "fused" { (5, 2) } else { (5, 1) };
-        let state = measured_on(&engine, sites, site, true);
-        let whole = engine
-            .one_over_the_whole_weight(&state, site)
-            .expect("a read");
-        assert!(
-            whole < 1.0,
-            "{name}: precondition, P(One) of site {site} over its whole weight \
-             rounds below 1 ({whole}); the splits' rounding changed, so re-probe \
-             the site as the doc says"
-        );
-        let values = engine
-            .sample(&state, &[site, 0], 1, SEED_OF_THE_LARGEST_UNIFORM)
-            .expect("a sample");
-        assert!(values[0], "{name}");
-    }
-}
-
-/// A sample of site 2 after a measurement of site 2 drew Zero, with the
-/// seed whose first uniform is 0: the sample draws Zero, not the One of
-/// probability zero.
-#[test]
-fn a_sample_draws_zero_where_one_has_probability_zero() {
-    // The smallest positive `f64`, so a uniform is below it only when it is
-    // 0 exactly.
-    assert!(
-        first_draw(f64::from_bits(1), SEED_OF_A_ZERO_UNIFORM),
-        "the seed's first draw is 0 exactly"
-    );
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let state = measured_on(&engine, 6, 2, false);
-        let values = engine
-            .sample(&state, &[2], 1, SEED_OF_A_ZERO_UNIFORM)
-            .expect("a sample");
-        assert!(!values[0], "{name}");
+fn a_sample_never_draws_a_value_of_probability_zero() {
+    type Row = fn(&Engine, &str);
+    let rows: [(&str, Row); 2] = [
+        // A sample of a site and site 0 after a measurement of the site
+        // drew One, with the seed whose first uniform is the largest a draw
+        // gives: the sample draws One, not the Zero of probability zero,
+        // and the next site's draw, given it, is not refused. The site, per
+        // fusion setting, is one on which P(One) over the site's whole
+        // weight, summed in another order than the two values' weights,
+        // rounds below that uniform: site 2 of 5 sites fused, site 1 of 5
+        // unfused, found by a probe of the circuits of 5 to 10 sites that
+        // `a_measured_value_has_probability_exactly_one` measures. Such
+        // sites move with any change to the splits' rounding: a
+        // precondition checks that the chosen site still rounds so, and
+        // asks to re-probe when it does not.
+        ("One where Zero has probability zero", |engine, name| {
+            // COMPATIBILITY NOTE: this behavior was present in the dev
+            // line's `qdk_cpu_mps` (its test of the same name), hence we
+            // keep its rule. Its sites moved, because this crate's splits
+            // round differently from that engine's SVD, so they were found
+            // again as the comment above says.
+            // 1 − 2⁻⁵³ is the largest `f64` below 1, so a uniform in [0, 1) is
+            // not below it only when it is 1 − 2⁻⁵³ exactly.
+            assert!(
+                !first_draw(1.0 - f64::EPSILON / 2.0, SEED_OF_THE_LARGEST_UNIFORM),
+                "the seed's first draw is 1 − 2⁻⁵³ exactly"
+            );
+            let (sites, site) = if name.starts_with("fused") {
+                (5, 2)
+            } else {
+                (5, 1)
+            };
+            let state = measured_on(engine, sites, site, true);
+            let whole = engine
+                .one_over_the_whole_weight(&state, site)
+                .expect("a read");
+            assert!(
+                whole < 1.0,
+                "{name}: precondition, P(One) of site {site} over its whole \
+                 weight rounds below 1 ({whole}); the splits' rounding changed, \
+                 so re-probe the site as the doc says"
+            );
+            let values = engine
+                .sample(&state, &[site, 0], 1, SEED_OF_THE_LARGEST_UNIFORM)
+                .expect("a sample");
+            assert!(values[0], "{name}");
+        }),
+        // A sample of site 2 after a measurement of site 2 drew Zero, with
+        // the seed whose first uniform is 0: the sample draws Zero, not the
+        // One of probability zero.
+        ("Zero where One has probability zero", |engine, name| {
+            // The smallest positive `f64`, so a uniform is below it only
+            // when it is 0 exactly.
+            assert!(
+                first_draw(f64::from_bits(1), SEED_OF_A_ZERO_UNIFORM),
+                "the seed's first draw is 0 exactly"
+            );
+            let state = measured_on(engine, 6, 2, false);
+            let values = engine
+                .sample(&state, &[2], 1, SEED_OF_A_ZERO_UNIFORM)
+                .expect("a sample");
+            assert!(!values[0], "{name}");
+        }),
+    ];
+    for (row, check) in rows {
+        for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+            check(&engine, &format!("{name}: {row}"));
+        }
     }
 }
 

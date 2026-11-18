@@ -56,52 +56,59 @@ fn a_fork_keeps_its_parents_retained_weight() {
     }
 }
 
-/// A method that truncates a pair to a bond of 1 for 600 rounds (a
-/// retained weight of 2⁻⁶⁰⁰, about 2.4e-181), with each split leaving the
-/// centre on the left site, then on the right, then turns a site to a
-/// P(One) of 1e-200: the read gives 1e-200, and a projection on it is
-/// accepted, however little weight the truncations kept.
+/// A method that truncates a pair to a bond of 1 many times keeps a
+/// weight far below the smallest normal `f64`, yet its reads keep their
+/// value, however little weight the truncations kept, as each split
+/// normalises the values it keeps. One row per read.
 #[test]
-fn a_rare_value_reads_its_probability_after_many_truncations() {
-    for (engine, name) in both_fusions_and_cutoffs() {
-        for centre in [0, 1] {
+fn reads_after_many_truncations_keep_their_value() {
+    type Row = fn(&Engine, &str);
+    let rows: [(&str, Row); 2] = [
+        // 600 rounds (a retained weight of 2⁻⁶⁰⁰, about 2.4e-181), with each
+        // split leaving the centre on the left site, then on the right,
+        // then a turn of a site to a P(One) of 1e-200: the read gives
+        // 1e-200, and a projection on it is accepted.
+        ("a rare value's probability", |engine, name| {
+            for centre in [0, 1] {
+                let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+                for _ in 0..600 {
+                    halve_the_weight(engine, &mut state, centre).expect("a round");
+                }
+                // A gate, not a projection, turns site 0 to Zero: a
+                // projection would normalize the state and hide the
+                // truncations' losses.
+                if engine.probability_of_one(&state, 0).expect("P(One)") > 0.5 {
+                    let x = [real(0.0), real(1.0), real(1.0), real(0.0)];
+                    engine.apply(&mut state, &[0], &x).expect("apply");
+                }
+                engine.apply(&mut state, &[0], &ry(2e-100)).expect("apply");
+                let p = engine.probability_of_one(&state, 0).expect("P(One)");
+                assert!((p / 1e-200 - 1.0).abs() < 1e-9, "{name}, {centre}: {p:e}");
+                let projected = engine.project(&mut state, 0, true);
+                assert!(projected.is_ok(), "{name}, {centre}: {projected:?}");
+            }
+        }),
+        // 1,020 rounds (a retained weight of 2⁻¹⁰²⁰, about 8.9e-308), then
+        // ⟨1000·Z₀⟩: the read gives ±1000, as the state's norm stays about
+        // 1 however small the weight.
+        ("an expectation", |engine, name| {
+            let z = PauliSum::new(
+                real(0.0),
+                vec![PauliTerm::new(real(1000.0), vec![(0, Pauli::Z)]).expect("a term")],
+            )
+            .expect("an observable");
             let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
-            for _ in 0..600 {
-                halve_the_weight(&engine, &mut state, centre).expect("a round");
+            for _ in 0..1020 {
+                halve_the_weight(engine, &mut state, 0).expect("a round");
             }
-            // A gate, not a projection, turns site 0 to Zero: a projection
-            // would normalize the state and hide the truncations' losses.
-            if engine.probability_of_one(&state, 0).expect("P(One)") > 0.5 {
-                let x = [real(0.0), real(1.0), real(1.0), real(0.0)];
-                engine.apply(&mut state, &[0], &x).expect("apply");
-            }
-            engine.apply(&mut state, &[0], &ry(2e-100)).expect("apply");
-            let p = engine.probability_of_one(&state, 0).expect("P(One)");
-            assert!((p / 1e-200 - 1.0).abs() < 1e-9, "{name}, {centre}: {p:e}");
-            let projected = engine.project(&mut state, 0, true);
-            assert!(projected.is_ok(), "{name}, {centre}: {projected:?}");
+            let value = engine.expectation(&state, &z).expect("expectation");
+            assert!((value.re.abs() - 1000.0).abs() < 1e-6, "{name}: {value}");
+        }),
+    ];
+    for (row, check) in rows {
+        for (engine, name) in both_fusions_and_cutoffs() {
+            check(&engine, &format!("{row}, {name}"));
         }
-    }
-}
-
-/// 1,020 rounds of a pair truncated to a bond of 1 (a retained weight of
-/// 2⁻¹⁰²⁰, about 8.9e-308), then ⟨1000·Z₀⟩: the read gives ±1000, as each
-/// split normalises the values it keeps, so the state's norm stays about 1
-/// however small the weight.
-#[test]
-fn an_expectation_after_many_truncations_reads_its_value() {
-    let z = PauliSum::new(
-        real(0.0),
-        vec![PauliTerm::new(real(1000.0), vec![(0, Pauli::Z)]).expect("a term")],
-    )
-    .expect("an observable");
-    for (engine, name) in both_fusions_and_cutoffs() {
-        let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
-        for _ in 0..1020 {
-            halve_the_weight(&engine, &mut state, 0).expect("a round");
-        }
-        let value = engine.expectation(&state, &z).expect("expectation");
-        assert!((value.re.abs() - 1000.0).abs() < 1e-6, "{name}: {value}");
     }
 }
 

@@ -4,7 +4,7 @@
 //! The tests of the matrices (`matrix`): column-major, holding exactly
 //! `rows·cols` elements, with their product and adjoint.
 
-use super::{SHAPES, c, distance, matrix, naive_product};
+use super::{SHAPES, c, distance, matrix, naive_product, panic_message};
 use crate::dense_linalg::{Matrix, MatrixRef};
 
 /// A matrix built element by element is stored column by column.
@@ -17,45 +17,56 @@ fn from_fn_fills_column_by_column() {
     assert_eq!(m.elements(), expected);
 }
 
-/// Five elements are not a 2 × 3 matrix.
+/// Five elements, owned or borrowed, are not a 2 × 3 matrix.
 #[test]
-#[should_panic(expected = "a 2 × 3 matrix")]
 fn a_matrix_holds_rows_times_cols_elements() {
-    let _ = Matrix::new(2, 3, vec![c(0.0, 0.0); 5]);
-}
-
-/// Five borrowed elements are not a 2 × 3 matrix either.
-#[test]
-#[should_panic(expected = "a 2 × 3 matrix")]
-fn a_borrowed_matrix_holds_rows_times_cols_elements() {
-    let elements = [c(0.0, 0.0); 5];
-    let _ = MatrixRef::new(2, 3, &elements);
+    let rows: [(&str, fn()); 2] = [
+        ("owned", || {
+            let _ = Matrix::new(2, 3, vec![c(0.0, 0.0); 5]);
+        }),
+        ("borrowed", || {
+            let elements = [c(0.0, 0.0); 5];
+            let _ = MatrixRef::new(2, 3, &elements);
+        }),
+    ];
+    for (name, build) in rows {
+        let message = panic_message(build);
+        assert!(message.contains("a 2 × 3 matrix"), "{name}: {message}");
+    }
 }
 
 /// `2⁶³ × 2` on a 64-bit target (`2³¹ × 2` on 32 bits) has more elements
 /// than `usize` counts: unchecked, the count would wrap to 0, which an
-/// empty vector matches.
+/// empty vector matches. Every way to make such a matrix is refused: owned
+/// or borrowed, built element by element (before its first element is
+/// computed), or as the product of two empty matrices, `2⁶³ × 0` and
+/// `0 × 2`.
 #[test]
-#[should_panic(expected = "× 2 matrix has more elements than `usize` counts")]
-fn a_matrix_whose_element_count_overflows_is_refused() {
-    let _ = Matrix::new(1 << (usize::BITS - 1), 2, Vec::new());
-}
-
-/// A borrowed matrix too: an empty slice is not a `2⁶³ × 2` matrix.
-#[test]
-#[should_panic(expected = "× 2 matrix has more elements than `usize` counts")]
-fn a_borrowed_matrix_whose_element_count_overflows_is_refused() {
-    let _ = MatrixRef::new(1 << (usize::BITS - 1), 2, &[]);
-}
-
-/// A matrix built element by element is refused before its first element
-/// is computed.
-#[test]
-#[should_panic(expected = "× 2 matrix has more elements than `usize` counts")]
-fn from_fn_refuses_an_overflowing_element_count_before_any_element() {
-    let _ = Matrix::from_fn(1 << (usize::BITS - 1), 2, |_, _| {
-        panic!("no element is computed")
-    });
+fn an_overflowing_element_count_is_refused() {
+    let rows: [(&str, fn()); 4] = [
+        ("owned", || {
+            let _ = Matrix::new(1 << (usize::BITS - 1), 2, Vec::new());
+        }),
+        ("borrowed", || {
+            let _ = MatrixRef::new(1 << (usize::BITS - 1), 2, &[]);
+        }),
+        ("from_fn", || {
+            let _ = Matrix::from_fn(1 << (usize::BITS - 1), 2, |_, _| {
+                panic!("no element is computed")
+            });
+        }),
+        ("product", || {
+            let huge = 1 << (usize::BITS - 1);
+            let _ = Matrix::product(MatrixRef::new(huge, 0, &[]), MatrixRef::new(0, 2, &[]));
+        }),
+    ];
+    for (name, build) in rows {
+        let message = panic_message(build);
+        assert!(
+            message.contains("× 2 matrix has more elements than `usize` counts"),
+            "{name}: {message}"
+        );
+    }
 }
 
 /// The product of two matrices is the naive product, to rounding, on tall,
@@ -79,36 +90,37 @@ fn multiplies_only_matching_shapes() {
     let _ = Matrix::product(a.view(), a.view());
 }
 
-/// Two empty matrices, `2⁶³ × 0` and `0 × 2` on a 64-bit target, have a
-/// product of more elements than `usize` counts: the product panics as
-/// `Matrix::new` does for that shape.
+/// A matrix without elements stays empty, whatever its dimensions, and
+/// returns at once: each row's result and its shape. The product of
+/// `0 × 2⁶³` and `2⁶³ × 0` is `0 × 0`, and of `2⁶³ × 0` and `0 × 0` is
+/// `2⁶³ × 0`; built element by element, `0 × 2⁶³` visits none of its
+/// columns; the adjoint of `2⁶³ × 0` has `2⁶³` empty columns.
 #[test]
-#[should_panic(expected = "× 2 matrix has more elements than `usize` counts")]
-fn a_product_whose_element_count_overflows_is_refused() {
-    let huge = 1 << (usize::BITS - 1);
-    let _ = Matrix::product(MatrixRef::new(huge, 0, &[]), MatrixRef::new(0, 2, &[]));
-}
-
-/// The product of matrices without elements is empty, whatever their
-/// dimensions: `0 × 2⁶³` times `2⁶³ × 0` is `0 × 0`, and `2⁶³ × 0` times
-/// `0 × 0` is `2⁶³ × 0`.
-#[test]
-fn an_empty_product_of_any_size_is_empty() {
+fn an_empty_matrix_of_any_size_stays_empty() {
     let huge = 1 << (usize::BITS - 1);
     let empty = |rows, cols| MatrixRef::new(rows, cols, &[]);
-    let product = Matrix::product(empty(0, huge), empty(huge, 0));
-    assert_eq!((product.rows(), product.cols()), (0, 0));
-    let product = Matrix::product(empty(huge, 0), empty(0, 0));
-    assert_eq!((product.rows(), product.cols()), (huge, 0));
-}
-
-/// A matrix with no rows has nothing in its columns: built element by
-/// element, `0 × 2⁶³` returns at once, without visiting them.
-#[test]
-fn from_fn_visits_no_column_of_a_matrix_without_rows() {
-    let huge = 1 << (usize::BITS - 1);
-    let empty = Matrix::from_fn(0, huge, |_, _| unreachable!("no element"));
-    assert_eq!((empty.rows(), empty.cols()), (0, huge));
+    let rows = [
+        (
+            "a product to 0 × 0",
+            Matrix::product(empty(0, huge), empty(huge, 0)),
+            (0, 0),
+        ),
+        (
+            "a product to 2⁶³ × 0",
+            Matrix::product(empty(huge, 0), empty(0, 0)),
+            (huge, 0),
+        ),
+        (
+            "from_fn",
+            Matrix::from_fn(0, huge, |_, _| unreachable!("no element")),
+            (0, huge),
+        ),
+        ("adjoint", empty(huge, 0).adjoint(), (0, huge)),
+    ];
+    for (name, matrix, shape) in rows {
+        assert_eq!((matrix.rows(), matrix.cols()), shape, "{name}");
+        assert!(matrix.elements().is_empty(), "{name}");
+    }
 }
 
 /// The adjoint of a 2 × 3 matrix is its conjugate transpose, 3 × 2.
@@ -125,13 +137,4 @@ fn the_adjoint_is_the_conjugate_transpose() {
             );
         }
     }
-}
-
-/// The adjoint of a matrix without elements is empty, and returns at once
-/// even for `2⁶³ × 0`, whose adjoint has `2⁶³` empty columns.
-#[test]
-fn the_adjoint_of_an_empty_matrix_of_any_size_is_empty() {
-    let huge = 1 << (usize::BITS - 1);
-    let adjoint = MatrixRef::new(huge, 0, &[]).adjoint();
-    assert_eq!((adjoint.rows(), adjoint.cols()), (0, huge));
 }

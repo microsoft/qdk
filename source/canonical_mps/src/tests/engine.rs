@@ -43,6 +43,9 @@ use tensornet::{
 /// algebra.
 type State = CanonicalMpsState<CpuAlgebra>;
 
+/// Gates in the order they are applied, each with the sites it acts on.
+type Gates = Vec<(&'static [usize], Vec<Complex64>)>;
+
 fn real(re: f64) -> Complex64 {
     Complex64::new(re, 0.0)
 }
