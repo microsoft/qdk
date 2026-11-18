@@ -8,7 +8,7 @@
 //!
 //! The resumer's rules, in this file: what a shot records; that its
 //! records do not depend on the shots beside it or on earlier runs; the
-//! layout and the capacity each run starts with; and a run's edges (no
+//! qubit order and the capacity each run starts with; and a run's edges (no
 //! shots, no qubits, a max bond dimension that makes no chain). How shots
 //! draw, share states and fail
 //! is in `mps_simulator/grouped_run.rs`, the stream each draws from in
@@ -110,14 +110,13 @@ fn a_deterministic_program_records_its_basis_state() {
     assert_eq!(records, vec![results(&[1, 0, 1, 1]); 2]);
 }
 
-/// The run places the qubits where the layout it chose from the program
-/// puts them: two Bell pairs, one on qubits 0 and 3 and one on qubits 1
+/// A run places qubits that share two-qubit gates on neighbouring sites: two Bell pairs, one on qubits 0 and 3 and one on qubits 1
 /// and 2, as a program that entangles qubits far apart in its numbering.
-/// The layout puts each pair on neighbouring sites, so no bond holds more
+/// The run puts each pair on neighbouring sites, so no bond holds more
 /// than 2; on the identity order, both pairs would cross the middle bond,
 /// of 4.
 #[test]
-fn the_run_places_the_qubits_by_the_layout_it_chose() {
+fn a_run_places_interacting_qubits_on_neighbouring_sites() {
     let program = program(
         4,
         &[&[

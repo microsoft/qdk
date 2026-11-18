@@ -60,8 +60,8 @@ use grouped_run::GroupedRun;
 /// the settings: not on the shots beside it, nor on its place among them,
 /// nor on earlier runs.
 ///
-/// The layout, an order of the qubits chosen from the program's two-qubit
-/// gates, changes the bonds and the time, not the state (to rounding, and
+/// The qubit order, which site holds each qubit, chosen from the program's
+/// two-qubit gates, changes the bonds and the time, not the state (to rounding, and
 /// within the truncation error of an engine that truncates): on an exact
 /// engine, a record differs between two orders only where a uniform falls
 /// within rounding of a probability, and the shot's later draws may then

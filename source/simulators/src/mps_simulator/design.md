@@ -8,7 +8,7 @@ calls, in order.
 ## The calls of each phase
 
 Each band of the diagram is a phase, or two that call nothing between
-them, with its calls in order; layout and lower call no `MpsEngine`
+them, with its calls in order; the qubit order and lower call no `MpsEngine`
 method:
 
 ```mermaid
@@ -16,13 +16,13 @@ sequenceDiagram
   participant M as QirMachine
   participant R as MpsResumer
   participant E as MpsEngine
-  Note over M,E: Phase: start, then layout
+  Note over M,E: Phase: start, then qubit order
   R->>M: program(), start_shot()
   Note over M,E: Phase: resume
   R->>M: resume(context, outcomes)
   M-->>R: a batch of calls, or the end with the records
   Note over M,E: Phase: lower
-  Note over M,E: Phase: prepare, at the group's first operator or draw
+  Note over M,E: Phase: prepare, at the group's first gate or draw
   R->>E: prepare(capacity)
   Note over M,E: Phase: apply
   R->>E: apply(state, sites, matrix)

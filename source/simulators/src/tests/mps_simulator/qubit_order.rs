@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The layout, today the qubit order: a permutation, never of more span
+//! The qubit order: a permutation, never of more span
 //! than the identity, the same for the same gates; the search improving on
 //! the identity, and the search from reverse Cuthill–McKee kept when it
 //! spans less; the identity on a tie; and the gates whose qubits are in

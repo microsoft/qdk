@@ -3,7 +3,7 @@
 
 //! [`ReferenceSpy`]: a test spy over the exact reference, which runs every
 //! call on [`ExactReference`] and records what the resumer asked of it: it
-//! counts the operators it applies, the shapes it reads, the states it
+//! counts the gates it applies, the shapes it reads, the states it
 //! prepares and forks, and the states alive at once; keeps the capacities
 //! it is given; and, as a test sets it, reports a retained weight below
 //! one, as an engine that truncates would, or fails where a device would.
@@ -104,7 +104,7 @@ impl ReferenceSpy {
         Self::with(Weight::Exact, Failing::Forks)
     }
 
-    /// The reference, failing every operator that is the X gate's matrix.
+    /// The reference, failing every gate that is the X gate's matrix.
     pub(super) fn failing_x_gates() -> Self {
         Self::with(Weight::Exact, Failing::XGates)
     }
@@ -136,7 +136,7 @@ impl ReferenceSpy {
         self.prepared.borrow().clone()
     }
 
-    /// The operators it applied, one per `apply` call.
+    /// The gates it applied, one per `apply` call.
     pub(super) fn applies(&self) -> usize {
         self.applies.get()
     }

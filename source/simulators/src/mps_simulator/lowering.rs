@@ -3,10 +3,10 @@
 
 //! Lowering: the translation of each quantum call of a batch, on qubits
 //! ([`QirCall`]), into the steps the MPS simulation method runs on an
-//! engine ([`Step`]), on sites, through the layout ([`QubitOrder`]): so
-//! that the engine knows no gate names and no qubits, only matrices and
-//! sites. It is the only place the resumer refuses a call (the engine may
-//! still refuse an operator).
+//! engine ([`SiteStep`]), on sites, through the qubit order
+//! ([`QubitOrder`]): so that the engine knows no gate names and no qubits,
+//! only matrices and sites. It is the only place the resumer refuses a
+//! call (the engine may still refuse a gate).
 //!
 //! A gate is its matrix at its angle
 //! ([`QirGate::matrix_at`](crate::qir::QirGate::matrix_at)), as the engine
@@ -31,9 +31,9 @@ use super::qubit_order::QubitOrder;
 // slice, and a box would allocate once per gate.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Step {
-    /// Applies a unitary on one or two sites.
-    Apply(Operator),
+pub(crate) enum SiteStep {
+    /// Applies a gate on one or two sites.
+    Apply(SiteGate),
     /// Draws the value of `site`, projects on it, and answers `result`
     /// with it; then, when `reset`, returns the site to |0⟩.
     Measure {
@@ -45,24 +45,26 @@ pub(crate) enum Step {
     Reset { site: usize },
 }
 
-/// A unitary on one or two distinct sites, as the engine takes it: the
-/// first of [`sites`](Self::sites) is the matrix's most significant bit.
+/// One gate of the program, on the sites the qubit order gave its qubits:
+/// a unitary on one or two distinct sites, as the engine takes it, the
+/// first of [`sites`](Self::sites) the matrix's most significant bit.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Operator {
+pub(crate) struct SiteGate {
     /// Room for two sites, the second unused for a one-site matrix: read
     /// the sites it acts on through [`sites`](Self::sites).
     pub(crate) site_slots: [usize; 2],
     pub(crate) matrix: OperatorMatrix,
 }
 
-impl Operator {
+impl SiteGate {
     /// The sites it acts on, in the matrix's order.
     pub(crate) fn sites(&self) -> &[usize] {
         &self.site_slots[..self.matrix.qubit_count()]
     }
 }
 
-/// The steps of `calls`, in order, each qubit on the site `layout` gives it.
+/// The steps of `calls`, in order, each qubit on the site `qubit_order`
+/// gives it.
 ///
 /// # Errors
 ///
@@ -70,8 +72,8 @@ impl Operator {
 /// loss) or cannot run (a gate on one qubit twice).
 pub(crate) fn lower<E>(
     calls: &[QirCall],
-    layout: &QubitOrder,
-) -> Result<Vec<Step>, MpsResumerError<E>> {
+    qubit_order: &QubitOrder,
+) -> Result<Vec<SiteStep>, MpsResumerError<E>> {
     let mut steps = Vec::with_capacity(calls.len());
     for call in calls {
         match *call {
@@ -82,16 +84,16 @@ pub(crate) fn lower<E>(
             } => {
                 let matrix = gate.matrix_at(angle);
                 let sites = match second {
-                    None => [layout.site(first), 0],
+                    None => [qubit_order.site(first), 0],
                     Some(second) if second == first => {
                         return Err(MpsResumerError::RepeatedQubit {
                             instruction: call.instruction(),
                             qubit: first,
                         });
                     }
-                    Some(second) => [layout.site(first), layout.site(second)],
+                    Some(second) => [qubit_order.site(first), qubit_order.site(second)],
                 };
-                steps.push(Step::Apply(Operator {
+                steps.push(SiteStep::Apply(SiteGate {
                     site_slots: sites,
                     matrix,
                 }));
@@ -100,18 +102,18 @@ pub(crate) fn lower<E>(
                 basis: MeasurementBasis::Z,
                 qubit,
                 result,
-            } => steps.push(Step::Measure {
-                site: layout.site(qubit),
+            } => steps.push(SiteStep::Measure {
+                site: qubit_order.site(qubit),
                 result,
                 reset: false,
             }),
-            QirCall::MeasureReset { qubit, result } => steps.push(Step::Measure {
-                site: layout.site(qubit),
+            QirCall::MeasureReset { qubit, result } => steps.push(SiteStep::Measure {
+                site: qubit_order.site(qubit),
                 result,
                 reset: true,
             }),
-            QirCall::Reset { qubit } => steps.push(Step::Reset {
-                site: layout.site(qubit),
+            QirCall::Reset { qubit } => steps.push(SiteStep::Reset {
+                site: qubit_order.site(qubit),
             }),
             QirCall::Move { .. } => {}
             QirCall::Measure { .. }

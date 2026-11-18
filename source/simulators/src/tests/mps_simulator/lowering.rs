@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Lowering's rules: each call acts on the site the layout gives its
+//! Lowering's rules: each call acts on the site the qubit order gives its
 //! qubit; a shot that reaches a call this MPS simulation method does not
 //! run fails, naming it; and a call no shot reaches fails nothing.
 
@@ -104,7 +104,7 @@ fn a_gate_on_one_qubit_twice_fails_naming_the_qubit() {
 const MOVED_VALUES: [u8; 4] = [1, 0, 0, 1];
 
 /// A program on four qubits whose `cz`s (no change to a basis state) make
-/// the layout move every qubit to a site that, in the identity order,
+/// the qubit order move every qubit to a site that, in the identity order,
 /// holds a qubit of the other value; `x`s give the qubits
 /// [`MOVED_VALUES`]; then `tail`, into 4 results. So a call lowered onto
 /// any site but its qubit's reads or resets a qubit of the other value.
@@ -132,7 +132,7 @@ fn moved(tail: &[Instruction<u64>]) -> QirProgram {
 }
 
 /// A measurement acts on its qubit's site: `mz` of each qubit, after the
-/// layout moved them all, reads each qubit's own value.
+/// qubit order moved them all, reads each qubit's own value.
 #[test]
 fn a_measurement_reads_its_qubit_where_the_order_placed_it() {
     let program = moved(&[mz(0), mz(1), mz(2), mz(3)]);
@@ -146,7 +146,7 @@ fn a_measurement_reads_its_qubit_where_the_order_placed_it() {
 }
 
 /// A measure-reset acts on its qubit's site: `mresetz` of qubit 3, after
-/// the layout moved it, reads its 1, and a later `mz` of it reads 0.
+/// the qubit order moved it, reads its 1, and a later `mz` of it reads 0.
 #[test]
 fn a_measure_reset_acts_on_its_qubit_where_the_order_placed_it() {
     let program = moved(&[measure(OPID_MRESETZ, 3, 0), measure(OPID_MZ, 3, 1)]);
@@ -159,8 +159,8 @@ fn a_measure_reset_acts_on_its_qubit_where_the_order_placed_it() {
     assert_eq!(records, vec![results(&[1, 0, 0, 0])]);
 }
 
-/// A reset acts on its qubit's site: `reset` of qubit 0, after the layout
-/// moved it, leaves it at 0, and qubit 3 keeps its 1.
+/// A reset acts on its qubit's site: `reset` of qubit 0, after the qubit
+/// order moved it, leaves it at 0, and qubit 3 keeps its 1.
 #[test]
 fn a_reset_acts_on_its_qubit_where_the_order_placed_it() {
     let program = moved(&[reset(0), measure(OPID_MZ, 0, 0), measure(OPID_MZ, 3, 1)]);

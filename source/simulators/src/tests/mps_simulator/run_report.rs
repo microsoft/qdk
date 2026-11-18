@@ -44,7 +44,7 @@ fn the_report_gives_the_largest_bond_before_the_readout() {
 
 /// The report keeps the largest bond of the run, not the last one read: a
 /// Bell pair's bond of 2 is read before its first qubit is measured, and
-/// a later gate on the second qubit ends a run of operators whose bond is 1.
+/// a later gate on the second qubit ends a run of gates whose bond is 1.
 #[test]
 fn a_smaller_bond_read_later_keeps_the_largest() {
     let mut resumer = MpsResumer::new(ExactReference::new(), 7);
@@ -62,12 +62,12 @@ fn a_smaller_bond_read_later_keeps_the_largest() {
     assert_eq!(resumer.last_run().largest_bond, 2);
 }
 
-/// The bond is read once per run of operators, where it ends, not before
+/// The bond is read once per run of gates, where it ends, not before
 /// every draw: a shot of a Bell pair, both qubits read, then an H gate,
 /// reads it before the first measurement (none before the second, with no
 /// gate between) and after the H, as its context ends.
 #[test]
-fn the_bond_is_read_once_per_run_of_operators() {
+fn the_bond_is_read_once_per_run_of_gates() {
     let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
     let program = program(
         2,
@@ -85,11 +85,11 @@ fn the_bond_is_read_once_per_run_of_operators() {
 }
 
 /// A split adds no read: the part that waits holds a state whose bond was
-/// read before the draw, with no operator since. Eight shots of a Bell
+/// read before the draw, with no gate since. Eight shots of a Bell
 /// pair, both qubits read, then an H gate, split at the first measurement:
 /// the bond is read once before it, then once per part after the H.
 #[test]
-fn a_split_reads_the_bond_of_neither_part_again_before_an_operator() {
+fn a_split_reads_the_bond_of_neither_part_again_before_a_gate() {
     let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
     let program = program(
         2,
