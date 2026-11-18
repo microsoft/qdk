@@ -80,29 +80,33 @@ impl NativeLibrary for CudaRuntime {
     type Functions = CudaFunctions;
 
     /// Reads the CUDA Runtime's version, which must be 12.9, and the
-    /// driver's, which is not checked.
+    /// driver's, which is not checked. Each is read when its function is
+    /// found, whether or not the other functions are.
     fn probe_versions<R: SymbolResolver>(resolver: &R) -> ProbedVersions {
         let mut probed = ProbedVersions::default();
-        let Ok(functions) = CudaVersionFunctions::resolve(resolver) else {
-            return probed;
-        };
-        let runtime = probe_version(
-            "CUDA Runtime",
-            functions.runtime_get_version,
-            functions.get_error_string,
-        );
-        match runtime {
-            Ok(found) => probed.audited("CUDA Runtime", found.into(), AUDITED_VERSION.into()),
-            Err(fault) => probed.faults.push(fault),
+        let functions = CudaVersionFunctions::resolve(resolver)
+            .expect("a table of optional rows is resolved whatever is missing");
+        if let Some(runtime_get_version) = functions.runtime_get_version {
+            let runtime = probe_version(
+                "CUDA Runtime",
+                runtime_get_version,
+                functions.get_error_string,
+            );
+            match runtime {
+                Ok(found) => probed.audited("CUDA Runtime", found.into(), AUDITED_VERSION.into()),
+                Err(fault) => probed.faults.push(fault),
+            }
         }
-        let driver = probe_version(
-            "CUDA driver",
-            functions.driver_get_version,
-            functions.get_error_string,
-        );
-        match driver {
-            Ok(found) => probed.reported("CUDA driver", found.into()),
-            Err(fault) => probed.faults.push(fault),
+        if let Some(driver_get_version) = functions.driver_get_version {
+            let driver = probe_version(
+                "CUDA driver",
+                driver_get_version,
+                functions.get_error_string,
+            );
+            match driver {
+                Ok(found) => probed.reported("CUDA driver", found.into()),
+                Err(fault) => probed.faults.push(fault),
+            }
         }
         probed
     }
@@ -136,12 +140,13 @@ super::loader::function_table! {
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 super::loader::function_table! {
-    /// The functions that read the versions, looked up on their own so
-    /// that the versions are read even when other functions are missing.
+    /// The functions that read the versions, looked up on their own, and
+    /// each optional, so that each version is read even when other
+    /// functions are missing; the main table reports those missing.
     struct CudaVersionFunctions, declared in cudart_12 {
-        required runtime_get_version: RuntimeGetVersionFn = cudaRuntimeGetVersion,
-        required driver_get_version: DriverGetVersionFn = cudaDriverGetVersion,
-        required get_error_string: GetErrorStringFn = cudaGetErrorString,
+        optional runtime_get_version: RuntimeGetVersionFn = cudaRuntimeGetVersion,
+        optional driver_get_version: DriverGetVersionFn = cudaDriverGetVersion,
+        optional get_error_string: GetErrorStringFn = cudaGetErrorString,
     }
 }
 
@@ -220,12 +225,12 @@ pub(crate) type StreamDestroyFn =
 
 /// Calls a CUDA version function, `cudaRuntimeGetVersion` or
 /// `cudaDriverGetVersion`, and returns the version it writes, or its failure
-/// with CUDA's status and text.
+/// with CUDA's status and text (when `cudaGetErrorString` was found).
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 fn probe_version(
     component: &'static str,
     probe: unsafe extern "C" fn(*mut i32) -> cudart_12::cudaError_t,
-    get_error_string: GetErrorStringFn,
+    get_error_string: Option<GetErrorStringFn>,
 ) -> Result<i32, LibraryFault> {
     let mut version = 0;
     // SAFETY: `version` is a valid writable `int` and both pointers were
@@ -234,6 +239,13 @@ fn probe_version(
     if status == cudart_12::cudaError_cudaSuccess {
         return Ok(version);
     }
+    let Some(get_error_string) = get_error_string else {
+        return Err(LibraryFault::VersionProbeFailed {
+            component,
+            status,
+            message: "no text: cudaGetErrorString is missing".to_string(),
+        });
+    };
     // SAFETY: CUDA owns the returned null-terminated string; it is copied
     // immediately and never retained as a borrowed pointer.
     let message_ptr = unsafe { get_error_string(status) };
