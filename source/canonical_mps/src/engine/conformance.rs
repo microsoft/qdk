@@ -118,8 +118,9 @@ pub(crate) fn assert_untruncated_circuit_agrees_on<A: SiteAlgebra>(engine: &Cano
 ///
 /// # Panics
 ///
-/// When the distance exceeds the bound, the bound or the distance is too
-/// small for the check to mean anything, or a call fails.
+/// When the distance exceeds the bound, when the distance is too small, or
+/// the bound too large, for the check to mean anything, or when a call
+/// fails.
 pub fn assert_truncated_circuit_stays_within_its_truncation_bound<A: SiteAlgebra>(algebra: A) {
     let engine = &CanonicalMpsEngine::new(algebra).with_cutoff(0.0);
     let sites = 8;

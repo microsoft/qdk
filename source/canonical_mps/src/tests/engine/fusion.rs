@@ -256,8 +256,7 @@ fn a_gate_that_would_make_a_fourth_site_opens_a_new_window() {
 /// would be on site 4, inside the new span, one move fewer. So the gate's
 /// operands in either order, and the centre on site 0 or, after a read,
 /// on site 5, all take the same moves: the direction is neither an
-/// operand's place nor the centre's. The lower site was chosen by the H₂
-/// and polyene runs, where it took the fewest moves or the least time.
+/// operand's place nor the centre's.
 #[test]
 fn a_gate_that_does_not_fit_applies_the_window_toward_its_lower_site() {
     // Each window: the moves into its span, then 2 across it. Toward site

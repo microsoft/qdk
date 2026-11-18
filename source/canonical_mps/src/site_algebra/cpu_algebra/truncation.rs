@@ -14,10 +14,10 @@
 //! most the cap.
 //!
 //! Every square is of a value divided by the largest, so the total, and the
-//! sum of the values kept, are at least 1, and neither underflows however
-//! small the values are. A value so small, against the largest, that its
-//! square underflows to zero counts as zero: a cutoff of 0 drops it
-//! ([`Truncation::of`] says how small).
+//! sum of the kept values' squares, are at least 1, and neither underflows
+//! however small the values are. A value so small, against the largest,
+//! that its square underflows to zero counts as zero: a cutoff of 0 drops
+//! it ([`Truncation::of`] says how small).
 
 /// Which singular values a split keeps, from [`Truncation::of`].
 #[derive(Clone, Debug, PartialEq)]

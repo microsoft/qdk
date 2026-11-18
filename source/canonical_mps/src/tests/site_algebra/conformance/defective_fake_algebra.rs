@@ -25,6 +25,8 @@ use std::rc::Rc;
 pub(super) enum Defect {
     /// A read returns one element fewer than asked.
     ShortRead,
+    /// A read returns as many elements as asked, its first one negated.
+    AlteredRead,
     /// A duplicate holds its source's elements rotated by one.
     ShiftedDuplicate,
     /// A duplicate shares its source's storage.
@@ -176,7 +178,13 @@ impl SiteAlgebra for DefectiveFakeAlgebra {
         } else {
             len
         };
-        Ok(Cow::Owned(values[..len].to_vec()))
+        let mut read = values[..len].to_vec();
+        if self.has(Defect::AlteredRead)
+            && let Some(first) = read.first_mut()
+        {
+            *first = -*first;
+        }
+        Ok(Cow::Owned(read))
     }
 
     fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Self::Error> {
