@@ -28,7 +28,7 @@
 //! U's and V's extents to the reduced one, so a descriptor would not serve
 //! the next call.
 
-use super::call_scope::{CallScope, elements};
+use super::call_scope::{CallScope, element_count};
 use super::device_tensor::DeviceTensor;
 use super::error::CudaAlgebraError;
 use super::modes::{BOND, LEFT, NEW_BOND, P, P_OUT, Q, Q_OUT, RIGHT};
@@ -66,8 +66,8 @@ pub(super) fn gate_split(
         .min(l.saturating_mul(2))
         .min(r.saturating_mul(2))
         .min(m.saturating_mul(4));
-    let a_data = split.left.holding(elements(&[l, 2, m])?)?;
-    let b_data = split.right.holding(elements(&[m, 2, r])?)?;
+    let a_data = split.left.buffer_holding(element_count(&[l, 2, m])?)?;
+    let b_data = split.right.buffer_holding(element_count(&[m, 2, r])?)?;
     let a = TensorOperand {
         descriptor: scope.descriptor(&[l, 2, m], &[LEFT, P, BOND])?,
         data: a_data,
@@ -92,7 +92,7 @@ pub(super) fn gate_split(
     let info = scope.svd_info()?;
     let gate = TensorOperand {
         descriptor: gate_descriptor,
-        data: scope.upload_gate(&descriptor_gate(&split.gate))?,
+        data: scope.upload_gate(&in_descriptor_layout(&split.gate))?,
     };
     let (calls, handle, workspace) = (scope.calls(), scope.handle(), scope.workspace());
     let descriptors = GateSplitDescriptors {
@@ -106,11 +106,11 @@ pub(super) fn gate_split(
     scope.lend_workspace()?;
     let u = TensorOperand {
         descriptor: u_descriptor,
-        data: scope.output(elements(&[l, 2, k])?)?,
+        data: scope.output(element_count(&[l, 2, k])?)?,
     };
     let v = TensorOperand {
         descriptor: v_descriptor,
-        data: scope.output(elements(&[k, 2, r])?)?,
+        data: scope.output(element_count(&[k, 2, r])?)?,
     };
     let singular_values = scope.singular_values(k)?;
     let operands = GateSplitOperands {
@@ -125,7 +125,7 @@ pub(super) fn gate_split(
     calls.gate_split(handle, &operands, config, info, workspace, stream)?;
     scope.synchronize()?;
     let truncation = calls.svd_truncation(handle, info)?;
-    let (bond, discarded_weight) = checked(truncation, k)?;
+    let (bond, discarded_weight) = checked_truncation(truncation, k)?;
     Ok(SplitFactors {
         left: u.data,
         right: v.data,
@@ -137,7 +137,7 @@ pub(super) fn gate_split(
 
 /// The gate in a descriptor's layout, `G[P, Q, p, q]` at
 /// `P + 2Q + 4p + 8q`, from the call's row-major `(2P + Q)·4 + 2p + q`.
-fn descriptor_gate(gate: &[Complex64; 16]) -> [Complex64; 16] {
+fn in_descriptor_layout(gate: &[Complex64; 16]) -> [Complex64; 16] {
     std::array::from_fn(|at| {
         let (big_p, big_q, p, q) = (at & 1, (at >> 1) & 1, (at >> 2) & 1, at >> 3);
         gate[(2 * big_p + big_q) * 4 + 2 * p + q]
@@ -157,7 +157,10 @@ fn descriptor_gate(gate: &[Complex64; 16]) -> [Complex64; 16] {
 /// asks), and the largest square is at least `1/n` of the sum of `n`, so a
 /// true weight is at most `1 - 1/n`; a weight of 1 or more, or NaN, is a
 /// fault.
-fn checked(truncation: SvdTruncation, k: usize) -> Result<(usize, f64), CudaAlgebraError> {
+fn checked_truncation(
+    truncation: SvdTruncation,
+    k: usize,
+) -> Result<(usize, f64), CudaAlgebraError> {
     let SvdTruncation {
         reduced_extent,
         full_extent,

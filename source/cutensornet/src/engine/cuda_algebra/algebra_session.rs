@@ -138,7 +138,7 @@ impl AlgebraSession {
     /// and, if both waits succeed, releases what was retired and lifts the
     /// poison: the device is done. If either fails, keeps them and returns
     /// the first failure.
-    pub(super) fn settle(&self) -> Result<(), CudaAlgebraError> {
+    pub(super) fn wait_then_release_retired(&self) -> Result<(), CudaAlgebraError> {
         if self.unwaited.borrow().is_none() {
             return Ok(());
         }
@@ -162,11 +162,11 @@ impl AlgebraSession {
 
 impl Drop for AlgebraSession {
     fn drop(&mut self) {
-        let settled = self.settle();
+        let released = self.wait_then_release_retired();
         if let Some(unwaited) = self.unwaited.take() {
             // The device may still use them, and no wait will come: leaked.
             std::mem::forget(unwaited.retired);
         }
-        report_failed_release("the CUDA algebra's retired objects", settled);
+        report_failed_release("the CUDA algebra's retired objects", released);
     }
 }

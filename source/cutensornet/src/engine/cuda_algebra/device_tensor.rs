@@ -60,7 +60,7 @@ impl DeviceTensor {
     /// The tensor's buffer, once checked to hold `elements` complex
     /// doubles: a call that would read past its end is a defect of its
     /// caller, refused before the device reads memory it does not own.
-    pub(super) fn holding(&self, elements: usize) -> Result<OpaqueHandle, CudaAlgebraError> {
+    pub(super) fn buffer_holding(&self, elements: usize) -> Result<OpaqueHandle, CudaAlgebraError> {
         if elements > self.elements {
             return Err(CudaAlgebraError::InvalidNativeCall {
                 reason: format!(

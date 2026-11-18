@@ -151,7 +151,7 @@ impl CudaAlgebra {
     /// `operands`, the tensors the call reads, are refused if another
     /// algebra made any, before any native call; and the scope refuses an
     /// allocation that returns one of their buffers.
-    fn run<T>(
+    fn in_call_scope<T>(
         &self,
         operands: &[&DeviceTensor],
         body: impl FnOnce(&mut CallScope<'_>) -> Result<T, CudaAlgebraError>,
@@ -179,7 +179,7 @@ impl CudaAlgebra {
     fn close(&mut self) -> Result<(), CudaAlgebraError> {
         let resources = std::mem::take(self.resources.get_mut());
         let released = self.session.release(Retired::Resources(resources));
-        first_failure([released, self.session.settle()])
+        first_failure([released, self.session.wait_then_release_retired()])
     }
 }
 
@@ -200,7 +200,7 @@ impl SiteAlgebra for CudaAlgebra {
     type Error = CudaAlgebraError;
 
     fn upload(&self, values: &[Complex64]) -> Result<DeviceTensor, CudaAlgebraError> {
-        let buffer = self.run(&[], |scope| {
+        let buffer = self.in_call_scope(&[], |scope| {
             let buffer = scope.output(values.len())?;
             scope.upload_to(buffer, values)?;
             Ok(buffer)
@@ -213,8 +213,8 @@ impl SiteAlgebra for CudaAlgebra {
         tensor: &'t DeviceTensor,
         len: usize,
     ) -> Result<Cow<'t, [Complex64]>, CudaAlgebraError> {
-        let values = self.run(&[tensor], |scope| {
-            let source = tensor.holding(len)?;
+        let values = self.in_call_scope(&[tensor], |scope| {
+            let source = tensor.buffer_holding(len)?;
             if len == 0 {
                 // A copy of no bytes is not a valid native call.
                 return Ok(Vec::new());
@@ -233,8 +233,8 @@ impl SiteAlgebra for CudaAlgebra {
         tensor: &DeviceTensor,
         len: usize,
     ) -> Result<DeviceTensor, CudaAlgebraError> {
-        let buffer = self.run(&[tensor], |scope| {
-            let source = tensor.holding(len)?;
+        let buffer = self.in_call_scope(&[tensor], |scope| {
+            let source = tensor.buffer_holding(len)?;
             let buffer = scope.output(len)?;
             scope.copy_on_device(buffer, source, complex_bytes(len, "device tensor")?)?;
             Ok(buffer)
@@ -246,7 +246,7 @@ impl SiteAlgebra for CudaAlgebra {
         &self,
         call: &GateSplitCall<'_, DeviceTensor>,
     ) -> Result<GateSplitOutcome<DeviceTensor>, CudaAlgebraError> {
-        let split = self.run(&[call.left, call.right], |scope| {
+        let split = self.in_call_scope(&[call.left, call.right], |scope| {
             gate_split::gate_split(scope, call)
         })?;
         // The buffers' capacities: each factor is packed at the kept bond.
@@ -263,7 +263,7 @@ impl SiteAlgebra for CudaAlgebra {
         &self,
         call: &QrMoveCall<'_, DeviceTensor>,
     ) -> Result<QrMoveOutcome<DeviceTensor>, CudaAlgebraError> {
-        let moved = self.run(&[call.left, call.right], |scope| {
+        let moved = self.in_call_scope(&[call.left, call.right], |scope| {
             qr_move::qr_move(scope, call)
         })?;
         let k = moved.bond;

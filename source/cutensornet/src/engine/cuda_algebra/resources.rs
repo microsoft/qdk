@@ -24,14 +24,14 @@ pub(super) struct AlgebraResources {
     /// doubles it holds.
     pub(super) singular_values: Option<(OpaqueHandle, usize)>,
     /// The contraction networks prepared for the shapes seen.
-    pub(super) contractions: PreparedContractionNetworks,
+    pub(super) prepared_networks: PreparedContractionNetworks,
 }
 
 impl AlgebraResources {
     /// Releases everything, the workspace's memory once the descriptor is
     /// destroyed; attempts every release and returns the first failure.
     pub(super) fn release(mut self, calls: &dyn NativeCalls) -> Result<(), CudaAlgebraError> {
-        let mut released = vec![self.contractions.release(calls)];
+        let mut released = vec![self.prepared_networks.release(calls)];
         if let Some(workspace) = self.workspace.take() {
             released.push(calls.destroy_workspace(workspace));
         }

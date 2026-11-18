@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! The contraction networks the CUDA algebra prepares for its moves of the
-//! centre, and keeps: a shape moved before reuses its networks, and the
+//! centre, and keeps: a move of a shape seen
+//! before prepares no network, and the
 //! networks kept are bounded. The move's maths is the contract's, checked
 //! by the conformance kit (`the_cuda_algebra_conforms`).
 
@@ -12,7 +13,7 @@ use crate::engine::cuda_algebra::NETWORKS_KEPT;
 /// A move of a shape the algebra moved before, on other tensors: it
 /// prepares no contraction network, reusing those of the first.
 #[test]
-fn a_shape_moved_before_reuses_its_networks() {
+fn a_move_of_a_shape_seen_before_prepares_no_network() {
     let (algebra, libraries) = algebra();
     let (a, b) = random_pair(2, 3, 2, 24);
     let (c, d) = random_pair(2, 3, 2, 26);
