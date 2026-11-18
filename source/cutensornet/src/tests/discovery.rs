@@ -2,8 +2,9 @@
 // Licensed under the MIT License.
 
 //! What [`discover`](crate::discover) promises its callers: where it
-//! refuses to run, that it checks every library, that it succeeds only when
-//! every library is usable, and that its result can be shared. How a caller
+//! refuses to run, that it checks every library, that it loads a packaged
+//! library, that it succeeds only when every library is usable, and that
+//! its result can be shared. How a caller
 //! reads the report, and the error's message, are tested in their modules'
 //! files.
 
@@ -12,7 +13,9 @@ mod report;
 
 use crate::{Availability, AvailabilityError};
 #[cfg(unix)]
-use crate::{LibraryFault, PackagedLibraries, discovery::discover_from};
+use crate::{
+    LibraryFault, PackagedLibraries, discovery::discover_from, libraries::cuda_runtime::CudaRuntime,
+};
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use crate::{
     LibraryReport,
@@ -80,6 +83,33 @@ fn every_library_is_checked_and_reported() {
             ..
         }]
     ));
+}
+
+/// A user whose package manager installed the CUDA Runtime inside its
+/// environment, where no default path reaches, has that file loaded: here
+/// it is not a library, so the CUDA Runtime fails to load at that path.
+#[cfg(unix)]
+#[test]
+fn discovery_loads_a_packaged_library() {
+    let (cudart, _remove) = super::packaged_file::<CudaRuntime>("discover-packaged-cudart");
+    let packaged = PackagedLibraries {
+        files: vec![cudart.clone()],
+        install_command: None,
+    };
+    let Err(AvailabilityError::Unusable(report)) = discover_from(|_| None, &packaged) else {
+        panic!("the packaged CUDA Runtime is not a library");
+    };
+    let cuda_runtime = report
+        .library("CUDA Runtime")
+        .expect("discovery opens the CUDA Runtime");
+    assert!(
+        matches!(
+            &cuda_runtime.faults[..],
+            [LibraryFault::LoadFailed { path, .. }] if *path == cudart
+        ),
+        "{:?}",
+        cuda_runtime.faults
+    );
 }
 
 /// A usable library: the always-present library, bound to a table of

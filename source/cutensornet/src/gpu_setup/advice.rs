@@ -1,15 +1,21 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What the setup check tells a user: the advice for a failed discovery,
-//! the install it advises, and the way it shows a device's memory.
+//! The words of the setup check: the advice for each step that failed, the
+//! install it advises, and how the report shows a device's memory and an
+//! error's causes.
 //!
 //! The words about one library come from its `SetupGuide`, which its
-//! module declares; this file adds those that hold for every library: how
-//! to set an override, what to install, and when.
+//! module declares; this file adds those that hold for every library (how
+//! to set an override, what to install, and when) and those of the steps
+//! after discovery.
 
+use super::devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
+use crate::engine::cuda_algebra::policy::DEVICE_ORDINAL;
 use crate::libraries::setup_guide::SetupGuide;
-use crate::{AvailabilityError, LibraryFault};
+use crate::{AvailabilityError, CudaAlgebraError, LibraryFault};
+use canonical_mps::CanonicalMpsError;
+use std::error::Error;
 
 /// What to do about `error`: when libraries are at fault, about an invalid
 /// override if any, since an override decides what is loaded; or else
@@ -85,6 +91,72 @@ fn install_advice(install_command: Option<&str>) -> String {
         Some(command) => format!("install {libraries}, for instance with `{command}`"),
         None => format!("install {libraries}"),
     }
+}
+
+/// What to do about the devices step's outcome: `None` when the GPU
+/// engine's device was read and cuTensorNet supports it.
+pub(super) fn device_advice(devices: &Result<DeviceReport, CudaAlgebraError>) -> Option<String> {
+    match devices {
+        Err(_) => Some(format!("the CUDA devices could not be read: {DRIVER}")),
+        Ok(DeviceReport {
+            engine_device: None,
+            ..
+        }) => Some(no_device_advice()),
+        Ok(DeviceReport {
+            engine_device: Some(device),
+            ..
+        }) if !device.is_supported() => {
+            let (major, minor) = device.compute_capability;
+            let (needed_major, needed_minor) = MINIMUM_COMPUTE_CAPABILITY;
+            Some(format!(
+                "CUDA device {DEVICE_ORDINAL}, where the GPU engine runs, has compute capability \
+                 {major}.{minor}; cuTensorNet needs {needed_major}.{needed_minor} or later"
+            ))
+        }
+        Ok(_) => None,
+    }
+}
+
+/// What to do about a failed trial run, reached once the libraries and the
+/// device passed their checks: the advice of the devices step when the run
+/// found no device, else the run's error, with its causes, which those
+/// checks did not foresee.
+pub(super) fn trial_run_advice(error: &CanonicalMpsError<CudaAlgebraError>) -> String {
+    match error {
+        CanonicalMpsError::Algebra(CudaAlgebraError::NoDevice) => no_device_advice(),
+        error => format!(
+            "the trial run on CUDA device {DEVICE_ORDINAL} failed, though the libraries and the \
+             device passed their checks: {}",
+            with_sources(error)
+        ),
+    }
+}
+
+/// What to do when the process sees no device for the GPU engine.
+fn no_device_advice() -> String {
+    format!("no CUDA device was found: {DRIVER}")
+}
+
+/// What to check on the host when no device can be used: that the driver
+/// sees a GPU, and is recent enough for CUDA 12.
+const DRIVER: &str = concat!(
+    "check that `nvidia-smi` lists a GPU, and that the NVIDIA driver supports CUDA 12 (",
+    crate::libraries::cuda_runtime::minimum_driver!(),
+    " or later)"
+);
+
+/// `error`, then each error it was caused by, separated by `: `, so a
+/// wrapping error does not hide its cause: the engine's error says only
+/// that its algebra failed.
+pub(super) fn with_sources(error: &dyn Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
 }
 
 /// `bytes` in GiB, to one decimal.
