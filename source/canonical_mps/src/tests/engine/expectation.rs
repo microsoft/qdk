@@ -147,7 +147,7 @@ fn an_expectation_is_finite_whenever_its_normalised_value_is() {
     let grow = [real(s), real(0.0), real(0.0), real(s)];
     let largest = observable(real(0.0), &[(real(f64::MAX), &[(0, Z)])]);
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(1, 1)).expect("prepare");
+        let mut state = engine.prepare(&capacity(1, 1)).expect("prepare");
         engine
             .apply(&mut state, &[0], &grow)
             .expect("a gate within the unitarity tolerance");

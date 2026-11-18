@@ -18,7 +18,7 @@ fn an_engine_truncates_at_the_default_cutoff() {
     let engine = Engine::new(CpuAlgebra);
     for (tail, bond) in [(0.9 * DEFAULT_CUTOFF, 1), (1.1 * DEFAULT_CUTOFF, 2)] {
         let theta = 2.0 * tail.sqrt().asin();
-        let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+        let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
         engine.apply(&mut state, &[0], &ry(theta)).expect("apply");
         engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
         let shape = engine.shape(&state).expect("shape");
@@ -31,7 +31,7 @@ fn an_engine_truncates_at_the_default_cutoff() {
 /// weight the splits discard shows in the retained weight.
 #[test]
 fn truncates_to_the_capacity() {
-    let capacity = chain(6, 2);
+    let capacity = capacity(6, 2);
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
         let mut state = engine.prepare(&capacity).expect("prepare");
         for site in 0..6 {
@@ -68,7 +68,7 @@ fn the_engines_cutoff_drops_a_splits_tail_from_the_retained_weight() {
     let theta = 2.0 * 0.2f64.sqrt().asin();
     for (cutoff, bond, weight) in [(0.25, 1, 0.8), (0.15, 2, 1.0)] {
         for (engine, name) in both_fusions(cutoff) {
-            let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+            let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
             engine.apply(&mut state, &[0], &ry(theta)).expect("apply");
             engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
             assert_eq!(

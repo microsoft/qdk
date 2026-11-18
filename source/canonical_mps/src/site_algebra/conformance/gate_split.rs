@@ -3,11 +3,11 @@
 
 //! The cases of [`SiteAlgebra::gate_split`]: each splits seeded pairs at
 //! the settings its rule needs and compares the outcome with `θ`, its
-//! singular values, and the shares of their squares.
+//! singular values, and the fractions of their squares kept and dropped.
 
 use super::formulas::{
-    columns_isometry_error, dropped_share, frobenius, gated_pair, kept_share, relative_distance,
-    rows_isometry_error, singular_values,
+    columns_isometry_error, dropped_fraction_of, frobenius, gated_pair, relative_distance,
+    retained_fraction_of, rows_isometry_error, singular_values,
 };
 use super::inputs::{CAPS, CUTOFFS, LARGE_SHAPE, Pair, SHAPES, identity_gate, two_site_gate};
 use super::{TOLERANCE, read, upload};
@@ -65,7 +65,7 @@ pub(super) fn truncation<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
                 "{scene}, {setting}: the product of the new sites has norm {norm}, not 1"
             ));
         }
-        let dropped = dropped_share(&scene.values, split.bond);
+        let dropped = dropped_fraction_of(&scene.values, split.bond);
         let residual = scene.residual(&split);
         if (residual - dropped).abs() > TOLERANCE {
             return Err(format!(
@@ -138,7 +138,7 @@ pub(super) fn cutoff<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
             if split.bond == setting.max_extent {
                 continue;
             }
-            let dropped = dropped_share(&scene.values, split.bond);
+            let dropped = dropped_fraction_of(&scene.values, split.bond);
             if dropped > allowance(setting.cutoff) {
                 return Err(format!(
                     "{scene}, {setting}: bond {} drops {dropped:.3e} of the squares",
@@ -151,15 +151,15 @@ pub(super) fn cutoff<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
 }
 
 /// The retained fraction is the share of the squared values kept, at every
-/// setting. Catches the share of the values rather than their squares, and
-/// a share of all the values rather than those kept.
-pub(super) fn share<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
+/// setting. Catches a fraction of the values rather than of their squares,
+/// and a fraction of all the values rather than of those kept.
+pub(super) fn retained_fraction<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     let mut scenes = graded_scenes()?;
     scenes.push(Scene::with_values(&[0.8, 0.5, 0.3, 0.1], 2, 2, 420)?);
     for scene in &scenes {
         for setting in Setting::all() {
             let split = scene.split(algebra, setting)?;
-            let expected = kept_share(&scene.values, split.bond);
+            let expected = retained_fraction_of(&scene.values, split.bond);
             let fraction = split.retained_fraction;
             if (fraction - expected).abs() > TOLERANCE {
                 return Err(format!(
@@ -177,9 +177,9 @@ pub(super) fn share<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
 /// retained fraction of exactly 1, so that the engine's retained weight
 /// stays exactly 1 while nothing is truncated. On graded pairs, and on
 /// pairs of rank 1, 3 and 12 whose `θ`, under the identity gate, has 4, 16
-/// or 32 rows. Catches a share computed as one minus a rounded sum.
+/// or 32 rows. Catches a fraction computed as one minus a rounded sum.
 #[expect(clippy::float_cmp, reason = "the contract promises exactly 1")]
-pub(super) fn cutoff_of_zero<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
+pub(super) fn drops_nothing<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     let mut scenes = graded_scenes()?;
     for (index, shape) in [(2, 1, 2), (2, 3, 2), (8, 3, 16), (16, 12, 8)]
         .into_iter()
@@ -209,14 +209,14 @@ pub(super) fn cutoff_of_zero<A: SiteAlgebra>(algebra: &A) -> Result<(), String> 
     Ok(())
 }
 
-/// Where a tail's squares are exactly the cutoff's share, the split may
-/// keep or drop it, and either way its bond and its share agree: the
-/// values `(1/√2, 1/√2)` at a cutoff of 0.5, and the values whose squares
-/// are `(0.5, 0.25, 0.25)` at a cutoff of 0.25, capped or not. The product
-/// is checked as near `θ` as its bond allows, but not against one SVD,
-/// which a tie does not single out. Catches a backend that takes the tie
-/// one way and reports the other's share.
-pub(super) fn tie<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
+/// Where a tail's squares are exactly the cutoff's share, the split may keep or
+/// drop it, and either way its bond and its retained fraction agree: the values
+/// `(1/√2, 1/√2)` at a cutoff of 0.5, and the values whose squares are
+/// `(0.5, 0.25, 0.25)` at a cutoff of 0.25, capped or not. The product is
+/// checked as near `θ` as its bond allows, but not against one SVD, which a tie
+/// does not single out. Catches a backend that takes the tie one way and
+/// reports the other's retained fraction.
+pub(super) fn at_a_tie<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     let half = 0.5_f64.sqrt();
     let scenes = [
         (Scene::with_values(&[half, half], 1, 1, 450)?, 0.5),
@@ -228,11 +228,11 @@ pub(super) fn tie<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
                 let setting = Setting::new(max_extent, *cutoff, centre);
                 let split = scene.split(algebra, setting)?;
                 let k = split.bond;
-                let dropped = dropped_share(&scene.values, k);
+                let dropped = dropped_fraction_of(&scene.values, k);
                 if k < max_extent && dropped > allowance(*cutoff) {
                     return Err(format!("{scene}, {setting}: bond {k} drops {dropped:.3e}"));
                 }
-                let expected = kept_share(&scene.values, k);
+                let expected = retained_fraction_of(&scene.values, k);
                 if (split.retained_fraction - expected).abs() > TOLERANCE {
                     return Err(format!(
                         "{scene}, {setting}: bond {k} retains {}, not {expected}",
@@ -268,7 +268,7 @@ pub(super) fn inputs_unchanged<A: SiteAlgebra>(algebra: &A) -> Result<(), String
     Ok(())
 }
 
-/// The largest dropped share a split at `cutoff` may report: the cutoff's,
+/// The largest dropped fraction a split at `cutoff` may report: the cutoff's,
 /// with [`TOLERANCE`] of it for a tail at the cutoff, and values of
 /// rounding's size ([`ROUNDING_SHARE`]).
 fn allowance(cutoff: f64) -> f64 {
@@ -354,7 +354,7 @@ impl Scene {
     /// the share of the dropped squares when `L·R` is `θ`'s SVD truncated
     /// to those values, and more for any other product of bond `k`.
     fn residual(&self, split: &Split) -> f64 {
-        let scale = kept_share(&self.values, split.bond).sqrt();
+        let scale = retained_fraction_of(&self.values, split.bond).sqrt();
         (self.theta.elements().iter())
             .zip(split.product().elements())
             .map(|(t, x)| (t - scale * x).norm_sqr())

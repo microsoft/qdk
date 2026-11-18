@@ -400,7 +400,7 @@ mod trim {
     /// rounding: the reflectors of `Q` are applied up to the last kept
     /// row, not one per kept row.
     #[test]
-    fn gives_a_value_kept_behind_a_row_left_out_its_own_left_vector() {
+    fn a_value_kept_after_a_row_left_out_has_its_own_left_vector() {
         let a = a_row_left_out_before_a_kept_one();
         let svd = Svd::of(a.view()).expect("SVD");
         assert_eq!(svd.singular_values.len(), 2, "{:?}", svd.singular_values);
@@ -506,7 +506,7 @@ mod routes {
     use super::super::{check_svd, check_svd_of, matrix};
     use crate::dense_linalg::{
         Matrix, SvdError,
-        kernels::{ColumnMajorSvd, Shipped},
+        kernels::{ColumnMajorSvd, DefaultKernels},
         svd::{
             checks::checked,
             jacobi::{MAX_SWEEPS, one_sided},
@@ -597,7 +597,7 @@ mod routes {
                 let (factor, imaginary) = row?;
                 spoiled(rows, cols, w, factor, imaginary)
             };
-            let svd = trimmed_thin_svd::<Shipped>(a.view(), &fast_route)
+            let svd = trimmed_thin_svd::<DefaultKernels>(a.view(), &fast_route)
                 .unwrap_or_else(|| panic!("{row:?}: the rotations answer"));
             assert!(
                 calls.get() > 0,
@@ -617,8 +617,8 @@ mod routes {
             let (u, values, v) = correct(rows, cols, w)?;
             Some((u, values.iter().map(|s| s * 1.01).collect(), v))
         };
-        let answer = trimmed_thin_svd::<Shipped>(a.view(), &off);
-        let error = checked::<Shipped>(a.view(), answer).expect_err("values 1% off");
+        let answer = trimmed_thin_svd::<DefaultKernels>(a.view(), &off);
+        let error = checked::<DefaultKernels>(a.view(), answer).expect_err("values 1% off");
         assert_eq!(error, SvdError::FailedChecks { rows: 64, cols: 64 });
     }
 }

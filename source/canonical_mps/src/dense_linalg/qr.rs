@@ -3,7 +3,7 @@
 
 //! [`Qr`]: the thin QR decomposition of a dense complex matrix.
 
-use crate::dense_linalg::kernels::{Kernels, Shipped};
+use crate::dense_linalg::kernels::{DefaultKernels, Kernels};
 use crate::dense_linalg::matrix::{Matrix, MatrixRef};
 use crate::dense_linalg::scaling::PowerOfTwoScaling;
 
@@ -48,10 +48,10 @@ impl Qr {
             };
         }
         let Some(scaling) = PowerOfTwoScaling::of(a.elements()) else {
-            return Shipped::qr(a);
+            return DefaultKernels::qr(a);
         };
         let scaled = scaling.scaled(Matrix::new(rows, cols, a.elements().to_vec()));
-        let Qr { q, r } = Shipped::qr(scaled.view());
+        let Qr { q, r } = DefaultKernels::qr(scaled.view());
         // 2⁻ᵉ·a = q·r', so a = q·(2ᵉ·r').
         let k = r.rows();
         let elements = r.into_elements().into_iter();

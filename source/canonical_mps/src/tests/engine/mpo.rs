@@ -57,7 +57,7 @@ fn an_mpo_keeps_a_state_that_fits_its_bonds() {
         // 2.
         (
             "a CZ on two Bell pairs",
-            chain(4, 2),
+            capacity(4, 2),
             vec![
                 (&[0], ry(0.6)),
                 (&[0, 1], cnot()),
@@ -88,7 +88,7 @@ fn an_mpo_keeps_a_state_that_fits_its_bonds() {
     for (row, capacity, gates) in &rows {
         for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
             let mut state = engine.prepare(capacity).expect("prepare");
-            let mut exact_state = reference.prepare(&exact(4)).expect("prepare");
+            let mut exact_state = reference.prepare(&full_capacity(4)).expect("prepare");
             for (on, gate) in gates {
                 engine.apply(&mut state, on, gate).expect("apply");
                 reference.apply(&mut exact_state, on, gate).expect("apply");
@@ -147,7 +147,7 @@ fn an_mpo_truncates_only_at_the_callers_cuts() {
     let half_turn = ry(std::f64::consts::FRAC_PI_2);
     let uneven = ry(2.0 * 0.98_f64.sqrt().acos());
     for (engine, name) in both_fusions(cutoff) {
-        let mut state = engine.prepare(&chain(4, 4)).expect("prepare");
+        let mut state = engine.prepare(&capacity(4, 4)).expect("prepare");
         for (on, gate) in [
             (&[0][..], &half_turn),
             (&[0, 1], &cnot()),
@@ -166,7 +166,7 @@ fn an_mpo_truncates_only_at_the_callers_cuts() {
 /// the span) and the others in a product state, then a gate on sites 0 and
 /// 2; the span's largest transient bond.
 fn transient_bond_of_a_gate_on_sites_0_and_2(engine: &Engine, gate: &[Complex64]) -> usize {
-    let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
+    let mut state = engine.prepare(&capacity(6, 8)).expect("prepare");
     for site in 0..6 {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
     }
@@ -237,7 +237,7 @@ fn zz_rotation(epsilon: f64) -> Vec<Complex64> {
 /// takes `d` splits, and one read and one upload of each of its sites, so
 /// a backend that keeps its tensors on a device moves each across once.
 #[test]
-fn an_mpo_costs_d_minus_1_moves_d_splits_and_one_transfer_per_site() {
+fn an_mpo_costs_d_minus_1_moves_d_splits_and_one_read_and_upload_per_site() {
     for (fuses, sites, gates, read, expected) in [
         (true, 6, &[&[0, 4][..]][..], 2, (3, 4, 5, 5)),
         (false, 6, &[&[0, 4]], 2, (3, 4, 5, 5)),
@@ -247,7 +247,7 @@ fn an_mpo_costs_d_minus_1_moves_d_splits_and_one_transfer_per_site() {
     ] {
         let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(fuses);
-        let mut state = engine.prepare(&chain(sites, 8)).expect("prepare");
+        let mut state = engine.prepare(&capacity(sites, 8)).expect("prepare");
         for site in 0..sites {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
         }
@@ -284,7 +284,7 @@ fn a_read_finds_the_centre_at_the_spans_end_nearer_its_site() {
     for (read, moves) in [(5, 4), (0, 3)] {
         let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra);
-        let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
+        let mut state = engine.prepare(&capacity(6, 8)).expect("prepare");
         for site in 0..6 {
             engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
         }

@@ -139,10 +139,3 @@ pub fn euler_natives(u: [C; 4], q: usize) -> Vec<Native> {
         Native::Rz(gamma, q),
     ]
 }
-
-pub fn adjoint(m: &[C]) -> Vec<C> {
-    let k = if m.len() == 4 { 2 } else { 4 };
-    (0..m.len())
-        .map(|at| m[(at % k) * k + at / k].conj())
-        .collect()
-}

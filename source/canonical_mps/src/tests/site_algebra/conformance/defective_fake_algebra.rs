@@ -44,12 +44,13 @@ pub(super) enum Defect {
     CutoffDoubled,
     /// A split takes a cutoff of zero as 1e-12.
     SmallValuesDroppedAtCutoffZero,
-    /// A split reports the square root of the share it kept.
-    RootOfTheShare,
-    /// A split that drops nothing reports a share one rounding below 1.
-    ShareBelowOne,
+    /// A split reports the square root of its retained fraction.
+    RootOfTheRetainedFraction,
+    /// A split that drops nothing reports a retained fraction one rounding
+    /// below 1.
+    RetainedFractionBelowOne,
     /// A split that meets a tail of exactly its cutoff's share drops it,
-    /// and reports the share of keeping it.
+    /// and reports the retained fraction of keeping it.
     TieTakenOneWayReportedTheOther,
     /// A move zeroes the last column of the left site and the last row of
     /// the right one.
@@ -189,7 +190,10 @@ impl SiteAlgebra for DefectiveFakeAlgebra {
         Ok(DefectiveTensor::new(copy))
     }
 
-    #[expect(clippy::float_cmp, reason = "a share of exactly 1 is the rule broken")]
+    #[expect(
+        clippy::float_cmp,
+        reason = "a retained fraction of exactly 1 is the rule broken"
+    )]
     fn gate_split(
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,
@@ -240,10 +244,10 @@ impl SiteAlgebra for DefectiveFakeAlgebra {
                     *x *= scale;
                 }
             }
-            Some(Defect::RootOfTheShare) => {
+            Some(Defect::RootOfTheRetainedFraction) => {
                 outcome.retained_fraction = outcome.retained_fraction.sqrt();
             }
-            Some(Defect::ShareBelowOne) if outcome.retained_fraction == 1.0 => {
+            Some(Defect::RetainedFractionBelowOne) if outcome.retained_fraction == 1.0 => {
                 outcome.retained_fraction = 1.0 - f64::EPSILON;
             }
             Some(Defect::TieTakenOneWayReportedTheOther) => {

@@ -91,20 +91,30 @@ fn split_cutoff_catches_a_split_that_drops_more_than_its_cutoff() {
 }
 
 #[test]
-fn split_share_catches_a_share_other_than_that_of_the_kept_squares() {
-    caught_by("split share", &[Defect::RootOfTheShare]);
+fn split_retained_fraction_catches_a_fraction_other_than_that_of_the_kept_squares() {
+    caught_by(
+        "split retains the fraction of its kept squares",
+        &[Defect::RootOfTheRetainedFraction],
+    );
 }
 
-/// The defect's share is one rounding below 1, within the tolerance of
-/// `split share`, which so does not catch it.
+/// The defect's retained fraction is one rounding below 1, within the
+/// tolerance of `split retains the fraction of its kept squares`, which so
+/// does not catch it.
 #[test]
-fn split_cutoff_of_zero_catches_a_share_below_one_when_nothing_is_dropped() {
-    caught_by("split cutoff of zero", &[Defect::ShareBelowOne]);
+fn split_that_drops_nothing_catches_a_fraction_below_one() {
+    caught_by(
+        "split that drops nothing retains exactly 1",
+        &[Defect::RetainedFractionBelowOne],
+    );
 }
 
 #[test]
-fn split_tie_catches_a_tie_taken_one_way_and_reported_the_other() {
-    caught_by("split tie", &[Defect::TieTakenOneWayReportedTheOther]);
+fn split_at_a_tie_catches_a_tie_taken_one_way_and_reported_the_other() {
+    caught_by(
+        "split at a tie retains the fraction of its bond",
+        &[Defect::TieTakenOneWayReportedTheOther],
+    );
 }
 
 #[test]

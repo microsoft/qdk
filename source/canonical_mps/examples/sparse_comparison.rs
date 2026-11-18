@@ -60,11 +60,11 @@ use support::{
     agreement::agreement,
     args::{flag, number, order, qubits},
     circuit::Circuit,
-    dense::Dense,
     families::{brickwork, ising, qft},
     readout::{readout_distribution, tvd_to},
     recordings::{gate_list, readout_file, replay},
     runs::{peak_memory_kb, run_engine, run_sparse},
+    state_vector::StateVector,
 };
 use tensornet::MpsEngine;
 
@@ -163,15 +163,17 @@ fn main() -> Res<()> {
     let lost = 1.0 - engine.retained_weight(&mps.state)?;
     if circuit.projections() == 0 {
         let exact = if dense_reference {
-            let dense = Dense::run(&circuit);
-            let of_sparse = Dense::of_sparse(&mut sparse.sim);
+            let state_vector = StateVector::run(&circuit);
+            let of_sparse = StateVector::of_sparse(&mut sparse.sim);
             let gap = (0..n)
-                .map(|q| (of_sparse.probability_of_one(q) - dense.probability_of_one(q)).abs())
+                .map(|q| {
+                    (of_sparse.probability_of_one(q) - state_vector.probability_of_one(q)).abs()
+                })
                 .fold(0.0, f64::max);
             println!("sparse simulator against the dense state: max ΔP(One) {gap:.1e}");
-            dense
+            state_vector
         } else {
-            Dense::of_sparse(&mut sparse.sim)
+            StateVector::of_sparse(&mut sparse.sim)
         };
         let strings = number("--strings", 3 * n)?;
         let samples = number("--samples", 256)?;

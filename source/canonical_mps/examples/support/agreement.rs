@@ -3,7 +3,7 @@
 
 //! How far the engine's state is from an exact state vector.
 
-use super::{Res, c, dense::Dense, rng::Rng};
+use super::{Res, c, rng::Rng, state_vector::StateVector};
 use canonical_mps::{CanonicalMpsState, CpuAlgebra, CpuMpsEngine};
 use tensornet::{MpsEngine, Pauli, PauliSum, PauliTerm};
 
@@ -23,7 +23,7 @@ pub fn agreement(
     engine: &CpuMpsEngine,
     state: &CanonicalMpsState<CpuAlgebra>,
     order: &[usize],
-    exact: &Dense,
+    exact: &StateVector,
     strings: usize,
     samples: usize,
 ) -> Res<Agreement> {
@@ -65,7 +65,7 @@ fn sampled_tvd(
     engine: &CpuMpsEngine,
     state: &CanonicalMpsState<CpuAlgebra>,
     order: &[usize],
-    exact: &Dense,
+    exact: &StateVector,
     samples: usize,
     rng: &mut Rng,
 ) -> Res<f64> {

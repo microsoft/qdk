@@ -17,8 +17,6 @@ pub mod agreement;
 pub mod args;
 #[path = "circuit.rs"]
 pub mod circuit;
-#[path = "dense.rs"]
-pub mod dense;
 #[path = "families.rs"]
 pub mod families;
 #[path = "gates.rs"]
@@ -31,6 +29,8 @@ pub mod recordings;
 pub mod rng;
 #[path = "runs.rs"]
 pub mod runs;
+#[path = "state_vector.rs"]
+pub mod state_vector;
 
 use num_complex::Complex64;
 use std::error::Error;
