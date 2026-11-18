@@ -14,7 +14,7 @@
 //!
 //! ```text
 //! NativeCalls            all three traits, which each implementation has
-//!   ├─ session_calls.rs  SessionCalls: the device, stream and handle
+//!   ├─ session_calls.rs  SessionCalls: the devices, stream and handle
 //!   ├─ memory_calls.rs   MemoryCalls: device buffers, copies, workspaces
 //!   └─ tensor_calls.rs   TensorCalls: tensor descriptors, gate splits,
 //!                        QRs, pairwise contractions
@@ -32,8 +32,8 @@ pub(super) mod complex;
 pub(crate) mod fake_libraries;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod loaded_libraries;
-pub(super) mod memory_calls;
-pub(super) mod session_calls;
+pub(crate) mod memory_calls;
+pub(crate) mod session_calls;
 pub(super) mod tensor_calls;
 
 // What the tests under `src/tests` name of these private modules: the size

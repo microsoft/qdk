@@ -29,12 +29,16 @@ fn the_message_names_every_fault_with_its_library() {
                         symbol: "cudaStreamCreateWithFlags",
                     },
                 ],
+                other_copies: Vec::new(),
+                loaded_from_override: false,
             },
             LibraryReport {
                 library: "cuTensorNet",
                 path: Some(PathBuf::from("/opt/cutensornet/libcutensornet.so.2")),
                 versions: Vec::new(),
                 faults: Vec::new(),
+                other_copies: Vec::new(),
+                loaded_from_override: false,
             },
         ],
     };
@@ -110,6 +114,8 @@ fn a_library_not_opened_is_named_without_a_path() {
             faults: vec![LibraryFault::NotFound {
                 attempted: vec![PathBuf::from("libcudart.so.12")],
             }],
+            other_copies: Vec::new(),
+            loaded_from_override: false,
         }],
     };
     let message = AvailabilityError::Unusable(report).to_string();
