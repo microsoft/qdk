@@ -1359,6 +1359,9 @@ def _check_tensornetwork_setup(
     """
     ...
 
+_MPS_DEFAULT_MAX_BOND_DIMENSION: int
+"""The MPS method's default maximum bond dimension χ."""
+
 # This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
 # for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
 class _GpuShotResultsBase(TypedDict):

@@ -20,12 +20,12 @@ use super::run_failure::{RunFailure, engine_not_made, gpu_not_set_up};
 /// An engine's error, as any engine's may be: a refusal, or a failure of
 /// the engine's own.
 #[derive(Debug)]
-enum StandInError {
+enum FakeEngineError {
     Refused(Refusal),
     OutOfMemory,
 }
 
-impl fmt::Display for StandInError {
+impl fmt::Display for FakeEngineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Refused(refusal) => refusal.fmt(f),
@@ -34,15 +34,15 @@ impl fmt::Display for StandInError {
     }
 }
 
-impl std::error::Error for StandInError {}
+impl std::error::Error for FakeEngineError {}
 
-impl From<Refusal> for StandInError {
+impl From<Refusal> for FakeEngineError {
     fn from(refusal: Refusal) -> Self {
         Self::Refused(refusal)
     }
 }
 
-impl MpsEngineError for StandInError {
+impl MpsEngineError for FakeEngineError {
     fn refusal(&self) -> Option<&Refusal> {
         match self {
             Self::Refused(refusal) => Some(refusal),
@@ -53,7 +53,7 @@ impl MpsEngineError for StandInError {
 
 /// The failure of a run whose shot 0 met `error` of the MPS simulation
 /// method.
-fn shot_0_failure(error: MpsResumerError<StandInError>) -> RunFailure {
+fn shot_0_failure(error: MpsResumerError<FakeEngineError>) -> RunFailure {
     RunFailure::of(QirResumeError::Resumer {
         shot: QirShotId(0),
         error,
@@ -64,7 +64,7 @@ fn shot_0_failure(error: MpsResumerError<StandInError>) -> RunFailure {
 /// `OSError` with the failure's message, as a setup problem does.
 #[test]
 fn an_engine_failure_is_an_os_error() {
-    let failure = shot_0_failure(MpsResumerError::Engine(StandInError::OutOfMemory));
+    let failure = shot_0_failure(MpsResumerError::Engine(FakeEngineError::OutOfMemory));
     assert!(
         matches!(&failure, RunFailure::Os(message) if message.contains("ran out of memory")),
         "an engine failure is an OSError: {failure:?}"
@@ -75,7 +75,7 @@ fn an_engine_failure_is_an_os_error() {
 /// `ValueError`, as the program's other faults do.
 #[test]
 fn an_engine_refusal_is_a_value_error() {
-    let failure = shot_0_failure(MpsResumerError::Engine(StandInError::from(
+    let failure = shot_0_failure(MpsResumerError::Engine(FakeEngineError::from(
         Refusal::NoSites,
     )));
     assert!(
@@ -99,7 +99,7 @@ fn a_stopped_run_is_a_runtime_error() {
 /// `RuntimeError` naming the shot.
 #[test]
 fn a_trap_is_a_runtime_error_naming_the_shot() {
-    let failure = RunFailure::of::<StandInError>(QirResumeError::Trapped {
+    let failure = RunFailure::of::<FakeEngineError>(QirResumeError::Trapped {
         shot: QirShotId(3),
         trap: QirTrap::NoSuchQubit {
             instruction: 0,
@@ -162,31 +162,28 @@ fn a_gpu_setup_failure_ends_offering_the_cpu_engine() {
 }
 
 /// A run thread that panics (a defect) raises `RuntimeError` with the
-/// panic's message, rather than a `PanicException` from the thread scope.
+/// panic's message, rather than a `PanicException` from the thread scope,
+/// whether the message is a literal or formatted (an `expect` on an error,
+/// an index out of bounds, a `panic!` with arguments: most defects), which
+/// reach the thread's join as a `&str` and a `String` payload.
 #[test]
 fn a_run_that_panics_is_a_runtime_error_with_its_message() {
-    let failure = std::thread::scope(|scope| {
-        let run_thread = scope.spawn(|| panic!("a defect of the run"));
-        lost_run(run_thread)
-    });
-    assert!(
-        matches!(&failure, RunFailure::Runtime(message) if message.contains("a defect of the run")),
-        "a run that panics is a RuntimeError with the panic's message: {failure:?}"
-    );
-}
-
-/// A run thread that panics with a formatted message (an `expect` on an
-/// error, an index out of bounds, a `panic!` with arguments: most defects)
-/// raises `RuntimeError` with that message too.
-#[test]
-fn a_run_that_panics_with_a_formatted_message_is_a_runtime_error_with_it() {
-    let shot = 3;
-    let failure = std::thread::scope(|scope| {
-        let run_thread = scope.spawn(|| panic!("a defect of shot {shot}"));
-        lost_run(run_thread)
-    });
-    assert!(
-        matches!(&failure, RunFailure::Runtime(message) if message.contains("a defect of shot 3")),
-        "a run that panics is a RuntimeError with the panic's formatted message: {failure:?}"
-    );
+    fn literal() {
+        panic!("a defect of the run");
+    }
+    fn formatted() {
+        let shot = 3;
+        panic!("a defect of shot {shot}");
+    }
+    let cases: [(&str, fn(), &str); 2] = [
+        ("literal", literal, "a defect of the run"),
+        ("formatted", formatted, "a defect of shot 3"),
+    ];
+    for (case, defect, expected) in cases {
+        let failure = std::thread::scope(|scope| lost_run(scope.spawn(defect)));
+        assert!(
+            matches!(&failure, RunFailure::Runtime(message) if message.contains(expected)),
+            "{case}: a run that panics is a RuntimeError with the panic's message: {failure:?}"
+        );
+    }
 }
