@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`DefectiveFakeAlgebra`]: the reference algebra with one rule of the
+//! [`DefectiveFakeAlgebra`]: the CPU algebra with one rule of the
 //! contract broken, so that the kit's tests can show which case catches
 //! each fault.
 //!
@@ -66,18 +66,18 @@ pub(super) enum Defect {
     InputsOverwritten,
 }
 
-/// The reference algebra with `defect`, or with none.
+/// The CPU algebra with `defect`, or with none.
 pub(super) struct DefectiveFakeAlgebra {
     defect: Option<Defect>,
 }
 
 impl DefectiveFakeAlgebra {
-    /// The reference algebra with no defect, on [`DefectiveTensor`]s.
+    /// The CPU algebra with no defect, on [`DefectiveTensor`]s.
     pub(super) fn faithful() -> Self {
         Self { defect: None }
     }
 
-    /// The reference algebra with `defect`.
+    /// The CPU algebra with `defect`.
     pub(super) fn with(defect: Defect) -> Self {
         Self {
             defect: Some(defect),
@@ -95,7 +95,7 @@ impl DefectiveFakeAlgebra {
         }
     }
 
-    /// The reference algebra's split of `call` at another cap and cutoff.
+    /// The CPU algebra's split of `call` at another cap and cutoff.
     fn split_at(
         call: &GateSplitCall<'_, DefectiveTensor>,
         gate: [Complex64; 16],
@@ -290,7 +290,7 @@ impl SiteAlgebra for DefectiveFakeAlgebra {
         };
         let mut outcome = CpuAlgebra
             .qr_move(&inner)
-            .expect("the reference algebra's moves never fail");
+            .expect("the CPU algebra's moves never fail");
         self.overwrite_if_defective(call.left);
         let k = outcome.bond;
         match self.defect {

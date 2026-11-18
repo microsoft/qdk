@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`SpyAlgebra`]: a spy on the reference algebra, [`CpuAlgebra`], which
+//! [`SpyAlgebra`]: a spy on the CPU algebra, [`CpuAlgebra`], which
 //! counts the engine's calls and records what it uploads, for the tests
 //! that pin how many moves of the centre, reads and duplicates an
 //! operation takes, and what the engine hands the algebra.

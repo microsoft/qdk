@@ -294,14 +294,15 @@ fn a_gate_that_does_not_fit_applies_the_window_toward_its_lower_site() {
     }
 }
 
-/// A read of a state and of the reference's, which checks they agree.
+/// A read of a state and of the exact reference's, which checks they
+/// agree.
 type Read = fn(&Engine, &mut State, &ExactReference, &mut ReferenceState);
 
 /// A window on sites 1, 3 and 4 of 6, with a turn of site 2 between its
 /// sites and one-site gates before and after its gates, left pending; then
-/// each read, on a state of its own: every read agrees with the reference,
-/// so each sees every gate, the window's and those waiting on their sites,
-/// in the caller's order.
+/// each read, on a state of its own: every read agrees with the exact
+/// reference, so each sees every gate, the window's and those waiting on
+/// their sites, in the caller's order.
 #[test]
 fn every_read_sees_the_pending_windows_gates() {
     let reference = ExactReference::new();
@@ -423,7 +424,7 @@ impl Draws {
 /// Random circuits of 7 qubits, at a bond that holds every state: one- and
 /// two-site gates on any sites in either order, with reads, expectations,
 /// projections on the likelier value and forks between them. Every read
-/// agrees with the reference, fused and unfused, so fusion and the matrix
+/// agrees with the exact reference, fused and unfused, so fusion and the matrix
 /// product operators change nothing but rounding when nothing is
 /// truncated.
 #[test]

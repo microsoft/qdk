@@ -14,8 +14,8 @@
 //!   a state's history cost ([`CanonicalMpsStatistics`]). It documents
 //!   what a caller may rely on beyond the contract: how it fuses and
 //!   applies gates, and the bounds its truncations stay within.
-//! - [`CpuMpsEngine`] is the engine on [`CpuAlgebra`], the reference
-//!   algebra: the `SiteAlgebra` of the host CPU, which passes the
+//! - [`CpuMpsEngine`] is the engine on [`CpuAlgebra`], the `SiteAlgebra`
+//!   of the host CPU, which passes the
 //!   contract's conformance kit. It needs no device, so it runs wherever
 //!   the QDK runs.
 //! - [`site_algebra`] is the backend contract.
@@ -29,7 +29,7 @@
 //!   exact reference.
 //! - [`SvdError`] is why the crate's checked singular value decomposition
 //!   failed: `CpuAlgebra`'s error. The SVD, with the products and QR
-//!   decompositions the reference algebra and the engine's host
+//!   decompositions the CPU algebra and the engine's host
 //!   computations need, is the crate's private dense linear algebra,
 //!   which the `conformance` feature makes public (`dense_linalg`).
 //!
@@ -88,7 +88,7 @@ pub use engine::{
 pub use site_algebra::cpu_algebra::CpuAlgebra;
 
 /// The canonical MPS engine on the host CPU: [`CanonicalMpsEngine`] on the
-/// reference algebra, [`CpuAlgebra`]. `CpuMpsEngine::new(CpuAlgebra)` makes
+/// CPU algebra, [`CpuAlgebra`]. `CpuMpsEngine::new(CpuAlgebra)` makes
 /// it, at the default cutoff ([`CanonicalMpsEngine::new`]). Its states are
 /// [`CanonicalMpsState<CpuAlgebra>`], and its errors
 /// [`CanonicalMpsError<SvdError>`](CanonicalMpsError).

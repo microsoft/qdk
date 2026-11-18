@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The engine on the reference algebra runs the circuits a backend's tests
+//! The engine on the CPU algebra runs the circuits a backend's tests
 //! run (`engine::conformance`): it agrees with the exact reference on a
 //! long circuit when nothing is truncated, with and without fusion, and
 //! stays within the distance its truncations allow when they drop weight.

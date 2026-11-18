@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`FailingFakeAlgebra`]: a fake, the reference algebra ([`CpuAlgebra`])
+//! [`FailingFakeAlgebra`]: a fake, the CPU algebra ([`CpuAlgebra`])
 //! except that the calls of one method fail, for the tests of what the
 //! engine does when its backend fails: [`CpuAlgebra`] fails only when its
 //! SVD does, and the engine's tests give the SVD finite matrices, which it
