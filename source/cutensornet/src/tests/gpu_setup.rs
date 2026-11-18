@@ -139,6 +139,18 @@ fn failed(error: AvailabilityError) -> GpuSetup {
     }
 }
 
+/// The error of a device count that failed: the driver is too old for the
+/// CUDA Runtime.
+#[cfg(unix)]
+fn unreadable_devices() -> CudaAlgebraError {
+    CudaAlgebraError::NativeCallFailed {
+        component: "CUDA Runtime",
+        operation: "cudaGetDeviceCount",
+        status: 35,
+        message: "CUDA driver version is insufficient for CUDA runtime version".to_string(),
+    }
+}
+
 /// A trial run that failed with an error the earlier steps cannot foresee:
 /// the device ran out of memory.
 #[cfg(unix)]
@@ -188,7 +200,7 @@ fn a_ready_setup_lists_what_was_found_and_nothing_to_fix() {
         "cuTensorNet: /env/cuquantum/lib/libcutensornet.so.2 (2.13.0, built for CUDA Runtime 12.9)",
         "CUDA Runtime: /env/nvidia/cuda_runtime/lib/libcudart.so.12 (12.9)",
         "CUDA driver: supports CUDA 12.8",
-        "CUDA devices: 2; device 0, where the GPU engine runs: compute capability 8.0, \
+        "CUDA devices: 2; CUDA device 0, where the GPU engine runs: compute capability 8.0, \
          79.0 of 80.0 GiB free",
         "trial run on CUDA device 0: ready",
     ] {
@@ -221,8 +233,7 @@ fn a_missing_library_is_advised_the_install_or_its_override() {
 }
 
 /// A library that does not load, or is not the audited version, is
-/// advised the install, which brings the audited libraries and their
-/// dependencies.
+/// advised the install of the audited libraries.
 #[cfg(unix)]
 #[test]
 fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install() {
@@ -408,13 +419,21 @@ fn a_trial_run_that_finds_no_device_is_advised_as_no_device() {
     );
 }
 
-/// Off Linux x86-64 the advice says where the GPU engine runs.
+/// Off Linux x86-64 the advice says where the GPU engine runs. There, the
+/// check itself stops at discovery, with no device read and no trial run,
+/// and so advises.
 #[test]
 fn an_unsupported_platform_is_advised_where_the_engine_runs() {
-    let advice = advice(&failed(AvailabilityError::UnsupportedPlatform {
+    let mut setups = vec![failed(AvailabilityError::UnsupportedPlatform {
         platform: "macos aarch64".to_string(),
-    }));
-    assert!(advice.contains("Linux x86-64"), "{advice}");
+    })];
+    if cfg!(not(all(target_os = "linux", target_arch = "x86_64"))) {
+        setups.push(GpuSetup::check(&crate::PackagedLibraries::default()));
+    }
+    for setup in &setups {
+        let advice = advice(setup);
+        assert!(advice.contains("Linux x86-64"), "{advice}");
+    }
 }
 
 /// A failed discovery reports its error, and that no trial run was tried.
@@ -431,12 +450,12 @@ fn a_failed_discovery_reports_its_error_and_no_trial_run() {
     assert!(
         report.contains("libraries: cuTensorNet acceleration is unavailable: cuTensorNet")
             && report.contains("not found")
-            && report.contains("trial run: not tried"),
+            && report.contains("trial run on CUDA device 0: not tried"),
         "{report}"
     );
 }
 
-/// The GPU engine's device, device 0, of a compute capability cuTensorNet
+/// The GPU engine's device, CUDA device 0, of a compute capability cuTensorNet
 /// does not support, is a problem naming its capability and the minimum.
 #[cfg(unix)]
 #[test]
@@ -465,7 +484,7 @@ fn no_device_points_at_nvidia_smi() {
 #[test]
 fn unreadable_devices_point_at_nvidia_smi() {
     let advice = advice(&setup(LoadedSetup {
-        devices: Err(CudaAlgebraError::NoDevice),
+        devices: Err(unreadable_devices()),
         ..loaded(audited_report(), Some(a100()))
     }));
     assert!(
@@ -517,7 +536,7 @@ fn the_devices_are_advised_before_the_trial_run() {
     assert!(advice.starts_with("no CUDA device was found"), "{advice}");
 }
 
-/// A device 0 of compute capability 7.0 on which the trial run also
+/// A CUDA device 0 of compute capability 7.0 on which the trial run also
 /// failed: the advice is about the device's compute capability, not the
 /// trial run.
 #[cfg(unix)]
@@ -560,12 +579,15 @@ fn no_driver_is_shown_as_none() {
 #[test]
 fn unreadable_devices_are_shown_with_their_error() {
     let report = setup(LoadedSetup {
-        devices: Err(CudaAlgebraError::NoDevice),
+        devices: Err(unreadable_devices()),
         ..loaded(audited_report(), Some(a100()))
     })
     .to_string();
     assert!(
-        report.contains("\nCUDA devices: no CUDA-capable device is available\n"),
+        report.contains(
+            "\nCUDA devices: CUDA Runtime cudaGetDeviceCount failed with status 35: CUDA driver \
+             version is insufficient for CUDA runtime version\n"
+        ),
         "{report}"
     );
 }
@@ -686,7 +708,7 @@ fn another_copy_is_warned_of_when_discovery_fails() {
     );
 }
 
-/// A user whose device 0 is too old, with another copy of the CUDA Runtime
+/// A user whose CUDA device 0 is too old, with another copy of the CUDA Runtime
 /// visible, reads what was found first, then the warning, then the fix
 /// last.
 #[cfg(unix)]

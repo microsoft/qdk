@@ -31,9 +31,9 @@ pub(crate) mod memory_calls;
 pub(crate) mod session_calls;
 pub(super) mod tensor_calls;
 
-// What the tests under `src/tests` name of these private modules: the size
-// of the algebra's buffers, and the traits and arguments of the calls they
-// make on the fake libraries and on the loaded ones.
+// What the tests under `src/tests` name of these modules, at this module's
+// path: the size of the algebra's buffers, and the traits and arguments of
+// the calls they make on the fake libraries and on the loaded ones.
 #[cfg(test)]
 pub(crate) use self::{
     complex::{Complex64Abi, complex_bytes},

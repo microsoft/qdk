@@ -6,8 +6,8 @@
 //!
 //! The advice about one library comes from its `SetupGuide`, which its
 //! module declares; this file adds the advice that holds for every library
-//! (how to set an override, what to install, and when) and that of the
-//! steps after discovery.
+//! (for each kind of fault, whether to set an override or install the
+//! libraries, and what to install) and that of the steps after discovery.
 
 use super::devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
 use super::with_sources;
@@ -63,11 +63,17 @@ fn fault_advice(library: &str, fault: &LibraryFault, install_command: Option<&st
             ),
             None => install(),
         },
-        LibraryFault::LoadFailed { .. } => format!(
-            "{library} was found but did not load, often because a library it needs is \
-             missing: {}, which brings its dependencies",
-            install()
-        ),
+        LibraryFault::LoadFailed { .. } => {
+            let dependencies = match install_command {
+                Some(_) => "which brings their dependencies",
+                None => "with their dependencies",
+            };
+            format!(
+                "{library} was found but did not load, often because a library it needs is \
+                 missing: {}, {dependencies}",
+                install()
+            )
+        }
         LibraryFault::MissingRequiredSymbol { .. } | LibraryFault::UnsupportedVersion { .. } => {
             format!("only the audited versions are supported: {}", install())
         }
@@ -139,9 +145,8 @@ fn no_device_advice() -> String {
 /// What to check on the host when no device can be used: that the driver
 /// sees a GPU, and is recent enough for CUDA 12.
 const DRIVER: &str = concat!(
-    "check that `nvidia-smi` lists a GPU, and that the NVIDIA driver supports CUDA 12 (",
-    crate::libraries::cuda_runtime::minimum_driver!(),
-    " or later)"
+    "check that `nvidia-smi` lists a GPU, and that the NVIDIA driver is ",
+    crate::libraries::cuda_runtime::cuda_12_driver!()
 );
 
 /// The guide of the library named `library`.
