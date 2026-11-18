@@ -18,11 +18,11 @@ use crate::qir::{QirProgram, QirResumeError, QirShotId, QirTrap};
 use tensornet::reference::ExactReference;
 use tensornet::{MpsEngine, MpsShape};
 
-use super::super::programs::{
+use super::programs::{
     branch, coin_copied_by_a_branch, coins, gate, gate1, gate2, jump, measure, mz, program,
     program_with, read_result, reset, ret, set,
 };
-use super::super::reference_spy::{Call, ReferenceSpy, ReferenceSpyError};
+use super::reference_spy::{Call, ReferenceSpy, ReferenceSpyError};
 use super::shot_stream::shot_stream;
 use super::{RunResult, copies, ids, results, run};
 use crate::bytecode::encoding::{OPID_CX, OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_X};
