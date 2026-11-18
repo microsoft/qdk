@@ -252,6 +252,22 @@ pub(super) fn tie<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     Ok(())
 }
 
+/// The split leaves its input tensors unchanged, capped or not, on either
+/// side, since the engine may still hold them (the sites of a fork's
+/// source). Catches a split computed in the inputs' storage.
+pub(super) fn inputs_unchanged<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
+    for scene in graded_scenes()? {
+        for (max_extent, centre) in [(2, CentreSide::Left), (usize::MAX, CentreSide::Right)] {
+            let setting = Setting::new(max_extent, CUTOFFS[1], centre);
+            let split = scene.split(algebra, setting)?;
+            if split.inputs != [scene.pair.left.clone(), scene.pair.right.clone()] {
+                return Err(format!("{scene}, {setting}: the split changed its inputs"));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The largest dropped share a split at `cutoff` may report: the cutoff's,
 /// with [`TOLERANCE`] of it for a tail at the cutoff, and values of
 /// rounding's size ([`ROUNDING_SHARE`]).
@@ -292,7 +308,8 @@ impl Scene {
 
     /// Splits the pair at `setting` and reads the new sites back, after
     /// checking that the bond lies within its bounds, so that no read asks
-    /// for more than a correct tensor of that bond holds.
+    /// for more than a correct tensor of that bond holds; then reads the
+    /// input tensors back.
     fn split<A: SiteAlgebra>(&self, algebra: &A, setting: Setting) -> Result<Split, String> {
         let Pair { l, m, r, .. } = self.pair;
         let failed = |message: String| format!("{self}, {setting}: {message}");
@@ -319,11 +336,16 @@ impl Scene {
         }
         let new_left = read(algebra, &outcome.left, 2 * l * k).map_err(failed)?;
         let new_right = read(algebra, &outcome.right, k * 2 * r).map_err(failed)?;
+        let inputs = [
+            read(algebra, &left, 2 * l * m).map_err(failed)?,
+            read(algebra, &right, m * 2 * r).map_err(failed)?,
+        ];
         Ok(Split {
             left: Matrix::new(2 * l, k, new_left),
             right: Matrix::new(k, 2 * r, new_right),
             bond: k,
             retained_fraction: outcome.retained_fraction,
+            inputs,
         })
     }
 
@@ -370,6 +392,8 @@ struct Split {
     right: Matrix,
     bond: usize,
     retained_fraction: f64,
+    /// The input tensors, read back after the split.
+    inputs: [Vec<Complex64>; 2],
 }
 
 impl Split {
