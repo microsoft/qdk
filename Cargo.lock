@@ -291,8 +291,6 @@ version = "0.0.0"
 dependencies = [
  "canonical_mps",
  "num-complex",
- "paulimer",
- "qdk_simulators",
  "t4a-faer",
  "tensornet",
  "thiserror 2.0.20",

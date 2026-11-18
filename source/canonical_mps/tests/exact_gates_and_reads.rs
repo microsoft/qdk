@@ -1,16 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The engine against the QDK's sparse simulator: every one- and two-qubit
-//! gate it applies, its probabilities, parities and forced collapses, on
-//! the same states. Gates on more than two qubits, allocation, release and
-//! drawing values are the simulation method's (the layer above the
-//! engine), not the engine's.
+//! The engine against `tensornet`'s exact reference: every one-qubit gate
+//! of the QDK's intrinsic set, alone and controlled, and the engine's
+//! probabilities, Z strings and projections, on the same entangled
+//! states. Gates on more than two qubits, allocation, release and drawing
+//! values are the simulation method's (the layer above the engine), not
+//! the engine's.
 
 use canonical_mps::{CanonicalMpsState, CpuAlgebra, CpuMpsEngine};
 use num_complex::Complex64;
-use qdk_simulators::SparseStateSim;
 use std::f64::consts::FRAC_1_SQRT_2;
+use tensornet::reference::{ExactReference, ReferenceState};
 use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm};
 
 const SITES: usize = 5;
@@ -19,7 +20,7 @@ fn c(re: f64, im: f64) -> Complex64 {
     Complex64::new(re, im)
 }
 
-/// A one-qubit gate of the sparse simulator.
+/// A one-qubit gate of the QDK's intrinsic set.
 #[derive(Clone, Copy, Debug)]
 enum Gate {
     X,
@@ -80,39 +81,6 @@ impl Gate {
             ],
         }
     }
-
-    fn on_sparse(self, sim: &mut SparseStateSim, target: usize) {
-        match self {
-            Self::X => sim.x(target),
-            Self::Y => sim.y(target),
-            Self::Z => sim.z(target),
-            Self::H => sim.h(target),
-            Self::S => sim.s(target),
-            Self::SAdj => sim.sadj(target),
-            Self::T => sim.t(target),
-            Self::TAdj => sim.tadj(target),
-            Self::Rx(theta) => sim.rx(theta, target),
-            Self::Ry(theta) => sim.ry(theta, target),
-            Self::Rz(theta) => sim.rz(theta, target),
-        }
-    }
-
-    fn controlled_on_sparse(self, sim: &mut SparseStateSim, control: usize, target: usize) {
-        let controls = &[control];
-        match self {
-            Self::X => sim.mcx(controls, target),
-            Self::Y => sim.mcy(controls, target),
-            Self::Z => sim.mcz(controls, target),
-            Self::H => sim.mch(controls, target),
-            Self::S => sim.mcs(controls, target),
-            Self::SAdj => sim.mcsadj(controls, target),
-            Self::T => sim.mct(controls, target),
-            Self::TAdj => sim.mctadj(controls, target),
-            Self::Rx(theta) => sim.mcrx(controls, theta, target),
-            Self::Ry(theta) => sim.mcry(controls, theta, target),
-            Self::Rz(theta) => sim.mcrz(controls, theta, target),
-        }
-    }
 }
 
 /// `m` controlled by the first of two sites, row-major.
@@ -126,11 +94,12 @@ fn controlled(m: [Complex64; 4]) -> Vec<Complex64> {
     gate
 }
 
-/// The engine's state and the sparse simulator's, on the same circuit.
+/// The engine's state and the exact reference's, on the same circuit.
 struct Both {
     engine: CpuMpsEngine,
     state: CanonicalMpsState<CpuAlgebra>,
-    sim: SparseStateSim,
+    reference: ExactReference,
+    exact_state: ReferenceState,
 }
 
 impl Both {
@@ -138,72 +107,58 @@ impl Both {
     /// with a complex state on each, so no symmetry hides a wrong gate.
     fn scrambled() -> Self {
         let engine = CpuMpsEngine::new(CpuAlgebra);
+        let reference = ExactReference::new();
         let capacity = MpsShape::qubit_chain(SITES, 1 << SITES).expect("a chain");
         let state = engine.prepare(&capacity).expect("prepare");
-        let mut sim = SparseStateSim::new(None);
-        for _ in 0..SITES {
-            let _ = sim.allocate();
-        }
-        let mut both = Self { engine, state, sim };
+        let exact_state = reference.prepare(&capacity).expect("prepare");
+        let mut both = Self {
+            engine,
+            state,
+            reference,
+            exact_state,
+        };
         for site in 0..SITES {
             let x = f64::from(u32::try_from(site).expect("a small site"));
-            both.one(Gate::Ry(0.3 + 0.37 * x), site);
-            both.one(Gate::Rz(0.2 + 0.51 * x), site);
+            both.apply(&[site], &Gate::Ry(0.3 + 0.37 * x).matrix());
+            both.apply(&[site], &Gate::Rz(0.2 + 0.51 * x).matrix());
         }
         for (control, target) in [(0, 1), (3, 1), (2, 4), (4, 0)] {
-            both.controlled(Gate::X, control, target);
+            both.apply(&[control, target], &controlled(Gate::X.matrix()));
         }
-        both.one(Gate::Rx(0.9), 2);
+        both.apply(&[2], &Gate::Rx(0.9).matrix());
         both
     }
 
-    fn one(&mut self, gate: Gate, site: usize) {
+    fn apply(&mut self, sites: &[usize], matrix: &[Complex64]) {
         self.engine
-            .apply(&mut self.state, &[site], &gate.matrix())
-            .expect("a one-site gate");
-        gate.on_sparse(&mut self.sim, site);
-    }
-
-    fn controlled(&mut self, gate: Gate, control: usize, target: usize) {
-        self.engine
-            .apply(
-                &mut self.state,
-                &[control, target],
-                &controlled(gate.matrix()),
-            )
-            .expect("a two-site gate");
-        gate.controlled_on_sparse(&mut self.sim, control, target);
-    }
-
-    /// The sparse simulator's amplitudes, basis state `i` with qubit `k` as
-    /// bit `k`.
-    fn amplitudes(&mut self) -> Vec<Complex64> {
-        let (entries, qubits) = self.sim.get_state();
-        let mut amplitudes = vec![c(0.0, 0.0); 1 << qubits];
-        for (index, amplitude) in entries {
-            let index = index.iter_u64_digits().next().unwrap_or(0);
-            amplitudes[usize::try_from(index).expect("a small index")] = amplitude;
-        }
-        amplitudes
+            .apply(&mut self.state, sites, matrix)
+            .expect("a gate");
+        self.reference
+            .apply(&mut self.exact_state, sites, matrix)
+            .expect("a gate");
     }
 
     /// Every Pauli string's expectation agrees, so the two states are the
     /// same up to a global phase.
-    fn assert_same_state(&mut self, case: &str) {
-        let amplitudes = self.amplitudes();
-        let norm: f64 = amplitudes.iter().map(Complex64::norm_sqr).sum();
+    fn assert_same_state(&self, case: &str) {
+        self.assert_same_state_on(case, |site| site);
+    }
+
+    /// Every Pauli string's expectation on the engine agrees with the
+    /// reference's on the same string, each factor moved to
+    /// `exact_site(site)`.
+    fn assert_same_state_on(&self, case: &str, exact_site: impl Fn(usize) -> usize) {
         for code in 1..4_usize.pow(u32::try_from(SITES).expect("small")) {
             let factors = pauli_factors(code);
-            let observable = PauliSum::new(
-                c(0.0, 0.0),
-                vec![PauliTerm::new(c(1.0, 0.0), factors.clone()).expect("a term")],
-            )
-            .expect("an observable");
+            let moved = factors.iter().map(|&(site, p)| (exact_site(site), p));
             let value = self
                 .engine
-                .expectation(&self.state, &observable)
+                .expectation(&self.state, &string(factors.clone()))
                 .expect("an expectation");
-            let expected = expectation(&amplitudes, &factors) / norm;
+            let expected = self
+                .reference
+                .expectation(&self.exact_state, &string(moved.collect()))
+                .expect("an expectation");
             assert!(
                 (value - expected).norm() < 1e-10,
                 "{case}, {factors:?}: {value} vs {expected}"
@@ -220,38 +175,23 @@ fn pauli_factors(code: usize) -> Vec<(usize, Pauli)> {
         .collect()
 }
 
-/// `⟨ψ|P|ψ⟩` for the Pauli string `factors`, on amplitudes with site `k` as
-/// bit `k`.
-fn expectation(amplitudes: &[Complex64], factors: &[(usize, Pauli)]) -> Complex64 {
-    let flips = factors
-        .iter()
-        .filter(|(_, p)| matches!(p, Pauli::X | Pauli::Y))
-        .fold(0, |mask, (site, _)| mask | 1 << site);
-    (0..amplitudes.len())
-        .map(|index| {
-            let factor = factors.iter().fold(c(1.0, 0.0), |factor, &(site, p)| {
-                let one = index >> site & 1 == 1;
-                let sign = if one { -1.0 } else { 1.0 };
-                factor
-                    * match p {
-                        Pauli::X => c(1.0, 0.0),
-                        Pauli::Y => c(0.0, sign),
-                        Pauli::Z => c(sign, 0.0),
-                    }
-            });
-            amplitudes[index ^ flips].conj() * factor * amplitudes[index]
-        })
-        .sum()
+/// The observable of one Pauli string, `factors`, with coefficient 1.
+fn string(factors: Vec<(usize, Pauli)>) -> PauliSum {
+    PauliSum::new(
+        c(0.0, 0.0),
+        vec![PauliTerm::new(c(1.0, 0.0), factors).expect("a term")],
+    )
+    .expect("an observable")
 }
 
-/// Each of the sparse simulator's one-qubit gates on an entangled state, on
-/// the first, a middle and the last site.
+/// Each one-qubit gate on an entangled state, on the first, a middle and
+/// the last site.
 #[test]
 fn one_qubit_gates_give_the_exact_state() {
     for gate in GATES {
         for site in [0, 2, 4] {
             let mut both = Both::scrambled();
-            both.one(gate, site);
+            both.apply(&[site], &gate.matrix());
             both.assert_same_state(&format!("{gate:?} on {site}"));
         }
     }
@@ -264,7 +204,7 @@ fn controlled_gates_give_the_exact_state() {
     for gate in GATES {
         for (control, target) in [(0, 3), (4, 1), (2, 3), (3, 2)] {
             let mut both = Both::scrambled();
-            both.controlled(gate, control, target);
+            both.apply(&[control, target], &controlled(gate.matrix()));
             both.assert_same_state(&format!("controlled {gate:?} on ({control}, {target})"));
         }
     }
@@ -279,17 +219,14 @@ fn a_controlled_phase_gives_the_exact_state() {
     for (control, target) in [(1, 4), (3, 0)] {
         let mut both = Both::scrambled();
         let matrix = controlled([one, c(0.0, 0.0), c(0.0, 0.0), phase]);
-        both.engine
-            .apply(&mut both.state, &[control, target], &matrix)
-            .expect("a two-site gate");
-        both.sim.mcphase(&[control], phase, target);
+        both.apply(&[control, target], &matrix);
         both.assert_same_state(&format!("phase on ({control}, {target})"));
     }
 }
 
 /// A SWAP on an entangled state, on distant sites and on neighbours, in
-/// either order; the sparse simulator swaps two qubits by swapping their
-/// identifiers.
+/// either order: each Pauli string then reads what the same string with
+/// the two sites exchanged read before, on the reference left unswapped.
 #[test]
 fn a_swap_exchanges_two_sites() {
     let mut swap = vec![c(0.0, 0.0); 16];
@@ -301,21 +238,28 @@ fn a_swap_exchanges_two_sites() {
         both.engine
             .apply(&mut both.state, &[a, b], &swap)
             .expect("a two-site gate");
-        both.sim.swap_qubit_ids(a, b);
-        both.assert_same_state(&format!("SWAP on ({a}, {b})"));
+        let exchanged = |site| match site {
+            s if s == a => b,
+            s if s == b => a,
+            s => s,
+        };
+        both.assert_same_state_on(&format!("SWAP on ({a}, {b})"), exchanged);
     }
 }
 
 /// P(One) of every site of an entangled state.
 #[test]
 fn probabilities_of_one_are_exact() {
-    let mut both = Both::scrambled();
+    let both = Both::scrambled();
     for site in 0..SITES {
         let p = both
             .engine
             .probability_of_one(&both.state, site)
             .expect("P(One)");
-        let expected = both.sim.joint_probability(&[site]);
+        let expected = both
+            .reference
+            .probability_of_one(&both.exact_state, site)
+            .expect("P(One)");
         assert!(
             (p - expected).abs() < 1e-12,
             "site {site}: {p} vs {expected}"
@@ -323,39 +267,38 @@ fn probabilities_of_one_are_exact() {
     }
 }
 
-/// Z strings on two to four sites of an entangled state, in any order: the
-/// sparse simulator's joint probability is P(odd parity), which is
-/// `(1 − ⟨Z…Z⟩) / 2` of the engine's expectation.
+/// Z strings on two to four sites of an entangled state, their factors in
+/// any order.
 #[test]
 fn z_string_expectations_are_exact() {
-    let mut both = Both::scrambled();
+    let both = Both::scrambled();
     for sites in [&[0, 4][..], &[1, 2, 3], &[4, 0, 2, 1]] {
-        let factors = sites.iter().map(|&site| (site, Pauli::Z)).collect();
-        let observable = PauliSum::new(
-            c(0.0, 0.0),
-            vec![PauliTerm::new(c(1.0, 0.0), factors).expect("a term")],
-        )
-        .expect("an observable");
+        let observable = string(sites.iter().map(|&site| (site, Pauli::Z)).collect());
         let z = both
             .engine
             .expectation(&both.state, &observable)
             .expect("an expectation");
-        let odd = (1.0 - z.re) / 2.0;
-        let expected = both.sim.joint_probability(sites);
+        let expected = both
+            .reference
+            .expectation(&both.exact_state, &observable)
+            .expect("an expectation");
         assert!(
-            (odd - expected).abs() < 1e-12,
-            "{sites:?}: {odd} vs {expected}"
+            (z - expected).norm() < 1e-12,
+            "{sites:?}: {z} vs {expected}"
         );
     }
 }
 
 /// Three measurements in turn, each projected on a value: each projection
-/// returns the probability the sparse simulator's forced collapse reports.
+/// returns the probability the reference's projection returns.
 #[test]
 fn a_projection_returns_the_exact_probability() {
     let mut both = Both::scrambled();
     for (site, one) in [(3, true), (0, false), (4, true)] {
-        let probability = both.sim.force_collapse(one, site);
+        let probability = both
+            .reference
+            .project(&mut both.exact_state, site, one)
+            .expect("a possible value");
         let p = both
             .engine
             .project(&mut both.state, site, one)
@@ -365,12 +308,14 @@ fn a_projection_returns_the_exact_probability() {
 }
 
 /// Three measurements in turn, each projected on a value: each leaves the
-/// engine in the sparse simulator's collapsed state.
+/// engine in the reference's collapsed state.
 #[test]
 fn a_projection_leaves_the_collapsed_state() {
     let mut both = Both::scrambled();
     for (site, one) in [(3, true), (0, false), (4, true)] {
-        both.sim.force_collapse(one, site);
+        both.reference
+            .project(&mut both.exact_state, site, one)
+            .expect("a possible value");
         both.engine
             .project(&mut both.state, site, one)
             .expect("a possible value");

@@ -31,10 +31,6 @@ conformance = ["tensornet/conformance"]
 # integration test that runs it on the CPU algebra run in every
 # `cargo test`, the workspace's included.
 canonical_mps = { path = ".", features = ["conformance"] }
-# The integration tests compare with the stabilizer simulator, whose
-# observables are paulimer's, and with the sparse state simulator.
-paulimer = { workspace = true }
-qdk_simulators = { path = "../simulators", default-features = false }
 
 [lints]
 workspace = true

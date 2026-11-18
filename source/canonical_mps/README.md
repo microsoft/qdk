@@ -389,9 +389,10 @@ run, up to recorded chemistry shots; they assert nothing.
   the total variation distance (TVD) between the engine's distribution of
   the readout qubits and the recorded exact one, and the time.
   The shots are recorded by a simulator run outside this crate.
-- [`sparse_comparison`](examples/sparse_comparison.rs): the engine against
-  the QDK's sparse state simulator on the same circuits: their agreement,
-  and both times.
+- [`accuracy_and_cost`](examples/accuracy_and_cost.rs): circuit families
+  (random brickworks, an Ising quench, the Fourier transform) or a gate
+  list; how far the engine's state is from the exact state vector, its
+  time and its bonds, or with `--engine-only` its peak memory.
 
 Each file's header gives its command line and the formats of its input
 files; run them with `--release`. What they share is in
@@ -405,11 +406,12 @@ the engine reads values, they compare them with closed-form values, or
 with `tensornet`'s exact reference, among them the
 [engine's conformance circuits](src/engine/conformance.rs). The CPU algebra passes
 the [conformance kit](tests/site_algebra_conformance.rs). The
-[integration tests](tests) also compare `CpuMpsEngine` with the QDK's
-[sparse simulator](tests/exact_gates_and_reads.rs) on every one- and two-qubit
-gate it runs, and with its [stabilizer simulator](tests/circuits_of_known_outcome.rs)
-on Clifford circuits of up to 48 qubits, beside mirror circuits that
-return every qubit to zero. A backend in another crate runs the
+[integration tests](tests) also compare `CpuMpsEngine` with the exact
+reference on [every intrinsic gate and read](tests/exact_gates_and_reads.rs),
+and run [circuits of known outcome](tests/circuits_of_known_outcome.rs) on
+up to 48 qubits: Clifford circuits, whose reads are 0, ½ or 1; a GHZ
+state across the chain; and mirror circuits that return every qubit to
+zero. A backend in another crate runs the
 [conformance kit and the engine's conformance circuits](#conformance-the-kit-and-the-engines-circuits) in its
 own tests.
 

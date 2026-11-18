@@ -1,16 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Circuits whose outcome is known exactly at any width, past the reach of
-//! a state vector: Clifford circuits, checked shot by shot against the
-//! QDK's stabilizer simulator, and mirror circuits, which return every
-//! qubit to zero. Both apply gates on distant sites across the chain.
+//! Circuits whose outcome is known exactly, on chains up to more sites
+//! than a state vector holds, with gates on distant sites across the
+//! chain: a GHZ state, whose reads are known at any width; mirror
+//! circuits, which return every qubit to zero; and Clifford circuits,
+//! whose every read is 0, ½ or 1, and is `tensornet`'s exact reference's
+//! where it holds the chain.
 
 use canonical_mps::{CanonicalMpsState, CpuAlgebra, CpuMpsEngine};
 use num_complex::Complex64;
-use qdk_simulators::{Simulator, stabilizer_simulator::StabilizerSimulator};
 use std::f64::consts::FRAC_1_SQRT_2;
-use tensornet::{MpsEngine, MpsShape};
+use tensornet::reference::ExactReference;
+use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm};
 
 /// The widths of the chains, from a few sites to more than a state vector
 /// holds.
@@ -64,7 +66,7 @@ impl Stream {
     }
 }
 
-/// A gate of a Clifford circuit, as the stabilizer simulator names it.
+/// A gate of a Clifford circuit.
 #[derive(Clone, Copy, Debug)]
 enum Clifford {
     H(usize),
@@ -95,8 +97,8 @@ impl Clifford {
         }
     }
 
-    /// The sites and the row-major matrix the engine applies.
-    fn on_engine(self) -> (Vec<usize>, Vec<Complex64>) {
+    /// The sites and the row-major matrix of the gate.
+    fn sites_and_matrix(self) -> (Vec<usize>, Vec<Complex64>) {
         let (zero, one, i) = (c(0.0, 0.0), c(1.0, 0.0), c(0.0, 1.0));
         let half = c(FRAC_1_SQRT_2, 0.0);
         match self {
@@ -113,20 +115,6 @@ impl Clifford {
                 matrix[15] = -one;
                 (vec![control, target], matrix)
             }
-        }
-    }
-
-    fn on_stabilizer(self, sim: &mut StabilizerSimulator) {
-        match self {
-            Self::H(q) => sim.h(q),
-            Self::S(q) => sim.s(q),
-            Self::SAdj(q) => sim.s_adj(q),
-            Self::X(q) => sim.x(q),
-            Self::Y(q) => sim.y(q),
-            Self::Z(q) => sim.z(q),
-            Self::Cx(a, b) => sim.cx(a, b),
-            Self::Cz(a, b) => sim.cz(a, b),
-            Self::Swap(a, b) => sim.swap(a, b),
         }
     }
 }
@@ -149,52 +137,151 @@ fn exact_chain(
     engine.prepare(&capacity).expect("prepare")
 }
 
+fn assert_nothing_truncated(
+    engine: &CpuMpsEngine,
+    state: &CanonicalMpsState<CpuAlgebra>,
+    case: &str,
+) {
+    let weight = engine.retained_weight(state).expect("the weight");
+    assert!(
+        (weight - 1.0).abs() < 1e-12,
+        "precondition: nothing was truncated, so the reads are exact ({case}, \
+         weight {weight})"
+    );
+}
+
 /// Each shot of a random Clifford circuit reads every site in turn, as a
 /// shot of a simulation method would: the engine's probability of one,
-/// given the values drawn so far, is the stabilizer simulator's, exactly 0,
-/// ½ or 1.
+/// given the values drawn so far, is exactly 0, ½ or 1, as every read of
+/// a stabilizer state is, and, on the chains the exact reference holds,
+/// is the reference's.
 #[test]
 fn clifford_shots_read_exact_probabilities() {
     let engine = CpuMpsEngine::new(CpuAlgebra);
+    let reference = ExactReference::new();
     for width in WIDTHS {
         for shot in 0..3 {
+            let case = format!("width {width}, shot {shot}");
             let mut stream = Stream(u64::try_from(1000 * width + shot).expect("small"));
             let mut state = exact_chain(&engine, width, 256);
-            let mut sim = StabilizerSimulator::new(width, 0, 1, std::sync::Arc::default());
+            let mut exact_state = (width <= ExactReference::MAX_SITES).then(|| {
+                let capacity = MpsShape::qubit_chain(width, 256).expect("a chain");
+                reference.prepare(&capacity).expect("prepare")
+            });
             for _ in 0..3 * width {
-                let gate = Clifford::random(&mut stream, width);
-                let (sites, matrix) = gate.on_engine();
+                let (sites, matrix) = Clifford::random(&mut stream, width).sites_and_matrix();
                 engine
                     .apply(&mut state, &sites, &matrix)
                     .expect("a Clifford gate");
-                gate.on_stabilizer(&mut sim);
+                if let Some(exact_state) = &mut exact_state {
+                    reference
+                        .apply(exact_state, &sites, &matrix)
+                        .expect("a Clifford gate");
+                }
             }
-            let weight = engine.retained_weight(&state).expect("the weight");
-            assert!(
-                (weight - 1.0).abs() < 1e-12,
-                "precondition: nothing was truncated, so the probabilities are \
-                 exact (width {width}, shot {shot}, weight {weight})"
-            );
+            assert_nothing_truncated(&engine, &state, &case);
             for site in 0..width {
                 let p = engine.probability_of_one(&state, site).expect("P(One)");
-                let observable = [paulimer::core::z(site)].into();
-                let expected = sim.state_dump().outcome_probability(&observable, true);
+                let nearest = (2.0 * p).round() / 2.0;
                 assert!(
-                    (p - expected).abs() < 1e-10,
-                    "width {width}, shot {shot}, site {site}: {p} vs {expected}"
+                    (p - nearest).abs() < 1e-10,
+                    "{case}, site {site}: {p} is not 0, ½ or 1"
                 );
-                let one = if expected < 0.25 {
-                    false
-                } else if expected > 0.75 {
-                    true
-                } else {
+                if let Some(exact_state) = &exact_state {
+                    let expected = reference
+                        .probability_of_one(exact_state, site)
+                        .expect("P(One)");
+                    assert!(
+                        (p - expected).abs() < 1e-10,
+                        "{case}, site {site}: {p} vs {expected}"
+                    );
+                }
+                let one = if (p - 0.5).abs() < 0.25 {
                     stream.coin()
+                } else {
+                    p > 0.5
                 };
                 engine
                     .project(&mut state, site, one)
                     .expect("a possible value");
-                sim.post_select_z(one, site).expect("a possible value");
+                if let Some(exact_state) = &mut exact_state {
+                    reference
+                        .project(exact_state, site, one)
+                        .expect("a possible value");
+                }
             }
+        }
+    }
+}
+
+/// A GHZ state, `(|0…0⟩ + |1…1⟩)/√2`, spread over the whole chain from
+/// its middle by CNOTs on sites up to [`REACH`] apart, the control on
+/// either side of the target: every site reads P(One) = ½; X on every
+/// site reads 1, which no mixture of `|0…0⟩` and `|1…1⟩` does; and a site
+/// projected on a value, with probability ½, leaves every other site
+/// reading that value.
+#[test]
+fn a_ghz_state_across_the_chain_reads_its_exact_values() {
+    let engine = CpuMpsEngine::new(CpuAlgebra);
+    let half = c(FRAC_1_SQRT_2, 0.0);
+    let cnot = permutation([0, 1, 3, 2]);
+    for width in WIDTHS {
+        let case = format!("width {width}");
+        let mut stream = Stream(u64::try_from(7 * width).expect("small"));
+        let mut state = exact_chain(&engine, width, 256);
+        let middle = width / 2;
+        engine
+            .apply(&mut state, &[middle], &[half, half, half, -half])
+            .expect("H");
+        let (mut low, mut high) = (middle, middle);
+        while low > 0 || high < width - 1 {
+            if high < width - 1 {
+                let target = high + 1;
+                let control = target - 1 - stream.below(REACH.min(target - low));
+                engine
+                    .apply(&mut state, &[control, target], &cnot)
+                    .expect("a CNOT");
+                high = target;
+            }
+            if low > 0 {
+                let target = low - 1;
+                let control = target + 1 + stream.below(REACH.min(high - target));
+                engine
+                    .apply(&mut state, &[control, target], &cnot)
+                    .expect("a CNOT");
+                low = target;
+            }
+        }
+        assert_nothing_truncated(&engine, &state, &case);
+        for site in 0..width {
+            let p = engine.probability_of_one(&state, site).expect("P(One)");
+            assert!((p - 0.5).abs() < 1e-10, "{case}, site {site}: {p}");
+        }
+        let every_x = PauliSum::new(
+            c(0.0, 0.0),
+            vec![
+                PauliTerm::new(
+                    c(1.0, 0.0),
+                    (0..width).map(|site| (site, Pauli::X)).collect(),
+                )
+                .expect("a term"),
+            ],
+        )
+        .expect("an observable");
+        let x = engine.expectation(&state, &every_x).expect("⟨X…X⟩");
+        assert!((x - 1.0).norm() < 1e-10, "{case}: ⟨X…X⟩ = {x}");
+        let (measured, one) = (stream.below(width), stream.coin());
+        let p = engine
+            .project(&mut state, measured, one)
+            .expect("a possible value");
+        assert!((p - 0.5).abs() < 1e-10, "{case}: projected with {p}");
+        let expected = if one { 1.0 } else { 0.0 };
+        for site in 0..width {
+            let p = engine.probability_of_one(&state, site).expect("P(One)");
+            assert!(
+                (p - expected).abs() < 1e-10,
+                "{case}, site {site} after site {measured} read {one}: {p}"
+            );
         }
     }
 }

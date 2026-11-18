@@ -3,13 +3,13 @@
 
 //! Circuits and distributions read from files: a gate list, a recorded
 //! shot, and the exact readout distribution of that shot.
-//! The `sparse_comparison` example's header gives the format of a gate
+//! The `accuracy_and_cost` example's header gives the format of a gate
 //! list, and the `h2_shots` example's those of a recorded shot and of its
 //! readout distribution, and where they come from.
 
 use super::{
     C, Res, c,
-    circuit::{Circuit, Native, Op},
+    circuit::{Circuit, Op},
     gates::{H, controlled, pauli_x, pauli_y, pauli_z, phase, rx, ry, rz},
 };
 use std::{f64::consts::PI, fs};
@@ -24,13 +24,9 @@ pub fn gate_list(path: &str) -> Res<Circuit> {
         if line.trim().is_empty() {
             continue;
         }
-        let (on, matrix, native) = at_line(path, index, line, gate_line(line))?;
+        let (on, matrix) = at_line(path, index, line, gate_line(line))?;
         qubits = on.iter().fold(qubits, |n, &q| n.max(q + 1));
-        ops.push(Op::Gate {
-            qubits: on,
-            matrix,
-            natives: Some(vec![native]),
-        });
+        ops.push(Op::Gate { qubits: on, matrix });
     }
     Ok(Circuit {
         qubits,
@@ -39,54 +35,43 @@ pub fn gate_list(path: &str) -> Res<Circuit> {
     })
 }
 
-/// One line of a gate list: the gate's qubits, its matrix and its native
-/// form.
-fn gate_line(line: &str) -> Res<(Vec<usize>, Vec<C>, Native)> {
+/// One line of a gate list: the gate's qubits and its matrix.
+fn gate_line(line: &str) -> Res<(Vec<usize>, Vec<C>)> {
     let w: Vec<&str> = line.split_whitespace().collect();
     let q = |i: usize| -> Res<usize> { Ok(w.get(i).ok_or("short line")?.parse()?) };
     Ok(match w[0] {
-        "cx" => (
-            vec![q(1)?, q(2)?],
-            controlled(pauli_x()).to_vec(),
-            Native::Cx(q(1)?, q(2)?),
-        ),
-        "h" => (vec![q(1)?], H.to_vec(), Native::H(q(1)?)),
-        "s" => (vec![q(1)?], phase(PI / 2.0).to_vec(), Native::S(q(1)?)),
-        "sadj" => (vec![q(1)?], phase(-PI / 2.0).to_vec(), Native::SAdj(q(1)?)),
-        "x" => (vec![q(1)?], pauli_x().to_vec(), Native::X(q(1)?)),
+        "cx" => (vec![q(1)?, q(2)?], controlled(pauli_x()).to_vec()),
+        "h" => (vec![q(1)?], H.to_vec()),
+        "s" => (vec![q(1)?], phase(PI / 2.0).to_vec()),
+        "sadj" => (vec![q(1)?], phase(-PI / 2.0).to_vec()),
+        "x" => (vec![q(1)?], pauli_x().to_vec()),
         "rz" => {
             let t: f64 = w.get(1).ok_or("short line")?.parse()?;
-            (vec![q(2)?], rz(t).to_vec(), Native::Rz(t, q(2)?))
+            (vec![q(2)?], rz(t).to_vec())
         }
         "ry" => {
             let t: f64 = w.get(1).ok_or("short line")?.parse()?;
-            (vec![q(2)?], ry(t).to_vec(), Native::Ry(t, q(2)?))
+            (vec![q(2)?], ry(t).to_vec())
         }
         other => return Err(format!("unknown gate {other}").into()),
     })
 }
 
-fn named_one(name: &str, angle: Option<f64>, q: usize) -> Res<([C; 4], Native)> {
+fn named_one(name: &str, angle: Option<f64>) -> Res<[C; 4]> {
     let angle = || angle.ok_or("missing angle");
     let quarter = C::from_polar(1.0, PI / 4.0);
     Ok(match name {
-        "X" => (pauli_x(), Native::X(q)),
-        "Y" => (pauli_y(), Native::Y(q)),
-        "Z" => (pauli_z(), Native::Z(q)),
-        "H" => (H, Native::H(q)),
-        "S" => (phase(PI / 2.0), Native::S(q)),
-        "SAdj" => (phase(-PI / 2.0), Native::SAdj(q)),
-        "T" => (
-            [c(1.0, 0.0), c(0.0, 0.0), c(0.0, 0.0), quarter],
-            Native::T(q),
-        ),
-        "TAdj" => (
-            [c(1.0, 0.0), c(0.0, 0.0), c(0.0, 0.0), quarter.conj()],
-            Native::TAdj(q),
-        ),
-        "Rx" => (rx(angle()?), Native::Rx(angle()?, q)),
-        "Ry" => (ry(angle()?), Native::Ry(angle()?, q)),
-        "Rz" => (rz(angle()?), Native::Rz(angle()?, q)),
+        "X" => pauli_x(),
+        "Y" => pauli_y(),
+        "Z" => pauli_z(),
+        "H" => H,
+        "S" => phase(PI / 2.0),
+        "SAdj" => phase(-PI / 2.0),
+        "T" => [c(1.0, 0.0), c(0.0, 0.0), c(0.0, 0.0), quarter],
+        "TAdj" => [c(1.0, 0.0), c(0.0, 0.0), c(0.0, 0.0), quarter.conj()],
+        "Rx" => rx(angle()?),
+        "Ry" => ry(angle()?),
+        "Rz" => rz(angle()?),
         _ => return Err(format!("unknown one-qubit gate {name}").into()),
     })
 }
@@ -132,28 +117,12 @@ fn replay_line(circuit: &mut Circuit, line: &str) -> Res<()> {
             },
             probability: w.get(3).ok_or("short line")?.parse()?,
         }),
-        "Cx" => circuit.two(
-            q(1)?,
-            q(2)?,
-            controlled(pauli_x()),
-            Some(vec![Native::Cx(q(1)?, q(2)?)]),
-        ),
-        "Cy" => circuit.two(
-            q(1)?,
-            q(2)?,
-            controlled(pauli_y()),
-            Some(vec![Native::Cy(q(1)?, q(2)?)]),
-        ),
-        "Cz" => circuit.two(
-            q(1)?,
-            q(2)?,
-            controlled(pauli_z()),
-            Some(vec![Native::Cz(q(1)?, q(2)?)]),
-        ),
+        "Cx" => circuit.two(q(1)?, q(2)?, controlled(pauli_x())),
+        "Cy" => circuit.two(q(1)?, q(2)?, controlled(pauli_y())),
+        "Cz" => circuit.two(q(1)?, q(2)?, controlled(pauli_z())),
         name => {
             let angle = w.get(2).map(|x| x.parse()).transpose()?;
-            let (matrix, native) = named_one(name, angle, q(1)?)?;
-            circuit.one(q(1)?, matrix, Some(vec![native]));
+            circuit.one(q(1)?, named_one(name, angle)?);
         }
     }
     Ok(())
