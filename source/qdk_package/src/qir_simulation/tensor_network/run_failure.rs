@@ -55,15 +55,18 @@ impl RunFailure {
     pub(super) fn of<E: MpsEngineError>(error: QirResumeError<MpsResumerError<E>>) -> Self {
         let message = error.to_string();
         match error {
-            QirResumeError::Resumer {
-                error: stopped @ MpsResumerError::Stopped,
-                ..
-            } => Self::Runtime(stopped.to_string()),
-            QirResumeError::Resumer {
-                error: MpsResumerError::Engine(engine),
-                ..
-            } if engine.refusal().is_none() => Self::Os(message),
-            QirResumeError::Resumer { .. } => Self::Value(message),
+            QirResumeError::Resumer { error, .. } => match error {
+                MpsResumerError::Stopped => Self::Runtime(error.to_string()),
+                MpsResumerError::Engine(engine) if engine.refusal().is_none() => Self::Os(message),
+                MpsResumerError::Engine(_)
+                | MpsResumerError::Unsupported { .. }
+                | MpsResumerError::RepeatedQubit { .. }
+                | MpsResumerError::Capacity { .. } => Self::Value(message),
+                // `MpsResumerError` is `#[non_exhaustive]`: a variant added
+                // later raises `RuntimeError` until it is given its own
+                // exception.
+                _ => Self::Runtime(message),
+            },
             QirResumeError::Trapped { .. } => Self::Runtime(message),
             // `QirResumeError` is `#[non_exhaustive]`: a variant added later
             // raises `RuntimeError` until it is given its own exception.

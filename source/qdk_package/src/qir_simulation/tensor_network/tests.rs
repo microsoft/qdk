@@ -5,13 +5,14 @@
 //! for the failures the package's Python tests cannot cause: an engine's
 //! errors and a stopped run ([`RunFailure::of`]), a GPU engine that was not
 //! made ([`engine_not_made`]), the line every GPU setup failure ends with,
-//! and a run thread that panicked ([`lost_run`]).
+//! and a run thread that panicked ([`lost_run`]). A trap, which a program
+//! causes, is pinned by the Python tests alone.
 
 use std::fmt;
 
 use qdk_cutensornet::{GpuSetup, PackagedLibraries};
 use qdk_simulators::mps_simulator::MpsResumerError;
-use qdk_simulators::qir::{QirResumeError, QirShotId, QirTrap};
+use qdk_simulators::qir::{QirResumeError, QirShotId};
 use tensornet::{MpsEngineError, Refusal};
 
 use super::detached_run::lost_run;
@@ -92,24 +93,6 @@ fn a_stopped_run_is_a_runtime_error() {
     assert!(
         matches!(&failure, RunFailure::Runtime(message) if message == "the run was stopped"),
         "a stopped run is a RuntimeError: {failure:?}"
-    );
-}
-
-/// A shot that traps (an instruction on a qubit past the program's) raises
-/// `RuntimeError` naming the shot.
-#[test]
-fn a_trap_is_a_runtime_error_naming_the_shot() {
-    let failure = RunFailure::of::<FakeEngineError>(QirResumeError::Trapped {
-        shot: QirShotId(3),
-        trap: QirTrap::NoSuchQubit {
-            instruction: 0,
-            qubit: 5,
-            qubits: 2,
-        },
-    });
-    assert!(
-        matches!(&failure, RunFailure::Runtime(message) if message.contains(&QirShotId(3).to_string())),
-        "a trap is a RuntimeError naming the shot: {failure:?}"
     );
 }
 

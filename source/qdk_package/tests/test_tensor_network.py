@@ -231,11 +231,17 @@ def test_another_seed_gives_other_rows(engine):
 def test_a_run_that_lost_weight_warns(engine):
     """A Bell pair at max bond dimension 1: the bond the `cx` makes is cut
     to 1, losing about half the state's weight, so the run warns with
-    `RuntimeWarning` and its report gives the loss."""
-    with pytest.warns(RuntimeWarning, match="lost up to"):
-        results = run(
-            BELL, [Sample(2)], engine=engine, options=MpsOptions(max_bond_dimension=1)
+    `RuntimeWarning`, pointing at the caller's line, and its report gives
+    the loss."""
+    with pytest.warns(RuntimeWarning, match="lost up to") as warned:
+        results = tensornetwork_qir(
+            BELL,
+            [Sample(2)],
+            engine=engine,
+            seed=7,
+            options=MpsOptions(max_bond_dimension=1),
         )
+    assert warned[0].filename == __file__
     assert results.report.discarded_weight > 1e-3
     assert results.report.largest_bond == 1
 
