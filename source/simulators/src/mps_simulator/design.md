@@ -49,7 +49,8 @@ the same names.
   once per group; each shot draws a uniform from its own stream
   ([`shot_stream.rs`](shot_stream.rs)) and reads One when it is below that
   probability. A shot draws once per measurement and reset, whatever group
-  it is in, so its records are those it gets alone.
+  it is in, so its records are those it gets alone (to what precision:
+  `MpsResumer`'s doc, in [`mps_simulator.rs`](../mps_simulator.rs)).
 - **split** (`split`, with `value_going_on`): when the shots drew both
   values, the part with fewer shots goes on, and the other waits on a
   stack, with a copy of the context and a fork of the state, made after

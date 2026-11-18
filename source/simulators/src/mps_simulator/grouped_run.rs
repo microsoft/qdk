@@ -322,7 +322,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// `one` stay in `group`, and the others wait, with a fork of the state
     /// that keeps their value and a copy of the context. The fork is made
     /// before `group`'s state is settled, after its P(One) is read: so it
-    /// is the state a shot alone would project.
+    /// copies the state a shot alone would project.
     ///
     /// When settling the fork ([`Self::settle`]: the projection, and a
     /// reset's X) fails, `group`'s state was not touched, so the failure
