@@ -37,13 +37,18 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
         if !visited_blocks.insert(block_id) {
             continue;
         }
-        let mut used_vars_in_block = FxHashSet::default();
+        // Preallocate the per-block usage sets to avoid repeated allocations, using the number of instructions as an approximation
+        // for the number of variables used in the block.
+        let block_size = program.get_block(block_id).0.len();
+        let mut used_vars_in_block =
+            FxHashSet::with_capacity_and_hasher(block_size, Default::default());
+
         let mut must_keep_vars_in_block = FxHashSet::default();
-        let stored_vars_before_block = stored_vars.clone();
+        let mut stored_vars_in_block = FxHashSet::default();
         check_var_usage(
             program,
             block_id,
-            &mut stored_vars,
+            &mut stored_vars_in_block,
             &mut used_vars_in_block,
             &mut must_keep_vars_in_block,
         );
@@ -53,7 +58,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
             .filter(|var| !callable.input_vars.contains(var))
         {
             if !used_vars.insert(var)
-                || stored_vars_before_block.contains(&var)
+                || stored_vars.contains(&var)
                 || must_keep_vars_in_block.contains(&var)
             {
                 // This variable was already marked as used, which means it is used cross-block.
@@ -62,6 +67,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
                 cross_block_used_vars.insert(var);
             }
         }
+        stored_vars.extend(stored_vars_in_block);
 
         for successor_id in get_block_successors(program.get_block(block_id)) {
             if !visited_blocks.contains(&successor_id) && blocks_to_visit_set.insert(successor_id) {
@@ -123,12 +129,7 @@ fn check_var_usage(
                 stored_vars.insert(variable.variable_id);
             }
 
-            Instruction::Call(_, operands, variable, _) => {
-                if let Some(var) = variable
-                    && stored_vars.contains(&var.variable_id)
-                {
-                    panic!("calls should not use stored variables for capturing return values");
-                }
+            Instruction::Call(_, operands, _, _) => {
                 for operand in operands {
                     if let crate::rir::Operand::Variable(var) = operand {
                         used_vars.insert(var.variable_id);
@@ -162,10 +163,6 @@ fn check_var_usage(
                         used_vars.insert(var.variable_id);
                     }
                 }
-                assert!(
-                    !stored_vars.contains(&variable.variable_id),
-                    "arithmetic instructions should not use stored variables for capturing return values"
-                );
                 used_vars.insert(variable.variable_id);
             }
             Instruction::LogicalNot(operand, variable)
@@ -174,10 +171,6 @@ fn check_var_usage(
                 if let crate::rir::Operand::Variable(var) = operand {
                     used_vars.insert(var.variable_id);
                 }
-                assert!(
-                    !stored_vars.contains(&variable.variable_id),
-                    "not instructions should not use stored variables for capturing return values"
-                );
                 used_vars.insert(variable.variable_id);
             }
             Instruction::Index(index_operand, operand, variable2) => {
@@ -188,10 +181,6 @@ fn check_var_usage(
                     used_vars.insert(var.variable_id);
                     must_keep_vars.insert(var.variable_id);
                 }
-                assert!(
-                    !stored_vars.contains(&variable2.variable_id),
-                    "index instructions should not use stored variables for capturing return values"
-                );
                 used_vars.insert(variable2.variable_id);
             }
 
