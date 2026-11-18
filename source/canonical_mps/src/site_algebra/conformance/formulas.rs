@@ -83,12 +83,20 @@ pub(super) fn relative_distance(x: &[Complex64], expected: &[Complex64]) -> f64 
         .map(|(x, y)| (x - y).norm_sqr())
         .sum::<f64>()
         .sqrt();
-    let distance = difference / frobenius(expected);
-    if distance.is_finite() {
-        distance
-    } else {
-        f64::INFINITY
-    }
+    or_infinite(difference / frobenius(expected))
+}
+
+/// `|x − expected|`; infinite when it is not finite, so that no tolerance
+/// accepts a NaN.
+pub(super) fn distance(x: f64, expected: f64) -> f64 {
+    or_infinite((x - expected).abs())
+}
+
+/// `d`, or infinity when `d` is not finite: every distance the cases
+/// compare with a tolerance goes through it, since a NaN compared with a
+/// tolerance is never above it.
+fn or_infinite(d: f64) -> f64 {
+    if d.is_finite() { d } else { f64::INFINITY }
 }
 
 /// The Frobenius norm of `x`.
@@ -115,13 +123,7 @@ fn identity_error(g: &Matrix) -> f64 {
         .flat_map(|i| (0..n).map(move |j| (i, j)))
         .map(|(i, j)| {
             let one = if i == j { 1.0 } else { 0.0 };
-            (g.elements()[i + n * j] - one).norm()
+            or_infinite((g.elements()[i + n * j] - one).norm())
         })
-        .fold(0.0, |worst: f64, d| {
-            if d.is_finite() {
-                worst.max(d)
-            } else {
-                f64::INFINITY
-            }
-        })
+        .fold(0.0, f64::max)
 }
