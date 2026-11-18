@@ -33,33 +33,42 @@ fn run_once<E: tensornet::MpsEngine>(resumer: &mut MpsResumer<E>, program: &QirP
         .expect("the program runs");
 }
 
-/// The report gives the largest bond the gates made, read before the
-/// readout projects it back to one: a GHZ state's bond is 2.
+/// The report gives the largest bond any state of the run reached. Each
+/// row is a program and the bond it reports: a GHZ state's bond of 2, read
+/// before the readout projects it back to one; a Bell pair's bond of 2,
+/// read before its first qubit is measured, not the bond of 1 a later gate
+/// on the second qubit ends with; and a Bell pair made after the shot's
+/// last measurement, and never read.
 #[test]
-fn the_report_gives_the_largest_bond_before_the_readout() {
-    let mut resumer = MpsResumer::new(ExactReference::new(), 7);
-    run_once(&mut resumer, &ghz(4));
-    assert_eq!(resumer.last_run().largest_bond, 2);
-}
-
-/// The report keeps the largest bond of the run, not the last one read: a
-/// Bell pair's bond of 2 is read before its first qubit is measured, and
-/// a later gate on the second qubit ends a run of gates whose bond is 1.
-#[test]
-fn a_smaller_bond_read_later_keeps_the_largest() {
-    let mut resumer = MpsResumer::new(ExactReference::new(), 7);
-    let program = program(
-        2,
-        &[&[
-            gate1(OPID_H, 0),
-            gate2(OPID_CX, 0, 1),
-            mz(0),
-            gate1(OPID_H, 1),
-            ret(),
-        ]],
-    );
-    run_once(&mut resumer, &program);
-    assert_eq!(resumer.last_run().largest_bond, 2);
+fn the_largest_bond_is_the_largest_any_state_reached() {
+    let rows = [
+        ("a GHZ state, read", ghz(4)),
+        (
+            "a Bell pair, then a smaller bond read later",
+            program(
+                2,
+                &[&[
+                    gate1(OPID_H, 0),
+                    gate2(OPID_CX, 0, 1),
+                    mz(0),
+                    gate1(OPID_H, 1),
+                    ret(),
+                ]],
+            ),
+        ),
+        (
+            "a Bell pair after the last measurement",
+            program(
+                3,
+                &[&[mz(2), gate1(OPID_H, 0), gate2(OPID_CX, 0, 1), ret()]],
+            ),
+        ),
+    ];
+    for (scene, program) in rows {
+        let mut resumer = MpsResumer::new(ExactReference::new(), 7);
+        run_once(&mut resumer, &program);
+        assert_eq!(resumer.last_run().largest_bond, 2, "{scene}");
+    }
 }
 
 /// The bond is read once per run of gates, where it ends, not before
@@ -118,40 +127,23 @@ fn a_bond_above_the_max_bond_dimension_on_an_exact_engine_is_shown() {
     assert_eq!(resumer.last_run().largest_bond, 2);
 }
 
-/// Gates after a shot's last measurement count in the largest bond: a
-/// program that reads qubit 2, then entangles qubits 0 and 1 into a Bell
-/// pair and ends without reading them, reports the pair's bond of 2.
+/// A failed run's report keeps what the run read before the failure, and
+/// what was read after it was met, by the groups of shots before the
+/// failing one, which run on. Each row is a scene, whose report gives a
+/// bond of 2:
+/// - before: GHZ shots, on an engine whose projections on One fail, read
+///   the bond of 2 before the readout, as a run that ends would;
+/// - after: a coin, whose shots that read 1 trap, and whose shots that
+///   read 0 then make a Bell pair. Of a shot that reads 0, one that reads
+///   1, and another that reads 0, the shot that reads 1 goes on, the fewer,
+///   and traps before any bond above 1 is read; the two that read 0 run
+///   after it, as the first comes before it, and read their pair's bond.
 #[test]
-fn gates_after_the_last_measurement_count_in_the_largest_bond() {
-    let mut resumer = MpsResumer::new(ExactReference::new(), 7);
-    let program = program(
-        3,
-        &[&[mz(2), gate1(OPID_H, 0), gate2(OPID_CX, 0, 1), ret()]],
-    );
-    run_once(&mut resumer, &program);
-    assert_eq!(resumer.last_run().largest_bond, 2);
-}
-
-/// A failed run's report keeps what the run read before it failed: GHZ
-/// shots, on an engine whose projections on One fail, report the bond of 2
-/// read before the readout, as a run that ends would.
-#[test]
-fn a_failed_run_reports_what_it_read_before_it_failed() {
-    let mut resumer = MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 7);
-    expect_ready(resumer.run(&QirMachine::new(&ghz(4)), &QirShotId::first(16)))
+fn a_failed_run_reports_what_it_read_before_and_after_the_failure_was_met() {
+    let mut before = MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 7);
+    expect_ready(before.run(&QirMachine::new(&ghz(4)), &QirShotId::first(16)))
         .expect_err("some of 16 shots read One, whose projection fails");
-    assert_eq!(resumer.last_run().largest_bond, 2);
-}
 
-/// A failed run's report also keeps what was read after the failure was
-/// met, by the groups of shots before the failing one, which run on: a
-/// coin, whose shots that read 1 trap, and whose shots that read 0 then
-/// make a Bell pair. Of a shot that reads 0, one that reads 1, and another
-/// that reads 0, the shot that reads 1 goes on, the fewer, and traps
-/// before any bond above 1 is read; the two that read 0 run after it, as
-/// the first comes before it, and the report gives their Bell pair's bond.
-#[test]
-fn a_failed_run_reports_what_was_read_after_the_failure_was_met() {
     let (trap, rest) = (1, 2);
     let program = program(
         3,
@@ -183,9 +175,15 @@ fn a_failed_run_reports_what_was_read_after_the_failure_was_met() {
     let mut zeros = reading(0);
     let zero = zeros.next().expect("some of 16 coins read 0");
     let other_zero = zeros.next().expect("two of 16 coins read 0");
-    let mut resumer = MpsResumer::new(ExactReference::new(), 5);
-    run(&mut resumer, &program, &[zero, one, other_zero]).expect_err("the shot that reads 1 traps");
-    assert_eq!(resumer.last_run().largest_bond, 2);
+    let mut after = MpsResumer::new(ExactReference::new(), 5);
+    run(&mut after, &program, &[zero, one, other_zero]).expect_err("the shot that reads 1 traps");
+
+    for (scene, largest_bond) in [
+        ("before", before.last_run().largest_bond),
+        ("after", after.last_run().largest_bond),
+    ] {
+        assert_eq!(largest_bond, 2, "{scene}");
+    }
 }
 
 /// A run's report is its own: a smaller run after a larger one reports its
@@ -246,63 +244,76 @@ fn the_report_keeps_the_least_weight_among_the_shots() {
 }
 
 /// The report gives the max bond dimension χ the run's states were
-/// prepared within: 128 by default, else the one set.
+/// prepared within, and, before any run, the resumer's own. Each row is a
+/// scene and the χ it reports: 128 by default and 1 when set, after a run;
+/// and, before any run, the 16 a caller set, not the default.
 #[test]
-fn the_report_gives_the_max_bond_dimension_of_the_run() {
-    for (max_bond_dimension, expected) in [(None, DEFAULT_MAX_BOND_DIMENSION.get()), (Some(1), 1)] {
-        let mut resumer = MpsResumer::new(ExactReference::new(), 7);
-        if let Some(max_bond_dimension) = max_bond_dimension {
-            resumer = resumer
-                .with_max_bond_dimension(NonZeroUsize::new(max_bond_dimension).expect("not zero"));
-        }
-        run_once(&mut resumer, &ghz(3));
-        assert_eq!(resumer.last_run().max_bond_dimension, expected);
+fn the_report_gives_the_max_bond_dimension_set_even_before_a_run() {
+    let with_max_bond_dimension = |chi: usize| {
+        MpsResumer::new(ExactReference::new(), 7)
+            .with_max_bond_dimension(NonZeroUsize::new(chi).expect("not zero"))
+    };
+    let mut by_default = MpsResumer::new(ExactReference::new(), 7);
+    run_once(&mut by_default, &ghz(3));
+    let mut set_to_one = with_max_bond_dimension(1);
+    run_once(&mut set_to_one, &ghz(3));
+    let not_run = with_max_bond_dimension(16);
+    let rows = [
+        ("by default", &by_default, DEFAULT_MAX_BOND_DIMENSION.get()),
+        ("set to 1", &set_to_one, 1),
+        ("set to 16, before any run", &not_run, 16),
+    ];
+    for (scene, resumer, max_bond_dimension) in rows {
+        assert_eq!(
+            resumer.last_run().max_bond_dimension,
+            max_bond_dimension,
+            "{scene}"
+        );
     }
 }
 
-/// Before any run, the report is that of a run that prepared no state at
-/// the resumer's own max bond dimension: a caller that sets χ to 16 and
-/// reads the report before running reads χ = 16, not the default.
+/// A run warns when its shots lost more weight to truncation than the
+/// tolerance, giving the weight lost and the max bond dimension, and only
+/// then. Each row is a run's report, and the weight lost it warns of: an
+/// exact run, which keeps all its weight, none; a run that lost 1%, 1%;
+/// and a loss of exactly the tolerance, none.
 #[test]
-fn a_resumer_that_has_not_run_reports_its_max_bond_dimension() {
-    let resumer = MpsResumer::new(ExactReference::new(), 7)
-        .with_max_bond_dimension(NonZeroUsize::new(16).expect("not zero"));
-    assert_eq!(*resumer.last_run(), MpsRunReport::new(16));
-}
-
-/// An exact run, which keeps all its weight, warns of nothing.
-#[test]
-fn an_exact_run_warns_of_nothing() {
-    let mut resumer = MpsResumer::new(ExactReference::new(), 7);
-    run_once(&mut resumer, &ghz(3));
-    assert!((resumer.last_run().least_retained_weight - 1.0).abs() < 1e-12);
-    assert_eq!(resumer.last_run().truncation_warning(), None);
-}
-
-/// A run whose shots lost more weight to truncation than the tolerance
-/// warns, giving the weight lost and the max bond dimension.
-#[test]
-fn a_run_that_lost_more_than_the_tolerance_warns() {
-    let mut resumer = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7);
-    run_once(&mut resumer, &ghz(3));
-    let warning = resumer
-        .last_run()
-        .truncation_warning()
-        .expect("1% is more than the tolerance");
-    assert!((warning.lost_weight - 0.01).abs() < 1e-15);
-    assert_eq!(warning.max_bond_dimension, DEFAULT_MAX_BOND_DIMENSION.get());
+fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
+    let mut exact = MpsResumer::new(ExactReference::new(), 7);
+    run_once(&mut exact, &ghz(3));
     assert!(
-        warning.to_string().contains("max bond dimension 128"),
-        "{warning}"
+        (exact.last_run().least_retained_weight - 1.0).abs() < 1e-12,
+        "an exact run keeps all its weight"
     );
-}
-
-/// A loss of exactly the tolerance does not warn.
-#[test]
-fn a_loss_of_exactly_the_tolerance_does_not_warn() {
-    let report = MpsRunReport {
+    let mut lossy = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7);
+    run_once(&mut lossy, &ghz(3));
+    let at_tolerance = MpsRunReport {
         least_retained_weight: 1.0 - TRUNCATION_TOLERANCE,
         ..MpsRunReport::new(8)
     };
-    assert_eq!(report.truncation_warning(), None);
+    let rows = [
+        ("an exact run", *exact.last_run(), None),
+        ("a run that lost 1%", *lossy.last_run(), Some(0.01)),
+        ("a loss of exactly the tolerance", at_tolerance, None),
+    ];
+    for (scene, report, lost_weight) in rows {
+        let warning = report.truncation_warning();
+        assert_eq!(
+            warning.is_some(),
+            lost_weight.is_some(),
+            "{scene}: {warning:?}"
+        );
+        if let (Some(warning), Some(lost_weight)) = (warning, lost_weight) {
+            assert!((warning.lost_weight - lost_weight).abs() < 1e-15, "{scene}");
+            assert_eq!(
+                warning.max_bond_dimension,
+                DEFAULT_MAX_BOND_DIMENSION.get(),
+                "{scene}"
+            );
+            assert!(
+                warning.to_string().contains("max bond dimension 128"),
+                "{scene}: {warning}"
+            );
+        }
+    }
 }

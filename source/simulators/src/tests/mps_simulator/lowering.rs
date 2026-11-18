@@ -21,45 +21,45 @@ use crate::bytecode::encoding::{
     OPID_CX, OPID_CZ, OPID_H, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ, OPID_S, OPID_S_ADJ, OPID_X,
 };
 
-/// The refusal of a noise or loss call: its shot fails, naming the
-/// instruction and the planned item.
-fn assert_refused(program: &QirProgram, instruction: QirInstruction) {
-    let error = run(
-        &mut MpsResumer::new(ExactReference::new(), 7),
-        program,
-        &ids(&[3, 4]),
-    )
-    .expect_err("noise and loss are not run");
-    let QirResumeError::Resumer { shot, error } = error else {
-        panic!("the resumer refuses the call, no trap: {error:?}");
-    };
-    assert_eq!(shot, QirShotId(3));
-    assert!(
-        matches!(&error, MpsResumerError::Unsupported { instruction: called } if *called == instruction),
-        "{error:?}"
-    );
-    assert!(error.to_string().contains("planned"), "{error}");
-}
-
-/// Readout noise is not run on an MPS yet: a shot that reaches it fails.
+/// A shot that reaches a call the MPS simulation method does not run yet
+/// fails, naming the instruction and the planned item. Each row is a call:
+/// readout noise, correlated noise, and a loss check.
 #[test]
-fn a_readout_noise_call_fails_its_shot_naming_the_planned_item() {
-    let noisy = program(1, &[&[readout_noise(0.1, 0), ret()]]);
-    assert_refused(&noisy, QirInstruction::ReadoutNoise);
-}
-
-/// Correlated noise is not run on an MPS yet: a shot that reaches it fails.
-#[test]
-fn a_correlated_noise_call_fails_its_shot_naming_the_planned_item() {
-    let noisy = program_with(1, 1, &[0], &[&[set(0, 0), correlated_noise(1, 0), ret()]]);
-    assert_refused(&noisy, QirInstruction::CorrelatedNoise);
-}
-
-/// A loss check is not run on an MPS yet: a shot that reaches it fails.
-#[test]
-fn a_loss_check_fails_its_shot_naming_the_planned_item() {
-    let lossy = program(1, &[&[peek_loss(0, 0), ret()]]);
-    assert_refused(&lossy, QirInstruction::PeekLoss);
+fn an_unsupported_call_fails_its_shot_naming_the_planned_item() {
+    let rows = [
+        (
+            program(1, &[&[readout_noise(0.1, 0), ret()]]),
+            QirInstruction::ReadoutNoise,
+        ),
+        (
+            program_with(1, 1, &[0], &[&[set(0, 0), correlated_noise(1, 0), ret()]]),
+            QirInstruction::CorrelatedNoise,
+        ),
+        (
+            program(1, &[&[peek_loss(0, 0), ret()]]),
+            QirInstruction::PeekLoss,
+        ),
+    ];
+    for (program, instruction) in rows {
+        let error = run(
+            &mut MpsResumer::new(ExactReference::new(), 7),
+            &program,
+            &ids(&[3, 4]),
+        )
+        .expect_err("noise and loss are not run");
+        let QirResumeError::Resumer { shot, error } = error else {
+            panic!("{instruction:?}: the resumer refuses the call, no trap: {error:?}");
+        };
+        assert_eq!(shot, QirShotId(3), "{instruction:?}");
+        assert!(
+            matches!(&error, MpsResumerError::Unsupported { instruction: called } if *called == instruction),
+            "{instruction:?}: {error:?}"
+        );
+        assert!(
+            error.to_string().contains("planned"),
+            "{instruction:?}: {error}"
+        );
+    }
 }
 
 /// A noise call on a path no shot takes fails nothing: a call is refused
@@ -134,46 +134,39 @@ fn moved(tail: &[Instruction<u64>]) -> QirProgram {
     program
 }
 
-/// A measurement acts on its qubit's site: `mz` of each qubit, after the
-/// qubit order moved them all, reads each qubit's own value.
+/// Each call acts on its qubit's site, after the qubit order moved every
+/// qubit. Each row is a call, and what the program records: `mz` of each
+/// qubit reads each qubit's own value; `mresetz` of qubit 3 reads its 1,
+/// and a later `mz` of it reads 0; `reset` of qubit 0 leaves it at 0, and
+/// qubit 3 keeps its 1.
 #[test]
-fn a_measurement_reads_its_qubit_where_the_order_placed_it() {
-    let program = moved(&[mz(0), mz(1), mz(2), mz(3)]);
-    let records = run(
-        &mut MpsResumer::new(ExactReference::new(), 7),
-        &program,
-        &ids(&[0]),
-    )
-    .expect("the program runs");
-    assert_eq!(records, vec![results(&MOVED_VALUES)]);
-}
-
-/// A measure-reset acts on its qubit's site: `mresetz` of qubit 3, after
-/// the qubit order moved it, reads its 1, and a later `mz` of it reads 0.
-#[test]
-fn a_measure_reset_acts_on_its_qubit_where_the_order_placed_it() {
-    let program = moved(&[measure(OPID_MRESETZ, 3, 0), measure(OPID_MZ, 3, 1)]);
-    let records = run(
-        &mut MpsResumer::new(ExactReference::new(), 7),
-        &program,
-        &ids(&[0]),
-    )
-    .expect("the program runs");
-    assert_eq!(records, vec![results(&[1, 0, 0, 0])]);
-}
-
-/// A reset acts on its qubit's site: `reset` of qubit 0, after the qubit
-/// order moved it, leaves it at 0, and qubit 3 keeps its 1.
-#[test]
-fn a_reset_acts_on_its_qubit_where_the_order_placed_it() {
-    let program = moved(&[reset(0), measure(OPID_MZ, 0, 0), measure(OPID_MZ, 3, 1)]);
-    let records = run(
-        &mut MpsResumer::new(ExactReference::new(), 7),
-        &program,
-        &ids(&[0]),
-    )
-    .expect("the program runs");
-    assert_eq!(records, vec![results(&[0, 1, 0, 0])]);
+fn each_call_acts_on_its_qubit_where_the_order_placed_it() {
+    let rows = [
+        (
+            "a measurement",
+            vec![mz(0), mz(1), mz(2), mz(3)],
+            MOVED_VALUES,
+        ),
+        (
+            "a measure-reset",
+            vec![measure(OPID_MRESETZ, 3, 0), measure(OPID_MZ, 3, 1)],
+            [1, 0, 0, 0],
+        ),
+        (
+            "a reset",
+            vec![reset(0), measure(OPID_MZ, 0, 0), measure(OPID_MZ, 3, 1)],
+            [0, 1, 0, 0],
+        ),
+    ];
+    for (call, tail, values) in rows {
+        let records = run(
+            &mut MpsResumer::new(ExactReference::new(), 7),
+            &moved(&tail),
+            &ids(&[0]),
+        )
+        .expect("the program runs");
+        assert_eq!(records, vec![results(&values)], "{call}");
+    }
 }
 
 /// A measurement in X or Y reads the qubit in that basis: each of the
