@@ -479,7 +479,7 @@ export class LearningService {
     return true;
   }
 
-  /** Aggregate checked questions into a cell activity using displayed learner outputs. */
+  /** Complete the quiz-cell activity after a correct checked answer. */
   async recordQuizAnswer(
     workbook: vscode.NotebookDocument,
     quizId: string,
@@ -507,7 +507,6 @@ export class LearningService {
     let matched:
       | {
           cellId: string;
-          questions: Map<string, MultipleChoicePayload>;
           question: MultipleChoicePayload;
         }
       | undefined;
@@ -518,7 +517,7 @@ export class LearningService {
       if (!activity) {
         continue;
       }
-      const questions = new Map<string, MultipleChoicePayload>();
+      let question: MultipleChoicePayload | undefined;
       try {
         for (const output of cell.outputs) {
           for (const item of output.items) {
@@ -530,15 +529,15 @@ export class LearningService {
             );
             if (
               !isLearningId(payload.payloadId) ||
-              questions.has(payload.payloadId) ||
+              question !== undefined ||
               payload.options.length < 2 ||
               !isQuizOptionIds(payload.options.map((option) => option.id))
             ) {
               throw new Error(
-                "expected distinct quiz IDs and valid option IDs",
+                "expected one quiz output with valid question and option IDs",
               );
             }
-            questions.set(payload.payloadId, payload);
+            question = payload;
           }
         }
       } catch (error) {
@@ -547,8 +546,7 @@ export class LearningService {
         );
         continue;
       }
-      const question = questions.get(quizId);
-      if (!question) {
+      if (!question || question.payloadId !== quizId) {
         continue;
       }
       if (matched) {
@@ -557,7 +555,7 @@ export class LearningService {
         );
         return false;
       }
-      matched = { cellId: activity.id, questions, question };
+      matched = { cellId: activity.id, question };
     }
     if (!matched) {
       log.warn(
@@ -565,7 +563,7 @@ export class LearningService {
       );
       return false;
     }
-    const { cellId, questions, question } = matched;
+    const { cellId, question } = matched;
     if (
       !optionIds.every((id) =>
         question.options.some((option) => option.id === id),
@@ -579,19 +577,8 @@ export class LearningService {
       unitId: unit.id,
       activityId: cellId,
     };
-    const questionLocation = (id: string): ActivityLocation => ({
-      ...location,
-      activityId: `quiz:${cellId}:${id}`,
-    });
     const correct = isCorrectQuizAnswer(question.options, optionIds);
-    const newlyCorrect = correct && !this.isComplete(questionLocation(quizId));
-    if (newlyCorrect) {
-      this.markComplete(questionLocation(quizId));
-    }
-    const allCorrect = [...questions.keys()].every((id) =>
-      this.isComplete(questionLocation(id)),
-    );
-    const newlyComplete = correct && allCorrect && !this.isComplete(location);
+    const newlyComplete = correct && !this.isComplete(location);
     const positionChanged =
       this.position.courseId !== course.id ||
       this.position.unitId !== unit.id ||
@@ -602,7 +589,7 @@ export class LearningService {
     if (positionChanged) {
       this.requireWorkspace().progressData.position = location;
     }
-    if (newlyCorrect || newlyComplete || positionChanged) {
+    if (newlyComplete || positionChanged) {
       await this.saveProgress();
       this._onDidChangeState.fire(this.getState());
     }
@@ -2068,19 +2055,6 @@ export class LearningService {
         unitId: unit.id,
         activityId: activity.id,
       });
-      if (activity.type === "quiz") {
-        const prefix = this.completionKey({
-          courseId,
-          unitId: unit.id,
-          activityId: `quiz:${activity.id}:`,
-        });
-        const completions = this.requireWorkspace().progressData.completions;
-        for (const key of Object.keys(completions)) {
-          if (key.startsWith(prefix)) {
-            delete completions[key];
-          }
-        }
-      }
     }
   }
 

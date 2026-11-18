@@ -134,7 +134,7 @@ def test_unidentifiable_quizzes_use_the_notebook_cell_number(
     assert "question-cell" not in str(error.value)
 
 
-def test_multiple_quizzes_identify_the_failing_question(tmp_path: Path) -> None:
+def test_multiple_quizzes_must_use_separate_cells(tmp_path: Path) -> None:
     cell = _quiz_cell()
     bad_source = cell["source"].replace('"example"', '"second-question"').replace(
         'prompt="Pick one"', 'prompt=" "'
@@ -142,10 +142,10 @@ def test_multiple_quizzes_identify_the_failing_question(tmp_path: Path) -> None:
     cell["source"] += "\n" + bad_source
     notebook = _write_notebook(tmp_path, cell)
 
-    with pytest.raises(ValueError, match="requires question text") as error:
+    with pytest.raises(ValueError, match="exactly one quiz") as error:
         validate_quizzes(notebook)
 
-    assert "Quiz 'second-question' (cell 1)" in str(error.value)
+    assert "Cell 1" in str(error.value)
 
 
 def test_untagged_invalid_python_reports_the_cell_number(tmp_path: Path) -> None:
@@ -214,24 +214,23 @@ def test_course_cells_have_no_conflicting_roles(course_dir: Path) -> None:
                 pytest.fail(f"{path}: {error}")
 
 
-def test_cell_caller_reads_all_source_questions_without_saved_outputs(
+def test_named_caller_reads_source_without_saved_outputs(
     tmp_path: Path,
 ) -> None:
     cell = _quiz_cell()
-    cell["source"] += "\n" + cell["source"].replace('"example"', '"second"')
     notebook = _write_notebook(tmp_path, cell)
     before = notebook.read_bytes()
 
     with patch("IPython.display.display") as display:
-        quiz_for_notebook(notebook)(cell_id=cell["id"])
+        quiz_for_notebook(notebook)("example")
 
     assert [
         call.args[0].payload["payloadId"] for call in display.call_args_list
-    ] == ["example", "second"]
+    ] == ["example"]
     assert notebook.read_bytes() == before
 
 
-def test_cell_caller_uses_updated_source_and_preserves_question_id_calls(
+def test_named_caller_uses_updated_source(
     tmp_path: Path,
 ) -> None:
     cell = _quiz_cell()
@@ -241,19 +240,40 @@ def test_cell_caller_uses_updated_source_and_preserves_question_id_calls(
     _write_notebook(tmp_path, cell)
 
     with patch("IPython.display.display") as display:
-        bound(cell_id=cell["id"])
         bound("example")
 
     assert [call.args[0].payload["prompt"] for call in display.call_args_list] == [
         "Updated question",
-        "Updated question",
     ]
 
 
-def test_cell_caller_rejects_missing_cells_and_mixed_call_forms(tmp_path: Path) -> None:
+def test_named_caller_rejects_missing_and_multiple_question_ids(tmp_path: Path) -> None:
     bound = quiz_for_notebook(_write_notebook(tmp_path, _quiz_cell()))
 
-    with pytest.raises(ValueError, match="no quiz cell 'missing'"):
-        bound(cell_id="missing")
-    with pytest.raises(ValueError, match="cannot be combined"):
-        bound("example", cell_id="question-cell")
+    with pytest.raises(ValueError, match="no quiz 'missing'"):
+        bound("missing")
+    with pytest.raises(TypeError):
+        bound("example", "second")
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [r'r"example"', r'"ex" "ample"', r'"\u0065xample"', '"""example"""', '("example")'],
+)
+def test_validation_rejects_id_spellings_the_header_reader_does_not_support(
+    tmp_path: Path, spelling: str,
+) -> None:
+    cell = _quiz_cell()
+    cell["source"] = cell["source"].replace('"example"', spelling, 1)
+    with pytest.raises(ValueError, match="plain quoted string"):
+        validate_quizzes(_write_notebook(tmp_path, cell))
+
+
+def test_validation_accepts_the_documented_multiline_header(tmp_path: Path) -> None:
+    cell = _quiz_cell()
+    cell["source"] = (
+        '# quiz("not-the-id", ...)\n'
+        'quiz(\n# ID comment\n"example"\n# separator comment\n,'
+        + cell["source"].split(",", 1)[1]
+    )
+    validate_quizzes(_write_notebook(tmp_path, cell))

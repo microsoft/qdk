@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import { log } from "qsharp-lang";
+import { isLearningId } from "../notebookRenderer/schema.js";
 import type {
   CatalogActivity,
   CatalogCodeCell,
@@ -46,13 +47,18 @@ const EXERCISE_TAG = "exercise";
  * Tag marking a dedicated quiz-only code cell.
  *
  * A quiz cell is learner content, so unlike the authoring tags it stays in the
- * working copy. The cell is one activity, regardless of how many questions it
- * displays. It is called out because it sits *inside* a
+ * working copy. Each cell authors one question. It is called out because it sits *inside* a
  * section's prose: without the tag it would hide the section heading from the
  * code cell that follows it, which would then fall back to being named after
  * its cell id.
  */
 const QUIZ_TAG = "quiz";
+
+// Read only the plain quoted ID at the start of our literal-only authoring form.
+const QUIZ_TRIVIA = String.raw`(?:\s|#[^\r\n]*(?:\r?\n|$))*`;
+const QUIZ_HEADER = new RegExp(
+  String.raw`^${QUIZ_TRIVIA}quiz[ \t]*\(${QUIZ_TRIVIA}(["'])([^"'\\\r\n]*)\1${QUIZ_TRIVIA},`,
+);
 
 /** Tags marking author-only cells, removed from the learner's working copy. */
 const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
@@ -92,6 +98,7 @@ type ParsedNotebook = RawNotebook & { cells: RawCell[] };
 export function parseNotebookActivities(
   text: string,
   unitLabel: string,
+  unitNumber = 1,
 ): CatalogActivity[] {
   const cells = readCells(text, unitLabel);
   if (!cells) {
@@ -122,10 +129,17 @@ export function parseNotebookActivities(
         );
         continue;
       }
+      const quizId = authoredQuizId(cell);
+      if (!quizId) {
+        log.warn(
+          `Learning: skipping a quiz in unit "${unitLabel}": write its name as quiz("question-id", ...).`,
+        );
+        continue;
+      }
       activities.push({
         type: "quiz",
         id: cellId,
-        title: `Quiz ${++quizNumber}`,
+        title: `Quiz ${unitNumber}.${++quizNumber}`,
       } satisfies CatalogQuiz);
       continue;
     }
@@ -233,10 +247,10 @@ export function parseNotebookActivities(
  * Remove the author-only cells from a notebook's JSON text, returning the
  * notebook the learner works in.
  *
- * Dedicated quiz cells get a lookup call using their stable cell ID, preserving
+ * Dedicated quiz cells get a lookup call using their authored question ID, preserving
  * saved outputs when available. Other retained cells preserve their
  * content, ids, and tags except the test-only `skip-test` tag.
- * Returns `undefined` if the text isn't a notebook. A missing quiz-cell ID
+ * Returns `undefined` if the text isn't a notebook. A missing quiz-cell ID/name
  * throws so the caller cannot copy answer-bearing source as a fallback.
  */
 export function stripAuthoringCells(
@@ -279,8 +293,20 @@ function materializeQuizSource(cell: RawCell, unitLabel: string): void {
     );
   }
 
-  const source = `quiz(cell_id=${JSON.stringify(cellId)})\n`;
+  const quizId = authoredQuizId(cell);
+  if (!quizId) {
+    throw new Error(
+      `Cannot materialize quiz cell "${cellId}" in unit "${unitLabel}": ` +
+        'write its name as quiz("question-id", ...) with a plain quoted ID.',
+    );
+  }
+  const source = `quiz(${JSON.stringify(quizId)})\n`;
   cell.source = Array.isArray(cell.source) ? [source] : source;
+}
+
+function authoredQuizId(cell: RawCell): string | undefined {
+  const id = QUIZ_HEADER.exec(cellSource(cell))?.[2];
+  return isLearningId(id) ? id : undefined;
 }
 
 // ─── Cell readers ───

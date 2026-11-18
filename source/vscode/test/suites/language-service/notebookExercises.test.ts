@@ -104,11 +104,6 @@ const quiz: MultipleChoicePayload = {
 
 suite("Learning notebook quiz activities", () => {
   test("discover one stable activity per quiz cell, independently of saved outputs", () => {
-    const second = {
-      ...quiz,
-      payloadId: "second-question",
-      prompt: "A second question",
-    };
     const activities = parseNotebookActivities(
       JSON.stringify({
         cells: [
@@ -117,7 +112,8 @@ suite("Learning notebook quiz activities", () => {
             id: "quiz-cell",
             cell_type: "code",
             metadata: { tags: ["quiz"] },
-            outputs: [quiz, second].map((payload) => ({
+            source: 'quiz("first-question", prompt="Question", options=[])',
+            outputs: [quiz].map((payload) => ({
               output_type: "display_data",
               data: { [MIME_TYPE]: payload },
             })),
@@ -126,25 +122,27 @@ suite("Learning notebook quiz activities", () => {
             id: "unrun-quiz",
             cell_type: "code",
             metadata: { tags: ["quiz"] },
+            source: 'quiz("second-question", prompt="Question", options=[])',
             outputs: [],
           },
           { id: "next-code", cell_type: "code", source: "value = 1" },
         ],
       }),
       "test-unit",
+      6,
     );
 
     assert.deepEqual(
       activities.map(({ id, type, title }) => ({ id, type, title })),
       [
-        { id: "quiz-cell", type: "quiz", title: "Quiz 1" },
-        { id: "unrun-quiz", type: "quiz", title: "Quiz 2" },
+        { id: "quiz-cell", type: "quiz", title: "Quiz 6.1" },
+        { id: "unrun-quiz", type: "quiz", title: "Quiz 6.2" },
         { id: "next-code", type: "code-cell", title: "Section" },
       ],
     );
   });
 
-  test("materialize cell-based callers without generating or requiring outputs", () => {
+  test("materialize named callers without changing cell IDs or saved outputs", () => {
     for (const outputs of [
       [],
       [{ output_type: "display_data", data: { [MIME_TYPE]: quiz } }],
@@ -164,8 +162,70 @@ suite("Learning notebook quiz activities", () => {
       const learner: { cells: (typeof original)[] } = JSON.parse(text);
       assert.deepEqual(learner.cells[0], {
         ...original,
-        source: ['quiz(cell_id="quiz-cell")\n'],
+        source: ['quiz("first-question")\n'],
       });
+    }
+  });
+
+  test("extract only the leading quoted name with multiline calls and comments", () => {
+    for (const source of [
+      'quiz("first-question", prompt="Question", options=[])',
+      "quiz('first-question', prompt='Question', options=[])",
+      '# quiz("false-name", ...)\nquiz(\n# ID comment\n"first-question"\n# separator comment\n, prompt="Question", options=[])',
+      "quiz(\"first-question\", prompt='''Example:\nquiz(\"false-name\", ...)\n''', options=[])",
+    ]) {
+      for (const text of [source, source.split(/(?<=\n)/)]) {
+        const notebook = JSON.stringify({
+          cells: [
+            {
+              id: "stable-cell",
+              cell_type: "code",
+              metadata: { tags: ["quiz"] },
+              source: text,
+              outputs: [],
+            },
+          ],
+        });
+        assert.equal(
+          parseNotebookActivities(notebook, "test-unit")[0].title,
+          "Quiz 1.1",
+        );
+        const learner = stripAuthoringCells(notebook, "test-unit");
+        assert(learner !== undefined);
+        assert.include(learner, 'quiz(\\"first-question\\")');
+      }
+    }
+  });
+
+  test("reject unsupported names without falling back to an output payload", () => {
+    for (const source of [
+      '# quiz("false-name", ...)',
+      '"""Example:\nquiz("false-name", ...)\n"""',
+      'quiz(name, prompt="Question", options=[])',
+      'quiz("first-" "question", prompt="Question", options=[])',
+      'quiz(r"first-question", prompt="Question", options=[])',
+      'quiz("""first-question""", prompt="Question", options=[])',
+      'quiz("\\u0066irst-question", prompt="Question", options=[])',
+      '_unit.quiz("first-question", prompt="Question", options=[])',
+    ]) {
+      const notebook = JSON.stringify({
+        cells: [
+          {
+            id: "stable-cell",
+            cell_type: "code",
+            metadata: { tags: ["quiz"] },
+            source,
+            outputs: [
+              { output_type: "display_data", data: { [MIME_TYPE]: quiz } },
+            ],
+          },
+        ],
+      });
+      assert.deepEqual(parseNotebookActivities(notebook, "test-unit"), []);
+      assert.throws(
+        () => stripAuthoringCells(notebook, "test-unit"),
+        /plain quoted ID/,
+      );
     }
   });
 

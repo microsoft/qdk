@@ -43,6 +43,12 @@ _CELL_ROLE_TAGS = frozenset(
 #: `schema.ts`.
 _ID_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
 
+# Keep the literal-ID header in step with QUIZ_HEADER in notebookExercises.ts.
+_QUIZ_TRIVIA = r"(?:\s|#[^\r\n]*(?:\r?\n|$))*"
+_QUIZ_HEADER = re.compile(
+    rf"""^{_QUIZ_TRIVIA}quiz[ \t]*\({_QUIZ_TRIVIA}(["'])([^"'\\\r\n]*)\1{_QUIZ_TRIVIA},"""
+)
+
 #: The host drops an action naming more options than this, so a longer question
 #: would render fine and then leave "Why is that wrong?" quietly doing less than
 #: it should for every learner who selected them all. Refusing here makes that
@@ -192,32 +198,20 @@ def _shuffled(seed: str, options: Sequence[Sequence[Any]]) -> list[Sequence[Any]
 
 
 def quiz(
-    *quiz_ids: str,
+    quiz_id: str,
+    *,
     prompt: str | None = None,
     options: Sequence[Sequence[Any]] | None = None,
     multi_select: bool = False,
     shuffle: bool = True,
     notebook: Path | None = None,
-    cell_id: str | None = None,
 ) -> None:
-    """Display author definitions or resolve learner cell/question IDs from source.
+    """Display an author definition or resolve a named learner quiz from source.
 
     Supply one id, ``prompt`` and ``options`` to construct an authored quiz
-    directly. Materialized ``cell_id`` calls display every question in that
-    author cell. Existing question-ID calls remain supported. Both read saved
-    source on every rerun, never outputs, and do not change the author notebook.
+    directly. ID-only calls read saved source on every rerun, never outputs,
+    and do not change the author notebook.
     """
-    if cell_id is not None and (
-        quiz_ids
-        or prompt is not None
-        or options is not None
-        or multi_select
-        or not shuffle
-    ):
-        raise ValueError("cell_id cannot be combined with quiz IDs or author definitions")
-    if not quiz_ids and cell_id is None:
-        raise ValueError('quiz() needs at least one quiz id, e.g. quiz("my-quiz")')
-
     try:
         from IPython.display import display
     except ImportError as exc:  # pragma: no cover - notebooks always have IPython
@@ -227,11 +221,11 @@ def quiz(
         ) from exc
 
     if prompt is not None or options is not None or multi_select or not shuffle:
-        if len(quiz_ids) != 1 or prompt is None or options is None:
+        if prompt is None or options is None:
             raise ValueError("an authored quiz needs one quiz id, prompt and options")
         display(
             _quiz_output(
-                quiz_ids[0],
+                quiz_id,
                 prompt,
                 options,
                 multi_select=multi_select,
@@ -242,23 +236,14 @@ def quiz(
 
     if notebook is None:
         raise ValueError("learner quiz() calls need a source notebook binding")
-    cell_outputs = notebook_quiz_outputs(read_quiz_notebook(notebook))
-    if cell_id is not None:
-        if cell_id not in cell_outputs:
-            raise ValueError(f"no quiz cell {cell_id!r} is authored in {notebook}")
-        for output in cell_outputs[cell_id]:
-            display(output)
-        return
     outputs = {
         output.payload["payloadId"]: output
-        for rendered in cell_outputs.values()
+        for rendered in notebook_quiz_outputs(read_quiz_notebook(notebook)).values()
         for output in rendered
     }
-    for quiz_id in quiz_ids:
-        if quiz_id not in outputs:
-            raise ValueError(f"no quiz {quiz_id!r} is authored in {notebook}")
-    for quiz_id in quiz_ids:
-        display(outputs[quiz_id])
+    if quiz_id not in outputs:
+        raise ValueError(f"no quiz {quiz_id!r} is authored in {notebook}")
+    display(outputs[quiz_id])
 
 
 def _quiz_output(
@@ -311,12 +296,13 @@ def authored_quizzes(
     ):
         return []
     cell_label = _quiz_label(None, cell_number)
+    source = _cell_source(cell, cell_label)
     try:
-        tree = ast.parse(_cell_source(cell, cell_label))
+        tree = ast.parse(source)
     except SyntaxError as error:
         raise ValueError(f"{cell_label}: invalid quiz syntax: {error.msg}") from error
-    if not tree.body:
-        raise ValueError(f"{cell_label}: expected full quiz() definitions")
+    if len(tree.body) != 1:
+        raise ValueError(f"{cell_label}: write exactly one quiz() definition per quiz cell")
     authored = []
     for statement in tree.body:
         if (
@@ -335,6 +321,11 @@ def authored_quizzes(
         except (ValueError, TypeError):
             raise ValueError(f"{cell_label}: quiz id must be a literal string") from None
         label = _quiz_label(quiz_id, cell_number)
+        header = _QUIZ_HEADER.match(source)
+        if header is None or header.group(2) != quiz_id:
+            raise ValueError(
+                f'{label}: write the quiz ID as a plain quoted string, e.g. quiz("my-quiz", ...)'
+            )
         for keyword in call.keywords:
             if keyword.arg is None:
                 raise ValueError(
