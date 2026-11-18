@@ -34,7 +34,7 @@ CPU algebra is this crate's backend: its tensors are vectors in the
 host's memory, and its products, QR and SVD are the crate's
 [dense linear algebra](#the-dense-linear-algebra)'s, on the calling
 thread. A backend's tests run the contract's conformance kit on it. A
-backend on a GPU library is planned, in its own crate, for the chemistry
+backend on a GPU library goes in a crate of its own, for the chemistry
 instances beyond the CPU's reach, such as benzene, or N₂ at a large bond
 extent, on an NVIDIA A100 GPU.
 
