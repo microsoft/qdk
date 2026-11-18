@@ -12,8 +12,9 @@ use super::{batches, built, trap};
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, OP_MEASURE, OP_PEEK_LOSS,
     OP_QUANTUM_GATE, OPID_CORRELATED_NOISE, OPID_CX, OPID_CY, OPID_CZ, OPID_H, OPID_MOVE,
-    OPID_MRESETZ, OPID_MZ, OPID_RX, OPID_RXX, OPID_RY, OPID_RYY, OPID_RZ, OPID_RZZ, OPID_S,
-    OPID_S_ADJ, OPID_SWAP, OPID_SX, OPID_SX_ADJ, OPID_T, OPID_T_ADJ, OPID_X, OPID_Y, OPID_Z,
+    OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ, OPID_RX, OPID_RXX, OPID_RY, OPID_RYY, OPID_RZ,
+    OPID_RZZ, OPID_S, OPID_S_ADJ, OPID_SWAP, OPID_SX, OPID_SX_ADJ, OPID_T, OPID_T_ADJ, OPID_X,
+    OPID_Y, OPID_Z,
 };
 use crate::bytecode::{Instruction, Op};
 use crate::qir::{QirCall, QirMachine, QirStop, QirTrap};
@@ -129,14 +130,17 @@ fn a_gate_call_has_its_gate_s_qubits_in_order_and_an_angle_only_for_a_rotation()
     assert_eq!(batches(&program(&[&block])), [expected.join(", ")]);
 }
 
-/// `move`, `mresetz`, `reset` and a loss check, each on qubit 2, the
-/// measurement into result 1 and the check into result 3: each quantum
-/// call has the operands its instruction takes, in their order.
+/// `move`, `mresetz`, `mx`, `my`, `reset` and a loss check, each on
+/// qubit 2, the measurements into results 1, 0 and 2 and the check into
+/// result 3: each quantum call has the operands its instruction takes, in
+/// their order.
 #[test]
 fn a_quantum_call_that_is_no_gate_has_its_instruction_s_operands() {
     let bytecode = program(&[&[
         gate(OPID_MOVE, 2, 0),
         measure(OPID_MRESETZ, 2, 1),
+        measure(OPID_MX, 2, 0),
+        measure(OPID_MY, 2, 2),
         reset(2),
         Instruction {
             aux0: 2,
@@ -148,8 +152,8 @@ fn a_quantum_call_that_is_no_gate_has_its_instruction_s_operands() {
     assert_eq!(
         batches(&bytecode),
         [
-            "move(qubit 2), mresetz(qubit 2, result 1), reset(qubit 2), \
-          peek_loss(qubit 2, result 3)"
+            "move(qubit 2), mresetz(qubit 2, result 1), mx(qubit 2, result 0), \
+             my(qubit 2, result 2), reset(qubit 2), peek_loss(qubit 2, result 3)"
         ]
     );
 }

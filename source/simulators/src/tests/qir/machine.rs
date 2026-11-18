@@ -19,6 +19,8 @@ mod results;
 
 use std::sync::Arc;
 
+use qsc_data_structures::measurement::MeasurementBasis;
+
 use super::{SIZE, copy_of, op, program, record_int, ret, set};
 use crate::bytecode::encoding::{FLAG_AUX1_IMM, OP_MEASURE, OPID_MZ};
 use crate::bytecode::runtime::run_shot;
@@ -155,7 +157,12 @@ fn run_on_bits(bits: &mut [bool], batch: &[QirCall], outcomes: &mut Vec<QirOutco
                 angle: None,
             } => bits[qubit as usize] ^= true,
             QirCall::Reset { qubit } => bits[qubit as usize] = false,
-            QirCall::Measure { qubit, result } | QirCall::MeasureReset { qubit, result } => {
+            QirCall::Measure {
+                basis: MeasurementBasis::Z,
+                qubit,
+                result,
+            }
+            | QirCall::MeasureReset { qubit, result } => {
                 let bit = &mut bits[qubit as usize];
                 outcomes.push(QirOutcome {
                     result,
