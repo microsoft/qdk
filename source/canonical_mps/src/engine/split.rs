@@ -5,7 +5,7 @@
 //! sites, by one [`gate_split`](SiteAlgebra::gate_split), the one place
 //! where the engine truncates the state's bonds to keep the state small;
 //! an MPO's factorisation drops only an operator's values at or below
-//! [`OPERATOR_RANK_CUTOFF`] relative.
+//! [`OPERATOR_RANK_CUTOFF`](super::policy::OPERATOR_RANK_CUTOFF) relative.
 //!
 //! A window on two neighbours ends in one split, its operator the split's
 //! gate; a window applied as a matrix product operator
@@ -32,8 +32,6 @@
 //! The windows' operators are unitary and the chain's norm about 1, so the
 //! gated pair is never zero, as [`GateSplitCall`] requires. A non-unitary
 //! operator (the planned `apply_kraus`) would have to keep it so.
-//!
-//! [`OPERATOR_RANK_CUTOFF`]: super::policy::OPERATOR_RANK_CUTOFF
 
 use super::{
     CanonicalMpsEngine, CanonicalMpsError,

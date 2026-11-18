@@ -176,8 +176,8 @@ pub(super) fn share<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
 /// has (only values of rounding's size, where `θ`'s are zero) reports a
 /// retained fraction of exactly 1, so that the engine's retained weight
 /// stays exactly 1 while nothing is truncated. On graded pairs, and on
-/// pairs of rank 1, 3 and 12 whose `θ`, under the identity gate, has 4 or
-/// 16 rows. Catches a share computed as one minus a rounded sum.
+/// pairs of rank 1, 3 and 12 whose `θ`, under the identity gate, has 4, 16
+/// or 32 rows. Catches a share computed as one minus a rounded sum.
 #[expect(clippy::float_cmp, reason = "the contract promises exactly 1")]
 pub(super) fn cutoff_of_zero<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     let mut scenes = graded_scenes()?;

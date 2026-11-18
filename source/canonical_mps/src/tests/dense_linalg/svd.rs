@@ -1,13 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The tests of the SVD's guarantees (`svd`), through [`Svd::of`] where
-//! they can be: accuracy on the matrices an MPS simulation meets, the trim
-//! that leaves out only rounding, every scale, the routes, each giving a
-//! checked SVD, with the fallback to the rotations, and the errors. The
-//! checks and the rotations have their own files.
-//!
-//! [`Svd::of`]: crate::dense_linalg::Svd::of
+//! The tests of the SVD's guarantees (`svd`), through
+//! [`Svd::of`](crate::dense_linalg::Svd::of) where they can be: accuracy on the
+//! matrices an MPS simulation meets, the trim that leaves out only rounding,
+//! every scale, the routes, each giving a checked SVD, with the fallback to the
+//! rotations, and the errors. The checks and the rotations have their own
+//! files.
 
 mod checks;
 mod jacobi;
@@ -82,9 +81,8 @@ mod decomposition {
     }
 }
 
-/// What [`Svd::of`] refuses, and how its errors read.
-///
-/// [`Svd::of`]: crate::dense_linalg::Svd::of
+/// What [`Svd::of`](crate::dense_linalg::Svd::of) refuses, and how its errors
+/// read.
 mod errors {
     use super::super::{matrix, panic_message};
     use crate::dense_linalg::{Matrix, Svd, SvdError};

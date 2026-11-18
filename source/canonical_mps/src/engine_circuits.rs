@@ -34,8 +34,8 @@ use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm};
 /// reference within `1e-10`.
 ///
 /// `engine` must have a cutoff of 0 (`with_cutoff(0.0)`): a cutoff of
-/// `1e-14` over the circuit's hundreds of splits moves a probability by
-/// about `1e-9`.
+/// [`DEFAULT_CUTOFF`](crate::DEFAULT_CUTOFF) over the circuit's hundreds of
+/// splits moves a probability by about `1e-9`.
 ///
 /// # Panics
 ///
@@ -92,17 +92,18 @@ pub fn a_long_circuit_agrees_with_the_reference_without_truncation<A: SiteAlgebr
 /// qubits stays within the distance the splits' kept shares allow of the
 /// reference's.
 ///
-/// The bound holds on any backend that keeps the contract. A split of a
-/// normalised state `ψ` that drops a share `ε` of its squared Schmidt
+/// The bound holds on any backend that keeps the contract, apart from what the
+/// MPOs' factorisations drop at or below the operator's rank cutoff, which the
+/// retained weight does not count and which these gates do not reach. A split
+/// of a normalised state `ψ` that drops a share `ε` of its squared Schmidt
 /// values and renormalises maps it to `Pψ / ‖Pψ‖`, at distance
-/// `√(2 − 2√(1 − ε)) ≤ √(2ε)`; gates and moves of the centre keep
-/// distances, so after splits dropping `ε₁, ε₂, …` the state is within
-/// `Σ √(2εᵢ)` of the exact one, up to a global phase, and the total
-/// variation distance of its distribution is at most that. The retained
-/// weight is `W = Π (1 − εᵢ)`, so `Σ εᵢ ≤ −ln W`, and over at most `k`
-/// splits, the statistics' count, `Σ √(2εᵢ) ≤ √(2k · (−ln W))`. The circuit
-/// projects nothing: a projection divides by a probability, which can
-/// enlarge the distance.
+/// `√(2 − 2√(1 − ε)) ≤ √(2ε)`; gates and moves of the centre keep distances, so
+/// after splits dropping `ε₁, ε₂, …` the state is within `Σ √(2εᵢ)` of the
+/// exact one, up to a global phase, and the total variation distance of its
+/// distribution is at most that. The retained weight is `W = Π (1 − εᵢ)`, so
+/// `Σ εᵢ ≤ −ln W`, and over at most `k` splits, the statistics' count,
+/// `Σ √(2εᵢ) ≤ √(2k · (−ln W))`. The circuit projects nothing: a projection
+/// divides by a probability, which can enlarge the distance.
 ///
 /// `engine` must have a cutoff of 0 (`with_cutoff(0.0)`), so that the
 /// bond alone truncates and the distance is large enough to compare.
