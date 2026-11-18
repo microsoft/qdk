@@ -15,8 +15,8 @@
 use crate::bytecode::Instruction;
 use crate::mps_simulator::{GateFusion, MpsResumer, MpsResumerError};
 use crate::qir::{QirProgram, QirResumeError, QirShotId, QirTrap};
-use tensornet::MpsEngine;
 use tensornet::reference::ExactReference;
+use tensornet::{MpsEngine, MpsShape};
 
 use super::super::programs::{
     branch, coin_copied_by_a_branch, coins, gate, gate1, gate2, jump, measure, mz, program,
@@ -148,7 +148,7 @@ fn a_shot_with_no_quantum_call_prepares_no_state() {
         vec![results(&[0, 0]); 2],
         "no shot took the quantum part"
     );
-    assert!(resumer.engine().prepared().is_empty());
+    assert_eq!(resumer.engine().prepared(), Vec::<MpsShape>::new());
 }
 
 /// Shots whose draws differ fork the state where they differ: one coin
