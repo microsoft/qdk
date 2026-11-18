@@ -25,12 +25,12 @@ use tensornet::reference::ExactReference;
 use tensornet::{MpsEngine, MpsShape};
 
 use super::programs::{
-    branch, coin_copied_by_a_branch, coins, gate, gate1, jump, measure, mz, program, program_with,
-    read_result, reset, ret, set,
+    branch, coin_copied_by_a_branch, coins, gate, gate1, gate2, jump, measure, mz, program,
+    program_with, read_result, readout_noise, reset, ret, set,
 };
 use super::reference_spy::{Call, ReferenceSpy, ReferenceSpyError};
 use super::{LONE_SHOT_CALLS, bell, copies, ids, results, run};
-use crate::bytecode::encoding::{OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_X};
+use crate::bytecode::encoding::{OPID_CX, OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_X};
 
 /// A shot reads One only where One has a probability: a qubit at |0⟩ reads
 /// 0 even when the shot's uniform is 0, the smallest it draws. The run's
@@ -803,40 +803,104 @@ fn a_stopped_run_names_the_first_shot_that_had_not_ended() {
     );
 }
 
-/// The flag is read before each batch, not once per group: three shots run
-/// a coin, then gates chosen by its value, a batch the coin's result must
-/// be read for; set at the coin's gate, the flag stops the run before any
-/// gate of the second batch, naming the first of the run's shots, none of
-/// which had ended.
+/// The flag is read before each batch, not once per group, whatever that
+/// batch would do: three shots run a first batch (a gate, then `mz`), whose
+/// result the program must read to go on; set at that gate, the flag stops
+/// the run before the second batch, naming the first of the run's shots,
+/// none of which had ended, after only that gate. Each row is what the
+/// second batch would do: run gates chosen by a coin, trap (with the shots
+/// of one value, or split by a coin, where the run's first shot, alone in
+/// drawing One, goes on first), be refused (a noise call, a gate on one
+/// qubit twice), or not exist: a run whose every shot has ended returns
+/// its records.
 #[test]
 fn a_stop_flag_is_read_before_each_batch() {
-    let gates_after_the_coin = program(
-        2,
-        &[
-            &[gate1(OPID_H, 0), mz(0), read_result(0, 0), branch(0, 1, 2)],
-            &[gate1(OPID_X, 1), gate1(OPID_H, 1), ret()],
-            &[gate1(OPID_H, 1), gate1(OPID_X, 1), ret()],
-        ],
-    );
-    let stop_flag = Arc::new(AtomicBool::new(false));
-    let engine = ReferenceSpy::stopping_at_apply(1, Arc::clone(&stop_flag));
-    let mut resumer = MpsResumer::new(engine, 7).with_stop_flag(stop_flag);
-    let result = run(&mut resumer, &gates_after_the_coin, &ids(&[2, 0, 1]));
-    assert!(
-        matches!(
-            result,
-            Err(QirResumeError::Resumer {
-                shot: QirShotId(2),
-                error: MpsResumerError::Stopped,
-            })
-        ),
-        "{result:?}"
-    );
+    let read_then = |first: u64, then: &[Instruction<u64>]| {
+        let mut block = vec![gate1(first, 0), mz(0), read_result(0, 0)];
+        block.extend_from_slice(then);
+        block
+    };
+    // A branch on a register that holds neither 0 nor 1 traps.
+    let a_trap = [set(0, 2), branch(0, 1, 1)];
+    let shots = ids(&[1, 2, 0]);
+    let coin = program(1, &[&[gate1(OPID_H, 0), mz(0), ret()]]);
     assert_eq!(
-        resumer.engine().applies(),
-        1,
-        "only the coin's gate applied"
+        run(
+            &mut MpsResumer::new(ExactReference::new(), 7),
+            &coin,
+            &shots
+        )
+        .expect("the program runs"),
+        vec![results(&[1]), results(&[0]), results(&[0])],
+        "the run's first shot alone draws One on the coin"
     );
+    let rows: [(&str, QirProgram, Option<u8>); 6] = [
+        (
+            "gates chosen by a coin",
+            program(
+                2,
+                &[
+                    &read_then(OPID_H, &[branch(0, 1, 2)]),
+                    &[gate1(OPID_X, 1), gate1(OPID_H, 1), ret()],
+                    &[gate1(OPID_H, 1), gate1(OPID_X, 1), ret()],
+                ],
+            ),
+            None,
+        ),
+        (
+            "a trap",
+            program(1, &[&read_then(OPID_X, &a_trap), &[ret()]]),
+            None,
+        ),
+        (
+            "a trap, the shots split by a coin",
+            program(1, &[&read_then(OPID_H, &a_trap), &[ret()]]),
+            None,
+        ),
+        (
+            "a noise call",
+            program(1, &[&read_then(OPID_X, &[readout_noise(0.1, 0), ret()])]),
+            None,
+        ),
+        (
+            "a gate on one qubit twice",
+            program(2, &[&read_then(OPID_X, &[gate2(OPID_CX, 1, 1), ret()])]),
+            None,
+        ),
+        (
+            "no batch: the shots end",
+            program(1, &[&[gate1(OPID_X, 0), mz(0), ret()]]),
+            Some(1),
+        ),
+    ];
+    for (second_batch, program, ended) in rows {
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let engine = ReferenceSpy::stopping_at_apply(1, Arc::clone(&stop_flag));
+        let mut resumer = MpsResumer::new(engine, 7).with_stop_flag(stop_flag);
+        let result = run(&mut resumer, &program, &shots);
+        match ended {
+            Some(value) => assert_eq!(
+                result.expect("the shots ended"),
+                vec![results(&[value]); 3],
+                "{second_batch}"
+            ),
+            None => assert!(
+                matches!(
+                    result,
+                    Err(QirResumeError::Resumer {
+                        shot: QirShotId(1),
+                        error: MpsResumerError::Stopped,
+                    })
+                ),
+                "{second_batch}: {result:?}"
+            ),
+        }
+        assert_eq!(
+            resumer.engine().applies(),
+            1,
+            "{second_batch}: only the first batch's gate applied"
+        );
+    }
 }
 
 /// A flag that is never set changes no record.
