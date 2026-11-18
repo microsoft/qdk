@@ -372,8 +372,8 @@ fn the_first_library_at_fault_is_advised() {
 
 /// A CUDA Runtime that cannot report its version (status 35: the driver is
 /// older than the runtime) points at the driver, its CUDA 12 floor and
-/// `nvidia-smi`, not at the install, nor at the override that named it,
-/// as the driver, not the copy, is at fault.
+/// `nvidia-smi`, not at the install, nor at the override that named it, as
+/// a failed version probe is not taken as the copy's.
 #[cfg(unix)]
 #[test]
 fn a_failed_cuda_version_probe_points_at_the_driver() {
@@ -755,11 +755,10 @@ fn another_copy_of_a_library_is_a_warning_that_leaves_the_setup_ready() {
 
 /// A warning's remedy changes the copy at fault, never a sound one: when
 /// the CUDA Runtime loaded, from its override or not, is of another
-/// release or did not load, the user is told to set the override to an
-/// audited copy, or else to unset the override or remove the copy loaded;
-/// when the one loaded passed its checks, or only its driver failed (a
-/// version probe), the other copy, never checked, is to be removed, and
-/// the override kept.
+/// release, the user is told to set the override to an audited copy, or
+/// else to unset the override or remove the copy loaded; when the one
+/// loaded passed its checks, or only a version probe failed, the other
+/// copy, never checked, is to be removed, and the override kept.
 #[cfg(unix)]
 #[test]
 fn a_warning_says_to_change_the_copy_loaded_only_when_it_is_at_fault() {
@@ -767,10 +766,6 @@ fn a_warning_says_to_change_the_copy_loaded_only_when_it_is_at_fault() {
         component: "CUDA Runtime",
         found: 12_080,
         supported: 12_090,
-    }];
-    let not_loaded = vec![LibraryFault::LoadFailed {
-        path: PathBuf::from("/opt/cuda/libcudart.so.12"),
-        message: "libcudart.so.12: file too short".to_string(),
     }];
     let driver_at_fault = vec![LibraryFault::VersionProbeFailed {
         component: "CUDA driver",
@@ -790,18 +785,6 @@ fn a_warning_says_to_change_the_copy_loaded_only_when_it_is_at_fault() {
             at_fault,
             ": set QDK_CUDART_LIBRARY to an audited copy, or remove the one loaded if nothing \
              else uses it, as it is at fault",
-        ),
-        (
-            true,
-            not_loaded.clone(),
-            ": set QDK_CUDART_LIBRARY to an audited copy, or unset it, as the one it names, or \
-             a library it needs, did not load",
-        ),
-        (
-            false,
-            not_loaded,
-            ": set QDK_CUDART_LIBRARY to an audited copy, or remove the one loaded if nothing \
-             else uses it, as it, or a library it needs, did not load",
         ),
         (true, driver_at_fault.clone(), sound),
         (false, driver_at_fault, sound),

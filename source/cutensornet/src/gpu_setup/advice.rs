@@ -110,19 +110,21 @@ fn install_advice(install_command: Option<&str>) -> String {
 }
 
 /// What to do about another copy of `library` beside the one loaded,
-/// `guide` being the library's. When the one loaded is at fault, it is
-/// what to change: the copy an override names is replaced or the override
-/// unset; another, replaced by an override or removed. When it is not (it
-/// passed its checks, or only the driver failed), it stays loaded, and the
+/// `guide` being the library's. Only a library loaded lists other copies
+/// (`LibraryReport::other_copies`), so the faults met here are a missing
+/// function, a version not supported, or a failed version probe. When the
+/// one loaded is at fault (a function or its version), it is what to
+/// change: the copy an override names is replaced or the override unset;
+/// another, replaced by an override or removed. When it is not (it passed
+/// its checks, or only a version probe failed), it stays loaded, and the
 /// other copy, never checked, is what to remove.
 pub(super) fn other_copy_advice(guide: &SetupGuide, library: &LibraryReport) -> String {
     let variable = guide.variable;
     match library.faults.iter().find(|fault| is_of_the_copy(fault)) {
         Some(fault) if override_at_fault(library, fault) => change_override_advice(variable, fault),
-        Some(fault) => format!(
+        Some(_) => format!(
             "set {variable} to an audited copy, or remove the one loaded if nothing else uses \
-             it, as {}",
-            why_the_copy_fails("it", fault)
+             it, as it is at fault"
         ),
         None => "remove the other if nothing else uses it, as it was not checked".to_string(),
     }
@@ -134,8 +136,10 @@ fn override_at_fault(library: &LibraryReport, fault: &LibraryFault) -> bool {
     library.from_override && is_of_the_copy(fault)
 }
 
-/// Whether `fault` is of the copy loaded: its load, a function or its
-/// version. A failed version probe is not: it is the driver's.
+/// Whether `fault` is of the copy tried: its load, a function or its
+/// version. A failed version probe is not taken as the copy's: its
+/// library's probe advice says what to do (for the CUDA Runtime, usually
+/// update the driver).
 fn is_of_the_copy(fault: &LibraryFault) -> bool {
     matches!(
         fault,
@@ -145,21 +149,16 @@ fn is_of_the_copy(fault: &LibraryFault) -> bool {
     )
 }
 
-/// What to do when `fault` is of the copy the override `variable` names.
+/// What to do when `fault` is of the copy the override `variable` names. A
+/// copy that did not load may be sound and miss a library it needs, so it
+/// is not said to be at fault; only the main advice meets that fault, as a
+/// copy that did not load lists no other copies.
 fn change_override_advice(variable: &str, fault: &LibraryFault) -> String {
-    format!(
-        "set {variable} to an audited copy, or unset it, as {}",
-        why_the_copy_fails("the one it names", fault)
-    )
-}
-
-/// Why `copy` is to be changed, for `fault` of the copy: a copy that did
-/// not load may be sound and miss a library it needs.
-fn why_the_copy_fails(copy: &str, fault: &LibraryFault) -> String {
-    match fault {
-        LibraryFault::LoadFailed { .. } => format!("{copy}, or a library it needs, did not load"),
-        _ => format!("{copy} is at fault"),
-    }
+    let why = match fault {
+        LibraryFault::LoadFailed { .. } => "the one it names, or a library it needs, did not load",
+        _ => "the one it names is at fault",
+    };
+    format!("set {variable} to an audited copy, or unset it, as {why}")
 }
 
 /// What to do about the devices step's outcome: `None` when the GPU
