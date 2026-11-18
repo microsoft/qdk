@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`NativeCalls`]: the calls to the CUDA Runtime and cuTensorNet that a
-//! canonical MPS on the GPU needs, and the two implementations that answer
-//! them.
+//! [`NativeCalls`]: every call the CUDA algebra, its session and the setup
+//! check make to the CUDA Runtime and cuTensorNet, and the two
+//! implementations that answer them.
 //!
 //! The code that makes these calls must run where it is tested, and CI has
 //! no GPU. So it makes each native call through these traits, and two
@@ -51,8 +51,8 @@ pub(crate) use self::{
 
 use std::{ffi::c_void, ptr::NonNull};
 
-/// The calls to the CUDA Runtime and cuTensorNet: the session's, the
-/// memory's and the tensor API's, in one trait.
+/// Every native call the CUDA algebra, its session and the setup check
+/// make.
 pub(crate) trait NativeCalls:
     session_calls::SessionCalls + tensor_calls::TensorCalls
 {

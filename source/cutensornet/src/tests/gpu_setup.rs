@@ -13,16 +13,18 @@ use crate::{AvailabilityError, GpuSetup};
 #[cfg(unix)]
 use crate::{
     AvailabilityReport, CudaAlgebraError, LibraryFault, LibraryReport, Version,
-    gpu_setup::devices::DeviceReport,
+    gpu_setup::devices::{DeviceReport, EngineDevice},
 };
 #[cfg(unix)]
 use canonical_mps::CanonicalMpsError;
 
 /// The install every library fault is advised, without a packager's
 /// command.
+#[cfg(unix)]
 const INSTALL: &str = "install cuTensorNet 2.13 and the CUDA Runtime 12.9";
 
 /// The command a Python packager gives for its install.
+#[cfg(unix)]
 const PIP_INSTALL: &str = "pip install \"qdk[tensornetwork]\"";
 
 /// The report of `library`, usable, loaded from `path`, with `versions`.
@@ -88,22 +90,24 @@ fn unusable(library: &str, faults: Vec<LibraryFault>) -> AvailabilityError {
 
 /// An A100 with 80 GiB, 79 free: compute capability 8.0.
 #[cfg(unix)]
-fn a100() -> DeviceReport {
-    DeviceReport {
-        ordinal: 0,
+fn a100() -> EngineDevice {
+    EngineDevice {
         compute_capability: (8, 0),
         free_bytes: 79 << 30,
         total_bytes: 80 << 30,
     }
 }
 
-/// The setup of a host where discovery found `report`, the devices read
-/// are `devices`, and the trial run succeeded.
+/// The setup of a host where discovery found `report`, the process sees
+/// `engine_device` alone, if any, and the trial run succeeded.
 #[cfg(unix)]
-fn found(report: AvailabilityReport, devices: Vec<DeviceReport>) -> GpuSetup {
+fn found(report: AvailabilityReport, engine_device: Option<EngineDevice>) -> GpuSetup {
     GpuSetup {
         availability: Ok(report),
-        devices: Some(Ok(devices)),
+        devices: Some(Ok(DeviceReport {
+            count: i32::from(engine_device.is_some()),
+            engine_device,
+        })),
         trial_run: Some(Ok(())),
         install_command: None,
     }
@@ -120,10 +124,18 @@ fn failed(error: AvailabilityError) -> GpuSetup {
     }
 }
 
-/// A trial run that failed: no CUDA device, as the algebra reports it.
+/// A trial run that failed with an error the earlier steps cannot foresee:
+/// the device ran out of memory.
 #[cfg(unix)]
 fn failed_trial_run() -> Option<Result<(), CanonicalMpsError<CudaAlgebraError>>> {
-    Some(Err(CanonicalMpsError::Algebra(CudaAlgebraError::NoDevice)))
+    Some(Err(CanonicalMpsError::Algebra(
+        CudaAlgebraError::NativeCallFailed {
+            component: "CUDA Runtime",
+            operation: "cudaMalloc",
+            status: 2,
+            message: "out of memory".to_string(),
+        },
+    )))
 }
 
 /// The advice of `setup`, which has a problem. The asserts are
@@ -140,13 +152,20 @@ fn advice(setup: &GpuSetup) -> String {
 }
 
 /// A user whose libraries were found and whose device ran the trial run
-/// reads each library's path and version, the driver's CUDA, each device's
-/// compute capability and memory, and that the trial run succeeded, with
-/// nothing to fix.
+/// reads each library's path and version, the driver's CUDA, how many
+/// devices there are, which one the GPU engine runs on with its compute
+/// capability and memory, and that the trial run succeeded, with nothing
+/// to fix.
 #[cfg(unix)]
 #[test]
 fn a_ready_setup_lists_what_was_found_and_nothing_to_fix() {
-    let setup = found(audited_report(), vec![a100()]);
+    let setup = GpuSetup {
+        devices: Some(Ok(DeviceReport {
+            count: 2,
+            engine_device: Some(a100()),
+        })),
+        ..found(audited_report(), Some(a100()))
+    };
     assert!(setup.is_ready());
     assert_eq!(setup.advice(), None);
     let report = setup.to_string();
@@ -154,7 +173,8 @@ fn a_ready_setup_lists_what_was_found_and_nothing_to_fix() {
         "cuTensorNet: /env/cuquantum/lib/libcutensornet.so.2 (2.13.0, built for CUDA Runtime 12.9)",
         "CUDA Runtime: /env/nvidia/cuda_runtime/lib/libcudart.so.12 (12.9)",
         "CUDA driver: supports CUDA 12.8",
-        "CUDA device 0: compute capability 8.0, 79.0 of 80.0 GiB free",
+        "CUDA devices: 2; device 0, where the GPU engine runs: compute capability 8.0, \
+         79.0 of 80.0 GiB free",
         "trial run on CUDA device 0: ready",
     ] {
         assert!(report.contains(expected), "{expected:?} in {report}");
@@ -339,17 +359,36 @@ fn a_library_without_probe_advice_is_advised_the_install_when_its_probe_fails() 
     );
 }
 
-/// Libraries that load but a trial run that fails on device 0 point at
-/// the driver and the device (`nvidia-smi`), not at the install.
+/// Libraries and a device that passed their checks but a trial run that
+/// fails are advised with the run's error, which those checks did not
+/// foresee, rather than the driver check they already passed.
 #[cfg(unix)]
 #[test]
-fn a_failed_trial_run_points_at_nvidia_smi() {
+fn a_failed_trial_run_is_advised_with_its_error() {
     let advice = advice(&GpuSetup {
         trial_run: failed_trial_run(),
-        ..found(audited_report(), vec![a100()])
+        ..found(audited_report(), Some(a100()))
     });
     assert!(
-        advice.contains("nvidia-smi") && !advice.contains(INSTALL),
+        advice.starts_with("the trial run on CUDA device 0 failed")
+            && advice.contains("cudaMalloc failed with status 2: out of memory")
+            && !advice.contains("nvidia-smi")
+            && !advice.contains(INSTALL),
+        "{advice}"
+    );
+}
+
+/// A trial run that finds no device, as the devices step would have, gets
+/// that step's advice: the driver check.
+#[cfg(unix)]
+#[test]
+fn a_trial_run_that_finds_no_device_is_advised_as_no_device() {
+    let advice = advice(&GpuSetup {
+        trial_run: Some(Err(CanonicalMpsError::Algebra(CudaAlgebraError::NoDevice))),
+        ..found(audited_report(), Some(a100()))
+    });
+    assert!(
+        advice.starts_with("no CUDA device was found") && advice.contains("nvidia-smi"),
         "{advice}"
     );
 }
@@ -382,43 +421,30 @@ fn a_failed_discovery_reports_its_error_and_no_trial_run() {
     );
 }
 
-/// Device 0, where the GPU engine runs, below compute capability 7.5 is a
-/// problem naming both capabilities; a device 0 of 7.5, the minimum, is
-/// not.
+/// The GPU engine's device, device 0, below the minimum compute capability
+/// is a problem naming both capabilities; a device 0 of 7.5, the minimum,
+/// is not.
 #[cfg(unix)]
 #[test]
 fn a_device_0_below_the_minimum_compute_capability_is_a_problem() {
-    let old = DeviceReport {
+    let old = EngineDevice {
         compute_capability: (7, 0),
         ..a100()
     };
-    let advice = advice(&found(audited_report(), vec![old]));
+    let advice = advice(&found(audited_report(), Some(old)));
     assert!(advice.contains("7.0") && advice.contains("7.5"), "{advice}");
-    let turing = DeviceReport {
+    let turing = EngineDevice {
         compute_capability: (7, 5),
         ..a100()
     };
-    assert!(found(audited_report(), vec![turing]).is_ready());
-}
-
-/// A host whose second device is below compute capability 7.5 is ready:
-/// the GPU engine runs on device 0 only.
-#[cfg(unix)]
-#[test]
-fn a_second_device_below_the_minimum_leaves_the_setup_ready() {
-    let old = DeviceReport {
-        ordinal: 1,
-        compute_capability: (7, 0),
-        ..a100()
-    };
-    assert!(found(audited_report(), vec![a100(), old]).is_ready());
+    assert!(found(audited_report(), Some(turing)).is_ready());
 }
 
 /// A host with no CUDA device points at `nvidia-smi`.
 #[cfg(unix)]
 #[test]
 fn no_device_points_at_nvidia_smi() {
-    let advice = advice(&found(audited_report(), Vec::new()));
+    let advice = advice(&found(audited_report(), None));
     assert!(
         advice.starts_with("no CUDA device was found") && advice.contains("nvidia-smi"),
         "{advice}"
@@ -431,7 +457,7 @@ fn no_device_points_at_nvidia_smi() {
 fn unreadable_devices_point_at_nvidia_smi() {
     let advice = advice(&GpuSetup {
         devices: Some(Err(CudaAlgebraError::NoDevice)),
-        ..found(audited_report(), vec![a100()])
+        ..found(audited_report(), Some(a100()))
     });
     assert!(
         advice.starts_with("the CUDA devices could not be read") && advice.contains("nvidia-smi"),
@@ -444,12 +470,12 @@ fn unreadable_devices_point_at_nvidia_smi() {
 #[cfg(unix)]
 #[test]
 fn a_driver_below_cuda_12_is_a_problem_naming_the_floor() {
-    let advice = advice(&found(with_driver(11_080), vec![a100()]));
+    let advice = advice(&found(with_driver(11_080), Some(a100())));
     assert!(
         advice.contains("11.8") && advice.contains("525.60.13"),
         "{advice}"
     );
-    assert!(found(with_driver(12_000), vec![a100()]).is_ready());
+    assert!(found(with_driver(12_000), Some(a100())).is_ready());
 }
 
 /// A host whose driver supports CUDA 11.8 only sees no device through it:
@@ -457,7 +483,7 @@ fn a_driver_below_cuda_12_is_a_problem_naming_the_floor() {
 #[cfg(unix)]
 #[test]
 fn a_driver_below_cuda_12_is_advised_before_the_devices() {
-    let advice = advice(&found(with_driver(11_080), Vec::new()));
+    let advice = advice(&found(with_driver(11_080), None));
     assert!(
         advice.starts_with("the NVIDIA driver supports CUDA 11.8 only"),
         "{advice}"
@@ -471,7 +497,7 @@ fn a_driver_below_cuda_12_is_advised_before_the_devices() {
 fn the_devices_are_advised_before_the_trial_run() {
     let advice = advice(&GpuSetup {
         trial_run: failed_trial_run(),
-        ..found(audited_report(), Vec::new())
+        ..found(audited_report(), None)
     });
     assert!(advice.starts_with("no CUDA device was found"), "{advice}");
 }
@@ -482,13 +508,13 @@ fn the_devices_are_advised_before_the_trial_run() {
 #[cfg(unix)]
 #[test]
 fn device_0s_compute_capability_is_advised_before_the_trial_run() {
-    let old = DeviceReport {
+    let old = EngineDevice {
         compute_capability: (7, 0),
         ..a100()
     };
     let advice = advice(&GpuSetup {
         trial_run: failed_trial_run(),
-        ..found(audited_report(), vec![old])
+        ..found(audited_report(), Some(old))
     });
     assert!(
         advice.starts_with("CUDA device 0, where the GPU engine runs, has compute capability 7.0"),
@@ -500,7 +526,7 @@ fn device_0s_compute_capability_is_advised_before_the_trial_run() {
 #[cfg(unix)]
 #[test]
 fn no_device_is_shown_as_none() {
-    let report = found(audited_report(), Vec::new()).to_string();
+    let report = found(audited_report(), None).to_string();
     assert!(report.contains("\nCUDA devices: none\n"), "{report}");
 }
 
@@ -511,7 +537,7 @@ fn no_device_is_shown_as_none() {
 fn unreadable_devices_are_shown_with_their_error() {
     let report = GpuSetup {
         devices: Some(Err(CudaAlgebraError::NoDevice)),
-        ..found(audited_report(), vec![a100()])
+        ..found(audited_report(), Some(a100()))
     }
     .to_string();
     assert!(
@@ -528,13 +554,13 @@ fn unreadable_devices_are_shown_with_their_error() {
 fn a_failed_trial_run_is_shown_with_its_error() {
     let report = GpuSetup {
         trial_run: failed_trial_run(),
-        ..found(audited_report(), vec![a100()])
+        ..found(audited_report(), Some(a100()))
     }
     .to_string();
     assert!(
         report.contains(
             "\ntrial run on CUDA device 0: the site algebra failed: \
-             no CUDA-capable device is available"
+             CUDA Runtime cudaMalloc failed with status 2: out of memory"
         ),
         "{report}"
     );
@@ -551,7 +577,7 @@ fn another_copy_of_a_library_is_a_warning_that_leaves_the_setup_ready() {
     report.libraries[1].loaded_from_override = true;
     report.libraries[1].other_copies =
         vec![PathBuf::from("/env/cuquantum/lib/libcutensornet.so.2")];
-    let setup = found(report, vec![a100()]);
+    let setup = found(report, Some(a100()));
     assert!(setup.is_ready());
     let warnings = setup.warnings();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
@@ -588,7 +614,7 @@ fn a_warning_says_to_unset_an_override_that_is_loaded_or_else_to_set_it() {
     report.libraries[1].loaded_from_override = true;
     report.libraries[1].other_copies =
         vec![PathBuf::from("/env/cuquantum/lib/libcutensornet.so.2")];
-    let warnings = found(report, vec![a100()]).warnings();
+    let warnings = found(report, Some(a100())).warnings();
     let [cutensornet, cuda_runtime] = warnings.as_slice() else {
         panic!("one warning per other copy: {warnings:?}");
     };
@@ -602,6 +628,44 @@ fn a_warning_says_to_unset_an_override_that_is_loaded_or_else_to_set_it() {
     );
 }
 
+/// A user whose CUDA Runtime override loads a copy of another release,
+/// beside the audited copy a package installed, is warned of that copy
+/// even though discovery failed: a stray copy is a likely cause of a
+/// failure.
+#[cfg(unix)]
+#[test]
+fn another_copy_is_warned_of_when_discovery_fails() {
+    let AvailabilityError::Unusable(mut report) = unusable(
+        "CUDA Runtime",
+        vec![LibraryFault::UnsupportedVersion {
+            component: "CUDA Runtime",
+            found: 12_080,
+            supported: 12_090,
+        }],
+    ) else {
+        unreachable!("unusable gives a report");
+    };
+    report.libraries[0].path = Some(PathBuf::from("/opt/cuda-12.8/libcudart.so.12"));
+    report.libraries[0].loaded_from_override = true;
+    report.libraries[0].other_copies = vec![PathBuf::from(
+        "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
+    )];
+    let setup = failed(AvailabilityError::Unusable(report));
+    let warnings = setup.warnings();
+    let [warning] = warnings.as_slice() else {
+        panic!("one warning for the other copy: {warnings:?}");
+    };
+    assert!(
+        warning.contains("/env/nvidia/cuda_runtime/lib/libcudart.so.12")
+            && warning.ends_with(": remove the other, or unset QDK_CUDART_LIBRARY"),
+        "{warning}"
+    );
+    assert!(
+        setup.to_string().contains(&format!("warning: {warning}")),
+        "{setup}"
+    );
+}
+
 /// A user whose device 0 is too old, with another copy of the CUDA Runtime
 /// visible, reads what was found first, then the warning, then the fix
 /// last.
@@ -610,11 +674,11 @@ fn a_warning_says_to_unset_an_override_that_is_loaded_or_else_to_set_it() {
 fn the_report_lists_what_was_found_then_the_warnings_then_the_fix() {
     let mut report = audited_report();
     report.libraries[0].other_copies = vec![PathBuf::from("/usr/local/cuda/libcudart.so.12")];
-    let old = DeviceReport {
+    let old = EngineDevice {
         compute_capability: (7, 0),
         ..a100()
     };
-    let text = found(report, vec![old]).to_string();
+    let text = found(report, Some(old)).to_string();
     let position = |line: &str| {
         text.find(line)
             .unwrap_or_else(|| panic!("{line:?} in {text}"))
@@ -661,4 +725,35 @@ fn without_a_packager_the_advice_names_no_command() {
         advice.starts_with(&format!("{INSTALL}, or set ")) && !advice.contains('`'),
         "{advice}"
     );
+}
+
+/// A packager's files reach discovery: the check reports what discovery
+/// finds given the same files, whatever the host's overrides and installs.
+/// On a host with no override, that is the packaged CUDA Runtime, here not
+/// a library, failing to load; with the default files, it would not be
+/// tried at all.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn the_check_discovers_with_the_packaged_files() {
+    use crate::libraries::cuda_runtime::CudaRuntime;
+
+    let (cudart, _remove) = super::packaged_file::<CudaRuntime>("check-packaged-cudart");
+    let packaged = crate::PackagedLibraries {
+        files: vec![cudart],
+        install_command: None,
+    };
+    let setup = GpuSetup::check(&packaged);
+    let discovered =
+        crate::discover_with(&packaged).map(|availability| availability.report().clone());
+    match (&setup.availability, &discovered) {
+        (Ok(checked), Ok(discovered)) => assert_eq!(checked, discovered),
+        (
+            Err(AvailabilityError::Unusable(checked)),
+            Err(AvailabilityError::Unusable(discovered)),
+        ) => assert_eq!(checked, discovered),
+        _ => panic!(
+            "the check found {:?}, discovery {discovered:?}",
+            setup.availability
+        ),
+    }
 }
