@@ -33,7 +33,7 @@ pub(crate) struct SetupGuide {
     pub(crate) install: &'static str,
     /// What to do when a version probe fails, if one can.
     pub(crate) version_probe_advice: Option<&'static str>,
-    /// The lines that show the usable library.
+    /// The lines that show the library, usable or not.
     pub(crate) describe: fn(&LibraryReport) -> Vec<String>,
     /// A problem of the host that the usable library reveals.
     pub(crate) host_problem: fn(&LibraryReport) -> Option<String>,
@@ -54,9 +54,8 @@ impl SetupGuide {
     }
 }
 
-/// `value`, or `unread` when the report lacks it. The setup check shows
-/// only the values of a library that loaded, which has them all, but a
-/// `LibraryReport` serves a library that failed too, so each is optional.
+/// `value`, or `unread` when the report lacks it: the setup check shows
+/// a library at fault too, whose report may lack its path or versions.
 pub(crate) fn or_unread(value: Option<impl fmt::Display>) -> String {
     value.map_or_else(|| "unread".to_string(), |value| value.to_string())
 }

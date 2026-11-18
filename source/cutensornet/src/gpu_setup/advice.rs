@@ -7,13 +7,14 @@
 //! The advice about one library comes from its `SetupGuide`, which its
 //! module declares; this file adds the advice that holds for every library
 //! (for each kind of fault, whether to set an override or install the
-//! libraries, and what to install) and that of the steps after discovery.
+//! libraries, and what to install), that of the warning of another copy,
+//! and that of the steps after discovery.
 
 use super::devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
 use super::with_sources;
 use crate::engine::cuda_algebra::policy::DEVICE_ORDINAL;
 use crate::libraries::setup_guide::{SetupGuide, setup_guides};
-use crate::{AvailabilityError, CudaAlgebraError, LibraryFault};
+use crate::{AvailabilityError, CudaAlgebraError, LibraryFault, LibraryReport};
 use canonical_mps::CanonicalMpsError;
 
 /// What to do about `error`: when libraries are at fault, about an invalid
@@ -95,6 +96,24 @@ fn install_advice(install_command: Option<&str>) -> String {
     match install_command {
         Some(command) => format!("install {libraries}, for instance with `{command}`"),
         None => format!("install {libraries}"),
+    }
+}
+
+/// What to do about another copy of `library` beside the one loaded,
+/// `guide` being the library's. When the one loaded is at fault, it is
+/// what to change: the copy an override names is replaced or the override
+/// unset; another, replaced by an override or removed. When it is not, it
+/// stays loaded, and the other copy, never checked, is what to remove.
+pub(super) fn other_copy_advice(guide: &SetupGuide, library: &LibraryReport) -> String {
+    let variable = guide.variable;
+    match (library.faults.is_empty(), library.loaded_from_override) {
+        (false, true) => format!(
+            "set {variable} to an audited copy, or unset it, as the one it names is at fault"
+        ),
+        (false, false) => format!(
+            "set {variable} to an audited copy, or remove the one loaded, as it is at fault"
+        ),
+        (true, _) => "remove the other if nothing else uses it, as it was not checked".to_string(),
     }
 }
 

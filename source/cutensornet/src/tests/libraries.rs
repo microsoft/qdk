@@ -841,8 +841,9 @@ fn absolute_c_library() -> PathBuf {
 }
 
 /// A library loaded from the path its override names is reported so, for
-/// the setup check's warning to say to unset the variable; one loaded from
-/// its defaults, or not loaded because its override is invalid, is not.
+/// the setup check's warning to say to change or unset the variable; one
+/// loaded from its defaults, or not loaded because its override is
+/// invalid, is not.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 #[test]
 fn only_a_library_loaded_from_its_override_is_reported_so() {
