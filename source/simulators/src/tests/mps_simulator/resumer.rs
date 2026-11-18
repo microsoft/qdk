@@ -332,7 +332,7 @@ fn a_max_bond_dimension_that_makes_no_chain_fails_naming_the_first_shot() {
         ),
         "{error:?}"
     );
-    assert!(resumer.engine().prepared().is_empty());
+    assert_eq!(resumer.engine().prepared(), Vec::<MpsShape>::new());
 }
 
 /// Each state is prepared within `MpsShape::qubit_chain(n, χ)`, n the
@@ -362,7 +362,7 @@ fn no_shots_give_no_records() {
         &[],
     )
     .expect("no shot fails");
-    assert!(records.is_empty());
+    assert_eq!(records, Vec::<Vec<OutputRecord>>::new());
 }
 
 /// A program of no qubits runs with no state: its shots record its
@@ -373,5 +373,5 @@ fn a_program_of_no_qubits_records_without_a_state() {
     let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
     let records = run(&mut resumer, &program, &ids(&[0, 1])).expect("the program runs");
     assert_eq!(records, vec![results(&[0]); 2]);
-    assert!(resumer.engine().prepared().is_empty());
+    assert_eq!(resumer.engine().prepared(), Vec::<MpsShape>::new());
 }

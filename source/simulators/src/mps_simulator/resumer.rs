@@ -125,8 +125,8 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
     type Error = MpsResumerError<E::Error>;
 
     /// Runs `shots` as [`QirResumer::run`] requires, shots that drew the
-    /// same values sharing one state. It never waits: its future is ready
-    /// when first polled.
+    /// same values sharing one state. It never waits: it runs them when
+    /// called, and its future is ready at once.
     ///
     /// # Errors
     ///
@@ -139,24 +139,26 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
     /// fails only the shots that were to wait with the fork. Either fails
     /// shots that alone would not have forked: a shot's failure, unlike its
     /// records, may depend on the shots beside it.
-    async fn run(
+    fn run(
         &mut self,
         machine: &QirMachine<'_>,
         shots: &[QirShotId],
-    ) -> Result<Vec<Vec<OutputRecord>>, QirResumeError<Self::Error>> {
+    ) -> impl Future<Output = Result<Vec<Vec<OutputRecord>>, QirResumeError<Self::Error>>> {
         self.last_run = MpsRunReport::new(self.max_bond_dimension.get());
         if shots.is_empty() {
-            return Ok(Vec::new());
+            return std::future::ready(Ok(Vec::new()));
         }
-        GroupedRun::start(
-            &self.engine,
-            machine,
-            shots,
-            self.seed,
-            self.max_bond_dimension,
-            self.fusion,
-            &mut self.last_run,
-        )?
-        .run()
+        std::future::ready(
+            GroupedRun::start(
+                &self.engine,
+                machine,
+                shots,
+                self.seed,
+                self.max_bond_dimension,
+                self.fusion,
+                &mut self.last_run,
+            )
+            .and_then(GroupedRun::run),
+        )
     }
 }

@@ -19,6 +19,7 @@
 //! ([`MpsResumerError::Unsupported`]), as is a gate on one qubit twice.
 
 use crate::qir::{OperatorMatrix, QirCall};
+use qsc_data_structures::measurement::MeasurementBasis;
 
 use super::layout::QubitOrder;
 use super::resumer_error::MpsResumerError;
@@ -96,7 +97,11 @@ pub(crate) fn lower<E>(
                     matrix,
                 }));
             }
-            QirCall::Measure { qubit, result } => steps.push(Step::Measure {
+            QirCall::Measure {
+                basis: MeasurementBasis::Z,
+                qubit,
+                result,
+            } => steps.push(Step::Measure {
                 site: layout.site(qubit),
                 result,
                 reset: false,
@@ -110,7 +115,8 @@ pub(crate) fn lower<E>(
                 site: layout.site(qubit),
             }),
             QirCall::Move { .. } => {}
-            QirCall::CorrelatedNoise { .. }
+            QirCall::Measure { .. }
+            | QirCall::CorrelatedNoise { .. }
             | QirCall::PeekLoss { .. }
             | QirCall::ReadoutNoise { .. } => {
                 return Err(MpsResumerError::Unsupported {
