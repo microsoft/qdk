@@ -25,11 +25,11 @@ mod spy_algebra;
 mod statistics;
 mod truncation;
 
+use crate::dense_linalg::SvdError;
 use crate::{
     CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, CpuAlgebra, CpuMpsEngine as Engine,
     DEFAULT_CUTOFF, SplitStatistics,
 };
-use dense_linalg::SvdError;
 use failing_fake_algebra::FailingFakeAlgebra;
 use num_complex::Complex64;
 use spy_algebra::SpyAlgebra;

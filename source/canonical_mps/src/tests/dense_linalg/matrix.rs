@@ -5,7 +5,7 @@
 //! `rows·cols` elements, with their product and adjoint.
 
 use super::{SHAPES, c, distance, matrix, naive_product};
-use crate::{Matrix, MatrixRef};
+use crate::dense_linalg::{Matrix, MatrixRef};
 
 /// A matrix built element by element is stored column by column.
 #[test]

@@ -1,39 +1,45 @@
-# dense_linalg: dense complex matrices with a checked SVD
+# The dense linear algebra: complex matrices with a checked SVD
 
-The QDK's matrix product state (MPS) simulators truncate a state by the
-singular values of small dense complex matrices, many thousands of times per
-run, and keep the singular vectors as an orthonormal basis. This crate gives
-them a singular value decomposition (SVD) they can trust, with the product,
-thin QR decomposition and adjoint they also need, in three parts:
+The reference algebra ([`CpuAlgebra`](../src/algebra/cpu_algebra.rs))
+truncates a state by the singular values of small dense complex matrices,
+many thousands of times per run, and keeps the singular vectors as an
+orthonormal basis. The crate's private module
+[`dense_linalg`](../src/dense_linalg.rs) gives it a singular value
+decomposition (SVD) it can trust, with the product, thin QR decomposition
+and adjoint that it and the engine's host computations also need, in three
+parts:
 
-- **[The checked SVD](#the-checked-svd):** [`Svd::of`](src/svd.rs) either
-  answers factors checked against the matrix, or reports a failure
-  ([`SvdError`](src/svd.rs)).
-- **[Matrices, product and QR](#matrices-product-and-qr):**
-  [`Matrix`, `MatrixRef`](src/matrix.rs) and [`Qr`](src/qr.rs).
+- **[The checked SVD](#the-checked-svd):** `Svd::of` either answers
+  factors checked against the matrix, or reports a failure (`SvdError`,
+  public at the crate's root, as `CpuAlgebra`'s error).
+- **[Matrices, product and QR](#matrices-product-and-qr):** `Matrix`,
+  `MatrixRef` and `Qr`.
 - **[The linear algebra library](#the-linear-algebra-library):** t4a-faer,
-  behind the crate-private trait [`Kernels`](src/kernels.rs).
+  behind the module-private trait `Kernels`.
+
+The `conformance` feature makes the module public, so that another crate's
+test doubles can compute as a backend library would.
 
 **The problem.** The matrices met when simulating MPS are rank-deficient most
 of the time, with repeated singular values, and general SVDs have returned
 factors that do not give back the matrix on them, without reporting a
-failure ([`svd.rs`](src/svd.rs)'s header gives the cases). A simulator that
+failure ([`svd.rs`](../src/dense_linalg/svd.rs)'s header gives the cases). A simulator that
 acts on such values truncates the wrong state, silently.
 
-**The approach.** The SVD's rules are the crate's own, written once: a trim
+**The approach.** The SVD's rules are the module's own, written once: a trim
 that reduces the matrix to full rank, leaving out only rounding; one-sided
 Jacobi rotations, which converge on a matrix of full rank within a cap of
 sweeps, or report the failure; and checks, to the bounds of LAPACK's SVD
 tests, on every answer. A linear algebra library brings only the steps it
 computes faster (the products and the QR decompositions, and a fast route
-for large full-rank matrices), behind one crate-private trait, so that the
+for large full-rank matrices), behind one module-private trait, so that the
 library is one file. The SVD checks every answer it gives, the fast route's
 included; the product and the thin QR (scaled as the SVD's input is) are
 the library's, to rounding, and not checked.
 
 ## The checked SVD
 
-[`Svd::of`](src/svd.rs) answers `a = u·diag(s)·v†` with `r` values,
+[`Svd::of`](../src/dense_linalg/svd.rs) answers `a = u·diag(s)·v†` with `r` values,
 `1 ≤ r ≤ min(rows, cols)`, nonincreasing. Its guarantees and its steps
 name the parts of its algorithm with these terms:
 
@@ -49,9 +55,10 @@ It guarantees:
 
 - **Checked factors:** `u·diag(s)·v†` gives back `a`, and `u` and `v` are
   orthonormal, to the bounds of LAPACK's SVD tests
-  ([`svd/checks.rs`](src/svd/checks.rs)), else
-  [`SvdError::FailedChecks`](src/svd.rs); when the rotations still
-  rotate after their last sweep, [`SvdError::DidNotConverge`](src/svd.rs).
+  ([`svd/checks.rs`](../src/dense_linalg/svd/checks.rs)), else
+  [`SvdError::FailedChecks`](../src/dense_linalg/svd.rs); when the
+  rotations still rotate after their last sweep,
+  [`SvdError::DidNotConverge`](../src/dense_linalg/svd.rs).
   A matrix with an entry that is not finite fails the checks, before any
   work.
 - **Only rounding left out:** the values left out (`r < min(rows, cols)`)
@@ -74,32 +81,17 @@ It runs these steps:
 | 6. Left vectors        | The kept columns of `Q`, applied by its reflectors, times `W`'s right singular vectors. | Cheaper than forming `Q`: the reflectors act on the answer's `r` columns alone, and those after the last kept row are skipped.                                               |
 | Checks, on each answer | Reconstruction and orthonormality, to LAPACK's bounds.                                  | No route is trusted: a library's SVD has answered wrong factors without a failure.                                                                                           |
 
-[`svd.rs`](src/svd.rs)'s header gives the details;
-[`svd/checks.rs`](src/svd/checks.rs) and [`svd/jacobi.rs`](src/svd/jacobi.rs)
-the checks and the rotations.
-
-The SVD of a matrix of rank 1, whose one singular value is 5 (the crate's
-doctest):
-
-```rust
-use dense_linalg::{Matrix, Svd};
-use num_complex::Complex64;
-
-// (3, 4)ᵀ·(1, 0, 0): column-major, one column after the other.
-let x = |re| Complex64::new(re, 0.0);
-let zero = x(0.0);
-let a = Matrix::new(2, 3, vec![x(3.0), x(4.0), zero, zero, zero, zero]);
-let svd = Svd::of(a.view())?;
-assert_eq!(svd.singular_values.len(), 1);
-assert!((svd.singular_values[0] - 5.0).abs() < 1e-14);
-```
+[`svd.rs`](../src/dense_linalg/svd.rs)'s header gives the details;
+[`svd/checks.rs`](../src/dense_linalg/svd/checks.rs) and
+[`svd/jacobi.rs`](../src/dense_linalg/svd/jacobi.rs) the checks and the
+rotations.
 
 ## Matrices, product and QR
 
-- [`Matrix`](src/matrix.rs) owns a dense complex matrix, column-major;
-  [`MatrixRef`](src/matrix.rs) borrows one. `Matrix::product(a, b)` is
+- [`Matrix`](../src/dense_linalg/matrix.rs) owns a dense complex matrix,
+  column-major; [`MatrixRef`](../src/dense_linalg/matrix.rs) borrows one. `Matrix::product(a, b)` is
   `a·b`, and `MatrixRef::adjoint` the conjugate transpose.
-- [`Qr::of`](src/qr.rs) is the thin QR decomposition `a = q·r` of a
+- [`Qr::of`](../src/dense_linalg/qr.rs) is the thin QR decomposition `a = q·r` of a
   finite matrix, by Householder reflections, at any scale (scaled by a
   power of two as in the SVD's step 3). It cannot fail, and checks
   nothing: a matrix with an entry that is not finite gets unspecified
@@ -107,24 +99,19 @@ assert!((svd.singular_values[0] - 5.0).abs() < 1e-14);
 
 ## The linear algebra library
 
-The crate computes its products, QR decompositions and fast route with
-t4a-faer, a fork of faer, through the crate-private trait
-[`Kernels`](src/kernels.rs); [`kernels/t4a_faer.rs`](src/kernels/t4a_faer.rs)
-is its implementation. t4a-faer is pinned to one version
-([`Cargo.toml`](Cargo.toml) says why), built without threads, and runs its
-QR algorithm at every size, never its divide and conquer.
+The module computes its products, QR decompositions and fast route with
+t4a-faer, a fork of faer, through the module-private trait
+[`Kernels`](../src/dense_linalg/kernels.rs);
+[`kernels/t4a_faer.rs`](../src/dense_linalg/kernels/t4a_faer.rs) is its
+implementation. t4a-faer is pinned to one version
+([`Cargo.toml`](../Cargo.toml) says why), built without threads, and runs
+its QR algorithm at every size, never its divide and conquer. Each
+computation runs on the calling thread, in pure Rust, so the module builds
+for WebAssembly too.
 
 ## Tests
 
-The tests are in [`src/tests/`](src/tests), one file per module, through
-the public API where they can be: random, rank-deficient, degenerate and
-graded matrices, every scale, each route and its fallback, and the errors.
-
-## Platforms
-
-| Platform               | Builds | Tests run |
-| ---------------------- | ------ | --------- |
-| Linux, macOS, Windows  | Yes    | Yes       |
-| WebAssembly (`wasm32`) | Yes    | No        |
-
-Each computation runs on the calling thread, in pure Rust.
+The tests are in [`src/tests/dense_linalg/`](../src/tests/dense_linalg),
+one file per module, through the module's public items where they can be:
+random, rank-deficient, degenerate and graded matrices, every scale, each
+route and its fallback, and the errors.

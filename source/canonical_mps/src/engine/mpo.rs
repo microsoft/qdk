@@ -51,7 +51,7 @@ use super::{
     reads::HostSite,
 };
 use crate::algebra::{CentreSide, SiteAlgebra};
-use dense_linalg::{MatrixRef, Svd};
+use crate::dense_linalg::{MatrixRef, Svd};
 use num_complex::Complex64;
 use std::borrow::Cow;
 
@@ -168,7 +168,10 @@ impl MpoSite {
 /// The MPO of `operator` (row-major, the first site the most significant
 /// bit) on `k` sites, one tensor per site, by `k − 1` thin SVDs, each
 /// keeping the values above [`OPERATOR_RANK_CUTOFF`] times the largest.
-fn operator_mpo(operator: &[Complex64], k: usize) -> Result<Vec<MpoSite>, dense_linalg::SvdError> {
+fn operator_mpo(
+    operator: &[Complex64],
+    k: usize,
+) -> Result<Vec<MpoSite>, crate::dense_linalg::SvdError> {
     let dim = 1usize << k;
     debug_assert_eq!(operator.len(), dim * dim, "an operator on `k` sites");
     // Index Σ_j p_j·4^j, p_j = 2·out_j + in_j, site 0 the fastest: as a

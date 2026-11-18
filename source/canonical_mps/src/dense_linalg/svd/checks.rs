@@ -17,11 +17,11 @@
 //! relative to the matrix's largest entry. The checks cost three more
 //! products, each at most of the matrix's size.
 //!
-//! [`Svd::of`]: crate::Svd::of
+//! [`Svd::of`]: crate::dense_linalg::Svd::of
 
-use crate::kernels::Kernels;
-use crate::matrix::{Matrix, MatrixRef};
-use crate::svd::{Svd, SvdError};
+use crate::dense_linalg::kernels::Kernels;
+use crate::dense_linalg::matrix::{Matrix, MatrixRef};
+use crate::dense_linalg::svd::{Svd, SvdError};
 
 /// The SVD `answer` of `a` when it is one (a route reports a failure with
 /// `None`), its factors give back `a` ([`reconstructs`], which also

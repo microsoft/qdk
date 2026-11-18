@@ -22,6 +22,11 @@
 //!   [`SiteAlgebra`](algebra::SiteAlgebra) is what a backend implements: a
 //!   site tensor's storage, a gate split, and a move of the centre.
 //!   [`algebra`]'s documentation states the tensors' layout.
+//! - [`SvdError`] is why the crate's checked singular value decomposition
+//!   failed: `CpuAlgebra`'s error. The SVD, with the products and QR
+//!   decompositions the reference algebra and the engine's host
+//!   computations need, is the crate's private dense linear algebra,
+//!   which the `conformance` feature makes public (`dense_linalg`).
 //!
 //! The GHZ state on three qubits, its last qubit reached from the first by
 //! a gate on sites that are not neighbours:
@@ -54,19 +59,25 @@
 //! assert!((given - 1.0).abs() < 1e-12);
 //! ```
 //!
-//! It depends on `tensornet` (the contract), `dense_linalg` (the reference
-//! algebra's product, QR and SVD, and the expectation's products on the
-//! host), `num-complex` and `thiserror`, all pure Rust, so it builds on
+//! It depends on `tensornet` (the contract), `t4a-faer` (the dense linear
+//! algebra's products and QR decompositions, and its SVD's fast route),
+//! `num-complex` and `thiserror`, all pure Rust, so it builds on
 //! every platform the QDK supports (the `README.md`'s Platforms says which
 //! are tested). Each item's documentation states its contract; the crate's
 //! `README.md` gives an overview, `docs/engine.md` the backend calls and
-//! the numerics of each method, and `docs/distant_sites.md` how gates on
-//! distant sites are applied, with the alternatives considered.
+//! the numerics of each method, `docs/distant_sites.md` how gates on
+//! distant sites are applied, with the alternatives considered, and
+//! `docs/dense_linalg.md` the SVD's guarantees and steps.
 
 pub mod algebra;
+#[cfg(feature = "conformance")]
+pub mod dense_linalg;
+#[cfg(not(feature = "conformance"))]
+mod dense_linalg;
 mod engine;
 
 pub use algebra::CpuAlgebra;
+pub use dense_linalg::SvdError;
 pub use engine::{
     CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, DEFAULT_CUTOFF, SplitStatistics,
 };
@@ -75,8 +86,7 @@ pub use engine::{
 /// reference algebra, [`CpuAlgebra`]. `CpuMpsEngine::new(CpuAlgebra)` makes
 /// it, at the default cutoff ([`CanonicalMpsEngine::new`]). Its states are
 /// [`CanonicalMpsState<CpuAlgebra>`], and its errors
-/// [`CanonicalMpsError<SvdError>`](CanonicalMpsError), with `dense_linalg`'s
-/// `SvdError`.
+/// [`CanonicalMpsError<SvdError>`](CanonicalMpsError).
 pub type CpuMpsEngine = CanonicalMpsEngine<CpuAlgebra>;
 
 #[cfg(test)]

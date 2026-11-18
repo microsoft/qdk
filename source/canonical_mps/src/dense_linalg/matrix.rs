@@ -4,7 +4,7 @@
 //! [`Matrix`] and [`MatrixRef`]: a dense complex matrix, owned or
 //! borrowed, in column-major order, with its product and its adjoint.
 
-use crate::kernels::{Kernels, Shipped};
+use crate::dense_linalg::kernels::{Kernels, Shipped};
 use num_complex::Complex64;
 
 /// A dense complex matrix owned in column-major order: element `(i, j)` at
@@ -81,7 +81,7 @@ impl Matrix {
             b.cols()
         );
         // Before the library counts the product's elements, so that the
-        // panic is the crate's, naming the shape.
+        // panic is the module's, naming the shape.
         element_count(a.rows(), b.cols());
         Shipped::product(a, b)
     }

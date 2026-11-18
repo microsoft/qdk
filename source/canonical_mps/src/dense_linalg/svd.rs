@@ -69,9 +69,9 @@ pub(crate) mod jacobi;
 
 use self::checks::checked;
 use self::jacobi::{MAX_SWEEPS, one_sided};
-use crate::kernels::{ColumnMajorSvd, Kernels, Shipped};
-use crate::matrix::{Matrix, MatrixRef};
-use crate::scaling::PowerOfTwoScaling;
+use crate::dense_linalg::kernels::{ColumnMajorSvd, Kernels, Shipped};
+use crate::dense_linalg::matrix::{Matrix, MatrixRef};
+use crate::dense_linalg::scaling::PowerOfTwoScaling;
 use num_complex::Complex64;
 
 /// A thin singular value decomposition `a = u·diag(s)·v†`, from
@@ -119,10 +119,14 @@ impl Svd {
     }
 }
 
-/// Why [`Svd::of`] failed.
+/// Why the crate's checked singular value decomposition (SVD) failed: the
+/// SVD of [`CpuAlgebra`](crate::CpuAlgebra)'s splits, and of the engine's
+/// factorisation of a gate window's operator. `docs/dense_linalg.md` gives
+/// its checks.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SvdError {
-    /// The rotations still rotated after their last sweep.
+    /// The SVD's one-sided Jacobi rotations still rotated after their last
+    /// sweep.
     #[error("the SVD of a {rows} × {cols} matrix did not converge")]
     DidNotConverge {
         /// The matrix's rows.

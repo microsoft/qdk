@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The crate's tests, one file per module, and the helpers they share:
+//! The dense linear algebra's tests, one file per module, and the helpers
+//! they share:
 //! deterministic matrices and naive products and adjoints, written apart
 //! from the code they check.
 
@@ -10,7 +11,7 @@ mod matrix;
 mod qr;
 mod svd;
 
-use crate::{Matrix, MatrixRef, Svd};
+use crate::dense_linalg::{Matrix, MatrixRef, Svd};
 use num_complex::Complex64;
 
 fn c(re: f64, im: f64) -> Complex64 {
