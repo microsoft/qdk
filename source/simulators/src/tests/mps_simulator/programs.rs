@@ -4,6 +4,11 @@
 //! The tests' programs, written in the Adaptive Profile bytecode block by
 //! block, and the writer they use. Each instruction names its qubits and
 //! results by constants, as the Python pass writes most of them.
+//!
+//! **Known issue:** the writer repeats much of the one in `tests/qir.rs`,
+//! the QIR machine's tests. One writer, shared by both, belongs with the
+//! QIR machine's tests, and moves there when they are next changed. It
+//! blocks nothing.
 
 use crate::bytecode::{AdaptiveProgram, Block, Instruction, Op};
 use crate::qir::QirProgram;

@@ -20,6 +20,10 @@
 //! `tensornet` has its own, internal to its sampler; this one gives the
 //! same values.
 //!
+//! **Known issue:** the two copies are one generator written twice. One
+//! copy needs `tensornet` to make its generator public; until then, a test
+//! here pins the published values, which both give. It blocks nothing.
+//!
 //! Each step adds the odd constant `0x9E37_79B9_7F4A_7C15` (2⁶⁴ over the
 //! golden ratio) to the state, wrapping, and returns the state mixed by a
 //! finalizer of two multiplications and three shifts: the values of the
