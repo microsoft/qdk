@@ -23,7 +23,10 @@
 //!   site tensor's storage, a gate split, and a move of the centre.
 //!   [`algebra`]'s documentation states the tensors' layout. Its
 //!   conformance kit, `algebra::conformance`, which the `conformance`
-//!   feature makes public, checks a backend against the contract.
+//!   feature makes public, checks a backend against the contract, call by
+//!   call; `engine_circuits`, under the same feature, runs the engine on
+//!   the backend over two long circuits, checked against `tensornet`'s
+//!   exact reference.
 //! - [`SvdError`] is why the crate's checked singular value decomposition
 //!   failed: `CpuAlgebra`'s error. The SVD, with the products and QR
 //!   decompositions the reference algebra and the engine's host
@@ -77,6 +80,8 @@ pub mod dense_linalg;
 #[cfg(not(feature = "conformance"))]
 mod dense_linalg;
 mod engine;
+#[cfg(any(test, feature = "conformance"))]
+pub mod engine_circuits;
 
 pub use algebra::CpuAlgebra;
 pub use dense_linalg::SvdError;
