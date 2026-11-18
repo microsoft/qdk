@@ -530,7 +530,13 @@ fn samples_are_shot_major_in_the_order_of_the_sites() {
         .sample(&bell(3), &[1, 0, 2], 1000, 7)
         .expect("distinct sites in range");
     assert_eq!(values.len(), 3000);
-    assert!(values.chunks_exact(3).all(|s| s[0] == s[1] && !s[2]));
+    assert!(
+        values
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .all(|[first, second, third]| first == second && !third)
+    );
 }
 
 #[test]
