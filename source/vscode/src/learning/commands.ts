@@ -286,12 +286,15 @@ async function openCourseNotebook(
   service: LearningService,
   options?: { reveal?: NotebookReveal },
 ): Promise<void> {
-  await service.setCourseSelectedAndSave();
   const notebookUri = service.getCurrentCodeFileUri();
   if (!notebookUri) {
     log.warn("No notebook associated with the current position.");
     return;
   }
+  const cellId = service.getCurrentExerciseCellId();
+  const includePreviousMarkdown =
+    cellId === undefined || !service.isActivityCellId(cellId, "quiz");
+  await service.setCourseSelectedAndSave();
 
   let opened = false;
 
@@ -332,12 +335,10 @@ async function openCourseNotebook(
     );
   }
 
-  const cellId = service.getCurrentExerciseCellId();
-
   if (options?.reveal === "top") {
     revealNotebookTop(notebookUri);
   } else if (cellId) {
-    revealNotebookCell(notebookUri, cellId);
+    revealNotebookCell(notebookUri, cellId, includePreviousMarkdown);
   }
 }
 
@@ -345,11 +346,15 @@ async function openCourseNotebook(
  * Select the cell with the given stable ID in an already-open notebook and
  * scroll it into view. When the cell is immediately preceded by a markdown
  * cell — typically the exercise's instructions — that cell is scrolled to
- * instead, so the learner sees the prompt and not just the code.
+ * instead. Quizzes reveal their own cell because their prompts are in outputs.
  *
  * No-op if the notebook isn't visible or the cell can't be found.
  */
-function revealNotebookCell(notebookUri: vscode.Uri, cellId: string): void {
+function revealNotebookCell(
+  notebookUri: vscode.Uri,
+  cellId: string,
+  includePreviousMarkdown: boolean,
+): void {
   const editor = findNotebookEditor(notebookUri);
   if (!editor) {
     return;
@@ -369,7 +374,7 @@ function revealNotebookCell(notebookUri: vscode.Uri, cellId: string): void {
   const previous =
     cell.index > 0 ? editor.notebook.cellAt(cell.index - 1) : undefined;
   const revealStart =
-    previous?.kind === vscode.NotebookCellKind.Markup
+    includePreviousMarkdown && previous?.kind === vscode.NotebookCellKind.Markup
       ? previous.index
       : cell.index;
   editor.revealRange(
