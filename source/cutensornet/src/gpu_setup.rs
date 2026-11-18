@@ -166,7 +166,8 @@ impl fmt::Display for GpuSetup {
             Ok(loaded) => write!(f, "{loaded}")?,
             Err(error) => write!(
                 f,
-                "libraries: {error}\nCUDA devices: not read\ntrial run: not tried"
+                "libraries: {error}\nCUDA devices: not read\ntrial run on CUDA device {DEVICE_ORDINAL}: \
+                 not tried"
             )?,
         }
         for warning in self.warnings() {
@@ -202,7 +203,7 @@ impl fmt::Display for LoadedSetup {
                     let (major, minor) = device.compute_capability;
                     write!(
                         f,
-                        "; device {DEVICE_ORDINAL}, where the GPU engine runs: compute \
+                        "; CUDA device {DEVICE_ORDINAL}, where the GPU engine runs: compute \
                          capability {major}.{minor}, {} of {} GiB free",
                         gibibytes(device.free_bytes),
                         gibibytes(device.total_bytes)

@@ -84,7 +84,7 @@ impl DeviceCalls for FakeDevices {
 }
 
 /// A host with two devices, the second current before the check, reports
-/// both counted and device 0, the GPU engine's, with its own compute
+/// both counted and CUDA device 0, the GPU engine's, with its own compute
 /// capability and memory.
 #[test]
 fn the_engine_device_is_reported_with_its_own_memory() {

@@ -136,14 +136,15 @@ impl LoadedLibraries {
 /// A package manager may install the libraries where no default path
 /// reaches: NVIDIA's Python wheels (`cutensornet-cu12`,
 /// `nvidia-cuda-runtime-cu12`) put them inside a Python environment, which
-/// only a caller that reads the environment can find. Each file is tried,
-/// before the default paths, for the library of its file name
-/// (`libcutensornet.so.2`, `libcudart.so.12`); a file of another name is
-/// not tried. `Default` is no file and no command, which is what
+/// only a caller that reads the environment can find. The first file of a
+/// library's file name (`libcutensornet.so.2`, `libcudart.so.12`) is tried
+/// for that library, before the default paths; a later file of that name,
+/// or a file of another name, is not tried. `Default` is no file and no command, which is what
 /// [`discover`](crate::discover) uses.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PackagedLibraries {
-    /// The absolute paths of the library files installed, in any order.
+    /// The absolute paths of the library files installed; order matters
+    /// only between files of one name.
     pub files: Vec<PathBuf>,
     /// The command that installs the libraries with the caller's package
     /// manager, which the setup check's advice gives as an example; `None`
