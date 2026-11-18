@@ -19,7 +19,8 @@
 //! When an operation and the cleanup after it both fail, both errors are
 //! kept (`combine_execution_and_cleanup`), so a cleanup never hides the
 //! cause. A cleanup attempts every release and returns the first failure
-//! (`first_failure`), so a failed release leaks nothing else.
+//! (`first_failure`), so a failed release skips no other; its own object
+//! is leaked, never retried.
 
 use thiserror::Error;
 
@@ -113,7 +114,8 @@ pub(crate) fn combine_execution_and_cleanup<T>(
 }
 
 /// The first failure of `releases`, which are all attempted: a failed
-/// release never skips the next, so it leaks nothing but its own object.
+/// release never skips the next. The object whose release failed is
+/// leaked, never retried.
 pub(crate) fn first_failure(
     releases: impl IntoIterator<Item = Result<(), CudaAlgebraError>>,
 ) -> Result<(), CudaAlgebraError> {
