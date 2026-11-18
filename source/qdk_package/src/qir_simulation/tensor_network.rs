@@ -23,8 +23,10 @@
 //! device 0 (`CudaMpsEngine`, on cuTensorNet), whose libraries discovery
 //! finds, with the files of NVIDIA's wheels that Python found; or `"cpu"`,
 //! the same engine on the host CPU (`CpuMpsEngine`), which needs no setup.
-//! Which Python exception each failure raises, and with what message (a
-//! GPU not set up among them), is in `tensor_network/run_failure.rs`; how
+//! The program and the settings are checked before the run, and a fault
+//! raises `ValueError` here; which Python exception each failure of the
+//! run raises, and with what message (a GPU not set up among them), is in
+//! `tensor_network/run_failure.rs`; how
 //! the run leaves the Python thread, and stops on Ctrl-C, in
 //! `tensor_network/detached_run.rs`.
 

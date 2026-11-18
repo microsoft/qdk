@@ -11,9 +11,9 @@
 //!   not usable, no device), with the message `gpu_not_set_up` or
 //!   `engine_not_made` composes; or the engine failing during the run,
 //!   with the failure's message.
-//! - `ValueError`, the program or the settings: the program's faults, a
-//!   call the MPS simulation method does not run, a max bond dimension that
-//!   makes no chain, or a call the engine refuses.
+//! - `ValueError`, the program or the settings: a call the MPS simulation
+//!   method does not run, a max bond dimension that makes no chain, or a
+//!   call the engine refuses.
 //! - `RuntimeError`, the run: a shot that trapped, named; a run that was
 //!   stopped; or a run thread that panicked, a defect, with its message.
 //!
