@@ -8,8 +8,8 @@ calls, in order.
 ## The calls of each phase
 
 Each band of the diagram is a phase, or two that call nothing between
-them, with its calls in order; layout, lower and rewrite call no
-`MpsEngine` method:
+them, with its calls in order; layout and lower call no `MpsEngine`
+method:
 
 ```mermaid
 sequenceDiagram
@@ -21,12 +21,12 @@ sequenceDiagram
   Note over M,E: Phase: resume
   R->>M: resume(context, outcomes)
   M-->>R: a batch of calls, or the end with the records
-  Note over M,E: Phase: lower, then rewrite
+  Note over M,E: Phase: lower
   Note over M,E: Phase: prepare, at the group's first operator or draw
   R->>E: prepare(capacity)
   Note over M,E: Phase: apply
   R->>E: apply(state, sites, matrix)
-  Note over M,E: Phase: read bond, where a run of operators ends
+  Note over M,E: Phase: read bond, where a run of gates ends
   R->>E: shape(state)
   Note over M,E: Phase: draw
   R->>E: probability_of_one(state, site)

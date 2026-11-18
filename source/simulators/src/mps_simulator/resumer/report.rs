@@ -38,7 +38,7 @@ pub const TRUNCATION_TOLERANCE: f64 = 1e-3;
 /// What a run cost, over its shots.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MpsRunReport {
-    /// The largest bond a state held where a run of operators ended,
+    /// The largest bond a state held where a run of gates ended,
     /// before the measurements after it
     /// ([`MpsShape::largest_bond`](tensornet::MpsShape::largest_bond)):
     /// what the run's costliest gates paid for. One when no shot applied a
