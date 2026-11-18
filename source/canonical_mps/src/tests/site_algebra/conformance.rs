@@ -42,8 +42,8 @@ fn every_failing_case_is_reported() {
 }
 
 #[test]
-fn upload_and_read_catches_a_read_of_fewer_elements() {
-    caught_by("upload and read", &[Defect::ShortRead]);
+fn upload_and_read_catches_a_read_of_fewer_or_other_elements() {
+    caught_by("upload and read", &[Defect::ShortRead, Defect::AlteredRead]);
 }
 
 #[test]

@@ -230,8 +230,8 @@ fn projections_on_values_of_subnormal_probability_are_accepted() {
 /// carrying the ends' correlation, then the middle site turned so that
 /// P(One) is 1e-200: a projection on One keeps two nonzero elements, and
 /// the site the engine uploads in their place has a squared norm of 1
-/// within 1e-12, as `gate_split`'s contract promises every algebra of the
-/// states it is handed.
+/// within 1e-12, as the contract promises every algebra of the states the
+/// engine hands it.
 #[test]
 fn a_projection_hands_the_algebra_a_site_of_norm_one() {
     let theta = 2.0 * 1e-100_f64.asin();

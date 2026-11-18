@@ -12,8 +12,8 @@ operations, the host CPU's included. It has three parts:
   algebra.
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/site_algebra.rs), the tensor operations a backend
-  implements, and the [conformance kit](#the-conformance-kit) that checks
-  a backend against it.
+  implements, and the [conformance kit and the engine's conformance
+  circuits](#conformance-the-kit-and-the-engines-circuits) that check a backend against it.
 - **[The CPU algebra](#the-cpu-algebra):**
   [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), the contract on the host CPU,
   which passes the kit and on which the engine's tests run.
@@ -51,8 +51,8 @@ extent, on an NVIDIA A100 GPU.
 - **Open to more backends.** A new backend is a new type implementing the
   trait, in its own crate; nothing here changes.
 - **Checks written once.** The conformance kit checks each operation of
-  a backend against the contract's formulas, and runs the engine on it
-  against an exact reference, so no backend writes those checks again.
+  a backend against the contract's formulas, and the engine's conformance
+  circuits run the engine on it against an exact reference, so no backend writes those checks again.
 - **Portable.** The crate depends on `tensornet`, `num-complex`,
   `t4a-faer` and `thiserror`, all pure Rust, so it builds on every
   [platform](#platforms) the QDK supports.
@@ -195,7 +195,7 @@ assert!((given - 1.0).abs() < 1e-12);
 - [`error.rs`](src/engine/error.rs): `CanonicalMpsError`, why a call was
   refused or failed;
 - [`conformance.rs`](src/engine/conformance.rs): the engine's
-  [conformance circuits](#the-conformance-kit).
+  [conformance circuits](#conformance-the-kit-and-the-engines-circuits).
 
 ### Phases
 
@@ -288,7 +288,7 @@ Every tensor holds complex doubles, its first mode fastest, so a backend
 factors a site read as a matrix with no copy; the
 [module's documentation](src/site_algebra.rs) gives the layout in full.
 
-### The conformance kit
+### Conformance: the kit and the engine's circuits
 
 A backend's tests check it against the contract with two parts, public
 under the crate's `conformance` feature, which a backend enables in its
@@ -296,7 +296,8 @@ dev-dependencies (the feature also makes
 [`dense_linalg`](src/dense_linalg.rs) public, for a backend's test
 stand-ins):
 
-- [`site_algebra::conformance::check`](src/site_algebra/conformance.rs) calls each
+- **The kit,**
+  [`site_algebra::conformance::check`](src/site_algebra/conformance.rs), calls each
   operation on seeded inputs, from a pair whose extents are all one ($\theta$ of
   2 × 2) to a gated pair of 64 × 64, and compares what it returns with the
   contract's formulas, never with another algebra. It returns every case the
@@ -304,7 +305,8 @@ stand-ins):
   split is checked by the Eckart–Young theorem, since its factors are not
   unique; the latitude the contract leaves (a bond larger than the cutoff needs,
   the side of a tie) is not checked.
-- [`engine_conformance`](src/engine/conformance.rs) runs a `CanonicalMpsEngine`
+- **The engine's conformance circuits,**
+  [`engine_conformance`](src/engine/conformance.rs), run a `CanonicalMpsEngine`
   on the backend over two long circuits, one without truncation and one
   truncated, and compares its reads with `tensornet`'s exact reference:
   hundreds of calls in a row, on the backend's own memory and settings.
@@ -339,7 +341,7 @@ assert_truncated_circuit_stays_within_its_truncation_bound(CpuAlgebra);
 
 [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), exported at the crate's root,
 is the contract on the host CPU. Each operation is computed directly from
-its contract; it passes the [conformance kit](#the-conformance-kit), and
+its contract; it passes the [conformance kit](#conformance-the-kit-and-the-engines-circuits), and
 the engine's tests run on it. It needs no device, so it runs wherever the
 QDK runs.
 
@@ -408,7 +410,8 @@ the [conformance kit](tests/site_algebra_conformance.rs). The
 gate it runs, and with its [stabilizer simulator](tests/circuits_of_known_outcome.rs)
 on Clifford circuits of up to 48 qubits, beside mirror circuits that
 return every qubit to zero. A backend in another crate runs the
-[conformance kit](#the-conformance-kit) in its own tests.
+[conformance kit and the engine's conformance circuits](#conformance-the-kit-and-the-engines-circuits) in its
+own tests.
 
 ## Platforms
 

@@ -146,8 +146,8 @@ pub enum CentreSide {
 /// `[k, 2, right_extent]`, `k` the outcome's bond
 /// ([`SiteAlgebra::gate_split`]).
 ///
-/// `θ` is never zero: the caller's states have norm 1, and its gates are
-/// unitary.
+/// `θ` is never zero: the caller's states have a norm of 1 to rounding (a
+/// gate may drift from it within the unitarity check's tolerance).
 #[derive(Debug)]
 pub struct GateSplitCall<'t, T> {
     /// `A`, of extents `[left_extent, 2, bond]`.
