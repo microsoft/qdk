@@ -171,22 +171,31 @@ assert!((given - 1.0).abs() < 1e-12);
 `MpsEngine` implementation, which calls one part per kind of work:
 
 - [`chain.rs`](src/engine/chain.rs): the sites, the centre, the pending
-  gates, the retained weight and the [statistics](#settings-and-statistics);
-- [`fusion.rs`](src/engine/fusion.rs) and
-  [`gate_products.rs`](src/engine/gate_products.rs): the pending window, which gathers the
-  gates, and the arithmetic of their operators;
-- [`truncation.rs`](src/engine/truncation.rs), [`mpo.rs`](src/engine/mpo.rs) and
-  [`centre_moves.rs`](src/engine/centre_moves.rs): a window applied by
-  one split of two neighbours, the one place where the state's bonds are
-  truncated, or as an [MPO](#terms) across its span, and the centre's
-  moves;
-- [`measurement.rs`](src/engine/measurement.rs) and
-  [`expectation.rs`](src/engine/expectation.rs): the reads of one site, and
-  an observable's expectation;
-- [`policy.rs`](src/engine/policy.rs) and
-  [`error.rs`](src/engine/error.rs): the default cutoff and the
-  operator's rank cutoff, with their reasons, and `CanonicalMpsError`, why
-  a call was refused or failed.
+  gates, the retained weight and the statistics;
+- [`fusion.rs`](src/engine/fusion.rs): the pending window, which gathers
+  the gates;
+- [`gate_products.rs`](src/engine/gate_products.rs): the arithmetic of
+  the pending gates' operators;
+- [`truncation.rs`](src/engine/truncation.rs): a window applied by one
+  split of two neighbours, the one place where the state's bonds are
+  truncated;
+- [`mpo.rs`](src/engine/mpo.rs): any other window, applied as an
+  [MPO](#terms) across its span;
+- [`centre_moves.rs`](src/engine/centre_moves.rs): the centre's moves;
+- [`host_site.rs`](src/engine/host_site.rs): a site's elements on the
+  host, its pending gate applied, for the computations on the host;
+- [`measurement.rs`](src/engine/measurement.rs): the probabilities,
+  conditional probabilities and projections of one site;
+- [`expectation.rs`](src/engine/expectation.rs): an observable's
+  expectation;
+- [`statistics.rs`](src/engine/statistics.rs): what a state's history
+  cost ([statistics](#settings-and-statistics));
+- [`policy.rs`](src/engine/policy.rs): the default cutoff and the
+  operator's rank cutoff, with their reasons;
+- [`error.rs`](src/engine/error.rs): `CanonicalMpsError`, why a call was
+  refused or failed;
+- [`conformance.rs`](src/engine/conformance.rs): the engine's
+  [conformance circuits](#the-conformance-kit).
 
 ### Phases
 
@@ -309,6 +318,21 @@ fn assert_conforms<A: SiteAlgebra>(algebra: &A) {
 }
 ```
 
+Its tests of the engine on it, each function taking the backend's algebra
+by value and building the engine itself (`engine_conformance`'s
+documentation, with `CpuAlgebra` for the backend's algebra):
+
+```rust
+use canonical_mps::CpuAlgebra;
+use canonical_mps::engine_conformance::{
+    assert_truncated_circuit_stays_within_its_truncation_bound,
+    assert_untruncated_circuit_agrees_with_exact_reference,
+};
+
+assert_untruncated_circuit_agrees_with_exact_reference(CpuAlgebra);
+assert_truncated_circuit_stays_within_its_truncation_bound(CpuAlgebra);
+```
+
 ## The CPU algebra
 
 [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), exported at the crate's root,
@@ -374,7 +398,7 @@ The [unit tests](src/tests) check the dense linear algebra, the
 truncation rule, and the engine's rules on the CPU algebra; where
 the engine reads values, they compare them with closed-form values, or
 with `tensornet`'s exact reference, among them the
-[engine circuits](src/engine/conformance.rs). The CPU algebra passes
+[engine's conformance circuits](src/engine/conformance.rs). The CPU algebra passes
 the [conformance kit](tests/site_algebra_conformance.rs). The
 [integration tests](tests) also compare `CpuMpsEngine` with the QDK's
 [sparse simulator](tests/sparse_simulator.rs) on every one- and two-qubit

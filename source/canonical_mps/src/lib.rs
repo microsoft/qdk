@@ -15,12 +15,12 @@
 //!   what a caller may rely on beyond the contract: how it fuses and
 //!   applies gates, and the bounds its truncations stay within.
 //! - [`CpuMpsEngine`] is the engine on [`CpuAlgebra`], the `SiteAlgebra`
-//!   of the host CPU, which passes the
-//!   contract's conformance kit. It needs no device, so it runs wherever
-//!   the QDK runs.
+//!   of the host CPU, which passes the contract's conformance kit. It
+//!   needs no device, so it runs wherever the QDK runs.
 //! - [`site_algebra`] is the backend contract.
-//!   [`SiteAlgebra`](site_algebra::SiteAlgebra) is what a backend implements: a
-//!   site tensor's storage, a gate split, and a move of the centre.
+//!   [`SiteAlgebra`](site_algebra::SiteAlgebra) is what a backend
+//!   implements: a site tensor's storage, a gate split, and a move of the
+//!   centre.
 //!   [`site_algebra`]'s documentation states the tensors' layout. Its
 //!   conformance kit, `site_algebra::conformance`, which the `conformance`
 //!   feature makes public, checks a backend against the contract, call by
@@ -29,8 +29,8 @@
 //!   exact reference.
 //! - [`SvdError`] is why the crate's checked singular value decomposition
 //!   failed: `CpuAlgebra`'s error. The SVD, with the products and QR
-//!   decompositions the CPU algebra and the engine's host
-//!   computations need, is the crate's private dense linear algebra,
+//!   decompositions the CPU algebra and the engine's host computations
+//!   need, is the crate's private dense linear algebra,
 //!   which the `conformance` feature makes public (`dense_linalg`).
 //!
 //! The GHZ state on three qubits, its last qubit reached from the first by
