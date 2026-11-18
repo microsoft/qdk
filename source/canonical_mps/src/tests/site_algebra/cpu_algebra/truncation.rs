@@ -197,7 +197,8 @@ fn tiny_values_truncate_as_at_scale_one() {
 // matrix one value, zero, so its truncation never met an all-zero
 // spectrum (its `0 / 0` would have failed the split with a weight
 // underflow); the engine does not reach it either, since its states have
-// norm 1 and its gates are unitary. We think a total rule is better
+// a norm of 1 to rounding (a gate may drift from it within the unitarity
+// check's tolerance). We think a total rule is better
 // than a NaN, and a retained fraction of 1 agrees with "exactly 1 when
 // every dropped value is zero", so we recommend keeping it.
 #[test]

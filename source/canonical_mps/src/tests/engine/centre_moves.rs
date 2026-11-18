@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Moves of the orthogonality centre: a move keeps the gate pending on
+//! Moves of the orthogonality centre: a move applies the gate pending on
 //! the site it leaves, and shrinks a bond above twice its neighbours.
 
 use super::*;
@@ -11,7 +11,7 @@ use super::*;
 /// 0 gives the turn's P(One), as the move applied the gate pending on the
 /// site it left.
 #[test]
-fn a_move_of_the_centre_keeps_the_gate_pending_on_the_site_it_leaves() {
+fn a_move_of_the_centre_applies_the_gate_pending_on_the_site_it_leaves() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
         let mut state = engine.prepare(&capacity(3, 2)).expect("prepare");
         engine.apply(&mut state, &[0], &ry(0.9)).expect("apply");
