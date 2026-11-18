@@ -32,6 +32,14 @@ azure = ["azure-quantum>=3.8.0"]
 qiskit = ["qiskit>=1.2.2,<3.0.0"]
 cirq = ["cirq-core>=1.6.1,<1.8", "cirq-ionq>=1.6.1,<1.8", "ply>=3.11"]
 qre = ["pandas>=2.1"]
+# The GPU engine of `tensornetwork_qir(method="mps")`: NVIDIA's cuTensorNet
+# and CUDA Runtime wheels, pinned to the versions the bindings were audited
+# against, on Linux x86-64, the only platform they run on. Not in `all`: the
+# libraries are large and run only with an NVIDIA GPU and driver.
+tensornetwork = [
+  "cutensornet-cu12==2.13.*; platform_system == 'Linux' and platform_machine == 'x86_64'",
+  "nvidia-cuda-runtime-cu12==12.9.*; platform_system == 'Linux' and platform_machine == 'x86_64'",
+]
 applications = ["cirq-core>=1.6.1,<1.8"]
 # Tooling to develop, test, and deploy quantum error correction schemes (qodecs).
 # `qodec` is the declarative qodec file format and object model; `paulimer` and
