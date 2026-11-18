@@ -11,12 +11,12 @@
 //! nearly orthogonal, as on the matrices of an MPS simulation of H₂, a few
 //! sweeps over the pairs suffice.
 //!
-//! The rotations converge on a matrix of full rank, but may need more
-//! sweeps than they allow ([`MAX_SWEEPS`]). They report a failure rather
-//! than answer columns that are not yet orthogonal: when the last sweep
-//! allowed still rotates a pair, the SVD fails
-//! ([`SvdError::DidNotConverge`]). They also factor the `W` that the fast
-//! route fails on.
+//! The rotations converge on a matrix of full rank, but may need more sweeps
+//! than they allow ([`MAX_SWEEPS`]). They report a failure rather than answer
+//! columns that are not yet orthogonal: when the last sweep allowed still
+//! rotates a pair, the SVD fails
+//! ([`SvdError::DidNotConverge`](super::SvdError::DidNotConverge)). They also
+//! factor the `W` that the fast route fails on.
 //!
 //! A sweep visits every pair `(p, q)` in cyclic order and rotates it when
 //! `|w_p† w_q| > √n · ε · ‖w_p‖ · ‖w_q‖`, with `n` the length of a column
@@ -32,8 +32,6 @@
 //! numbers, so that the products and rotations are loops on `f64` that the
 //! compiler vectorizes; they multiply and add without fused multiply-add (see
 //! [`dot`]).
-//!
-//! [`SvdError::DidNotConverge`]: crate::dense_linalg::SvdError::DidNotConverge
 
 use crate::dense_linalg::kernels::ColumnMajorSvd;
 use num_complex::Complex64;

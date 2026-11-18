@@ -31,10 +31,9 @@ impl Qr {
     ///
     /// For a finite `a` only: when an entry of `a` is not finite (NaN or
     /// infinite), no QR decomposition gives it back, and the factors are
-    /// unspecified (they may hold NaNs). Where [`Svd::of`] refuses such a
-    /// matrix, this returns them unchecked.
-    ///
-    /// [`Svd::of`]: crate::dense_linalg::Svd::of
+    /// unspecified (they may hold NaNs). Where
+    /// [`Svd::of`](crate::dense_linalg::Svd::of) refuses such a matrix, this
+    /// returns them unchecked.
     #[must_use]
     pub fn of(a: MatrixRef<'_>) -> Self {
         let (rows, cols) = (a.rows(), a.cols());

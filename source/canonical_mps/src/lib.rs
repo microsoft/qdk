@@ -80,7 +80,7 @@ mod engine;
 #[cfg(any(test, feature = "conformance"))]
 pub mod engine_circuits;
 
-pub use algebra::CpuAlgebra;
+pub use algebra::cpu_algebra::CpuAlgebra;
 pub use dense_linalg::SvdError;
 pub use engine::{
     CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, DEFAULT_CUTOFF, SplitStatistics,

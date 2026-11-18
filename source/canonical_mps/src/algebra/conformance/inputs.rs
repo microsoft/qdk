@@ -9,10 +9,10 @@ use crate::dense_linalg::{Matrix, Qr};
 use num_complex::Complex64;
 use std::fmt;
 
-/// The pairs' shapes `(left_extent, bond, right_extent)`: from one site of
-/// extent one to a gated pair of 32 × 16, square and not, and of full rank
-/// and not (`(16, 12, 8)`: `θ` of 32 × 16 has rank at most 12 under the
-/// identity gate).
+/// The pairs' shapes `(left_extent, bond, right_extent)`: from a pair whose
+/// extents are all one (`θ` of 2 × 2) to a gated pair of 32 × 16, square and
+/// not, and of full rank and not (`(16, 12, 8)`: `θ` of 32 × 16 has rank at
+/// most 12 under the identity gate).
 pub(super) const SHAPES: [(usize, usize, usize); 6] = [
     (1, 1, 1),
     (2, 2, 4),

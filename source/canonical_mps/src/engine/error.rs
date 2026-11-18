@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`CanonicalMpsError`]: why a [`CanonicalMpsEngine`] refused or failed
-//! an operation.
+//! [`CanonicalMpsError`]: why a
+//! [`CanonicalMpsEngine`](super::CanonicalMpsEngine) refused or failed an
+//! operation.
 //!
 //! A simulator that gets an error must decide whether the state can still
 //! be used. It can after a refusal: the contract refuses a call whose
@@ -15,8 +16,6 @@
 //! three may fail the application of a pending window, after which the
 //! state is unspecified and the caller drops it.
 //! [`MpsEngineError::refusal`] tells a refusal from a failure.
-//!
-//! [`CanonicalMpsEngine`]: super::CanonicalMpsEngine
 
 use tensornet::sampling::TooManyValues;
 use tensornet::{MpsEngineError, Refusal};

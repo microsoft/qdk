@@ -6,12 +6,10 @@
 //! window ([`window`](super::window)), the product of the gates on its
 //! sites.
 //!
-//! The gates are row-major, the first site the most significant bit: a
-//! one-site gate `G[s, p]` at `2s + p`, a gate on `k` sites at
-//! `row·2ᵏ + column`, the first site's value the highest bit of the row and
-//! of the column, as [`GateSplitCall`] reads a two-site gate.
-//!
-//! [`GateSplitCall`]: crate::algebra::GateSplitCall
+//! The gates are row-major, the first site the most significant bit: a one-site
+//! gate `G[s, p]` at `2s + p`, a gate on `k` sites at `row·2ᵏ + column`, the
+//! first site's value the highest bit of the row and of the column, as
+//! [`GateSplitCall`](crate::algebra::GateSplitCall) reads a two-site gate.
 
 use num_complex::Complex64;
 
