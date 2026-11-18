@@ -48,15 +48,15 @@ pub(super) struct Scratch {
 impl Scratch {
     /// Lends `workspace`, sized for one call, the memory each of its slots
     /// asks for, first growing the slot's buffer if it is smaller. A device
-    /// buffer just allocated is lent only if `fresh` accepts it (the call
-    /// would write it), and is otherwise neither kept nor freed.
+    /// buffer just allocated is lent only if `check_allocation` accepts it
+    /// (the call would write it), and is otherwise neither kept nor freed.
     ///
     /// No device work may be pending: a growth frees the smaller buffer.
     pub(super) fn lend(
         &mut self,
         device_session: &DeviceSession<dyn NativeCalls>,
         workspace: OpaqueHandle,
-        fresh: &dyn Fn(OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError>,
+        check_allocation: &dyn Fn(OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError>,
     ) -> Result<(), CudaAlgebraError> {
         let (calls, handle) = (device_session.calls(), device_session.handle());
         for (index, slot) in [WorkspaceSlot::DeviceScratch, WorkspaceSlot::DeviceCache]
@@ -64,7 +64,14 @@ impl Scratch {
             .enumerate()
         {
             if let Some(bytes) = asked(calls, handle, workspace, slot)? {
-                self.lend_device(index, bytes, device_session, workspace, slot, fresh)?;
+                self.lend_device(
+                    index,
+                    bytes,
+                    device_session,
+                    workspace,
+                    slot,
+                    check_allocation,
+                )?;
             }
         }
         for (index, slot) in [WorkspaceSlot::HostScratch, WorkspaceSlot::HostCache]
@@ -105,7 +112,7 @@ impl Scratch {
     }
 
     /// Lends device slot `slot`, of index `index`, `bytes`, growing its
-    /// buffer first, with one `fresh` accepts, if it is smaller.
+    /// buffer first, with one `check_allocation` accepts, if it is smaller.
     fn lend_device(
         &mut self,
         index: usize,
@@ -113,7 +120,7 @@ impl Scratch {
         device_session: &DeviceSession<dyn NativeCalls>,
         workspace: OpaqueHandle,
         slot: WorkspaceSlot,
-        fresh: &dyn Fn(OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError>,
+        check_allocation: &dyn Fn(OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError>,
     ) -> Result<(), CudaAlgebraError> {
         let (calls, handle) = (device_session.calls(), device_session.handle());
         let held = self.device[index].map_or(0, |(_, size)| size);
@@ -128,7 +135,7 @@ impl Scratch {
                 maximum: free,
             });
         }
-        let grown = fresh(calls.allocate(bytes)?)?;
+        let grown = check_allocation(calls.allocate(bytes)?)?;
         let previous = self.device[index].replace((grown, bytes));
         let lent = size_i64(bytes)
             .and_then(|size| calls.set_workspace(handle, workspace, slot, grown, size));
