@@ -62,6 +62,8 @@ pub(super) enum Defect {
     FactorLeftOnTheLeavingSite,
     /// A move fails.
     MoveFails,
+    /// A split or a move zeroes its left input.
+    InputsOverwritten,
 }
 
 /// The reference algebra with `defect`, or with none.
@@ -84,6 +86,13 @@ impl DefectiveAlgebra {
 
     fn has(&self, defect: Defect) -> bool {
         self.defect == Some(defect)
+    }
+
+    /// Zeroes `input` if the defect is [`Defect::InputsOverwritten`].
+    fn overwrite_if_defective(&self, input: &DefectiveTensor) {
+        if self.has(Defect::InputsOverwritten) {
+            input.0.borrow_mut().fill(Complex64::ZERO);
+        }
     }
 
     /// The reference algebra's split of `call` at another cap and cutoff.
@@ -201,6 +210,7 @@ impl SiteAlgebra for DefectiveAlgebra {
             _ => {}
         }
         let mut outcome = Self::split_at(call, gate, max_extent, cutoff, centre)?;
+        self.overwrite_if_defective(call.left);
         let rows = 2 * call.left_extent;
         let cols = 2 * call.right_extent;
         match self.defect {
@@ -281,6 +291,7 @@ impl SiteAlgebra for DefectiveAlgebra {
         let mut outcome = CpuAlgebra
             .qr_move(&inner)
             .expect("the reference algebra's moves never fail");
+        self.overwrite_if_defective(call.left);
         let k = outcome.bond;
         match self.defect {
             Some(Defect::TruncatingMove) if k > 1 => {

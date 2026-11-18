@@ -30,7 +30,13 @@ fn every_failing_case_is_reported() {
     let cases: Vec<_> = failures.iter().map(|failure| failure.case).collect();
     assert_eq!(
         cases,
-        ["duplicate", "move product", "move bond", "move isometry"],
+        [
+            "duplicate",
+            "move product",
+            "move bond",
+            "move isometry",
+            "move inputs unchanged"
+        ],
         "{failures:#?}"
     );
 }
@@ -102,6 +108,11 @@ fn split_tie_catches_a_tie_taken_one_way_and_reported_the_other() {
 }
 
 #[test]
+fn split_inputs_unchanged_catches_an_overwritten_input() {
+    caught_by("split inputs unchanged", &[Defect::InputsOverwritten]);
+}
+
+#[test]
 fn move_product_catches_a_truncating_move_and_a_gate_on_the_wrong_site() {
     caught_by(
         "move product",
@@ -117,6 +128,11 @@ fn move_bond_catches_the_pairs_bond_reported_unchanged() {
 #[test]
 fn move_isometry_catches_a_factor_left_on_the_leaving_site() {
     caught_by("move isometry", &[Defect::FactorLeftOnTheLeavingSite]);
+}
+
+#[test]
+fn move_inputs_unchanged_catches_an_overwritten_input() {
+    caught_by("move inputs unchanged", &[Defect::InputsOverwritten]);
 }
 
 /// The kit's failures on the reference algebra with `defect`.

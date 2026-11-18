@@ -37,6 +37,9 @@
 //!   and on bonds larger than the side of the site the centre leaves,
 //!   with and without a gate, either way.
 //!
+//! Each split and each move reads its input tensors back too, and a case
+//! of each method checks they are unchanged.
+//!
 //! An error on any call is a failure of its case: the kit makes only the
 //! calls the contract allows. The latitude the contract leaves is not
 //! checked: a bond larger than the cutoff needs, and the side of a tie a
@@ -72,7 +75,7 @@ pub fn check<A: SiteAlgebra>(algebra: &A) -> Vec<Failure> {
 }
 
 /// The kit's cases, in the order [`check`] runs them.
-fn cases<A: SiteAlgebra>() -> [Case<A>; 13] {
+fn cases<A: SiteAlgebra>() -> [Case<A>; 15] {
     [
         ("upload and read", storage::upload_and_read),
         ("duplicate", storage::duplicate),
@@ -84,9 +87,11 @@ fn cases<A: SiteAlgebra>() -> [Case<A>; 13] {
         ("split share", gate_split::share),
         ("split cutoff of zero", gate_split::cutoff_of_zero),
         ("split tie", gate_split::tie),
+        ("split inputs unchanged", gate_split::inputs_unchanged),
         ("move product", qr_move::product),
         ("move bond", qr_move::bond),
         ("move isometry", qr_move::isometry),
+        ("move inputs unchanged", qr_move::inputs_unchanged),
     ]
 }
 
