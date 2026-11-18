@@ -15,6 +15,10 @@
 //! CUDA host), so that the fake is checked to refuse what the library
 //! refuses. The other cases run on the fake alone, each table saying why:
 //! on a GPU their misuse is undefined behaviour or goes undetected.
+//!
+//! A table makes its objects through a `Device`, which releases them when
+//! dropped, so that a leak check of the GPU run reports none of the
+//! tables' own.
 
 use crate::engine::{
     CudaAlgebraError,
@@ -267,11 +271,7 @@ fn an_svd_cutoff_outside_zero_to_one_is_refused() {
 /// per mode.
 fn a_tensor_descriptor_needs_one_extent_per_mode<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     let device = new();
-    let create = |extents: &[i64], modes: &[i32]| {
-        device
-            .calls
-            .create_tensor_descriptor(device.handle, TensorModes { extents, modes })
-    };
+    let create = |extents: &[i64], modes: &[i32]| device.descriptor(TensorModes { extents, modes });
     create(&[2, 3], &[1]).expect_err("two extents for one mode");
     create(&[2, 3], &[1, 2]).expect("an extent for each mode");
 }
@@ -281,13 +281,10 @@ fn a_tensor_descriptor_needs_one_extent_per_mode<C: TestedCalls>(new: &dyn Fn() 
 fn a_tensor_descriptor_refuses_an_extent_below_one<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     let device = new();
     let create = |extents: &[i64]| {
-        device.calls.create_tensor_descriptor(
-            device.handle,
-            TensorModes {
-                extents,
-                modes: &[1, 2],
-            },
-        )
+        device.descriptor(TensorModes {
+            extents,
+            modes: &[1, 2],
+        })
     };
     create(&[2, 0]).expect_err("the second mode has extent 0");
     create(&[2, 1]).expect("every extent is at least 1");
@@ -298,13 +295,10 @@ fn a_tensor_descriptor_refuses_an_extent_below_one<C: TestedCalls>(new: &dyn Fn(
 fn a_tensor_descriptor_refuses_a_repeated_mode<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     let device = new();
     let create = |modes: &[i32]| {
-        device.calls.create_tensor_descriptor(
-            device.handle,
-            TensorModes {
-                extents: &[2, 2, 2],
-                modes,
-            },
-        )
+        device.descriptor(TensorModes {
+            extents: &[2, 2, 2],
+            modes,
+        })
     };
     create(&[1, 2, 1]).expect_err("the label 1 names two modes");
     create(&[1, 2, 3]).expect("every label names one mode");
@@ -555,20 +549,14 @@ fn a_gate_split_keeps_a_label_of_the_gate_alone_on_either_side<C: TestedCalls>(
 /// 1.
 fn a_gate_split_takes_modes_of_extent_one<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     let device = new();
-    let config = device
-        .calls
-        .create_svd_config(device.handle)
-        .expect("the handle is live");
+    let config = device.svd_config().expect("the handle is live");
     for setting in ALGEBRA_SETTINGS {
         device
             .calls
             .configure_svd(device.handle, config, setting)
             .expect("the setting is in range");
     }
-    let info = device
-        .calls
-        .create_svd_info(device.handle)
-        .expect("the handle is live");
+    let info = device.svd_info().expect("the handle is live");
     let a_value = Complex64::new(1.0, 2.0);
     let b_value = Complex64::new(0.5, -0.5);
     let gate_value = Complex64::new(-1.0, 0.25);
@@ -651,13 +639,11 @@ fn a_contraction_needs_an_optimized_path<C: TestedCalls>(new: &dyn Fn() -> Devic
     let device = new();
     device.lend(WorkspaceSlot::DeviceScratch);
     let (calls, handle, workspace) = (&*device.calls, device.handle, device.workspace);
-    let network = calls
-        .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
+    let network = device
+        .network(DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
         .expect("the labels are consistent")
         .descriptor;
-    let info = calls
-        .create_optimizer_info(handle, network)
-        .expect("the network is live");
+    let info = device.optimizer_info(network).expect("the network is live");
     calls
         .contraction_workspace_sizes(handle, network, info, workspace)
         .expect_err("the path is not optimized");
@@ -685,13 +671,11 @@ fn a_contraction_is_prepared_in_a_workspace_sized_for_its_path<C: TestedCalls>(
     let device = new();
     device.lend(WorkspaceSlot::DeviceScratch);
     let (calls, handle, workspace) = (&*device.calls, device.handle, device.workspace);
-    let network = calls
-        .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
+    let network = device
+        .network(DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
         .expect("the labels are consistent")
         .descriptor;
-    let info = calls
-        .create_optimizer_info(handle, network)
-        .expect("the network is live");
+    let info = device.optimizer_info(network).expect("the network is live");
     calls
         .optimize_contraction(handle, network, 1 << 20, info)
         .expect("the info is the network's");
@@ -810,12 +794,10 @@ fn a_contraction_needs_a_network_prepared_for_its_path<C: TestedCalls>(
 fn a_contraction_output_label_must_be_an_input_label<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     let device = new();
     device
-        .calls
-        .create_contraction_network(device.handle, DOT_PRODUCT_INPUTS, &[2])
+        .network(DOT_PRODUCT_INPUTS, &[2])
         .expect_err("no input has the label 2");
     device
-        .calls
-        .create_contraction_network(device.handle, DOT_PRODUCT_INPUTS, &[1])
+        .network(DOT_PRODUCT_INPUTS, &[1])
         .expect("both inputs have the label 1");
 }
 
@@ -833,12 +815,10 @@ fn a_contraction_label_has_one_extent<C: TestedCalls>(new: &dyn Fn() -> Device<C
         ]
     };
     device
-        .calls
-        .create_contraction_network(device.handle, inputs(&[3]), &[])
+        .network(inputs(&[3]), &[])
         .expect_err("the label 1 has the extents 2 and 3");
     device
-        .calls
-        .create_contraction_network(device.handle, inputs(&[2]), &[])
+        .network(inputs(&[2]), &[])
         .expect("the label 1 has the extent 2 in both inputs");
 }
 
@@ -846,10 +826,7 @@ fn a_contraction_label_has_one_extent<C: TestedCalls>(new: &dyn Fn() -> Device<C
 /// devices `new` makes.
 fn an_svd_cutoff_outside_zero_to_one_is_refused_on<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     let device = new();
-    let config = device
-        .calls
-        .create_svd_config(device.handle)
-        .expect("the handle is live");
+    let config = device.svd_config().expect("the handle is live");
     let configure = |cutoff| {
         device.calls.configure_svd(
             device.handle,
@@ -993,6 +970,7 @@ fn a_gate_split_needs_a_live_singular_values_buffer() {
         .calls
         .free(split.operands.singular_values)
         .expect("the buffer is live");
+    split.device.disown(split.operands.singular_values);
     split
         .split()
         .expect_err("the singular values' buffer is freed");
@@ -1009,10 +987,13 @@ fn a_gate_split_needs_a_live_singular_values_buffer() {
 /// SVD config of another handle is caught on the fake.
 fn a_gate_split_is_sized_under_a_config_of_its_handle() {
     let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]));
-    let fake = &split.device.calls;
-    let other_handle = fake.create_handle().expect("the fake has a device");
-    let foreign = fake
-        .create_svd_config(other_handle)
+    let other_handle = split
+        .device
+        .another_handle()
+        .expect("the fake has a device");
+    let foreign = split
+        .device
+        .svd_config_on(other_handle)
         .expect("the other handle is live");
     split
         .size_under(foreign)
@@ -1053,9 +1034,10 @@ fn a_contraction_workspace_is_sized_with_an_info_of_its_network() {
 fn a_tensor_call_refuses_an_object_of_another_handle() {
     let device = fake();
     let (fake, handle) = (&*device.calls, device.handle);
-    let other_handle = fake.create_handle().expect("the fake has a device");
+    let other_handle = device.another_handle().expect("the fake has a device");
     let descriptor = |handle, extents: &[i64], modes: &[i32]| {
-        fake.create_tensor_descriptor(handle, TensorModes { extents, modes })
+        device
+            .descriptor_on(handle, TensorModes { extents, modes })
             .expect("the extents and modes match")
     };
     let q = descriptor(handle, &[2, 2], &[1, 3]);
@@ -1081,6 +1063,8 @@ fn a_network_outlives_its_optimizer_infos() {
         .expect("the info is live");
     fake.destroy_contraction_network(contraction.network.descriptor)
         .expect("nothing of the network is live");
+    contraction.device.disown(contraction.info);
+    contraction.device.disown(contraction.network.descriptor);
 }
 
 /// cuTensorNet's optimizer may find another path at each search, even into
@@ -1124,13 +1108,13 @@ fn a_new_path_search_needs_every_workspace_sized_again() {
     let device = &contraction.device;
     let (fake, handle) = (&*device.calls, device.handle);
     let network = contraction.network.descriptor;
-    let second = fake.create_workspace(handle).expect("the handle is live");
+    let second = device.another_workspace().expect("the handle is live");
     fake.contraction_workspace_sizes(handle, network, contraction.info, second)
         .expect("the path is optimized");
     let bytes = fake
         .workspace_size(handle, second, WorkspaceSlot::DeviceScratch)
         .expect("the workspace is live");
-    let memory = fake
+    let memory = device
         .allocate(usize::try_from(bytes).expect("a size is not negative"))
         .expect("the fake has memory");
     fake.set_workspace(handle, second, WorkspaceSlot::DeviceScratch, memory, bytes)
@@ -1192,10 +1176,7 @@ fn a_path_search_keeps_the_sizing_for_another_network() {
 fn a_gate_split_needs_a_workspace_sized_for_its_config() {
     let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]));
     let device = &split.device;
-    let other = device
-        .calls
-        .create_svd_config(device.handle)
-        .expect("the handle is live");
+    let other = device.svd_config().expect("the handle is live");
     for setting in ALGEBRA_SETTINGS {
         device
             .calls
@@ -1219,14 +1200,10 @@ fn a_gate_split_needs_a_workspace_sized_for_its_descriptors() {
     let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]));
     let (device, operands) = (&split.device, &split.operands);
     let same_shape_as_u = device
-        .calls
-        .create_tensor_descriptor(
-            device.handle,
-            TensorModes {
-                extents: &[2, 2],
-                modes: &[P_OUT, S],
-            },
-        )
+        .descriptor(TensorModes {
+            extents: &[2, 2],
+            modes: &[P_OUT, S],
+        })
         .expect("the extents and modes match");
     device
         .calls
@@ -1320,7 +1297,7 @@ fn a_contraction_needs_a_workspace_sized_for_its_path() {
 fn a_copy_to_the_host_needs_the_writing_stream_synchronized() {
     let contraction = Contraction::dot_product(fake());
     let device = &contraction.device;
-    let other_stream = device.calls.create_stream().expect("the fake has a device");
+    let other_stream = device.another_stream().expect("the fake has a device");
     contraction.contract().expect("the network is prepared");
     let mut output = [Complex64Abi::default()];
     device
@@ -1453,7 +1430,7 @@ fn every_output_of_a_tensor_call_is_read_once_its_stream_is_synchronized() {
 fn a_buffer_is_freed_once_every_stream_is_synchronized() {
     let contraction = Contraction::dot_product(fake());
     let device = &contraction.device;
-    let second = device.calls.create_stream().expect("the fake has a device");
+    let second = device.another_stream().expect("the fake has a device");
     let second_output = device.zeros(&[]);
     device
         .calls
@@ -1483,6 +1460,7 @@ fn a_buffer_is_freed_once_every_stream_is_synchronized() {
         .calls
         .free(contraction.inputs[0])
         .expect("every stream is synchronized");
+    device.disown(contraction.inputs[0]);
 }
 
 /// cuTensorNet writes a gate split's report on the split's stream: a
@@ -1491,7 +1469,7 @@ fn a_buffer_is_freed_once_every_stream_is_synchronized() {
 fn an_svd_info_is_read_once_its_writing_stream_is_synchronized() {
     let split = GateSplit::of(matrix([[3.0, 0.0], [0.0, 1.0]]));
     let device = &split.device;
-    let other_stream = device.calls.create_stream().expect("the fake has a device");
+    let other_stream = device.another_stream().expect("the fake has a device");
     split.size(split.config);
     split
         .run(split.config, device.stream)
@@ -1552,7 +1530,7 @@ fn a_read_waits_only_for_the_stream_that_wrote_it() {
         )
         .expect("the descriptors are live");
     device.lend(WorkspaceSlot::DeviceScratch);
-    let qr_stream = device.calls.create_stream().expect("the fake has a device");
+    let qr_stream = device.another_stream().expect("the fake has a device");
     device
         .calls
         .tensor_qr(device.handle, input, q, r, device.workspace, qr_stream)
@@ -1579,7 +1557,7 @@ fn a_read_waits_only_for_the_stream_that_wrote_it() {
 fn a_read_waits_for_the_last_stream_that_wrote_it() {
     let contraction = Contraction::dot_product(fake());
     let device = &contraction.device;
-    let second = device.calls.create_stream().expect("the fake has a device");
+    let second = device.another_stream().expect("the fake has a device");
     contraction.contract().expect("the first write");
     contraction.contract_on(second).expect("the second write");
     device
@@ -1609,7 +1587,7 @@ fn a_read_waits_for_the_last_stream_that_wrote_it() {
 fn a_free_waits_only_for_the_last_writer_of_each_pending_write() {
     let contraction = Contraction::dot_product(fake());
     let device = &contraction.device;
-    let second = device.calls.create_stream().expect("the fake has a device");
+    let second = device.another_stream().expect("the fake has a device");
     contraction.contract().expect("the first write");
     contraction.contract_on(second).expect("the second write");
     device
@@ -1620,6 +1598,7 @@ fn a_free_waits_only_for_the_last_writer_of_each_pending_write() {
         .calls
         .free(contraction.inputs[0])
         .expect("the first stream is no longer the output's recorded writer");
+    device.disown(contraction.inputs[0]);
 }
 
 /// CUDA lets a stream's work run on after `cudaStreamDestroy`: a caller
@@ -1650,6 +1629,7 @@ fn a_destroyed_stream_keeps_its_writes_pending() {
         .calls
         .free(contraction.inputs[0])
         .expect_err("the destroyed stream's work may still run");
+    device.disown_buffers();
 }
 
 /// A stream is synchronized while it exists: a caller that synchronizes one
@@ -1698,6 +1678,28 @@ fn a_tensor_call_runs_on_a_live_stream() {
     contraction
         .contract()
         .expect("the contraction's stream is live");
+}
+
+/// The tables in `on_the_gpu` run under a leak check on a CUDA host: each
+/// releases every object its devices make, so that a leak reported there
+/// is not the tables' own.
+#[test]
+fn the_gpu_tables_release_every_object_they_make() {
+    let tables: [fn(&dyn Fn() -> Device); 8] = [
+        a_workspace_slot_is_lent_what_it_asks_on,
+        a_malformed_descriptor_is_refused_on,
+        a_factorizations_bond_is_at_most_its_smaller_side_on,
+        a_gate_split_takes_only_its_topologys_labels_on,
+        a_qr_splits_its_input_modes_between_its_two_factors_on,
+        a_contraction_follows_its_steps_in_order_on,
+        a_contractions_labels_are_consistent_on,
+        an_svd_cutoff_outside_zero_to_one_is_refused_on,
+    ];
+    for (at, table) in tables.into_iter().enumerate() {
+        let fake = Arc::new(FakeLibraries::new());
+        table(&|| Device::on(Arc::clone(&fake)));
+        assert_eq!(fake.live_objects(), 0, "the table at {at} leaves objects");
+    }
 }
 
 /// The tables that run on a GPU, on cuTensorNet: a case the fake refuses
@@ -1804,14 +1806,81 @@ fn refused_for<C: TestedCalls>(refused: &CudaAlgebraError, reason: &str) -> bool
 }
 
 /// What every tensor call needs: a handle, a stream and a workspace, made
-/// through `calls`.
-struct Device<C = FakeLibraries> {
+/// through `calls`. The device owns every object it makes, and releases
+/// them when dropped, once its streams are synchronized, so that a table
+/// leaves nothing live for the GPU run's leak check to report.
+struct Device<C: TestedCalls = FakeLibraries> {
     calls: Arc<C>,
     handle: OpaqueHandle,
     stream: Stream,
     workspace: OpaqueHandle,
+    /// Every object the device made and the test did not release itself.
+    owned: RefCell<Vec<(NativeObject, OpaqueHandle)>>,
     /// The host memory lent to host slots, kept as long as the device.
     host_memory: RefCell<Vec<Vec<u8>>>,
+}
+
+/// The kinds of native object a [`Device`] owns, in the order it releases
+/// them: what refers to another object before it (an optimizer info
+/// before its network), the objects of a handle before the handle, and a
+/// workspace before the memory lent to it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum NativeObject {
+    SvdInfo,
+    SvdConfig,
+    OptimizerInfo,
+    Network,
+    TensorDescriptor,
+    Workspace,
+    Buffer,
+    Stream,
+    Handle,
+}
+
+impl NativeObject {
+    /// Releases `object`, of this kind, through `calls`.
+    fn release(
+        self,
+        calls: &impl NativeCalls,
+        object: OpaqueHandle,
+    ) -> Result<(), CudaAlgebraError> {
+        match self {
+            Self::SvdInfo => calls.destroy_svd_info(object),
+            Self::SvdConfig => calls.destroy_svd_config(object),
+            Self::OptimizerInfo => calls.destroy_optimizer_info(object),
+            Self::Network => calls.destroy_contraction_network(object),
+            Self::TensorDescriptor => calls.destroy_tensor_descriptor(object),
+            Self::Workspace => calls.destroy_workspace(object),
+            Self::Buffer => calls.free(object),
+            Self::Stream => calls.destroy_stream(object),
+            Self::Handle => calls.destroy_handle(object),
+        }
+    }
+}
+
+impl<C: TestedCalls> Drop for Device<C> {
+    /// Synchronizes the device's streams and copies, then releases what it
+    /// owns; a release refused fails the test, unless it already failed.
+    fn drop(&mut self) {
+        let mut owned = std::mem::take(self.owned.get_mut());
+        owned.sort_by_key(|&(kind, _)| kind);
+        let calls = &*self.calls;
+        let mut refused = Vec::new();
+        let streams = owned
+            .iter()
+            .filter(|(kind, _)| *kind == NativeObject::Stream);
+        for &(_, stream) in streams {
+            refused.extend(calls.synchronize_stream(stream).err());
+        }
+        refused.extend(calls.synchronize_copies().err());
+        for (kind, object) in owned {
+            refused.extend(kind.release(calls, object).err());
+        }
+        assert!(
+            refused.is_empty() || std::thread::panicking(),
+            "the device releases every object it made: {refused:?}"
+        );
+    }
 }
 
 /// A device on new fake libraries.
@@ -1837,14 +1906,115 @@ impl<C: TestedCalls> Device<C> {
             handle,
             stream,
             workspace,
+            owned: RefCell::new(vec![
+                (NativeObject::Handle, handle),
+                (NativeObject::Stream, stream),
+                (NativeObject::Workspace, workspace),
+            ]),
             host_memory: RefCell::default(),
         }
+    }
+
+    /// Owns `object`, of `kind`, until the device is dropped.
+    fn own(&self, kind: NativeObject, object: OpaqueHandle) -> OpaqueHandle {
+        self.owned.borrow_mut().push((kind, object));
+        object
+    }
+
+    /// Gives up `object`, which the test released itself.
+    fn disown(&self, object: OpaqueHandle) {
+        self.owned
+            .borrow_mut()
+            .retain(|&(_, owned)| owned != object);
+    }
+
+    /// Gives up every buffer, which the fake refuses to free for good once
+    /// a destroyed stream holds writes pending.
+    fn disown_buffers(&self) {
+        self.owned
+            .borrow_mut()
+            .retain(|&(kind, _)| kind != NativeObject::Buffer);
+    }
+
+    /// A handle beside the device's, owned.
+    fn another_handle(&self) -> Result<OpaqueHandle, CudaAlgebraError> {
+        let handle = self.calls.create_handle()?;
+        Ok(self.own(NativeObject::Handle, handle))
+    }
+
+    /// A stream beside the device's, owned.
+    fn another_stream(&self) -> Result<Stream, CudaAlgebraError> {
+        let stream = self.calls.create_stream()?;
+        Ok(self.own(NativeObject::Stream, stream))
+    }
+
+    /// A workspace of the device's handle beside its own, owned.
+    fn another_workspace(&self) -> Result<OpaqueHandle, CudaAlgebraError> {
+        let workspace = self.calls.create_workspace(self.handle)?;
+        Ok(self.own(NativeObject::Workspace, workspace))
+    }
+
+    /// A device allocation of `bytes`, owned.
+    fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, CudaAlgebraError> {
+        let buffer = self.calls.allocate(bytes)?;
+        Ok(self.own(NativeObject::Buffer, buffer))
+    }
+
+    /// A tensor descriptor of `modes` on the device's handle, owned.
+    fn descriptor(&self, modes: TensorModes<'_>) -> Result<OpaqueHandle, CudaAlgebraError> {
+        self.descriptor_on(self.handle, modes)
+    }
+
+    /// A tensor descriptor of `modes` on `handle`, owned.
+    fn descriptor_on(
+        &self,
+        handle: OpaqueHandle,
+        modes: TensorModes<'_>,
+    ) -> Result<OpaqueHandle, CudaAlgebraError> {
+        let descriptor = self.calls.create_tensor_descriptor(handle, modes)?;
+        Ok(self.own(NativeObject::TensorDescriptor, descriptor))
+    }
+
+    /// An SVD config on the device's handle, owned.
+    fn svd_config(&self) -> Result<OpaqueHandle, CudaAlgebraError> {
+        self.svd_config_on(self.handle)
+    }
+
+    /// An SVD config on `handle`, owned.
+    fn svd_config_on(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError> {
+        let config = self.calls.create_svd_config(handle)?;
+        Ok(self.own(NativeObject::SvdConfig, config))
+    }
+
+    /// An SVD info on the device's handle, owned.
+    fn svd_info(&self) -> Result<OpaqueHandle, CudaAlgebraError> {
+        let info = self.calls.create_svd_info(self.handle)?;
+        Ok(self.own(NativeObject::SvdInfo, info))
+    }
+
+    /// The contraction network of `inputs` into `output_modes` on the
+    /// device's handle, owned.
+    fn network(
+        &self,
+        inputs: [TensorModes<'_>; 2],
+        output_modes: &[i32],
+    ) -> Result<ContractionNetwork, CudaAlgebraError> {
+        let network = self
+            .calls
+            .create_contraction_network(self.handle, inputs, output_modes)?;
+        self.own(NativeObject::Network, network.descriptor);
+        Ok(network)
+    }
+
+    /// An optimizer info of `network` on the device's handle, owned.
+    fn optimizer_info(&self, network: OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError> {
+        let info = self.calls.create_optimizer_info(self.handle, network)?;
+        Ok(self.own(NativeObject::OptimizerInfo, info))
     }
 
     /// A device buffer holding `values`, once the copies are synchronized.
     fn buffer(&self, values: &[Complex64]) -> OpaqueHandle {
         let buffer = self
-            .calls
             .allocate(values.len() * size_of::<Complex64Abi>())
             .expect("the device has memory");
         self.load(buffer, values);
@@ -1863,8 +2033,7 @@ impl<C: TestedCalls> Device<C> {
     fn operand(&self, extents: &[i64], modes: &[i32], values: &[Complex64]) -> TensorOperand {
         TensorOperand {
             descriptor: self
-                .calls
-                .create_tensor_descriptor(self.handle, TensorModes { extents, modes })
+                .descriptor(TensorModes { extents, modes })
                 .expect("the extents and modes match"),
             data: self.buffer(values),
         }
@@ -1907,7 +2076,7 @@ impl<C: TestedCalls> Device<C> {
         let size = usize::try_from(bytes).expect("a size is not negative");
         let memory = match slot {
             WorkspaceSlot::DeviceScratch | WorkspaceSlot::DeviceCache => {
-                self.calls.allocate(size).expect("the device has memory")
+                self.allocate(size).expect("the device has memory")
             }
             WorkspaceSlot::HostScratch | WorkspaceSlot::HostCache => self.host(size),
         };
@@ -1947,7 +2116,7 @@ impl<C: TestedCalls> Device<C> {
 }
 
 /// A contraction of two tensors: its device, network and buffers.
-struct Contraction<C = FakeLibraries> {
+struct Contraction<C: TestedCalls = FakeLibraries> {
     device: Device<C>,
     network: ContractionNetwork,
     info: OpaqueHandle,
@@ -1965,18 +2134,18 @@ impl<C: TestedCalls> Contraction<C> {
         data: [&[Complex64]; 2],
         output: TensorModes<'_>,
     ) -> Self {
-        let (calls, handle) = (&device.calls, device.handle);
-        let network = calls
-            .create_contraction_network(handle, inputs, output.modes)
+        let calls = &device.calls;
+        let network = device
+            .network(inputs, output.modes)
             .expect("the labels are consistent");
-        let info = calls
-            .create_optimizer_info(handle, network.descriptor)
+        let info = device
+            .optimizer_info(network.descriptor)
             .expect("the network is live");
         calls
-            .optimize_contraction(handle, network.descriptor, 1 << 20, info)
+            .optimize_contraction(device.handle, network.descriptor, 1 << 20, info)
             .expect("the info is the network's");
         calls
-            .contraction_workspace_sizes(handle, network.descriptor, info, device.workspace)
+            .contraction_workspace_sizes(device.handle, network.descriptor, info, device.workspace)
             .expect("the path is optimized");
         let inputs = [device.buffer(data[0]), device.buffer(data[1])];
         let output = device.zeros(output.extents);
@@ -2072,13 +2241,11 @@ fn two_networks<C: TestedCalls>(
 ) -> [(OpaqueHandle, OpaqueHandle); 2] {
     let (calls, handle) = (&device.calls, device.handle);
     [(); 2].map(|()| {
-        let network = calls
-            .create_contraction_network(handle, DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
+        let network = device
+            .network(DOT_PRODUCT_INPUTS, DOT_PRODUCT_OUTPUT.modes)
             .expect("the labels are consistent")
             .descriptor;
-        let info = calls
-            .create_optimizer_info(handle, network)
-            .expect("the network is live");
+        let info = device.optimizer_info(network).expect("the network is live");
         if optimized {
             calls
                 .optimize_contraction(handle, network, 1 << 20, info)
@@ -2115,7 +2282,7 @@ const ALGEBRA_SETTINGS: [SvdSetting; 4] = [
 /// extent 1, so the product θ[p', q'] is the gate's first column
 /// G[p', q', 0, 0], a 2×2 matrix, which U and V factor at a shared extent
 /// of 2.
-struct GateSplit<C = FakeLibraries> {
+struct GateSplit<C: TestedCalls = FakeLibraries> {
     device: Device<C>,
     config: OpaqueHandle,
     info: OpaqueHandle,
@@ -2134,20 +2301,14 @@ impl<C: TestedCalls> GateSplit<C> {
     /// settings ([`ALGEBRA_SETTINGS`]).
     fn on(device: Device<C>, theta: [Complex64; 4]) -> Self {
         let (one, zero) = (Complex64::new(1.0, 0.0), Complex64::default());
-        let config = device
-            .calls
-            .create_svd_config(device.handle)
-            .expect("the handle is live");
+        let config = device.svd_config().expect("the handle is live");
         for setting in ALGEBRA_SETTINGS {
             device
                 .calls
                 .configure_svd(device.handle, config, setting)
                 .expect("the setting is in range");
         }
-        let info = device
-            .calls
-            .create_svd_info(device.handle)
-            .expect("the handle is live");
+        let info = device.svd_info().expect("the handle is live");
         let operands = GateSplitOperands {
             a: device.operand(&[2, 1], &[P, BOND], &[one, zero]),
             b: device.operand(&[1, 2], &[BOND, Q], &[one, zero]),
@@ -2287,7 +2448,7 @@ const QR_J: i32 = 3;
 /// A QR of T[i, k, j] (2×2×3) into Q[k, s, i] and R[j, s], whose
 /// descriptors list the modes in another order than the input's: the
 /// matrix's rows are (i, k), its columns j, and Q and R share an extent.
-struct TensorQr<C = FakeLibraries> {
+struct TensorQr<C: TestedCalls = FakeLibraries> {
     device: Device<C>,
     input: TensorOperand,
     q: TensorOperand,
