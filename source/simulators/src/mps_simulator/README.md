@@ -191,8 +191,10 @@ in [the design notes](design.md#the-calls-of-each-phase).
 
 The public types, each linked to the file that says how it works:
 
-- [`MpsResumer`](../mps_simulator.rs): the resumer, its setting
-  (`with_max_bond_dimension`).
+- [`MpsResumer`](../mps_simulator.rs): the resumer, its settings
+  (`with_max_bond_dimension`, and `with_stop_flag`, a flag that stops a
+  run between batches, for a user's interrupt: a program that is one batch
+  (Base profile) runs all its gates before the flag is read).
 - [`MpsRunReport`, `TruncationWarning`](run_report.rs): the
   [report](#terms) and its warning.
 - [`MpsResumerError`](error.rs): why a shot failed, apart
