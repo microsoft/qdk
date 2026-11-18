@@ -3,6 +3,17 @@
 Tooling for running the Copilot CLI in a sandbox container.
 The sandbox provides safeguards intended to make the risk level of using `copilot --allow-all` acceptable, but it's not foolproof - see below.
 
+## Warnings
+
+More details below, but summarizing here for the TL;DR.
+
+1. Any output from the sandbox has to be treated as untrusted - both branches and loose files.
+   1. Be particularly careful with scripts it provides for local repros.
+   2. By default, the loose files it creates are available within the repo itself, which VS Code typically considers trusted. If you're doing something risky, update your configuration to put them in an untrusted folder.
+2. The sandbox infrastructure is in the same repo the sandbox has access to - only run the infrastructure from a trusted branch, preferably `main`.
+3. State is preserved session over session in docker volumes. If you work on something sensitive, you may wish to wipe them (or create a new instance).
+4. A sandbox makes `--allow-all` safer, not safe.
+
 ## Safeguards
 
 ### Networking
