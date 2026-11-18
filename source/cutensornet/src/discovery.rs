@@ -83,9 +83,10 @@ impl fmt::Debug for Availability {
 ///
 /// [`AvailabilityError::UnsupportedPlatform`] off Linux x86-64. Otherwise
 /// [`AvailabilityError::Unusable`] when a library is at fault: its override
-/// is not an absolute path to a file, it is not found or fails to load, it
-/// lacks required functions, a version probe fails, or a version is not the
-/// audited one. Its report lists every fault of every library.
+/// is not an absolute path to a file or cannot be read, it is not found or
+/// fails to load, it lacks required functions, a version probe fails, or a
+/// version is not the audited one. Its report lists every fault of every
+/// library.
 pub fn discover() -> Result<Availability, AvailabilityError> {
     discover_on_this_platform()
 }

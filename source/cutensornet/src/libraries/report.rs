@@ -64,7 +64,7 @@ pub struct Version {
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum LibraryFault {
     /// The library's override variable is not an absolute path to a file
-    /// (a symlink to a file is followed).
+    /// (a symlink to a file is followed), or the path cannot be read.
     #[error("invalid {variable} override {path:?}: {reason}")]
     InvalidOverride {
         variable: &'static str,
@@ -72,7 +72,10 @@ pub enum LibraryFault {
         reason: &'static str,
     },
 
-    /// No file of the library was found at any of its candidate paths.
+    /// No candidate path named a file of the library: an absolute path
+    /// does not exist, and for a bare file name the system loader reported
+    /// no file of that name (glibc reports so too for a file its search
+    /// skipped because it could not use it).
     #[error("not found; attempted {attempted:?}")]
     NotFound { attempted: Vec<PathBuf> },
 

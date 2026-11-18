@@ -66,7 +66,7 @@ use report::LibraryFault;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use report::{LibraryReport, Version};
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
-use std::{ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, io::ErrorKind, path::PathBuf};
 
 /// The loaded libraries, each with its function table.
 ///
@@ -259,7 +259,8 @@ pub(crate) fn candidates<L: NativeLibrary>(
 ///
 /// An override is checked before anything is loaded: it must be an absolute
 /// path to a file, or to a symlink to one, so that a mistyped variable fails
-/// with its name instead of loading another library.
+/// with its name instead of loading another library. A path that cannot be
+/// read is told apart from one that does not exist.
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn validate_override_path(
     variable: &'static str,
@@ -276,10 +277,14 @@ pub(crate) fn validate_override_path(
             reason: "path must be absolute",
         });
     }
-    let metadata = std::fs::metadata(&path).map_err(|_| LibraryFault::InvalidOverride {
+    let metadata = std::fs::metadata(&path).map_err(|error| LibraryFault::InvalidOverride {
         variable,
         path: path.clone(),
-        reason: "path does not exist",
+        reason: match error.kind() {
+            ErrorKind::NotFound | ErrorKind::NotADirectory => "path does not exist",
+            ErrorKind::PermissionDenied => "path cannot be read: permission denied",
+            _ => "path cannot be read",
+        },
     })?;
     if !metadata.is_file() {
         return Err(LibraryFault::InvalidOverride {
