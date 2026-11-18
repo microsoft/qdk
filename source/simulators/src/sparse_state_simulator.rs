@@ -349,11 +349,11 @@ impl SparseStateSim {
     ///
     /// This function will panic if the given identifier does not correspond to an allocated qubit.
     #[must_use]
-    pub fn measure_single_qubit(&mut self, id: usize, pauli: MeasurementBasis) -> bool {
+    pub fn measure_single_qubit(&mut self, id: usize, basis: MeasurementBasis) -> bool {
         let mut flip_res = false;
         let mut change_basis = true;
 
-        match pauli {
+        match basis {
             MeasurementBasis::Z => self.measure(id),
             MeasurementBasis::X => {
                 let ry = self.ry_queue.get(id).copied();
@@ -429,9 +429,9 @@ impl SparseStateSim {
         &mut self,
         q0: usize,
         q1: usize,
-        bases: JointMeasurementBasis,
+        basis: JointMeasurementBasis,
     ) -> bool {
-        match bases {
+        match basis {
             JointMeasurementBasis::XX => {
                 self.h(q0);
                 self.h(q1);

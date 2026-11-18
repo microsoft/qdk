@@ -2104,6 +2104,10 @@ impl<'a> PartialEvaluator<'a> {
             "__quantum__qis__mresetz__body" => {
                 Ok(self.measure_qubit(builder::mresetz_decl(), &args_value))
             }
+            // "__quantum__qis__mxx__body" => ,
+            // "__quantum__qis__myy__body" => ,
+            // "__quantum__qis__mzz__body" => ,
+            // "__quantum__qis__mzy__body" => ,
             "IsResourceEstimating" => Ok(Value::Bool(false)),
             // The following intrinsic operations and functions are no-ops.
             "BeginEstimateCaching" => Ok(Value::Bool(true)),

@@ -230,16 +230,18 @@ operation IsLossResult(res : Result) : Bool {
 }
 
 /// # Summary
-/// Jointly measures two qubits in the Pauli X basis.
+/// Jointly measures two qubits in the `X ⊗ X` basis.
 ///
 /// # Description
-/// Measures two qubits in the `X ⊗ X` basis.
+/// Measures the observable `X ⊗ X` on two qubits.
 /// This operation does not reset the measured qubits to the |0⟩ state,
 /// leaving them in the state that corresponds to the measurement result.
 ///
 /// # Input
-/// ## register
-/// The register of two qubits to be jointly measured.
+/// ## target_1
+/// The first qubit to be jointly measured.
+/// ## target_2
+/// The second qubit to be jointly measured.
 ///
 /// # Output
 /// The result of measuring in the `X ⊗ X` basis.
@@ -251,16 +253,18 @@ operation MXX(target_1 : Qubit, target_2 : Qubit) : Result {
 }
 
 /// # Summary
-/// Jointly measures two qubits in the Pauli Y basis.
+/// Jointly measures two qubits in the `Y ⊗ Y` basis.
 ///
 /// # Description
-/// Measures two qubits in the `Y ⊗ Y` basis.
+/// Measures the observable `Y ⊗ Y` on two qubits.
 /// This operation does not reset the measured qubits to the |0⟩ state,
 /// leaving them in the state that corresponds to the measurement result.
 ///
 /// # Input
-/// ## register
-/// The register of two qubits to be jointly measured.
+/// ## target_1
+/// The first qubit to be jointly measured.
+/// ## target_2
+/// The second qubit to be jointly measured.
 ///
 /// # Output
 /// The result of measuring in the `Y ⊗ Y` basis.
@@ -272,16 +276,18 @@ operation MYY(target_1 : Qubit, target_2 : Qubit) : Result {
 }
 
 /// # Summary
-/// Jointly measures two qubits in the Pauli Z basis.
+/// Jointly measures two qubits in the `Z ⊗ Z` basis.
 ///
 /// # Description
-/// Measures two qubits in the `Z ⊗ Z` basis.
+/// Measures the observable `Z ⊗ Z` on two qubits.
 /// This operation does not reset the measured qubits to the |0⟩ state,
 /// leaving them in the state that corresponds to the measurement result.
 ///
 /// # Input
-/// ## register
-/// The register of two qubits to be jointly measured.
+/// ## target_1
+/// The first qubit to be jointly measured.
+/// ## target_2
+/// The second qubit to be jointly measured.
 ///
 /// # Output
 /// The result of measuring in the `Z ⊗ Z` basis.
@@ -293,16 +299,18 @@ operation MZZ(target_1 : Qubit, target_2 : Qubit) : Result {
 }
 
 /// # Summary
-/// Jointly measures two qubits in the Pauli Z ⊗ Y basis.
+/// Jointly measures two qubits in the `Z ⊗ Y` basis.
 ///
 /// # Description
-/// Measures two qubits in the `Z ⊗ Y` basis.
+/// Measures the observable `Z ⊗ Y` on two qubits.
 /// This operation does not reset the measured qubits to the |0⟩ state,
 /// leaving them in the state that corresponds to the measurement result.
 ///
 /// # Input
-/// ## register
-/// The register of two qubits to be jointly measured.
+/// ## target_1
+/// The first qubit, subject to `Z` basis, in the joint measurement.
+/// ## target_2
+/// The second qubit, subject to `Y` basis, in the joint measurement.
 ///
 /// # Output
 /// The result of measuring in the `Z ⊗ Y` basis.

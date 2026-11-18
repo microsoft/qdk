@@ -12,6 +12,20 @@ pub enum MeasurementBasis {
     Z,
 }
 
+/// The Pauli basis of a joint measurement of two qubits.
+///
+/// The first letter denotes the basis of the first qubit, and the second
+/// letter denotes the basis of the second qubit. Thus the observable measured
+/// is the tensor product of the two single-qubit Pauli observables.
+/// # Examples
+///
+/// - `XX` measures the observable `X ⊗ X`.
+/// - `ZY` measures the observable `Z ⊗ Y`.
+/// - `ZZ` measures the observable `Z ⊗ Z`.
+/// - `YY` measures the observable `Y ⊗ Y`.
+/// # Panics
+///
+/// This enum has no variants that can cause a panic.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum JointMeasurementBasis {
     XX,

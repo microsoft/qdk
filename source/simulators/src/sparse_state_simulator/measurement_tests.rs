@@ -117,12 +117,12 @@ fn test_measure_single_qubit() {
 /// Measures a Bell pair in each Pauli basis with different combinations of pending H, Rx and Ry.
 #[test]
 fn test_measure_single_qubit_with_bell_pair() {
-    for p1 in [
+    for b1 in [
         MeasurementBasis::Z,
         MeasurementBasis::X,
         MeasurementBasis::Y,
     ] {
-        for p2 in [
+        for b2 in [
             MeasurementBasis::Z,
             MeasurementBasis::X,
             MeasurementBasis::Y,
@@ -130,7 +130,7 @@ fn test_measure_single_qubit_with_bell_pair() {
             // For each combination of `PENDING_GATES`, prepare the Bell pair (|00⟩ + |11⟩)/√2 with each qubit in the
             // eigenbasis of its Pauli in `bases` and the gates pending on both qubits, then check that the two
             // `measure_single_qubit` results agree, are repeatable, and leave each qubit in the matching eigenstate.
-            let bases = [p1, p2];
+            let bases = [b1, b2];
             let mut sim = SparseStateSim::default();
 
             for gates in PENDING_GATES {
@@ -165,7 +165,7 @@ fn test_measure_single_qubit_with_bell_pair() {
 /// Measures in each joint basis with different combinations of pending H, Rx and Ry on both qubits.
 #[test]
 fn test_measure_two_qubits() {
-    for bases in [
+    for basis in [
         JointMeasurementBasis::XX,
         JointMeasurementBasis::YY,
         JointMeasurementBasis::ZZ,
@@ -174,7 +174,7 @@ fn test_measure_two_qubits() {
         // Prepares each product of eigenstates of the single-qubit Paulis in `bases`, leaves each combination of
         // `PENDING_GATES` pending on both qubits, and checks that `measure_two_qubits` returns exactly the parity
         // of the eigenvalues, is repeatable, and leaves both qubits in the same eigenstates.
-        let paulis = match bases {
+        let paulis = match basis {
             JointMeasurementBasis::XX => [MeasurementBasis::X, MeasurementBasis::X],
             JointMeasurementBasis::YY => [MeasurementBasis::Y, MeasurementBasis::Y],
             JointMeasurementBasis::ZZ => [MeasurementBasis::Z, MeasurementBasis::Z],
@@ -196,14 +196,14 @@ fn test_measure_two_qubits() {
                     leave_pending(&mut sim, q, gates);
                 }
                 assert_eq!(
-                    sim.measure_two_qubits(qs[0], qs[1], bases),
+                    sim.measure_two_qubits(qs[0], qs[1], basis),
                     parity,
-                    "{bases:?}, {bits:?}, {gates:?}"
+                    "{basis:?}, {bits:?}, {gates:?}"
                 );
                 assert_eq!(
-                    sim.measure_two_qubits(qs[0], qs[1], bases),
+                    sim.measure_two_qubits(qs[0], qs[1], basis),
                     parity,
-                    "{bases:?}, {bits:?}, {gates:?}"
+                    "{basis:?}, {bits:?}, {gates:?}"
                 );
                 for ((q, pauli), bit) in qs.into_iter().zip(paulis).zip(bits) {
                     assert_eigenstate(&mut sim, q, pauli, bit);

@@ -13,6 +13,10 @@ fn new_sim(num_qubits: usize, num_results: usize, seed: u32) -> FullStateSimulat
     FullStateSimulator::new(num_qubits, num_results, seed, noise)
 }
 
+/// Permutations of bools representing all possible two-qubit states.
+#[cfg(test)]
+const ALL_BITS: [[bool; 2]; 4] = [[false, false], [false, true], [true, false], [true, true]];
+
 #[test]
 fn mx_on_x_eigenstates_is_deterministic() {
     let mut sim = new_sim(2, 2, 0);
@@ -81,4 +85,66 @@ fn mz_on_basis_states_is_deterministic() {
         sim.measurements(),
         [MeasurementResult::Zero, MeasurementResult::One]
     );
+}
+
+/// Prepares `q` in the eigenstate of `pauli` with eigenvalue (-1)^`bit`.
+#[cfg(test)]
+fn prepare_eigenstate(
+    sim: &mut FullStateSimulator,
+    q: QubitID,
+    pauli: MeasurementBasis,
+    bit: bool,
+) {
+    if bit {
+        sim.x(q);
+    }
+    match pauli {
+        MeasurementBasis::Z => {}
+        MeasurementBasis::X => sim.h(q),
+        MeasurementBasis::Y => {
+            sim.h(q);
+            sim.s(q);
+        }
+    }
+}
+
+/// Measures each joint basis on the products of its single-qubit eigenstates.
+#[test]
+fn two_qubit_measurements_on_eigenstates_are_deterministic() {
+    for basis in [
+        JointMeasurementBasis::XX,
+        JointMeasurementBasis::YY,
+        JointMeasurementBasis::ZZ,
+        JointMeasurementBasis::ZY,
+    ] {
+        // Prepares each product of eigenstates of the single-qubit Paulis in `bases`, and checks that the joint
+        // measurement returns exactly the parity of the eigenvalues, is repeatable, and leaves both qubits in the
+        // same eigenstates.
+        let paulis = match basis {
+            JointMeasurementBasis::XX => [MeasurementBasis::X, MeasurementBasis::X],
+            JointMeasurementBasis::YY => [MeasurementBasis::Y, MeasurementBasis::Y],
+            JointMeasurementBasis::ZZ => [MeasurementBasis::Z, MeasurementBasis::Z],
+            JointMeasurementBasis::ZY => [MeasurementBasis::Z, MeasurementBasis::Y],
+        };
+
+        for bits in ALL_BITS {
+            let mut sim = new_sim(2, 2, 0);
+            for (q, (pauli, bit)) in paulis.into_iter().zip(bits).enumerate() {
+                prepare_eigenstate(&mut sim, q, pauli, bit);
+            }
+            for result_id in 0..2 {
+                match basis {
+                    JointMeasurementBasis::XX => sim.mxx(0, 1, result_id),
+                    JointMeasurementBasis::YY => sim.myy(0, 1, result_id),
+                    JointMeasurementBasis::ZZ => sim.mzz(0, 1, result_id),
+                    JointMeasurementBasis::ZY => sim.mzy(0, 1, result_id),
+                }
+            }
+            let parity = match bits[0] ^ bits[1] {
+                false => MeasurementResult::Zero,
+                true => MeasurementResult::One,
+            };
+            assert_eq!(sim.measurements(), [parity, parity], "{basis:?}, {bits:?}");
+        }
+    }
 }

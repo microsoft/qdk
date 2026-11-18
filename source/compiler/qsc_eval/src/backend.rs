@@ -1469,65 +1469,65 @@ impl Backend for CliffordSim {
         }
     }
 
-    // fn mxx(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
-    //     let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
-    //     self.sim.mxx(q0_id, q1_id);
-    //     let res = self
-    //         .sim
-    //         .measurements()
-    //         .last()
-    //         .expect("simulation should have one measurement");
-    //     match res {
-    //         MeasurementResult::Zero => Ok(val::Result::Val(false)),
-    //         MeasurementResult::One => Ok(val::Result::Val(true)),
-    //         MeasurementResult::Loss => Ok(val::Result::Loss),
-    //     }
-    // }
+    fn mxx(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        self.sim.mxx(q0_id, q1_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
 
-    // fn myy(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
-    //     let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
-    //     self.sim.myy(q0_id, q1_id);
-    //     let res = self
-    //         .sim
-    //         .measurements()
-    //         .last()
-    //         .expect("simulation should have one measurement");
-    //     match res {
-    //         MeasurementResult::Zero => Ok(val::Result::Val(false)),
-    //         MeasurementResult::One => Ok(val::Result::Val(true)),
-    //         MeasurementResult::Loss => Ok(val::Result::Loss),
-    //     }
-    // }
+    fn myy(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        self.sim.myy(q0_id, q1_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
 
-    // fn mzz(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
-    //     let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
-    //     self.sim.mzz(q0_id, q1_id);
-    //     let res = self
-    //         .sim
-    //         .measurements()
-    //         .last()
-    //         .expect("simulation should have one measurement");
-    //     match res {
-    //         MeasurementResult::Zero => Ok(val::Result::Val(false)),
-    //         MeasurementResult::One => Ok(val::Result::Val(true)),
-    //         MeasurementResult::Loss => Ok(val::Result::Loss),
-    //     }
-    // }
+    fn mzz(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        self.sim.mzz(q0_id, q1_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
 
-    // fn mzy(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
-    //     let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
-    //     self.sim.mzy(q0_id, q1_id);
-    //     let res = self
-    //         .sim
-    //         .measurements()
-    //         .last()
-    //         .expect("simulation should have one measurement");
-    //     match res {
-    //         MeasurementResult::Zero => Ok(val::Result::Val(false)),
-    //         MeasurementResult::One => Ok(val::Result::Val(true)),
-    //         MeasurementResult::Loss => Ok(val::Result::Loss),
-    //     }
-    // }
+    fn mzy(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        self.sim.mzy(q0_id, q1_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
 
     fn reset(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
