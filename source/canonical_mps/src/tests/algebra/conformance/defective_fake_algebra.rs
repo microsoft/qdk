@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`DefectiveAlgebra`]: the reference algebra with one rule of the
+//! [`DefectiveFakeAlgebra`]: the reference algebra with one rule of the
 //! contract broken, so that the kit's tests can show which case catches
 //! each fault.
 //!
@@ -20,7 +20,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// The rule a [`DefectiveAlgebra`] breaks, each as a backend might.
+/// The rule a [`DefectiveFakeAlgebra`] breaks, each as a backend might.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Defect {
     /// A read returns one element fewer than asked.
@@ -67,11 +67,11 @@ pub(super) enum Defect {
 }
 
 /// The reference algebra with `defect`, or with none.
-pub(super) struct DefectiveAlgebra {
+pub(super) struct DefectiveFakeAlgebra {
     defect: Option<Defect>,
 }
 
-impl DefectiveAlgebra {
+impl DefectiveFakeAlgebra {
     /// The reference algebra with no defect, on [`DefectiveTensor`]s.
     pub(super) fn faithful() -> Self {
         Self { defect: None }
@@ -119,7 +119,7 @@ impl DefectiveAlgebra {
     }
 }
 
-/// A [`DefectiveAlgebra`]'s tensor: a buffer the tensor's duplicates may
+/// A [`DefectiveFakeAlgebra`]'s tensor: a buffer the tensor's duplicates may
 /// share, filled with NaN when the tensor is dropped.
 pub(super) struct DefectiveTensor(Rc<RefCell<Vec<Complex64>>>);
 
@@ -139,7 +139,7 @@ impl Drop for DefectiveTensor {
     }
 }
 
-/// Why a [`DefectiveAlgebra`]'s call failed.
+/// Why a [`DefectiveFakeAlgebra`]'s call failed.
 #[derive(Debug, thiserror::Error)]
 pub(super) enum DefectiveError {
     #[error(transparent)]
@@ -150,7 +150,7 @@ pub(super) enum DefectiveError {
     MoveFailed,
 }
 
-impl SiteAlgebra for DefectiveAlgebra {
+impl SiteAlgebra for DefectiveFakeAlgebra {
     type Tensor = DefectiveTensor;
     type Error = DefectiveError;
 

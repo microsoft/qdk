@@ -12,8 +12,8 @@ could be explored later. The crate's
 [README](../README.md#how-each-mpsengine-method-is-implemented) summarizes
 it, and [`src/engine/mpo.rs`](../src/engine/mpo.rs) implements it.
 
-The figures marked _study_ come from studies of these routings, run on
-the CPU. Their error is the infidelity 1 − F to the
+The routings below were built only to be measured against each other, on
+the CPU, and are not in the crate. Their error is the infidelity 1 − F to the
 exact state, except for H₂, where it is the total variation distance (TVD)
 of the readout to the exact one, and for the mirror circuits, a circuit
 followed by its inverse, whose exact state is `|0…0⟩`, where it is
@@ -92,19 +92,19 @@ so the reduced state of `A ∪ {h}` lies in the span of the `|aᵢ⟩|x⟩`, of
 dimension at most `2r`. So the bond at cut `c` is at most twice the bond
 at cut `c − 1`, itself at most the capacity there: within 2χ. The bound
 is reached: on the random circuit of the second row of the first table
-below, the outbound splits keep bonds of 256 at χ 128 (study).
+below, the outbound splits keep bonds of 256 at χ 128.
 
-**Truncating a route's outbound splits to the capacity.** The study's
+**Truncating a route's outbound splits to the capacity.** The route
 `SwapBack` keeps at most χ at every split. The temporary order needs up
 to 2χ, so it truncates states that fit χ in the caller's order:
 
 | Case                                         | Truncated to χ | `swap-back-2x` |
 | -------------------------------------------- | -------------- | -------------- |
 | Two pairs and a CZ, 4 qubits, χ 2 (computed) | 0.0395         | 0              |
-| Random pairs, depth 2, seed 1, χ 128 (study) | 2.1e-4         | 2.7e-15        |
-| PPP polyene QPE, first round, χ 128 (study)  | 2.5e-5         | 1.4e-9         |
-| QPE of 16 qubits, χ 128 (study)              | 1.8e-3         | 9.6e-5         |
-| H₂, χ 64 (TVD of the readout) (study)        | 4.5e-4         | 1.6e-10        |
+| Random pairs, depth 2, seed 1, χ 128         | 2.1e-4         | 2.7e-15        |
+| PPP polyene QPE, first round, χ 128          | 2.5e-5         | 1.4e-9         |
+| QPE of 16 qubits, χ 128                      | 1.8e-3         | 9.6e-5         |
+| H₂, χ 64 (TVD of the readout)                | 4.5e-4         | 1.6e-10        |
 
 The first row is computed, not measured: it is the case of
 [the crate's MPO tests](../src/tests/engine/mpo.rs): Bell-like pairs on
@@ -131,17 +131,17 @@ splits apply the cutoff alone.
 ## Alternatives that could be explored
 
 None is built. Each would be a new option of the engine, explored when a
-simulation method needs its speed and its cases are measured. The studies
-compared them with `swap-back-2x`, which keeps the caller's order as an
+simulation method needs its speed and its cases are measured. They were
+compared with `swap-back-2x`, which keeps the caller's order as an
 MPO does; none compared them with an MPO.
 
 **Routings that leave the moved site where the gate met it** save the
 return, at the price of a layout that drifts from the caller's order:
 `MoveHigher` moves the higher site down and keeps it there, `MoveLower`
-moves the lower one up, `MeetHalfway` moves both. The study measured them
+moves the lower one up, `MeetHalfway` moves both. They were measured
 against `swap-back-2x`:
 
-| Case (study)                        | `swap-back-2x` | `MoveHigher` | `MoveLower` | `MeetHalfway` |
+| Case                                | `swap-back-2x` | `MoveHigher` | `MoveLower` | `MeetHalfway` |
 | ----------------------------------- | -------------- | ------------ | ----------- | ------------- |
 | H₂, χ 64 (TVD of the readout)       | 1.6e-10        | 2.2e-10      | 1.7e-4      | 1.1e-10       |
 | Mirror circuit, depth 2, χ 64       | 0.293          | 0.016        | 4.8e-4      | 0.006         |
@@ -152,9 +152,8 @@ against `swap-back-2x`:
 They serve two kinds of case:
 
 - **H₂, a phase ancilla that meets every system qubit:** at χ 128,
-  `MoveHigher` took 18.4 s per shot (the mean of six) against 90.7 s for
-  a returning route truncated to χ, the study's `SwapBack` above, at the
-  same readout error (TVD at most 3.4e-10).
+  `MoveHigher` was about five times faster per shot than a returning
+  route truncated to χ, `SwapBack` above, at the same readout error.
 - **A circuit whose state needs more than χ in the caller's order,** such
   as the mirror circuits: a returning route loses what that order needs,
   and only a routing that changes the order can lose less.
@@ -164,13 +163,13 @@ twice the bond of the caller's order at rest (a median of 255 against
 128), and the loss comes within about five gates of drift.
 
 **Bounded drift**, `MoveHigher` with the caller's order restored every `K`
-two-site gates (the study tried `K` of 50, 200 and 1000, and also 1, 5,
-10 and 20 on the polyene), was at its best `K` less accurate than
+two-site gates (`K` of 50, 200 and 1000 were tried, and also 1, 5, 10
+and 20 on the polyene), was at its best `K` less accurate than
 `swap-back-2x`, or as accurate (the polyene at χ 32), except on the
 mirror circuits, where it was better at depth 2 and about even at depth 3,
 and less accurate than `MoveHigher` there:
 
-| Case (study)                        | Best `K` | Bounded drift | `swap-back-2x` | `MoveHigher` |
+| Case                                | Best `K` | Bounded drift | `swap-back-2x` | `MoveHigher` |
 | ----------------------------------- | -------- | ------------- | -------------- | ------------ |
 | H₂, χ 64 (TVD of the readout)       | 1000     | 1.5e-4        | 1.6e-10        | 2.2e-10      |
 | PPP polyene QPE, first round, χ 32  | 1        | 0.127         | 0.127          | 0.958        |

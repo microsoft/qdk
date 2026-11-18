@@ -26,8 +26,7 @@
 //! test doubles that compute as a backend library would (a fake of a GPU
 //! library's SVD and QR).
 //!
-//! Each computes on the calling thread, in pure Rust, on every target the
-//! QDK supports, WebAssembly included. `docs/dense_linalg.md` gives the
+//! Each computes on the calling thread. `docs/dense_linalg.md` gives the
 //! SVD's guarantees and steps.
 
 pub(crate) mod kernels;

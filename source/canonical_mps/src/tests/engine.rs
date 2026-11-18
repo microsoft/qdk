@@ -10,7 +10,7 @@
 //! spy [`SpyAlgebra`] counts the engine's calls and records its uploads,
 //! and the fake [`FailingFakeAlgebra`] fails the call a test chooses.
 
-mod chain;
+mod canonical_form;
 mod circuits;
 mod expectation;
 mod failing_fake_algebra;
@@ -22,18 +22,22 @@ mod refusals;
 mod retained_weight;
 mod sampling;
 mod spy_algebra;
+mod state;
 mod statistics;
 mod truncation;
 
 use crate::dense_linalg::SvdError;
-use crate::engine_circuits::{chain, cnot, entangler, exact, mixed_string, ry};
+use crate::engine_circuits::{
+    assert_reads_agree, chain, cnot, entangler, exact, mixed_string, real, ry,
+};
 use crate::{
     CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, CpuAlgebra, CpuMpsEngine as Engine,
     DEFAULT_CUTOFF, SplitStatistics,
 };
 use failing_fake_algebra::FailingFakeAlgebra;
 use num_complex::Complex64;
-use spy_algebra::SpyAlgebra;
+use spy_algebra::{SpiedCalls, SpyAlgebra};
+use std::rc::Rc;
 use tensornet::{
     MpsEngine, MpsEngineError, MpsShape, Pauli, PauliSum, PauliTerm, Refusal,
     reference::{ExactReference, ReferenceState},
@@ -45,10 +49,6 @@ type State = CanonicalMpsState<CpuAlgebra>;
 
 /// Gates in the order they are applied, each with the sites it acts on.
 type Gates = Vec<(&'static [usize], Vec<Complex64>)>;
-
-fn real(re: f64) -> Complex64 {
-    Complex64::new(re, 0.0)
-}
 
 fn phase(theta: f64) -> Vec<Complex64> {
     vec![
@@ -125,24 +125,6 @@ fn circuit(engine: &Engine, sites: usize) -> (State, ReferenceState) {
     (state, exact_state)
 }
 
-/// Each site's P(One) on `state` and on the reference's `exact_state`
-/// agree within `tolerance`.
-fn assert_reads_agree(
-    engine: &Engine,
-    state: &State,
-    exact_state: &ReferenceState,
-    tolerance: f64,
-) {
-    let reference = ExactReference::new();
-    for site in 0..exact_state.site_count() {
-        let p = engine.probability_of_one(state, site).expect("P(One)");
-        let q = reference
-            .probability_of_one(exact_state, site)
-            .expect("P(One)");
-        assert!((p - q).abs() < tolerance, "site {site}: {p} vs {q}");
-    }
-}
-
 /// One round of a Bell pair on sites 0 and 1 truncated to a bond of 1: a
 /// turn by π/2, a read of `centre` (0 or 1), which moves the centre there,
 /// and a CNOT, whose split keeps half the weight and leaves the centre on
@@ -156,4 +138,27 @@ fn halve_the_weight(
     engine.probability_of_one(state, centre)?;
     engine.apply(state, &[0, 1], &cnot())?;
     engine.retained_weight(state)
+}
+
+/// An engine on a spy algebra, a chain of `sites` sites prepared on it,
+/// each turned and entangled with the next, and the spy's record of calls.
+fn spied_entangled_chain(
+    sites: usize,
+) -> (
+    CanonicalMpsEngine<SpyAlgebra>,
+    CanonicalMpsState<SpyAlgebra>,
+    Rc<SpiedCalls>,
+) {
+    let (algebra, calls) = SpyAlgebra::new();
+    let engine = CanonicalMpsEngine::new(algebra);
+    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
+    for site in 0..sites {
+        engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
+    }
+    for cut in 0..sites - 1 {
+        engine
+            .apply(&mut state, &[cut, cut + 1], &cnot())
+            .expect("apply");
+    }
+    (engine, state, calls)
 }

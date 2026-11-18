@@ -4,7 +4,8 @@
 //! Gates on sites far apart, and windows on three sites, applied as a
 //! matrix product operator: they act in the caller's order, keep a state
 //! that fits the capacity, truncate only at the caller's cuts, grow the
-//! span by the operator's rank, and cost, once the centre is in a span of
+//! span by the operator's rank, less the values at or below its rank
+//! cutoff, and cost, once the centre is in a span of
 //! `d + 1` sites, `d` splits, `d − 1` moves, and one read and one upload
 //! of each site.
 
@@ -163,43 +164,57 @@ fn an_mpo_truncates_only_at_the_callers_cuts() {
 
 /// Six sites, sites 2 and 3 entangled (a bond of 2 at rest just right of
 /// the span) and the others in a product state, then a gate on sites 0 and
-/// 2: the CNOT, of operator rank 2, grows the span's bonds to 2, the
-/// entangler, a partial iSWAP with a phase, of rank 4, to 4, and Z⊗Z, of
-/// rank 1, leaves them at 1; only the cuts inside the span count, not the
-/// bond of 2 beside it. These rows pin the operator's rank: `Svd::of`
-/// already leaves out these operators' rounding values. The rotations
-/// `exp(−iε Z⊗Z)` pin the operator's cutoff, `1e-12` times the largest
-/// value: their values are `2 cos ε` and `2 sin ε`, so the second is
-/// `tan ε` relative to the first. At `ε` of `1e-9` and `1.1e-12` it is
-/// kept, a bond of 2; at `9e-13` and `1e-13` it is dropped, a bond of 1.
-/// The largest value is 2, so a cutoff not scaled by it would keep the
-/// second value at `9e-13`, `1.8e-12`. The rows next to the cutoff are
-/// 10% from it, about a thousand times what rounding moves `tan ε` there
-/// (a few `1e-16` absolute).
+/// 2; the span's largest transient bond.
+fn transient_bond_of_a_gate_on_sites_0_and_2(engine: &Engine, gate: &[Complex64]) -> usize {
+    let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
+    for site in 0..6 {
+        engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
+    }
+    engine.apply(&mut state, &[2, 3], &cnot()).expect("apply");
+    let bonds = engine.shape(&state).expect("shape");
+    assert_eq!(bonds.bond_dim(2), Some(2), "precondition: a bond of 2");
+    engine.apply(&mut state, &[0, 2], gate).expect("apply");
+    engine.retained_weight(&state).expect("weight");
+    let statistics = state.split_statistics();
+    assert_eq!(
+        statistics.mpo_applications(),
+        1,
+        "precondition: one MPO application"
+    );
+    statistics.largest_transient_bond()
+}
+
+/// A gate on sites 0 and 2 of six, sites 2 and 3 entangled (a bond of 2 at
+/// rest just right of the span): the CNOT, of operator rank 2, grows the
+/// span's bonds to 2, the entangler, a partial iSWAP with a phase, of rank
+/// 4, to 4, and Z⊗Z, of rank 1, leaves them at 1; only the cuts inside the
+/// span count, not the bond of 2 beside it. `Svd::of` already leaves out
+/// these operators' rounding values.
 #[test]
 fn an_mpo_grows_the_span_by_the_operators_rank() {
-    for (gate, rank) in [
-        (cnot(), 2),
-        (entangler(0.9), 4),
-        (zz(), 1),
-        (zz_rotation(1e-9), 2),
-        (zz_rotation(1.1e-12), 2),
-        (zz_rotation(9e-13), 1),
-        (zz_rotation(1e-13), 1),
-    ] {
+    for (gate, rank) in [(cnot(), 2), (entangler(0.9), 4), (zz(), 1)] {
         for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-            let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
-            for site in 0..6 {
-                engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
-            }
-            engine.apply(&mut state, &[2, 3], &cnot()).expect("apply");
-            let bonds = engine.shape(&state).expect("shape");
-            assert_eq!(bonds.bond_dim(2), Some(2), "{name}: precondition");
-            engine.apply(&mut state, &[0, 2], &gate).expect("apply");
-            engine.retained_weight(&state).expect("weight");
-            let statistics = state.split_statistics();
-            assert_eq!(statistics.mpo_applications(), 1, "{name}: precondition");
-            assert_eq!(statistics.largest_transient_bond(), rank, "{name}");
+            let bond = transient_bond_of_a_gate_on_sites_0_and_2(&engine, &gate);
+            assert_eq!(bond, rank, "{name}");
+        }
+    }
+}
+
+/// The rotations `exp(−iε Z⊗Z)` on sites 0 and 2, set as in
+/// `an_mpo_grows_the_span_by_the_operators_rank`: their operator values
+/// are `2 cos ε` and `2 sin ε`, so the second is `tan ε` relative to the
+/// first. At `ε` of `1e-9` and `1.1e-12` it is kept, a bond of 2; at
+/// `9e-13` and `1e-13` it is dropped, a bond of 1. The largest value is
+/// 2, so a cutoff not scaled by it would keep the second value at `9e-13`,
+/// `1.8e-12`. The rows next to the cutoff are 10% from it, about a
+/// thousand times what rounding moves `tan ε` there (a few `1e-16`
+/// absolute).
+#[test]
+fn an_mpos_factorisation_drops_operator_values_at_or_below_1e_12_of_the_largest() {
+    for (epsilon, rank) in [(1e-9, 2), (1.1e-12, 2), (9e-13, 1), (1e-13, 1)] {
+        for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+            let bond = transient_bond_of_a_gate_on_sites_0_and_2(&engine, &zz_rotation(epsilon));
+            assert_eq!(bond, rank, "{name}, ε {epsilon:e}");
         }
     }
 }

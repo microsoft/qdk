@@ -154,7 +154,7 @@ const SEED: u64 = 0x2545_F491_4F6C_DD1D;
 
 /// Each site's P(One) on `state` and on the reference's `exact_state`
 /// agree within `tolerance`.
-fn assert_reads_agree<A: SiteAlgebra>(
+pub(crate) fn assert_reads_agree<A: SiteAlgebra>(
     engine: &CanonicalMpsEngine<A>,
     state: &CanonicalMpsState<A>,
     exact_state: &ReferenceState,
@@ -236,7 +236,8 @@ fn xorshift(mut seed: u64) -> impl FnMut(usize) -> usize {
     }
 }
 
-fn real(re: f64) -> Complex64 {
+/// The complex number `re + 0i`.
+pub(crate) fn real(re: f64) -> Complex64 {
     Complex64::new(re, 0.0)
 }
 

@@ -43,9 +43,9 @@ pub enum CanonicalMpsError<E> {
     /// The state is then unspecified, as [`MpsEngine`] says, and the
     /// caller must drop it: a failed application of the pending window
     /// may have lost its gates, or left its span half compressed, and a
-    /// read applies a pending window too. A failed read or upload of a site
-    /// of an MPO's span leaves the span's sites unmultiplied, so neighbours
-    /// still share each bond.
+    /// read applies a pending window too
+    /// ([`CanonicalMpsEngine`](super::CanonicalMpsEngine)'s Failures says
+    /// what an MPO's failure leaves).
     #[error("the site algebra failed")]
     Algebra(#[source] E),
 
