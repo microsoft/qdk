@@ -125,8 +125,8 @@ pub(super) fn gate2_from_register(operation: u64, register: u64, q2: u64) -> Ins
     }
 }
 
-/// The measurement of operation id `operation` (`mz` or `mresetz`) of
-/// `qubit` into `result`.
+/// The measurement of operation id `operation` (`mz`, `mresetz`, `mx` or
+/// `my`) of `qubit` into `result`.
 pub(super) fn measure(operation: u64, qubit: u64, result: u64) -> Instruction<u64> {
     Instruction {
         aux0: operation,

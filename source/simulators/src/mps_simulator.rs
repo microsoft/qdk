@@ -8,7 +8,8 @@
 //! entangles them little, as chemistry programs do. A caller builds an
 //! [`MpsResumer`] over an engine and runs a program's shots on it, as on
 //! any [`QirResumer`]; it may rely on each shot recording what it would
-//! record alone, and on a report of what truncation cost.
+//! record alone (to what precision: [`MpsResumer`]), and on a report of
+//! what truncation cost.
 //!
 //! [`qir`](crate::qir) runs a program's classical part and hands each
 //! shot's quantum calls to a resumer; an engine holds states and knows only
@@ -22,7 +23,7 @@
 //! Shots that drew the same values share one state, forked where their
 //! draws differ, so a run costs what its distinct histories cost; each shot
 //! draws from its own stream, so its records do not depend on the shots
-//! beside it.
+//! beside it (beyond rounding, on some engines: [`MpsResumer`]).
 //!
 //! An overview, with the phases of a run, the public types and an example,
 //! is in `src/mps_simulator/README.md`; each phase's mechanics and engine
@@ -53,15 +54,22 @@ use grouped_run::GroupedRun;
 /// of `mps_simulator/grouped_run.rs`).
 ///
 /// Each shot draws from its own stream, seeded from the resumer's seed and
-/// the shot's id (the rule is in `mps_simulator/shot_stream.rs`). So a
-/// shot's records depend only on the program, the seed, the shot's id and
-/// the settings: not on the shots beside it, nor on its place among them,
-/// nor on earlier runs.
+/// the shot's id (the rule is in `mps_simulator/shot_stream.rs`). So, on an
+/// engine whose fork is an exact copy and whose operations are
+/// deterministic (`tensornet`'s exact reference, for instance), a shot's
+/// records depend only on the program, the seed, the shot's id and the
+/// settings: not on the shots beside it, nor on its place among them, nor
+/// on earlier runs. On another engine, whose fork reads what its state
+/// reads only to rounding (all [`MpsEngine::fork`] promises), each
+/// probability a shot draws against agrees to rounding with the one it
+/// would draw against alone: a record then differs only where a uniform
+/// falls within rounding of a probability, and the shot's later draws may
+/// then differ.
 ///
 /// The qubit order, which site holds each qubit, chosen from the program's
-/// two-qubit gates, changes the bonds and the time, not the state (to what
-/// precision, and so which records may differ: the header of
-/// `mps_simulator/qubit_order.rs`).
+/// two-qubit gates, changes the bonds and the time; on an engine that does
+/// not truncate, not the state (to what precision, and what truncation
+/// changes: the header of `mps_simulator/qubit_order.rs`).
 ///
 /// The cutoff below which an engine drops singular values is the engine's
 /// own setting: the engine contract takes only a capacity (here

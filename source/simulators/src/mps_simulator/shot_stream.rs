@@ -6,8 +6,9 @@
 //! shot's id, and [`SplitMix64`] generates it.
 //!
 //! A shot's records must depend only on the program, the seed, the shot's
-//! id and the settings, not on the shots run beside it: so each shot needs
-//! a stream of uniforms of its own, fixed by the run's seed and its id.
+//! id and the settings, not on the shots run beside it (to what precision:
+//! [`MpsResumer`]'s doc): so each shot needs a stream of uniforms of its
+//! own, fixed by the run's seed and its id.
 //! The tests need streams that are the same on every run too, and use the
 //! generator alone.
 //!
