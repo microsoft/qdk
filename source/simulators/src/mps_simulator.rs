@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The MPS simulator: runs QIR programs on matrix product states (MPS), on
-//! any [`MpsEngine`], the `tensornet` contract.
+//! The MPS simulation method: runs QIR programs on matrix product states
+//! (MPS), on any [`MpsEngine`], the `tensornet` contract.
 //!
 //! An MPS simulates many more qubits than a state vector when a program
 //! entangles them little, as chemistry programs do. A caller builds an
@@ -53,9 +53,7 @@ use grouped_run::GroupedRun;
 /// of `mps_simulator/grouped_run.rs`).
 ///
 /// Each shot draws from its own stream, seeded from the resumer's seed and
-/// the shot's id as the executor protocol (planned) will seed the last
-/// executor of a chain, the one that runs the quantum calls, in that shot
-/// (the protocol's chain of executors, not the MPS's chain of sites). So a
+/// the shot's id (the rule is in `mps_simulator/shot_stream.rs`). So a
 /// shot's records depend only on the program, the seed, the shot's id and
 /// the settings: not on the shots beside it, nor on its place among them,
 /// nor on earlier runs.
