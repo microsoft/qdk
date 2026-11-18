@@ -14,68 +14,58 @@ fn values_of(weights: &[f64]) -> Vec<f64> {
     weights.iter().map(|w| w.sqrt()).collect()
 }
 
-/// Values 1, 0.4 and 0.2 at a cutoff just below 1: in floating point, the
-/// two smaller squares and the largest sum, from the smallest, to no more
-/// than the cutoff's share of the total, yet the largest value is kept.
+/// The cutoff drops the longest tail whose squares sum to at most its
+/// share of the split's weight, but never the largest value; at a cutoff
+/// of 0, it drops only the zeros and the values whose squares, against the
+/// largest's, underflow. Each row: the values, the cutoff, and the bond
+/// kept.
 #[test]
-fn a_split_keeps_its_largest_value_at_any_cutoff() {
-    let cutoff = 1.0 - f64::EPSILON / 2.0;
-    let truncation = Truncation::of(&[1.0, 0.4, 0.2], cutoff, usize::MAX);
-    assert_eq!(truncation.normalised_values, [1.0]);
-}
-
-/// Schmidt weights 0.8 and 0.2: a cutoff above 0.2 keeps one value and a
-/// share of 0.8, one below keeps both.
-#[test]
-fn cuts_off_the_tail_below_the_cutoff() {
-    let values = values_of(&[0.8, 0.2]);
-    for (cutoff, bond, share) in [(0.25, 1, 0.8), (0.15, 2, 1.0)] {
-        let truncation = Truncation::of(&values, cutoff, usize::MAX);
-        assert_eq!(truncation.normalised_values.len(), bond, "cutoff {cutoff}");
-        let fraction = truncation.retained_fraction;
-        assert!(
-            (fraction - share).abs() < 1e-15,
-            "cutoff {cutoff}: {fraction}"
-        );
-    }
-}
-
-/// A Bell pair's two Schmidt values, the same float, at a cutoff of 1/2:
-/// the smaller value's square is exactly the cutoff's share of the sum,
-/// and it is dropped.
-// COMPATIBILITY NOTE: this behavior was present in the dev line's
-// `qdk_cpu_mps`'s `Engine::kept` (a tail is dropped while its squares sum
-// to at most the cutoff's share), hence we keep it: it is what makes a
-// cutoff of 0 drop the zeros.
-#[test]
-fn a_tail_equal_to_the_cutoffs_share_is_discarded() {
+fn the_cutoff_discards_the_tail_within_its_share() {
     let h = std::f64::consts::FRAC_1_SQRT_2;
-    let truncation = Truncation::of(&[h, h], 0.5, usize::MAX);
-    assert_eq!(truncation.normalised_values, [1.0]);
-}
-
-/// A cutoff of zero keeps a Schmidt weight of 1e-20, far below the cutoffs
-/// simulations use, and drops the zeros after it.
-#[test]
-fn a_cutoff_of_zero_discards_only_zeros() {
-    let truncation = Truncation::of(&[1.0, 1e-10, 0.0, 0.0], 0.0, usize::MAX);
-    assert_eq!(truncation.normalised_values.len(), 2);
-}
-
-/// A cutoff of zero after a value of 1: a value of 1e-161, whose square is
-/// a subnormal, is kept; one of 1e-163, whose square underflows to zero,
-/// counts as zero and is dropped, with a share of exactly 1.
-// COMPATIBILITY NOTE: this behavior was present in the dev line's
-// `qdk_cpu_mps`'s `Engine::kept` (its squares are of the values divided by
-// the largest, so those below about 1e-162 of it underflow), hence we keep
-// it: no Schmidt weight that small changes a simulation's result.
-#[test]
-fn a_cutoff_of_zero_drops_values_whose_squares_underflow() {
-    let kept = Truncation::of(&[1.0, 1e-161], 0.0, usize::MAX);
-    assert_eq!(kept.normalised_values.len(), 2, "1e-161");
-    let dropped = Truncation::of(&[1.0, 1e-163], 0.0, usize::MAX);
-    assert_eq!(dropped.normalised_values, [1.0], "1e-163");
-    assert_eq!(dropped.retained_fraction, 1.0, "1e-163");
+    let rows: [(&str, Vec<f64>, f64, usize); 7] = [
+        // In floating point, the two smaller squares and the largest sum,
+        // from the smallest, to no more than the cutoff's share of the
+        // total, yet the largest value is kept.
+        (
+            "the largest at a cutoff just below 1",
+            vec![1.0, 0.4, 0.2],
+            1.0 - f64::EPSILON / 2.0,
+            1,
+        ),
+        ("a tail above the cutoff", values_of(&[0.8, 0.2]), 0.25, 1),
+        ("a tail below the cutoff", values_of(&[0.8, 0.2]), 0.15, 2),
+        // A Bell pair's two Schmidt values, the same float: the smaller
+        // value's square is exactly the cutoff's share of the sum.
+        // COMPATIBILITY NOTE: this behavior was present in the dev line's
+        // `qdk_cpu_mps`'s `Engine::kept` (a tail is dropped while its
+        // squares sum to at most the cutoff's share), hence we keep it: it
+        // is what makes a cutoff of 0 drop the zeros.
+        ("a tail of exactly the cutoff's share", vec![h, h], 0.5, 1),
+        // A Schmidt weight of 1e-20, far below the cutoffs simulations
+        // use, is kept.
+        ("zeros at a cutoff of 0", vec![1.0, 1e-10, 0.0, 0.0], 0.0, 2),
+        // COMPATIBILITY NOTE: this behavior was present in the dev line's
+        // `qdk_cpu_mps`'s `Engine::kept` (its squares are of the values
+        // divided by the largest, so those below about 1e-162 of it
+        // underflow), hence we keep it: no Schmidt weight that small
+        // changes a simulation's result.
+        (
+            "a square that is subnormal at a cutoff of 0",
+            vec![1.0, 1e-161],
+            0.0,
+            2,
+        ),
+        (
+            "a square that underflows at a cutoff of 0",
+            vec![1.0, 1e-163],
+            0.0,
+            1,
+        ),
+    ];
+    for (name, values, cutoff, bond) in rows {
+        let truncation = Truncation::of(&values, cutoff, usize::MAX);
+        assert_eq!(truncation.normalised_values.len(), bond, "{name}");
+    }
 }
 
 /// The Schmidt weights 0.81, 0.09, 0.09 and 0.01 (two pairs, each 0.9 and
@@ -91,30 +81,87 @@ fn the_capacity_caps_the_bond_the_cutoff_keeps() {
     assert!((fraction - 0.9).abs() < 1e-15, "{fraction}");
 }
 
-/// Values 3, 2 and 1 capped at two: the split keeps 9 + 4 of the 14 the
-/// squares sum to.
+/// The retained fraction is the share of the squares the split kept, and
+/// exactly 1 when it dropped only zeros, so that the state's retained
+/// weight does not move by a rounding error at every such split. Each row:
+/// the values, the cutoff, the cap, the bond kept (a precondition), the
+/// share, and how far from it the fraction may round.
 #[test]
 fn the_retained_fraction_is_the_kept_share_of_the_squares() {
-    let truncation = Truncation::of(&[3.0, 2.0, 1.0], 0.0, 2);
-    let fraction = truncation.retained_fraction;
-    assert!((fraction - 13.0 / 14.0).abs() < 1e-15, "{fraction}");
-}
-
-/// Values 0.8, 0.6 and two zeros, which a cutoff of 0.1 drops: the share
-/// kept is exactly 1, so the state's retained weight does not move by a
-/// rounding error at every split that drops only zeros. So too with values
-/// 1, four of 2⁻²⁷ and a zero at a cutoff of 0, where the kept squares,
-/// summed from the smallest, would round to 1 + 2⁻⁵².
-#[test]
-fn the_retained_fraction_is_exactly_one_when_only_zeros_are_dropped() {
-    let truncation = Truncation::of(&[0.8, 0.6, 0.0, 0.0], 0.1, usize::MAX);
-    assert_eq!(truncation.normalised_values.len(), 2, "two zeros dropped");
-    assert_eq!(truncation.retained_fraction, 1.0, "two zeros dropped");
+    type Row = (&'static str, Vec<f64>, f64, usize, usize, f64, f64);
     let small = 2f64.powi(-27);
-    let values = [1.0, small, small, small, small, 0.0];
-    let truncation = Truncation::of(&values, 0.0, usize::MAX);
-    assert_eq!(truncation.normalised_values.len(), 5, "small values kept");
-    assert_eq!(truncation.retained_fraction, 1.0, "small values kept");
+    let rows: [Row; 6] = [
+        // 9 + 4 of the 14 the squares sum to.
+        (
+            "3, 2 and 1 capped at two",
+            vec![3.0, 2.0, 1.0],
+            0.0,
+            2,
+            2,
+            13.0 / 14.0,
+            1e-15,
+        ),
+        (
+            "a tail above the cutoff",
+            values_of(&[0.8, 0.2]),
+            0.25,
+            usize::MAX,
+            1,
+            0.8,
+            1e-15,
+        ),
+        (
+            "a tail below the cutoff",
+            values_of(&[0.8, 0.2]),
+            0.15,
+            usize::MAX,
+            2,
+            1.0,
+            1e-15,
+        ),
+        (
+            "two zeros dropped",
+            vec![0.8, 0.6, 0.0, 0.0],
+            0.1,
+            usize::MAX,
+            2,
+            1.0,
+            0.0,
+        ),
+        // The kept squares, summed from the smallest, would round to
+        // 1 + 2⁻⁵².
+        (
+            "four values of 2⁻²⁷ kept and a zero dropped",
+            vec![1.0, small, small, small, small, 0.0],
+            0.0,
+            usize::MAX,
+            5,
+            1.0,
+            0.0,
+        ),
+        (
+            "a value whose square underflows dropped",
+            vec![1.0, 1e-163],
+            0.0,
+            usize::MAX,
+            1,
+            1.0,
+            0.0,
+        ),
+    ];
+    for (name, values, cutoff, cap, bond, share, tolerance) in rows {
+        let truncation = Truncation::of(&values, cutoff, cap);
+        assert_eq!(
+            truncation.normalised_values.len(),
+            bond,
+            "precondition: {name}"
+        );
+        let fraction = truncation.retained_fraction;
+        assert!(
+            (fraction - share).abs() <= tolerance,
+            "{name}: {fraction} for {share}"
+        );
+    }
 }
 
 /// Values 3, 2 and 1, all kept: the kept values come back divided by their
@@ -159,17 +206,21 @@ fn the_zero_spectrum_keeps_one_zero_value() {
     assert_eq!(truncation.retained_fraction, 1.0);
 }
 
-/// A cap of zero: no split keeps no value, and the rule refuses it.
+/// A cap of zero, since no split keeps no value, and no singular values,
+/// since every split has one: the rule refuses each with a message rather
+/// than an index error.
 #[test]
-#[should_panic(expected = "a split keeps at least one value")]
-fn a_cap_of_zero_is_refused() {
-    let _ = Truncation::of(&[1.0], 0.0, 0);
-}
-
-/// No singular values: every split has at least one, and the rule refuses
-/// an empty list with a message rather than an index error.
-#[test]
-#[should_panic(expected = "a split has singular values")]
-fn empty_values_are_refused() {
-    let _ = Truncation::of(&[], 0.0, 1);
+fn inputs_no_split_can_have_are_refused() {
+    let rows: [(&[f64], usize, &str); 2] = [
+        (&[1.0], 0, "a split keeps at least one value"),
+        (&[], 1, "a split has singular values"),
+    ];
+    for (values, cap, expected) in rows {
+        let payload = std::panic::catch_unwind(|| Truncation::of(values, 0.0, cap))
+            .expect_err("inputs no split can have");
+        let message = payload
+            .downcast_ref::<&str>()
+            .expect("a literal panic message");
+        assert_eq!(*message, expected);
+    }
 }

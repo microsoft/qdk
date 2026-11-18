@@ -30,59 +30,58 @@ fn the_largest_bond_at_rest_is_the_bond_a_gates_split_kept() {
     }
 }
 
-/// A Bell pair made by a gate on neighbours, and no matrix product
-/// operator: the split kept a bond of 2 at rest, and no bond was
-/// transient, so the largest transient bond is 1.
+/// Only a matrix product operator grows a transient bond: a gate on
+/// neighbours leaves the largest transient bond at 1, while an operator's
+/// factors multiply a bond of its span, which counts as transient only,
+/// the largest bond at rest staying at what the splits kept. Each row: the
+/// sites, the gates, and the largest bonds at rest and transient.
 #[test]
-fn a_gate_on_neighbours_leaves_no_transient_bond() {
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(3, 2)).expect("prepare");
-        engine
-            .apply(&mut state, &[0], &ry(std::f64::consts::FRAC_PI_2))
-            .expect("apply");
-        engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
-        engine
-            .retained_weight(&state)
-            .expect("a read splits the pair");
-        let statistics = state.split_statistics();
-        assert_eq!(
-            statistics.largest_bond_at_rest(),
-            2,
-            "{name}: precondition, a split"
-        );
-        assert_eq!(statistics.largest_transient_bond(), 1, "{name}");
-    }
-}
-
-/// Two Bell pairs, (0, 1) and (2, 3), at bond 2, then a CZ on sites 0 and 2,
-/// a matrix product operator (fused, the CNOT on (2, 3) joins the CZ's
-/// window): its factors multiply a bond of the span to 4, and its splits
-/// compress it back to 2, the capacity. The 4 counts as transient only:
-/// the largest bond at rest stays at the capacity.
-#[test]
-fn an_operators_grown_bond_is_transient_not_at_rest() {
+fn only_an_operator_grows_a_transient_bond() {
+    type Row = (&'static str, usize, Gates, (usize, usize));
     let half_turn = ry(std::f64::consts::FRAC_PI_2);
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(4, 2)).expect("prepare");
-        for (on, gate) in [
-            (&[0][..], &half_turn),
-            (&[0, 1], &cnot()),
-            (&[2], &half_turn),
-            (&[2, 3], &cnot()),
-            (&[0, 2], &cz()),
-        ] {
-            engine.apply(&mut state, on, gate).expect("apply");
-        }
-        engine
-            .retained_weight(&state)
-            .expect("a read applies the operator");
-        let statistics = state.split_statistics();
-        assert_eq!(
-            statistics.largest_transient_bond(),
+    let rows: [Row; 2] = [
+        // A Bell pair made by a gate on neighbours, and no operator: the
+        // split kept a bond of 2 at rest, and no bond was transient.
+        (
+            "a gate on neighbours",
+            3,
+            vec![(&[0], half_turn.clone()), (&[0, 1], cnot())],
+            (2, 1),
+        ),
+        // Two Bell pairs, (0, 1) and (2, 3), at bond 2, then a CZ on sites
+        // 0 and 2, an operator (fused, the CNOT on (2, 3) joins the CZ's
+        // window): its factors multiply a bond of the span to 4, and its
+        // splits compress it back to 2, the capacity.
+        (
+            "an operator",
             4,
-            "{name}: the operator doubles the capacity"
-        );
-        assert_eq!(statistics.largest_bond_at_rest(), 2, "{name}");
+            vec![
+                (&[0], half_turn.clone()),
+                (&[0, 1], cnot()),
+                (&[2], half_turn),
+                (&[2, 3], cnot()),
+                (&[0, 2], cz()),
+            ],
+            (2, 4),
+        ),
+    ];
+    for (row, sites, gates, (at_rest, transient)) in &rows {
+        for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+            let mut state = engine.prepare(&chain(*sites, 2)).expect("prepare");
+            for (on, gate) in gates {
+                engine.apply(&mut state, on, gate).expect("apply");
+            }
+            engine
+                .retained_weight(&state)
+                .expect("a read applies the pending gates");
+            let statistics = state.split_statistics();
+            assert_eq!(statistics.largest_bond_at_rest(), *at_rest, "{row}, {name}");
+            assert_eq!(
+                statistics.largest_transient_bond(),
+                *transient,
+                "{row}, {name}"
+            );
+        }
     }
 }
 

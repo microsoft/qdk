@@ -168,25 +168,12 @@ fn refuses_an_svd_that_is_not_finite() {
 /// matrix, as faer 0.24's divide and conquer returned without reporting
 /// it: the SVD fails, its error saying that the factors failed the
 /// checks. An error just under the bound, rounding's of a large matrix,
-/// is taken.
-#[test]
-fn refuses_factors_that_do_not_give_back_the_matrix() {
-    let a = large();
-    let under = Some(off_by(a.view(), 0.9));
-    let over = Some(off_by(a.view(), 1.1));
-    let taken = checked::<Shipped>(a.view(), under).expect("an error under the bound");
-    assert_eq!(taken.singular_values, off_by(a.view(), 0.9).singular_values);
-    let error = checked::<Shipped>(a.view(), over).expect_err("an error over the bound");
-    assert_eq!(error, SvdError::FailedChecks { rows: 5, cols: 3 });
-}
-
-/// The same factors at 2^-700 (entries near 1e-208) and 2^700 (near
+/// is taken. The same at 2^-700 (entries near 1e-208) and 2^700 (near
 /// 5e213), where `‖A‖²` underflows to 0 or overflows, of a complex
 /// matrix, of its real part, and of its real part times `i`: the check
-/// is relative to the largest entry, whichever part holds it, so it
-/// still refuses the error over the bound and takes the one under it.
+/// is relative to the largest entry, whichever part holds it.
 #[test]
-fn refuses_factors_that_do_not_give_back_the_matrix_at_any_scale() {
+fn refuses_factors_that_do_not_give_back_the_matrix() {
     type Part = fn(Complex64) -> Complex64;
     let parts: [(&str, Part); 3] = [
         ("complex", |x| x),
@@ -197,7 +184,7 @@ fn refuses_factors_that_do_not_give_back_the_matrix_at_any_scale() {
     for (kind, part) in parts {
         let elements = complex.elements().iter().copied().map(part);
         let a = Matrix::new(5, 3, elements.collect());
-        for exponent in [-700, 700] {
+        for exponent in [0, -700, 700] {
             let scaled = |svd: Svd| Svd {
                 singular_values: (svd.singular_values.iter())
                     .map(|s| s * 2_f64.powi(exponent))
@@ -205,12 +192,19 @@ fn refuses_factors_that_do_not_give_back_the_matrix_at_any_scale() {
                 ..svd
             };
             let a_scaled = times_power_of_two(&a, exponent);
-            let under = Some(scaled(off_by(a.view(), 0.9)));
+            let under = scaled(off_by(a.view(), 0.9));
+            let under_values = under.singular_values.clone();
             let over = Some(scaled(off_by(a.view(), 1.1)));
-            checked::<Shipped>(a_scaled.view(), under)
+            let taken = checked::<Shipped>(a_scaled.view(), Some(under))
                 .unwrap_or_else(|_| panic!("{kind}, 2^{exponent}: an error under the bound"));
-            checked::<Shipped>(a_scaled.view(), over)
+            assert_eq!(taken.singular_values, under_values, "{kind}, 2^{exponent}");
+            let error = checked::<Shipped>(a_scaled.view(), over)
                 .expect_err(&format!("{kind}, 2^{exponent}: an error over the bound"));
+            assert_eq!(
+                error,
+                SvdError::FailedChecks { rows: 5, cols: 3 },
+                "{kind}, 2^{exponent}"
+            );
         }
     }
 }

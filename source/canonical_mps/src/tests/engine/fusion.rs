@@ -195,32 +195,44 @@ fn counts(gates: &[(&[usize], Vec<Complex64>)]) -> [(u64, u64); 2] {
     [unfused, fused]
 }
 
-/// CNOT, a phase on its target, a turn of its control, CNOT again, all on
-/// one pair: one split with fusion, two without, for the same state.
+/// The gates of one window, on a pair or on three sites, fuse into one
+/// application, for the same state: each row's gates, and the counts of
+/// splits and operators unfused and fused.
 #[test]
-fn fuses_the_gates_on_one_pair_into_one_split() {
-    let gates: &[(&[usize], Vec<Complex64>)] = &[
-        (&[1, 2], cnot()),
-        (&[2], phase(0.3)),
-        (&[1], ry(0.2)),
-        (&[1, 2], cnot()),
+fn gates_within_a_window_fuse_into_one_application() {
+    type Row = (&'static str, Gates, [(u64, u64); 2]);
+    let rows: [Row; 2] = [
+        // CNOT, a phase on its target, a turn of its control, CNOT again:
+        // one split with fusion, two without.
+        (
+            "one pair",
+            vec![
+                (&[1, 2], cnot()),
+                (&[2], phase(0.3)),
+                (&[1], ry(0.2)),
+                (&[1, 2], cnot()),
+            ],
+            [(2, 0), (1, 0)],
+        ),
+        // A CNOT ladder on sites 0, 1 and 2, a turn of site 1 and a CNOT
+        // on sites 2 and 0: one window, applied as one matrix product
+        // operator across the three sites, two splits; unfused, a split
+        // per gate on neighbours and an operator of two splits for the
+        // gate on sites 0 and 2.
+        (
+            "three sites",
+            vec![
+                (&[0, 1], cnot()),
+                (&[1, 2], entangler(0.4)),
+                (&[1], ry(0.9)),
+                (&[2, 0], cnot()),
+            ],
+            [(4, 1), (2, 1)],
+        ),
     ];
-    assert_eq!(counts(gates), [(2, 0), (1, 0)]);
-}
-
-/// A CNOT ladder on sites 0, 1 and 2, a turn of site 1 and a CNOT on sites
-/// 2 and 0: one window, applied as one matrix product operator across the
-/// three sites, two splits; unfused, a split per gate on neighbours and an
-/// operator of two splits for the gate on sites 0 and 2.
-#[test]
-fn fuses_the_gates_on_three_sites_into_one_window() {
-    let gates: &[(&[usize], Vec<Complex64>)] = &[
-        (&[0, 1], cnot()),
-        (&[1, 2], entangler(0.4)),
-        (&[1], ry(0.9)),
-        (&[2, 0], cnot()),
-    ];
-    assert_eq!(counts(gates), [(4, 1), (2, 1)]);
+    for (name, gates, expected) in rows {
+        assert_eq!(counts(&gates), expected, "{name}");
+    }
 }
 
 /// Gates on sites (0, 1), (1, 2), then (1, 3): the third would make the

@@ -37,8 +37,7 @@ fn split_columns(m: &Matrix) -> Vec<f64> {
 /// This pins that the last sweep allowed reports a failure, not how many
 /// sweeps the cap allows: `needed` is found by the same rotations, so a
 /// cap one sweep off shifts it too. The count is pinned by
-/// `ends_once_a_sweep_finds_the_columns_orthogonal_to_rounding` and
-/// `rotates_a_pair_coupled_above_sqrt_n_epsilon`.
+/// `rotates_only_a_pair_coupled_above_the_threshold`.
 #[test]
 fn fails_when_the_last_sweep_allowed_still_rotates() {
     let w = split_columns(&matrix(6, 4, 3));
@@ -50,81 +49,80 @@ fn fails_when_the_last_sweep_allowed_still_rotates() {
     assert!(rotations_only(needed - 1).is_none());
 }
 
-/// Two columns of 1,000 entries, as `W` has when a matrix of rank 2 has
-/// 1,000 columns: one rotation makes them orthogonal up to the rounding
-/// of their 1,000-term inner product, and the next sweep, which finds
-/// them within `√n · ε` (LAPACK `zgesvj`'s test, `n` the columns'
-/// length), ends the iteration. Allowed only the first sweep, the
-/// iteration fails; a test at `ε` alone rotates the rounding again on
-/// some pairs, and takes a third sweep.
+/// The rotations turn a pair of columns only while their coupling is
+/// above `√n · ε` (LAPACK `zgesvj`'s test, `n` the columns' length), and
+/// the iteration ends with the first sweep that rotates nothing. Each row:
+/// the columns, and the sweeps the iteration takes; allowed one fewer, it
+/// fails.
+///
+/// - Two columns of 1,000 entries, as `W` has when a matrix of rank 2 has
+///   1,000 columns: one rotation makes them orthogonal up to the rounding
+///   of their 1,000-term inner product, and the next sweep, which finds
+///   them within the threshold, ends the iteration, two sweeps; a test at
+///   `ε` alone rotates the rounding again on some pairs, and takes a
+///   third.
+/// - The same, orthonormal but for a coupling of `300 · ε`: above `√n · ε`
+///   (about `31.6 · ε`) and below `n · ε`, so a looser test would leave
+///   the pair, and `U` would lose orthonormality by that much. The first
+///   sweep rotates the pair, and the second ends the iteration.
+/// - Two columns of 4 entries, `e₁` and `(2ε, 1, 0, 0)`: both norms are
+///   exactly 1 (`4ε²` vanishes beside 1) and the coupling exactly `2ε`,
+///   which is `√n · ε` at `n` = 4, so the pair lies within the test's
+///   bound, on its edge. The first sweep rotates nothing and ends the
+///   iteration.
 #[test]
-fn ends_once_a_sweep_finds_the_columns_orthogonal_to_rounding() {
+fn rotates_only_a_pair_coupled_above_the_threshold() {
+    let mut rows: Vec<(String, Matrix, usize)> = Vec::new();
     for seed in 1..=6 {
-        let w = split_columns(&matrix(1_000, 2, seed));
-        assert!(
-            one_sided(1_000, 2, w.clone(), 1).is_none(),
-            "seed {seed}: the first sweep rotates"
-        );
-        assert!(
-            one_sided(1_000, 2, w, 2).is_some(),
-            "seed {seed}: the second sweep finds nothing to rotate"
-        );
+        let name = format!("orthogonal to rounding, seed {seed}");
+        rows.push((name, matrix(1_000, 2, seed), 2));
     }
-}
-
-/// Two columns of 1,000 entries, as `W` has when a matrix of rank 2 has
-/// 1,000 columns, orthonormal but for a coupling of `300 · ε`: above
-/// `√n · ε` (about `31.6 · ε`) and below `n · ε`, so a looser test would
-/// leave the pair, and `U` would lose orthonormality by that much. The
-/// first sweep rotates the pair, and the second ends the iteration.
-#[test]
-fn rotates_a_pair_coupled_above_sqrt_n_epsilon() {
-    let rows = 1_000;
     for seed in 1..=6 {
-        let columns = matrix(rows, 2, seed);
-        let (p, q) = columns.elements().split_at(rows);
-        let norm = |x: &[Complex64]| x.iter().map(Complex64::norm_sqr).sum::<f64>().sqrt();
-        let p: Vec<Complex64> = p.iter().map(|x| x / norm(p)).collect();
-        let mut q = q.to_vec();
-        // Gram–Schmidt twice, so that `q` is orthogonal to `p` to
-        // rounding.
-        for _ in 0..2 {
-            let overlap: Complex64 = p.iter().zip(&q).map(|(a, b)| a.conj() * b).sum();
-            for (b, a) in q.iter_mut().zip(&p) {
-                *b -= overlap * a;
-            }
-        }
-        let q_norm = norm(&q);
-        for (b, a) in q.iter_mut().zip(&p) {
-            *b = *b / q_norm + 300.0 * f64::EPSILON * a;
-        }
-        let w = split_columns(&Matrix::new(rows, 2, [p, q].concat()));
-        assert!(
-            one_sided(rows, 2, w.clone(), 1).is_none(),
-            "seed {seed}: the first sweep rotates"
-        );
-        assert!(
-            one_sided(rows, 2, w, 2).is_some(),
-            "seed {seed}: the second sweep finds nothing to rotate"
-        );
+        let name = format!("coupled by 300ε, seed {seed}");
+        rows.push((name, coupled_by_300_epsilon(seed), 2));
     }
-}
-
-/// Two columns of 4 entries, `e₁` and `(2ε, 1, 0, 0)`: both norms are
-/// exactly 1 (`4ε²` vanishes beside 1) and the coupling exactly `2ε`,
-/// which is `√n · ε` at `n` = 4, so the pair lies within the test's
-/// bound, on its edge. The first sweep rotates nothing and ends the
-/// iteration.
-#[test]
-fn a_pair_coupled_exactly_at_the_threshold_is_not_rotated() {
     let zero = Complex64::new(0.0, 0.0);
     let one = Complex64::new(1.0, 0.0);
     let coupling = Complex64::new(2.0 * f64::EPSILON, 0.0);
-    let columns = Matrix::new(4, 2, vec![one, zero, zero, zero, coupling, one, zero, zero]);
-    assert!(
-        one_sided(4, 2, split_columns(&columns), 1).is_some(),
-        "the first sweep finds nothing to rotate"
-    );
+    let at_the_threshold =
+        Matrix::new(4, 2, vec![one, zero, zero, zero, coupling, one, zero, zero]);
+    rows.push(("coupled at the threshold".into(), at_the_threshold, 1));
+    for (name, columns, sweeps) in rows {
+        let w = split_columns(&columns);
+        let rotations_only = |sweeps| one_sided(columns.rows(), 2, w.clone(), sweeps);
+        assert!(
+            sweeps == 1 || rotations_only(sweeps - 1).is_none(),
+            "{name}: sweep {} rotates",
+            sweeps - 1
+        );
+        assert!(
+            rotations_only(sweeps).is_some(),
+            "{name}: sweep {sweeps} finds nothing to rotate"
+        );
+    }
+}
+
+/// Two orthonormal columns of 1,000 entries (seeded by `seed`) but for a
+/// coupling of `300 · ε`.
+fn coupled_by_300_epsilon(seed: u64) -> Matrix {
+    let rows = 1_000;
+    let columns = matrix(rows, 2, seed);
+    let (p, q) = columns.elements().split_at(rows);
+    let norm = |x: &[Complex64]| x.iter().map(Complex64::norm_sqr).sum::<f64>().sqrt();
+    let p: Vec<Complex64> = p.iter().map(|x| x / norm(p)).collect();
+    let mut q = q.to_vec();
+    // Gram–Schmidt twice, so that `q` is orthogonal to `p` to rounding.
+    for _ in 0..2 {
+        let overlap: Complex64 = p.iter().zip(&q).map(|(a, b)| a.conj() * b).sum();
+        for (b, a) in q.iter_mut().zip(&p) {
+            *b -= overlap * a;
+        }
+    }
+    let q_norm = norm(&q);
+    for (b, a) in q.iter_mut().zip(&p) {
+        *b = *b / q_norm + 300.0 * f64::EPSILON * a;
+    }
+    Matrix::new(rows, 2, [p, q].concat())
 }
 
 /// Three columns, `e₁`, `e₂` and `e₁ + e₂ + e₃`: the first pair is
