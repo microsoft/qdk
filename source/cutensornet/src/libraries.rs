@@ -199,9 +199,10 @@ pub(crate) trait NativeLibrary {
     /// table reports them.
     fn probe_versions<R: SymbolResolver>(resolver: &R) -> ProbedVersions;
 
-    /// What the setup check shows of the library, whether or not
-    /// discovery succeeded, one line per item: where it was loaded from
-    /// and its versions, each `unread` when the report lacks it.
+    /// What the setup check shows of the library once found (its report
+    /// has a path), whether or not discovery succeeded, one line per item:
+    /// where it was loaded from and its versions, each `unread` when the
+    /// report lacks it.
     fn describe(report: &LibraryReport) -> Vec<String>;
 
     /// A problem of the host that the usable library's report reveals, in

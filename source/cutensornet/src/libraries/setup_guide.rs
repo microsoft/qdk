@@ -33,7 +33,7 @@ pub(crate) struct SetupGuide {
     pub(crate) install: &'static str,
     /// What to do when a version probe fails, if one can.
     pub(crate) version_probe_advice: Option<&'static str>,
-    /// The lines that show the library, usable or not.
+    /// The lines that show the library once found, usable or not.
     pub(crate) describe: fn(&LibraryReport) -> Vec<String>,
     /// A problem of the host that the usable library reveals.
     pub(crate) host_problem: fn(&LibraryReport) -> Option<String>,
