@@ -21,9 +21,9 @@
 //!
 //! 1. the libraries: [`discover_with`](crate::discover_with), which runs no
 //!    GPU work;
-//! 2. the host: each library's report may reveal a problem of the host,
-//!    today no NVIDIA driver, or one that supports no CUDA 12 (its
-//!    `SetupGuide`, in `libraries::setup_guide`);
+//! 2. the host: a problem of the host a library's report reveals, as its
+//!    `SetupGuide` (in `libraries::setup_guide`) says, today the CUDA
+//!    Runtime's driver check;
 //! 3. the devices: how many CUDA devices the process sees, and the compute
 //!    capability and memory of the one the GPU engine runs on, the only
 //!    one read (`devices`);
@@ -31,10 +31,12 @@
 //!    device prepares one qubit, applies a Hadamard and reads a
 //!    probability, the smallest run that touches the device.
 //!
-//! What is particular to a library, in the report and in the advice, the
+//! What the library and host steps show and advise of a library, the
 //! library declares in its `SetupGuide`, so a library bound later brings
 //! its own; `advice` holds the advice shared by every library and that of
-//! the steps after discovery.
+//! the steps after discovery. The device step is the exception: the check
+//! holds its facts, cuTensorNet's compute-capability floor and the CUDA
+//! Runtime's driver advice.
 
 mod advice;
 pub(crate) mod devices;
@@ -104,8 +106,8 @@ impl GpuSetup {
     /// `None` when the setup is ready. The problems, in the order they are
     /// looked for: discovery failed (an invalid override first, or else the
     /// first fault of the first library at fault, in the order they are
-    /// opened); a library reveals a problem of the host (today, no NVIDIA
-    /// driver, or one that supports no CUDA 12); the devices could not be
+    /// opened); a library's report reveals a problem of the host (today the
+    /// CUDA Runtime's driver check); the devices could not be
     /// read, or the GPU engine's device is missing, or of a compute
     /// capability cuTensorNet does not support; the trial run failed.
     #[must_use]
