@@ -44,7 +44,7 @@ pub(crate) mod devices;
 use crate::engine::cuda_algebra::policy::DEVICE_ORDINAL;
 use crate::libraries::setup_guide::{or_unread, setup_guides};
 use crate::{AvailabilityError, AvailabilityReport, CudaAlgebraError, PackagedLibraries};
-use advice::{availability_advice, device_advice, trial_run_advice};
+use advice::{availability_advice, device_advice, other_copy_advice, trial_run_advice};
 use canonical_mps::CanonicalMpsError;
 use devices::DeviceReport;
 use std::error::Error;
@@ -127,9 +127,9 @@ impl GpuSetup {
 
     /// Warnings, whether or not the setup is ready: each other copy of a
     /// library the setup makes visible beside the one loaded, since a
-    /// stray copy can be what makes the one loaded fail, with how to keep
-    /// only one: when the loaded copy is the override's, remove the other
-    /// or unset the variable; else remove one or set the variable.
+    /// stray copy can be what makes the one loaded fail, with what to do
+    /// about it, which depends on whether the one loaded is at fault
+    /// (`advice::other_copy_advice`).
     #[must_use]
     pub fn warnings(&self) -> Vec<String> {
         let report = match &self.loaded {
@@ -143,11 +143,7 @@ impl GpuSetup {
             .filter_map(|guide| Some((guide, report.library(guide.library)?)))
             .flat_map(|(guide, library)| {
                 let loaded = or_unread(library.path.as_ref().map(|path| path.display()));
-                let fix = if library.loaded_from_override {
-                    format!("remove the other, or unset {}", guide.variable)
-                } else {
-                    format!("remove one, or set {} to the one to load", guide.variable)
-                };
+                let fix = other_copy_advice(guide, library);
                 library.other_copies.iter().map(move |other| {
                     format!(
                         "another copy of {} is at {}, beside the one loaded, {loaded}: {fix}",
@@ -166,11 +162,18 @@ impl fmt::Display for GpuSetup {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.loaded {
             Ok(loaded) => write!(f, "{loaded}")?,
-            Err(error) => write!(
-                f,
-                "libraries: {error}\nCUDA devices: not read\ntrial run on CUDA device {DEVICE_ORDINAL}: \
-                 not tried"
-            )?,
+            Err(error) => {
+                match error {
+                    AvailabilityError::Unusable(libraries) => write_libraries(f, libraries)?,
+                    AvailabilityError::UnsupportedPlatform { .. } => {
+                        writeln!(f, "libraries: {error}")?;
+                    }
+                }
+                write!(
+                    f,
+                    "CUDA devices: not read\ntrial run on CUDA device {DEVICE_ORDINAL}: not tried"
+                )?;
+            }
         }
         for warning in self.warnings() {
             write!(f, "\nwarning: {warning}")?;
@@ -186,14 +189,7 @@ impl fmt::Display for GpuSetup {
 /// devices, the trial run.
 impl fmt::Display for LoadedSetup {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for guide in setup_guides() {
-            let Some(library) = self.libraries.library(guide.library) else {
-                continue;
-            };
-            for line in (guide.describe)(library) {
-                writeln!(f, "{line}")?;
-            }
-        }
+        write_libraries(f, &self.libraries)?;
         match &self.devices {
             Ok(DeviceReport { count: 0, .. }) => writeln!(f, "CUDA devices: none")?,
             Ok(DeviceReport {
@@ -224,6 +220,24 @@ impl fmt::Display for LoadedSetup {
             ),
         }
     }
+}
+
+/// Lists each library of `report` as its guide shows it, then each fault
+/// found in it, one item a line: what discovery found, whether or not it
+/// succeeded.
+fn write_libraries(f: &mut fmt::Formatter<'_>, report: &AvailabilityReport) -> fmt::Result {
+    for guide in setup_guides() {
+        let Some(library) = report.library(guide.library) else {
+            continue;
+        };
+        for line in (guide.describe)(library) {
+            writeln!(f, "{line}")?;
+        }
+        for fault in &library.faults {
+            writeln!(f, "{} at fault: {fault}", guide.library)?;
+        }
+    }
+    Ok(())
 }
 
 /// The devices step: how many devices the CUDA Runtime `availability`

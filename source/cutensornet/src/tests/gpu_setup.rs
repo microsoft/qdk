@@ -460,23 +460,57 @@ fn an_unsupported_platform_is_advised_where_the_engine_runs() {
     }
 }
 
-/// A failed discovery reports its error, and that no trial run was tried.
+/// A failed discovery reports what it found of each library, the usable
+/// one's path and versions and those a library at fault reported, beside
+/// each fault, and that no device was read and no trial run tried.
 #[cfg(unix)]
 #[test]
-fn a_failed_discovery_reports_its_error_and_no_trial_run() {
-    let setup = failed(unusable(
+fn a_failed_discovery_reports_what_it_found_its_faults_and_no_trial_run() {
+    let missing_cutensornet = unusable(
         "cuTensorNet",
         vec![LibraryFault::NotFound {
             attempted: vec![PathBuf::from("libcutensornet.so.2")],
         }],
-    ));
-    let report = setup.to_string();
-    assert!(
-        report.contains("libraries: cuTensorNet acceleration is unavailable: cuTensorNet")
-            && report.contains("not found")
-            && report.contains("trial run on CUDA device 0: not tried"),
-        "{report}"
     );
+    let AvailabilityError::Unusable(mut old_cuda_runtime) = unusable(
+        "CUDA Runtime",
+        vec![LibraryFault::UnsupportedVersion {
+            component: "CUDA Runtime",
+            found: 12_080,
+            supported: 12_090,
+        }],
+    ) else {
+        unreachable!("unusable gives a report");
+    };
+    old_cuda_runtime.libraries[0].path = Some(PathBuf::from("/opt/cuda-12.8/libcudart.so.12"));
+    old_cuda_runtime.libraries[0].versions[0].value = 12_080;
+    for (error, expected) in [
+        (
+            missing_cutensornet,
+            [
+                "CUDA Runtime: /env/nvidia/cuda_runtime/lib/libcudart.so.12 (12.9)",
+                "CUDA driver: supports CUDA 12.8",
+                "cuTensorNet at fault: not found",
+            ],
+        ),
+        (
+            AvailabilityError::Unusable(old_cuda_runtime),
+            [
+                "CUDA Runtime: /opt/cuda-12.8/libcudart.so.12 (12.8)",
+                "CUDA Runtime at fault: CUDA Runtime version 12080 is unsupported",
+                "cuTensorNet: /env/cuquantum/lib/libcutensornet.so.2 (2.13.0, built for CUDA \
+                 Runtime 12.9)",
+            ],
+        ),
+    ] {
+        let report = failed(error).to_string();
+        for line in expected.into_iter().chain([
+            "CUDA devices: not read",
+            "trial run on CUDA device 0: not tried",
+        ]) {
+            assert!(report.contains(line), "{line:?} in {report}");
+        }
+    }
 }
 
 /// The GPU engine's device, CUDA device 0, of a compute capability cuTensorNet
@@ -673,25 +707,52 @@ fn another_copy_of_a_library_is_a_warning_that_leaves_the_setup_ready() {
     );
 }
 
-/// A user whose cuTensorNet override is loaded beside a wheel's copy is
-/// told to remove the other copy or unset the variable; a user whose CUDA
-/// Runtime came from the usual paths, beside a system copy, is told to
-/// remove one or set the variable to the one to load.
+/// A warning's remedy changes the copy at fault, never a sound one: when
+/// the CUDA Runtime loaded, from its override or not, is of another
+/// release, the user is told to set the override to an audited copy, or
+/// else to unset the override or remove the copy loaded; when the one
+/// loaded passed its checks, the other copy, never checked, is to be
+/// removed, and the override kept.
 #[cfg(unix)]
 #[test]
-fn a_warning_says_to_unset_an_override_that_is_loaded_or_else_to_set_it() {
-    let warnings = found(two_other_copies(), Some(a100())).warnings();
-    let [cutensornet, cuda_runtime] = warnings.as_slice() else {
-        panic!("one warning per other copy: {warnings:?}");
-    };
-    assert!(
-        cutensornet.ends_with(": remove the other, or unset QDK_CUTENSORNET_LIBRARY"),
-        "{cutensornet}"
-    );
-    assert!(
-        cuda_runtime.ends_with(": remove one, or set QDK_CUDART_LIBRARY to the one to load"),
-        "{cuda_runtime}"
-    );
+fn a_warning_says_to_change_the_copy_loaded_only_when_it_is_at_fault() {
+    let at_fault = vec![LibraryFault::UnsupportedVersion {
+        component: "CUDA Runtime",
+        found: 12_080,
+        supported: 12_090,
+    }];
+    let sound = ": remove the other if nothing else uses it, as it was not checked";
+    for (from_override, faults, ending) in [
+        (
+            true,
+            at_fault.clone(),
+            ": set QDK_CUDART_LIBRARY to an audited copy, or unset it, as the one it names is \
+             at fault",
+        ),
+        (
+            false,
+            at_fault,
+            ": set QDK_CUDART_LIBRARY to an audited copy, or remove the one loaded, as it is at \
+             fault",
+        ),
+        (true, Vec::new(), sound),
+        (false, Vec::new(), sound),
+    ] {
+        let mut report = audited_report();
+        report.libraries[0].loaded_from_override = from_override;
+        report.libraries[0].other_copies = vec![PathBuf::from("/usr/local/cuda/libcudart.so.12")];
+        let setup = if faults.is_empty() {
+            found(report, Some(a100()))
+        } else {
+            report.libraries[0].faults = faults;
+            failed(AvailabilityError::Unusable(report))
+        };
+        let warnings = setup.warnings();
+        let [warning] = warnings.as_slice() else {
+            panic!("one warning for the other copy: {warnings:?}");
+        };
+        assert!(warning.ends_with(ending), "{warning}");
+    }
 }
 
 /// A user whose CUDA Runtime override loads a copy of another release,
@@ -722,8 +783,7 @@ fn another_copy_is_warned_of_when_discovery_fails() {
         panic!("one warning for the other copy: {warnings:?}");
     };
     assert!(
-        warning.contains("/env/nvidia/cuda_runtime/lib/libcudart.so.12")
-            && warning.ends_with(": remove the other, or unset QDK_CUDART_LIBRARY"),
+        warning.contains("/env/nvidia/cuda_runtime/lib/libcudart.so.12"),
         "{warning}"
     );
     assert!(
