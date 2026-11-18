@@ -76,10 +76,10 @@ engine's own for the work it defers or reorders:
 - **Truncation, cutoff, capacity:** a split factors $\theta$ by an SVD and
   keeps only its largest singular values, which truncates the bond between
   the pair. The **cutoff** is the share of the squared singular values a
-  split may drop; the **capacity** is the shape a caller prepares a state
-  with, whose bond at each cut, its $\chi$, is the largest a split may keep
-  there; the contract calls the largest bond one split may keep its
-  **cap**.
+  split may drop, beyond values of rounding's size; the **capacity** is the
+  shape a caller prepares a state with, whose bond at each cut, its $\chi$,
+  is the largest a split may keep there; the contract calls the largest
+  bond one split may keep its **cap**.
 - **Retained fraction, retained weight:** the share of the squared
   singular values a split keeps; the state's **retained weight** is the
   product of its splits' retained fractions, the weight its truncations
