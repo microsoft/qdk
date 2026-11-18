@@ -305,19 +305,23 @@ pub(crate) fn open<L: NativeLibrary>(
         other_copies: Vec::new(),
         from_override: false,
     };
-    let paths = candidates::<L>(&read_variable, packaged);
+    let override_path = validate_override_path(L::VARIABLE, read_variable(L::VARIABLE));
     // A valid override is the only candidate, so the copy tried while it is
     // set is the one it names, loaded or not.
-    report.from_override = paths.is_ok() && read_variable(L::VARIABLE).is_some();
-    let library = match paths.and_then(load_library) {
-        Ok(library) => library,
+    report.from_override = matches!(override_path, Ok(Some(_)));
+    let opened = override_path.and_then(|override_path| {
+        load_library(candidates::<L>(override_path.clone(), packaged))
+            .map(|library| (library, override_path))
+    });
+    let (library, override_path) = match opened {
+        Ok(opened) => opened,
         Err(fault) => {
             report.faults.push(fault);
             return (report, None);
         }
     };
     report.path = Some(library.path().to_path_buf());
-    report.other_copies = other_copies::<L>(library.path(), &read_variable, packaged);
+    report.other_copies = other_copies::<L>(library.path(), override_path.as_deref(), packaged);
     let functions = inspect::<L, _>(&library, &mut report);
     let bound = functions.map(|functions| BoundLibrary { functions, library });
     (report, bound)
@@ -339,42 +343,40 @@ pub(crate) fn inspect<L: NativeLibrary, R: SymbolResolver>(
     functions.filter(|_| report.faults.is_empty())
 }
 
-/// The paths to try for `L`: the override that `read_variable` gives for its
-/// variable, alone; or else its file in `packaged`, if any, then its default
-/// paths.
+/// The paths to try for `L`: `override_path`, the path its variable names
+/// once validated, alone; or else its file in `packaged`, if any, then its
+/// default paths.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn candidates<L: NativeLibrary>(
-    read_variable: impl Fn(&'static str) -> Option<OsString>,
+    override_path: Option<PathBuf>,
     packaged: &PackagedLibraries,
-) -> Result<Vec<PathBuf>, LibraryFault> {
-    Ok(
-        match validate_override_path(L::VARIABLE, read_variable(L::VARIABLE))? {
-            Some(path) => vec![path],
-            None => L::packaged(packaged)
-                .into_iter()
-                .map(Path::to_path_buf)
-                .chain(L::DEFAULTS.iter().map(PathBuf::from))
-                .collect(),
-        },
-    )
+) -> Vec<PathBuf> {
+    match override_path {
+        Some(path) => vec![path],
+        None => L::packaged(packaged)
+            .into_iter()
+            .map(Path::to_path_buf)
+            .chain(L::DEFAULTS.iter().map(PathBuf::from))
+            .collect(),
+    }
 }
 
 /// The other copies of `L` the setup makes visible beside `loaded`: the
-/// files among its override, its file in `packaged` and its default
+/// files among `override_path`, its file in `packaged` and its default
 /// absolute paths that exist and are not `loaded` (links followed), each
 /// once, in that order. A bare file name the system loader searches for is
 /// not looked at.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn other_copies<L: NativeLibrary>(
     loaded: &Path,
-    read_variable: impl Fn(&'static str) -> Option<OsString>,
+    override_path: Option<&Path>,
     packaged: &PackagedLibraries,
 ) -> Vec<PathBuf> {
     let loaded = loaded.canonicalize().ok();
     let mut seen = Vec::new();
     let mut copies = Vec::new();
-    let paths = read_variable(L::VARIABLE)
-        .map(PathBuf::from)
+    let paths = override_path
+        .map(Path::to_path_buf)
         .into_iter()
         .chain(L::packaged(packaged).map(Path::to_path_buf))
         .chain(L::DEFAULTS.iter().map(PathBuf::from));
