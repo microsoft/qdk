@@ -69,7 +69,7 @@ pub(crate) mod jacobi;
 
 use self::checks::checked;
 use self::jacobi::{MAX_SWEEPS, one_sided};
-use crate::dense_linalg::kernels::{ColumnMajorSvd, Kernels, Shipped};
+use crate::dense_linalg::kernels::{ColumnMajorSvd, DefaultKernels, Kernels};
 use crate::dense_linalg::matrix::{Matrix, MatrixRef};
 use crate::dense_linalg::scaling::PowerOfTwoScaling;
 use num_complex::Complex64;
@@ -115,7 +115,10 @@ impl Svd {
             // the module doc) reads only finite entries.
             return Err(SvdError::FailedChecks { rows, cols });
         }
-        checked::<Shipped>(a, trimmed_thin_svd::<Shipped>(a, &Shipped::tall_svd))
+        checked::<DefaultKernels>(
+            a,
+            trimmed_thin_svd::<DefaultKernels>(a, &DefaultKernels::tall_svd),
+        )
     }
 }
 

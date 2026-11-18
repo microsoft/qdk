@@ -72,7 +72,7 @@ fn an_overflowing_element_count_is_refused() {
 /// The product of two matrices is the naive product, to rounding, on tall,
 /// wide, square and single-row shapes.
 #[test]
-fn multiplies() {
+fn a_product_is_the_naive_product() {
     for (seed, &(rows, cols)) in (1..).zip(&SHAPES) {
         let a = matrix(rows, cols, seed);
         let b = matrix(cols, 3, seed + 10);

@@ -95,14 +95,15 @@ its split, to at most the capacity's times the operator's bond (at most
 a split drops within them is the algebra's to choose. A split normalises
 the values it keeps, so the chain keeps a norm of about 1.
 
-**The retained weight.** Each split returns the share $f \in (0, 1]$ of the
-squared singular values it kept, and the state's retained weight is the
-product of the shares, $W = \prod_i f_i$; the part of a window's operator
-that its factorisation drops, at or below the operator's rank cutoff, is
-not counted ([`distant_sites.md`](distant_sites.md)). The engine keeps $W$
-apart from the chain's norm, and fails a split with `WeightUnderflow` when
-$W$ would fall below the smallest normal `f64`, about `2.2e-308`, rather
-than let it reach zero, by which callers divide.
+**The retained weight.** Each split returns the retained fraction
+$f \in (0, 1]$, the share of the squared singular values it kept, and
+the state's retained weight is the product of the retained fractions,
+$W = \prod_i f_i$; the part of a window's operator that its
+factorisation drops, at or below the operator's rank cutoff, is not
+counted ([`distant_sites.md`](distant_sites.md)). The engine keeps $W$
+apart from the chain's norm, and fails a split with `WeightUnderflow`
+when $W$ would fall below the smallest normal `f64`, about `2.2e-308`,
+rather than let it reach zero, by which callers divide.
 
 **A probability.** With the centre on site $s$, the rest of the chain drops
 out of the site's reads. The weight of a value $b$ is

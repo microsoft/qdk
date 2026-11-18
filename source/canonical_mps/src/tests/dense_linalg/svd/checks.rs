@@ -9,7 +9,7 @@
 
 use super::super::{matrix, times_power_of_two};
 use crate::dense_linalg::{
-    Matrix, MatrixRef, Svd, SvdError, kernels::Shipped, svd::checks::checked,
+    Matrix, MatrixRef, Svd, SvdError, kernels::DefaultKernels, svd::checks::checked,
 };
 use num_complex::Complex64;
 
@@ -155,7 +155,7 @@ fn refuses_an_svd_that_is_not_finite() {
     let a = matrix(5, 3, 7);
     for (factor, imaginary) in [(0, false), (0, true), (1, false), (2, false), (2, true)] {
         let answer = Some(spoiled(a.view(), factor, imaginary));
-        let error = checked::<Shipped>(a.view(), answer).expect_err("not finite");
+        let error = checked::<DefaultKernels>(a.view(), answer).expect_err("not finite");
         assert_eq!(
             error,
             SvdError::FailedChecks { rows: 5, cols: 3 },
@@ -195,10 +195,10 @@ fn refuses_factors_that_do_not_give_back_the_matrix() {
             let under = scaled(off_by(a.view(), 0.9));
             let under_values = under.singular_values.clone();
             let over = Some(scaled(off_by(a.view(), 1.1)));
-            let taken = checked::<Shipped>(a_scaled.view(), Some(under))
+            let taken = checked::<DefaultKernels>(a_scaled.view(), Some(under))
                 .unwrap_or_else(|_| panic!("{kind}, 2^{exponent}: an error under the bound"));
             assert_eq!(taken.singular_values, under_values, "{kind}, 2^{exponent}");
-            let error = checked::<Shipped>(a_scaled.view(), over)
+            let error = checked::<DefaultKernels>(a_scaled.view(), over)
                 .expect_err(&format!("{kind}, 2^{exponent}: an error over the bound"));
             assert_eq!(
                 error,
@@ -231,13 +231,13 @@ fn refuses_singular_vectors_that_are_not_orthonormal() {
         for on_v_adjoint in [false, true] {
             let under = Some(deviated(a.view(), on_v_adjoint, 0.8));
             let over = Some(deviated(a.view(), on_v_adjoint, 1.25));
-            let taken = checked::<Shipped>(a.view(), under)
+            let taken = checked::<DefaultKernels>(a.view(), under)
                 .unwrap_or_else(|_| panic!("{kind}: under the bound, V† {on_v_adjoint}"));
             assert_eq!(
                 taken.singular_values,
                 deviated(a.view(), on_v_adjoint, 0.8).singular_values
             );
-            let error = checked::<Shipped>(a.view(), over)
+            let error = checked::<DefaultKernels>(a.view(), over)
                 .expect_err(&format!("{kind}: over the bound, V† {on_v_adjoint}"));
             assert_eq!(
                 error,
@@ -254,6 +254,6 @@ fn refuses_singular_vectors_that_are_not_orthonormal() {
 #[test]
 fn fails_when_the_svd_reports_a_failure() {
     let a = matrix(5, 3, 7);
-    let error = checked::<Shipped>(a.view(), None).expect_err("a failure");
+    let error = checked::<DefaultKernels>(a.view(), None).expect_err("a failure");
     assert_eq!(error, SvdError::DidNotConverge { rows: 5, cols: 3 });
 }

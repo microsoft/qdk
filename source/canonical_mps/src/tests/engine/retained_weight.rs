@@ -16,7 +16,7 @@ use super::*;
 #[test]
 fn a_projection_keeps_the_retained_weight() {
     for (engine, name) in both_fusions_and_cutoffs() {
-        let mut state = engine.prepare(&chain(3, 1)).expect("prepare");
+        let mut state = engine.prepare(&capacity(3, 1)).expect("prepare");
         engine
             .apply(&mut state, &[0], &ry(std::f64::consts::FRAC_PI_2))
             .expect("apply");
@@ -30,7 +30,7 @@ fn a_projection_keeps_the_retained_weight() {
             (after - before).abs() < 1e-12,
             "{name}: {after} vs {before}"
         );
-        let mut lone = engine.prepare(&chain(1, 1)).expect("prepare");
+        let mut lone = engine.prepare(&capacity(1, 1)).expect("prepare");
         engine.apply(&mut lone, &[0], &ry(4e-162)).expect("apply");
         let p = engine.project(&mut lone, 0, true).expect("project");
         assert!(p > 0.0 && p < f64::MIN_POSITIVE, "{name}: {p:e}");
@@ -45,7 +45,7 @@ fn a_projection_keeps_the_retained_weight() {
 #[test]
 fn a_fork_keeps_its_parents_retained_weight() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+        let mut state = engine.prepare(&capacity(2, 1)).expect("prepare");
         engine
             .apply(&mut state, &[0], &ry(std::f64::consts::FRAC_PI_2))
             .expect("apply");
@@ -70,7 +70,7 @@ fn reads_after_many_truncations_keep_their_value() {
         // 1e-200, and a projection on it is accepted.
         ("a rare value's probability", |engine, name| {
             for centre in [0, 1] {
-                let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+                let mut state = engine.prepare(&capacity(2, 1)).expect("prepare");
                 for _ in 0..600 {
                     halve_the_weight(engine, &mut state, centre).expect("a round");
                 }
@@ -97,7 +97,7 @@ fn reads_after_many_truncations_keep_their_value() {
                 vec![PauliTerm::new(real(1000.0), vec![(0, Pauli::Z)]).expect("a term")],
             )
             .expect("an observable");
-            let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+            let mut state = engine.prepare(&capacity(2, 1)).expect("prepare");
             for _ in 0..1020 {
                 halve_the_weight(engine, &mut state, 0).expect("a round");
             }
@@ -121,7 +121,7 @@ fn reads_divide_out_a_gates_drift_on_the_centres_site() {
     let s = 1.0 + 1e-10;
     let grow = [real(s), real(0.0), real(0.0), real(s)];
     for (engine, name) in both_fusions_and_cutoffs() {
-        let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+        let mut state = engine.prepare(&capacity(2, 1)).expect("prepare");
         engine.apply(&mut state, &[0], &ry(0.9)).expect("apply");
         engine
             .apply(&mut state, &[0], &grow)
@@ -185,7 +185,7 @@ fn a_gates_drift_off_the_centre_shifts_reads_by_at_most_the_tolerances_order() {
 #[test]
 fn a_truncation_fails_once_the_retained_weight_would_underflow() {
     for (engine, name) in both_fusions_and_cutoffs() {
-        let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+        let mut state = engine.prepare(&capacity(2, 1)).expect("prepare");
         let mut last = 1.0;
         let mut failure = None;
         for _ in 0..1100 {
@@ -216,7 +216,7 @@ fn a_truncation_fails_once_the_retained_weight_would_underflow() {
 fn projections_on_values_of_subnormal_probability_are_accepted() {
     let x = [real(0.0), real(1.0), real(1.0), real(0.0)];
     for (engine, name) in both_fusions_and_cutoffs() {
-        let mut state = engine.prepare(&chain(1, 1)).expect("prepare");
+        let mut state = engine.prepare(&capacity(1, 1)).expect("prepare");
         for round in 0..20 {
             engine.apply(&mut state, &[0], &ry(4e-162)).expect("apply");
             let projected = engine.project(&mut state, 0, true);
@@ -238,7 +238,7 @@ fn a_projection_hands_the_algebra_a_site_of_norm_one() {
     for fuse in [true, false] {
         let (algebra, calls) = SpyAlgebra::new();
         let engine = CanonicalMpsEngine::new(algebra).with_fusion(fuse);
-        let mut state = engine.prepare(&chain(3, 2)).expect("prepare");
+        let mut state = engine.prepare(&capacity(3, 2)).expect("prepare");
         engine.apply(&mut state, &[0], &ry(1.1)).expect("apply");
         for pair in [[0, 1], [1, 2], [0, 1]] {
             engine.apply(&mut state, &pair, &cnot()).expect("apply");
@@ -266,7 +266,7 @@ fn a_projection_hands_the_algebra_a_site_of_norm_one() {
 fn a_projection_renormalises_the_state() {
     let theta = 2.0 * 1e-100_f64.asin();
     for (engine, name) in both_fusions_and_cutoffs() {
-        let mut state = engine.prepare(&chain(2, 1)).expect("prepare");
+        let mut state = engine.prepare(&capacity(2, 1)).expect("prepare");
         engine.apply(&mut state, &[0], &ry(theta)).expect("apply");
         engine.apply(&mut state, &[1], &ry(theta)).expect("apply");
         engine

@@ -12,23 +12,23 @@ use qdk_simulators::SparseStateSim;
 use tensornet::Pauli;
 
 /// A state vector, qubit `q` as bit `q` of the index.
-pub struct Dense {
+pub struct StateVector {
     pub psi: Vec<C>,
 }
 
-impl Dense {
+impl StateVector {
     /// `circuit`'s exact state, from `|0…0⟩`.
     pub fn run(circuit: &Circuit) -> Self {
         let mut psi = vec![c(0.0, 0.0); 1 << circuit.qubits];
         psi[0] = c(1.0, 0.0);
-        let mut dense = Self { psi };
+        let mut state = Self { psi };
         for op in &circuit.ops {
             match op {
-                Op::Gate { qubits, matrix, .. } => dense.apply(qubits, matrix),
+                Op::Gate { qubits, matrix, .. } => state.apply(qubits, matrix),
                 Op::Project { .. } => unimplemented!("a unitary circuit"),
             }
         }
-        dense
+        state
     }
 
     /// The sparse simulator's state, normalized.

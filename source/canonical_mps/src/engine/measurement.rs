@@ -107,7 +107,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     /// order than the two values' weights: the read the probabilities
     /// avoid, which a test uses to check that its site still rounds where
     /// it needs.
-    pub(crate) fn one_over_the_whole_weight(
+    pub(crate) fn probability_of_one_over_the_whole_weight(
         &self,
         state: &CanonicalMpsState<A>,
         site: usize,

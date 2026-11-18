@@ -13,7 +13,7 @@ use super::*;
 #[test]
 fn a_move_of_the_centre_keeps_the_gate_pending_on_the_site_it_leaves() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(3, 2)).expect("prepare");
+        let mut state = engine.prepare(&capacity(3, 2)).expect("prepare");
         engine.apply(&mut state, &[0], &ry(0.9)).expect("apply");
         engine.probability_of_one(&state, 2).expect("P(One)");
         let p = engine.probability_of_one(&state, 0).expect("P(One)");
@@ -48,7 +48,7 @@ fn moving_the_centre_shrinks_a_bond_above_twice_its_neighbours() {
                 }
                 bonds
             };
-            let mut state = engine.prepare(&chain(6, 8)).expect("prepare");
+            let mut state = engine.prepare(&capacity(6, 8)).expect("prepare");
             for (control, target) in [(1, 3), (2, 4)] {
                 engine
                     .apply(&mut state, &[at(control)], &hadamard)

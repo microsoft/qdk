@@ -14,7 +14,7 @@
 
 use super::CanonicalMpsError;
 use super::fusion::Window;
-use super::gate_products::multiply2;
+use super::gate_products::product_on_one_site;
 use super::statistics::CanonicalMpsStatistics;
 use crate::site_algebra::SiteAlgebra;
 use num_complex::Complex64;
@@ -32,7 +32,7 @@ pub(super) struct Chain<T> {
     pub(super) capacity_bonds: Vec<usize>,
     /// The gates on a few sites waiting to be applied at once, if any.
     pub(super) window: Option<Window>,
-    /// The product of the shares of their squared values the splits kept.
+    /// The product of the splits' retained fractions.
     /// The chain itself is normalised at each split, so its squared norm
     /// stays about 1.
     pub(super) retained_weight: f64,
@@ -123,7 +123,7 @@ impl<T> Chain<T> {
                 let m: [Complex64; 4] = std::array::from_fn(|at| m[at]);
                 let pending = &mut self.pending[site];
                 *pending = Some(match pending {
-                    Some(earlier) => multiply2(&m, earlier),
+                    Some(earlier) => product_on_one_site(&m, earlier),
                     None => m,
                 });
             }

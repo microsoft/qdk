@@ -71,8 +71,10 @@ impl Window {
 
     /// Absorbs `gate`, on the sites `on` of the window, into the operator.
     pub(super) fn absorb(&mut self, gate: &[Complex64], on: &[usize]) {
-        self.operator =
-            gate_products::multiply(&gate_products::widen(gate, on, &self.sites), &self.operator);
+        self.operator = gate_products::product_on_same_sites(
+            &gate_products::widen(gate, on, &self.sites),
+            &self.operator,
+        );
     }
 
     /// The window's sites and those of `on`, ascending, when they number at
@@ -146,11 +148,11 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         let second = chain.pending[high]
             .take()
             .unwrap_or(gate_products::IDENTITY);
-        let pending = gate_products::multiply(
+        let pending = gate_products::product_on_same_sites(
             &gate_products::widen(&first, &[low], &window.sites),
             &gate_products::widen(&second, &[high], &window.sites),
         );
-        let operator = gate_products::multiply(&window.operator, &pending);
+        let operator = gate_products::product_on_same_sites(&window.operator, &pending);
         let side = if toward <= low {
             CentreSide::Left
         } else {

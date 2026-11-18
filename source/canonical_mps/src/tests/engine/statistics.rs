@@ -15,7 +15,7 @@ fn the_largest_bond_at_rest_is_the_bond_a_gates_split_kept() {
     let theta = 2.0 * 0.2f64.sqrt().asin();
     for (cutoff, bond) in [(0.25, 1), (0.15, 2)] {
         for (engine, name) in both_fusions(cutoff) {
-            let mut state = engine.prepare(&chain(2, 2)).expect("prepare");
+            let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
             engine.apply(&mut state, &[0], &ry(theta)).expect("apply");
             engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
             engine
@@ -67,7 +67,7 @@ fn only_an_operator_grows_a_transient_bond() {
     ];
     for (row, sites, gates, (at_rest, transient)) in &rows {
         for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-            let mut state = engine.prepare(&chain(*sites, 2)).expect("prepare");
+            let mut state = engine.prepare(&capacity(*sites, 2)).expect("prepare");
             for (on, gate) in gates {
                 engine.apply(&mut state, on, gate).expect("apply");
             }
@@ -90,7 +90,7 @@ fn only_an_operator_grows_a_transient_bond() {
 #[test]
 fn a_state_without_splits_reports_largest_bonds_of_1() {
     let engine = Engine::new(CpuAlgebra);
-    let mut state = engine.prepare(&chain(3, 4)).expect("prepare");
+    let mut state = engine.prepare(&capacity(3, 4)).expect("prepare");
     engine.apply(&mut state, &[1], &ry(0.7)).expect("apply");
     let statistics = state.statistics();
     assert_eq!(statistics.splits(), 0, "no split yet");
@@ -109,7 +109,7 @@ fn a_state_without_splits_reports_largest_bonds_of_1() {
 #[test]
 fn counts_the_splits_and_matrix_product_operators() {
     let engine = Engine::new(CpuAlgebra).with_fusion(false);
-    let mut state = engine.prepare(&chain(5, 8)).expect("prepare");
+    let mut state = engine.prepare(&capacity(5, 8)).expect("prepare");
     for site in 0..5 {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
     }
@@ -132,7 +132,7 @@ fn counts_the_splits_and_matrix_product_operators() {
 #[test]
 fn counts_the_moves_of_the_centre() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&chain(5, 4)).expect("prepare");
+        let mut state = engine.prepare(&capacity(5, 4)).expect("prepare");
         engine.probability_of_one(&state, 4).expect("P(One)");
         assert_eq!(state.statistics().centre_moves(), 4, "{name}");
         engine.probability_of_one(&state, 1).expect("P(One)");
@@ -152,7 +152,7 @@ fn counts_the_moves_of_the_centre() {
 #[test]
 fn a_fork_starts_with_its_parents_history() {
     let engine = Engine::new(CpuAlgebra).with_fusion(false);
-    let mut state = engine.prepare(&chain(5, 8)).expect("prepare");
+    let mut state = engine.prepare(&capacity(5, 8)).expect("prepare");
     for site in 0..5 {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
     }

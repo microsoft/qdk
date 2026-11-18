@@ -14,8 +14,8 @@ use qdk_simulators::SparseStateSim;
 use std::{fs, hint::black_box, time::Instant};
 use tensornet::{MpsEngine, MpsShape};
 
-/// A chain of `n` qubits with every bond at most `chi`.
-pub fn chain(n: usize, chi: usize) -> MpsShape {
+/// The capacity of a chain of `n` qubits with every bond at most `chi`.
+pub fn capacity(n: usize, chi: usize) -> MpsShape {
     MpsShape::qubit_chain(n, chi).expect("a chain of at least one site")
 }
 
@@ -35,7 +35,7 @@ pub fn run_engine(
     order: &[usize],
     chi: usize,
 ) -> Res<EngineRun> {
-    let mut state = engine.prepare(&chain(circuit.qubits, chi))?;
+    let mut state = engine.prepare(&capacity(circuit.qubits, chi))?;
     let mut max_projection_gap: f64 = 0.0;
     let started = Instant::now();
     for op in &circuit.ops {

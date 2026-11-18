@@ -10,15 +10,15 @@
 use super::{SHAPES, adjoint, check_svd_of, distance, identity, matrix, naive_product};
 use crate::dense_linalg::{
     Matrix, Svd,
-    kernels::{Kernels, PivotedQr, Shipped},
+    kernels::{DefaultKernels, Kernels, PivotedQr},
 };
 use num_complex::Complex64;
 
 /// `Q`, thin, of `qr`: its first `min(rows, cols)` columns times the
 /// identity.
-fn thin_q(qr: &PivotedQr<<Shipped as Kernels>::Q>, rows: usize, k: usize) -> Matrix {
+fn thin_q(qr: &PivotedQr<<DefaultKernels as Kernels>::Q>, rows: usize, k: usize) -> Matrix {
     let kept: Vec<usize> = (0..k).collect();
-    let q = Shipped::q_kept_times(qr, &kept, identity(k).elements(), k);
+    let q = DefaultKernels::q_kept_times(qr, &kept, identity(k).elements(), k);
     Matrix::new(rows, k, q)
 }
 
@@ -38,7 +38,7 @@ fn decomposes_by_column_pivoted_qr() {
     for a in cases {
         let (rows, cols) = (a.rows(), a.cols());
         let k = rows.min(cols);
-        let qr = Shipped::pivoted_qr(a.view());
+        let qr = DefaultKernels::pivoted_qr(a.view());
         assert_eq!((qr.r.rows(), qr.r.cols()), (k, cols));
         let r = qr.r.elements();
         assert!(
@@ -63,11 +63,11 @@ fn decomposes_by_column_pivoted_qr() {
 #[test]
 fn multiplies_the_kept_columns_of_q() {
     let a = matrix(7, 5, 11);
-    let qr = Shipped::pivoted_qr(a.view());
+    let qr = DefaultKernels::pivoted_qr(a.view());
     let q = thin_q(&qr, 7, 5);
     let kept = [0, 2, 3];
     let x = matrix(3, 2, 12);
-    let product = Shipped::q_kept_times(&qr, &kept, x.elements(), 2);
+    let product = DefaultKernels::q_kept_times(&qr, &kept, x.elements(), 2);
     let q_kept = Matrix::from_fn(7, 3, |i, j| q.elements()[i + 7 * kept[j]]);
     let expected = naive_product(q_kept.view(), x.view());
     assert!(distance(&Matrix::new(7, 2, product), &expected) < 1e-14);
@@ -97,7 +97,7 @@ fn the_fast_route_decomposes_tall_matrices() {
     for w in cases {
         let (rows, cols) = (w.rows(), w.cols());
         let (u, singular_values, v) =
-            Shipped::tall_svd(rows, cols, w.elements()).expect("the fast route answers");
+            DefaultKernels::tall_svd(rows, cols, w.elements()).expect("the fast route answers");
         let svd = Svd {
             u: Matrix::new(rows, cols, u),
             singular_values,

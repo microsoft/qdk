@@ -70,8 +70,9 @@ fn the_cutoff_discards_the_tail_within_its_share() {
 
 /// The Schmidt weights 0.81, 0.09, 0.09 and 0.01 (two pairs, each 0.9 and
 /// 0.1, cut together) at a cutoff of 0.095 and a cap of 2: the cutoff
-/// keeps three, then the cap two, a share of 0.9; the cap applied first
-/// would leave the cutoff to drop a 0.09, a bond of 1 and a share of 0.81.
+/// keeps three, then the cap two, a retained fraction of 0.9; the cap
+/// applied first would leave the cutoff to drop a 0.09, a bond of 1 and a
+/// retained fraction of 0.81.
 #[test]
 fn the_capacity_caps_the_bond_the_cutoff_keeps() {
     let values = values_of(&[0.81, 0.09, 0.09, 0.01]);
@@ -85,9 +86,9 @@ fn the_capacity_caps_the_bond_the_cutoff_keeps() {
 /// exactly 1 when it dropped only zeros, so that the state's retained
 /// weight does not move by a rounding error at every such split. Each row:
 /// the values, the cutoff, the cap, the bond kept (a precondition), the
-/// share, and how far from it the fraction may round.
+/// expected fraction, and how far from it the fraction may round.
 #[test]
-fn the_retained_fraction_is_the_kept_share_of_the_squares() {
+fn the_retained_fraction_is_that_of_the_kept_squares() {
     type Row = (&'static str, Vec<f64>, f64, usize, usize, f64, f64);
     let small = 2f64.powi(-27);
     let rows: [Row; 6] = [
@@ -149,7 +150,7 @@ fn the_retained_fraction_is_the_kept_share_of_the_squares() {
             0.0,
         ),
     ];
-    for (name, values, cutoff, cap, bond, share, tolerance) in rows {
+    for (name, values, cutoff, cap, bond, expected, tolerance) in rows {
         let truncation = Truncation::of(&values, cutoff, cap);
         assert_eq!(
             truncation.normalised_values.len(),
@@ -158,8 +159,8 @@ fn the_retained_fraction_is_the_kept_share_of_the_squares() {
         );
         let fraction = truncation.retained_fraction;
         assert!(
-            (fraction - share).abs() <= tolerance,
-            "{name}: {fraction} for {share}"
+            (fraction - expected).abs() <= tolerance,
+            "{name}: {fraction} for {expected}"
         );
     }
 }
@@ -190,15 +191,15 @@ fn tiny_values_truncate_as_at_scale_one() {
 }
 
 /// The singular values of the zero matrix, which a general SVD gives as
-/// `min(rows, cols)` zeros: one value is kept, zero, with a share of 1 and
-/// no NaN.
+/// `min(rows, cols)` zeros: one value is kept, zero, with a retained
+/// fraction of 1 and no NaN.
 // DISCUSS COMPATIBILITY: the earlier CPU MPS engine's SVD gave the zero
 // matrix one value, zero, so its truncation never met an all-zero
 // spectrum (its `0 / 0` would have failed the split with a weight
 // underflow); the engine does not reach it either, since its states have
-// norm 1 and its gates are unitary. We think a total rule is
-// better than a NaN, and a share of 1 agrees with "exactly 1 when every
-// dropped value is zero", so we recommend keeping it.
+// norm 1 and its gates are unitary. We think a total rule is better
+// than a NaN, and a retained fraction of 1 agrees with "exactly 1 when
+// every dropped value is zero", so we recommend keeping it.
 #[test]
 fn the_zero_spectrum_keeps_one_zero_value() {
     let truncation = Truncation::of(&[0.0, 0.0, 0.0], 0.5, usize::MAX);

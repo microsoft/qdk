@@ -76,7 +76,7 @@ fn decomposes_matrices_at_extreme_scales() {
 /// its factors are unspecified; the QR still answers, with the thin
 /// shapes, rather than panic.
 #[test]
-fn answers_factors_of_the_thin_shapes_for_an_entry_that_is_not_finite() {
+fn an_entry_that_is_not_finite_gives_thin_factors_not_a_panic() {
     for x in [f64::NAN, f64::INFINITY] {
         let mut elements = matrix(4, 3, 1).into_elements();
         elements[5] = c(x, 0.0);

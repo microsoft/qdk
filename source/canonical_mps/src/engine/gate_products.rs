@@ -22,7 +22,7 @@ pub(super) const IDENTITY: [Complex64; 4] = [
 ];
 
 /// `a·b` of two one-site gates.
-pub(super) fn multiply2(a: &[Complex64; 4], b: &[Complex64; 4]) -> [Complex64; 4] {
+pub(super) fn product_on_one_site(a: &[Complex64; 4], b: &[Complex64; 4]) -> [Complex64; 4] {
     std::array::from_fn(|at| {
         let (row, col) = (at / 2, at % 2);
         (0..2).map(|k| a[2 * row + k] * b[2 * k + col]).sum()
@@ -30,7 +30,7 @@ pub(super) fn multiply2(a: &[Complex64; 4], b: &[Complex64; 4]) -> [Complex64; 4
 }
 
 /// `a·b` of two operators on the same sites.
-pub(super) fn multiply(a: &[Complex64], b: &[Complex64]) -> Vec<Complex64> {
+pub(super) fn product_on_same_sites(a: &[Complex64], b: &[Complex64]) -> Vec<Complex64> {
     let dim = dimension(a.len());
     debug_assert_eq!(a.len(), b.len(), "two operators on the same sites");
     let mut product = vec![Complex64::ZERO; dim * dim];

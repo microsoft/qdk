@@ -53,8 +53,8 @@ pub fn assert_untruncated_circuit_agrees_with_exact_reference<A: SiteAlgebra>(al
 pub(crate) fn assert_untruncated_circuit_agrees_on<A: SiteAlgebra>(engine: &CanonicalMpsEngine<A>) {
     let sites = 8;
     let reference = ExactReference::new();
-    let mut state = engine.prepare(&chain(sites, 64)).expect("prepare");
-    let mut exact_state = reference.prepare(&exact(sites)).expect("prepare");
+    let mut state = engine.prepare(&capacity(sites, 64)).expect("prepare");
+    let mut exact_state = reference.prepare(&full_capacity(sites)).expect("prepare");
     let mut next = xorshift(SEED);
     let agree = |state: &CanonicalMpsState<A>, exact_state: &ReferenceState| {
         assert_reads_agree(engine, state, exact_state, 1e-10);
@@ -91,14 +91,14 @@ pub(crate) fn assert_untruncated_circuit_agrees_on<A: SiteAlgebra>(engine: &Cano
     }
     agree(&state, &exact_state);
     let shape = engine.shape(&state).expect("shape");
-    assert!(shape.fits_within(&chain(sites, 64)), "{shape:?}");
+    assert!(shape.fits_within(&capacity(sites, 64)), "{shape:?}");
 }
 
 /// A circuit of weak entangling gates on 8 sites, mostly far apart, at a
 /// bond of 4, which truncates, on the engine on `algebra`: the
 /// distribution of all eight qubits stays within its truncation bound,
-/// the distance from the exact reference's that the splits' kept shares
-/// allow.
+/// the distance from the exact reference's that the splits' retained
+/// fractions allow.
 ///
 /// The bound holds on any backend that keeps the contract, apart from what the
 /// MPOs' factorisations drop at or below the operator's rank cutoff, which the
@@ -124,8 +124,8 @@ pub fn assert_truncated_circuit_stays_within_its_truncation_bound<A: SiteAlgebra
     let engine = &CanonicalMpsEngine::new(algebra).with_cutoff(0.0);
     let sites = 8;
     let reference = ExactReference::new();
-    let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
-    let mut exact_state = reference.prepare(&exact(sites)).expect("prepare");
+    let mut state = engine.prepare(&capacity(sites, 4)).expect("prepare");
+    let mut exact_state = reference.prepare(&full_capacity(sites)).expect("prepare");
     let mut next = xorshift(SEED);
     for step in 0..20 {
         let x = f64::from(u32::try_from(step).expect("small"));
@@ -280,15 +280,15 @@ pub(crate) fn entangler(theta: f64) -> Vec<Complex64> {
     m
 }
 
-/// A chain of `sites` qubits whose bonds are at most `chi`.
-pub(crate) fn chain(sites: usize, chi: usize) -> MpsShape {
+/// The capacity of a chain of `sites` qubits whose bonds are at most `chi`.
+pub(crate) fn capacity(sites: usize, chi: usize) -> MpsShape {
     MpsShape::qubit_chain(sites, chi).expect("a chain of qubits")
 }
 
-/// A chain of `sites` qubits that holds every state: for the exact
-/// reference.
-pub(crate) fn exact(sites: usize) -> MpsShape {
-    chain(sites, 1 << sites)
+/// The capacity of a chain of `sites` qubits that holds every state, so
+/// that nothing is truncated: for the exact reference.
+pub(crate) fn full_capacity(sites: usize) -> MpsShape {
+    capacity(sites, 1 << sites)
 }
 
 /// `0.25 + (0.5 − i)·X₀Y₃Z₅`: an observable with a constant, a complex
