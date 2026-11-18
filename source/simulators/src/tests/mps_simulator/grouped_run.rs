@@ -714,11 +714,12 @@ fn a_set_stop_flag_fails_the_run_before_any_gate() {
     assert_eq!(resumer.engine().applies(), 0);
 }
 
-/// A flag set during a run stops it between batches: set at the first gate
-/// of eight coins on 16 shots, a program of one batch whose draws split the
-/// shots into many groups, the run applies the eight gates of the group
-/// under way, none of the parts split off, and names shot 0, which was in
-/// a part that split off and had not ended.
+/// A flag set during a batch lets the group under way run the rest of it,
+/// and stops each part split off by a draw before it runs on: set at the
+/// first gate of eight coins on 16 shots, a program of one batch whose
+/// draws split the shots into many groups, the run applies the eight gates
+/// of the group under way, none of the parts split off, and names shot 0,
+/// which was in a part that split off and had not ended.
 #[test]
 fn a_stop_flag_set_during_a_run_stops_it_once_the_batch_under_way_ends() {
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -804,15 +805,15 @@ fn a_stopped_run_names_the_first_shot_that_had_not_ended() {
 }
 
 /// The flag is read before each batch, not once per group, whatever that
-/// batch would do: three shots run a first batch (a gate, then `mz`), whose
-/// result the program must read to go on; set at that gate, the flag stops
-/// the run before the second batch, naming the first of the run's shots,
-/// none of which had ended, after only that gate. Each row is what the
-/// second batch would do: run gates chosen by a coin, trap (with the shots
-/// of one value, or split by a coin, where the run's first shot, alone in
-/// drawing One, goes on first), be refused (a noise call, a gate on one
-/// qubit twice), or not exist: a run whose every shot has ended returns
-/// its records.
+/// batch would do: three shots run a first batch (a gate, then `mz`); set
+/// at that gate, the flag stops the run before a second batch, naming the
+/// first of the run's shots, none of which had ended, after only that gate;
+/// with no second batch, the shots end and the run returns their records.
+/// Each row is what follows the first batch: a second batch that runs
+/// gates chosen by a coin, traps (with the shots of one value, or split by
+/// a coin, where the run's first shot, alone in drawing One, goes on
+/// first), or is refused (a noise call, a gate on one qubit twice); or no
+/// second batch.
 #[test]
 fn a_stop_flag_is_read_before_each_batch() {
     let read_then = |first: u64, then: &[Instruction<u64>]| {
