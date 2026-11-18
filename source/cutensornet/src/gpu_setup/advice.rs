@@ -74,6 +74,20 @@ fn fault_advice(
             ),
             None => install(),
         },
+        LibraryFault::InaccessiblePath { path, .. } => {
+            let directories = format!(
+                "let this process search the directories on {}",
+                path.display()
+            );
+            match guide {
+                Some(guide) => format!(
+                    "{directories}, or set {} to the absolute path of a copy of {library} it \
+                     can read",
+                    guide.variable
+                ),
+                None => directories,
+            }
+        }
         LibraryFault::LoadFailed { .. } => {
             let dependencies = match install_command {
                 Some(_) => "which brings their dependencies",

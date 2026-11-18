@@ -232,6 +232,42 @@ fn a_missing_library_is_advised_the_install_or_its_override() {
     }
 }
 
+/// A library whose packaged file sits behind a directory the process may
+/// not search is advised to let the process search it, or the override of
+/// that library to a copy it can read; not the install, which does not
+/// change what the process may search.
+#[cfg(unix)]
+#[test]
+fn a_path_the_process_cannot_access_is_advised_its_permissions_or_the_override() {
+    for (library, variable, file) in [
+        (
+            "cuTensorNet",
+            "QDK_CUTENSORNET_LIBRARY",
+            "/env/cuquantum/lib/libcutensornet.so.2",
+        ),
+        (
+            "CUDA Runtime",
+            "QDK_CUDART_LIBRARY",
+            "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
+        ),
+    ] {
+        let advice = advice(&failed(unusable(
+            library,
+            vec![LibraryFault::InaccessiblePath {
+                path: PathBuf::from(file),
+                message: "Permission denied (os error 13)".to_string(),
+            }],
+        )));
+        assert_eq!(
+            advice,
+            format!(
+                "let this process search the directories on {file}, or set {variable} to the \
+                 absolute path of a copy of {library} it can read"
+            )
+        );
+    }
+}
+
 /// A library that does not load, or is not the audited version, is
 /// advised the install of the audited libraries; when the copy at fault is
 /// the one its override names, which no install displaces, the override is
