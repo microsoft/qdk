@@ -47,7 +47,7 @@ use tensornet::{MpsEngine, MpsShape};
 #[cfg(doc)]
 use super::MpsResumer;
 use super::error::MpsResumerError;
-use super::lowering::{Operator, Step, lower};
+use super::lowering::{SiteGate, SiteStep, lower};
 use super::qubit_order::QubitOrder;
 use super::run_report::MpsRunReport;
 use super::shot_stream::{SplitMix64, shot_stream};
@@ -59,13 +59,13 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
     machine: &'r QirMachine<'r>,
     /// The run's shots, which a failure is named by.
     shots: &'r [QirShotId],
-    layout: QubitOrder,
+    qubit_order: QubitOrder,
     /// The capacity of each state; `None` for a program of no qubits, which
     /// needs no state.
     capacity: Option<MpsShape>,
     report: &'r mut MpsRunReport,
     /// The groups split off that wait their turn, the last to run next.
-    waiting: Vec<Group<E::State>>,
+    waiting: Vec<ShotGroup<E::State>>,
     /// Each shot's records, at its place in the order of the run's shots,
     /// once its group ended.
     records: Vec<Option<Vec<OutputRecord>>>,
@@ -76,10 +76,10 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
 
 impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// The run of `shots` of `machine`'s program on `engine`, before any
-    /// shot runs: the layout and the capacity, from the program, and one
-    /// group of every shot, each drawing from its stream under `seed`.
-    /// `shots` is not empty: a run of no shots needs neither the layout nor
-    /// the capacity, so [`MpsResumer`] does not start it.
+    /// shot runs: the qubit order and the capacity, from the program, and
+    /// one group of every shot, each drawing from its stream under `seed`.
+    /// `shots` is not empty: a run of no shots needs neither the qubit order
+    /// nor the capacity, so [`MpsResumer`] does not start it.
     ///
     /// # Errors
     ///
@@ -102,7 +102,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 shot: first_shot,
                 error,
             })?;
-        let waiting = vec![Group {
+        let waiting = vec![ShotGroup {
             shots: shots
                 .iter()
                 .enumerate()
@@ -122,7 +122,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             engine,
             machine,
             shots,
-            layout: QubitOrder::for_program(program),
+            qubit_order: QubitOrder::for_program(program),
             capacity,
             report,
             waiting,
@@ -182,7 +182,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
 
     /// Whether a shot before every shot of `group` failed: the run's result
     /// is then that failure, whatever `group` does, so `group` is dropped.
-    fn comes_after_the_failure(&self, group: &Group<E::State>) -> bool {
+    fn comes_after_the_failure(&self, group: &ShotGroup<E::State>) -> bool {
         // A group's shots are in the order of the run's: a split keeps it.
         self.failure
             .as_ref()
@@ -196,7 +196,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// has settled `group`'s own value, and no later step runs.
     fn run_group(
         &mut self,
-        group: &mut Group<E::State>,
+        group: &mut ShotGroup<E::State>,
     ) -> Result<Option<Vec<OutputRecord>>, GroupFailure<E::Error>> {
         loop {
             while let Some(step) = group.steps.get(group.next).cloned() {
@@ -217,7 +217,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     return Ok(Some(records.to_vec()));
                 }
                 QirStop::Batch(calls) => {
-                    group.steps = lower(calls, &self.layout)?.into();
+                    group.steps = lower(calls, &self.qubit_order)?.into();
                     group.next = 0;
                     group.outcomes.clear();
                 }
@@ -225,36 +225,36 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         }
     }
 
-    /// Runs `step` on `group`: an operator is applied, a measurement or a
-    /// reset drawn. A draw reads the largest bond first ([`Self::read_bond`]),
-    /// as projecting may shrink it; an operator does not.
+    /// Runs `step` on `group`: a gate is applied, a measurement or a reset
+    /// drawn. A draw reads the largest bond first ([`Self::read_bond`]), as
+    /// projecting may shrink it; a gate does not.
     fn run_step(
         &mut self,
-        step: &Step,
-        group: &mut Group<E::State>,
+        step: &SiteStep,
+        group: &mut ShotGroup<E::State>,
     ) -> Result<(), GroupFailure<E::Error>> {
         match *step {
-            Step::Apply(ref operator) => self.apply(group, operator),
-            Step::Measure {
+            SiteStep::Apply(ref gate) => self.apply(group, gate),
+            SiteStep::Measure {
                 site,
                 result,
                 reset,
             } => self.draw(group, site, reset, Some(result)),
-            Step::Reset { site } => self.draw(group, site, true, None),
+            SiteStep::Reset { site } => self.draw(group, site, true, None),
         }
     }
 
-    /// Applies `operator` to `group`'s state, prepared at the group's first
+    /// Applies `gate` to `group`'s state, prepared at the group's first
     /// step.
     fn apply(
         &self,
-        group: &mut Group<E::State>,
-        operator: &Operator,
+        group: &mut ShotGroup<E::State>,
+        gate: &SiteGate,
     ) -> Result<(), GroupFailure<E::Error>> {
         let state = self.prepare(&mut group.state)?;
         group.bond_unread = true;
         self.engine
-            .apply(state, operator.sites(), operator.matrix.row_major())
+            .apply(state, gate.sites(), gate.matrix.row_major())
             .map_err(engine_failure)
     }
 
@@ -264,7 +264,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// `reset`; `result`, when given, is answered with the value.
     fn draw(
         &mut self,
-        group: &mut Group<E::State>,
+        group: &mut ShotGroup<E::State>,
         site: usize,
         reset: bool,
         result: Option<u32>,
@@ -314,7 +314,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// it, and `run` drops it with `group`.
     fn split(
         &mut self,
-        group: &mut Group<E::State>,
+        group: &mut ShotGroup<E::State>,
         draws: &[bool],
         one: bool,
         site: usize,
@@ -339,7 +339,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             Ok(()) => {
                 let mut outcomes = group.outcomes.clone();
                 outcomes.extend(answer(result, !one));
-                self.waiting.push(Group {
+                self.waiting.push(ShotGroup {
                     shots: waiting,
                     context: group.context.clone(),
                     state: Some(fork),
@@ -383,7 +383,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// Keeps the largest bond of `group`'s state in the report, when gates
     /// were applied since it was last read: so it is read where a run of
     /// gates ends, before the draws that may shrink it.
-    fn read_bond(&mut self, group: &mut Group<E::State>) -> Result<(), GroupFailure<E::Error>> {
+    fn read_bond(&mut self, group: &mut ShotGroup<E::State>) -> Result<(), GroupFailure<E::Error>> {
         if let (true, Some(state)) = (group.bond_unread, &group.state) {
             let bond = self
                 .engine
@@ -428,12 +428,12 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
 /// first step needs it), the outcomes of the batch they are in, and its
 /// steps, from `next` on still to run; `bond_unread` when gates were
 /// applied since its largest bond was read.
-struct Group<S> {
+struct ShotGroup<S> {
     shots: Vec<Shot>,
     context: QirShotContext,
     state: Option<S>,
     outcomes: Vec<QirOutcome>,
-    steps: Rc<[Step]>,
+    steps: Rc<[SiteStep]>,
     next: usize,
     bond_unread: bool,
 }

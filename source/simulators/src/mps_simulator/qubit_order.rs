@@ -1,12 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The layout: which site of the chain holds each qubit of a program,
-//! chosen at the start of each run, from the program alone and before any
-//! shot, so every run of a program starts with the same; lowering reads
-//! it to put each call on its qubits' sites. On a chain a layout is an
-//! order: its instance is the qubit order ([`QubitOrder`]), chosen from
-//! the program's two-qubit gates ([`QubitOrder::for_program`]).
+//! The qubit order ([`QubitOrder`]): which site of the chain holds each
+//! qubit of a program, chosen from the program's two-qubit gates
+//! ([`QubitOrder::for_program`]) at the start of each run, from the program
+//! alone and before any shot, so every run of a program starts with the
+//! same; lowering reads it to put each call on its qubits' sites.
 //!
 //! An MPS is a chain, so its cost depends on where the qubits sit: an
 //! engine applies a gate on distant sites at more cost (through swaps, for
