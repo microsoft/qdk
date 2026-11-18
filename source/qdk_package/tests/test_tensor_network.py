@@ -113,6 +113,45 @@ def coins(qubits: int) -> str:
         """)
 
 
+_QIR_DECLS = """\
+declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__rx__body(double, %Qubit*)
+declare void @__quantum__qis__cnot__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+declare i1 @__quantum__qis__read_result__body(%Result*)
+declare void @__quantum__qis__peek_loss__body(%Qubit*, %Result*)
+declare void @__quantum__rt__readout_noise(double, double, %Result*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+declare void @__quantum__rt__int_record_output(i64, i8*)
+declare void @__quantum__rt__bool_record_output(i1, i8*)
+declare void @__quantum__rt__double_record_output(double, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__array_record_output(i64, i8*)
+declare void @bit_flip_noise(%Qubit*) #2
+"""
+
+
+def adaptive_qir(body: str, qubits: int, results: int) -> str:
+    """An Adaptive profile program whose entry point runs `body`, on
+    `qubits` qubits and `results` results, with `_QIR_DECLS` declared."""
+    return f"""\
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {{
+entry:
+{body}
+  ret i64 0
+}}
+
+{_QIR_DECLS}
+attributes #0 = {{ "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="{qubits}" "required_num_results"="{results}" }}
+attributes #1 = {{ "irreversible" }}
+attributes #2 = {{ "qdk_noise" }}
+"""
+
+
 # ---------------------------------------------------------------------------
 # Arguments
 # ---------------------------------------------------------------------------
@@ -139,11 +178,6 @@ def test_an_unknown_method_is_refused():
         run(BELL, [Sample(1)], method="contraction")
 
 
-def test_options_of_another_type_are_refused():
-    with pytest.raises(TypeError, match="MpsOptions"):
-        run(BELL, [Sample(1)], options={"max_bond_dimension": 4})
-
-
 @pytest.mark.parametrize("seed", [-1, 2**32, True, 1.5])
 def test_a_seed_out_of_range_is_refused(seed):
     with pytest.raises(ValueError, match="seed"):
@@ -156,9 +190,29 @@ def test_queries_other_than_one_sample_are_refused(queries):
         run(BELL, queries)
 
 
-def test_a_query_other_than_sample_is_refused():
-    with pytest.raises(TypeError, match="Sample"):
-        run(BELL, ["Expectation"])
+@pytest.mark.parametrize(
+    "arguments, message",
+    [
+        pytest.param(
+            {"options": {"max_bond_dimension": 4}}, "MpsOptions", id="options"
+        ),
+        pytest.param({"queries": ["Expectation"]}, "use Sample", id="a query"),
+        pytest.param(
+            {"queries": Sample(1)},
+            "queries must be a sequence holding one Sample",
+            id="a bare Sample",
+        ),
+        pytest.param({"engine": 0}, "str", id="engine"),
+        pytest.param({"input": None}, "bytes", id="input"),
+    ],
+)
+def test_an_argument_of_another_type_raises_type_error(arguments, message):
+    """An argument whose type the entry does not take raises `TypeError`,
+    the entry's own message saying what to pass where the entry checks the
+    argument (``options``, ``queries`` and each query)."""
+    arguments = {"input": BELL, "queries": [Sample(1)], **arguments}
+    with pytest.raises(TypeError, match=message):
+        run(arguments.pop("input"), **arguments)
 
 
 def test_an_unknown_engine_is_refused():
@@ -182,6 +236,50 @@ def test_each_row_is_a_shots_results_in_recording_order(engine):
     zeros, ones = [Result.Zero, Result.Zero], [Result.One, Result.One]
     assert all(row in (zeros, ones) for row in rows)
     assert zeros in rows and ones in rows
+
+
+_X_AND_MEASURE = """\
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))"""
+
+
+@pytest.mark.parametrize(
+    "records, row",
+    [
+        pytest.param(
+            "  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)",
+            Result.One,
+            id="one value alone",
+        ),
+        pytest.param(
+            """\
+  call void @__quantum__rt__tuple_record_output(i64 3, i8* null)
+  call void @__quantum__rt__int_record_output(i64 -3, i8* null)
+  call void @__quantum__rt__bool_record_output(i1 true, i8* null)
+  call void @__quantum__rt__double_record_output(double 1.25, i8* null)""",
+            (-3, True, 1.25),
+            id="a tuple of classical values",
+        ),
+        pytest.param(
+            """\
+  call void @__quantum__rt__array_record_output(i64 2, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)""",
+            [Result.One, Result.Zero],
+            id="an array of results",
+        ),
+        pytest.param("", "10", id="no record"),
+    ],
+)
+def test_a_row_has_the_structure_the_program_records(engine, records, row):
+    """Two qubits, the first flipped, both measured: each shot's row is
+    what the program records, in the structure it records it: one value
+    alone, a tuple, a list, or with no record its measurements as a
+    string."""
+    qir = adaptive_qir(f"{_X_AND_MEASURE}\n{records}", qubits=2, results=2)
+    (rows,) = run(qir, [Sample(2)], engine=engine)
+    assert rows == [row, row]
 
 
 def test_an_adaptive_program_steers_its_shots_later_gates(engine):
@@ -276,38 +374,6 @@ def test_an_exact_run_does_not_warn(engine):
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------
-
-_QIR_DECLS = """\
-declare void @__quantum__qis__h__body(%Qubit*)
-declare void @__quantum__qis__x__body(%Qubit*)
-declare void @__quantum__qis__rx__body(double, %Qubit*)
-declare void @__quantum__qis__cnot__body(%Qubit*, %Qubit*)
-declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
-declare i1 @__quantum__qis__read_result__body(%Result*)
-declare void @__quantum__qis__peek_loss__body(%Qubit*, %Result*)
-declare void @__quantum__rt__readout_noise(double, double, %Result*)
-declare void @__quantum__rt__result_record_output(%Result*, i8*)
-declare void @__quantum__rt__int_record_output(i64, i8*)
-declare void @bit_flip_noise(%Qubit*) #2
-"""
-
-
-def adaptive_qir(body: str, qubits: int, results: int) -> str:
-    return f"""\
-%Result = type opaque
-%Qubit = type opaque
-
-define i64 @ENTRYPOINT__main() #0 {{
-entry:
-{body}
-  ret i64 0
-}}
-
-{_QIR_DECLS}
-attributes #0 = {{ "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="{qubits}" "required_num_results"="{results}" }}
-attributes #1 = {{ "irreversible" }}
-attributes #2 = {{ "qdk_noise" }}
-"""
 
 
 def test_a_trap_raises_runtime_error_naming_the_shot(engine):
@@ -632,12 +698,14 @@ def test_a_run_releases_the_gil():
 
     thread = threading.Thread(target=count)
     thread.start()
-    running.wait()
-    before = counted
-    run(program, [Sample(shots)], engine="cpu")
-    during = counted - before
-    done.set()
-    thread.join()
+    try:
+        running.wait()
+        before = counted
+        run(program, [Sample(shots)], engine="cpu")
+        during = counted - before
+    finally:
+        done.set()
+        thread.join()
     assert during > 5, f"the thread counted {during} times during the run"
 
 

@@ -11,6 +11,7 @@
 
 use std::fmt;
 
+use canonical_mps::CanonicalMpsError;
 use qdk_cutensornet::{GpuSetup, PackagedLibraries};
 use qdk_simulators::mps_simulator::MpsResumerError;
 use qdk_simulators::qir::{QirResumeError, QirShotId};
@@ -53,9 +54,22 @@ impl MpsEngineError for FakeEngineError {
     }
 }
 
+/// A failure of an algebra's own, as a canonical MPS engine's algebra
+/// gives: a library call that failed, with its status.
+#[derive(Debug)]
+struct LibraryCallFailed;
+
+impl fmt::Display for LibraryCallFailed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("cudaMalloc failed with status 2, out of memory")
+    }
+}
+
+impl std::error::Error for LibraryCallFailed {}
+
 /// The failure of a run whose shot 0 met `error` of the MPS simulation
 /// method.
-fn shot_0_failure(error: MpsResumerError<FakeEngineError>) -> RunFailure {
+fn shot_0_failure<E: MpsEngineError>(error: MpsResumerError<E>) -> RunFailure {
     RunFailure::of(QirResumeError::Resumer {
         shot: QirShotId(0),
         error,
@@ -63,21 +77,44 @@ fn shot_0_failure(error: MpsResumerError<FakeEngineError>) -> RunFailure {
 }
 
 /// An engine that fails during a run (a device out of memory) raises
-/// `OSError` with the failure's message, as a setup problem does.
+/// `OSError` with the failure's message, as a setup problem does, and its
+/// cause, once: the canonical MPS engine's algebra failure says only that
+/// the site algebra failed, and keeps the library call that failed as its
+/// source, while the MPS simulation method's error shows its engine's
+/// error in its message and gives it as its source too.
 #[test]
-fn an_engine_failure_is_an_os_error() {
-    let failure = shot_0_failure(MpsResumerError::Engine(FakeEngineError::OutOfMemory));
-    assert!(
-        matches!(&failure, RunFailure::Os(message) if message.contains("ran out of memory")),
-        "an engine failure is an OSError: {failure:?}"
-    );
+fn an_engine_failure_is_an_os_error_with_its_cause() {
+    let cases = [
+        (
+            "an engine's own failure",
+            shot_0_failure(MpsResumerError::Engine(FakeEngineError::OutOfMemory)),
+            "the device ran out of memory",
+        ),
+        (
+            "the canonical engine's algebra failure",
+            shot_0_failure(MpsResumerError::Engine(CanonicalMpsError::Algebra(
+                LibraryCallFailed,
+            ))),
+            "cudaMalloc failed with status 2, out of memory",
+        ),
+    ];
+    for (case, failure, cause) in cases {
+        let RunFailure::Os(message) = &failure else {
+            panic!("{case}: an engine failure is an OSError: {failure:?}");
+        };
+        assert_eq!(
+            message.matches(cause).count(),
+            1,
+            "{case}: the message gives the cause once: {message}"
+        );
+    }
 }
 
 /// A run stopped by its stop flag (the caller's Ctrl-C, whose own exception
 /// is raised instead) raises `RuntimeError` saying so.
 #[test]
 fn a_stopped_run_is_a_runtime_error() {
-    let failure = shot_0_failure(MpsResumerError::Stopped);
+    let failure = shot_0_failure(MpsResumerError::<FakeEngineError>::Stopped);
     assert!(
         matches!(&failure, RunFailure::Runtime(message) if message == "the run was stopped"),
         "a stopped run is a RuntimeError: {failure:?}"
