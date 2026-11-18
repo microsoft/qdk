@@ -20,8 +20,8 @@ const SVG_ATTRIBUTE = /([A-Za-z_][\w:.-]*)\s*=\s*("[^"]*"|'[^']*')/g;
 // Style sheets must be plain text, so that no element can split them.
 const STYLE_WITH_CHILD = /<style\b[^>]*>[^<]*<(?!\/style>)/;
 const STYLE_SHEET = /<style\b[^>]*>([^<]*)<\/style>/g;
-// Attributes that run script or load resources.
-const ACTIVE_ATTRIBUTE = /^(?:on[a-z]+|(?:[\w.-]+:)?href|src)$/i;
+// Attributes that run script, load resources, or change what a reference resolves against.
+const ACTIVE_ATTRIBUTE = /^(?:on[a-z]+|(?:[\w.-]+:)?href|src|xml:base)$/i;
 // Exported labels reuse glyph outlines defined in the same document.
 const GLYPH_REFERENCE = /^#qdk-glyph-(?:main|math)-[0-9a-f]+$/;
 // CSS that loads resources, and the escapes, comments, and character references that could hide
