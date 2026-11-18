@@ -2,16 +2,16 @@
 // Licensed under the MIT License.
 
 //! The CUDA and cuTensorNet calls that open and close the algebra's
-//! session: count and select the devices and read one's compute capability,
-//! and create, synchronize and release its stream and its cuTensorNet
-//! handle.
+//! session: count and select the devices, and create, synchronize and
+//! release its stream and its cuTensorNet handle; and, for the setup check,
+//! read a device's compute capability.
 
 use super::{OpaqueHandle, Stream};
 use crate::engine::CudaAlgebraError;
 
 /// The native calls a `DeviceSession` makes: CUDA's device selection and
-/// stream, and cuTensorNet's handle; and the CUDA reads of a device's
-/// properties.
+/// stream, and cuTensorNet's handle; and the setup check's read of a
+/// device's compute capability.
 ///
 /// An implementation is shared between threads; the streams and handles it
 /// creates are not, which `DeviceSession` enforces. A caller selects the

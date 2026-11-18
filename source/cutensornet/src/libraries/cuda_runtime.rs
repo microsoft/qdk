@@ -57,7 +57,7 @@ use std::ffi::CStr;
 pub(crate) struct CudaRuntime;
 
 /// The oldest CUDA a driver must support, as CUDA encodes it: 12.0. The
-/// floor is NVIDIA's for CUDA 12 (driver [`minimum_driver!`]); the QDK adds
+/// floor is NVIDIA's for CUDA 12 ([`cuda_12_driver!`]); the QDK adds
 /// none.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 const MINIMUM_DRIVER_CUDA: i128 = 12_000;
@@ -67,16 +67,16 @@ const MINIMUM_DRIVER_CUDA: i128 = 12_000;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 const NO_DRIVER: i128 = 0;
 
-/// The oldest NVIDIA driver for CUDA 12, `525.60.13`, as every piece of
-/// advice that names it writes it. A macro rather than a `const`, since
-/// `concat!` builds the constant advice texts from it and takes literals
-/// only.
-macro_rules! minimum_driver {
+/// The NVIDIA driver CUDA 12 needs, NVIDIA's 525.60.13 or later, as every
+/// piece of advice that asks for it writes it. A macro rather than a
+/// `const`, since `concat!` builds the constant advice texts from it and
+/// takes literals only.
+macro_rules! cuda_12_driver {
     () => {
-        "525.60.13"
+        "a driver for CUDA 12 (525.60.13 or later)"
     };
 }
-pub(crate) use minimum_driver;
+pub(crate) use cuda_12_driver;
 
 /// The CUDA Runtime 12.9, the release the bindings were audited against.
 /// cuTensorNet must also have been built against it.
@@ -103,10 +103,9 @@ impl NativeLibrary for CudaRuntime {
     ];
     const INSTALL: &'static str = "the CUDA Runtime 12.9";
     const VERSION_PROBE_ADVICE: Option<&'static str> = Some(concat!(
-        "CUDA could not report its version, usually because the NVIDIA driver is older than \
-         CUDA 12 needs (",
-        minimum_driver!(),
-        "): check `nvidia-smi`"
+        "CUDA could not report its version, usually because the NVIDIA driver is too old: check \
+         `nvidia-smi`, and install ",
+        cuda_12_driver!()
     ));
     type Functions = CudaFunctions;
 
@@ -162,19 +161,13 @@ impl NativeLibrary for CudaRuntime {
     /// No NVIDIA driver, or one that supports no CUDA 12.
     fn host_problem(report: &LibraryReport) -> Option<String> {
         match report.version("CUDA driver")? {
-            NO_DRIVER => Some(
-                concat!(
-                    "no NVIDIA driver was found: install one for CUDA 12 (",
-                    minimum_driver!(),
-                    " or later)"
-                )
-                .to_string(),
-            ),
+            NO_DRIVER => {
+                Some(concat!("no NVIDIA driver was found: install ", cuda_12_driver!()).to_string())
+            }
             driver if driver < MINIMUM_DRIVER_CUDA => Some(format!(
                 concat!(
-                    "the NVIDIA driver supports CUDA {} only: install a driver for CUDA 12 (",
-                    minimum_driver!(),
-                    " or later)"
+                    "the NVIDIA driver supports CUDA {} only: install ",
+                    cuda_12_driver!()
                 ),
                 cuda_version(driver)
             )),
