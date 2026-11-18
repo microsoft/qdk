@@ -95,9 +95,9 @@ its shots' contexts end.
 | **stop**                           | A stop flag, once set, is read before each batch a group runs; the run then fails, naming the first shot that had not ended.                                                                                                                                                 | A user who interrupts a run of hours gets it back, its states freed. A Base Profile program is one batch, so it runs all its gates before the flag is read. |
 
 A failure (a trap of the program, a refused call, or the engine's) fails
-the shots that share the state it was met on, and the run names the first failing
-shot in the order of the shots, as `QirResumer::run` requires. `run`
-never waits: engine calls return when done, so its future is ready at
+the shots that share the state it was met on, and the run names the
+first failing shot in the order of the shots, as `QirResumer::run`
+requires. `run` never waits: engine calls return when done, so its future is ready at
 once.
 
 Each phase's mechanics, its failures, and the engine calls it makes are in
