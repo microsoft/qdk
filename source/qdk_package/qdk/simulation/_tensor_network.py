@@ -1,37 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""``tensornetwork_qir``: the shots of a QIR program simulated with a
-tensor-network simulation method, on the GPU or the CPU, returned with the
-run's report; and ``check_tensornetwork_setup``, which says whether the GPU
-is set up for its GPU engine.
-
-A chemistry user runs programs too entangled for a sparse simulator and too
-large for a state vector, such as H₂'s phase estimation (29 qubits, Adaptive
-profile), on a matrix product state (MPS), on an NVIDIA GPU or the CPU. The
-MPS simulation method's cost and accuracy depend on the max bond dimension χ,
-so every call returns, beside its results, the run's report: the largest bond
-reached and the weight truncation discarded; a run that lost more than 10⁻³
-also raises a ``RuntimeWarning`` saying to raise χ.
-
-How: the program is lowered as the other QIR simulators lower it
-(``DecomposeCcxPass``, then ``AdaptiveProfilePass(Bytecode.Bit64)``); the
-native side (``src/qir_simulation/tensor_network.rs``) builds it, makes the
-engine ``engine`` names (for the GPU engine, it finds cuTensorNet, trying
-the files of NVIDIA's wheels found here, ``_packaged_libraries``) and runs
-the shots with the GIL released, Ctrl-C stopping the run between batches (a
-program that is one batch, Base profile, runs all its gates before Ctrl-C
-takes effect); each shot's records are formatted as ``run_qir`` formats
-them.
-
-Two engines hold the matrix product state: the GPU engine (``engine="gpu"``,
-the default) needs ``pip install "qdk[tensornetwork]"`` (Linux x86-64, an
-NVIDIA GPU of compute capability 7.5 or later, a driver for CUDA 12;
-``check_tensornetwork_setup()`` checks each); the CPU engine
-(``engine="cpu"``) needs no setup. A GPU setup problem raises ``OSError``
-with the text ``check_tensornetwork_setup()`` reports, after the engine's
-error when no engine could be made, and a last line saying that
-``engine="cpu"`` runs without a GPU. Noise is not supported.
+"""``tensornetwork_qir`` simulates a QIR program's shots on a matrix product
+state (MPS), for programs too entangled for a sparse simulator and too large
+for a state vector, and returns them with the run's report: what the max bond
+dimension cost in accuracy. ``check_tensornetwork_setup`` says whether the
+GPU is set up for the GPU engine (``engine="gpu"``, the default, which needs
+``pip install "qdk[tensornetwork]"``); the CPU engine (``engine="cpu"``)
+needs no setup.
 """
 
 from dataclasses import dataclass
@@ -104,7 +80,8 @@ class Sample:
             raise ValueError("shots must be an integer in [1, 2**32)")
 
 
-# The queries `tensornetwork_qir` answers: today only `Sample`.
+# The queries `tensornetwork_qir` will answer: planned, as M2 adds others
+# beside `Sample`; signatures name `Sample` until then.
 Query = Sample
 
 
@@ -116,8 +93,8 @@ class TensorNetworkReport:
     :param largest_bond: The largest bond a state held where a run of gates
         ended: what the run's costliest gates paid for.
     :param discarded_weight: The most weight a shot's state lost to
-        truncation (0 when the run was exact, to rounding). The readouts may
-        be off by up to about its square root in total variation distance.
+        truncation: an estimate of the fidelity lost, 0 when the run was
+        exact (to rounding).
     :param max_bond_dimension: The max bond dimension χ the run used.
     """
 
@@ -131,14 +108,20 @@ class TensorNetworkResults(tuple):
     order (``rows, = results``), and the run's report, a
     :class:`TensorNetworkReport` (``results.report``)."""
 
-    report: TensorNetworkReport
+    _report: TensorNetworkReport
 
     def __new__(
         cls, values: Sequence[object], report: TensorNetworkReport
     ) -> "TensorNetworkResults":
         results = super().__new__(cls, values)
-        results.report = report
+        results._report = report
         return results
+
+    @property
+    def report(self) -> TensorNetworkReport:
+        """The run's report. Read-only, as the frozen dataclasses beside
+        it are."""
+        return self._report
 
 
 @dataclass(frozen=True)
@@ -146,14 +129,10 @@ class TensorNetworkSetup:
     """Whether :func:`tensornetwork_qir`'s GPU engine is set up, as
     :func:`check_tensornetwork_setup` found it. ``str()`` gives ``report``.
 
-    :param ready: Whether no problem was found: the libraries load, the
-        driver supports CUDA 12, CUDA device 0 has compute capability 7.5 or
-        later, and an engine ran one gate on it.
-    :param report: The setup check's report, as text: the libraries found
-        with their versions, the CUDA version the driver supports, how many
-        CUDA devices there are and CUDA device 0's compute capability and
-        free and total memory, the trial run's outcome, the warnings, and
-        the fix for the first problem.
+    :param ready: Whether every step :func:`check_tensornetwork_setup`
+        lists found no problem.
+    :param report: The setup check's report, as text: what each step
+        found, the warnings, and the fix for the first problem.
     :param advice: What to do about the first problem; ``None`` when ready.
     :param warnings: What may go wrong whether or not the setup is ready:
         another copy of a library visible beside the one loaded.
@@ -170,7 +149,7 @@ class TensorNetworkSetup:
 
 def tensornetwork_qir(
     input: Union[QirInputData, str, bytes],
-    queries: Sequence[Query],
+    queries: Sequence[Sample],
     *,
     method: Literal["mps"] = "mps",
     options: Optional[MpsOptions] = None,
@@ -188,6 +167,11 @@ def tensornetwork_qir(
                                     options=MpsOptions(max_bond_dimension=128), seed=7)
         rows, = results
         results.report.largest_bond, results.report.discarded_weight
+
+    The run leaves the Python thread, and Ctrl-C stops it. Noise is not
+    simulated: a noise intrinsic (a function with the ``qdk_noise``
+    attribute) runs as identity, as no noise model is given, and a
+    readout-noise call or a loss check raises ``ValueError``.
 
     :param input: The QIR program, Base or Adaptive profile, as text or
         bitcode.
@@ -208,9 +192,9 @@ def tensornetwork_qir(
         weight also warns (``RuntimeWarning``).
     :raises ValueError: For invalid arguments (an unknown ``engine``
         among them), a program the MPS simulation method does not run (a
-        noise call, a gate on one qubit twice), a max bond dimension too
-        large for the program's qubits, or a call the engine refuses (an
-        operator on no site, say).
+        readout-noise call, a loss check, a gate on one qubit twice), a max
+        bond dimension too large for the program's qubits, or a call the
+        engine refuses (an operator on no site, say).
     :raises TypeError: For an argument of the wrong type.
     :raises OSError: When the GPU engine is not set up (no library, a version
         not supported, no device), with the :func:`check_tensornetwork_setup`
@@ -255,7 +239,7 @@ def check_tensornetwork_setup() -> TensorNetworkSetup:
 
 def _run(
     input: Union[QirInputData, str, bytes],
-    queries: Sequence[Query],
+    queries: Sequence[Sample],
     *,
     method: str,
     options: Optional[MpsOptions],
@@ -263,7 +247,13 @@ def _run(
     engine: str,
 ) -> TensorNetworkResults:
     """:func:`tensornetwork_qir`, its arguments checked here but for
-    ``engine``, which the native side checks when it makes the engine."""
+    ``engine``, which the native side checks when it makes the engine.
+
+    The program is lowered as the other QIR simulators lower it
+    (``DecomposeCcxPass``, then ``AdaptiveProfilePass(Bytecode.Bit64)``,
+    with no noise config); the native side builds it, makes the engine and
+    runs the shots; each shot's records are formatted as ``run_qir``
+    formats them."""
     if method != "mps":
         raise ValueError(f'Invalid method: {method!r}. Use "mps".')
     if options is None:
