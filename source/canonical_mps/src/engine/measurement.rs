@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The reads of one site: probabilities, conditional probabilities and
-//! projections, at the centre, on host copies of the sites they read.
+//! A measurement's operations on one site: probabilities, conditional
+//! probabilities and projections, at the centre, on host copies of the
+//! sites they read ([`host_site`](super::host_site)).
 //!
 //! Between gates, a program measures qubits: a simulator reads the
 //! probability of a value, projects the state on the value it drew, and

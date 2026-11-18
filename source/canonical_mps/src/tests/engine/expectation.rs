@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! Expectations: the value of an observable wherever the centre and its
-//! terms lie, terms that share their walk each counted, an observable of
+//! terms lie, terms that share factors each counted, an observable of
 //! no terms, a value as large as an `f64` holds, and the sites an
 //! expectation reads: only those between the observable and the centre,
 //! each once.

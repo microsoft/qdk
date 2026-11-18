@@ -8,10 +8,9 @@
 //! prepares a state, applies one- and two-site gates, possibly on qubits
 //! far apart in the chain, and between them reads probabilities, projects
 //! measured values, estimates observables and draws samples. This engine
-//! holds the rules of all of it once, so that a backend (the CPU, a GPU
-//! library) writes only the tensor operations of [`SiteAlgebra`], and every
-//! backend fuses, applies and reads alike, and truncates within the same
-//! bounds.
+//! holds the rules of all of it once, so that a backend writes only the
+//! tensor operations of [`SiteAlgebra`], and every backend fuses, applies
+//! and reads alike, and truncates within the same bounds.
 //!
 //! **The canonical form.** The state of `n` qubits is a chain of `n` site
 //! tensors, one per qubit, neighbours sharing a bond. Every site but one is
@@ -26,10 +25,11 @@
 //!
 //! - [`chain`]: the sites, the centre, the gates still pending, and the
 //!   state's statistics;
-//! - [`fusion`]: fusion; a one-site gate waits, pending, on its site, and
-//!   two-site gates on up to three sites, neighbours or not, gather into
-//!   the pending window, which the first operation it does not serve
-//!   applies at once;
+//! - [`fusion`]: a one-site gate waits, pending, on its site, and two-site
+//!   gates on up to three sites, neighbours or not, gather into the
+//!   pending window, which the first operation it does not serve applies
+//!   at once;
+//! - [`gate_products`]: the arithmetic of the pending gates, on the host;
 //! - [`truncation`]: the split of two neighbours, a gate applied, by one
 //!   [`gate_split`](SiteAlgebra::gate_split), the one place where the
 //!   state's bonds are truncated; it applies a window on two neighbours,
@@ -39,14 +39,21 @@
 //! - [`centre_moves`]: moving the centre by one
 //!   [`qr_move`](SiteAlgebra::qr_move) per site crossed, which carries the
 //!   pending gate of the site it leaves;
-//! - [`gate_products`]: the arithmetic of the pending gates, on the host;
-//! - [`measurement`]: probabilities, projections and conditional probabilities,
-//!   at the centre;
+//! - [`host_site`]: a site's elements on the host, its pending gate
+//!   applied, on which the MPO, the measurement and the expectation
+//!   compute;
+//! - [`measurement`]: probabilities, projections and conditional
+//!   probabilities, at the centre;
 //! - [`expectation`]: an observable's expectation, all its terms in one
 //!   walk;
-//! - [`policy`]: the default cutoff and the operator's rank threshold,
+//! - [`statistics`]: what a state's history cost: its splits, moves of
+//!   the centre and MPO applications, and its largest bonds;
+//! - [`policy`]: the default cutoff and the operator's rank cutoff,
 //!   with their reasons;
-//! - [`error`]: why an operation was refused or failed.
+//! - [`error`]: why an operation was refused or failed;
+//! - `conformance`: the circuits that check a backend under the engine
+//!   against the exact reference, which the `conformance` feature makes
+//!   public.
 //!
 //! Each method the contract checks, here, first calls its
 //! `tensornet::checks` function, so the algebra never sees a refused call,
