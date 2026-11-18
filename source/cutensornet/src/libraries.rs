@@ -25,8 +25,7 @@
 //! `open` checks a library from this machine's files: the paths to try (its
 //! override variable's, or its default paths), the file loaded (`loader`),
 //! its functions looked up (`function_table`), and its versions probed.
-//! The MPS engine calls the loaded libraries through their tables, in
-//! `engine::native_calls::loaded_libraries`.
+//! The MPS engine calls the loaded libraries through their tables.
 //!
 //! To bind another library:
 //!

@@ -31,10 +31,9 @@
 //! ("Native calls of each phase") shows the native calls in order.
 //!
 //! An engine, its algebra and its tensors are `!Send`: the stream and the
-//! handle stay on the thread that created them. Each call selects the
-//! algebra's device first. The compiler enforces it; each block below is a
-//! test that must fail to compile, one for the engine and one for its
-//! algebra.
+//! handle stay on the thread that created them. The compiler enforces it;
+//! each block below is a test that must fail to compile, one for the
+//! engine, one for its algebra and one for its tensors.
 //!
 //! ```compile_fail,E0277
 //! fn require_send<T: Send>() {}
@@ -45,6 +44,14 @@
 //! fn require_send<T: Send>() {}
 //! require_send::<qdk_cutensornet::CudaAlgebra>();
 //! ```
+//!
+//! ```compile_fail,E0277
+//! fn require_send<T: Send>() {}
+//! require_send::<qdk_cutensornet::DeviceTensor>();
+//! ```
+//!
+//! Each call of the algebra selects its device first, since CUDA's current
+//! device is per thread and another algebra's call may have changed it.
 
 pub(crate) mod cuda_algebra;
 mod device_session;
@@ -62,11 +69,10 @@ pub(crate) use self::device_session::DeviceSession;
 ///
 /// Open one on a discovery's [`Availability`](crate::Availability) (Linux
 /// x86-64) with `CudaMpsEngine::try_from(&availability)`, at the engine's
-/// default cutoff, or with
-/// `CudaMpsEngine::new(CudaAlgebra::new(&availability)?)` to set another
-/// (`with_cutoff`). What the engine promises beyond the
-/// contract (how it fuses gates, the bounds its truncations stay within)
-/// is `canonical_mps`'s; what this crate adds is the algebra.
+/// default cutoff; `.with_cutoff(c)` sets another. What the engine
+/// promises beyond the contract (how it fuses gates, the bounds its
+/// truncations stay within) is `canonical_mps`'s; what this crate adds is
+/// the algebra.
 ///
 /// Its states' sites are its algebra's tensors, which another algebra
 /// refuses: a method given another engine's state that passes its sites to
