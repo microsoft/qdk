@@ -10,8 +10,8 @@
 //! against, which must be 12.9. cuTensorNet encodes its version as
 //! `10000·major + 100·minor + patch` (`21300` is 2.13.0), and a CUDA Runtime
 //! version as CUDA does, `1000·major + 10·minor` (`12090` is 12.9). The
-//! families' files (`context`, `state`, `workspace`, `operator`,
-//! `expectation`) declare the function-pointer types of the table's rows.
+//! families' files (`context`, `tensor`, `workspace`) declare the
+//! function-pointer types of the table's rows.
 //!
 //! `v2_13`, in `generated/`, declares cuTensorNet 2.13's API, the functions,
 //! types and constants of its header: a function pointer is only as right as
@@ -20,8 +20,7 @@
 //! `bindings.toml` in this module's folder pins, and imports CUDA's stream
 //! type from the CUDA Runtime's bindings. It also declares the header's
 //! version, which must be the accepted one: the crate does not compile
-//! otherwise. `layout` checks, at compile time, the layout of the one type a
-//! cuTensorNet function takes by value.
+//! otherwise.
 //!
 //! The table is the list of the functions the crate uses; the bindings
 //! declare the whole API, so binding another function is its row here and its
@@ -31,13 +30,7 @@
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod context;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) mod expectation;
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-mod layout;
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) mod operator;
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) mod state;
+pub(crate) mod tensor;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod workspace;
 
@@ -94,23 +87,27 @@ impl NativeLibrary for CuTensorNet {
 
     /// Reads cuTensorNet's version, which must be 2.13.0, and the CUDA
     /// Runtime's it was built against, which must be 12.9. Neither call can
-    /// fail.
+    /// fail. Each is read when its function is found, whether or not the
+    /// other is.
     fn probe_versions<R: SymbolResolver>(resolver: &R) -> ProbedVersions {
         let mut probed = ProbedVersions::default();
-        let Ok(functions) = CuTensorNetVersionFunctions::resolve(resolver) else {
-            return probed;
-        };
-        // SAFETY: the function pointer was resolved with its exact audited
-        // signature and the owning library is alive.
-        let version = unsafe { (functions.get_version)() };
-        // SAFETY: as for the preceding call.
-        let cuda_runtime_version = unsafe { (functions.get_cudart_version)() };
-        probed.audited("cuTensorNet", version as i128, AUDITED_VERSION as i128);
-        probed.audited(
-            "cuTensorNet's CUDA Runtime",
-            cuda_runtime_version as i128,
-            cuda_runtime::AUDITED_VERSION.into(),
-        );
+        let functions = CuTensorNetVersionFunctions::resolve(resolver)
+            .expect("a table of optional rows is resolved whatever is missing");
+        if let Some(get_version) = functions.get_version {
+            // SAFETY: the function pointer was resolved with its exact
+            // audited signature and the owning library is alive.
+            let version = unsafe { get_version() };
+            probed.audited("cuTensorNet", version as i128, AUDITED_VERSION as i128);
+        }
+        if let Some(get_cudart_version) = functions.get_cudart_version {
+            // SAFETY: as for the preceding call.
+            let cuda_runtime_version = unsafe { get_cudart_version() };
+            probed.audited(
+                "cuTensorNet's CUDA Runtime",
+                cuda_runtime_version as i128,
+                cuda_runtime::AUDITED_VERSION.into(),
+            );
+        }
         probed
     }
 }
@@ -131,16 +128,52 @@ super::loader::function_table! {
         // need it.
         optional get_last_error: context::GetLastErrorFn = cutensornetGetLastError,
         required get_version: context::GetVersionFn = cutensornetGetVersion,
-        required apply_tensor_operator: state::ApplyTensorOperatorFn =
-            cutensornetStateApplyTensorOperator,
-        required capture_mps: state::CaptureMpsFn = cutensornetStateCaptureMPS,
-        required create_state: state::CreateStateFn = cutensornetCreateState,
-        required destroy_state: state::DestroyStateFn = cutensornetDestroyState,
-        required finalize_mps: state::FinalizeMpsFn = cutensornetStateFinalizeMPS,
-        required initialize_mps: state::InitializeMpsFn = cutensornetStateInitializeMPS,
-        required state_compute: state::StateComputeFn = cutensornetStateCompute,
-        required state_configure: state::StateConfigureFn = cutensornetStateConfigure,
-        required state_prepare: state::StatePrepareFn = cutensornetStatePrepare,
+        required create_tensor_descriptor: tensor::CreateTensorDescriptorFn =
+            cutensornetCreateTensorDescriptor,
+        required destroy_tensor_descriptor: tensor::DestroyTensorDescriptorFn =
+            cutensornetDestroyTensorDescriptor,
+        required create_svd_config: tensor::CreateTensorSvdConfigFn =
+            cutensornetCreateTensorSVDConfig,
+        required destroy_svd_config: tensor::DestroyTensorSvdConfigFn =
+            cutensornetDestroyTensorSVDConfig,
+        required svd_config_set_attribute: tensor::TensorSvdConfigSetAttributeFn =
+            cutensornetTensorSVDConfigSetAttribute,
+        required create_svd_info: tensor::CreateTensorSvdInfoFn = cutensornetCreateTensorSVDInfo,
+        required destroy_svd_info: tensor::DestroyTensorSvdInfoFn =
+            cutensornetDestroyTensorSVDInfo,
+        required svd_info_get_attribute: tensor::TensorSvdInfoGetAttributeFn =
+            cutensornetTensorSVDInfoGetAttribute,
+        required gate_split_sizes: tensor::WorkspaceComputeGateSplitSizesFn =
+            cutensornetWorkspaceComputeGateSplitSizes,
+        required gate_split: tensor::GateSplitFn = cutensornetGateSplit,
+        required qr_sizes: tensor::WorkspaceComputeQrSizesFn = cutensornetWorkspaceComputeQRSizes,
+        required tensor_qr: tensor::TensorQrFn = cutensornetTensorQR,
+        required create_network: tensor::CreateNetworkFn = cutensornetCreateNetwork,
+        required destroy_network: tensor::DestroyNetworkFn = cutensornetDestroyNetwork,
+        required network_append_tensor: tensor::NetworkAppendTensorFn =
+            cutensornetNetworkAppendTensor,
+        required network_set_output_tensor: tensor::NetworkSetOutputTensorFn =
+            cutensornetNetworkSetOutputTensor,
+        required create_optimizer_config: tensor::CreateContractionOptimizerConfigFn =
+            cutensornetCreateContractionOptimizerConfig,
+        required destroy_optimizer_config: tensor::DestroyContractionOptimizerConfigFn =
+            cutensornetDestroyContractionOptimizerConfig,
+        required optimizer_config_set_attribute: tensor::ContractionOptimizerConfigSetAttributeFn =
+            cutensornetContractionOptimizerConfigSetAttribute,
+        required create_optimizer_info: tensor::CreateContractionOptimizerInfoFn =
+            cutensornetCreateContractionOptimizerInfo,
+        required destroy_optimizer_info: tensor::DestroyContractionOptimizerInfoFn =
+            cutensornetDestroyContractionOptimizerInfo,
+        required optimize: tensor::ContractionOptimizeFn = cutensornetContractionOptimize,
+        required contraction_sizes: tensor::WorkspaceComputeContractionSizesFn =
+            cutensornetWorkspaceComputeContractionSizes,
+        required network_prepare_contraction: tensor::NetworkPrepareContractionFn =
+            cutensornetNetworkPrepareContraction,
+        required network_set_input_tensor_memory: tensor::NetworkSetInputTensorMemoryFn =
+            cutensornetNetworkSetInputTensorMemory,
+        required network_set_output_tensor_memory: tensor::NetworkSetOutputTensorMemoryFn =
+            cutensornetNetworkSetOutputTensorMemory,
+        required network_contract: tensor::NetworkContractFn = cutensornetNetworkContract,
         required create_workspace: workspace::CreateWorkspaceFn =
             cutensornetCreateWorkspaceDescriptor,
         required destroy_workspace: workspace::DestroyWorkspaceFn =
@@ -149,31 +182,16 @@ super::loader::function_table! {
             cutensornetWorkspaceGetMemorySize,
         required workspace_set_memory: workspace::WorkspaceSetMemoryFn =
             cutensornetWorkspaceSetMemory,
-        required append_product: operator::AppendProductFn =
-            cutensornetNetworkOperatorAppendProduct,
-        required create_network_operator: operator::CreateNetworkOperatorFn =
-            cutensornetCreateNetworkOperator,
-        required destroy_network_operator: operator::DestroyNetworkOperatorFn =
-            cutensornetDestroyNetworkOperator,
-        required create_expectation: expectation::CreateExpectationFn =
-            cutensornetCreateExpectation,
-        required destroy_expectation: expectation::DestroyExpectationFn =
-            cutensornetDestroyExpectation,
-        required expectation_compute: expectation::ExpectationComputeFn =
-            cutensornetExpectationCompute,
-        required expectation_configure: expectation::ExpectationConfigureFn =
-            cutensornetExpectationConfigure,
-        required expectation_prepare: expectation::ExpectationPrepareFn =
-            cutensornetExpectationPrepare,
     }
 }
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 super::loader::function_table! {
-    /// The functions that read the versions, looked up on their own so
-    /// that the versions are read even when other functions are missing.
+    /// The functions that read the versions, looked up on their own, and
+    /// each optional, so that each version is read even when other
+    /// functions are missing; the main table reports those missing.
     struct CuTensorNetVersionFunctions, declared in v2_13 {
-        required get_version: context::GetVersionFn = cutensornetGetVersion,
-        required get_cudart_version: context::GetCudartVersionFn = cutensornetGetCudartVersion,
+        optional get_version: context::GetVersionFn = cutensornetGetVersion,
+        optional get_cudart_version: context::GetCudartVersionFn = cutensornetGetCudartVersion,
     }
 }

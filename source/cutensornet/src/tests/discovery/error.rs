@@ -25,10 +25,10 @@ fn the_message_names_every_fault_with_its_library() {
                 versions: Vec::new(),
                 faults: vec![
                     LibraryFault::MissingRequiredSymbol {
-                        symbol: "cutensornetCreateState",
+                        symbol: "cutensornetGateSplit",
                     },
                     LibraryFault::MissingRequiredSymbol {
-                        symbol: "cutensornetStateCompute",
+                        symbol: "cutensornetTensorQR",
                     },
                 ],
             },
@@ -38,9 +38,9 @@ fn the_message_names_every_fault_with_its_library() {
         AvailabilityError::Unusable(report).to_string(),
         "cuTensorNet acceleration is unavailable: \
          cuTensorNet at \"/opt/cutensornet/libcutensornet.so.2\": \
-         missing required symbol cutensornetCreateState; \
+         missing required symbol cutensornetGateSplit; \
          cuTensorNet at \"/opt/cutensornet/libcutensornet.so.2\": \
-         missing required symbol cutensornetStateCompute"
+         missing required symbol cutensornetTensorQR"
     );
 }
 

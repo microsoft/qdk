@@ -33,8 +33,8 @@
 //!    `generated/` folder of its module's folder (as the CUDA Runtime's
 //!    `cudart_12` and cuTensorNet's `v2_13`): a `bindings.toml` in its
 //!    module's folder, which says what they are made of, makes the script
-//!    bind it; and assert at compile time the layout of each type passed by
-//!    value (as cuTensorNet's `layout`);
+//!    bind it; and assert at compile time the layout of each struct a bound
+//!    function takes by value (no function bound today takes one);
 //! 2. add its module here, whose type implements `NativeLibrary`: its name,
 //!    override variable and default paths, its table of functions
 //!    (`function_table!`), and how its versions are read and which are
@@ -120,10 +120,11 @@ pub(crate) trait NativeLibrary {
 
     /// Reads the library's versions through `resolver` and checks them.
     ///
-    /// It looks up the version functions it calls on its own, so that the
-    /// versions are read even when other functions are missing: a library
-    /// of another version is often what lacks them. A version whose
-    /// functions are missing is not read; the table reports them.
+    /// It looks up each version function it calls on its own, so that each
+    /// version is read even when other functions, another version's
+    /// included, are missing: a library of another version is often what
+    /// lacks them. A version whose functions are missing is not read; the
+    /// table reports them.
     fn probe_versions<R: SymbolResolver>(resolver: &R) -> ProbedVersions;
 }
 

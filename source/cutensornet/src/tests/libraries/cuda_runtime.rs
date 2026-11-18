@@ -84,22 +84,41 @@ fn probe(resolver: &StandInResolver) -> ProbedVersions {
 }
 
 /// A CUDA version call that fails, for instance as no driver is installed,
-/// is a fault with CUDA's status and its text, whichever version it reads.
+/// is a fault with CUDA's status and its text, whichever version it reads;
+/// without `cudaGetErrorString`, the fault keeps the status and says why
+/// it has no text.
 #[test]
 fn a_failed_version_probe_keeps_cudas_status_and_message() {
-    for (symbol, component) in [
-        ("cudaRuntimeGetVersion", "CUDA Runtime"),
-        ("cudaDriverGetVersion", "CUDA driver"),
+    let with_text =
+        || StandInResolver::audited().with("cudaGetErrorString", cuda_error_string as *const ());
+    let without_text = || StandInResolver::audited().without("cudaGetErrorString");
+    for (resolver, symbol, component, message) in [
+        (
+            with_text(),
+            "cudaRuntimeGetVersion",
+            "CUDA Runtime",
+            "simulated CUDA version failure",
+        ),
+        (
+            with_text(),
+            "cudaDriverGetVersion",
+            "CUDA driver",
+            "simulated CUDA version failure",
+        ),
+        (
+            without_text(),
+            "cudaRuntimeGetVersion",
+            "CUDA Runtime",
+            "no text: cudaGetErrorString is missing",
+        ),
     ] {
-        let resolver = StandInResolver::audited()
-            .with(symbol, failing_version_probe as *const ())
-            .with("cudaGetErrorString", cuda_error_string as *const ());
+        let resolver = resolver.with(symbol, failing_version_probe as *const ());
         assert_eq!(
             probe(&resolver).faults,
             [LibraryFault::VersionProbeFailed {
                 component,
                 status: 42,
-                message: "simulated CUDA version failure".to_string(),
+                message: message.to_string(),
             }]
         );
     }

@@ -10,7 +10,7 @@
 //! wrong, so that it can tell the user or run on the CPU instead. An
 //! `Availability` can be relied on: every required function of each table
 //! was found, and each library is the audited version. Discovery selects no
-//! device, allocates nothing and runs no GPU work.
+//! device, allocates no GPU memory and runs no GPU work.
 //!
 //! An `Availability`, and the error when a library is at fault
 //! ([`AvailabilityError::Unusable`]), carry an [`AvailabilityReport`], with
@@ -40,8 +40,8 @@ use std::fmt;
 /// The loaded and checked libraries, with their [`AvailabilityReport`].
 ///
 /// Holding it keeps the libraries loaded, and with them every function of
-/// their tables. It reserves no GPU and no memory. It is `Send` and `Sync`,
-/// so one discovery serves every thread.
+/// their tables. It reserves no GPU and no GPU memory. It is `Send` and
+/// `Sync`, so one discovery serves every thread.
 pub struct Availability {
     report: AvailabilityReport,
     #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
@@ -72,7 +72,7 @@ impl fmt::Debug for Availability {
 /// Finds, loads and checks the native libraries a GPU run needs, today the
 /// CUDA Runtime and cuTensorNet.
 ///
-/// It selects no device, allocates nothing and runs no GPU work. Each
+/// It selects no device, allocates no GPU memory and runs no GPU work. Each
 /// library has an override variable, today `QDK_CUDART_LIBRARY` and
 /// `QDK_CUTENSORNET_LIBRARY`, which, when set, names the one absolute path
 /// to load; otherwise the library's default paths are tried in order

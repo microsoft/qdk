@@ -68,8 +68,8 @@ with `git diff`.
 When to run it, once per release of a library:
 - to bind another library: follow the steps in src/libraries.rs;
 - to audit a new release: pin its archives in generate_bindings.toml,
-  regenerate, review the bindings' diff, check the layout assertions against
-  the new headers (as src/libraries/cutensornet/layout.rs), and change the
+  regenerate, review the bindings' diff, check the layout of each struct a
+  bound function takes by value against the new headers, and change the
   accepted version in the library's module, which the crate asserts, when
   it compiles, is the version its header declares; rename the bindings'
   file (`output`) and module if its name gives the version (v2_13);
