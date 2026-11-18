@@ -4,8 +4,11 @@
 //! Opening a native library file.
 //!
 //! `libraries::open` opens each library the crate uses with
-//! [`load_library`], from the first of its candidate paths that exists, and
-//! fills the table of its functions from the open file, which is a
+//! [`load_library`], which tries its candidate paths in order, skips those
+//! where there is no file, and stops at the first other one: it opens it,
+//! or reports why it cannot (the process cannot access the path, or the
+//! system loader refuses the file). Then `libraries::open` fills the table
+//! of the library's functions from the open file, which is a
 //! `SymbolResolver` (`function_table`). Opening returns its fault as a
 //! [`LibraryFault`].
 
@@ -38,25 +41,30 @@ impl SymbolResolver for OpenLibraryFile {
     }
 }
 
-/// Opens the first of `paths`, a library's candidates in order, that exists.
+/// Opens the first of `paths`, a library's candidates in order, where a
+/// file may be.
 ///
-/// An absolute path where there is no file is skipped; one that cannot be
-/// checked (a directory on it the process may not search) is the library's
-/// failure, as a file may be there. A bare file name is searched for by the
-/// system loader, and skipped when the loader reports no file of that name:
-/// glibc reports so too when its search found only files of that name it
-/// could not use (another machine's, or unreadable ones), as its own search
-/// skips them. Any other failure is the library's.
+/// An absolute path where there is no file is skipped, including one that
+/// passes through a regular file as if it were a directory. One the process
+/// cannot access (a directory on it the process may not search) is the
+/// library's [`LibraryFault::InaccessiblePath`], as a file may be there. A
+/// bare file name is searched for by the system loader, and skipped when the
+/// loader reports no file of that name: glibc reports so too when its search
+/// found only files of that name it could not use (another machine's, or
+/// unreadable ones), as its own search skips them. Any other failure is the
+/// library's.
 pub(crate) fn load_library(paths: Vec<PathBuf>) -> Result<OpenLibraryFile, LibraryFault> {
     for path in &paths {
         if path.is_absolute() {
             match path.try_exists() {
                 Ok(true) => {}
                 Ok(false) => continue,
+                // `try_exists` already reads `NotFound` as `Ok(false)`.
+                Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => continue,
                 Err(error) => {
-                    return Err(LibraryFault::LoadFailed {
+                    return Err(LibraryFault::InaccessiblePath {
                         path: path.clone(),
-                        message: format!("cannot check that the file is there: {error}"),
+                        message: error.to_string(),
                     });
                 }
             }

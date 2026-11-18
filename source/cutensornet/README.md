@@ -349,8 +349,9 @@ another installation. Without one, the first of the
 [`PackagedLibraries`](src/libraries.rs) files with the library's file name,
 when `discover_with` is given one, is tried before the default paths. An
 absolute packaged or default path is skipped when there is no file there,
-and fails discovery when the process cannot tell, for instance behind a
-directory it may not search; a bare file name is searched for on the system
+including when part of it is a file rather than a directory, and fails
+discovery when the process cannot access it, for instance behind a directory
+it may not search; a bare file name is searched for on the system
 loader's usual path, and skipped when the loader reports no file of that
 name (glibc reports so too when its search found only files of that name
 it could not use, such as another machine's). A library that is found but

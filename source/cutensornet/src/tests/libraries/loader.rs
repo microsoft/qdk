@@ -46,25 +46,33 @@ fn a_library_the_system_loader_refuses_is_a_load_failure() {
     ));
 }
 
-/// A default path that does not exist on this host is skipped for the next
-/// one, and the next one's failure is reported.
+/// A default path where there is no file on this host is skipped for the
+/// next one, and the next one's failure is reported: a path that does not
+/// exist, and one that passes through a regular file as if it were a
+/// directory.
 #[test]
 fn a_default_path_that_does_not_exist_is_skipped() {
     let (path, _remove) = not_a_shared_object("second-default");
-    let fault = load_library(vec![unique_temp_path("absent-default"), path.clone()])
-        .err()
-        .expect("the second default is not a shared object");
-    assert!(matches!(
-        fault,
-        LibraryFault::LoadFailed { path: found, .. } if found == path
-    ));
+    let (file, _remove_file) = not_a_shared_object("file-as-directory");
+    for absent in [
+        unique_temp_path("absent-default"),
+        file.join("libcudart.so.12"),
+    ] {
+        let fault = load_library(vec![absent.clone(), path.clone()])
+            .err()
+            .expect("the second default is not a shared object");
+        assert!(
+            matches!(&fault, LibraryFault::LoadFailed { path: found, .. } if *found == path),
+            "{absent:?}: {fault:?}"
+        );
+    }
 }
 
-/// A packaged file the process cannot reach (its directory may not be
-/// searched) may be there, so it is a load failure of its path, not
-/// skipped for a later candidate the user did not mean to load.
+/// A packaged file the process cannot access (its directory may not be
+/// searched) may be there, so it is reported as a path the process cannot
+/// access, not skipped for a later candidate the user did not mean to load.
 #[test]
-fn a_path_that_cannot_be_checked_is_a_load_failure() {
+fn a_path_the_process_cannot_access_is_reported() {
     use std::os::unix::fs::PermissionsExt;
     let directory = unique_temp_path("unsearchable");
     std::fs::create_dir(&directory).expect("the temporary directory is writable");
@@ -86,7 +94,7 @@ fn a_path_that_cannot_be_checked_is_a_load_failure() {
         return;
     }
     assert!(
-        matches!(&fault, Some(LibraryFault::LoadFailed { path, .. }) if *path == hidden),
+        matches!(&fault, Some(LibraryFault::InaccessiblePath { path, .. }) if *path == hidden),
         "{fault:?}"
     );
 }
