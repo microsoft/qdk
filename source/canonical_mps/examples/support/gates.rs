@@ -2,10 +2,9 @@
 // Licensed under the MIT License.
 
 //! The matrices of the gates the circuits use, row-major with the first
-//! qubit the most significant, and the sparse simulator's native form of
-//! a one-qubit unitary.
+//! qubit the most significant.
 
-use super::{C, c, circuit::Native, rng::Rng};
+use super::{C, c, rng::Rng};
 
 pub const H: [C; 4] = [
     C::new(std::f64::consts::FRAC_1_SQRT_2, 0.0),
@@ -112,30 +111,4 @@ pub fn random_unitary<const N: usize>(rng: &mut Rng, d: usize) -> [C; N] {
         }
     }
     std::array::from_fn(|at| cols[at % d][at / d])
-}
-
-/// `u` as `Rz(γ)·Ry(β)·Rz(α)` up to a global phase, for the sparse
-/// simulator: the angles from the phases of `u`'s entries. Needs no entry
-/// of `u` to be zero, which holds for a random unitary.
-pub fn euler_natives(u: [C; 4], q: usize) -> Vec<Native> {
-    let beta = 2.0 * u[2].norm().atan2(u[0].norm());
-    let sum = (u[3] * u[0].conj()).arg();
-    let difference = (u[2] * (-u[1]).conj()).arg();
-    let (gamma, alpha) = (f64::midpoint(sum, difference), (sum - difference) / 2.0);
-    // The halves of the two phases are known up to a sign each; a sign on
-    // one of them is a sign on β.
-    let overlap = |beta: f64| {
-        let v = u3(gamma, beta, alpha);
-        (0..4).map(|i| v[i].conj() * u[i]).sum::<C>().norm()
-    };
-    let beta = if overlap(beta) > overlap(-beta) {
-        beta
-    } else {
-        -beta
-    };
-    vec![
-        Native::Rz(alpha, q),
-        Native::Ry(beta, q),
-        Native::Rz(gamma, q),
-    ]
 }

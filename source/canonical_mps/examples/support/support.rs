@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 //! What the examples share: the circuits they measure the engine on, the
-//! runs of those circuits on the engine and on the sparse simulator, the
-//! exact state vector and recorded distributions they compare with, and
-//! their command lines. Each example uses a part.
+//! runs of those circuits on the engine, the exact state vector and
+//! recorded distributions they compare with, and their command lines.
+//! Each example uses a part.
 
 #![allow(dead_code, reason = "each example uses a part")]
 
