@@ -5,17 +5,16 @@
 //! cuTensorNet, in the four slots of its one workspace descriptor.
 //!
 //! Each tensor call (a gate split, a QR, a contraction) asks, once its
-//! workspace is sized for it, for memory in some of the four slots: device
-//! or host, scratch or cache. The algebra holds one buffer per slot, lends
-//! it to every call, and grows it when a call asks for more; it never
-//! shrinks, so at rest the algebra holds its largest call's memory. When a
-//! buffer grows, the larger buffer is lent before the smaller is freed, so
-//! the descriptor never holds freed memory. Only a device buffer is
-//! bounded: it never grows beyond the device's free memory. A host slot's
-//! growth that the host's
-//! allocator refuses fails the call, as an error. A slot a call asks no
-//! memory for keeps what it was lent: cuTensorNet refuses a slot lent a
-//! pointer and 0 bytes (status 7 on the A100).
+//! workspace is sized for it, for memory in some of the four slots: device or
+//! host, scratch or cache. The algebra holds one buffer per slot, lends it to
+//! every call, and grows it when a call asks for more; it never shrinks, so at
+//! rest the algebra holds its largest call's memory. When a buffer grows, the
+//! larger buffer is lent before the smaller is freed, so the descriptor never
+//! holds freed memory. Only a device buffer is bounded: it never grows beyond
+//! the device's free memory. A host slot's growth that the host's allocator
+//! refuses fails the call, as an error. A slot a call asks no memory for keeps
+//! what it was lent: cuTensorNet refuses a slot lent a pointer and 0 bytes
+//! (status 7 on the A100).
 
 use super::error::{CudaAlgebraError, first_failure};
 use crate::engine::device_session::DeviceSession;

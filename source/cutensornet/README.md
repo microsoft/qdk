@@ -51,8 +51,8 @@ flowchart LR
 
 Open an engine on a discovery's `Availability` (Linux x86-64), as the
 example on [`CudaMpsEngine`](src/engine.rs) does:
-`CudaMpsEngine::try_from(&availability)`, at the engine's default cutoff,
-or `CudaMpsEngine::new(CudaAlgebra::new(&availability)?)` to set another.
+`CudaMpsEngine::try_from(&availability)`, at the engine's default cutoff;
+`.with_cutoff(c)` sets another.
 
 ### The algebra's terms
 
@@ -305,14 +305,14 @@ apart. Anything else is expected to work, but not verified.
 | Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                  | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
 | The libraries | `discover`: the exact versions of [Versions](#versions)      | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
 | A CUDA driver | not checked: its version is reported only                    | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
-| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one | an A100 80GB (below)                                                                             |
+| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one | an A100 80GB: run pending (below)                                                                |
 
-- **Verified on an A100 80GB:** `CudaAlgebra` passes `canonical_mps`'s
-  conformance kit; `CudaMpsEngine` passes `canonical_mps`'s engine
-  conformance circuits, and reads a capped circuit as `CpuMpsEngine` does;
-  the kit, the capped circuit and the fake libraries' cases that also run
-  on a GPU pass NVIDIA's `compute-sanitizer` memcheck, with its leak
-  check, and synccheck without error.
+- **On an A100 80GB, run pending:** the run checks that `CudaAlgebra`
+  passes `canonical_mps`'s conformance kit; that `CudaMpsEngine` passes
+  `canonical_mps`'s engine conformance circuits and reads a capped circuit
+  as `CpuMpsEngine` does; and that the kit, the capped circuit and the fake
+  libraries' cases that also run on a GPU pass NVIDIA's `compute-sanitizer`
+  memcheck, with its leak check, and synccheck without error.
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the
   default paths are those of NVIDIA's apt packages).

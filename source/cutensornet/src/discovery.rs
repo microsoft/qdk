@@ -56,9 +56,9 @@ impl Availability {
         &self.report
     }
 
-    /// The loaded libraries, for the engines of this crate. They stay
-    /// private to it: a caller outside sees their paths and versions in
-    /// [`report`](Self::report), and calls them only through an engine,
+    /// The loaded libraries, for the CUDA algebra. They stay private to
+    /// the crate: a caller outside sees their paths and versions in
+    /// [`report`](Self::report), and calls them only through the engine,
     /// which checks each call against its contract.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     pub(crate) fn libraries(&self) -> &std::sync::Arc<LoadedLibraries> {
