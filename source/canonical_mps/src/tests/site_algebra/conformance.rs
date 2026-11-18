@@ -60,10 +60,14 @@ fn split_without_truncation_catches_a_transposed_gate() {
 }
 
 #[test]
-fn split_truncation_catches_other_values_than_the_largest_and_values_not_normalised() {
+fn split_truncation_catches_other_values_than_the_largest_unnormalised_values_and_nan_sites() {
     caught_by(
         "split truncation",
-        &[Defect::SmallestValuesKept, Defect::UnnormalisedValues],
+        &[
+            Defect::SmallestValuesKept,
+            Defect::UnnormalisedValues,
+            Defect::NanSitesAtAPositiveCutoff,
+        ],
     );
 }
 
@@ -72,9 +76,17 @@ fn split_bond_catches_an_ignored_cap() {
     caught_by("split bond", &[Defect::CapIgnored]);
 }
 
+/// The scaled bond keeps the product, the bond and the retained fraction
+/// right, at cutoffs above zero only: only the isometry case catches it.
 #[test]
-fn split_isometry_catches_values_absorbed_away_from_the_centre() {
-    caught_by("split isometry", &[Defect::CentreOnTheWrongSide]);
+fn split_isometry_catches_values_absorbed_away_from_the_centre_and_a_scaled_bond() {
+    caught_by(
+        "split isometry",
+        &[
+            Defect::CentreOnTheWrongSide,
+            Defect::BondScaledAtAPositiveCutoff,
+        ],
+    );
 }
 
 /// Each defect drops more than its cutoff allows: twice the cutoff's
@@ -90,11 +102,17 @@ fn split_cutoff_catches_a_split_that_drops_more_than_its_cutoff() {
     );
 }
 
+/// A fraction two roundings above 1, within the tolerance of the kept
+/// squares' fraction, and a NaN both lie outside `(0, 1]`.
 #[test]
 fn split_retained_fraction_catches_a_fraction_other_than_that_of_the_kept_squares() {
     caught_by(
         "split retains the fraction of its kept squares",
-        &[Defect::RootOfTheRetainedFraction],
+        &[
+            Defect::RootOfTheRetainedFraction,
+            Defect::RetainedFractionAboveOne,
+            Defect::NanFractionAtAPositiveCutoff,
+        ],
     );
 }
 
@@ -110,10 +128,14 @@ fn split_that_drops_nothing_catches_a_fraction_below_one() {
 }
 
 #[test]
-fn split_at_a_tie_catches_a_tie_taken_one_way_and_reported_the_other() {
+fn split_at_a_tie_catches_a_tie_taken_one_way_and_reported_the_other_and_nan_outcomes() {
     caught_by(
         "split at a tie retains the fraction of its bond",
-        &[Defect::TieTakenOneWayReportedTheOther],
+        &[
+            Defect::TieTakenOneWayReportedTheOther,
+            Defect::NanFractionAtAPositiveCutoff,
+            Defect::NanSitesAtAPositiveCutoff,
+        ],
     );
 }
 

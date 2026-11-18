@@ -6,8 +6,8 @@
 //! singular values, and the fractions of their squares kept and dropped.
 
 use super::formulas::{
-    columns_isometry_error, dropped_fraction_of, frobenius, gated_pair, relative_distance,
-    retained_fraction_of, rows_isometry_error, singular_values,
+    columns_isometry_error, distance, dropped_fraction_of, frobenius, gated_pair,
+    relative_distance, retained_fraction_of, rows_isometry_error, singular_values,
 };
 use super::inputs::{CAPS, CUTOFFS, LARGE_SHAPE, Pair, SHAPES, identity_gate, two_site_gate};
 use super::{TOLERANCE, read, upload};
@@ -60,14 +60,14 @@ pub(super) fn truncation<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     for (scene, setting) in runs {
         let split = scene.split(algebra, setting)?;
         let norm = frobenius(split.product().elements());
-        if (norm - 1.0).abs() > TOLERANCE {
+        if distance(norm, 1.0) > TOLERANCE {
             return Err(format!(
                 "{scene}, {setting}: the product of the new sites has norm {norm}, not 1"
             ));
         }
         let dropped = dropped_fraction_of(&scene.values, split.bond);
         let residual = scene.residual(&split);
-        if (residual - dropped).abs() > TOLERANCE {
+        if distance(residual, dropped) > TOLERANCE {
             return Err(format!(
                 "{scene}, {setting}: bond {}: the product is {residual:.3e} (squared) from \
                  θ/‖θ‖, where θ's truncated SVD is {dropped:.3e}",
@@ -92,25 +92,23 @@ pub(super) fn bond<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     Ok(())
 }
 
-/// The site away from the centre is an isometry: the left site's columns
-/// are orthonormal when the centre is on the right, and the right site's
-/// rows when it is on the left. Catches the values absorbed on the wrong
-/// side, and factors that are not orthonormal.
+/// The site away from the centre is an isometry at every setting: the
+/// left site's columns are orthonormal when the centre is on the right,
+/// and the right site's rows when it is on the left. Catches the values
+/// absorbed on the wrong side, and factors that are not orthonormal, such
+/// as a correct product whose bond carries a scaling and its inverse.
 pub(super) fn isometry<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     for scene in graded_scenes()? {
-        for max_extent in [2, usize::MAX] {
-            for centre in [CentreSide::Left, CentreSide::Right] {
-                let setting = Setting::new(max_extent, 0.0, centre);
-                let split = scene.split(algebra, setting)?;
-                let (error, side) = match centre {
-                    CentreSide::Right => (columns_isometry_error(&split.left), "left"),
-                    CentreSide::Left => (rows_isometry_error(&split.right), "right"),
-                };
-                if error > TOLERANCE {
-                    return Err(format!(
-                        "{scene}, {setting}: the {side} site is {error:.1e} from an isometry"
-                    ));
-                }
+        for setting in Setting::all() {
+            let split = scene.split(algebra, setting)?;
+            let (error, side) = match setting.centre {
+                CentreSide::Right => (columns_isometry_error(&split.left), "left"),
+                CentreSide::Left => (rows_isometry_error(&split.right), "right"),
+            };
+            if error > TOLERANCE {
+                return Err(format!(
+                    "{scene}, {setting}: the {side} site is {error:.1e} from an isometry"
+                ));
             }
         }
     }
@@ -161,7 +159,7 @@ pub(super) fn retained_fraction<A: SiteAlgebra>(algebra: &A) -> Result<(), Strin
             let split = scene.split(algebra, setting)?;
             let expected = retained_fraction_of(&scene.values, split.bond);
             let fraction = split.retained_fraction;
-            if (fraction - expected).abs() > TOLERANCE {
+            if distance(fraction, expected) > TOLERANCE {
                 return Err(format!(
                     "{scene}, {setting}: bond {} retains {fraction}, not {expected}",
                     split.bond
@@ -233,14 +231,14 @@ pub(super) fn at_a_tie<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
                     return Err(format!("{scene}, {setting}: bond {k} drops {dropped:.3e}"));
                 }
                 let expected = retained_fraction_of(&scene.values, k);
-                if (split.retained_fraction - expected).abs() > TOLERANCE {
+                if distance(split.retained_fraction, expected) > TOLERANCE {
                     return Err(format!(
                         "{scene}, {setting}: bond {k} retains {}, not {expected}",
                         split.retained_fraction
                     ));
                 }
                 let residual = scene.residual(&split);
-                if (residual - dropped).abs() > TOLERANCE {
+                if distance(residual, dropped) > TOLERANCE {
                     return Err(format!(
                         "{scene}, {setting}: bond {k}: the product is {residual:.3e} (squared) \
                          from θ/‖θ‖, not {dropped:.3e}"
@@ -308,8 +306,9 @@ impl Scene {
 
     /// Splits the pair at `setting` and reads the new sites back, after
     /// checking that the bond lies within its bounds, so that no read asks
-    /// for more than a correct tensor of that bond holds; then reads the
-    /// input tensors back.
+    /// for more than a correct tensor of that bond holds, and that the
+    /// retained fraction lies in `(0, 1]`, which a NaN does not; then
+    /// reads the input tensors back.
     fn split<A: SiteAlgebra>(&self, algebra: &A, setting: Setting) -> Result<Split, String> {
         let Pair { l, m, r, .. } = self.pair;
         let failed = |message: String| format!("{self}, {setting}: {message}");
@@ -333,6 +332,12 @@ impl Scene {
         let bound = setting.max_extent.min(2 * l).min(2 * r);
         if !(1..=bound).contains(&k) {
             return Err(failed(format!("bond {k} is not in 1..={bound}")));
+        }
+        let fraction = outcome.retained_fraction;
+        if !(fraction > 0.0 && fraction <= 1.0) {
+            return Err(failed(format!(
+                "the retained fraction {fraction} is not in (0, 1]"
+            )));
         }
         let new_left = read(algebra, &outcome.left, 2 * l * k).map_err(failed)?;
         let new_right = read(algebra, &outcome.right, k * 2 * r).map_err(failed)?;

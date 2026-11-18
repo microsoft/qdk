@@ -3,7 +3,7 @@
 
 //! [`SpyAlgebra`]: a spy on the CPU algebra, [`CpuAlgebra`], which
 //! counts the engine's calls and records what it uploads, for the tests
-//! that pin how many moves of the centre, reads and duplicates an
+//! that pin how many splits, moves of the centre, reads and duplicates an
 //! operation takes, and what the engine hands the algebra.
 
 use crate::CpuAlgebra;
@@ -20,15 +20,16 @@ use std::rc::Rc;
 /// and the values of each upload, in order.
 #[derive(Default)]
 pub(crate) struct SpiedCalls {
+    pub(crate) gate_splits: Cell<usize>,
     pub(crate) qr_moves: Cell<usize>,
     pub(crate) reads: Cell<usize>,
     pub(crate) duplicates: Cell<usize>,
     pub(crate) uploads: RefCell<Vec<Vec<Complex64>>>,
 }
 
-/// A spy: [`CpuAlgebra`], counting its moves of the centre, reads and
-/// duplicates, and recording its uploads, into the [`SpiedCalls`] it shares
-/// with the test.
+/// A spy: [`CpuAlgebra`], counting its splits, moves of the centre, reads
+/// and duplicates, and recording its uploads, into the [`SpiedCalls`] it
+/// shares with the test.
 #[derive(Clone)]
 pub(crate) struct SpyAlgebra(Rc<SpiedCalls>);
 
@@ -71,6 +72,7 @@ impl SiteAlgebra for SpyAlgebra {
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,
     ) -> Result<GateSplitOutcome<Self::Tensor>, Self::Error> {
+        count(&self.0.gate_splits);
         CpuAlgebra.gate_split(call)
     }
 

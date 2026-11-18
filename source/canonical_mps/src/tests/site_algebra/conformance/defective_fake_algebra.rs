@@ -42,6 +42,13 @@ pub(super) enum Defect {
     CapIgnored,
     /// A split absorbs the values on the side away from the centre.
     CentreOnTheWrongSide,
+    /// A split at a cutoff above zero scales the first bond index of the
+    /// site away from the centre by 2 and that of the centre's site by
+    /// ½: the product is unchanged, the isometry lost.
+    BondScaledAtAPositiveCutoff,
+    /// A split at a cutoff above zero returns sites of NaN, with the bond
+    /// and the retained fraction right.
+    NanSitesAtAPositiveCutoff,
     /// A split drops up to twice its cutoff's share.
     CutoffDoubled,
     /// A split takes a cutoff of zero as 1e-12.
@@ -51,6 +58,12 @@ pub(super) enum Defect {
     /// A split that drops nothing reports a retained fraction one rounding
     /// below 1.
     RetainedFractionBelowOne,
+    /// A split that drops nothing reports a retained fraction two roundings
+    /// above 1.
+    RetainedFractionAboveOne,
+    /// A split at a cutoff above zero reports a retained fraction of NaN,
+    /// with the sites and the bond right.
+    NanFractionAtAPositiveCutoff,
     /// A split that meets a tail of exactly its cutoff's share drops it,
     /// and reports the retained fraction of keeping it.
     TieTakenOneWayReportedTheOther,
@@ -200,7 +213,7 @@ impl SiteAlgebra for DefectiveFakeAlgebra {
 
     #[expect(
         clippy::float_cmp,
-        reason = "a retained fraction of exactly 1 is the rule broken"
+        reason = "the defects alter a retained fraction of exactly 1"
     )]
     fn gate_split(
         &self,
@@ -257,6 +270,31 @@ impl SiteAlgebra for DefectiveFakeAlgebra {
             }
             Some(Defect::RetainedFractionBelowOne) if outcome.retained_fraction == 1.0 => {
                 outcome.retained_fraction = 1.0 - f64::EPSILON;
+            }
+            Some(Defect::RetainedFractionAboveOne) if outcome.retained_fraction == 1.0 => {
+                outcome.retained_fraction = 1.0 + 2.0 * f64::EPSILON;
+            }
+            Some(Defect::NanFractionAtAPositiveCutoff) if call.cutoff > 0.0 => {
+                outcome.retained_fraction = f64::NAN;
+            }
+            Some(Defect::NanSitesAtAPositiveCutoff) if call.cutoff > 0.0 => {
+                let nan = Complex64::new(f64::NAN, f64::NAN);
+                outcome.left.fill(nan);
+                outcome.right.fill(nan);
+            }
+            Some(Defect::BondScaledAtAPositiveCutoff) if call.cutoff > 0.0 => {
+                // `L·D` and `D⁻¹·R`, with `D = diag(2, 1, …)` when the
+                // centre is on the right and its inverse when on the left.
+                let (left_scale, right_scale) = match centre {
+                    CentreSide::Right => (2.0, 0.5),
+                    CentreSide::Left => (0.5, 2.0),
+                };
+                for x in &mut outcome.left[..rows] {
+                    *x *= left_scale;
+                }
+                for x in outcome.right.iter_mut().step_by(outcome.bond) {
+                    *x *= right_scale;
+                }
             }
             Some(Defect::TieTakenOneWayReportedTheOther) => {
                 let kept = call.cutoff * (1.0 - 1e-6);
