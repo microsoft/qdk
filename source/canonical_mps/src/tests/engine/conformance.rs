@@ -10,15 +10,22 @@ use super::*;
 use crate::engine::conformance;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// The untruncated circuit on the engine with and without fusion; a
+/// The untruncated circuit, called as a backend's test calls it (the
+/// engine fused, at a cutoff of 0), then on the same engine unfused; a
 /// failure names the fusion setting it failed on.
 #[test]
 fn an_untruncated_circuit_agrees_with_the_exact_reference() {
-    for (engine, name) in both_fusions(0.0) {
-        let run = catch_unwind(AssertUnwindSafe(|| {
-            conformance::assert_untruncated_circuit_agrees_on(&engine);
-        }));
-        if let Err(payload) = run {
+    let runs: [(&str, &dyn Fn()); 2] = [
+        ("fused", &|| {
+            conformance::assert_untruncated_circuit_agrees_with_exact_reference(CpuAlgebra);
+        }),
+        ("unfused", &|| {
+            let engine = Engine::new(CpuAlgebra).with_cutoff(0.0);
+            conformance::assert_untruncated_circuit_agrees_on(&engine.with_fusion(false));
+        }),
+    ];
+    for (name, run) in runs {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(run)) {
             let message = payload
                 .downcast_ref::<String>()
                 .map(String::as_str)
