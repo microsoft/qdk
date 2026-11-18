@@ -2,9 +2,12 @@
 // Licensed under the MIT License.
 
 //! Lowering's rules: each call acts on the site the qubit order gives its
-//! qubit; a measurement in X or Y reads, and leaves, the state in that
-//! basis; a shot that reaches a call the MPS simulation method does not
-//! run fails, naming it; and a call no shot reaches fails nothing.
+//! qubit; a rotation turns by its angle, sign included; a measurement in X
+//! or Y reads, and leaves, the state in that basis; a shot that reaches a
+//! call the MPS simulation method does not run fails, naming it; and a
+//! call no shot reaches fails nothing.
+
+use std::f64::consts::FRAC_PI_2;
 
 use crate::bytecode::Instruction;
 use crate::mps_simulator::qubit_order::QubitOrder;
@@ -13,12 +16,13 @@ use crate::qir::{QirInstruction, QirProgram, QirResumeError, QirShotId};
 use tensornet::reference::ExactReference;
 
 use super::programs::{
-    branch, correlated_noise, gate1, gate2, jump, measure, mz, peek_loss, program, program_with,
-    readout_noise, reset, ret, set,
+    branch, correlated_noise, gate, gate1, gate2, jump, measure, mz, peek_loss, program,
+    program_with, readout_noise, reset, ret, set,
 };
 use super::{ids, results, run};
 use crate::bytecode::encoding::{
-    OPID_CX, OPID_CZ, OPID_H, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ, OPID_S, OPID_S_ADJ, OPID_X,
+    OPID_CX, OPID_CZ, OPID_H, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ, OPID_RY, OPID_S, OPID_S_ADJ,
+    OPID_X,
 };
 
 /// A shot that reaches a call the MPS simulation method does not run yet
@@ -166,6 +170,24 @@ fn each_call_acts_on_its_qubit_where_the_order_placed_it() {
         )
         .expect("the program runs");
         assert_eq!(records, vec![results(&values)], "{call}");
+    }
+}
+
+/// A rotation turns by its angle, sign included. `Ry(θ)` is exp(−iθY/2),
+/// so on |+⟩, `Ry(π/2)` gives |1⟩ and `Ry(−π/2)` gives |0⟩: `h`, then
+/// `ry` by each angle, then `mz` reads 1, or 0, in every shot. A rotation
+/// by the opposite angle reads the other value.
+#[test]
+fn a_rotation_turns_by_its_angle_sign_included() {
+    for (angle, value) in [(FRAC_PI_2, 1), (-FRAC_PI_2, 0)] {
+        let block = [gate1(OPID_H, 0), gate(OPID_RY, 0, 0, angle), mz(0), ret()];
+        let records = run(
+            &mut MpsResumer::new(ExactReference::new(), 7),
+            &program(1, &[&block]),
+            &QirShotId::first(16),
+        )
+        .expect("the program runs");
+        assert_eq!(records, vec![results(&[value]); 16], "ry by {angle}");
     }
 }
 

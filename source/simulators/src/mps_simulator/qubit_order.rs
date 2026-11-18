@@ -12,13 +12,14 @@
 //! distance (as a matrix product operator, an MPO, across the sites
 //! between them, for instance), and each bond is the Schmidt rank across
 //! its cut, which depends on which qubits fall on each side.
-//! Every order holds the same state (to rounding, and within the
-//! truncation error of an engine that truncates), so each probability a
-//! shot draws against, given the same earlier values, agrees to rounding:
-//! on an exact engine, a record differs between two orders only where a
-//! uniform falls within rounding of a probability, and the shot's later
-//! draws may then differ. The bonds, the time and the weight a max bond
-//! dimension discards depend on the order. So the order is the MPS
+//! On an engine that does not truncate, every order holds the same state,
+//! to rounding: each probability a shot draws against, given the same
+//! earlier values, agrees to rounding, so a record may differ between two
+//! orders only as rounding lets it differ (where, and what follows: the
+//! doc of [`MpsResumer`](super::MpsResumer)). On an engine that truncates,
+//! each order truncates its own way, so the order can change the state and
+//! its probabilities beyond rounding. The bonds, the time and the weight a
+//! max bond dimension discards depend on the order. So the order is the MPS
 //! simulation method's own: chosen inside the resumer and applied to every
 //! call it hands the engine, it never reaches the caller.
 //!
