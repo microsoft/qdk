@@ -12,9 +12,9 @@
 //! Each library at fault lists every fault its checks could find, so that
 //! the user fixes their installation in one pass: the variable, path,
 //! function or version at fault. Only a fault that leaves nothing more to
-//! check about its library (an invalid override, not a file or not
-//! readable; a library not found or refused by the system loader) stops the
-//! checks of that library.
+//! check about its library (an override that is not a file, a library not
+//! found, a path the process cannot access, or a library refused by the
+//! system loader) stops the checks of that library.
 
 use std::path::PathBuf;
 use thiserror::Error;
@@ -93,6 +93,13 @@ pub enum LibraryFault {
     /// libraries are looked for").
     #[error("not found; attempted {attempted:?}")]
     NotFound { attempted: Vec<PathBuf> },
+
+    /// A candidate path the process cannot access to see whether a file is
+    /// there: for instance, a directory on it that the process may not
+    /// search. A file may be there, so the later candidates are not tried.
+    /// `message` is the system's error.
+    #[error("cannot access {path:?}: {message}")]
+    InaccessiblePath { path: PathBuf, message: String },
 
     /// A file of the library was found but the system loader refused it:
     /// for instance, it is not a library for this host, or a library it

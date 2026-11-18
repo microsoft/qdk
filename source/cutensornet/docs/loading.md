@@ -53,7 +53,7 @@ stateDiagram-v2
   Open --> Bound: functions looked up, versions checked
   Bound --> Loaded: every library bound
   Loaded --> Closed: the Availability, every algebra and every tensor dropped
-  Located --> Faulted: no file to load, or it fails to load
+  Located --> Faulted: no file to load, a path it cannot access, or it fails to load
   Open --> Faulted: a function missing, or a version refused
   Bound --> Closed: another library at fault
   Faulted --> [*]: recorded in its report, closed if open
@@ -71,10 +71,10 @@ library whatever the other's faults, and each fault is recorded in the
 library's report:
 
 - reading its override variable and opening it, or else its packaged
-  file or default paths: `InvalidOverride`, `NotFound` or `LoadFailed`,
-  which end that library's checks; once it is open, the other copies of it
-  at those paths are recorded in its report, for the GPU setup check's
-  warnings;
+  file or default paths: `InvalidOverride`, `NotFound`, `InaccessiblePath`
+  or `LoadFailed`, which end that library's checks; once it is open, the
+  other copies of it at those paths are recorded in its report, for the GPU
+  setup check's warnings;
 - looking up its functions: `MissingRequiredSymbol`, one per missing
   function;
 - its versions: `VersionProbeFailed` or `UnsupportedVersion`, one per
