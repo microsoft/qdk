@@ -40,9 +40,12 @@ use programs::{
     bytecode, coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, program_with,
     reset, ret,
 };
-use reference_spy::ReferenceSpy;
+use reference_spy::{Call, ReferenceSpy};
 
-type RunResult<E> = Result<Vec<Vec<OutputRecord>>, QirResumeError<MpsResumerError<E>>>;
+/// The records of a run's shots, in the order of its shots.
+type Records = Vec<Vec<OutputRecord>>;
+
+type RunResult<E> = Result<Records, QirResumeError<MpsResumerError<E>>>;
 
 /// Runs `shots` of `program` on `resumer`.
 fn run<E: MpsEngine>(
@@ -94,6 +97,29 @@ fn copies() -> QirProgram {
     )
 }
 
+/// A Bell pair read into two results: a run of one shot makes each call
+/// of [`LONE_SHOT_CALLS`].
+fn bell() -> QirProgram {
+    program(
+        2,
+        &[&[gate1(OPID_H, 0), gate2(OPID_CX, 0, 1), mz(0), mz(1), ret()]],
+    )
+}
+
+/// The engine's calls a run of one shot of [`bell`] makes: it prepares a
+/// state, applies the pair's gates, reads the largest bond, reads P(One)
+/// and projects at each measurement, and reads the retained weight at the
+/// end. Only a split forks, which a lone shot never makes: a failed fork
+/// has its own tests, in `mps_simulator/grouped_run.rs`.
+const LONE_SHOT_CALLS: [Call; 6] = [
+    Call::Prepare,
+    Call::Apply,
+    Call::Shape,
+    Call::ProbabilityOfOne,
+    Call::Project,
+    Call::RetainedWeight,
+];
+
 /// A program of no randomness records its basis state, whichever sites
 /// the MPS simulation method places its qubits on: here the order moves
 /// them.
@@ -110,8 +136,9 @@ fn a_deterministic_program_records_its_basis_state() {
     assert_eq!(records, vec![results(&[1, 0, 1, 1]); 2]);
 }
 
-/// A run places qubits that share two-qubit gates on neighbouring sites: two Bell pairs, one on qubits 0 and 3 and one on qubits 1
-/// and 2, as a program that entangles qubits far apart in its numbering.
+/// A run places qubits that share two-qubit gates on neighbouring sites:
+/// two Bell pairs, one on qubits 0 and 3 and one on qubits 1 and 2, as a
+/// program that entangles qubits far apart in its numbering.
 /// The run puts each pair on neighbouring sites, so no bond holds more
 /// than 2; on the identity order, both pairs would cross the middle bond,
 /// of 4.
@@ -224,52 +251,72 @@ fn a_move_changes_no_state() {
     assert_eq!(records, vec![results(&[1])]);
 }
 
-/// A shot records alone what it records among other shots, whose draws
-/// split them into groups of other histories.
+/// A shot's records depend only on the resumer's seed and the shot's id:
+/// not on the shots beside it, whose draws split them into groups of other
+/// histories, nor on its place among them, nor on earlier runs, even one
+/// an engine's failure ended. Each row compares a shot's records in one
+/// scene with its records in another.
 #[test]
-fn a_shot_records_the_same_alone_as_among_other_shots() {
-    let program = coins(3);
+fn a_shots_records_depend_only_on_the_seed_and_the_shot() {
+    let mut rows: Vec<(String, Records, Records)> = Vec::new();
+    let new_resumer = || MpsResumer::new(ExactReference::new(), 7);
+
+    // Alone, as among 16 shots of three coins.
     let shots = QirShotId::first(16);
-    let together = run(
-        &mut MpsResumer::new(ExactReference::new(), 7),
-        &program,
+    let together = run(&mut new_resumer(), &coins(3), &shots).expect("the program runs");
+    for (place, &shot) in shots.iter().enumerate() {
+        let alone = run(&mut new_resumer(), &coins(3), &[shot]).expect("the program runs");
+        rows.push((
+            format!("shot {shot} alone, as among 16"),
+            alone,
+            vec![together[place].clone()],
+        ));
+    }
+
+    // In reverse order, as in order: 16 shots of a coin copied by a branch.
+    let reversed: Vec<_> = shots.iter().rev().copied().collect();
+    let mut resumer = new_resumer();
+    let forward = run(&mut resumer, &coin_copied_by_a_branch(), &shots).expect("the program runs");
+    let mut backward =
+        run(&mut resumer, &coin_copied_by_a_branch(), &reversed).expect("the program runs");
+    backward.reverse();
+    rows.push((
+        "16 shots reversed, as in order".to_string(),
+        backward,
+        forward,
+    ));
+
+    // In a later run on the same resumer, as in the first: 8 shots of four
+    // coins.
+    let mut resumer = new_resumer();
+    let first = run(&mut resumer, &coins(4), &QirShotId::first(8)).expect("the program runs");
+    let later = run(&mut resumer, &coins(4), &QirShotId::first(8)).expect("the program runs");
+    rows.push(("a later run, as the first".to_string(), later, first));
+
+    // After a run an engine's failure ended, as on a new resumer: 8 shots
+    // of a Bell pair, on an engine that fails only the first of one of the
+    // calls the run makes.
+    let shots = QirShotId::first(8);
+    let new = run(
+        &mut MpsResumer::new(ReferenceSpy::new(), 5),
+        &bell(),
         &shots,
     )
     .expect("the program runs");
-    for (place, &shot) in shots.iter().enumerate() {
-        let alone = run(
-            &mut MpsResumer::new(ExactReference::new(), 7),
-            &program,
-            &[shot],
-        )
-        .expect("the program runs");
-        assert_eq!(alone, vec![together[place].clone()], "{shot}");
+    for call in LONE_SHOT_CALLS {
+        let mut resumer = MpsResumer::new(ReferenceSpy::failing_first(call), 5);
+        run(&mut resumer, &bell(), &shots).expect_err("the call fails");
+        let next = run(&mut resumer, &bell(), &shots).expect("the engine fails only once");
+        rows.push((
+            format!("after a run whose {call:?} failed, as on a new resumer"),
+            next,
+            new.clone(),
+        ));
     }
-}
 
-/// A shot's records follow it to any place among the run's shots: the
-/// shots in reverse order give the same records, reversed.
-#[test]
-fn a_shot_records_the_same_at_any_place_among_the_shots() {
-    let program = coin_copied_by_a_branch();
-    let shots = QirShotId::first(16);
-    let reversed: Vec<_> = shots.iter().rev().copied().collect();
-    let mut resumer = MpsResumer::new(ExactReference::new(), 7);
-    let forward = run(&mut resumer, &program, &shots).expect("the program runs");
-    let mut backward = run(&mut resumer, &program, &reversed).expect("the program runs");
-    backward.reverse();
-    assert_eq!(forward, backward);
-}
-
-/// A later run on the same resumer gives a shot the records an earlier one
-/// gave it.
-#[test]
-fn a_shot_records_the_same_in_a_later_run() {
-    let program = coins(4);
-    let mut resumer = MpsResumer::new(ExactReference::new(), 7);
-    let first = run(&mut resumer, &program, &QirShotId::first(8)).expect("the program runs");
-    let later = run(&mut resumer, &program, &QirShotId::first(8)).expect("the program runs");
-    assert_eq!(first, later);
+    for (scene, records, expected) in rows {
+        assert_eq!(records, expected, "{scene}");
+    }
 }
 
 /// The resumer's seed selects the draws: another seed gives other records.

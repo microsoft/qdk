@@ -24,13 +24,13 @@ use tensornet::reference::ExactReference;
 use tensornet::{MpsEngine, MpsShape};
 
 use super::programs::{
-    branch, coin_copied_by_a_branch, coins, gate, gate1, gate2, jump, measure, mz, program,
-    program_with, read_result, reset, ret, set,
+    branch, coin_copied_by_a_branch, coins, gate, gate1, jump, measure, mz, program, program_with,
+    read_result, reset, ret, set,
 };
 use super::reference_spy::{Call, ReferenceSpy, ReferenceSpyError};
 use super::shot_stream::shot_stream;
-use super::{RunResult, copies, ids, results, run};
-use crate::bytecode::encoding::{OPID_CX, OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_X};
+use super::{LONE_SHOT_CALLS, bell, copies, ids, results, run};
+use crate::bytecode::encoding::{OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_X};
 
 /// A shot reads One only where One has a probability: a qubit at |0⟩ reads
 /// 0 even when the shot's uniform is 0, the smallest it draws. The run's
@@ -52,70 +52,50 @@ fn a_qubit_at_zero_reads_zero_even_on_a_uniform_of_zero() {
     assert_eq!(records.expect("the program runs"), vec![results(&[0])]);
 }
 
-/// A shot draws a uniform at a measurement whose value is certain, as at
-/// any other, so its later draws are those it would make were the value
-/// uncertain: a qubit at |0⟩, or flipped to |1⟩, measured, then turned to
-/// a fair coin and measured again, which reads the second uniform of the
-/// shot's stream against ½.
+/// A shot draws a uniform at a measurement or a reset whose value is
+/// certain, as at any other, so its later draws are those it would make
+/// were the value uncertain: a qubit at |0⟩, or flipped to |1⟩, measured
+/// (or reset), then turned to a fair coin and measured into a second
+/// result, which reads the second uniform of the shot's stream against ½.
 #[test]
-fn a_certain_measurement_draws_a_uniform() {
+fn a_certain_measurement_or_reset_still_draws_a_uniform() {
+    // Each row: the scene, the certain call, and whether it records the
+    // value into the first result (a reset leaves it at 0).
+    let rows = [
+        ("a certain measurement", measure(OPID_MZ, 0, 0), true),
+        ("a certain reset", reset(0), false),
+    ];
     let shots: Vec<u32> = (0..16).collect();
-    for certain_one in [false, true] {
-        let mut block = Vec::new();
-        if certain_one {
-            block.push(gate1(OPID_X, 0));
-        }
-        block.extend([
-            measure(OPID_MZ, 0, 0),
-            gate1(OPID_H, 0),
-            measure(OPID_MZ, 0, 1),
-            ret(),
-        ]);
-        let program = program_with(1, 2, &[], &[&block]);
-        let records = run(
-            &mut MpsResumer::new(ExactReference::new(), 5),
-            &program,
-            &ids(&shots),
-        )
-        .expect("the program runs");
-        for (&shot, records) in shots.iter().zip(records) {
-            let mut stream = shot_stream(5, shot);
-            let _certain = stream.next_uniform();
-            let coin = u8::from(stream.next_uniform() < 0.5);
-            assert_eq!(
-                records,
-                results(&[u8::from(certain_one), coin]),
-                "{certain_one}, shot {shot}"
-            );
-        }
-    }
-}
-
-/// A shot draws a uniform at a reset whose value is certain, as at a
-/// measurement: a qubit at |0⟩, or flipped to |1⟩, reset, then turned to a
-/// fair coin and measured, which reads the second uniform of the shot's
-/// stream against ½.
-#[test]
-fn a_certain_reset_draws_a_uniform() {
-    let shots: Vec<u32> = (0..16).collect();
-    for certain_one in [false, true] {
-        let mut block = Vec::new();
-        if certain_one {
-            block.push(gate1(OPID_X, 0));
-        }
-        block.extend([reset(0), gate1(OPID_H, 0), mz(0), ret()]);
-        let program = program(1, &[&block]);
-        let records = run(
-            &mut MpsResumer::new(ExactReference::new(), 5),
-            &program,
-            &ids(&shots),
-        )
-        .expect("the program runs");
-        for (&shot, records) in shots.iter().zip(records) {
-            let mut stream = shot_stream(5, shot);
-            let _certain = stream.next_uniform();
-            let coin = u8::from(stream.next_uniform() < 0.5);
-            assert_eq!(records, results(&[coin]), "{certain_one}, shot {shot}");
+    for (scene, certain_call, records_it) in rows {
+        for certain_one in [false, true] {
+            let mut block = Vec::new();
+            if certain_one {
+                block.push(gate1(OPID_X, 0));
+            }
+            block.extend([
+                certain_call,
+                gate1(OPID_H, 0),
+                measure(OPID_MZ, 0, 1),
+                ret(),
+            ]);
+            let program = program_with(1, 2, &[], &[&block]);
+            let records = run(
+                &mut MpsResumer::new(ExactReference::new(), 5),
+                &program,
+                &ids(&shots),
+            )
+            .expect("the program runs");
+            let first = u8::from(records_it && certain_one);
+            for (&shot, records) in shots.iter().zip(records) {
+                let mut stream = shot_stream(5, shot);
+                let _certain = stream.next_uniform();
+                let coin = u8::from(stream.next_uniform() < 0.5);
+                assert_eq!(
+                    records,
+                    results(&[first, coin]),
+                    "{scene} of {certain_one}, shot {shot}"
+                );
+            }
         }
     }
 }
@@ -252,211 +232,6 @@ fn failing_alone<E: MpsEngine>(
         .collect()
 }
 
-/// The shot a run's error names, for a run that traps.
-fn trapped_shot<E: std::fmt::Debug>(run: RunResult<E>) -> QirShotId {
-    match run.expect_err("some shots trap") {
-        QirResumeError::Trapped {
-            shot,
-            trap: QirTrap::NotABit { value: 2, .. },
-        } => shot,
-        other => panic!("the shots trap on the branch: {other:?}"),
-    }
-}
-
-/// A run names the first failing shot in the order of its shots, whichever
-/// part of a split goes on: on a coin whose shots that read 1 trap, and one
-/// whose shots that read 0 trap, for 16 seeds, the shots forward and
-/// reversed.
-#[test]
-fn a_run_names_the_first_failing_shot_in_the_order_of_its_shots() {
-    let shots = QirShotId::first(8);
-    let reversed: Vec<_> = shots.iter().rev().copied().collect();
-    for pass in [0, 1] {
-        let program = coins_then_trap_unless_all(1, pass);
-        for seed in 0..16 {
-            let make = || MpsResumer::new(ExactReference::new(), seed);
-            for order in [&shots, &reversed] {
-                let failing = failing_alone(make, &program, order);
-                if failing.is_empty() {
-                    continue;
-                }
-                let named = trapped_shot(run(&mut make(), &program, order));
-                assert_eq!(named, failing[0], "pass {pass}, seed {seed}");
-            }
-        }
-    }
-}
-
-/// Among several failing groups (two coins, every history but 0, 0
-/// trapping), the run names the first failing shot, forward and reversed.
-#[test]
-fn a_run_names_the_first_failing_shot_among_several_failing_groups() {
-    let program = coins_then_trap_unless_all(2, 0);
-    let shots = QirShotId::first(16);
-    let reversed: Vec<_> = shots.iter().rev().copied().collect();
-    let make = || MpsResumer::new(ExactReference::new(), 7);
-    for order in [&shots, &reversed] {
-        let failing = failing_alone(make, &program, order);
-        assert!(failing.len() > 2, "most shots trap");
-        assert_eq!(trapped_shot(run(&mut make(), &program, order)), failing[0]);
-    }
-}
-
-/// The groups whose shots all come after the first failing shot are dropped
-/// unrun: the shot that reads 1 first in the order traps, and the gates of
-/// the shots that read 0, after it, are not applied.
-#[test]
-fn groups_after_the_first_failing_shot_are_dropped_unrun() {
-    let (trap, rest) = (1, 2);
-    let program = program(
-        2,
-        &[
-            &[
-                gate1(OPID_H, 0),
-                mz(0),
-                read_result(0, 0),
-                branch(0, trap, rest),
-            ],
-            &[set(0, 2), branch(0, rest, rest)],
-            &[gate1(OPID_X, 1), gate1(OPID_X, 1), gate1(OPID_X, 1), ret()],
-        ],
-    );
-    let make = || MpsResumer::new(ReferenceSpy::new(), 7);
-    let all = QirShotId::first(16);
-    let failing = failing_alone(make, &program, &all);
-    let passing: Vec<_> = all.iter().filter(|shot| !failing.contains(shot)).collect();
-    assert!(
-        !failing.is_empty() && passing.len() >= 3,
-        "some of 16 coins read 1, and three read 0"
-    );
-    // One shot that reads 1, first, then three that read 0: the one goes on
-    // and traps, and the three wait.
-    let shots = [failing[0], *passing[0], *passing[1], *passing[2]];
-    let mut resumer = make();
-    assert_eq!(
-        trapped_shot(run(&mut resumer, &program, &shots)),
-        failing[0]
-    );
-    assert_eq!(
-        resumer.engine().applies(),
-        1,
-        "only the coin's h is applied"
-    );
-}
-
-/// An engine's failure fails the shots whose group met it, and the run
-/// names the first of them: here projections on One fail.
-#[test]
-fn an_engine_failure_names_the_first_shot_whose_group_met_it() {
-    let program = coins(1);
-    let shots = QirShotId::first(16);
-    let reversed: Vec<_> = shots.iter().rev().copied().collect();
-    let make = || MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 5);
-    for order in [&shots, &reversed] {
-        let failing = failing_alone(make, &program, order);
-        // Fewer shots read 1 than 0, so the shots that read 1 go on apart
-        // and meet the failure after the split.
-        assert!(
-            !failing.is_empty() && 2 * failing.len() < order.len(),
-            "some of 16 coins read 1, fewer than read 0"
-        );
-        let error = run(&mut make(), &program, order).expect_err("a projection on One fails");
-        assert!(
-            matches!(
-                error,
-                QirResumeError::Resumer {
-                    shot,
-                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
-                } if shot == failing[0]
-            ),
-            "{error:?}"
-        );
-    }
-}
-
-/// A Bell pair read into two results: a run of one shot makes each call
-/// of [`LONE_SHOT_CALLS`].
-fn bell() -> QirProgram {
-    program(
-        2,
-        &[&[gate1(OPID_H, 0), gate2(OPID_CX, 0, 1), mz(0), mz(1), ret()]],
-    )
-}
-
-/// The engine's calls a run of one shot of [`bell`] makes: it prepares a
-/// state, applies the pair's gates, reads the largest bond, reads P(One)
-/// and projects at each measurement, and reads the retained weight at the
-/// end. Only a split forks, which a lone shot never makes: a failed fork
-/// has its own tests below.
-const LONE_SHOT_CALLS: [Call; 6] = [
-    Call::Prepare,
-    Call::Apply,
-    Call::Shape,
-    Call::ProbabilityOfOne,
-    Call::Project,
-    Call::RetainedWeight,
-];
-
-/// An engine's failure in any call a shot makes alone fails the shot with
-/// that failure: a Bell pair's shot, on an engine that fails the first of
-/// one of those calls.
-#[test]
-fn a_failure_of_any_call_a_lone_shot_makes_fails_it_with_the_engines_error() {
-    for call in LONE_SHOT_CALLS {
-        let error = run(
-            &mut MpsResumer::new(ReferenceSpy::failing_first(call), 5),
-            &bell(),
-            &ids(&[9]),
-        )
-        .expect_err("the call fails");
-        assert!(
-            matches!(
-                error,
-                QirResumeError::Resumer {
-                    shot: QirShotId(9),
-                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
-                }
-            ),
-            "{call:?}: {error:?}"
-        );
-    }
-}
-
-/// A state a call failed on is not used again, as the engine leaves it
-/// unspecified: a Bell pair's shot, on an engine that fails the first of
-/// one of the calls given a state.
-#[test]
-fn a_state_a_call_failed_on_is_not_used_again() {
-    for call in LONE_SHOT_CALLS {
-        if call == Call::Prepare {
-            continue; // A failed preparation gives no state.
-        }
-        let mut resumer = MpsResumer::new(ReferenceSpy::failing_first(call), 5);
-        run(&mut resumer, &bell(), &ids(&[9])).expect_err("the call fails");
-        assert_eq!(resumer.engine().uses_after_failure(), 0, "{call:?}");
-    }
-}
-
-/// A run after a run an engine's failure ended gives the records a new
-/// resumer gives: eight shots of a Bell pair, twice, on an engine that
-/// fails only the first of one of the calls the run makes.
-#[test]
-fn a_run_after_a_failed_run_gives_the_records_of_a_new_resumer() {
-    let shots = QirShotId::first(8);
-    let new = run(
-        &mut MpsResumer::new(ReferenceSpy::new(), 5),
-        &bell(),
-        &shots,
-    )
-    .expect("the program runs");
-    for call in LONE_SHOT_CALLS {
-        let mut resumer = MpsResumer::new(ReferenceSpy::failing_first(call), 5);
-        run(&mut resumer, &bell(), &shots).expect_err("the call fails");
-        let next = run(&mut resumer, &bell(), &shots).expect("the engine fails only once");
-        assert_eq!(next, new, "{call:?}");
-    }
-}
-
 /// One shot that reads 0 on a coin with seed 5, then two that read 1, as
 /// each reads alone: on the split, the shot that reads 0 goes on, the
 /// fewer, and the two wait.
@@ -497,6 +272,352 @@ fn reading_on_two_coins(first: u8, second: Option<u8>) -> Vec<QirShotId> {
         .collect()
 }
 
+/// How a run failed.
+#[derive(Debug, PartialEq)]
+enum Failure {
+    /// A shot trapped, on a branch on a register holding 2.
+    Trap,
+    /// The engine failed a call, as the spy's failing engines do.
+    Engine,
+}
+
+/// A run that fails: its scene, for the failure message, and its engine,
+/// seed, program and shots.
+struct FailingRun {
+    scene: String,
+    engine: fn() -> ReferenceSpy,
+    seed: u64,
+    program: QirProgram,
+    shots: Vec<QirShotId>,
+}
+
+impl FailingRun {
+    /// Runs the scene on a new resumer; returns the resumer, the shot the
+    /// run names, and how it failed.
+    fn run(&self) -> (MpsResumer<ReferenceSpy>, QirShotId, Failure) {
+        let mut resumer = MpsResumer::new((self.engine)(), self.seed);
+        let error = run(&mut resumer, &self.program, &self.shots).expect_err(&self.scene);
+        let (shot, failure) = match error {
+            QirResumeError::Trapped {
+                shot,
+                trap: QirTrap::NotABit { value: 2, .. },
+            } => (shot, Failure::Trap),
+            QirResumeError::Resumer {
+                shot,
+                error: MpsResumerError::Engine(ReferenceSpyError::Device),
+            } => (shot, Failure::Engine),
+            other => panic!("{}: a trap or the engine fails it: {other:?}", self.scene),
+        };
+        (resumer, shot, failure)
+    }
+}
+
+/// A failed run names its first failing shot in the order of its shots,
+/// whichever part of a split goes on and whichever failure the run meets
+/// first. Each row is a scene, the shot it names, and how that shot fails.
+#[test]
+fn a_failed_run_names_its_first_failing_shot_in_shot_order() {
+    let mut rows: Vec<(FailingRun, QirShotId, Failure)> = Vec::new();
+
+    // On a coin whose shots that read 1 trap, and on one whose shots that
+    // read 0 trap, for 16 seeds, 8 shots forward and reversed: the first of
+    // the shots that fail alone.
+    let eight = QirShotId::first(8);
+    let eight_reversed: Vec<_> = eight.iter().rev().copied().collect();
+    for pass in [0, 1] {
+        for seed in 0..16 {
+            for (order, shots) in [("forward", &eight), ("reversed", &eight_reversed)] {
+                let program = coins_then_trap_unless_all(1, pass);
+                let make = || MpsResumer::new(ReferenceSpy::new(), seed);
+                if let Some(&first) = failing_alone(make, &program, shots).first() {
+                    let scene = format!("a coin that traps unless {pass}, seed {seed}, {order}");
+                    let shots = shots.clone();
+                    let engine = ReferenceSpy::new;
+                    let scene_run = FailingRun {
+                        scene,
+                        engine,
+                        seed,
+                        program,
+                        shots,
+                    };
+                    rows.push((scene_run, first, Failure::Trap));
+                }
+            }
+        }
+    }
+
+    // Among several failing groups, on two coins whose every history but
+    // 0, 0 traps, 16 shots forward and reversed: the first of the shots
+    // that fail alone.
+    let sixteen = QirShotId::first(16);
+    let sixteen_reversed: Vec<_> = sixteen.iter().rev().copied().collect();
+    for (order, shots) in [("forward", &sixteen), ("reversed", &sixteen_reversed)] {
+        let program = coins_then_trap_unless_all(2, 0);
+        let make = || MpsResumer::new(ReferenceSpy::new(), 7);
+        let failing = failing_alone(make, &program, shots);
+        assert!(failing.len() > 2, "most shots trap");
+        let scene = format!("several failing groups, {order}");
+        let engine = ReferenceSpy::new;
+        let shots = shots.clone();
+        let scene_run = FailingRun {
+            scene,
+            engine,
+            seed: 7,
+            program,
+            shots,
+        };
+        rows.push((scene_run, failing[0], Failure::Trap));
+    }
+
+    // A failure met later, for shots after the first failing shot: four
+    // shots A, B, C, D on two coins, on an engine whose projections on One
+    // fail. On the first coin, A and C read 0 and B and D read 1, so the
+    // state that keeps B and D's 1 fails, failing B; on the second coin, A
+    // reads 0 and C reads 1, so C fails too, later. The run names B.
+    let a = reading_on_two_coins(0, Some(0))[0];
+    let c = reading_on_two_coins(0, Some(1))[0];
+    let ones = reading_on_two_coins(1, None);
+    let (b, d) = (ones[0], ones[1]);
+    let scene_run = FailingRun {
+        scene: "a failure met later, for later shots".to_string(),
+        engine: ReferenceSpy::failing_projections_on_one,
+        seed: 5,
+        program: coins(2),
+        shots: vec![a, b, c, d],
+    };
+    rows.push((scene_run, b, Failure::Engine));
+
+    // A failed waiting copy, and a shot that goes on from its split and
+    // fails later on its own: a coin whose shots that read 0 trap, on an
+    // engine whose projections on One fail, so the copy for the shots that
+    // read 1 fails before the shot that reads 0, going on, traps. With the
+    // shot that reads 0 first, the run names it; with it last, the first
+    // shot that reads 1.
+    let [zero, one, other_one] = a_zero_then_two_ones();
+    for (scene, shots, named, failure) in [
+        (
+            "the shot that reads 0 first",
+            vec![zero, one, other_one],
+            zero,
+            Failure::Trap,
+        ),
+        (
+            "the shot that reads 0 last",
+            vec![one, other_one, zero],
+            one,
+            Failure::Engine,
+        ),
+    ] {
+        let scene_run = FailingRun {
+            scene: format!("a failed waiting copy, {scene}"),
+            engine: ReferenceSpy::failing_projections_on_one,
+            seed: 5,
+            program: coins_then_trap_unless_all(1, 1),
+            shots,
+        };
+        rows.push((scene_run, named, failure));
+    }
+
+    for (scene_run, shot, failure) in rows {
+        let (_, named, failed) = scene_run.run();
+        assert_eq!((named, failed), (shot, failure), "{}", scene_run.scene);
+    }
+}
+
+/// No group runs on when its shots all come after the run's first failing
+/// shot, since it could not change the shot the run names. Each row is a
+/// scene, the shot the run names, how it fails, and the gates the run
+/// applies.
+#[test]
+fn no_group_runs_on_for_shots_after_the_first_failure() {
+    let (trap, rest) = (1, 2);
+    let mut rows: Vec<(FailingRun, QirShotId, Failure, usize)> = Vec::new();
+
+    // Groups not yet run: a coin whose shots that read 1 trap, then three X
+    // gates on a second qubit. One shot that reads 1, first, then three
+    // that read 0: the one goes on and traps, and the three, which wait,
+    // are dropped: only the coin's h is applied.
+    let coin_then_three_x = program(
+        2,
+        &[
+            &[
+                gate1(OPID_H, 0),
+                mz(0),
+                read_result(0, 0),
+                branch(0, trap, rest),
+            ],
+            &[set(0, 2), branch(0, rest, rest)],
+            &[gate1(OPID_X, 1), gate1(OPID_X, 1), gate1(OPID_X, 1), ret()],
+        ],
+    );
+    let make = || MpsResumer::new(ReferenceSpy::new(), 7);
+    let all = QirShotId::first(16);
+    let failing = failing_alone(make, &coin_then_three_x, &all);
+    let passing: Vec<_> = all.iter().filter(|shot| !failing.contains(shot)).collect();
+    assert!(
+        !failing.is_empty() && passing.len() >= 3,
+        "some of 16 coins read 1, and three read 0"
+    );
+    let scene_run = FailingRun {
+        scene: "the groups that wait".to_string(),
+        engine: ReferenceSpy::new,
+        seed: 7,
+        program: coin_then_three_x,
+        shots: vec![failing[0], *passing[0], *passing[1], *passing[2]],
+    };
+    rows.push((scene_run, failing[0], Failure::Trap, 1));
+
+    // The part going on from a split whose waiting copy failed: a coin,
+    // then three X gates on a second qubit, on an engine whose projections
+    // on One fail. The two shots that read 1 first, which wait and whose
+    // copy fails, then the shot that reads 0, which goes on and applies
+    // none of the gates.
+    let [zero, one, other_one] = a_zero_then_two_ones();
+    let scene_run = FailingRun {
+        scene: "the part going on from a failed waiting copy".to_string(),
+        engine: ReferenceSpy::failing_projections_on_one,
+        seed: 5,
+        program: program(
+            2,
+            &[&[
+                gate1(OPID_H, 0),
+                mz(0),
+                gate1(OPID_X, 1),
+                gate1(OPID_X, 1),
+                gate1(OPID_X, 1),
+                ret(),
+            ]],
+        ),
+        shots: vec![one, other_one, zero],
+    };
+    rows.push((scene_run, one, Failure::Engine, 1));
+
+    // The part going on from any split, not only from one whose waiting
+    // copy failed: a first coin, whose shots that read 1 trap, then for the
+    // others a second coin and three X gates on a third qubit. The shots:
+    // A and C read 0 then 0, B reads 1, D reads 0 then 1. On the first coin
+    // B goes on, the fewer, and traps; A, C and D run after it, as A comes
+    // before it. On the second coin D goes on alone, after B, and stops:
+    // the two coins' h are applied, then the three X once, for A and C.
+    let zeros = reading_on_two_coins(0, Some(0));
+    let (a, c) = (zeros[0], zeros[1]);
+    let b = reading_on_two_coins(1, None)[0];
+    let d = reading_on_two_coins(0, Some(1))[0];
+    let scene_run = FailingRun {
+        scene: "the part going on from any split".to_string(),
+        engine: ReferenceSpy::new,
+        seed: 5,
+        program: program(
+            3,
+            &[
+                &[
+                    gate1(OPID_H, 0),
+                    mz(0),
+                    read_result(0, 0),
+                    branch(0, trap, rest),
+                ],
+                &[set(0, 2), branch(0, rest, rest)],
+                &[
+                    gate1(OPID_H, 1),
+                    mz(1),
+                    gate1(OPID_X, 2),
+                    gate1(OPID_X, 2),
+                    gate1(OPID_X, 2),
+                    ret(),
+                ],
+            ],
+        ),
+        shots: vec![a, b, c, d],
+    };
+    rows.push((scene_run, b, Failure::Trap, 5));
+
+    for (scene_run, shot, failure, applies) in rows {
+        let scene = &scene_run.scene;
+        let (resumer, named, failed) = scene_run.run();
+        assert_eq!((named, failed), (shot, failure), "{scene}");
+        assert_eq!(resumer.engine().applies(), applies, "{scene}");
+    }
+}
+
+/// An engine's failure fails the shots whose group met it, and the run
+/// names the first of them: here projections on One fail.
+#[test]
+fn an_engine_failure_names_the_first_shot_whose_group_met_it() {
+    let program = coins(1);
+    let shots = QirShotId::first(16);
+    let reversed: Vec<_> = shots.iter().rev().copied().collect();
+    let make = || MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 5);
+    for order in [&shots, &reversed] {
+        let failing = failing_alone(make, &program, order);
+        // Fewer shots read 1 than 0, so the shots that read 1 go on apart
+        // and meet the failure after the split.
+        assert!(
+            !failing.is_empty() && 2 * failing.len() < order.len(),
+            "some of 16 coins read 1, fewer than read 0"
+        );
+        let error = run(&mut make(), &program, order).expect_err("a projection on One fails");
+        assert!(
+            matches!(
+                error,
+                QirResumeError::Resumer {
+                    shot,
+                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
+                } if shot == failing[0]
+            ),
+            "{error:?}"
+        );
+    }
+}
+
+/// An engine's failure in any call a shot makes alone fails the shot with
+/// that failure: a Bell pair's shot, on an engine that fails the first of
+/// one of those calls.
+#[test]
+fn a_failure_of_any_call_a_lone_shot_makes_fails_it_with_the_engines_error() {
+    for call in LONE_SHOT_CALLS {
+        let error = run(
+            &mut MpsResumer::new(ReferenceSpy::failing_first(call), 5),
+            &bell(),
+            &ids(&[9]),
+        )
+        .expect_err("the call fails");
+        assert!(
+            matches!(
+                error,
+                QirResumeError::Resumer {
+                    shot: QirShotId(9),
+                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
+                }
+            ),
+            "{call:?}: {error:?}"
+        );
+    }
+}
+
+/// A state an engine call failed on is not used again, as the engine
+/// leaves it unspecified. Each row is a call that fails: one of the calls
+/// given a state that a Bell pair's shot makes alone; or the fork of a
+/// coin's state, which the part that would go on does not settle.
+#[test]
+fn a_state_an_engine_call_failed_on_is_not_used_again() {
+    let mut rows: Vec<(String, ReferenceSpy, QirProgram, Vec<QirShotId>)> = Vec::new();
+    for call in LONE_SHOT_CALLS {
+        if call == Call::Prepare {
+            continue; // A failed preparation gives no state.
+        }
+        let engine = ReferenceSpy::failing_first(call);
+        rows.push((format!("a failed {call:?}"), engine, bell(), ids(&[9])));
+    }
+    let shots = a_zero_then_two_ones().to_vec();
+    let engine = ReferenceSpy::failing_forks();
+    rows.push(("a failed fork".to_string(), engine, coins(1), shots));
+    for (scene, engine, program, shots) in rows {
+        let mut resumer = MpsResumer::new(engine, 5);
+        run(&mut resumer, &program, &shots).expect_err(&scene);
+        assert_eq!(resumer.engine().uses_after_failure(), 0, "{scene}");
+    }
+}
+
 /// When the fork of a group's state fails, the whole group fails, before
 /// its shots part: the engine leaves the state it failed on unspecified, so
 /// no part may go on with it. On a coin, the shot that reads 0 would go on,
@@ -523,244 +644,54 @@ fn a_failed_fork_fails_the_shots_going_on_too() {
     }
 }
 
-/// The state whose fork failed is not used again, as the engine leaves it
-/// unspecified: on a coin, the part that would go on does not settle it.
+/// When the copy for the part of a split that waits fails, only the shots
+/// that wait fail, as the group's own state was not touched: on a coin,
+/// the shot that reads 0 goes on, the fewer, and ends, and the run names
+/// the first of the two that wait, not the shot before them. Each row is
+/// how the copy fails, and the gates the run applies: as it is projected
+/// on One, while the part going on applies an X on a second qubit; or, a
+/// coin read and reset, as the X that returns it to |0⟩ fails, which the
+/// part going on, at 0, does not need.
 #[test]
-fn a_state_whose_fork_failed_is_not_used_again() {
-    let mut resumer = MpsResumer::new(ReferenceSpy::failing_forks(), 5);
-    run(&mut resumer, &coins(1), &a_zero_then_two_ones()).expect_err("the fork fails");
-    assert_eq!(resumer.engine().uses_after_failure(), 0);
-}
-
-/// When the copy for the part of a split that waits fails as it is
-/// projected on that part's value, only the shots that wait fail, as the
-/// group's own state was not touched: the shot that reads 0, the fewer,
-/// goes on and applies the X after the coin, and the run names the first
-/// shot that waits, not the shot before it.
-#[test]
-fn a_failed_projection_of_the_waiting_copy_fails_only_the_shots_that_wait() {
+fn a_failed_waiting_copy_fails_only_the_shots_that_wait() {
     let shots = a_zero_then_two_ones();
-    let program = program(2, &[&[gate1(OPID_H, 0), mz(0), gate1(OPID_X, 1), ret()]]);
-    let make = || MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 5);
-    run(&mut make(), &program, &shots[..1]).expect("the shot that reads 0 ends alone");
-    let mut resumer = make();
-    let error = run(&mut resumer, &program, &shots).expect_err("the waiting part's copy fails");
-    assert!(
-        matches!(
-            error,
-            QirResumeError::Resumer {
-                shot,
-                error: MpsResumerError::Engine(ReferenceSpyError::Device),
-            } if shot == shots[1]
+    let rows = [
+        (
+            FailingRun {
+                scene: "a failed projection".to_string(),
+                engine: ReferenceSpy::failing_projections_on_one,
+                seed: 5,
+                program: program(2, &[&[gate1(OPID_H, 0), mz(0), gate1(OPID_X, 1), ret()]]),
+                shots: shots.to_vec(),
+            },
+            2,
         ),
-        "{error:?}"
-    );
-    assert_eq!(
-        resumer.engine().applies(),
-        2,
-        "the coin's h, then the X of the part going on"
-    );
-}
-
-/// When the copy for the part of a split that waits fails as a reset
-/// returns it to |0⟩, only the shots that wait fail, as when its projection
-/// fails: a coin read and reset, on an engine whose X gates
-/// fail. The shot that reads 0 goes on, the fewer, and needs no X; the two
-/// that read 1 wait on a copy that keeps One, whose X fails, and the run
-/// names the first of them.
-#[test]
-fn a_failed_reset_of_the_waiting_copy_fails_only_the_shots_that_wait() {
-    let shots = a_zero_then_two_ones();
-    let program = program(
-        1,
-        &[&[gate1(OPID_H, 0), measure(OPID_MRESETZ, 0, 0), ret()]],
-    );
-    let make = || MpsResumer::new(ReferenceSpy::failing_x_gates(), 5);
-    run(&mut make(), &program, &shots[..1]).expect("the shot that reads 0 ends alone");
-    let error = run(&mut make(), &program, &shots).expect_err("the waiting copy's X fails");
-    assert!(
-        matches!(
-            error,
-            QirResumeError::Resumer {
-                shot,
-                error: MpsResumerError::Engine(ReferenceSpyError::Device),
-            } if shot == shots[1]
+        (
+            FailingRun {
+                scene: "a failed reset".to_string(),
+                engine: ReferenceSpy::failing_x_gates,
+                seed: 5,
+                program: program(
+                    1,
+                    &[&[gate1(OPID_H, 0), measure(OPID_MRESETZ, 0, 0), ret()]],
+                ),
+                shots: shots.to_vec(),
+            },
+            1,
         ),
-        "{error:?}"
-    );
-}
-
-/// A failure met later, for shots that come after the first failing shot,
-/// does not replace it: four shots A, B, C, D on two coins, with an engine
-/// whose projections on One fail. On the first coin, A and C read 0 and B
-/// and D read 1: on the tie, A and C go on, and the copy for B and D fails,
-/// failing B. On the second coin, A reads 0 and C reads 1: on the tie, A
-/// goes on, and the copy for C fails too. The run names B.
-#[test]
-fn a_failure_met_later_for_later_shots_keeps_the_first_failing_shot() {
-    let a = reading_on_two_coins(0, Some(0))[0];
-    let c = reading_on_two_coins(0, Some(1))[0];
-    let ones = reading_on_two_coins(1, None);
-    let (b, d) = (ones[0], ones[1]);
-    let error = run(
-        &mut MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 5),
-        &coins(2),
-        &[a, b, c, d],
-    )
-    .expect_err("the copies that keep One fail");
-    assert!(
-        matches!(
-            error,
-            QirResumeError::Resumer {
-                shot,
-                error: MpsResumerError::Engine(ReferenceSpyError::Device),
-            } if shot == b
-        ),
-        "{error:?}"
-    );
-}
-
-/// Between a failed waiting copy and a shot that goes on from its split
-/// and fails later on its own, the run names whichever shot comes first in
-/// the order of the shots, not the failure met last: one coin, whose shots
-/// that read 0 trap, on an engine whose projections on One fail, so the
-/// copy for the shots that read 1 fails; the shot that reads 0 first, then
-/// last.
-#[test]
-fn a_failed_waiting_copy_and_a_later_failure_name_the_first_shot_in_order() {
-    let [zero, one, other_one] = a_zero_then_two_ones();
-    let program = coins_then_trap_unless_all(1, 1);
-    let make = || MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 5);
-    let zero_first = run(&mut make(), &program, &[zero, one, other_one]);
-    assert_eq!(trapped_shot(zero_first), zero);
-    let zero_last = run(&mut make(), &program, &[one, other_one, zero])
-        .expect_err("the waiting part's copy fails");
-    assert!(
-        matches!(
-            zero_last,
-            QirResumeError::Resumer {
-                shot,
-                error: MpsResumerError::Engine(ReferenceSpyError::Device),
-            } if shot == one
-        ),
-        "{zero_last:?}"
-    );
-}
-
-/// The part that goes on from a split whose waiting copy failed runs no
-/// later step when its shots all come after the shots that failed, since it
-/// could not change the shot the run names: a coin, then three X gates on
-/// a second qubit, on an engine whose projections on One fail; the two
-/// shots that read 1 first, which wait and whose copy fails, then the shot
-/// that reads 0, which goes on and applies none of the gates.
-#[test]
-fn the_part_going_on_from_a_failed_waiting_copy_stops_when_its_shots_come_after() {
-    let [zero, one, other_one] = a_zero_then_two_ones();
-    let program = program(
-        2,
-        &[&[
-            gate1(OPID_H, 0),
-            mz(0),
-            gate1(OPID_X, 1),
-            gate1(OPID_X, 1),
-            gate1(OPID_X, 1),
-            ret(),
-        ]],
-    );
-    let mut resumer = MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 5);
-    let error = run(&mut resumer, &program, &[one, other_one, zero])
-        .expect_err("the waiting part's copy fails");
-    assert!(
-        matches!(
-            error,
-            QirResumeError::Resumer {
-                shot,
-                error: MpsResumerError::Engine(ReferenceSpyError::Device),
-            } if shot == one
-        ),
-        "{error:?}"
-    );
-    assert_eq!(
-        resumer.engine().applies(),
-        1,
-        "only the coin's h is applied"
-    );
-}
-
-/// The part going on from any split runs no later step when its shots all
-/// come after the run's failure, not only from a split whose waiting copy
-/// failed: a first coin, whose shots that read 1 trap, then for the others
-/// a second coin and three X gates on a third qubit, unfused, so that each
-/// gate is one apply. The shots: A and C read 0 then 0, B reads 1, D reads
-/// 0 then 1. On the first coin B goes on, the fewer, and traps; A, C and D
-/// run after it, as A comes before it. On the second coin D goes on alone,
-/// after B, and stops: only A and C apply the three X.
-#[test]
-fn the_part_going_on_from_any_split_stops_when_its_shots_come_after_the_failure() {
-    let (trap, rest) = (1, 2);
-    let program = program(
-        3,
-        &[
-            &[
-                gate1(OPID_H, 0),
-                mz(0),
-                read_result(0, 0),
-                branch(0, trap, rest),
-            ],
-            &[set(0, 2), branch(0, rest, rest)],
-            &[
-                gate1(OPID_H, 1),
-                mz(1),
-                gate1(OPID_X, 2),
-                gate1(OPID_X, 2),
-                gate1(OPID_X, 2),
-                ret(),
-            ],
-        ],
-    );
-    let zeros = reading_on_two_coins(0, Some(0));
-    let (a, c) = (zeros[0], zeros[1]);
-    let b = reading_on_two_coins(1, None)[0];
-    let d = reading_on_two_coins(0, Some(1))[0];
-    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 5);
-    assert_eq!(trapped_shot(run(&mut resumer, &program, &[a, b, c, d])), b);
-    assert_eq!(
-        resumer.engine().applies(),
-        5,
-        "the two coins' h, then the three X once, for A and C"
-    );
-}
-
-/// On a split whose parts are as large, the shots that read 0 go on and
-/// those that read 1 wait: one shot of each on a coin, the one that reads 1
-/// first, then for the shots that read 1 a trap and for the others an X on
-/// a second qubit. The shot that reads 0 goes on and applies the X before
-/// the other traps; had it waited, it would come after the trap and be
-/// dropped unrun.
-#[test]
-fn on_a_tie_the_shots_that_read_zero_go_on() {
-    let [zero, one, _] = a_zero_then_two_ones();
-    let (trap, rest) = (1, 2);
-    let program = program(
-        2,
-        &[
-            &[
-                gate1(OPID_H, 0),
-                mz(0),
-                read_result(0, 0),
-                branch(0, trap, rest),
-            ],
-            &[set(0, 2), branch(0, rest, rest)],
-            &[gate1(OPID_X, 1), ret()],
-        ],
-    );
-    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 5);
-    assert_eq!(trapped_shot(run(&mut resumer, &program, &[one, zero])), one);
-    assert_eq!(
-        resumer.engine().applies(),
-        2,
-        "the coin's h, then the X of the shot that reads 0"
-    );
+    ];
+    for (scene_run, applies) in rows {
+        let scene = &scene_run.scene;
+        run(
+            &mut MpsResumer::new((scene_run.engine)(), scene_run.seed),
+            &scene_run.program,
+            &shots[..1],
+        )
+        .expect("the shot that reads 0 ends alone");
+        let (resumer, named, failure) = scene_run.run();
+        assert_eq!((named, failure), (shots[1], Failure::Engine), "{scene}");
+        assert_eq!(resumer.engine().applies(), applies, "{scene}");
+    }
 }
 
 /// A run whose stop flag is already set fails before any gate, naming its

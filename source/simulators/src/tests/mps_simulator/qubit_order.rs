@@ -1,11 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The qubit order: a permutation, never of more span
-//! than the identity, the same for the same gates; the search improving on
-//! the identity, and the search from reverse Cuthill–McKee kept when it
-//! spans less; the identity on a tie; and the gates whose qubits are in
-//! registers not weighed.
+//! The qubit order's rules: the identity unless another order spans less,
+//! a permutation, the same for the same gates; a chain of gates placed on
+//! neighbouring sites; and the gates whose qubits are in registers not
+//! weighed.
 
 use super::below;
 use super::programs::{gate2, gate2_from_register, program, ret, set};
@@ -13,12 +12,49 @@ use crate::bytecode::encoding::OPID_CX;
 use crate::mps_simulator::qubit_order::{InteractionWeights, QubitOrder, local_search_order};
 use crate::mps_simulator::shot_stream::SplitMix64;
 
-/// On random interaction graphs, the order is a permutation whose span is
-/// at most the identity's, and the same gates give the same order.
+/// A scene of interaction weights: its name, its qubits, its gates, and
+/// the span of the order found, where a test gives it.
+type Scene = (String, usize, Vec<(usize, usize)>, Option<u64>);
+
+/// The order is the identity unless another order spans less; it is a
+/// permutation, and the same gates give the same order. Each row is a
+/// scene of interaction weights, and, where given, the span of the order
+/// found: random graphs; scenes the identity spans more than an order
+/// found; and no two-qubit gate, where every order ties and the identity
+/// is kept.
 #[test]
-fn the_order_is_a_permutation_never_of_more_span_than_the_identity() {
+fn the_order_is_the_identity_unless_another_spans_less() {
+    let mut rows: Vec<Scene> = vec![
+        // Qubit 2 meets each of the others, qubit 0 twice, and qubit 0
+        // meets 1: the identity spans 9.
+        (
+            "a star, one of its pairs met twice".to_string(),
+            5,
+            vec![(0, 2), (0, 2), (1, 2), (2, 3), (2, 4), (0, 1)],
+            Some(8),
+        ),
+        // Qubits 1 and 2 meet in three gates, 1 and 3 and 0 and 2 in two
+        // each, 0 and 3 in one: the cycle 0, 2, 1, 3, which the identity
+        // spans as 14.
+        (
+            "a weighted cycle numbered out of its order".to_string(),
+            4,
+            vec![
+                (1, 2),
+                (3, 1),
+                (2, 0),
+                (1, 2),
+                (3, 1),
+                (2, 1),
+                (2, 0),
+                (0, 3),
+            ],
+            Some(10),
+        ),
+        ("no two-qubit gate".to_string(), 4, Vec::new(), Some(0)),
+    ];
     let mut stream = SplitMix64::new(5);
-    for _ in 0..50 {
+    for graph in 0..50 {
         let qubits = 2 + below(&mut stream, 12);
         let gates: Vec<(usize, usize)> = (0..below(&mut stream, 40))
             .filter_map(|_| {
@@ -27,13 +63,31 @@ fn the_order_is_a_permutation_never_of_more_span_than_the_identity() {
                 (a != b).then_some((a, b))
             })
             .collect();
+        rows.push((format!("random graph {graph}"), qubits, gates, None));
+    }
+    for (scene, qubits, gates, span) in rows {
         let weights = InteractionWeights::from_gates(qubits, gates.iter().copied());
         let order = local_search_order(&weights);
+        let identity = QubitOrder::identity(qubits);
         let mut sites = order.sites().to_vec();
         sites.sort_unstable();
-        assert_eq!(sites, (0..qubits).collect::<Vec<_>>(), "a permutation");
-        assert!(weights.span(&order) <= weights.span(&QubitOrder::identity(qubits)));
-        assert_eq!(local_search_order(&weights), order, "the same each time");
+        assert_eq!(
+            sites,
+            (0..qubits).collect::<Vec<_>>(),
+            "{scene}: a permutation"
+        );
+        assert!(
+            order == identity || weights.span(&order) < weights.span(&identity),
+            "{scene}: the identity unless another spans less"
+        );
+        assert_eq!(
+            local_search_order(&weights),
+            order,
+            "{scene}: the same each time"
+        );
+        if let Some(span) = span {
+            assert_eq!(weights.span(&order), span, "{scene}");
+        }
     }
 }
 
@@ -47,48 +101,6 @@ fn a_chain_of_gates_is_placed_on_neighbouring_sites() {
         weights.span(&local_search_order(&weights)),
         chain.len() as u64
     );
-}
-
-/// The search improves on the identity, weighing each pair by its gates:
-/// qubit 2 meets each of the others, qubit 0 twice, and qubit 0 meets 1;
-/// the identity spans 9, and the search finds 8.
-#[test]
-fn the_search_improves_on_the_identity() {
-    let gates = [(0, 2), (0, 2), (1, 2), (2, 3), (2, 4), (0, 1)];
-    let weights = InteractionWeights::from_gates(5, gates);
-    assert_eq!(weights.span(&QubitOrder::identity(5)), 9);
-    assert_eq!(weights.span(&local_search_order(&weights)), 8);
-}
-
-/// The search from reverse Cuthill–McKee is kept when it spans less than
-/// the search from the identity: qubits 1 and 2 meet in three gates, 1 and
-/// 3 and 0 and 2 in two each, 0 and 3 in one. The identity spans 14, and
-/// the search from it stops at 12; reverse Cuthill–McKee also spans 12,
-/// and the search from it finds 10, which only that start reaches here.
-#[test]
-fn the_search_from_reverse_cuthill_mckee_is_kept_when_it_spans_less() {
-    let gates = [
-        (1, 2),
-        (3, 1),
-        (2, 0),
-        (1, 2),
-        (3, 1),
-        (2, 1),
-        (2, 0),
-        (0, 3),
-    ];
-    let weights = InteractionWeights::from_gates(4, gates);
-    assert_eq!(weights.span(&QubitOrder::identity(4)), 14);
-    assert_eq!(weights.span(&local_search_order(&weights)), 10);
-}
-
-/// When both starts end at the same span, the identity's order is kept: a
-/// program with no two-qubit gate keeps every qubit on its own site, where
-/// reverse Cuthill–McKee would reverse them.
-#[test]
-fn the_identity_is_kept_on_a_tie() {
-    let weights = InteractionWeights::from_gates(4, []);
-    assert_eq!(local_search_order(&weights), QubitOrder::identity(4));
 }
 
 /// A gate whose qubit is in a register is not weighed: the program orders
