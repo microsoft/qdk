@@ -22,7 +22,7 @@
 //! [`TRUNCATION_TOLERANCE`], for the user to raise χ.
 //!
 //! The max bond dimension is the engine's to keep: an engine that does not
-//! truncate (the exact reference) may hold bonds above it, which
+//! truncate (an exact engine) may hold bonds above it, which
 //! [`MpsRunReport::largest_bond`] then shows. The resumer does not refuse
 //! such a run, though the engine contract
 //! ([`MpsEngine`](tensornet::MpsEngine)) leaves that check to its caller:

@@ -4,10 +4,10 @@
 //! The grouped run: how an [`MpsResumer`] runs the shots of one run, shots
 //! that drew the same values sharing one state.
 //!
-//! The phases of a run, each a function or a call of the same name here or
-//! in the file its row names, are in the table of
-//! `src/mps_simulator/README.md` ("How it runs a program"), with how and
-//! why; this header gives the mechanics the table does not.
+//! The phases of a group, each a function or a call of the same name here
+//! or in the file its entry names, are in `src/mps_simulator/design.md`
+//! ("The phases of a group"), with how and why; this header gives the
+//! mechanics that page does not.
 //!
 //! **The loop.** [`GroupedRun::start`] makes one group of every shot, with
 //! one machine context and no state. `run` pops the groups off a stack, the
@@ -267,7 +267,12 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     }
 
     /// Applies `gate` to `group`'s state, prepared at the group's first
-    /// step.
+    /// step: one engine call per gate; an engine that gains by fusing gates
+    /// fuses them itself.
+    ///
+    /// **Known issue:** whether an engine on a GPU needs its gates fused is
+    /// not measured. If one does, the fusion goes into that engine, not
+    /// here. It blocks a GPU run only if that run is slow.
     fn apply(
         &self,
         group: &mut ShotGroup<E::State>,

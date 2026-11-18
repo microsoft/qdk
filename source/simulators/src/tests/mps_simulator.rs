@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! The tests of [`crate::mps_simulator`], one file per file with behaviour,
-//! all on `tensornet`'s exact reference engine, or on `reference_spy.rs`'s
-//! spy over it, which records the calls and stands in for an engine that
+//! all on an exact engine, or on `reference_spy.rs`'s spy over an exact
+//! engine, which records the calls and stands in for an engine that
 //! truncates or fails; `programs.rs` writes the QIR programs they run.
 //!
 //! The resumer's rules, in this file: what a shot records; that its
@@ -34,7 +34,6 @@ use crate::bytecode::encoding::{
     OPID_CX, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_SWAP, OPID_X,
 };
 use crate::mps_simulator::qubit_order::QubitOrder;
-use crate::mps_simulator::shot_stream::SplitMix64;
 use crate::mps_simulator::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsResumerError};
 use programs::{
     bytecode, coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, program_with,
@@ -400,10 +399,4 @@ fn a_program_of_no_qubits_records_without_a_state() {
     let records = run(&mut resumer, &program, &ids(&[0, 1])).expect("the program runs");
     assert_eq!(records, vec![results(&[0]); 2]);
     assert_eq!(resumer.engine().prepared(), Vec::<MpsShape>::new());
-}
-
-/// A value of `stream` below `n`, for the tests' random cases.
-fn below(stream: &mut SplitMix64, n: usize) -> usize {
-    let n = u64::try_from(n).expect("a usize fits a u64");
-    usize::try_from(stream.next_u64() % n).expect("below a usize")
 }

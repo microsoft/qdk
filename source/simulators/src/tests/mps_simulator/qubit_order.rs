@@ -6,7 +6,6 @@
 //! neighbouring sites; and the gates whose qubits are in registers not
 //! weighed.
 
-use super::below;
 use super::programs::{gate2, gate2_from_register, program, ret, set};
 use crate::bytecode::encoding::OPID_CX;
 use crate::mps_simulator::qubit_order::{InteractionWeights, QubitOrder, local_search_order};
@@ -126,4 +125,10 @@ fn gates_with_a_qubit_in_a_register_are_not_weighed() {
         QubitOrder::for_program(&program),
         local_search_order(&weights)
     );
+}
+
+/// A value of `stream` below `n`, for the random graphs.
+fn below(stream: &mut SplitMix64, n: usize) -> usize {
+    let n = u64::try_from(n).expect("a usize fits a u64");
+    usize::try_from(stream.next_u64() % n).expect("below a usize")
 }
