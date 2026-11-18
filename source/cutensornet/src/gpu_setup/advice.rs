@@ -75,10 +75,11 @@ fn fault_advice(
             None => install(),
         },
         LibraryFault::InaccessiblePath { path, .. } => {
-            let directories = format!(
-                "let this process search the directories on {}",
-                path.display()
-            );
+            #[expect(
+                clippy::unnecessary_debug_formatting,
+                reason = "paths are quoted, as in the faults, so a line break adds no line"
+            )]
+            let directories = format!("let this process search the directories on {path:?}");
             match guide {
                 Some(guide) => format!(
                     "{directories}, or set {} to the absolute path of a copy of {library} it \
