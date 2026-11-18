@@ -18,8 +18,9 @@
 //!   its site, as before any window (`chain`), and a gate that brings the
 //!   site into the window applies after it.
 //! - **How it is applied.** A window on two neighbours is one
-//!   [`gate_split`](SiteAlgebra::gate_split) ([`truncation`](super::truncation)),
-//!   with the centre moved onto the pair first; any other window, on
+//!   [`gate_split`](SiteAlgebra::gate_split)
+//!   ([`truncation`](super::truncation)), with the centre moved onto the
+//!   pair first; any other window, on
 //!   sites further apart or on three sites, is applied as a matrix product
 //!   operator across its span ([`mpo`](super::mpo)).
 //! - **When.** The first operation the window does not serve applies it

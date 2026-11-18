@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The reference algebra against the `SiteAlgebra` conformance kit, as a
+//! The CPU algebra against the `SiteAlgebra` conformance kit, as a
 //! backend's own tests run it.
 
 use canonical_mps::CpuAlgebra;

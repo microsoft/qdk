@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What the reference algebra promises beyond `SiteAlgebra`'s contract,
+//! What the CPU algebra promises beyond `SiteAlgebra`'s contract,
 //! which the conformance kit checks it against
 //! (`tests/site_algebra_conformance.rs`): a gate split reports a failed SVD,
 //! and a read borrows a site's elements rather than copying them.

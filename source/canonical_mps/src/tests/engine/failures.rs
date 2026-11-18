@@ -3,7 +3,7 @@
 
 //! The engine's failures, apart from refusals: a sample too large for
 //! memory, and each method of the algebra failing, on the fake
-//! [`FailingFakeAlgebra`], since the reference algebra, [`CpuAlgebra`],
+//! [`FailingFakeAlgebra`], since the CPU algebra, [`CpuAlgebra`],
 //! fails only when its SVD does, which the engine's tests never make it do.
 
 use super::stand_ins::failing_fake_algebra::{AlgebraFailure, Method};

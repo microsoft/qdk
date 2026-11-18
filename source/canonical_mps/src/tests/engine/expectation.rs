@@ -40,7 +40,8 @@ fn entangled_with_the_centre_on(engine: &Engine, centre: usize) -> (State, Refer
     (state, exact_state)
 }
 
-/// `observable`'s value on `state` and on the reference's `exact_state`
+/// `observable`'s value on `state` and on the exact reference's
+/// `exact_state`
 /// agree within 1e-12.
 fn assert_value_agrees(
     engine: &Engine,
@@ -62,7 +63,7 @@ fn assert_value_agrees(
 /// An observable of terms left of the centre, right of it and across it,
 /// with an identity coefficient, on a state whose centre a read left at
 /// one end, in the middle or at the other end, with one-site gates
-/// pending: its value is the reference's wherever the centre lies.
+/// pending: its value is the exact reference's wherever the centre lies.
 #[test]
 fn an_expectation_reads_the_value_wherever_the_centre_lies() {
     let o = observable(
@@ -93,7 +94,7 @@ fn an_expectation_reads_the_value_wherever_the_centre_lies() {
 /// ones: terms that start with the same factor, the same site with
 /// another Pauli, or a term that is the prefix of another, and terms that
 /// end on the same factor. Each counts once, with its own coefficient, as
-/// the reference reads them.
+/// the exact reference reads them.
 #[test]
 fn terms_that_share_factors_each_count() {
     let o = observable(

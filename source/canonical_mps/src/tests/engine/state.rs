@@ -6,7 +6,7 @@
 use super::*;
 
 /// A runtime that moves each shot's state to a worker thread: the state is
-/// `Send` when its algebra's tensors are, as the reference algebra's are.
+/// `Send` when its algebra's tensors are, as the CPU algebra's are.
 #[test]
 fn a_state_on_send_tensors_is_send() {
     fn send<T: Send>() {}

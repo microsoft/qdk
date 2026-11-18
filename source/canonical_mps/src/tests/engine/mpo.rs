@@ -12,7 +12,7 @@
 use super::*;
 
 /// Gates on distant sites, in both operand orders: every read agrees with
-/// the reference in the caller's order, so no site is left moved.
+/// the exact reference in the caller's order, so no site is left moved.
 #[test]
 fn gates_on_distant_sites_act_in_the_callers_order() {
     let reference = ExactReference::new();
@@ -43,8 +43,8 @@ fn gates_on_distant_sites_act_in_the_callers_order() {
 
 /// An MPO whose result fits the capacity loses nothing, though it grows
 /// its span's bonds on the way: the weight stays 1, the shape fits, and
-/// every read agrees with the reference. Each row: the capacity and the
-/// gates, the last on sites far apart.
+/// every read agrees with the exact reference. Each row: the capacity and
+/// the gates, the last on sites far apart.
 #[test]
 fn an_mpo_keeps_a_state_that_fits_its_bonds() {
     type Row = (&'static str, MpsShape, Gates);
