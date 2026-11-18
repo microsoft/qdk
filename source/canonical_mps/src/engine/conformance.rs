@@ -96,8 +96,9 @@ pub(crate) fn assert_untruncated_circuit_agrees_on<A: SiteAlgebra>(engine: &Cano
 
 /// A circuit of weak entangling gates on 8 sites, mostly far apart, at a
 /// bond of 4, which truncates, on the engine on `algebra`: the
-/// distribution of all eight qubits stays within the distance the splits'
-/// kept shares allow of the exact reference's.
+/// distribution of all eight qubits stays within its truncation bound,
+/// the distance from the exact reference's that the splits' kept shares
+/// allow.
 ///
 /// The bound holds on any backend that keeps the contract, apart from what the
 /// MPOs' factorisations drop at or below the operator's rank cutoff, which the
