@@ -46,10 +46,10 @@ use tensornet::{MpsEngine, MpsShape};
 
 #[cfg(doc)]
 use super::MpsResumer;
-use super::layout::QubitOrder;
+use super::error::MpsResumerError;
 use super::lowering::{Operator, Step, lower};
-use super::report::MpsRunReport;
-use super::resumer_error::MpsResumerError;
+use super::qubit_order::QubitOrder;
+use super::run_report::MpsRunReport;
 use super::shot_stream::{SplitMix64, shot_stream};
 
 /// One run of an [`MpsResumer`]: what every group of the run shares, the

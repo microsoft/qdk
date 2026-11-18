@@ -8,10 +8,10 @@
 //! excluded.
 
 use crate::mps_simulator::MpsResumer;
-use crate::mps_simulator::resumer::shot_stream::SplitMix64;
+use crate::mps_simulator::shot_stream::SplitMix64;
 use tensornet::reference::ExactReference;
 
-use super::super::programs::coins;
+use super::programs::coins;
 use super::{ids, results, run};
 
 /// A shot draws from the stream seeded with the seed the executor protocol

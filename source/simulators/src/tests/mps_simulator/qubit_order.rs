@@ -7,11 +7,11 @@
 //! spans less; the identity on a tie; and the gates whose qubits are in
 //! registers not weighed.
 
-use super::super::below;
-use super::super::programs::{gate2, gate2_from_register, program, ret, set};
+use super::below;
+use super::programs::{gate2, gate2_from_register, program, ret, set};
 use crate::bytecode::encoding::OPID_CX;
-use crate::mps_simulator::resumer::layout::{InteractionWeights, QubitOrder, local_search_order};
-use crate::mps_simulator::resumer::shot_stream::SplitMix64;
+use crate::mps_simulator::qubit_order::{InteractionWeights, QubitOrder, local_search_order};
+use crate::mps_simulator::shot_stream::SplitMix64;
 
 /// On random interaction graphs, the order is a permutation whose span is
 /// at most the identity's, and the same gates give the same order.
