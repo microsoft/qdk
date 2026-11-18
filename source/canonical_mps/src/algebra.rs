@@ -45,6 +45,10 @@ use std::borrow::Cow;
 /// settings) before it calls, so an implementation may assume each is
 /// valid. Tensors follow the [module's layout](self).
 ///
+/// [`gate_split`](SiteAlgebra::gate_split) and
+/// [`qr_move`](SiteAlgebra::qr_move) leave their input tensors unchanged:
+/// the caller may still hold them, as the sites of a state it forked.
+///
 /// # Errors
 ///
 /// Each method fails, with [`SiteAlgebra::Error`], when the backend's own

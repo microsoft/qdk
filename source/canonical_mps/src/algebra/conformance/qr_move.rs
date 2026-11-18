@@ -62,6 +62,20 @@ pub(super) fn isometry<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     Ok(())
 }
 
+/// The move leaves its input tensors unchanged, with a gate and without,
+/// either way, since the engine may still hold them (the sites of a
+/// fork's source). Catches a move computed in the inputs' storage, or a
+/// gate applied in place.
+pub(super) fn inputs_unchanged<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
+    for scene in scenes() {
+        let moved = scene.move_centre(algebra)?;
+        if moved.inputs != [scene.pair.left.clone(), scene.pair.right.clone()] {
+            return Err(format!("{scene}: the move changed its inputs"));
+        }
+    }
+    Ok(())
+}
+
 /// A pair, a gate or none, and the way the centre moves.
 struct Scene {
     pair: Pair,
@@ -96,7 +110,7 @@ impl Scene {
 
     /// Moves the centre and reads the new sites back, after checking the
     /// bond, so that no read asks for more than a correct tensor of that
-    /// bond holds.
+    /// bond holds; then reads the input tensors back.
     fn move_centre<A: SiteAlgebra>(&self, algebra: &A) -> Result<Moved, String> {
         let Pair { l, m, r, .. } = self.pair;
         let failed = |message: String| format!("{self}: {message}");
@@ -121,9 +135,14 @@ impl Scene {
         }
         let new_left = read(algebra, &outcome.left, 2 * l * k).map_err(failed)?;
         let new_right = read(algebra, &outcome.right, k * 2 * r).map_err(failed)?;
+        let inputs = [
+            read(algebra, &left, 2 * l * m).map_err(failed)?,
+            read(algebra, &right, m * 2 * r).map_err(failed)?,
+        ];
         Ok(Moved {
             left: Matrix::new(2 * l, k, new_left),
             right: Matrix::new(k, 2 * r, new_right),
+            inputs,
         })
     }
 }
@@ -165,6 +184,8 @@ struct Moved {
     left: Matrix,
     /// The new right site, as the `bond × (2·r)` matrix.
     right: Matrix,
+    /// The input tensors, read back after the move.
+    inputs: [Vec<Complex64>; 2],
 }
 
 impl Moved {
