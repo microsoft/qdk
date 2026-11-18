@@ -98,16 +98,19 @@ fn a_malformed_descriptor_is_refused_on<C: TestedCalls>(new: &dyn Fn() -> Device
     a_tensor_descriptor_refuses_a_repeated_mode(new);
 }
 
-/// A gate split shares at most the smaller side of θ between U and V, and
-/// a QR, which is thin, exactly the smaller side of its matrix.
+/// The bond a factorization returns is at most the smaller side of its
+/// matrix: a gate split's, between U and V, is at most the smaller side
+/// of θ, and a QR's, which is thin, exactly the smaller side.
 #[test]
-fn a_factorization_shares_at_most_its_smaller_side() {
-    a_factorization_shares_at_most_its_smaller_side_on(&fake);
+fn a_factorizations_bond_is_at_most_its_smaller_side() {
+    a_factorizations_bond_is_at_most_its_smaller_side_on(&fake);
 }
 
-/// The cases of [`a_factorization_shares_at_most_its_smaller_side`], on
+/// The cases of [`a_factorizations_bond_is_at_most_its_smaller_side`], on
 /// the devices `new` makes.
-fn a_factorization_shares_at_most_its_smaller_side_on<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
+fn a_factorizations_bond_is_at_most_its_smaller_side_on<C: TestedCalls>(
+    new: &dyn Fn() -> Device<C>,
+) {
     a_gate_split_needs_a_shared_extent_within_the_smaller_side(new);
     a_qr_needs_the_shared_extent_to_be_the_smaller_side(new);
 }
@@ -146,12 +149,12 @@ fn a_gate_split_takes_only_its_topologys_labels_on<C: TestedCalls>(new: &dyn Fn(
     a_gate_split_takes_modes_of_extent_one(new);
 }
 
-/// cuTensorNet's QR splits its input's modes between Q and R, and sums
-/// none: a caller whose input carries a mode that neither Q nor R keeps
-/// (a bond left on the input) is refused rather than summed.
+/// cuTensorNet's QR splits its input's modes between its two factors, and
+/// sums none: a caller whose input carries a mode that neither factor
+/// keeps (a bond left on the input) is refused rather than summed.
 #[test]
-fn a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes() {
-    a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes_on(&fake);
+fn a_qr_splits_its_input_modes_between_its_two_factors() {
+    a_qr_splits_its_input_modes_between_its_two_factors_on(&fake);
 }
 
 /// Every object is used only with its owner: a descriptor or config with
@@ -625,9 +628,9 @@ fn a_gate_split_takes_modes_of_extent_one<C: TestedCalls>(new: &dyn Fn() -> Devi
     );
 }
 
-/// The cases of [`a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes`],
+/// The cases of [`a_qr_splits_its_input_modes_between_its_two_factors`],
 /// on the devices `new` makes.
-fn a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes_on<C: TestedCalls>(
+fn a_qr_splits_its_input_modes_between_its_two_factors_on<C: TestedCalls>(
     new: &dyn Fn() -> Device<C>,
 ) {
     const ELSEWHERE: i32 = 9;
@@ -638,8 +641,8 @@ fn a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes_on<C: TestedCalls>(
         qr.run_on(qr.device.stream)
     };
     run(&[2, 2, 3, 2], &[QR_I, QR_K, QR_J, ELSEWHERE])
-        .expect_err("the input carries a mode neither Q nor R keeps");
-    run(&[2, 2, 3], &[QR_I, QR_K, QR_J]).expect("the input's modes are Q's and R's other modes");
+        .expect_err("the input carries a mode neither factor keeps");
+    run(&[2, 2, 3], &[QR_I, QR_K, QR_J]).expect("each input mode is kept by one factor");
 }
 
 /// A caller that sizes a workspace for, or prepares, a contraction before
@@ -1706,9 +1709,9 @@ mod on_the_gpu {
     use super::{
         Device, TestedCalls, a_contraction_follows_its_steps_in_order_on,
         a_contractions_labels_are_consistent_on,
-        a_factorization_shares_at_most_its_smaller_side_on,
+        a_factorizations_bond_is_at_most_its_smaller_side_on,
         a_gate_split_takes_only_its_topologys_labels_on, a_malformed_descriptor_is_refused_on,
-        a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes_on,
+        a_qr_splits_its_input_modes_between_its_two_factors_on,
         a_workspace_slot_is_lent_what_it_asks_on, an_svd_cutoff_outside_zero_to_one_is_refused_on,
     };
     use crate::{engine::native_calls::SessionCalls, libraries::LoadedLibraries};
@@ -1746,8 +1749,8 @@ mod on_the_gpu {
 
     #[test]
     #[ignore = "requires a CUDA device, the CUDA Runtime 12.9 and cuTensorNet 2.13"]
-    fn a_factorization_shares_at_most_its_smaller_side() {
-        on_the_gpu(a_factorization_shares_at_most_its_smaller_side_on);
+    fn a_factorizations_bond_is_at_most_its_smaller_side() {
+        on_the_gpu(a_factorizations_bond_is_at_most_its_smaller_side_on);
     }
 
     #[test]
@@ -1758,8 +1761,8 @@ mod on_the_gpu {
 
     #[test]
     #[ignore = "requires a CUDA device, the CUDA Runtime 12.9 and cuTensorNet 2.13"]
-    fn a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes() {
-        on_the_gpu(a_qr_needs_its_input_modes_to_be_q_and_rs_other_modes_on);
+    fn a_qr_splits_its_input_modes_between_its_two_factors() {
+        on_the_gpu(a_qr_splits_its_input_modes_between_its_two_factors_on);
     }
 
     #[test]

@@ -89,6 +89,14 @@ impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
             .expect("a live session always owns its cuTensorNet handle")
     }
 
+    /// Selects the device, waits for the stream, then destroys the handle
+    /// and the stream, each step attempted even after an earlier one
+    /// failed; returns the first failure. Unlike the algebra, which leaks
+    /// its buffers when it cannot wait for the device, the session holds no
+    /// caller's data for pending work to write (the workspace and every
+    /// buffer are the algebra's, released or leaked by it before the
+    /// session), and CUDA releases a destroyed stream only once its queued
+    /// work is done.
     fn release(&mut self) -> Result<(), CudaAlgebraError> {
         if self.stream.is_none() && self.handle.is_none() {
             return Ok(());
