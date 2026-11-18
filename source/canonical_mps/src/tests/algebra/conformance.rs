@@ -2,22 +2,22 @@
 // Licensed under the MIT License.
 
 //! The conformance kit against algebras that break one rule each
-//! ([`DefectiveAlgebra`]): each case catches the faults its rule names,
+//! ([`DefectiveFakeAlgebra`]): each case catches the faults its rule names,
 //! and the kit accepts an algebra that keeps every rule and reports every
 //! case an algebra fails. That the reference algebra conforms is the
 //! integration test `tests/algebra_conformance.rs`.
 
-mod defective_algebra;
+mod defective_fake_algebra;
 
 use crate::algebra::conformance::{self, Failure};
-use defective_algebra::{Defect, DefectiveAlgebra};
+use defective_fake_algebra::{Defect, DefectiveFakeAlgebra};
 
 /// The reference algebra on tensors that a drop fills with NaN and that
 /// refuse a read past their end: the kit passes it, so it reads no
 /// tensor after dropping it and none past the bond the algebra reported.
 #[test]
 fn an_algebra_that_keeps_every_rule_passes() {
-    let failures = conformance::check(&DefectiveAlgebra::faithful());
+    let failures = conformance::check(&DefectiveFakeAlgebra::faithful());
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
@@ -137,7 +137,7 @@ fn move_inputs_unchanged_catches_an_overwritten_input() {
 
 /// The kit's failures on the reference algebra with `defect`.
 fn failures(defect: Defect) -> Vec<Failure> {
-    conformance::check(&DefectiveAlgebra::with(defect))
+    conformance::check(&DefectiveFakeAlgebra::with(defect))
 }
 
 /// Asserts that the kit's `case` fails on the reference algebra with each

@@ -64,11 +64,8 @@
 //! assert!((given - 1.0).abs() < 1e-12);
 //! ```
 //!
-//! It depends on `tensornet` (the contract), `t4a-faer` (the dense linear
-//! algebra's products and QR decompositions, and its SVD's fast route),
-//! `num-complex` and `thiserror`, all pure Rust, so it builds on
-//! every platform the QDK supports (the `README.md`'s Platforms says which
-//! are tested). Each item's documentation states its contract; the crate's
+//! The `README.md`'s Platforms says where it builds and which platforms
+//! are tested. Each item's documentation states its contract; the crate's
 //! `README.md` gives an overview, `docs/engine.md` the backend calls and
 //! the numerics of each method, `docs/distant_sites.md` how gates on
 //! distant sites are applied, with the alternatives considered, and

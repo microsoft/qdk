@@ -13,7 +13,7 @@
 //! wherever the QDK runs.
 //!
 //! A gate split builds the gated pair `θ` by a product and the gate's
-//! loops, factors it by one SVD, and truncates it by the crate's rule
+//! loops, factors it by one SVD, and truncates it by its truncation rule
 //! (`Truncation`): it drops the longest tail of values whose squares sum
 //! to at most the cutoff's share, a tail of exactly that share included,
 //! then keeps at most the cap. It multiplies the kept values, normalised,
@@ -21,11 +21,13 @@
 //! to the leaving site, factors that site by one thin QR, and multiplies
 //! the small factor into the other site.
 
-use super::truncation::Truncation;
+pub(crate) mod truncation;
+
 use super::{CentreSide, GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
 use crate::dense_linalg::{Matrix, MatrixRef, Qr, Svd, SvdError};
 use num_complex::Complex64;
 use std::borrow::Cow;
+use truncation::Truncation;
 
 /// The reference algebra: the [`SiteAlgebra`] of the host CPU, each site
 /// tensor a vector in the host's memory, factored by `dense_linalg`.
@@ -57,7 +59,7 @@ impl SiteAlgebra for CpuAlgebra {
         Ok(tensor[..len].to_vec())
     }
 
-    /// The gated pair, one SVD, the crate's truncation rule, and the kept
+    /// The gated pair, one SVD, its truncation rule (`Truncation`), and the kept
     /// values, normalised, multiplied into the centre's side.
     fn gate_split(
         &self,

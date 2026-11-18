@@ -9,9 +9,8 @@
 //! A window on sites that are not neighbours, or on three sites, cannot be
 //! one split: its operator acts on more than a pair. Bringing its sites
 //! together by SWAPs and back (routing) costs two splits per site
-//! crossed, each a truncation; the MPO on a span of `d + 1` sites, once
-//! the centre is in its span, costs `d` splits and `d − 1` QR moves, and
-//! truncates only at the caller's cuts (the crate's
+//! crossed, each a truncation; the MPO costs one split per cut of its
+//! span, and truncates only at the caller's cuts (the crate's
 //! `docs/distant_sites.md` compares them). The steps:
 //!
 //! 1. **Factor.** The operator on `k` sites becomes `k` tensors by `k − 1`
@@ -80,9 +79,8 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         let mut factors = factors.into_iter();
         let centre = chain.centre.clamp(low, high);
         self.move_centre(chain, centre)?;
-        // The span's sites are committed only once every upload succeeded,
-        // so a failed read or upload leaves the chain's neighbours sharing
-        // each bond, as before the window.
+        // Committed only once every upload succeeded (`CanonicalMpsEngine`'s
+        // Failures).
         let mut multiplied_span = Vec::with_capacity(high - low + 1);
         let mut bond = 1;
         for at in low..=high {

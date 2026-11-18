@@ -22,14 +22,10 @@
 //!   with the centre moved onto the pair first; any other window, on
 //!   sites further apart or on three sites, is applied as a matrix product
 //!   operator across its span ([`mpo`](super::mpo)).
-//! - **When.** The first operation the window does not serve applies it: a
-//!   two-site gate that does not fit; a read, a sample only if it draws
-//!   values; a projection, fork, shape or retained weight. It leaves the
-//!   centre on the end of the window's span nearer the site that operation
-//!   names (a gate's lower site; a read's site, but for a conditional read
-//!   with conditions, which forks; or the centre, for an expectation, a
-//!   fork, a shape or the retained weight), the lower end on a tie, so the
-//!   operation finds it there or close.
+//! - **When.** The first operation the window does not serve applies it
+//!   ([`flush_window`](CanonicalMpsEngine::flush_window)), toward the
+//!   site that operation names, so the operation finds the centre there
+//!   or close.
 //!
 //! Without fusion (the tests' comparison), each two-site gate is its own
 //! window, applied at once, and leaves the centre on the side of its sites

@@ -3,7 +3,9 @@
 
 //! Expectations: the value of an observable wherever the centre and its
 //! terms lie, terms that share their walk each counted, an observable of
-//! no terms, and a value as large as an `f64` holds.
+//! no terms, a value as large as an `f64` holds, and the sites an
+//! expectation reads: only those between the observable and the centre,
+//! each once.
 
 use super::*;
 use Pauli::{X, Y, Z};
@@ -155,4 +157,70 @@ fn an_expectation_is_finite_whenever_its_normalised_value_is() {
             "{name}: {value}"
         );
     }
+}
+
+/// The sites an expectation of `observable` reads on a chain of `sites`
+/// entangled sites whose centre a read has left on `centre`.
+fn expectation_reads(sites: usize, centre: usize, observable: &PauliSum) -> usize {
+    let (engine, state, calls) = spied_entangled_chain(sites);
+    engine.probability_of_one(&state, centre).expect("P(One)");
+    let before = calls.reads.get();
+    engine.expectation(&state, observable).expect("expectation");
+    calls.reads.get() - before
+}
+
+/// A Z read next to the centre, at either end of a chain of 12 sites or of
+/// one of 6, reads the same sites: an expectation contracts only the
+/// sites between the observable's sites and the centre, wherever they lie
+/// on the chain and whatever its length; a Z further from the centre takes
+/// more.
+#[test]
+fn an_expectation_contracts_only_between_the_observable_and_the_centre() {
+    let z = |site| z_string(&[site]);
+    let near = expectation_reads(12, 0, &z(1));
+    assert_eq!(expectation_reads(12, 10, &z(11)), near, "at the far end");
+    assert_eq!(expectation_reads(12, 6, &z(5)), near, "below the centre");
+    assert_eq!(expectation_reads(6, 4, &z(5)), near, "on a shorter chain");
+    assert!(
+        expectation_reads(12, 0, &z(5)) > near,
+        "further from the centre"
+    );
+}
+
+/// A chemistry reading holds many Pauli strings that share their sites:
+/// six terms of one to three factors on sites 1 to 3, the centre on site
+/// 0, read each of the sites 0 to 3 once, as a single Z on site 3 does;
+/// with the centre on site 4 and terms on both sides of it, on sites 2 to
+/// 6, each of those sites is read once, as a single Z₂Z₆ does.
+#[test]
+fn an_expectation_reads_each_site_once_whatever_its_terms() {
+    let term = |factors| PauliTerm::new(real(0.5), factors).expect("a term");
+    let reading = PauliSum::new(
+        real(0.1),
+        vec![
+            term(vec![(1, Pauli::Z)]),
+            term(vec![(2, Pauli::Z)]),
+            term(vec![(3, Pauli::Z)]),
+            term(vec![(1, Pauli::X), (2, Pauli::X)]),
+            term(vec![(2, Pauli::Y), (3, Pauli::Y)]),
+            term(vec![(1, Pauli::Z), (2, Pauli::Z), (3, Pauli::Z)]),
+        ],
+    )
+    .expect("an observable");
+    assert_eq!(expectation_reads(8, 0, &reading), 4, "the reading");
+    assert_eq!(expectation_reads(8, 0, &z_string(&[3])), 4, "one Z");
+    let around = PauliSum::new(
+        real(0.1),
+        vec![
+            term(vec![(2, Pauli::Z)]),
+            term(vec![(6, Pauli::Z)]),
+            term(vec![(3, Pauli::X), (5, Pauli::X)]),
+            term(vec![(2, Pauli::Y), (3, Pauli::Y)]),
+            term(vec![(5, Pauli::Z), (6, Pauli::Z)]),
+            term(vec![(2, Pauli::Z), (4, Pauli::Z), (6, Pauli::Z)]),
+        ],
+    )
+    .expect("an observable");
+    assert_eq!(expectation_reads(8, 4, &around), 5, "around the centre");
+    assert_eq!(expectation_reads(8, 4, &z_string(&[2, 6])), 5, "one Z₂Z₆");
 }
