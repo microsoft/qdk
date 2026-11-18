@@ -1,0 +1,21 @@
+[package]
+name = "dense_linalg"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+num-complex = { workspace = true }
+# t4a-faer is this crate's alone: removing the crate removes it from the
+# workspace. Pinned to one version: its owner publishes semver-major
+# releases days apart, so each update needs the SVD's checks and timings
+# rerun.
+# Its library is named `faer`; renamed so that code never reads as faer's.
+t4a_faer = { package = "t4a-faer", version = "=0.31.0", default-features = false, features = ["std", "linalg"] }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
