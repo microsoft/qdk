@@ -42,7 +42,10 @@ fn output_record_to_py(py: Python<'_>, record: OutputRecord) -> PyResult<Py<PyAn
 
 /// Build the Python return value for a run: a list with one entry per shot,
 /// where each entry is the ordered list of that shot's recorded output values.
-fn output_records_to_pylist(py: Python<'_>, output: Vec<Vec<OutputRecord>>) -> PyResult<Py<PyAny>> {
+pub(crate) fn output_records_to_pylist(
+    py: Python<'_>,
+    output: Vec<Vec<OutputRecord>>,
+) -> PyResult<Py<PyAny>> {
     let mut array = Vec::with_capacity(output.len());
     for shot_records in output {
         let mut values = Vec::with_capacity(shot_records.len());
