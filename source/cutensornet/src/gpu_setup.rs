@@ -224,14 +224,16 @@ impl fmt::Display for LoadedSetup {
 
 /// Lists each library of `report` as its guide shows it, then each fault
 /// found in it, one item a line: what discovery found, whether or not it
-/// succeeded.
+/// succeeded. A library with no path shows only its faults, which say why.
 fn write_libraries(f: &mut fmt::Formatter<'_>, report: &AvailabilityReport) -> fmt::Result {
     for guide in setup_guides() {
         let Some(library) = report.library(guide.library) else {
             continue;
         };
-        for line in (guide.describe)(library) {
-            writeln!(f, "{line}")?;
+        if library.path.is_some() {
+            for line in (guide.describe)(library) {
+                writeln!(f, "{line}")?;
+            }
         }
         for fault in &library.faults {
             writeln!(f, "{} at fault: {fault}", guide.library)?;
