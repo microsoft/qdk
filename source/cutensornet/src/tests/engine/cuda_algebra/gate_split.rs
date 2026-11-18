@@ -21,7 +21,7 @@ use crate::engine::cuda_algebra::DISCARDED_WEIGHT_TOLERANCE;
 /// over a split of 4,096 values and the tolerance itself, is read as
 /// nothing discarded: the bond reported, the share kept exactly 1.
 #[test]
-fn a_split_report_outside_its_bounds_is_refused() {
+fn an_impossible_gate_split_report_is_refused() {
     let report = |reduced_extent, full_extent, discarded_weight| SvdTruncation {
         reduced_extent,
         full_extent,

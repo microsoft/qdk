@@ -32,7 +32,7 @@
 //! [`contraction`](super::contraction), the QR through `tensor_qr`, each
 //! waited for before the next starts.
 
-use super::call_scope::{CallScope, elements};
+use super::call_scope::{CallScope, element_count};
 use super::contraction::{ContractionInput, contract};
 use super::device_tensor::DeviceTensor;
 use super::error::CudaAlgebraError;
@@ -60,8 +60,8 @@ pub(super) fn qr_move(
     call: &QrMoveCall<'_, DeviceTensor>,
 ) -> Result<MovedSites, CudaAlgebraError> {
     let (l, m, r) = (call.left_extent, call.bond, call.right_extent);
-    let a = call.left.holding(elements(&[l, 2, m])?)?;
-    let b = call.right.holding(elements(&[m, 2, r])?)?;
+    let a = call.left.buffer_holding(element_count(&[l, 2, m])?)?;
+    let b = call.right.buffer_holding(element_count(&[m, 2, r])?)?;
     match call.centre {
         CentreSide::Right => {
             let k = m.min(l.saturating_mul(2));
@@ -72,7 +72,7 @@ pub(super) fn qr_move(
                 (&[l, 2, k], &[LEFT, P, NEW_BOND]),
                 (&[k, m], &[NEW_BOND, BOND]),
             )?;
-            let centre = scope.output(elements(&[k, 2, r])?)?;
+            let centre = scope.output(element_count(&[k, 2, r])?)?;
             contract(
                 scope,
                 &[
@@ -105,7 +105,7 @@ pub(super) fn qr_move(
                 (&[k, 2, r], &[NEW_BOND, Q, RIGHT]),
                 (&[m, k], &[BOND, NEW_BOND]),
             )?;
-            let centre = scope.output(elements(&[l, 2, k])?)?;
+            let centre = scope.output(element_count(&[l, 2, k])?)?;
             contract(
                 scope,
                 &[
@@ -146,8 +146,8 @@ fn gated(
         return Ok(site);
     };
     let qubit_out = if modes[1] == P { P_OUT } else { Q_OUT };
-    let gate = scope.upload_gate(&descriptor_gate(gate))?;
-    let out = scope.intermediate(elements(extents)?)?;
+    let gate = scope.upload_gate(&in_descriptor_layout(gate))?;
+    let out = scope.intermediate(element_count(extents)?)?;
     contract(
         scope,
         &[
@@ -170,7 +170,7 @@ fn gated(
 
 /// The one-site gate in a descriptor's layout, `G[S, s]` at `S + 2s`, from
 /// the call's row-major `2S + s`.
-fn descriptor_gate(gate: &[Complex64; 4]) -> [Complex64; 4] {
+fn in_descriptor_layout(gate: &[Complex64; 4]) -> [Complex64; 4] {
     std::array::from_fn(|at| gate[2 * (at & 1) + (at >> 1)])
 }
 
@@ -200,11 +200,11 @@ fn factor(
     scope.lend_workspace()?;
     let q = TensorOperand {
         descriptor: q_descriptor,
-        data: scope.output(elements(q.0)?)?,
+        data: scope.output(element_count(q.0)?)?,
     };
     let r = TensorOperand {
         descriptor: r_descriptor,
-        data: scope.intermediate(elements(r.0)?)?,
+        data: scope.intermediate(element_count(r.0)?)?,
     };
     calls.tensor_qr(handle, input, q, r, workspace, scope.stream())?;
     scope.synchronize()?;

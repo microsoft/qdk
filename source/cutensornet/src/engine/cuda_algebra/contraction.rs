@@ -94,19 +94,19 @@ pub(super) fn contract(
     };
     let (calls, handle, workspace) = (scope.calls(), scope.handle(), scope.workspace());
     let network = if let Some(&PreparedContractionNetwork { network, info }) =
-        scope.resources.contractions.networks.get(&shape)
+        scope.resources.prepared_networks.networks.get(&shape)
     {
         calls.contraction_workspace_sizes(handle, network.descriptor, info, workspace)?;
         scope.lend_workspace()?;
         network
     } else {
-        if scope.resources.contractions.networks.len() >= policy::NETWORKS_KEPT {
-            scope.resources.contractions.release(calls)?;
+        if scope.resources.prepared_networks.networks.len() >= policy::NETWORKS_KEPT {
+            scope.resources.prepared_networks.release(calls)?;
         }
         let prepared = prepare(scope, &shape)?;
         scope
             .resources
-            .contractions
+            .prepared_networks
             .networks
             .insert(shape, prepared);
         prepared.network

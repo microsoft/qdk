@@ -101,7 +101,9 @@ impl<'a> CallScope<'a> {
         let inputs = self.inputs;
         self.resources
             .scratch
-            .lend(device_session, workspace, &|buffer| fresh(inputs, buffer))
+            .lend(device_session, workspace, &|buffer| {
+                not_an_input_buffer(inputs, buffer)
+            })
     }
 
     /// Waits for the work queued on the algebra's stream.
@@ -218,7 +220,7 @@ impl<'a> CallScope<'a> {
         match self.resources.singular_values {
             Some((buffer, held)) if held >= elements => Ok(buffer),
             previous => {
-                let grown = fresh(
+                let grown = not_an_input_buffer(
                     self.inputs,
                     self.calls()
                         .allocate(complex_bytes(elements, "singular values")?)?,
@@ -273,7 +275,7 @@ impl<'a> CallScope<'a> {
     }
 
     fn allocate(&self, elements: usize) -> Result<OpaqueHandle, CudaAlgebraError> {
-        fresh(
+        not_an_input_buffer(
             self.inputs,
             self.calls()
                 .allocate(complex_bytes(elements, "device tensor")?)?,
@@ -284,7 +286,10 @@ impl<'a> CallScope<'a> {
 /// `buffer`, just allocated, unless it is one of `inputs`': the call would
 /// then write its input. The buffer stays the input's, and the call does
 /// not free it.
-fn fresh(inputs: &[&DeviceTensor], buffer: OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError> {
+fn not_an_input_buffer(
+    inputs: &[&DeviceTensor],
+    buffer: OpaqueHandle,
+) -> Result<OpaqueHandle, CudaAlgebraError> {
     if inputs.iter().any(|input| input.uses_buffer(buffer)) {
         return Err(CudaAlgebraError::InvalidNativeResult {
             reason: "an allocation returned the buffer of an input tensor, which the call \
@@ -308,7 +313,7 @@ pub(super) fn native_extents(extents: &[usize]) -> Result<Vec<i64>, CudaAlgebraE
 }
 
 /// The element count of a tensor of `extents`.
-pub(super) fn elements(extents: &[usize]) -> Result<usize, CudaAlgebraError> {
+pub(super) fn element_count(extents: &[usize]) -> Result<usize, CudaAlgebraError> {
     extents
         .iter()
         .try_fold(1_usize, |count, &extent| count.checked_mul(extent))
