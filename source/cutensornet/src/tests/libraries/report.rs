@@ -24,7 +24,7 @@ fn a_version_is_found_by_its_component() {
         ],
         faults: Vec::new(),
         other_copies: Vec::new(),
-        loaded_from_override: false,
+        from_override: false,
     };
     assert_eq!(
         cutensornet.version("cuTensorNet's CUDA Runtime"),

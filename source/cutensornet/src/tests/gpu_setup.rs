@@ -39,7 +39,7 @@ fn usable(library: &'static str, path: &str, versions: [(&'static str, i128); 2]
             .to_vec(),
         faults: Vec::new(),
         other_copies: Vec::new(),
-        loaded_from_override: false,
+        from_override: false,
     }
 }
 
@@ -233,10 +233,12 @@ fn a_missing_library_is_advised_the_install_or_its_override() {
 }
 
 /// A library that does not load, or is not the audited version, is
-/// advised the install of the audited libraries.
+/// advised the install of the audited libraries; when the copy at fault is
+/// the one its override names, which no install displaces, the override is
+/// advised instead.
 #[cfg(unix)]
 #[test]
-fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install() {
+fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install_or_its_override() {
     for fault in [
         LibraryFault::LoadFailed {
             path: PathBuf::from("/usr/lib/libcutensornet.so.2"),
@@ -251,8 +253,22 @@ fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install() {
             symbol: "cutensornetCreate",
         },
     ] {
-        let advice = advice(&failed(unusable("cuTensorNet", vec![fault])));
-        assert!(advice.contains(INSTALL), "{advice}");
+        for from_override in [false, true] {
+            let AvailabilityError::Unusable(mut report) =
+                unusable("cuTensorNet", vec![fault.clone()])
+            else {
+                unreachable!("unusable gives a report");
+            };
+            report.libraries[1].from_override = from_override;
+            let advice = advice(&failed(AvailabilityError::Unusable(report)));
+            let expected = if from_override {
+                "set QDK_CUTENSORNET_LIBRARY to an audited copy, or unset it, as the one it names \
+                 is at fault"
+            } else {
+                INSTALL
+            };
+            assert!(advice.contains(expected), "{advice}");
+        }
     }
 }
 
@@ -678,7 +694,7 @@ fn two_other_copies() -> AvailabilityReport {
     let mut report = audited_report();
     report.libraries[0].other_copies = vec![PathBuf::from("/usr/local/cuda/libcudart.so.12")];
     report.libraries[1].path = Some(PathBuf::from("/opt/override/libcutensornet.so.2"));
-    report.libraries[1].loaded_from_override = true;
+    report.libraries[1].from_override = true;
     report.libraries[1].other_copies =
         vec![PathBuf::from("/env/cuquantum/lib/libcutensornet.so.2")];
     report
@@ -739,7 +755,7 @@ fn a_warning_says_to_change_the_copy_loaded_only_when_it_is_at_fault() {
         (false, Vec::new(), sound),
     ] {
         let mut report = audited_report();
-        report.libraries[0].loaded_from_override = from_override;
+        report.libraries[0].from_override = from_override;
         report.libraries[0].other_copies = vec![PathBuf::from("/usr/local/cuda/libcudart.so.12")];
         let setup = if faults.is_empty() {
             found(report, Some(a100()))
@@ -773,7 +789,7 @@ fn another_copy_is_warned_of_when_discovery_fails() {
         unreachable!("unusable gives a report");
     };
     report.libraries[0].path = Some(PathBuf::from("/opt/cuda-12.8/libcudart.so.12"));
-    report.libraries[0].loaded_from_override = true;
+    report.libraries[0].from_override = true;
     report.libraries[0].other_copies = vec![PathBuf::from(
         "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
     )];

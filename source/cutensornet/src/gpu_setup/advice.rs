@@ -35,7 +35,7 @@ pub(super) fn availability_advice(
                 report
                     .libraries
                     .iter()
-                    .flat_map(|library| library.faults.iter().map(|fault| (library.library, fault)))
+                    .flat_map(|library| library.faults.iter().map(move |fault| (library, fault)))
             };
             faults()
                 .find(|(_, fault)| matches!(fault, LibraryFault::InvalidOverride { .. }))
@@ -48,9 +48,26 @@ pub(super) fn availability_advice(
     }
 }
 
-/// What to do about `fault`, of the library named `library`.
-fn fault_advice(library: &str, fault: &LibraryFault, install_command: Option<&str>) -> String {
-    let guide = setup_guide(library);
+/// What to do about `fault`, of `library`: about its override when the
+/// copy it names is at fault for itself (its load, a function or a
+/// version), since an install does not displace it; else by the fault.
+fn fault_advice(
+    library: &LibraryReport,
+    fault: &LibraryFault,
+    install_command: Option<&str>,
+) -> String {
+    let guide = setup_guide(library.library);
+    if let Some(guide) = guide.filter(|_| override_at_fault(library))
+        && matches!(
+            fault,
+            LibraryFault::LoadFailed { .. }
+                | LibraryFault::MissingRequiredSymbol { .. }
+                | LibraryFault::UnsupportedVersion { .. }
+        )
+    {
+        return change_override_advice(guide.variable);
+    }
+    let library = library.library;
     let install = || install_advice(install_command);
     match fault {
         LibraryFault::InvalidOverride { variable, .. } => {
@@ -106,15 +123,24 @@ fn install_advice(install_command: Option<&str>) -> String {
 /// stays loaded, and the other copy, never checked, is what to remove.
 pub(super) fn other_copy_advice(guide: &SetupGuide, library: &LibraryReport) -> String {
     let variable = guide.variable;
-    match (library.faults.is_empty(), library.loaded_from_override) {
-        (false, true) => format!(
-            "set {variable} to an audited copy, or unset it, as the one it names is at fault"
-        ),
-        (false, false) => format!(
-            "set {variable} to an audited copy, or remove the one loaded, as it is at fault"
-        ),
-        (true, _) => "remove the other if nothing else uses it, as it was not checked".to_string(),
+    if override_at_fault(library) {
+        change_override_advice(variable)
+    } else if library.faults.is_empty() {
+        "remove the other if nothing else uses it, as it was not checked".to_string()
+    } else {
+        format!("set {variable} to an audited copy, or remove the one loaded, as it is at fault")
     }
+}
+
+/// Whether the copy of `library` its override names is at fault: then the
+/// override is what to change, for the advice and the warnings alike.
+fn override_at_fault(library: &LibraryReport) -> bool {
+    library.from_override && !library.faults.is_empty()
+}
+
+/// What to do when the copy the override `variable` names is at fault.
+fn change_override_advice(variable: &str) -> String {
+    format!("set {variable} to an audited copy, or unset it, as the one it names is at fault")
 }
 
 /// What to do about the devices step's outcome: `None` when the GPU
