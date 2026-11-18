@@ -12,10 +12,11 @@ operations, the host CPU's included. It has three parts:
   algebra.
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/algebra.rs), the tensor operations a backend
-  implements.
+  implements, and the [conformance kit](#the-conformance-kit) that checks
+  a backend against it.
 - **[The reference algebra](#the-reference-algebra):**
   [`CpuAlgebra`](src/algebra/cpu_algebra.rs), the contract on the host CPU,
-  whose answers a backend on another library can be compared with.
+  which passes the kit and on which the engine's tests run.
 
 **The problem.** Some of an MPS engine's rules are the same on every
 backend, the CPU or a GPU library: where the orthogonality centre moves,
@@ -25,14 +26,15 @@ What differs is where the tensors live, which library factors them, and
 which values a truncation keeps within those bounds. Written once per
 backend, those rules drift apart. A simulator also needs an engine where
 no GPU is present, on every platform the QDK ships to, and a backend on a
-GPU library needs a reference to compare its operations with.
+GPU library needs a way to check its operations.
 
 **How it is solved.** The engine holds the rules, written once over the
 contract, and a backend writes only the contract's operations. The
 reference algebra is this crate's backend: its tensors are vectors in the
 host's memory, and its products, QR and SVD are the crate's
 [dense linear algebra](#the-dense-linear-algebra)'s, on the calling
-thread. A backend on a GPU library is planned, in its own crate.
+thread. A backend's tests run the contract's conformance kit on it. A
+backend on a GPU library is planned, in its own crate.
 
 **Why this approach.**
 
@@ -46,9 +48,9 @@ thread. A backend on a GPU library is planned, in its own crate.
   failures.
 - **Open to more backends.** A new backend is a new type implementing the
   trait, in its own crate; nothing here changes.
-- **A reference.** Each of the reference algebra's operations is computed
-  directly from its contract, with an SVD whose factors are checked, so a
-  backend on another library can be compared with it call by call.
+- **Checks written once.** The conformance kit checks each operation of
+  a backend against the contract's formulas, and runs the engine on it
+  against an exact reference, so no backend writes those checks again.
 - **Portable.** The crate depends on `tensornet`, `num-complex`,
   `t4a-faer` and `thiserror`, all pure Rust, so it builds on every
   [platform](#platforms) the QDK supports.
@@ -264,7 +266,9 @@ is for.
 [`GateSplitCall`](src/algebra.rs) and [`QrMoveCall`](src/algebra.rs) define
 each operation's inputs exactly, and
 [`GateSplitOutcome`](src/algebra.rs) and [`QrMoveOutcome`](src/algebra.rs)
-its outputs.
+its outputs. `gate_split` and `qr_move` leave their input tensors
+unchanged, since the caller may still hold them, as the sites of a state
+it forked.
 
 ### The layout
 
@@ -272,13 +276,43 @@ Every tensor holds complex doubles, its first mode fastest, so a backend
 factors a site read as a matrix with no copy; the
 [module's documentation](src/algebra.rs) gives the layout in full.
 
+### The conformance kit
+
+A backend's tests check it against the contract with two parts, public
+under the crate's `conformance` feature, which a backend enables in its
+dev-dependencies:
+
+- [`algebra::conformance::check`](src/algebra/conformance.rs) calls each
+  operation on seeded inputs, from a site of extent one to a gated pair
+  of 64 × 64, and compares what it returns with the contract's formulas,
+  never with another algebra. It returns every case the algebra fails,
+  each naming the pair and the setting at fault. A truncated split is
+  checked by the Eckart–Young theorem, since its factors are not unique;
+  the latitude the contract leaves (a bond larger than the cutoff needs,
+  the side of a tie) is not checked.
+- [`engine_circuits`](src/engine_circuits.rs) runs a `CanonicalMpsEngine`
+  on the backend over two long circuits, one without truncation and one
+  truncated, and compares its reads with `tensornet`'s exact reference:
+  hundreds of calls in a row, on the backend's own memory and settings.
+
+A backend's test of the contract (the kit's documentation):
+
+```rust
+use canonical_mps::algebra::{SiteAlgebra, conformance};
+
+fn assert_conforms<A: SiteAlgebra>(algebra: &A) {
+    let failures = conformance::check(algebra);
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+```
+
 ## The reference algebra
 
 [`CpuAlgebra`](src/algebra/cpu_algebra.rs), exported at the crate's root,
 is the contract on the host CPU. Each operation is computed directly from
-its contract, so a backend on another library can be compared with its
-answers, call by call, and the engine's tests run on it. It needs no
-device, so it runs wherever the QDK runs.
+its contract; it passes the [conformance kit](#the-conformance-kit), and
+the engine's tests run on it. It needs no device, so it runs wherever the
+QDK runs.
 
 `CpuAlgebra` holds each site in a `Vec<Complex64>`, in the contract's
 layout, which is the column-major order of the dense linear algebra's
@@ -333,17 +367,18 @@ files; run them with `--release`. What they share is in
 
 ## Tests
 
-The [unit tests](src/tests) check the truncation rule, the reference
-algebra against the contract, and the engine's rules on that algebra;
-where the engine reads values, they compare them with closed-form values,
-or with `tensornet`'s exact reference on circuits too large to check by
-hand, without truncation and within the distance its truncations allow.
-The [integration tests](tests) compare `CpuMpsEngine` with the QDK's
+The [unit tests](src/tests) check the dense linear algebra, the
+truncation rule, and the engine's rules on the reference algebra; where
+the engine reads values, they compare them with closed-form values, or
+with `tensornet`'s exact reference, among them the
+[engine circuits](src/engine_circuits.rs). The reference algebra passes
+the [conformance kit](tests/algebra_conformance.rs). The
+[integration tests](tests) also compare `CpuMpsEngine` with the QDK's
 [sparse simulator](tests/sparse_simulator.rs) on every one- and two-qubit
 gate it runs, and with its [stabilizer simulator](tests/exact_families.rs)
 on Clifford circuits of up to 48 qubits, beside mirror circuits that
-return every qubit to zero. A backend in another crate is to check its
-own implementation of the contract there.
+return every qubit to zero. A backend in another crate runs the
+[conformance kit](#the-conformance-kit) in its own tests.
 
 ## Platforms
 

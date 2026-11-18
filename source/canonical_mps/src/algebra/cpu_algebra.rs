@@ -4,13 +4,13 @@
 //! [`CpuAlgebra`]: the reference algebra, the [`SiteAlgebra`] of the host
 //! CPU.
 //!
-//! Each operation is computed directly from its contract, so a backend on
-//! another library can be compared with its answers, call by call, and
-//! the engine's tests run on it. It keeps each site tensor in a vector in
-//! the host's memory and computes its two factorisations, the gate split
-//! and the move, with `dense_linalg`'s product, thin QR and SVD (which
-//! checks its own factors), on the calling thread. It needs no device, so
-//! it runs wherever the QDK runs.
+//! Each operation is computed directly from its contract; it passes the
+//! conformance kit (`conformance`), and the engine's tests run on it. It
+//! keeps each site tensor in a vector in the host's memory and computes
+//! its two factorisations, the gate split and the move, with
+//! `dense_linalg`'s product, thin QR and SVD (which checks its own
+//! factors), on the calling thread. It needs no device, so it runs
+//! wherever the QDK runs.
 //!
 //! A gate split builds the gated pair `θ` by a product and the gate's
 //! loops, factors it by one SVD, and truncates it by the crate's rule
