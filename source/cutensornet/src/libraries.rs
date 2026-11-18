@@ -302,9 +302,13 @@ pub(crate) fn open<L: NativeLibrary>(
         versions: Vec::new(),
         faults: Vec::new(),
         other_copies: Vec::new(),
-        loaded_from_override: false,
+        from_override: false,
     };
-    let library = match candidates::<L>(&read_variable, packaged).and_then(load_library) {
+    let paths = candidates::<L>(&read_variable, packaged);
+    // A valid override is the only candidate, so the copy tried while it is
+    // set is the one it names, loaded or not.
+    report.from_override = paths.is_ok() && read_variable(L::VARIABLE).is_some();
+    let library = match paths.and_then(load_library) {
         Ok(library) => library,
         Err(fault) => {
             report.faults.push(fault);
@@ -312,9 +316,6 @@ pub(crate) fn open<L: NativeLibrary>(
         }
     };
     report.path = Some(library.path().to_path_buf());
-    // A set override is the only candidate, so a library loaded while it is
-    // set was loaded from it.
-    report.loaded_from_override = read_variable(L::VARIABLE).is_some();
     report.other_copies = other_copies::<L>(library.path(), &read_variable, packaged);
     let functions = inspect::<L, _>(&library, &mut report);
     let bound = functions.map(|functions| BoundLibrary { functions, library });

@@ -3,7 +3,7 @@
 
 //! What opening and checking one library found: where it was loaded from,
 //! the versions it reports, every fault found in it, the other copies
-//! visible beside it, and whether it was loaded from its override.
+//! visible beside it, and whether it is the copy its override names.
 //!
 //! Each library is opened and checked in `libraries`, which fills its
 //! report; discovery collects the reports, one per library, in an
@@ -40,11 +40,12 @@ pub struct LibraryReport {
     /// loaded may be found beside the other, so the setup check warns of
     /// them. Empty when it was not loaded.
     pub other_copies: Vec<PathBuf>,
-    /// Whether it was loaded from the path its override variable names, so
-    /// that the setup check's warning of another copy, when the one loaded
-    /// is at fault, says to change or unset the variable rather than set
-    /// it. `false` when it was not loaded.
-    pub loaded_from_override: bool,
+    /// Whether the copy tried is the one its override variable names,
+    /// loaded or not, so that the setup check, when that copy is at fault,
+    /// advises changing or unsetting the variable: an override is the only
+    /// path tried, so no install displaces it. `false` when the override is
+    /// unset or invalid.
+    pub from_override: bool,
 }
 
 impl LibraryReport {

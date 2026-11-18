@@ -123,7 +123,7 @@ fn usable<L: NativeLibrary>() -> Checked<L> {
         versions: Vec::new(),
         faults: Vec::new(),
         other_copies: Vec::new(),
-        loaded_from_override: false,
+        from_override: false,
     };
     let functions = L::Functions::resolve(&StandInResolver::audited())
         .expect("the stand-ins resolve every name");
@@ -141,7 +141,7 @@ fn not_found<L: NativeLibrary>() -> Checked<L> {
             attempted: vec![PathBuf::from("libabsent.so")],
         }],
         other_copies: Vec::new(),
-        loaded_from_override: false,
+        from_override: false,
     };
     (report, None)
 }
