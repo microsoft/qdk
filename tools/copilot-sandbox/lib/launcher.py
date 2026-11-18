@@ -133,7 +133,9 @@ done
             check=False,
         )
         if result.returncode:
-            LOGGER.warning("Graceful agent shutdown failed or timed out; forcing removal.")
+            LOGGER.warning(
+                "Graceful agent shutdown failed or timed out; forcing removal."
+            )
     except (LauncherError, OSError, ValueError, KeyboardInterrupt) as error:
         LOGGER.warning(
             "Graceful agent shutdown interrupted or failed; forcing removal.\n%s",
@@ -730,7 +732,9 @@ def _open_shell_on_existing_session(instance: str) -> int:
     ).stdout.strip()
     config = get_sandbox_instance_config(get_sandbox_instance_dir(instance))
     if not actual or config.get("verified_container") != actual:
-        raise LauncherError("The agent container has not completed boundary verification.")
+        raise LauncherError(
+            "The agent container has not completed boundary verification."
+        )
     return run(
         [
             "docker",
