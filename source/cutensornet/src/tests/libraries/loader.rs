@@ -19,7 +19,7 @@ use std::path::PathBuf;
 /// A file name that no system loader finds.
 ///
 /// The tests that use it run on Linux with glibc only: a file name is
-/// skipped when glibc's message says no file of that name was found
+/// skipped when glibc's message reports no file of that name
 /// (`no_file_of_that_name`), and other loaders word it otherwise (macOS's
 /// `dlopen` lists every path it tried).
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -88,8 +88,10 @@ fn a_library_found_nowhere_reports_every_path_tried() {
 }
 
 /// The system loader names the file it could not open: a file name is
-/// skipped only when no file of that name was found, not when the file was
-/// found but one of its dependencies was not, or the file was refused.
+/// skipped only when the loader reports no file of that name, not when the
+/// file was found but one of its dependencies was not, or the file was
+/// refused with a reason. glibc's own search skips a file it cannot use and
+/// reports no such file, as when there is none: so does discovery.
 #[test]
 fn only_a_file_name_not_found_is_skipped() {
     let name = Path::new("libcutensornet.so.2");
@@ -105,4 +107,29 @@ fn only_a_file_name_not_found_is_skipped() {
         name,
         "libcutensornet.so.2: wrong ELF class: ELFCLASS32"
     ));
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        let (path, _remove) = another_machines_library("another-machine");
+        let Err(LibraryFault::LoadFailed { message, .. }) = load_library(vec![path.clone()]) else {
+            panic!("precondition: glibc refuses another machine's library at its path");
+        };
+        assert!(
+            no_file_of_that_name(&path, &message),
+            "glibc's message for a file it could not use: {message}"
+        );
+    }
+}
+
+/// A 64-bit ELF shared object for a machine no test runs on (SPARC), its
+/// header only, removed when the guard is dropped.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn another_machines_library(label: &str) -> (PathBuf, crate::tests::RemoveFile) {
+    let mut header = [0_u8; 64];
+    header[..7].copy_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1, 1]);
+    header[16] = 3;
+    header[18] = 2;
+    header[20] = 1;
+    let path = unique_temp_path(label);
+    std::fs::write(&path, header).expect("the temporary directory is writable");
+    (path.clone(), crate::tests::RemoveFile(path))
 }

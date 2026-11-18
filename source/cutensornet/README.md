@@ -169,8 +169,8 @@ its versions. Each library is checked whatever the other's faults, and each
 fault is recorded in the library's report:
 
 - reading the variable and opening: `InvalidOverride` (an override that is
-  not an absolute path to a file), `NotFound` or `LoadFailed`. These leave
-  nothing more to check of that library;
+  not an absolute path to a file, or cannot be read), `NotFound` or
+  `LoadFailed`. These leave nothing more to check of that library;
 - looking up: `MissingRequiredSymbol`, one per missing function;
 - the versions: `VersionProbeFailed` or `UnsupportedVersion`, one per
   version. Each function that reads one is looked up on its own, so each
@@ -217,9 +217,11 @@ An override must be an absolute path to a file, or to a symlink to one.
 When set, it is the only path tried, so a wrong setting fails instead of
 loading another installation. A default absolute path that does not exist is
 skipped; a bare file name is searched for by the system loader on its usual
-search path, and skipped when the loader finds no file of that name. A
-library that is found but fails to load, for instance because a library it
-needs is missing, fails discovery.
+search path, and skipped when the loader reports no file of that name
+(glibc reports so too when its search found only files of that name it
+could not use, such as another machine's). A library that is found but fails
+to load, for instance because a library it needs is missing, fails
+discovery.
 
 ### Versions
 
