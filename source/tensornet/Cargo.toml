@@ -15,11 +15,9 @@ thiserror = { workspace = true }
 # The crate itself with the reference, so that its doctests, which use the
 # reference, run in every `cargo test`, the workspace's included.
 tensornet = { path = ".", features = ["conformance"] }
-# Independent implementations the reference's tests compare it with: the
-# QDK's sparse state simulator for its amplitudes, and nalgebra's singular
-# value decomposition for its Schmidt ranks.
+# An implementation independent of the reference that its tests compare it
+# with: nalgebra's singular value decomposition, for its Schmidt ranks.
 nalgebra = { workspace = true }
-qdk_simulators = { path = "../simulators", default-features = false }
 
 [features]
 # The exact reference, for an engine's tests.

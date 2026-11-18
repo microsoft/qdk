@@ -2757,7 +2757,6 @@ version = "0.0.0"
 dependencies = [
  "nalgebra",
  "num-complex",
- "qdk_simulators",
  "tensornet",
  "thiserror",
 ]

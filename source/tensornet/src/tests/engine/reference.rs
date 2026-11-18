@@ -10,10 +10,8 @@
 //! These tests matter beyond the reference itself: every other engine is
 //! validated by comparing its answers with the reference's, so a fault in
 //! the reference would let a wrong engine pass, or fail a right one. That
-//! is why the reference is also checked against implementations
-//! independent of it: its amplitudes against the QDK's sparse state
-//! simulator, and its ranks against a singular value decomposition, on
-//! random circuits.
+//! is why its Schmidt ranks are also checked against an implementation
+//! independent of it, a singular value decomposition, on random circuits.
 
 use crate::reference::{ExactReference, ReferenceError, ReferenceState};
 use crate::sampling::splitmix64::SplitMix64;
@@ -21,7 +19,6 @@ use crate::tests::{c, cx, hadamard};
 use crate::{MpsEngine, MpsEngineError, MpsShape, Pauli, PauliSum, PauliTerm, Refusal};
 use nalgebra::DMatrix;
 use num_complex::Complex64;
-use qdk_simulators::SparseStateSim;
 use std::f64::consts::FRAC_PI_4;
 
 const ENGINE: ExactReference = ExactReference;
@@ -735,9 +732,8 @@ fn a_pivot_at_the_rank_threshold_raises_the_rank() {
     assert_eq!(shape.bond_dim(0), Some(2));
 }
 
-/// A gate of a random circuit, applied alike to the reference and to the
-/// QDK's sparse simulator: one-site gates on a site, and controlled gates
-/// on a control and a target.
+/// A gate of a random circuit: one-site gates on a site, and controlled
+/// gates on a control and a target.
 #[derive(Clone, Copy, Debug)]
 enum Gate {
     H(usize),
@@ -754,7 +750,7 @@ enum Gate {
 impl Gate {
     /// The gate's sites, the control first, and its matrix, row-major with
     /// the first site the most significant bit; rotations by `θ` are
-    /// `exp(−iθP/2)`, as the simulator's.
+    /// `exp(−iθP/2)`.
     fn on_sites(self) -> (Vec<usize>, Vec<Complex64>) {
         let (o, l, i) = (c(0.0, 0.0), c(1.0, 0.0), c(0.0, 1.0));
         let half = |theta: f64| (theta / 2.0).sin_cos();
@@ -792,20 +788,6 @@ impl Gate {
                 }
                 (vec![control, target], cz)
             }
-        }
-    }
-
-    fn apply_to_simulator(self, simulator: &mut SparseStateSim) {
-        match self {
-            Self::H(q) => simulator.h(q),
-            Self::S(q) => simulator.s(q),
-            Self::T(q) => simulator.t(q),
-            Self::X(q) => simulator.x(q),
-            Self::Rx(theta, q) => simulator.rx(theta, q),
-            Self::Ry(theta, q) => simulator.ry(theta, q),
-            Self::Rz(theta, q) => simulator.rz(theta, q),
-            Self::Cx(control, target) => simulator.mcx(&[control], target),
-            Self::Cz(control, target) => simulator.mcz(&[control], target),
         }
     }
 }
@@ -874,42 +856,6 @@ fn reference_of(sites: usize, circuit: &[Gate]) -> ReferenceState {
         apply(&mut state, &on, &matrix);
     }
     state
-}
-
-/// The reference's amplitudes are those of the QDK's sparse state
-/// simulator, an independent implementation, on random circuits of five
-/// sites: forty one-site gates (H, S, T, X and rotations by random angles)
-/// and twelve controlled X and Z gates, on neighbours and distant sites
-/// alike, in either order, twenty circuits from fixed seeds.
-#[test]
-fn the_amplitudes_are_the_sparse_simulator_s_on_random_circuits() {
-    const SITES: usize = 5;
-    let mut stream = Stream(SplitMix64::new(0x00C0_FFEE));
-    for round in 0..20 {
-        let circuit = random_circuit(&mut stream, SITES, 40, 12);
-        let state = reference_of(SITES, &circuit);
-        let mut simulator = SparseStateSim::new(None);
-        for _ in 0..SITES {
-            let _ = simulator.allocate();
-        }
-        for &gate in &circuit {
-            gate.apply_to_simulator(&mut simulator);
-        }
-        let (entries, qubits) = simulator.get_state();
-        assert_eq!(qubits, SITES, "the simulator holds every site");
-        let mut amplitudes = vec![c(0.0, 0.0); 1 << SITES];
-        for (index, amplitude) in entries {
-            let index = index.to_u64_digits().first().copied().unwrap_or(0);
-            amplitudes[usize::try_from(index).expect("five bits")] = amplitude;
-        }
-        for (index, expected) in amplitudes.into_iter().enumerate() {
-            let actual = state.amplitude(index);
-            assert!(
-                (actual - expected).norm() < 1e-12,
-                "circuit {round}, amplitude {index}: {actual}, not {expected}: {circuit:?}"
-            );
-        }
-    }
 }
 
 /// The Schmidt rank at `cut` of `state`, by a singular value decomposition

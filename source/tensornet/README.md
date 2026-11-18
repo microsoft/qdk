@@ -29,10 +29,9 @@ whose arguments break the contract is made once, by the functions of
 so that an engine's answers can be checked against it.
 
 The evidence is the crate's tests, in [`src/tests/`](src/tests/): the
-reference's amplitudes are those of the QDK's sparse state simulator on
-random circuits, and its chain has the Schmidt ranks a singular value
-decomposition gives; and the checks of each method refuse each fault and
-accept its edges.
+reference's chain has the Schmidt ranks a singular value decomposition
+gives on random circuits, and the checks of each method refuse each fault
+and accept its edges.
 
 ## The model
 
