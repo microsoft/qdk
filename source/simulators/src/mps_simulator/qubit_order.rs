@@ -8,9 +8,10 @@
 //! same; lowering reads it to put each call on its qubits' sites.
 //!
 //! An MPS is a chain, so its cost depends on where the qubits sit: an
-//! engine applies a gate on distant sites at more cost (through swaps, for
-//! instance), and each bond is the Schmidt rank across its cut, which
-//! depends on which qubits fall on each side.
+//! engine applies a gate on distant sites at a cost that grows with their
+//! distance (as a matrix product operator, an MPO, across the sites
+//! between them, for instance), and each bond is the Schmidt rank across
+//! its cut, which depends on which qubits fall on each side.
 //! Every order holds the same state (to rounding, and within the
 //! truncation error of an engine that truncates), so each probability a
 //! shot draws against, given the same earlier values, agrees to rounding:
@@ -99,8 +100,7 @@ impl InteractionWeights {
 
     /// Σ gates · |site(a) − site(b)| over the pairs: a proxy for what the
     /// gates cost on the chain under `order`, as an engine applies a gate on
-    /// distant sites at more cost (through swaps, for instance: d − 1 each
-    /// way for sites d apart).
+    /// distant sites at a cost that grows with their distance.
     pub(crate) fn span(&self, order: &QubitOrder) -> u64 {
         self.pairs
             .iter()

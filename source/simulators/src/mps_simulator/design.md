@@ -10,8 +10,8 @@ planned items in detail.
 
 A run starts once, then runs each of its groups through the phases below
 until the group's context ends; a split adds a group that waits its turn.
-Each phase is a function or a call of the same name in
-[`grouped_run.rs`](grouped_run.rs), unless it names another file. The
+Each phase names, in parentheses, the function or call that does it, in
+[`grouped_run.rs`](grouped_run.rs) unless it names another file. The
 [README](README.md#how-it-runs-a-program)'s rows group these phases under
 the same names.
 
@@ -19,19 +19,17 @@ the same names.
   capacity, `MpsShape::qubit_chain` of the program's qubits and χ
   (`MpsResumer::with_max_bond_dimension`, `DEFAULT_MAX_BOND_DIMENSION` by
   default), and one group of every shot. The engine contract takes only a
-  capacity, within which an engine that truncates keeps its bonds; the
-  cutoff below which it drops singular values is its own setting.
+  capacity, within which an engine that truncates keeps its bonds (the
+  cutoff: `MpsResumer`'s doc).
 - **qubit order** (`QubitOrder::for_program`, in
   [`qubit_order.rs`](qubit_order.rs)), called by start: it weighs the
   two-qubit gates whose qubits the program names (not those of a
   register, unknown before a shot), and searches for an order of a smaller
-  span. Every order holds the same state, to rounding and within the
-  truncation error of an engine that truncates, so on an exact engine a
-  record differs between two orders only where a uniform falls within
-  rounding of a probability. No caller sees sites.
+  span. Every order holds the same state (to what precision: the file's
+  header). No caller sees sites.
 - **stop** (`check_stop_flag`, called by `run_group`): before each batch
-  the group runs, a stop flag (`MpsResumer::with_stop_flag`), once set,
-  fails the run.
+  the group runs, and before a group split off by a draw runs on, a stop
+  flag (`MpsResumer::with_stop_flag`), once set, fails the run.
 - **resume** (`QirMachine::resume`, called by `run_group`): the machine
   runs the group's context to its next batch, or to its end with the
   shot's records, given the outcomes of the batch before.

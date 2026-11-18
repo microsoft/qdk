@@ -357,7 +357,7 @@ impl MpsEngine for ReferenceSpy {
                     let one = self.reference.probability_of_one(&state.state, site)? > 0.5;
                     index |= usize::from(one) << site;
                 }
-                #[allow(clippy::cast_precision_loss)] // A few sites.
+                #[expect(clippy::cast_precision_loss, reason = "a few sites")]
                 let index = index as f64;
                 1.0 - 1e-3 * (1.0 + index)
             }
