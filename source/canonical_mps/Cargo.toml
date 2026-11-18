@@ -20,8 +20,8 @@ thiserror = { workspace = true }
 
 [features]
 # Exposes what another crate needs to check its own `SiteAlgebra`: the
-# conformance kit (`algebra::conformance`), the circuits that run the engine
-# on it against the exact reference (`engine_circuits`), and the dense
+# conformance kit (`site_algebra::conformance`), the circuits that run the engine
+# on it against the exact reference (`engine_conformance`), and the dense
 # linear algebra (`dense_linalg`), for the test doubles of a backend library.
 conformance = ["tensornet/conformance"]
 

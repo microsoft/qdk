@@ -16,7 +16,7 @@
 //! pending gate of the site the centre reaches stays pending.
 
 use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain, chain::Site};
-use crate::algebra::{CentreSide, QrMoveCall, SiteAlgebra};
+use crate::site_algebra::{CentreSide, QrMoveCall, SiteAlgebra};
 
 impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     /// Applies the pending window, if any, toward `site`, and moves the

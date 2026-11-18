@@ -11,10 +11,10 @@
 //! error, so that the kit's own reads are checked to stay within bounds.
 
 use crate::CpuAlgebra;
-use crate::algebra::{
+use crate::dense_linalg::SvdError;
+use crate::site_algebra::{
     CentreSide, GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
 };
-use crate::dense_linalg::SvdError;
 use num_complex::Complex64;
 use std::borrow::Cow;
 use std::cell::RefCell;

@@ -5,8 +5,8 @@
 //! a fraction of the split's own weight, which leaves the retained weight,
 //! and what exceeds the capacity's bond. The reference algebra's rule of
 //! truncation itself is `Truncation`'s
-//! (`src/algebra/cpu_algebra/truncation.rs`), tested in
-//! `src/tests/algebra/cpu_algebra/truncation.rs`.
+//! (`src/site_algebra/cpu_algebra/truncation.rs`), tested in
+//! `src/tests/site_algebra/cpu_algebra/truncation.rs`.
 
 use super::*;
 
@@ -14,7 +14,7 @@ use super::*;
 /// and 1.1 times `DEFAULT_CUTOFF` between two sites, on either side of the
 /// default cutoff; the split drops the first and keeps the second.
 #[test]
-fn new_truncates_at_the_default_cutoff() {
+fn an_engine_truncates_at_the_default_cutoff() {
     let engine = Engine::new(CpuAlgebra);
     for (tail, bond) in [(0.9 * DEFAULT_CUTOFF, 1), (1.1 * DEFAULT_CUTOFF, 2)] {
         let theta = 2.0 * tail.sqrt().asin();

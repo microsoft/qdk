@@ -95,7 +95,7 @@ fn an_expectation_reads_the_value_wherever_the_centre_lies() {
 /// end on the same factor. Each counts once, with its own coefficient, as
 /// the reference reads them.
 #[test]
-fn terms_that_share_their_walk_each_count() {
+fn terms_that_share_factors_each_count() {
     let o = observable(
         real(0.0),
         &[

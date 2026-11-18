@@ -11,7 +11,7 @@ use crate::dense_linalg::{Matrix, Svd};
 use num_complex::Complex64;
 
 /// `θ[a, s, t, b] = Σ G[(s, t), (p, q)] · A[a, p, j] · B[j, q, b]`, as
-/// [`GateSplitCall`](crate::algebra::GateSplitCall) defines it: the
+/// [`GateSplitCall`](crate::site_algebra::GateSplitCall) defines it: the
 /// `(2·l) × (2·r)` matrix of rows `a + l·s` and columns `t + 2·b`.
 #[expect(clippy::many_single_char_names, reason = "the formula's indices")]
 pub(super) fn gated_pair(pair: &Pair, gate: &[Complex64; 16]) -> Matrix {
@@ -34,7 +34,7 @@ pub(super) fn gated_pair(pair: &Pair, gate: &[Complex64; 16]) -> Matrix {
 
 /// The site `x[a, p, b]`, of extents `[left, 2, right]`, with the one-site
 /// `gate` (`G[s, p]` at `2s + p`) applied, as
-/// [`QrMoveCall`](crate::algebra::QrMoveCall) defines it.
+/// [`QrMoveCall`](crate::site_algebra::QrMoveCall) defines it.
 pub(super) fn gated_site(
     x: &[Complex64],
     left: usize,

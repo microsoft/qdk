@@ -6,7 +6,7 @@
 //! [`FailingFakeAlgebra`], since the reference algebra, [`CpuAlgebra`],
 //! fails only when its SVD does, which the engine's tests never make it do.
 
-use super::failing_fake_algebra::{AlgebraFailure, Method};
+use super::stand_ins::failing_fake_algebra::{AlgebraFailure, Method};
 use super::*;
 
 /// The error of an engine on [`FailingFakeAlgebra`].

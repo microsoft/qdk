@@ -9,7 +9,7 @@
 //! algebra fails, each naming its case and the pair and setting at fault:
 //!
 //! ```
-//! use canonical_mps::algebra::{SiteAlgebra, conformance};
+//! use canonical_mps::site_algebra::{SiteAlgebra, conformance};
 //!
 //! fn assert_conforms<A: SiteAlgebra>(algebra: &A) {
 //!     let failures = conformance::check(algebra);

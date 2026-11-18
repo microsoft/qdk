@@ -5,11 +5,11 @@
 //! ([`DefectiveFakeAlgebra`]): each case catches the faults its rule names,
 //! and the kit accepts an algebra that keeps every rule and reports every
 //! case an algebra fails. That the reference algebra conforms is the
-//! integration test `tests/algebra_conformance.rs`.
+//! integration test `tests/site_algebra_conformance.rs`.
 
 mod defective_fake_algebra;
 
-use crate::algebra::conformance::{self, Failure};
+use crate::site_algebra::conformance::{self, Failure};
 use defective_fake_algebra::{Defect, DefectiveFakeAlgebra};
 
 /// The reference algebra on tensors that a drop fills with NaN and that

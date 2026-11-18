@@ -18,7 +18,7 @@
 //!   its site, as before any window (`chain`), and a gate that brings the
 //!   site into the window applies after it.
 //! - **How it is applied.** A window on two neighbours is one
-//!   [`gate_split`](SiteAlgebra::gate_split) ([`split`](super::split)),
+//!   [`gate_split`](SiteAlgebra::gate_split) ([`truncation`](super::truncation)),
 //!   with the centre moved onto the pair first; any other window, on
 //!   sites further apart or on three sites, is applied as a matrix product
 //!   operator across its span ([`mpo`](super::mpo)).
@@ -31,8 +31,8 @@
 //! window, applied at once, and leaves the centre on the side of its sites
 //! nearer where the centre was.
 
-use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain, gates};
-use crate::algebra::{CentreSide, SiteAlgebra};
+use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain, gate_products};
+use crate::site_algebra::{CentreSide, SiteAlgebra};
 use num_complex::Complex64;
 
 /// The most sites a window gathers. Three serves the runs of the H₂ and
@@ -58,7 +58,7 @@ impl Window {
         let mut sites = on.to_vec();
         sites.sort_unstable();
         Self {
-            operator: gates::widen(gate, on, &sites),
+            operator: gate_products::widen(gate, on, &sites),
             sites,
         }
     }
@@ -70,7 +70,8 @@ impl Window {
 
     /// Absorbs `gate`, on the sites `on` of the window, into the operator.
     pub(super) fn absorb(&mut self, gate: &[Complex64], on: &[usize]) {
-        self.operator = gates::multiply(&gates::widen(gate, on, &self.sites), &self.operator);
+        self.operator =
+            gate_products::multiply(&gate_products::widen(gate, on, &self.sites), &self.operator);
     }
 
     /// The window's sites and those of `on`, ascending, when they number at
@@ -95,7 +96,7 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         let joined = chain.window.as_ref().and_then(|window| window.joined(on));
         if let Some(sites) = joined {
             let window = chain.window.as_mut().expect("the window the gate joins");
-            window.operator = gates::widen(&window.operator, &window.sites, &sites);
+            window.operator = gate_products::widen(&window.operator, &window.sites, &sites);
             window.sites = sites;
             window.absorb(gate, on);
         } else {
@@ -140,13 +141,15 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
         let window = chain.window.take().expect("the window on two neighbours");
         let nearest = if chain.centre <= low { low } else { high };
         self.move_centre(chain, nearest)?;
-        let first = chain.pending[low].take().unwrap_or(gates::IDENTITY);
-        let second = chain.pending[high].take().unwrap_or(gates::IDENTITY);
-        let pending = gates::multiply(
-            &gates::widen(&first, &[low], &window.sites),
-            &gates::widen(&second, &[high], &window.sites),
+        let first = chain.pending[low].take().unwrap_or(gate_products::IDENTITY);
+        let second = chain.pending[high]
+            .take()
+            .unwrap_or(gate_products::IDENTITY);
+        let pending = gate_products::multiply(
+            &gate_products::widen(&first, &[low], &window.sites),
+            &gate_products::widen(&second, &[high], &window.sites),
         );
-        let operator = gates::multiply(&window.operator, &pending);
+        let operator = gate_products::multiply(&window.operator, &pending);
         let side = if toward <= low {
             CentreSide::Left
         } else {

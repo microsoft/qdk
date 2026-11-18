@@ -134,8 +134,8 @@ fn main() -> Res<()> {
                 "| {label} | mps | χ {chi} | {:.3} s | largest bond at rest {} | \
                  largest transient bond {} | peak {} MB |",
                 run.seconds,
-                run.state.split_statistics().largest_bond_at_rest(),
-                run.state.split_statistics().largest_transient_bond(),
+                run.state.statistics().largest_bond_at_rest(),
+                run.state.statistics().largest_transient_bond(),
                 peak_memory_kb() / 1024
             );
             return Ok(());
@@ -155,7 +155,7 @@ fn main() -> Res<()> {
     let mut sparse = run_sparse(&circuit)?;
     let mps = run_engine(&engine, &circuit, &order, chi)?;
     let ratio = sparse.seconds / mps.seconds;
-    let statistics = mps.state.split_statistics();
+    let statistics = mps.state.statistics();
     let (at_rest, transient) = (
         statistics.largest_bond_at_rest(),
         statistics.largest_transient_bond(),

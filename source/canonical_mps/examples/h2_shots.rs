@@ -72,7 +72,7 @@ fn main() -> Res<()> {
             &readout_distribution(&engine, &run.state, &sites)?,
             &recorded,
         )?;
-        let statistics = run.state.split_statistics();
+        let statistics = run.state.statistics();
         println!(
             "| {} | {} | {} | {} | {:.1} | {tvd:.2e} | {:.1e} | {:.1e} | {} | {} |",
             path.rsplit('/').next().unwrap_or(path),

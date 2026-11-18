@@ -3,7 +3,7 @@
 
 //! What the reference algebra promises beyond `SiteAlgebra`'s contract,
 //! which the conformance kit checks it against
-//! (`tests/algebra_conformance.rs`): a gate split reports a failed SVD,
+//! (`tests/site_algebra_conformance.rs`): a gate split reports a failed SVD,
 //! and a read borrows a site's elements rather than copying them.
 //! Its truncation rule is tested in `truncation`.
 #![expect(
@@ -15,8 +15,8 @@ mod truncation;
 
 use super::*;
 use crate::CpuAlgebra;
-use crate::algebra::{CentreSide, GateSplitCall, SiteAlgebra};
 use crate::dense_linalg::{Matrix, SvdError};
+use crate::site_algebra::{CentreSide, GateSplitCall, SiteAlgebra};
 use std::borrow::Cow;
 
 /// A pair with a value that is not finite, as a fault upstream could leave:

@@ -21,7 +21,7 @@ use tensornet::sampling::TooManyValues;
 use tensornet::{MpsEngineError, Refusal};
 
 #[cfg(doc)]
-use crate::algebra::SiteAlgebra;
+use crate::site_algebra::SiteAlgebra;
 #[cfg(doc)]
 use tensornet::MpsEngine;
 

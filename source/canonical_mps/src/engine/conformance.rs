@@ -1,49 +1,56 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Two circuits that run a [`CanonicalMpsEngine`] on a backend's algebra
-//! and compare what it reads with `tensornet`'s exact reference. The
-//! algebra's conformance kit (`algebra::conformance`) checks the backend's
-//! calls one at a time; the circuits add hundreds of calls in a row, on
-//! the backend's own memory and settings, so a backend's tests run them
-//! on its device too:
+//! The engine's conformance check: two circuits that run a
+//! [`CanonicalMpsEngine`] on a backend's algebra and compare what it reads
+//! with `tensornet`'s exact reference. Its sibling, the backend kit
+//! ([`site_algebra::conformance`](crate::site_algebra::conformance)),
+//! checks the backend's calls one at a time; the circuits add hundreds of
+//! calls in a row, on the backend's own memory and settings, so a
+//! backend's tests run them on its device too:
 //!
 //! ```no_run
-//! use canonical_mps::engine_circuits::{
-//!     a_long_circuit_agrees_with_the_reference_without_truncation,
-//!     a_truncated_circuit_stays_within_the_distance_its_splits_allow,
+//! use canonical_mps::CpuAlgebra;
+//! use canonical_mps::engine_conformance::{
+//!     assert_truncated_circuit_stays_within_its_truncation_bound,
+//!     assert_untruncated_circuit_agrees_with_exact_reference,
 //! };
-//! use canonical_mps::{CanonicalMpsEngine, CpuAlgebra};
 //!
-//! let engine = CanonicalMpsEngine::new(CpuAlgebra).with_cutoff(0.0);
-//! a_long_circuit_agrees_with_the_reference_without_truncation(&engine);
-//! a_truncated_circuit_stays_within_the_distance_its_splits_allow(&engine);
+//! assert_untruncated_circuit_agrees_with_exact_reference(CpuAlgebra);
+//! assert_truncated_circuit_stays_within_its_truncation_bound(CpuAlgebra);
 //! ```
 //!
-//! Each circuit asserts its rule, so a test calls it and nothing else. It
-//! needs the `conformance` feature.
+//! Each function builds the engine on the algebra it is given, at the
+//! cutoff its circuit needs, and asserts its rule, so a test calls it and
+//! nothing else. It needs the `conformance` feature.
 
-use crate::algebra::SiteAlgebra;
+use crate::site_algebra::SiteAlgebra;
 use crate::{CanonicalMpsEngine, CanonicalMpsState};
 use num_complex::Complex64;
 use tensornet::reference::{ExactReference, ReferenceState};
 use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm};
 
 /// A pseudo-random circuit on 8 sites, mostly on sites far apart, with
-/// projections on the way, on `engine`: every read agrees with the
-/// reference within `1e-10`.
+/// projections on the way, on the engine on `algebra`: every read agrees
+/// with the exact reference within `1e-10`.
 ///
-/// `engine` must have a cutoff of 0 (`with_cutoff(0.0)`): a cutoff of
-/// [`DEFAULT_CUTOFF`](crate::DEFAULT_CUTOFF) over the circuit's hundreds of
-/// splits moves a probability by about `1e-9`.
+/// The engine truncates nothing (a cutoff of 0, under a bond the circuit
+/// never reaches): a cutoff of [`DEFAULT_CUTOFF`](crate::DEFAULT_CUTOFF)
+/// over the circuit's hundreds of splits moves a probability by about
+/// `1e-9`.
 ///
 /// # Panics
 ///
-/// When a read differs from the reference's, the chain outgrows its
+/// When a read differs from the exact reference's, the chain outgrows its
 /// capacity, or a call fails.
-pub fn a_long_circuit_agrees_with_the_reference_without_truncation<A: SiteAlgebra>(
-    engine: &CanonicalMpsEngine<A>,
-) {
+pub fn assert_untruncated_circuit_agrees_with_exact_reference<A: SiteAlgebra>(algebra: A) {
+    assert_untruncated_circuit_agrees_on(&CanonicalMpsEngine::new(algebra).with_cutoff(0.0));
+}
+
+/// The circuit of [`assert_untruncated_circuit_agrees_with_exact_reference`]
+/// on `engine`, which must have a cutoff of 0, for the reason that
+/// function gives: the crate's tests run it on the unfused engine too.
+pub(crate) fn assert_untruncated_circuit_agrees_on<A: SiteAlgebra>(engine: &CanonicalMpsEngine<A>) {
     let sites = 8;
     let reference = ExactReference::new();
     let mut state = engine.prepare(&chain(sites, 64)).expect("prepare");
@@ -88,9 +95,9 @@ pub fn a_long_circuit_agrees_with_the_reference_without_truncation<A: SiteAlgebr
 }
 
 /// A circuit of weak entangling gates on 8 sites, mostly far apart, at a
-/// bond of 4, which truncates, on `engine`: the distribution of all eight
-/// qubits stays within the distance the splits' kept shares allow of the
-/// reference's.
+/// bond of 4, which truncates, on the engine on `algebra`: the
+/// distribution of all eight qubits stays within the distance the splits'
+/// kept shares allow of the exact reference's.
 ///
 /// The bound holds on any backend that keeps the contract, apart from what the
 /// MPOs' factorisations drop at or below the operator's rank cutoff, which the
@@ -105,16 +112,15 @@ pub fn a_long_circuit_agrees_with_the_reference_without_truncation<A: SiteAlgebr
 /// `Σ √(2εᵢ) ≤ √(2k · (−ln W))`. The circuit projects nothing: a projection
 /// divides by a probability, which can enlarge the distance.
 ///
-/// `engine` must have a cutoff of 0 (`with_cutoff(0.0)`), so that the
-/// bond alone truncates and the distance is large enough to compare.
+/// The engine has a cutoff of 0, so that the bond alone truncates and the
+/// distance is large enough to compare.
 ///
 /// # Panics
 ///
 /// When the distance exceeds the bound, the bound or the distance is too
 /// small for the check to mean anything, or a call fails.
-pub fn a_truncated_circuit_stays_within_the_distance_its_splits_allow<A: SiteAlgebra>(
-    engine: &CanonicalMpsEngine<A>,
-) {
+pub fn assert_truncated_circuit_stays_within_its_truncation_bound<A: SiteAlgebra>(algebra: A) {
+    let engine = &CanonicalMpsEngine::new(algebra).with_cutoff(0.0);
     let sites = 8;
     let reference = ExactReference::new();
     let mut state = engine.prepare(&chain(sites, 4)).expect("prepare");
@@ -130,7 +136,7 @@ pub fn a_truncated_circuit_stays_within_the_distance_its_splits_allow<A: SiteAlg
         apply_to_both(engine, &mut state, &mut exact_state, &[a], &turn);
     }
     let weight = engine.retained_weight(&state).expect("weight");
-    let splits = state.split_statistics().splits();
+    let splits = state.statistics().splits();
     let bound = (2.0 * f64::from(u32::try_from(splits).expect("few splits")) * -weight.ln()).sqrt();
     let tvd: f64 = distribution(engine, &state, sites)
         .iter()
@@ -153,7 +159,7 @@ pub fn a_truncated_circuit_stays_within_the_distance_its_splits_allow<A: SiteAlg
 /// The seed of every circuit's choice of sites.
 const SEED: u64 = 0x2545_F491_4F6C_DD1D;
 
-/// Each site's P(One) on `state` and on the reference's `exact_state`
+/// Each site's P(One) on `state` and on the exact reference's `exact_state`
 /// agree within `tolerance`.
 pub(crate) fn assert_reads_agree<A: SiteAlgebra>(
     engine: &CanonicalMpsEngine<A>,
@@ -212,7 +218,8 @@ fn branch<E: MpsEngine>(
     }
 }
 
-/// Applies `gate` on `qubits` to the engine's state and to the reference's.
+/// Applies `gate` on `qubits` to the engine's state and to the exact
+/// reference's.
 fn apply_to_both<A: SiteAlgebra>(
     engine: &CanonicalMpsEngine<A>,
     state: &mut CanonicalMpsState<A>,

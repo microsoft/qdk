@@ -11,8 +11,8 @@ use super::formulas::{
 };
 use super::inputs::{CAPS, CUTOFFS, LARGE_SHAPE, Pair, SHAPES, identity_gate, two_site_gate};
 use super::{TOLERANCE, read, upload};
-use crate::algebra::{CentreSide, GateSplitCall, SiteAlgebra};
 use crate::dense_linalg::Matrix;
+use crate::site_algebra::{CentreSide, GateSplitCall, SiteAlgebra};
 use num_complex::Complex64;
 use std::fmt;
 

@@ -4,39 +4,38 @@
 //! The tests of the engine's rules, one file per area of the contract or
 //! of the engine's own promises, on the reference algebra, [`CpuAlgebra`].
 //! This file holds what several areas share: the engine with and without
-//! fusion, gates and observables (with those of `engine_circuits`), and a
+//! fusion, gates and observables (with those of `engine::conformance`), and a
 //! circuit run on the engine and on the exact reference. Two stand-ins
 //! wrap [`CpuAlgebra`] for the tests that need more than its answers: the
 //! spy [`SpyAlgebra`] counts the engine's calls and records its uploads,
 //! and the fake [`FailingFakeAlgebra`] fails the call a test chooses.
 
-mod canonical_form;
-mod circuits;
+mod centre_moves;
+mod conformance;
 mod expectation;
-mod failing_fake_algebra;
 mod failures;
 mod fusion;
+mod measurement;
 mod mpo;
-mod reads;
 mod refusals;
 mod retained_weight;
 mod sampling;
-mod spy_algebra;
+mod stand_ins;
 mod state;
 mod statistics;
 mod truncation;
 
 use crate::dense_linalg::SvdError;
-use crate::engine_circuits::{
+use crate::engine::conformance::{
     assert_reads_agree, chain, cnot, entangler, exact, mixed_string, real, ry,
 };
 use crate::{
-    CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, CpuAlgebra, CpuMpsEngine as Engine,
-    DEFAULT_CUTOFF, SplitStatistics,
+    CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, CanonicalMpsStatistics, CpuAlgebra,
+    CpuMpsEngine as Engine, DEFAULT_CUTOFF,
 };
-use failing_fake_algebra::FailingFakeAlgebra;
 use num_complex::Complex64;
-use spy_algebra::{SpiedCalls, SpyAlgebra};
+use stand_ins::failing_fake_algebra::FailingFakeAlgebra;
+use stand_ins::spy_algebra::{SpiedCalls, SpyAlgebra};
 use std::rc::Rc;
 use tensornet::{
     MpsEngine, MpsEngineError, MpsShape, Pauli, PauliSum, PauliTerm, Refusal,
