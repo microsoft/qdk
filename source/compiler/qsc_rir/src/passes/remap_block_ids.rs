@@ -38,14 +38,42 @@ pub(crate) fn remap_block_ids(program: &mut Program) {
             continue;
         };
 
+        // When the graph is acyclic, we can use Kahn's algorithm and skip the general approach
+        // below. Each block is numbered once, after all of its predecessors.
+        if is_acyclic {
+            let mut reachable = Vec::new();
+            let mut stack = vec![entry_block_id];
+            while let Some(block_id) = stack.pop() {
+                if blocks_visited.insert(block_id) {
+                    reachable.push(block_id);
+                    stack.extend(get_block_successors(program.get_block(block_id)));
+                }
+            }
+            let mut in_degree: FxHashMap<BlockId, usize> = FxHashMap::default();
+            for block_id in &reachable {
+                for successor in get_block_successors(program.get_block(*block_id)) {
+                    *in_degree.entry(successor).or_default() += 1;
+                }
+            }
+            let mut ready: VecDeque<BlockId> = vec![entry_block_id].into();
+            while let Some(block_id) = ready.pop_front() {
+                block_order.push(block_id);
+                for successor in get_block_successors(program.get_block(block_id)) {
+                    let degree = in_degree
+                        .get_mut(&successor)
+                        .expect("successor should be counted");
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.push_back(successor);
+                    }
+                }
+            }
+            continue;
+        }
+
         let mut blocks_to_visit: VecDeque<BlockId> = vec![entry_block_id].into();
         while let Some(block_id) = blocks_to_visit.pop_front() {
-            // If we've already visited this block, remove it from the previous ordering so that we can insert it at the end.
-            // This effectively remaps all the blocks in the list and updates the mapped id of the current block.
-            // This is only safe without cycles, so on a cyclic graph the node is skipped and not remapped.
-            if is_acyclic {
-                block_order.retain(|id| *id != block_id);
-            } else if blocks_visited.contains(&block_id) {
+            if blocks_visited.contains(&block_id) {
                 continue;
             }
             blocks_visited.insert(block_id);
