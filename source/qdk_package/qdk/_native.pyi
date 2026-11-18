@@ -1335,7 +1335,7 @@ def _tensor_network_sample(
     engine: str,
 ) -> Tuple[List[List[Any]], Dict[str, Any]]:
     """
-    Run shots 0..shots of an `AdaptiveProgram` (converted with `.as_dict()`,
+    Run `shots` shots of an `AdaptiveProgram` (converted with `.as_dict()`,
     64-bit bytecode) with the MPS simulation method, on the engine named
     `engine` ("gpu" or "cpu"), and return each shot's output records and the
     run's report: `largest_bond`, `discarded_weight`, `max_bond_dimension`

@@ -97,8 +97,12 @@ def ghz(qubits: int) -> str:
 
 def coins(qubits: int) -> str:
     """`qubits` coins, entangled pairwise by `cz`, all read at the end."""
-    gates = "\n".join(f"h q[{k}];" for k in range(qubits))
-    gates += "\n".join(f"cz q[{k - 1}], q[{k}];" for k in range(1, qubits))
+    gates = "\n".join(
+        [
+            *(f"h q[{k}];" for k in range(qubits)),
+            *(f"cz q[{k - 1}], q[{k}];" for k in range(1, qubits)),
+        ]
+    )
     return qasm(f"""
         OPENQASM 3.0;
         include "stdgates.inc";
@@ -276,6 +280,7 @@ def test_an_exact_run_does_not_warn(engine):
 _QIR_DECLS = """\
 declare void @__quantum__qis__h__body(%Qubit*)
 declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__rx__body(double, %Qubit*)
 declare void @__quantum__qis__cnot__body(%Qubit*, %Qubit*)
 declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 declare i1 @__quantum__qis__read_result__body(%Result*)
@@ -345,11 +350,18 @@ _MEASURE_AND_RECORD = """
             "not run on matrix product states",
             id="a loss check",
         ),
+        pytest.param(
+            "call void @__quantum__qis__rx__body(double 0x7FF8000000000000, %Qubit* inttoptr (i64 0 to %Qubit*))",
+            "not unitary",
+            id="a rotation by NaN",
+        ),
     ],
 )
 def test_a_call_the_method_cannot_run_raises_value_error(engine, call, message):
     """A call the MPS simulation method does not run: a `cx` on one qubit
-    twice, which no two-qubit matrix applies; readout noise; a loss check."""
+    twice, which no two-qubit matrix applies; readout noise; a loss check;
+    a rotation by an angle that is not finite, whose matrix the engine
+    refuses."""
     qir = adaptive_qir(f"  {call}{_MEASURE_AND_RECORD}", qubits=1, results=1)
     with pytest.raises(ValueError, match=message):
         run(qir, [Sample(1)], engine=engine)

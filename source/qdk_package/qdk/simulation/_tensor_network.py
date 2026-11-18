@@ -57,8 +57,10 @@ class MpsOptions:
 
 @dataclass(frozen=True)
 class Sample:
-    """Query ``shots`` shots, as ``run_qir`` returns them: the result is a
-    list with one entry per shot.
+    """Query ``shots`` shots: the result is a list with one entry per shot,
+    the list of that shot's recorded output values, in recording order
+    (``Result`` for a measurement; ``bool``, ``int`` or ``float`` for a
+    classical value).
 
     :param shots: The number of shots, in [1, 2**32).
     """
@@ -117,6 +119,9 @@ class TensorNetworkResults(tuple):
         # `copy`, `deepcopy` and `pickle` rebuild a tuple subclass with
         # `__new__(cls, *__getnewargs__())`; tuple's gives no report.
         return (tuple(self), self._report)
+
+    def __repr__(self) -> str:
+        return f"TensorNetworkResults({tuple.__repr__(self)}, report={self._report!r})"
 
 
 @dataclass(frozen=True)
