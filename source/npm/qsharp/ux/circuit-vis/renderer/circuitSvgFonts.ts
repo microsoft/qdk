@@ -560,7 +560,8 @@ export const KATEX_MATH_ITALIC_WOFF2 =
   "PgMPQaou6JUlH4b4zscKHodXDcqKk1Wa7Owiz84vXgZIwaOFj8Gu/fesdKt2xIVnBYtmnK8xUXewjbWPchvqG3NEdAZTLbpFSYEu" +
   "rX6dcUtrVHBoFVtSEqnEuZLgih5q/adubvnJSFUD1bBUlaq1hd+NLZX5bEapNAvDAMGQUznLmgKlsfIm/Mw9kWBuWYHjjR+hoVSX" +
   "zN/bJU2wSVtdGVCp6rFWuWbr42+Wz5jvZMUaR1oqyfLwCaGQiqLPn4KMCK4QynwWew9nTXOfjvO2vrUnN/btSqPs6V9HDiB4TZOp" +
-  "vXufw1Ztqm6rbftGNFzxGmG3fS4jGcJsc3UJua7KoyeFdOmD2N1r/pPcWyHRZk2/mpqkTK/69eMt62/I6d1awCPsakat1scrjTJp" +
+  // Encoded font data, not a reference to a hash algorithm.
+  "vXufw1Ztqm6rbftGNFzxGmG3fS4jGcJsc3UJua7KoyeFdOmD2N1r/pPcWyHRZk2/mpqkTK/69eMt62/I6d1awCPsakat1scrjTJp" + // DevSkim: ignore DS126858
   "FiEe/eT2XePgJd5Rb76sdwvzR8NiaVOlWTPDQjrcYwcUH4Y9R/ezGKBIbHBoLM7HKis8GruqrCarLdFSwSD4eihc4bIrYWQZ/CVO" +
   "08exeJiBYLOwOB2tzaHS/eUcAIkjndUXw9eg5hw5RDdFwIwOp5UkQMFBIazNx/K0IiiQpWNOsmhJNvjdNIX3peOl1BRlXbzQUXnM" +
   "ORoImtdoyMHlwNoYKMlncd/V+YwEKsq1WXNIA1tRvgC61Gp44NDKypje5RwOtEITDnuVbK4KeddChnSMkwuJD73tLv7hmFVJjhNq" +

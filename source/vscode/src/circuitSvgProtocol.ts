@@ -9,14 +9,26 @@ export type CircuitSvgSaveMessage = {
 
 const MAX_FILE_NAME_LENGTH = 128;
 const MAX_SVG_BYTES = 8 * 1024 * 1024;
+const XML_DECLARATION = /^<\?xml version="1\.0" encoding="UTF-8"\?>\s*/;
 const STANDALONE_SVG_ROOT =
-  /^(?:<\?xml version="1\.0" encoding="UTF-8"\?>\s*)?<svg\b(?=[^>]*\bxmlns="http:\/\/www\.w3\.org\/2000\/svg")[^>]*>/;
-const ACTIVE_SVG_CONTENT = /<[^>]+\s(?:href|xlink:href|src|on[a-z]+)\s*=/i;
+  /^<svg\b(?=[^>]*\bxmlns="http:\/\/www\.w3\.org\/2000\/svg")[^>]*>/;
+// Tags as XMLSerializer writes them. Quoted attribute values never contain < or >, and text
+// escapes <, so every < in an exported SVG starts one of these tags.
+const SVG_TAG =
+  /<\/?([A-Za-z_][\w:.-]*)((?:\s+[A-Za-z_][\w:.-]*\s*=\s*(?:"[^"<>]*"|'[^'<>]*'))*)\s*\/?>/g;
+const SVG_ATTRIBUTE = /([A-Za-z_][\w:.-]*)\s*=\s*("[^"]*"|'[^']*')/g;
+// Style sheets must be plain text, so that no element can split them.
+const STYLE_WITH_CHILD = /<style\b[^>]*>[^<]*<(?!\/style>)/;
+const STYLE_SHEET = /<style\b[^>]*>([^<]*)<\/style>/g;
+// Attributes that run script or load resources.
+const ACTIVE_ATTRIBUTE = /^(?:on[a-z]+|(?:[\w.-]+:)?href|src)$/i;
 // Exported labels reuse glyph outlines defined in the same document.
-const GLYPH_REFERENCE =
-  /(<use\b[^>]*?)\sxlink:href="#qdk-glyph-(?:main|math)-[0-9a-f]+"/g;
-const UNSAFE_SVG_CSS =
-  /@import\b|(?:^|[;:{\s])(?:url|image-set|expression)\s*\(/i;
+const GLYPH_REFERENCE = /^#qdk-glyph-(?:main|math)-[0-9a-f]+$/;
+// CSS that loads resources, and the escapes, comments, and character references that could hide
+// it. The exporter writes none of these outside its embedded fonts.
+const UNSAFE_CSS =
+  /@import|\b(?:url|src|image-set|expression)\s*\(|\\|\/\*|&#/i;
+const EMBEDDED_FONT = /url\(\s*data:font\/woff2;base64,[A-Za-z0-9+/=]+\s*\)/g;
 const ALLOWED_SVG_ELEMENTS = new Set([
   "circle",
   "defs",
@@ -58,31 +70,44 @@ export function getCircuitSvgSaveMessageError(
   ) {
     return "The generated SVG is empty or exceeds the 8 MB export limit.";
   }
-  if (
-    !STANDALONE_SVG_ROOT.test(value.contents) ||
-    ACTIVE_SVG_CONTENT.test(value.contents.replace(GLYPH_REFERENCE, "$1")) ||
-    hasUnexpectedSvgElement(value.contents) ||
-    hasUnsafeSvgCss(value.contents)
-  ) {
+  if (!isSafeStandaloneSvg(value.contents)) {
     return "The generated file is not a safe standalone SVG.";
   }
 }
 
-function hasUnexpectedSvgElement(contents: string): boolean {
-  for (const match of contents.matchAll(/<\/?([A-Za-z_][\w:.-]*)\b/g)) {
-    if (!ALLOWED_SVG_ELEMENTS.has(match[1].toLowerCase())) {
-      return true;
+function isSafeStandaloneSvg(contents: string): boolean {
+  const markup = contents.replace(XML_DECLARATION, "");
+  if (
+    !STANDALONE_SVG_ROOT.test(markup) ||
+    markup.replace(SVG_TAG, "").includes("<") ||
+    STYLE_WITH_CHILD.test(markup)
+  ) {
+    return false;
+  }
+  for (const [, name, attributes] of markup.matchAll(SVG_TAG)) {
+    if (!ALLOWED_SVG_ELEMENTS.has(name.toLowerCase())) {
+      return false;
+    }
+    for (const [, attribute, quoted] of attributes.matchAll(SVG_ATTRIBUTE)) {
+      const value = quoted.slice(1, -1);
+      const isGlyphReference =
+        name === "use" &&
+        attribute === "xlink:href" &&
+        GLYPH_REFERENCE.test(value);
+      if (
+        (ACTIVE_ATTRIBUTE.test(attribute) && !isGlyphReference) ||
+        UNSAFE_CSS.test(value)
+      ) {
+        return false;
+      }
     }
   }
-  return false;
-}
-
-function hasUnsafeSvgCss(contents: string): boolean {
-  const withoutEmbeddedFonts = contents.replace(
-    /url\(\s*data:font\/woff2;base64,[A-Za-z0-9+/=]+\s*\)/g,
-    "",
-  );
-  return UNSAFE_SVG_CSS.test(withoutEmbeddedFonts);
+  for (const [, css] of markup.matchAll(STYLE_SHEET)) {
+    if (UNSAFE_CSS.test(css.replace(EMBEDDED_FONT, ""))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -98,6 +98,34 @@ test("renderer export removes editor controls and source links only from the cop
   });
 });
 
+test("renderer export leaves out the circuit editor's add-qubit row", async () => {
+  await withDom(async (document) => {
+    const { renderer: viewer } = drawCircuit(document, representativeCircuit());
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = draw(
+      { version: 2, circuits: [representativeCircuit()] },
+      container,
+      { editor: { editCallback: () => {} } },
+    );
+    const mounted = container.querySelector("svg.qviz");
+    const expected = parseSvg(viewer.exportSvg());
+    const exported = parseSvg(editor.exportSvg());
+
+    assert.ok(
+      Number(mounted?.getAttribute("height")) >
+        Number(expected.getAttribute("height")),
+    );
+    for (const name of ["width", "height", "viewBox"]) {
+      assert.equal(
+        exported.getAttribute(name),
+        expected.getAttribute(name),
+        name,
+      );
+    }
+  });
+});
+
 test("standalone SWAP hitboxes do not become black rectangles in SVG viewers", async () => {
   await withDom(async (document) => {
     const circuit = representativeCircuit();
@@ -226,6 +254,49 @@ test("conditional ket labels draw U+3009 with the KaTeX bracket", async () => {
       "#qdk-glyph-main-27e9",
     );
     assert.ok(container.textContent?.includes("if: c3 = |1\u3009"));
+  });
+});
+
+test("measurement basis labels export as white KaTeX outlines", async () => {
+  await withDom(async (document) => {
+    const { renderer } = drawCircuit(document, {
+      qubits: [
+        { id: 0, numResults: 1 },
+        { id: 1, numResults: 1 },
+      ],
+      componentGrid: [
+        {
+          components: [
+            {
+              kind: "measurement",
+              gate: "MX",
+              qubits: [{ qubit: 0 }],
+              results: [{ qubit: 0, result: 0 }],
+            },
+            {
+              kind: "measurement",
+              gate: "MZ",
+              qubits: [{ qubit: 1 }],
+              results: [{ qubit: 1, result: 0 }],
+            },
+          ],
+        },
+      ],
+    });
+    const parsed = parseSvg(renderer.exportSvg());
+
+    assert.equal(parsed.querySelector("text"), null);
+    assert.deepEqual(
+      Array.from(parsed.querySelectorAll("g.measurement-basis"), (label) => [
+        label.querySelector("desc")?.textContent,
+        label.getAttribute("fill"),
+        label.querySelector("use")?.getAttributeNS(XLINK_NS, "href"),
+      ]),
+      [
+        ["X", "#fff", "#qdk-glyph-main-58"],
+        ["Z", "#fff", "#qdk-glyph-main-5a"],
+      ],
+    );
   });
 });
 

@@ -11,6 +11,7 @@ import {
 
 export async function handleCircuitSvgSaveMessage(
   message: unknown,
+  sourceUri?: vscode.Uri,
 ): Promise<boolean> {
   if (!isCircuitSvgSaveRequest(message)) {
     return false;
@@ -23,7 +24,7 @@ export async function handleCircuitSvgSaveMessage(
   }
 
   try {
-    await saveCircuitSvg(message as CircuitSvgSaveMessage);
+    await saveCircuitSvg(message as CircuitSvgSaveMessage, sourceUri);
   } catch (error) {
     await reportCircuitSvgSaveError(error);
   }
@@ -39,8 +40,16 @@ async function reportCircuitSvgSaveError(error: unknown): Promise<void> {
   );
 }
 
-async function saveCircuitSvg(message: CircuitSvgSaveMessage): Promise<void> {
-  const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+async function saveCircuitSvg(
+  message: CircuitSvgSaveMessage,
+  sourceUri: vscode.Uri | undefined,
+): Promise<void> {
+  // Without a workspace folder, start in the circuit's source folder rather than the file system
+  // root.
+  const source = sourceUri ?? vscode.window.activeTextEditor?.document.uri;
+  const folder =
+    vscode.workspace.workspaceFolders?.[0]?.uri ??
+    (source?.scheme === "file" ? vscode.Uri.joinPath(source, "..") : undefined);
   const target = await vscode.window.showSaveDialog({
     defaultUri: folder
       ? vscode.Uri.joinPath(folder, message.suggestedName)

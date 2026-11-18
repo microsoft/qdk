@@ -25,6 +25,7 @@ const TEXT_FALLBACK_ATTRIBUTE = "data-qdk-text-fallback";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
 const GATE_TEXT_COLOR = "#3b3b3b";
 const KET_TEXT_COLOR = "#fff";
+const MEASURE_TEXT_COLOR = "#fff";
 const GLYPH_FONTS = {
   main: KATEX_MAIN_REGULAR_GLYPHS,
   math: KATEX_MATH_ITALIC_GLYPHS,
@@ -54,6 +55,7 @@ type LabelGlyph = {
 export function createStandaloneCircuitSvg(
   rendered: SVGElement,
   options: CircuitRendererSvgOptions = {},
+  circuitHeight?: number,
 ): string {
   if (rendered.tagName !== "svg" || !rendered.classList.contains("qviz")) {
     throw new Error("Expected an SVG produced by the QDK circuit renderer.");
@@ -74,11 +76,17 @@ export function createStandaloneCircuitSvg(
     }
   }
   source.removeAttribute("style");
-  // The renderer replaces the class list of argument labels, dropping qs-maintext.
-  // Export them in the same KaTeX font as the other labels.
+  // Argument labels lose qs-maintext when the renderer replaces their class list, and
+  // measurement basis labels get the KaTeX font from their own CSS rule. Export both in
+  // the same KaTeX font as the other labels.
   source
-    .querySelectorAll("text.arg-button")
+    .querySelectorAll("text.arg-button, text.measurement-basis")
     .forEach((text) => text.classList.add("qs-maintext"));
+  // The circuit editor makes the SVG taller for its add-qubit row, which was removed above with
+  // the other editor controls. When given, export only the circuit's own height.
+  if (circuitHeight !== undefined) {
+    source.setAttribute("height", String(circuitHeight));
+  }
 
   const width = readDimension(source, "width");
   const height = readDimension(source, "height");
@@ -361,6 +369,9 @@ function labelFill(text: Element): string {
   if (text.classList.contains("ket-text")) {
     return KET_TEXT_COLOR;
   }
+  if (text.classList.contains("measurement-basis")) {
+    return MEASURE_TEXT_COLOR;
+  }
   if (
     text.classList.contains("qs-group-label") ||
     text.closest(".classically-controlled-btn") !== null
@@ -425,6 +436,7 @@ function buildStyle(includeFonts: boolean): string {
     `.${EXPORT_CLASS} .arc-measure,.${EXPORT_CLASS} .qs-line-measure{fill:none;stroke:#fff}` +
     `.${EXPORT_CLASS} .gate-ket{fill:#005fb8;stroke:currentColor}` +
     `.${EXPORT_CLASS} text.ket-text{fill:${KET_TEXT_COLOR};stroke:none}` +
+    `.${EXPORT_CLASS} text.measurement-basis{fill:${MEASURE_TEXT_COLOR};stroke:none}` +
     `.${EXPORT_CLASS} .classically-controlled-btn circle{fill:#fff;stroke-width:1}` +
     `.${EXPORT_CLASS} .classically-controlled-btn text{font-family:${mainFont};fill:currentColor;stroke:none}`
   );

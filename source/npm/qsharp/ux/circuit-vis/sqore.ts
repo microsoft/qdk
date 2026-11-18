@@ -110,6 +110,8 @@ export class Sqore {
    * rebase and just refreshes the snapshot.
    */
   private lastLocationMap: Map<Operation, string> | null = null;
+  /** Height of the rendered circuit, without the row the editor adds for a new qubit. */
+  private circuitHeight: number | undefined;
   /**
    * Initializes Sqore object.
    *
@@ -159,7 +161,12 @@ export class Sqore {
     if (svg == null) {
       throw new Error("The circuit must be rendered before exporting SVG.");
     }
-    return createStandaloneCircuitSvg(svg, options);
+    // The editor makes the SVG taller for its add-qubit row; export only the circuit itself.
+    return createStandaloneCircuitSvg(
+      svg,
+      options,
+      this.options.editor != null ? this.circuitHeight : undefined,
+    );
   }
 
   /**
@@ -298,6 +305,7 @@ export class Sqore {
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
+    this.circuitHeight = composedSqore.height;
     const svg: SVGElement = this.generateSvg(composedSqore);
     this.setViewBox(svg);
     if (this.options.onZoomChange != null) {

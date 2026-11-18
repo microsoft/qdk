@@ -32,7 +32,7 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
     webviewPanel.webview.onDidReceiveMessage(async (e) => {
-      if (await handleCircuitSvgSaveMessage(e)) {
+      if (await handleCircuitSvgSaveMessage(e, document.uri)) {
         return;
       }
       switch (e.command) {
