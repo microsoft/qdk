@@ -1,4 +1,4 @@
-# The MPS simulator: design notes
+# The MPS simulation method: design notes
 
 The [README](README.md) gives the phases of a run, what each does and why,
 at a high level. Each file's header gives the rules of its part. This page
@@ -11,7 +11,9 @@ planned items in detail.
 A run starts once, then runs each of its groups through the phases below
 until the group's context ends; a split adds a group that waits its turn.
 Each phase is a function or a call of the same name in
-[`grouped_run.rs`](grouped_run.rs), unless it names another file.
+[`grouped_run.rs`](grouped_run.rs), unless it names another file. The
+[README](README.md#how-it-runs-a-program)'s rows group these phases under
+the same names.
 
 - **start** (`GroupedRun::start`), once per run of one shot or more: the
   capacity, `MpsShape::qubit_chain` of the program's qubits and χ
@@ -27,6 +29,9 @@ Each phase is a function or a call of the same name in
   truncation error of an engine that truncates, so on an exact engine a
   record differs between two orders only where a uniform falls within
   rounding of a probability. No caller sees sites.
+- **stop** (`check_stop_flag`, called by `run_group`): before each batch
+  the group runs, a stop flag (`MpsResumer::with_stop_flag`), once set,
+  fails the run.
 - **resume** (`QirMachine::resume`, called by `run_group`): the machine
   runs the group's context to its next batch, or to its end with the
   shot's records, given the outcomes of the batch before.
@@ -83,7 +88,7 @@ the shot named is the first that had not ended.
 ## The calls of each phase
 
 Each band of the diagram is a phase, or two that call nothing between
-them, with its calls in order; the qubit order and lower call no
+them, with its calls in order; the qubit order, stop and lower call no
 `MpsEngine` method:
 
 ```mermaid
@@ -93,6 +98,7 @@ sequenceDiagram
   participant E as MpsEngine
   Note over M,E: Phase: start, then qubit order
   R->>M: program(), start_shot()
+  Note over M,E: Phase: stop, before each batch
   Note over M,E: Phase: resume
   R->>M: resume(context, outcomes)
   M-->>R: a batch of calls, or the end with the records
@@ -118,15 +124,10 @@ sequenceDiagram
 
 ## Planned
 
-- **Noise and loss on matrix product states:** the calls this simulator
+- **Noise and loss on matrix product states:** the calls `MpsResumer`
   refuses today (correlated noise, readout noise and loss checks), and a
-  noise model given to the simulator, as the other simulators of this
-  crate take one, which may also charge idle noise and loss on `move`.
-- **Routing:** a stage between the qubit order and lowering that brings a
-  gate's distant sites together by swaps of neighbouring sites, and keeps
-  where the swaps moved the qubits: the qubit order becomes each run's
-  starting placement, and each group carries its own, since groups run
-  other gates once they split.
+  noise model given to it, as the other simulators of this crate take
+  one, which may also charge idle noise and loss on `move`.
 - **Queries** of the state: expectations of Pauli sums, and the chain's
   cost.
 - **The sampled form:** a program whose classical part does not depend on
@@ -151,3 +152,11 @@ sequenceDiagram
   failed on the engine (a fork its GPU had no memory for) run again alone,
   with no fork, which gives exactly the records it would have had. This
   changes the contract of `QirResumer::run`.
+- **A resumer conformance kit:** the tests that hold for any `QirResumer` (each
+  shot's records at its place, the same whichever shots run beside it; the first
+  failing shot named), written once in `qir` and run on every resumer. The rules
+  of the seed and the stop flag are `MpsResumer`'s, not the contract's, and stay
+  in this module's tests.
+- **The executor protocol** (planned) is to seed the executor that runs a
+  shot's quantum calls as `MpsResumer` seeds a shot's stream, so that its
+  records match a resumer's.

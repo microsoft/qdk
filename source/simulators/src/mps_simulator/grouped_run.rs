@@ -508,7 +508,8 @@ fn capacity_of<E>(
 /// (One when true): the value they all drew, or, where they differ, the
 /// value of the fewer. So a group that splits keeps at most half its
 /// shots, and a run holds few states at once. A tie goes to Zero only so
-/// that a run is deterministic: no record, bound or failure depends on it.
+/// that a run is deterministic: no record and no bound depends on it;
+/// which shots a failure settling the fork fails does (see `split`).
 fn value_going_on(draws: &[bool]) -> bool {
     let ones = draws.iter().filter(|&&one| one).count();
     if ones == 0 || ones == draws.len() {

@@ -3,7 +3,7 @@
 
 //! Lowering's rules: each call acts on the site the qubit order gives its
 //! qubit; a measurement in X or Y reads, and leaves, the state in that
-//! basis; a shot that reaches a call this MPS simulation method does not
+//! basis; a shot that reaches a call the MPS simulation method does not
 //! run fails, naming it; and a call no shot reaches fails nothing.
 
 use crate::bytecode::Instruction;

@@ -24,8 +24,8 @@
 //! The choice is a local search for the minimum linear arrangement of the
 //! program's interaction graph. On H₂'s iterative phase estimation (29
 //! qubits, about 89,000 two-qubit gates) this search lowered the weighted
-//! span from 628,526 to 216,950, in 2 ms on one core (the tests check the
-//! search's rules, not these figures).
+//! span from 628,526 to 216,950 (the tests check the search's rules, not
+//! these figures).
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, VecDeque};

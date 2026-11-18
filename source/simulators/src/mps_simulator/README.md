@@ -1,9 +1,10 @@
-# The MPS simulator of QIR programs
+# The MPS simulation method for QIR programs
 
-The [`mps_simulator`](../mps_simulator.rs) module of `qdk_simulators` runs
-the QIR programs the QDK compiles on matrix product states (MPS), which
-hold many more qubits than a state vector when a program entangles them
-little, as chemistry programs such as H₂'s phase estimation do.
+The [`mps_simulator`](../mps_simulator.rs) module of `qdk_simulators` holds the
+MPS simulation method: it runs the QIR programs the QDK compiles on matrix
+product states (MPS), which hold many more qubits than a state vector when a
+program entangles them little, as chemistry programs such as H₂'s phase
+estimation do.
 
 **The problem.** `qir`'s machine runs a program's classical part and hands
 each shot's quantum calls, on qubits, to a [`QirResumer`](../qir/resumer.rs);
@@ -42,6 +43,8 @@ The two traits speak different terms, `qir`'s of qubits, calls and shots,
 **shot**, a **batch** of quantum calls and a shot's **records** are
 `qir`'s, defined in [its model](../qir/README.md#the-model).
 
+- **the MPS simulation method**: the simulation method a user picks to run
+  a program's shots on matrix product states; `MpsResumer` implements it.
 - **site** and **bond**: an MPS is a chain of tensors, one per site; a bond
   links two neighbouring sites, and its dimension grows with the
   entanglement across it, and with it a run's memory and time.
@@ -72,33 +75,34 @@ flowchart LR
   E -->|"probabilities, bonds, retained weight"| R
 ```
 
-| The machine gives                       | The engine takes                                | Phase              |
-| --------------------------------------- | ----------------------------------------------- | ------------------ |
-| a program of n qubits                   | a chain of n sites, bonds of at most χ          | prepare            |
-| a gate by its name and angle, on qubits | a matrix on sites                               | qubit order; lower |
-| a measurement or a reset, on a qubit    | the probability of One at a site, a projection  | lower; run groups  |
-| shots, each with a state of its own     | one state per group, and a fork where it splits | run groups         |
+| The machine gives                       | The engine takes                                | Phase               |
+| --------------------------------------- | ----------------------------------------------- | ------------------- |
+| a program of n qubits                   | a chain of n sites, bonds of at most χ          | start; prepare      |
+| a gate by its name and angle, on qubits | a matrix on sites                               | qubit order; lower  |
+| a measurement or a reset, on a qubit    | the probability of One at a site, a projection  | lower; draw; settle |
+| shots, each with a state of its own     | one state per group, and a fork where it splits | split               |
 
 ## How it runs a program
 
-`QirResumer::run` runs a program's shots through these phases. The qubit
-order is chosen once per run; the other phases run for each group, until
-its shots' contexts end.
+`QirResumer::run` runs a program's shots through these phases, named as in
+[the design notes](design.md#the-phases-of-a-group). Start and the qubit
+order run once per run; the other phases run for each group, until its
+shots' contexts end.
 
-| Phase                              | How                                                                                                                                                                                                                                                                          | Why                                                                                                                                                         |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **qubit order**                    | From the program alone, before any shot: a local search places qubits that share two-qubit gates on nearby sites, and keeps the identity unless another order spans less.                                                                                                    | An engine applies a gate on distant sites at more cost, and each bond depends on which qubits sit on its two sides. Every order holds the same state.       |
-| **prepare**                        | At a group's first gate or draw, the engine prepares a state of all zeros on one site per qubit, with bonds of at most χ; a χ that makes no chain fails the run's first shot.                                                                                                | A shot with no quantum call costs no state.                                                                                                                 |
-| **lower**                          | Each call becomes steps on sites, through the qubit order: a gate its matrix, a measurement or reset a draw, one in X or Y a draw between the gates that turn its basis into Z and back. A noise or loss call, or a gate on one qubit twice, fails the shot that reaches it. | The engine knows only matrices and sites. Noise on matrix product states is planned; refused at the call, noise on a path no shot takes fails nothing.      |
-| **run groups** (draw, split, fork) | Each shot of a group draws against the group's one state. When its shots drew both values, the part with fewer shots goes on, and the other waits with a fork of the state.                                                                                                  | A fork is exact, so each shot records what it would alone. A run of N shots holds at most ⌊log₂ N⌋ + 1 states at once, which bounds a GPU's memory.         |
-| **report**                         | The largest bond is read where a run of gates ends, and each shot's retained weight where it ends; the run's report (`MpsResumer::last_run`) keeps the largest and the least, and warns on a low weight.                                                                     | The bond is what χ caps; the weight estimates the fidelity, so the user knows when to raise χ.                                                              |
-| **stop**                           | A stop flag, once set, is read before each batch a group runs; the run then fails, naming the first shot that had not ended.                                                                                                                                                 | A user who interrupts a run of hours gets it back, its states freed. A Base Profile program is one batch, so it runs all its gates before the flag is read. |
+| Phase                                         | How                                                                                                                                                                                                                                                                                                                                      | Why                                                                                                                                                         |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **start** and **qubit order**                 | Once per run, from the program alone, before any shot: the chain is set, one site per qubit with bonds of at most χ, and a χ that makes no chain fails the run's first shot; a local search places qubits that share two-qubit gates on nearby sites, and keeps the identity unless another order spans less.                            | An engine applies a gate on distant sites at more cost, and each bond depends on which qubits sit on its two sides. Every order holds the same state.       |
+| **prepare**                                   | At a group's first gate or draw, the engine prepares a state of all zeros on that chain.                                                                                                                                                                                                                                                 | A shot with no quantum call costs no state.                                                                                                                 |
+| **resume** and **lower**                      | The machine runs the group's context to its next batch, and each call becomes steps on sites, through the qubit order: a gate its matrix, a measurement or reset a draw, one in X or Y a draw between the gates that turn its basis into Z and back. A noise or loss call, or a gate on one qubit twice, fails the shot that reaches it. | The engine knows only matrices and sites. Noise on matrix product states is planned; refused at the call, noise on a path no shot takes fails nothing.      |
+| **apply**, **draw**, **split** and **settle** | The engine applies each gate once to the group's one state, and each shot of the group draws against it. When its shots drew both values, the part with fewer shots goes on, and the other waits with a fork of the state; each part's state is projected on its value.                                                                  | A fork is exact, so each shot records what it would alone. A run of N shots holds at most ⌊log₂ N⌋ + 1 states at once, which bounds a GPU's memory.         |
+| **read bond** and **end**                     | The largest bond is read where a run of gates ends, and each shot's retained weight where its context ends; the run's report (`MpsResumer::last_run`) keeps the largest and the least, and warns on a low weight.                                                                                                                        | The bond is what χ caps; the weight estimates the fidelity, so the user knows when to raise χ.                                                              |
+| **stop**                                      | A stop flag, once set, is read before each batch a group runs; the run then fails, naming the first shot that had not ended.                                                                                                                                                                                                             | A user who interrupts a run of hours gets it back, its states freed. A Base Profile program is one batch, so it runs all its gates before the flag is read. |
 
 A failure (a trap of the program, a refused call, or the engine's) fails
 the shots that share the state it was met on, and the run names the
 first failing shot in the order of the shots, as `QirResumer::run`
-requires. `run` never waits: engine calls return when done, so its future is ready at
-once.
+requires. `run` never waits: engine calls return when done, so its future
+is ready at once.
 
 Each phase's mechanics, its failures, and the engine calls it makes are in
 [the design notes](design.md).
@@ -152,9 +156,6 @@ give each in detail.
 - **Noise and loss** on matrix product states, the calls refused today in
   [`lowering.rs`](lowering.rs), with a noise model setting. Its case: a
   logical Bell test on 56 qubits with Pauli noise and loss.
-- **Routing**, between the qubit order and lowering, bringing a gate's
-  distant sites together by swaps. Its case: programs whose interactions
-  span the chain, such as H₂'s phase estimation.
 - **Queries** of the state, such as expectations of Pauli sums. Its case: a
   chemistry user's energy estimate ⟨H⟩, read without shots.
 - **The sampled form**, a program whose classical part does not depend on
@@ -166,6 +167,9 @@ give each in detail.
   whose 1,000 shots split into many histories.
 - **A result per shot**, so one failed shot does not lose the others. Its
   case: a long GPU run that one transient out-of-memory error ends.
+- **A resumer conformance kit**: the tests that hold for any `QirResumer`,
+  run on every resumer. Its case: a device's resumer, which would be the
+  second implementation of `QirResumer`.
 
 ## Tests
 
