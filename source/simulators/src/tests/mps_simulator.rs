@@ -10,10 +10,9 @@
 //! records do not depend on the shots beside it or on earlier runs; the
 //! qubit order and the capacity each run starts with; and a run's edges (no
 //! shots, no qubits, a max bond dimension that makes no chain). How shots
-//! draw, share states and fail
-//! is in `mps_simulator/grouped_run.rs`, the stream each draws from in
-//! `mps_simulator/shot_stream.rs`, the calls' sites and refusals in
-//! `mps_simulator/lowering.rs`.
+//! draw, share states and fail is in `tests/mps_simulator/grouped_run.rs`,
+//! the stream each draws from in `tests/mps_simulator/shot_stream.rs`, the
+//! calls' sites and refusals in `tests/mps_simulator/lowering.rs`.
 
 mod grouped_run;
 mod lowering;
@@ -109,7 +108,7 @@ fn bell() -> QirProgram {
 /// state, applies the pair's gates, reads the largest bond, reads P(One)
 /// and projects at each measurement, and reads the retained weight at the
 /// end. Only a split forks, which a lone shot never makes: a failed fork
-/// has its own tests, in `mps_simulator/grouped_run.rs`.
+/// has its own tests, in `tests/mps_simulator/grouped_run.rs`.
 const LONE_SHOT_CALLS: [Call; 6] = [
     Call::Prepare,
     Call::Apply,
