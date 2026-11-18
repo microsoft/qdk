@@ -13,7 +13,7 @@
 //! and a run after a failed one is independent of it.
 
 use crate::bytecode::Instruction;
-use crate::mps_simulator::{GateFusion, MpsResumer, MpsResumerError};
+use crate::mps_simulator::{MpsResumer, MpsResumerError};
 use crate::qir::{QirProgram, QirResumeError, QirShotId, QirTrap};
 use tensornet::reference::ExactReference;
 use tensornet::{MpsEngine, MpsShape};
@@ -717,7 +717,7 @@ fn the_part_going_on_from_any_split_stops_when_its_shots_come_after_the_failure(
     let (a, c) = (zeros[0], zeros[1]);
     let b = reading_on_two_coins(1, None)[0];
     let d = reading_on_two_coins(0, Some(1))[0];
-    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 5).with_gate_fusion(GateFusion::Unfused);
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 5);
     assert_eq!(trapped_shot(run(&mut resumer, &program, &[a, b, c, d])), b);
     assert_eq!(
         resumer.engine().applies(),

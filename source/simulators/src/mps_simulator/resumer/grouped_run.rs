@@ -13,8 +13,8 @@
 //! one machine context and no state. `run` pops the groups off a stack, the
 //! last split off first, until none waits; `run_group` runs one group:
 //! its steps, then a bond read, then the context resumed with the
-//! outcomes, whose next batch it lowers and rewrites into the next steps,
-//! until the context ends. `prepare` makes the group's state at the first
+//! outcomes, whose next batch it lowers into the next steps, until the
+//! context ends. `prepare` makes the group's state at the first
 //! step that needs it, and a split pushes the part that waits, with a
 //! cloned context and a forked state, onto the stack.
 //!
@@ -50,8 +50,6 @@ use super::layout::QubitOrder;
 use super::lowering::{Operator, Step, lower};
 use super::report::MpsRunReport;
 use super::resumer_error::MpsResumerError;
-use super::rewrites::fusion::GateFusion;
-use super::rewrites::rewrite_runs;
 use super::shot_stream::{SplitMix64, shot_stream};
 
 /// One run of an [`MpsResumer`]: what every group of the run shares, the
@@ -65,7 +63,6 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
     /// The capacity of each state; `None` for a program of no qubits, which
     /// needs no state.
     capacity: Option<MpsShape>,
-    fusion: GateFusion,
     report: &'r mut MpsRunReport,
     /// The groups split off that wait their turn, the last to run next.
     waiting: Vec<Group<E::State>>,
@@ -94,7 +91,6 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         shots: &'r [QirShotId],
         seed: u64,
         max_bond_dimension: NonZeroUsize,
-        fusion: GateFusion,
         report: &'r mut MpsRunReport,
     ) -> Result<Self, QirResumeError<MpsResumerError<E::Error>>> {
         let program = machine.program();
@@ -128,7 +124,6 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             shots,
             layout: QubitOrder::for_program(program),
             capacity,
-            fusion,
             report,
             waiting,
             records: vec![None; shots.len()],
@@ -222,7 +217,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     return Ok(Some(records.to_vec()));
                 }
                 QirStop::Batch(calls) => {
-                    group.steps = rewrite_runs(lower(calls, &self.layout)?, &self.fusion).into();
+                    group.steps = lower(calls, &self.layout)?.into();
                     group.next = 0;
                     group.outcomes.clear();
                 }
@@ -387,7 +382,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
 
     /// Keeps the largest bond of `group`'s state in the report, when gates
     /// were applied since it was last read: so it is read where a run of
-    /// operators ends, before the draws that may shrink it.
+    /// gates ends, before the draws that may shrink it.
     fn read_bond(&mut self, group: &mut Group<E::State>) -> Result<(), GroupFailure<E::Error>> {
         if let (true, Some(state)) = (group.bond_unread, &group.state) {
             let bond = self

@@ -3,8 +3,7 @@
 
 //! The resumer's rules: what a shot records; that its records do not
 //! depend on the shots beside it or on earlier runs; the layout and the
-//! capacity each run starts with, and the gate fusion its gates reach the
-//! engine with; and a run's edges (no shots, no qubits, a max bond
+//! capacity each run starts with; and a run's edges (no shots, no qubits, a max bond
 //! dimension that makes no chain). How shots draw, share states and fail
 //! is in `resumer/grouped_run.rs`, the stream each draws from in
 //! `resumer/shot_stream.rs`, the calls' sites and refusals in
@@ -14,7 +13,6 @@ mod grouped_run;
 mod layout;
 mod lowering;
 mod report;
-mod rewrites;
 mod shot_stream;
 
 use std::num::NonZeroUsize;
@@ -33,7 +31,7 @@ use crate::bytecode::encoding::{
     OPID_CX, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_SWAP, OPID_X,
 };
 use crate::mps_simulator::resumer::layout::QubitOrder;
-use crate::mps_simulator::{DEFAULT_MAX_BOND_DIMENSION, GateFusion, MpsResumer, MpsResumerError};
+use crate::mps_simulator::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsResumerError};
 
 type RunResult<E> = Result<Vec<Vec<OutputRecord>>, QirResumeError<MpsResumerError<E>>>;
 
@@ -128,33 +126,6 @@ fn the_run_places_the_qubits_by_the_layout_it_chose() {
     let mut resumer = MpsResumer::new(ExactReference::new(), 7);
     run(&mut resumer, &program, &ids(&[0])).expect("the program runs");
     assert_eq!(resumer.last_run().largest_bond, 2);
-}
-
-/// The resumer's gate fusion reaches the engine, `Pairs` by default: a Bell
-/// pair turned to the X basis (H on qubit 0, CX, H on qubit 1), then read.
-/// Fused in pairs, its three gates reach the engine as one operator; set
-/// `Unfused`, as three.
-#[test]
-fn gates_reach_the_engine_grouped_as_the_gate_fusion_says() {
-    let program = program(
-        2,
-        &[&[
-            gate1(OPID_H, 0),
-            gate2(OPID_CX, 0, 1),
-            gate1(OPID_H, 1),
-            mz(0),
-            mz(1),
-            ret(),
-        ]],
-    );
-    for (fusion, applies) in [(None, 1), (Some(GateFusion::Unfused), 3)] {
-        let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
-        if let Some(fusion) = fusion {
-            resumer = resumer.with_gate_fusion(fusion);
-        }
-        run(&mut resumer, &program, &ids(&[0])).expect("the program runs");
-        assert_eq!(resumer.engine().applies(), applies, "{fusion:?}");
-    }
 }
 
 /// A Bell pair's two readouts agree in every shot.

@@ -36,5 +36,4 @@ pub(crate) mod resumer;
 
 pub use resumer::report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
 pub use resumer::resumer_error::MpsResumerError;
-pub use resumer::rewrites::fusion::GateFusion;
 pub use resumer::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer};
