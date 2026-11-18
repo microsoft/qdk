@@ -27,9 +27,11 @@ the same names.
   register, unknown before a shot), and searches for an order of a smaller
   span. Every order holds the same state (to what precision: the file's
   header). No caller sees sites.
-- **stop** (`check_stop_flag`, called by `run_group`): before each batch
-  the group runs, and before a group split off by a draw runs on, a stop
-  flag (`MpsResumer::with_stop_flag`), once set, fails the run.
+- **stop** (`check_stop_flag`, called by `run_group`): before a group
+  first runs, before a group split off by a draw runs on, and after each
+  resume that gives a batch or a trap (before the batch is lowered, or the
+  trap reported), a stop flag (`MpsResumer::with_stop_flag`), once set,
+  fails the run; a context that ended keeps its records.
 - **resume** (`QirMachine::resume`, called by `run_group`): the machine
   runs the group's context to its next batch, or to its end with the
   shot's records, given the outcomes of the batch before.
@@ -40,7 +42,7 @@ the same names.
   prepares a state of all zeros within the capacity; a program of no
   qubits prepares none.
 - **apply** (`apply`): the engine applies each gate to the group's one
-  state, one call for every shot of the group.
+  state, one call for the group.
 - **read bond** (`read_bond`): where a run of gates ends, before a draw or
   a resume, the state's largest bond is read, and kept in the report
   ([`run_report.rs`](run_report.rs)) when it is the largest of the run so
@@ -52,11 +54,11 @@ the same names.
   it is in, so its records are those it gets alone (to what precision:
   `MpsResumer`'s doc, in [`mps_simulator.rs`](../mps_simulator.rs)).
 - **split** (`split`, with `value_going_on`): when the shots drew both
-  values, the part with fewer shots goes on, and the other waits on a
-  stack, with a copy of the context and a fork of the state, made after
-  the probability is read. As the larger part waits, each waiting part has
-  at least as many shots as all the groups above it, so a run of N shots
-  holds at most ⌊log₂ N⌋ + 1 states at once.
+  values, the part with fewer shots goes on (on a tie, the part that drew
+  Zero), and the other waits on a stack, with a copy of the context and a
+  fork of the state, made after the probability is read. As the larger part waits,
+  each waiting part has at least as many shots as all the groups above it,
+  so a run of N shots holds at most ⌊log₂ N⌋ + 1 states at once.
 - **settle** (`settle`): each part's state is projected on its value, then
   a reset that drew One applies X. The engine has no measurement and no
   reset, only probabilities, projections and matrices.
@@ -81,8 +83,8 @@ and χ make no chain. The run names the first failing shot in the order of
 the shots, whatever order they run in, and drops what could not change
 that name: a waiting group whose shots all come after it is dropped unrun,
 and a running group stops after the step whose split leaves it only shots
-that come after it. A set stop flag fails the run with no failing shot:
-the shot named is the first that had not ended.
+that come after it. A stop flag read set fails the run with no failing
+shot: the shot named is the first that had not ended.
 
 ## The calls of each phase
 
@@ -97,10 +99,11 @@ sequenceDiagram
   participant E as MpsEngine
   Note over M,E: Phase: start, then qubit order
   R->>M: program(), start_shot()
-  Note over M,E: Phase: stop, before each batch
+  Note over M,E: Phase: stop, before a group runs
   Note over M,E: Phase: resume
   R->>M: resume(context, outcomes)
   M-->>R: a batch of calls, or the end with the records
+  Note over M,E: Phase: stop, unless the context ended
   Note over M,E: Phase: lower
   Note over M,E: Phase: prepare, at the group's first gate or draw
   R->>E: prepare(capacity)

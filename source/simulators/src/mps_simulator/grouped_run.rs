@@ -33,9 +33,11 @@
 //! after it fails: a failed fork fails the whole group, before its shots
 //! part, while a failure settling the fork fails only the part that waits,
 //! and drops the fork. A run may also be stopped
-//! (`MpsResumer::with_stop_flag`): `run_group` reads the flag before each
-//! batch, and no shot failed then: the shot named is the first that had
-//! not ended.
+//! (`MpsResumer::with_stop_flag`): `run_group` reads the flag before a
+//! group runs, and after each resume that gives it a batch or a trap,
+//! before the batch is lowered or the trap reported; a context that ended
+//! keeps its records. No shot failed then: the shot named is the first
+//! that had not ended.
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;
@@ -218,11 +220,15 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 }
             }
             self.read_bond(group)?;
-            match self
-                .machine
-                .resume(&mut group.context, &group.outcomes)
-                .map_err(GroupFailure::Trapped)?
-            {
+            let stop = self.machine.resume(&mut group.context, &group.outcomes);
+            // A flag set during the batch that just ran fails the shots
+            // before their next batch, as before every batch: before it is
+            // lowered, and before a trap on the way to it is reported. A
+            // context that ended keeps its records.
+            if !matches!(stop, Ok(QirStop::Ended(_))) {
+                self.check_stop_flag()?;
+            }
+            match stop.map_err(GroupFailure::Trapped)? {
                 QirStop::Ended(records) => {
                     self.end(group.state.as_ref())?;
                     return Ok(Some(records.to_vec()));
