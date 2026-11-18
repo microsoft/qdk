@@ -302,11 +302,12 @@ apart. Anything else is expected to work, but not verified.
 | A CUDA driver | not checked: its version is reported only                    | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
 | An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one | an A100 80GB (below)                                                                             |
 
-- **Verified on an A100 80GB:** `CudaMpsEngine` agrees with
-  `canonical_mps`'s `CpuMpsEngine` on the phase estimation of H₂ and of a
-  polyene, and on a state preparation; the algebra's split and move, and
-  the engine on it, pass NVIDIA's `compute-sanitizer` memcheck, with its
-  leak check, and synccheck without error.
+- **Verified on an A100 80GB:** `CudaAlgebra` passes `canonical_mps`'s
+  conformance kit; `CudaMpsEngine` passes `canonical_mps`'s engine
+  conformance circuits, and reads a capped circuit as `CpuMpsEngine` does;
+  the kit, the capped circuit and the fake libraries' cases that also run
+  on a GPU pass NVIDIA's `compute-sanitizer` memcheck, with its leak
+  check, and synccheck without error.
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the
   default paths are those of NVIDIA's apt packages).

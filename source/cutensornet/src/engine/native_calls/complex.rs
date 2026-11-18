@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Complex64Abi`]: the complex number every buffer and operator handed to
-//! cuTensorNet is made of, in the layout of CUDA's `cuDoubleComplex`.
+//! [`Complex64Abi`]: the complex number every buffer handed to cuTensorNet
+//! is made of, in the layout of CUDA's `cuDoubleComplex`.
 //!
 //! The CUDA algebra writes tensors and gates and reads results as
 //! `num_complex::Complex64`:
