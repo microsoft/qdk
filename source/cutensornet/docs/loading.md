@@ -30,18 +30,17 @@ flowchart TD
   [`cuda_runtime.rs`](../src/libraries/cuda_runtime.rs)): its name, override
   variable and default paths, its [`FunctionTable`](../src/libraries/function_table.rs),
   and how its versions are read and which are accepted. cuTensorNet's table
-  holds the functions the crate may call: its handle's, its versions' and
-  error strings', its workspaces', its tensor descriptors', its
-  decompositions' (SVD settings and reports, `GateSplit`, `TensorQR`) and its
-  contraction networks'; each is required but `cutensornetGetLastError`,
-  which only adds detail to an error message.
+  holds the functions the CUDA algebra calls: its handle's and its
+  workspaces', and those of its tensor API (tensor descriptors, SVD
+  settings and reports, `GateSplit`, `TensorQR` and contraction networks);
+  each is required.
 - [`CheckLibrary`](../src/libraries.rs) is a trait so that what discovery
   concludes from the checks is tested without library files.
 - [`LoadedLibraries`](../src/libraries.rs) is the one list of the libraries a
   GPU run needs, in the order they are opened. It opens every library before
   it requires any.
 
-A library's life, from discovery to the `Availability` that keeps it:
+A library's life, from discovery to the last algebra or tensor that uses it:
 
 ```mermaid
 stateDiagram-v2
@@ -50,13 +49,17 @@ stateDiagram-v2
   Located --> Open: loaded by the system loader
   Open --> Bound: functions looked up, versions checked
   Bound --> Loaded: every library bound
-  Loaded --> Closed: the Availability dropped
+  Loaded --> Closed: the Availability, every algebra and every tensor dropped
   Located --> Faulted: no file to load, or it fails to load
   Open --> Faulted: a function missing, or a version refused
   Bound --> Closed: another library at fault
   Faulted --> [*]: recorded in its report, closed if open
   Closed --> [*]
 ```
+
+The `Availability`, the CUDA algebras and their tensors share a loaded
+library, so it closes after the last of them, cuTensorNet before the CUDA
+Runtime it runs on.
 
 ## The steps of discovery
 
@@ -104,7 +107,7 @@ _Bindings_ are the Rust declarations of the C functions, types and
 constants. One that does not match the library's ABI (the sizes and layouts
 of its types, and its calling convention) is undefined behaviour when
 called, not a compile error, so the bindings are generated, never written by
-hand, and the crate is checked against them:
+hand, and checked when the crate compiles:
 
 - **Generated from pinned inputs**, so anyone can reproduce them:
   [`scripts/generate_bindings.py`](../scripts/generate_bindings.py) runs bindgen
@@ -120,18 +123,17 @@ hand, and the crate is checked against them:
   [`.gitattributes`](../.gitattributes) marks it as generated, so GitHub hides
   it in a pull request's diff. cuTensorNet's bindings import the CUDA
   Runtime's stream type, so a stream passes from one to the other unchanged.
-- **Checked when the crate compiles, and by its tests:** each row of a
-  library's function table is checked against its symbol's declaration, so
-  each field has its symbol's type, and each accepted version against the
-  one its header declares. The tests check that each field is named for its
-  symbol and that no symbol is held twice, which catches two functions of
-  one signature swapped or repeated.
+- **Checked when the crate compiles:** each row of a library's function
+  table is checked against its symbol's declaration, so each field has its
+  symbol's type, and each accepted version against the one its header
+  declares. The tests check that each field is named for its symbol and
+  that no symbol is held twice, which catches two functions of one
+  signature swapped or repeated.
 
-To bind another function of a bound release, add its row (its field, named
-for its symbol, and its function-pointer type, declared in the file of its
-family) to its library's module: the bindings already declare it. To bind
-another library, follow the top of [`src/libraries.rs`](../src/libraries.rs);
-to bind a new release, the top of
+To bind another function of a bound release, add its row, with a field
+named for its symbol and its function-pointer type, to its library's module:
+the bindings already declare it. To bind another library, follow the top of
+[`src/libraries.rs`](../src/libraries.rs); to bind a new release, the top of
 [`scripts/generate_bindings.py`](../scripts/generate_bindings.py), which says
 how to run it and audit the release.
 

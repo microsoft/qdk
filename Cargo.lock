@@ -1759,7 +1759,10 @@ dependencies = [
 name = "qdk_cutensornet"
 version = "0.0.0"
 dependencies = [
+ "canonical_mps",
  "libloading",
+ "num-complex",
+ "tensornet",
  "thiserror",
 ]
 
