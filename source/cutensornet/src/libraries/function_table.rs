@@ -9,8 +9,7 @@
 //! function up through a [`SymbolResolver`]; it stores the function's
 //! address and does not call it. It returns every missing required
 //! function, so that the user fixes them all at once. The MPS engine calls
-//! the libraries through these tables, in
-//! `engine::native_calls::loaded_libraries`.
+//! the libraries through these tables.
 
 use crate::LibraryFault;
 

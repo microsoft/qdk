@@ -11,6 +11,12 @@
 //! expectations back) runs on any engine. This crate gives it one on the
 //! GPU, in two halves:
 //!
+//! - **The MPS engine.** [`CudaMpsEngine`] is `canonical_mps`'s
+//!   canonical-form MPS engine on [`CudaAlgebra`], its `SiteAlgebra` on
+//!   cuTensorNet's tensor API: the sites are [`DeviceTensor`]s in device
+//!   memory, split and moved by cuTensorNet. `CudaMpsEngine::try_from`
+//!   (Linux x86-64) opens one on the [`Availability`] discovery returns; a
+//!   failure of the algebra is a [`CudaAlgebraError`].
 //! - **Finding and loading.** cuTensorNet runs on the CUDA Runtime, and most
 //!   users have neither, so the QDK must build, install and run without
 //!   them: the crate never links them. [`discover`] finds and opens the two
@@ -20,16 +26,10 @@
 //!   [`Availability`] that keeps the libraries loaded, or an
 //!   [`AvailabilityError`] listing every fault of each library, so a caller
 //!   can report them or run on the CPU instead. Discovery runs no GPU work.
-//! - **The MPS engine.** [`CudaMpsEngine`] is `canonical_mps`'s
-//!   canonical-form MPS engine on [`CudaAlgebra`], its `SiteAlgebra` on
-//!   cuTensorNet's tensor API: the sites are [`DeviceTensor`]s in device
-//!   memory, split and moved by cuTensorNet. `CudaMpsEngine::try_from`
-//!   (Linux x86-64) opens one on an `Availability`; a failure of the
-//!   algebra is a [`CudaAlgebraError`].
 //!
-//! The crate's `docs/loading.md` shows the steps of discovery and the faults
-//! each one can find, and its `docs/engine.md` how the algebra calls
-//! cuTensorNet.
+//! The crate's `docs/engine.md` shows how the algebra calls cuTensorNet, and
+//! its `docs/loading.md` the steps of discovery and the faults each one can
+//! find.
 
 mod discovery;
 #[cfg_attr(
