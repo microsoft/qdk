@@ -10,7 +10,7 @@
 //! - `OSError`, the machine: the GPU engine cannot be made (its libraries
 //!   not usable, no device), with the message `gpu_not_set_up` or
 //!   `engine_not_made` composes; or the engine failing during the run,
-//!   with the failure's message.
+//!   with the failure's message and its causes (`with_causes`).
 //! - `ValueError`, the program or the settings: a call the MPS simulation
 //!   method does not run, a max bond dimension that makes no chain, or a
 //!   call the engine refuses.
@@ -20,7 +20,7 @@
 //! An interrupt (Ctrl-C) raises its own exception, `KeyboardInterrupt`,
 //! which `detached_run.rs` raises.
 
-use std::fmt::Display;
+use std::{error::Error, fmt::Display};
 
 use pyo3::{
     PyErr,
@@ -53,7 +53,7 @@ impl RunFailure {
         reason = "a trap is matched by name, so that its exception is chosen, not a default"
     )]
     pub(super) fn of<E: MpsEngineError>(error: QirResumeError<MpsResumerError<E>>) -> Self {
-        let message = error.to_string();
+        let message = with_causes(&error);
         match error {
             QirResumeError::Resumer { error, .. } => match error {
                 MpsResumerError::Stopped => Self::Runtime(error.to_string()),
@@ -82,6 +82,27 @@ impl RunFailure {
             Self::Runtime(message) => PyRuntimeError::new_err(message),
         }
     }
+}
+
+/// `error`'s message, then each error it was caused by that the message
+/// does not already show, after `: `, so that a wrapping error does not
+/// hide its cause: the canonical MPS engine's algebra failure says only
+/// that the site algebra failed, and its cause, the CUDA call that failed
+/// and its status, is its source. A cause already shown is not repeated:
+/// the run's and the MPS simulation method's errors show their source in
+/// their message too.
+fn with_causes(error: &dyn Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let cause_message = cause.to_string();
+        if !message.contains(&cause_message) {
+            message.push_str(": ");
+            message.push_str(&cause_message);
+        }
+        source = cause.source();
+    }
+    message
 }
 
 /// The failure of a run whose GPU libraries discovery did not find usable:
