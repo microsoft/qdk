@@ -21,7 +21,7 @@
 use super::*;
 use crate::CpuAlgebra;
 use crate::algebra::{CentreSide, GateSplitCall, QrMoveCall, SiteAlgebra};
-use dense_linalg::{Matrix, Qr, SvdError};
+use crate::dense_linalg::{Matrix, Qr, SvdError};
 use std::borrow::Cow;
 
 /// The singular values of [`known_split`]'s pair.

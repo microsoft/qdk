@@ -10,11 +10,11 @@
 //! singular values by iteration. It runs the QR algorithm at every size,
 //! never t4a-faer's default, divide and conquer from size 128, which has
 //! returned factors that the checks refuse where the QR algorithm's pass
-//! ([`crate::svd`]'s header gives the case).
+//! ([`crate::dense_linalg::svd`]'s header gives the case).
 
 use super::{ColumnMajorSvd, Kernels, PivotedQr};
-use crate::matrix::{Matrix, MatrixRef};
-use crate::qr::Qr;
+use crate::dense_linalg::matrix::{Matrix, MatrixRef};
+use crate::dense_linalg::qr::Qr;
 use num_complex::Complex64;
 use t4a_faer::{
     Accum, Auto, Conj, MatMut, MatRef, Par, ParShape,

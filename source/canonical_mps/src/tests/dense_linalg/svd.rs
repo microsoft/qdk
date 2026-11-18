@@ -7,7 +7,7 @@
 //! checked SVD, with the fallback to the rotations, and the errors. The
 //! checks and the rotations have their own files.
 //!
-//! [`Svd::of`]: crate::Svd::of
+//! [`Svd::of`]: crate::dense_linalg::Svd::of
 
 mod checks;
 mod jacobi;
@@ -17,7 +17,7 @@ mod jacobi;
 /// rank-deficient ones an MPS simulation meets all the time.
 mod decomposition {
     use super::super::{SHAPES, check_svd, matrix, naive_product};
-    use crate::{Matrix, Qr};
+    use crate::dense_linalg::{Matrix, Qr};
     use num_complex::Complex64;
 
     /// Random matrices, tall, wide, square, a single row, and up to
@@ -84,10 +84,10 @@ mod decomposition {
 
 /// What [`Svd::of`] refuses, and how its errors read.
 ///
-/// [`Svd::of`]: crate::Svd::of
+/// [`Svd::of`]: crate::dense_linalg::Svd::of
 mod errors {
     use super::super::matrix;
-    use crate::{Matrix, Svd, SvdError};
+    use crate::dense_linalg::{Matrix, Svd, SvdError};
     use num_complex::Complex64;
 
     /// The errors name the matrix's shape and what went wrong, for a
@@ -163,7 +163,7 @@ mod errors {
 /// general SVDs have failed: degenerate, rank-deficient, graded.
 mod accuracy {
     use super::super::{adjoint, check_svd, matrix, naive_product};
-    use crate::{Matrix, Qr};
+    use crate::dense_linalg::{Matrix, Qr};
     use num_complex::Complex64;
 
     /// The upper bidiagonal `[[1, 0, 0], [0, d, ε], [0, 0, d + ulp]]`, with
@@ -251,7 +251,7 @@ mod accuracy {
 /// by the rows' norms against the largest row, at any scale.
 mod trim {
     use super::super::{check_svd, check_svd_of};
-    use crate::{Matrix, Svd};
+    use crate::dense_linalg::{Matrix, Svd};
     use num_complex::Complex64;
 
     /// A 4 × 4 matrix from an MPS simulation of H₂: two columns equal
@@ -438,7 +438,7 @@ mod trim {
 /// store.
 mod scale {
     use super::super::{check_svd, check_svd_of, matrix, naive_product, times_power_of_two};
-    use crate::{Svd, SvdError};
+    use crate::dense_linalg::{Svd, SvdError};
 
     /// Matrices whose entries are near 1e-300, 1e-160, 1e160 or 1e300, as
     /// no MPS simulation meets but a caller's matrix may hold: their
@@ -529,7 +529,7 @@ mod scale {
 /// fails or answers factors that are not finite.
 mod routes {
     use super::super::{check_svd, check_svd_of, matrix};
-    use crate::{
+    use crate::dense_linalg::{
         Matrix, SvdError,
         kernels::{ColumnMajorSvd, Shipped},
         svd::{

@@ -8,7 +8,9 @@
 //! spoiled.
 
 use super::super::{matrix, times_power_of_two};
-use crate::{Matrix, MatrixRef, Svd, SvdError, kernels::Shipped, svd::checks::checked};
+use crate::dense_linalg::{
+    Matrix, MatrixRef, Svd, SvdError, kernels::Shipped, svd::checks::checked,
+};
 use num_complex::Complex64;
 
 /// The SVD of `a` with its first entry of one factor (U, the singular
@@ -43,7 +45,7 @@ fn spoiled(a: MatrixRef<'_>, factor: usize, imaginary: bool) -> Svd {
 
 /// The SVD of `a` with its largest singular value raised by `scale`
 /// times the bound of an SVD's reconstruction error, LAPACK's ratio of
-/// 50 written out rather than read from the crate, so that a change of
+/// 50 written out rather than read from the module, so that a change of
 /// the bound shows: the factors stay finite and orthonormal, and the
 /// product's error is that much.
 fn off_by(a: MatrixRef<'_>, scale: f64) -> Svd {
@@ -64,7 +66,7 @@ fn off_by(a: MatrixRef<'_>, scale: f64) -> Svd {
 /// scaled by `s` and the singular values divided by `s`, so the product
 /// is still `a`, up to rounding, but `‖U†U − I‖` (or `‖V†V − I‖`) is
 /// `scale` times the bound of an SVD's orthonormality test, LAPACK's
-/// ratio of 50 written out rather than read from the crate.
+/// ratio of 50 written out rather than read from the module.
 fn not_orthonormal(a: MatrixRef<'_>, on_v_adjoint: bool, scale: f64) -> Svd {
     let Svd {
         u,

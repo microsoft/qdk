@@ -70,13 +70,13 @@ pub enum CanonicalMpsError<E> {
 
     /// The factorisation of a pending window's operator into a matrix
     /// product operator failed: the host's SVD of the operator
-    /// ([`SvdError`](dense_linalg::SvdError), its source) did not converge
-    /// or failed its checks. The state is then unspecified, as for
+    /// ([`SvdError`](crate::SvdError), its source) did not converge or
+    /// failed its checks. The state is then unspecified, as for
     /// [`Self::Algebra`], and the caller must drop it. It is not expected:
     /// a window holds only gates checked finite and unitary, whose SVD
     /// converges, so only a fault of the host's SVD would reach it.
     #[error("the factorisation of a window's operator failed")]
-    OperatorDecomposition(#[source] dense_linalg::SvdError),
+    OperatorDecomposition(#[source] crate::SvdError),
 }
 
 impl<E> From<TooManyValues> for CanonicalMpsError<E> {

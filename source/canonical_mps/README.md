@@ -30,8 +30,9 @@ GPU library needs a reference to compare its operations with.
 **How it is solved.** The engine holds the rules, written once over the
 contract, and a backend writes only the contract's operations. The
 reference algebra is this crate's backend: its tensors are vectors in the
-host's memory, and its products, QR and SVD are `dense_linalg`'s, on the
-calling thread. A backend on a GPU library is planned, in its own crate.
+host's memory, and its products, QR and SVD are the crate's
+[dense linear algebra](#the-dense-linear-algebra)'s, on the calling
+thread. A backend on a GPU library is planned, in its own crate.
 
 **Why this approach.**
 
@@ -48,8 +49,8 @@ calling thread. A backend on a GPU library is planned, in its own crate.
 - **A reference.** Each of the reference algebra's operations is computed
   directly from its contract, with an SVD whose factors are checked, so a
   backend on another library can be compared with it call by call.
-- **Portable.** The crate depends on `tensornet`, `dense_linalg`,
-  `num-complex` and `thiserror`, all pure Rust, so it builds on every
+- **Portable.** The crate depends on `tensornet`, `num-complex`,
+  `t4a-faer` and `thiserror`, all pure Rust, so it builds on every
   [platform](#platforms) the QDK supports.
 
 ## Terms
@@ -117,7 +118,7 @@ The engine calls the backend's _operations_ (`gate_split`, `qr_move`, …).
 flowchart LR
   S["an MPS simulation method<br/>(gates, measurements, shots)"] -->|"MpsEngine methods"| E["<b>CanonicalMpsEngine</b>"]
   E -->|"SiteAlgebra operations"| B["a backend<br/>(the site tensors, where they live)"]
-  E -->|"host products"| D["dense_linalg"]
+  E -->|"host products"| D["the dense linear algebra"]
 ```
 
 ### On the host CPU
@@ -125,7 +126,7 @@ flowchart LR
 [`CpuMpsEngine`](src/lib.rs) is the engine on the
 [reference algebra](#the-reference-algebra), `CpuAlgebra`. Its state is
 `CanonicalMpsState<CpuAlgebra>`, and its error
-`CanonicalMpsError<dense_linalg::SvdError>`. The GHZ state on three
+`CanonicalMpsError<SvdError>`. The GHZ state on three
 qubits, its last qubit reached from the first by a gate on sites that are
 not neighbours (the crate's doctest):
 
@@ -201,8 +202,8 @@ falls into eight phases, which each `MpsEngine` method combines
   crossed, which applies the pending gate of the site it leaves.
 - **read**: the centre's site is copied to the host (`read`), its pending
   gate applied, and its values' weights are summed.
-- **contract**: the expectation's products of host matrices, by
-  `dense_linalg`.
+- **contract**: the expectation's products of host matrices, by the
+  [dense linear algebra](#the-dense-linear-algebra).
 - **upload**: a site computed on the host becomes a backend tensor
   (`upload`).
 - **duplicate**: every site is copied, by the backend (`duplicate`).
@@ -280,7 +281,8 @@ answers, call by call, and the engine's tests run on it. It needs no
 device, so it runs wherever the QDK runs.
 
 `CpuAlgebra` holds each site in a `Vec<Complex64>`, in the contract's
-layout, which is the column-major order of `dense_linalg`'s matrices, so
+layout, which is the column-major order of the dense linear algebra's
+matrices, so
 the operations read a site as a matrix without reordering it.
 
 | Operation    | How                                                                                                                                                                                                           | Why                                                                                                                                                                                                     |
@@ -295,10 +297,21 @@ The truncation rule drops the longest tail of singular values whose
 squares sum to at most the cutoff's share, then keeps at most the cap;
 its [documentation](src/algebra/truncation.rs) states it in full. Only
 `gate_split` fails, when the SVD does
-([`SvdError`](../dense_linalg/src/svd.rs)): `DidNotConverge` when its
+([`SvdError`](src/dense_linalg/svd.rs)): `DidNotConverge` when its
 rotations still turn after their last sweep, `FailedChecks` when `θ` holds
 a value that is not finite or the factors fail the SVD's checks. The
 engine reports it as `CanonicalMpsError::Algebra`.
+
+## The dense linear algebra
+
+The reference algebra's products, QR decompositions and SVD, and the
+engine's computations on the host (an MPO's operator, the expectation's
+contractions), come from the crate's private module
+[`dense_linalg`](src/dense_linalg.rs): dense complex matrices with a thin
+QR and a checked SVD, which either answers factors checked against the
+matrix or reports a failure (`SvdError`, exported at the crate's root).
+[`docs/dense_linalg.md`](docs/dense_linalg.md) gives the SVD's guarantees
+and steps, and the library it uses for speed, t4a-faer.
 
 ## Examples
 

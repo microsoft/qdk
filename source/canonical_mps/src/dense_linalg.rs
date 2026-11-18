@@ -2,8 +2,10 @@
 // Licensed under the MIT License.
 
 //! Dense complex matrices with a checked thin singular value decomposition
-//! (SVD), with the product, thin QR decomposition and adjoint that MPS
-//! simulators also need.
+//! (SVD), with the product, thin QR decomposition and adjoint that the
+//! reference algebra ([`CpuAlgebra`](crate::CpuAlgebra)) and the engine's
+//! host computations (the MPO of a gate, the expectation's contractions)
+//! need.
 //!
 //! General SVDs have returned factors that do not give back the matrix,
 //! without reporting a failure, on rank-deficient matrices with repeated
@@ -18,35 +20,21 @@
 //! - [`Svd`]: the checked thin SVD, [`Svd::of`], and [`SvdError`], why it
 //!   failed.
 //!
+//! The module is private: only [`SvdError`] is public, at the crate's root,
+//! because it is `CpuAlgebra`'s error and the source of an engine error.
+//! The `conformance` feature makes the module public, for another crate's
+//! test doubles that compute as a backend library would (a fake of a GPU
+//! library's SVD and QR).
+//!
 //! Each computes on the calling thread, in pure Rust, on every target the
-//! QDK supports, WebAssembly included.
-//!
-//! The SVD of a matrix of rank 1, whose one singular value is 5:
-//!
-//! ```
-//! # fn main() -> Result<(), dense_linalg::SvdError> {
-//! use dense_linalg::{Matrix, Svd};
-//! use num_complex::Complex64;
-//!
-//! // (3, 4)ᵀ·(1, 0, 0): column-major, one column after the other.
-//! let x = |re| Complex64::new(re, 0.0);
-//! let zero = x(0.0);
-//! let a = Matrix::new(2, 3, vec![x(3.0), x(4.0), zero, zero, zero, zero]);
-//! let svd = Svd::of(a.view())?;
-//! assert_eq!(svd.singular_values.len(), 1);
-//! assert!((svd.singular_values[0] - 5.0).abs() < 1e-14);
-//! # Ok(())
-//! # }
-//! ```
+//! QDK supports, WebAssembly included. `docs/dense_linalg.md` gives the
+//! SVD's guarantees and steps.
 
-mod kernels;
+pub(crate) mod kernels;
 mod matrix;
 mod qr;
 mod scaling;
-mod svd;
-
-#[cfg(test)]
-mod tests;
+pub(crate) mod svd;
 
 pub use self::matrix::{Matrix, MatrixRef};
 pub use self::qr::Qr;

@@ -3,9 +3,9 @@
 
 //! [`Qr`]: the thin QR decomposition of a dense complex matrix.
 
-use crate::kernels::{Kernels, Shipped};
-use crate::matrix::{Matrix, MatrixRef};
-use crate::scaling::PowerOfTwoScaling;
+use crate::dense_linalg::kernels::{Kernels, Shipped};
+use crate::dense_linalg::matrix::{Matrix, MatrixRef};
+use crate::dense_linalg::scaling::PowerOfTwoScaling;
 
 /// A thin QR decomposition `a = q·r`: with `k = min(rows, cols)`, `q` is
 /// `rows × k` with orthonormal columns and `r` is `k × cols`, upper
@@ -34,7 +34,7 @@ impl Qr {
     /// unspecified (they may hold NaNs). Where [`Svd::of`] refuses such a
     /// matrix, this returns them unchecked.
     ///
-    /// [`Svd::of`]: crate::Svd::of
+    /// [`Svd::of`]: crate::dense_linalg::Svd::of
     #[must_use]
     pub fn of(a: MatrixRef<'_>) -> Self {
         let (rows, cols) = (a.rows(), a.cols());

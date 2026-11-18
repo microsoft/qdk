@@ -9,7 +9,7 @@
 
 use crate::CpuAlgebra;
 use crate::algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
-use dense_linalg::SvdError;
+use crate::dense_linalg::SvdError;
 use num_complex::Complex64;
 use std::borrow::Cow;
 use std::cell::Cell;

@@ -4,7 +4,7 @@
 //! The tests of the thin QR (`qr`).
 
 use super::{SHAPES, adjoint, c, distance, identity, matrix, naive_product, times_power_of_two};
-use crate::{Matrix, Qr};
+use crate::dense_linalg::{Matrix, Qr};
 
 /// Checks that `Qr::of(a)` gives back `a` to rounding of its largest entry,
 /// with orthonormal columns in `Q` and `R` upper trapezoidal.

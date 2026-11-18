@@ -25,7 +25,7 @@
 
 use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain, reads::HostSite};
 use crate::algebra::SiteAlgebra;
-use dense_linalg::{Matrix, MatrixRef};
+use crate::dense_linalg::{Matrix, MatrixRef};
 use num_complex::Complex64;
 use std::borrow::Cow;
 use std::collections::BTreeMap;

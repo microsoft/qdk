@@ -29,8 +29,8 @@ neighbours is applied by one split. Any other is applied in three steps:
 1. **Factor.** The window's operator, on `k` sites, is factored on the
    host by `k − 1` SVDs into one tensor per site, linked by operator
    bonds. Each SVD already trims the values its rank-revealing QR finds
-   to be rounding (`dense_linalg`'s `Svd::of`), and the factorisation
-   also drops the values at or below the operator's rank cutoff
+   to be rounding (the dense linear algebra's `Svd::of`), and the
+   factorisation also drops the values at or below the operator's rank cutoff
    (`OPERATOR_RANK_CUTOFF`, in [`policy.rs`](../src/engine/policy.rs))
    times the largest: rounding the trim kept, or a part of the operator
    that small, which the retained weight does not count. A CNOT's bond is
