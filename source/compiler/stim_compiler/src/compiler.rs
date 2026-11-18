@@ -1236,6 +1236,8 @@ impl<'noise> Compiler<'noise> {
         stmts
     }
 
+    /// The `let` bindings get a generated span so the debugger only stops at the `if`. Their values
+    /// keep source spans so errors point at the REQUIRE.
     fn compile_require(
         &mut self,
         records: &[semantic::NegatableMeasurementRecord],
@@ -1284,7 +1286,8 @@ impl<'noise> Compiler<'noise> {
 
         let (loss, loss_stmt) = self.bind_local("loss", loss_expr);
         let (parity, parity_stmt) = self.bind_local("parity", parity_expr);
-        let restart_expr = build_binary_expr(false, ast::BinOp::OrL, loss, parity, GENERATED_SPAN);
+        let restart_expr =
+            build_binary_expr(false, ast::BinOp::OrL, loss, parity, instruction_span);
         let (restart, restart_stmt) = self.bind_local("restart", restart_expr);
 
         vec![
@@ -1295,6 +1298,8 @@ impl<'noise> Compiler<'noise> {
         ]
     }
 
+    /// The `let` binding gets a generated span so the debugger only stops at the `if`. Its value
+    /// keeps source spans so errors point at the NOTLEAKED.
     fn compile_not_leaked(
         &mut self,
         records: &[semantic::MeasurementRecord],
@@ -1572,6 +1577,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     /// `let {prefix}_n = value;` with a fresh name `{prefix}_n`. Also returns a reference to it.
+    /// The statement has GENERATED_SPAN, so that the debugger doesn't stop on it.
     fn bind_local(&mut self, prefix: &'static str, value: ast::Expr) -> (ast::Expr, ast::Stmt) {
         let name = self.symbols.fresh_name(prefix);
         let stmt = build_local_decl(
