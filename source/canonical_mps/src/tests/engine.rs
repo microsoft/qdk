@@ -4,14 +4,14 @@
 //! The tests of the engine's rules, one file per area of the contract or
 //! of the engine's own promises, on the reference algebra, [`CpuAlgebra`].
 //! This file holds what several areas share: the engine with and without
-//! fusion, gates and observables, and a circuit run on the engine and on
-//! the exact reference. Two stand-ins wrap [`CpuAlgebra`] for the tests
-//! that need more than its answers: the spy [`SpyAlgebra`] counts the
-//! engine's calls and records its uploads, and the fake
-//! [`FailingFakeAlgebra`] fails the call a test chooses.
+//! fusion, gates and observables (with those of `engine_circuits`), and a
+//! circuit run on the engine and on the exact reference. Two stand-ins
+//! wrap [`CpuAlgebra`] for the tests that need more than its answers: the
+//! spy [`SpyAlgebra`] counts the engine's calls and records its uploads,
+//! and the fake [`FailingFakeAlgebra`] fails the call a test chooses.
 
 mod chain;
-mod conformance;
+mod circuits;
 mod expectation;
 mod failing_fake_algebra;
 mod failures;
@@ -26,6 +26,7 @@ mod statistics;
 mod truncation;
 
 use crate::dense_linalg::SvdError;
+use crate::engine_circuits::{chain, cnot, entangler, exact, mixed_string, ry};
 use crate::{
     CanonicalMpsEngine, CanonicalMpsError, CanonicalMpsState, CpuAlgebra, CpuMpsEngine as Engine,
     DEFAULT_CUTOFF, SplitStatistics,
@@ -46,11 +47,6 @@ fn real(re: f64) -> Complex64 {
     Complex64::new(re, 0.0)
 }
 
-fn ry(theta: f64) -> Vec<Complex64> {
-    let (s, k) = (theta / 2.0).sin_cos();
-    vec![real(k), real(-s), real(s), real(k)]
-}
-
 fn phase(theta: f64) -> Vec<Complex64> {
     vec![
         real(1.0),
@@ -58,14 +54,6 @@ fn phase(theta: f64) -> Vec<Complex64> {
         real(0.0),
         Complex64::from_polar(1.0, theta),
     ]
-}
-
-fn cnot() -> Vec<Complex64> {
-    let mut m = vec![real(0.0); 16];
-    for (row, col) in [(0, 0), (1, 1), (2, 3), (3, 2)] {
-        m[4 * row + col] = real(1.0);
-    }
-    m
 }
 
 fn cz() -> Vec<Complex64> {
@@ -85,46 +73,11 @@ fn zz() -> Vec<Complex64> {
     m
 }
 
-/// A complex entangling gate, symmetric under the exchange of its operands
-/// and equal to its transpose: a partial iSWAP on |01⟩, |10⟩ and a phase on
-/// |11⟩.
-fn entangler(theta: f64) -> Vec<Complex64> {
-    let mut m = vec![real(0.0); 16];
-    let (s, k) = (theta / 2.0).sin_cos();
-    m[0] = real(1.0);
-    m[4 + 1] = real(k);
-    m[4 + 2] = Complex64::new(0.0, -s);
-    m[8 + 1] = Complex64::new(0.0, -s);
-    m[8 + 2] = real(k);
-    m[15] = Complex64::from_polar(1.0, theta);
-    m
-}
-
-/// A chain of `sites` qubits whose bonds are at most `chi`.
-fn chain(sites: usize, chi: usize) -> MpsShape {
-    MpsShape::qubit_chain(sites, chi).expect("a chain of qubits")
-}
-
-/// A chain of `sites` qubits that holds every state: for the exact
-/// reference.
-fn exact(sites: usize) -> MpsShape {
-    chain(sites, 1 << sites)
-}
-
 fn z_string(sites: &[usize]) -> PauliSum {
     let factors = sites.iter().map(|&s| (s, Pauli::Z)).collect();
     PauliSum::new(
         real(0.0),
         vec![PauliTerm::new(real(1.0), factors).expect("a term")],
-    )
-    .expect("an observable")
-}
-
-fn mixed_string() -> PauliSum {
-    let factors = vec![(0, Pauli::X), (3, Pauli::Y), (5, Pauli::Z)];
-    PauliSum::new(
-        real(0.25),
-        vec![PauliTerm::new(Complex64::new(0.5, -1.0), factors).expect("a term")],
     )
     .expect("an observable")
 }
