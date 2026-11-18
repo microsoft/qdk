@@ -36,7 +36,7 @@ pub(super) const SVD_ALGORITHM: SvdSetting = SvdSetting::AlgorithmGesvd;
 /// How far below zero a gate split's reported discarded weight may lie and
 /// still be read as zero, nothing discarded. cuTensorNet reports the
 /// weight rounded: a split that discarded nothing reported -2.2e-16 on an
-/// A100, as one minus a kept share of the squares rounded above 1 would.
+/// A100, as one minus a retained fraction rounded above 1 would.
 /// That rounding, over the at most `k` singular values of a split, is
 /// about `k·ε` at worst, so 1e-12 covers splits of up to about 4,000
 /// values (`k·ε` = 9.1e-13 at `k` = 4,096), while a negative weight of any
