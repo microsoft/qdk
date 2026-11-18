@@ -1534,7 +1534,7 @@ impl<'noise> Compiler<'noise> {
         instruction_span: Span,
     ) -> ast::Stmt {
         let controls = build_expr_array_expr(self.qubit_args(controls), instruction_span);
-        let target = build_qubit_expr(self.symbols.allocate_qubit(target.id), target.span);
+        let target = self.qubit_arg(target);
         build_controlled_qsharp_op_call_stmt(op, controls, target, instruction_span)
     }
 
@@ -1647,12 +1647,14 @@ impl<'noise> Compiler<'noise> {
         ))
     }
 
+    /// `qs[k]` for the Stim qubit, allocating it on first use.
+    fn qubit_arg(&mut self, qubit: Qubit) -> ast::Expr {
+        build_qubit_expr(self.symbols.allocate_qubit(qubit.id), qubit.span)
+    }
+
     /// `qs[k]` for each Stim qubit, allocating it on first use.
     fn qubit_args(&mut self, qubits: &[Qubit]) -> Vec<ast::Expr> {
-        qubits
-            .iter()
-            .map(|q| build_qubit_expr(self.symbols.allocate_qubit(q.id), q.span))
-            .collect()
+        qubits.iter().map(|&q| self.qubit_arg(q)).collect()
     }
 
     fn noise_table_stmt(
