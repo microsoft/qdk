@@ -273,10 +273,10 @@ fn the_report_gives_the_max_bond_dimension_set_even_before_a_run() {
 }
 
 /// A run warns when its shots lost more weight to truncation than the
-/// tolerance, giving the weight lost and the max bond dimension, and only
-/// then. Each row is a run's report, and the weight lost it warns of: an
-/// exact run, which keeps all its weight, none; a run that lost 1%, 1%;
-/// and a loss of exactly the tolerance, none.
+/// tolerance, giving the weight lost (not the weight kept) and the max bond
+/// dimension, and only then. Each row is a run's report, and the weight
+/// lost it warns of: an exact run, which keeps all its weight, none; a run
+/// that lost 1%, 1%; and a loss of exactly the tolerance, none.
 #[test]
 fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
     let mut exact = MpsResumer::new(ExactReference::new(), 7);
@@ -311,9 +311,16 @@ fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
                 DEFAULT_MAX_BOND_DIMENSION.get(),
                 "{scene}"
             );
+            let message = warning.to_string();
             assert!(
-                warning.to_string().contains("max bond dimension 128"),
-                "{scene}: {warning}"
+                message.contains("max bond dimension 128"),
+                "{scene}: {message}"
+            );
+            let shown = |weight: f64| format!("{weight:.3e}");
+            assert!(
+                message.contains(&shown(lost_weight))
+                    && !message.contains(&shown(1.0 - lost_weight)),
+                "{scene}: the message gives the weight lost, not the weight kept: {message}"
             );
         }
     }
