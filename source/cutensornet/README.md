@@ -14,8 +14,11 @@ QDK. The problem includes:
 - most QDK users have neither cuTensorNet nor the CUDA Runtime it runs on
   (NVIDIA's library for driving a GPU), so the QDK must build, load and
   simulate on the CPU without them;
-- and when a GPU run is asked for, its caller needs to know what is
-  missing, to tell the user or to run on the CPU instead.
+- when a GPU run is asked for, its caller needs to know what is
+  missing, to tell the user or to run on the CPU instead;
+- and a user setting the GPU up (a driver, a device and two libraries,
+  all outside the QDK), often without knowing CUDA, needs to be told what
+  is missing and what to fix.
 
 The crate solves these with `canonical_mps`'s engine on a cuTensorNet
 algebra, and with libraries opened at run time. The engine's rules are
@@ -26,7 +29,8 @@ never linked: they are opened at run time and checked
 ([discovery](#the-discovery-and-loading-of-the-libraries)), which returns
 the loaded libraries, on which an engine opens, or why they cannot be
 used: every fault it found, or, off Linux x86-64, that the platform is
-unsupported.
+unsupported. The GPU setup check runs the same discovery, reads the GPUs
+and makes one trial run, and says what to fix.
 
 Today the crate holds:
 
@@ -41,8 +45,11 @@ Today the crate holds:
   why a call of the algebra failed, which the engine wraps as
   `CanonicalMpsError::Algebra`.
 - **[The discovery and loading of the libraries](#the-discovery-and-loading-of-the-libraries):**
-  [`discover`](src/discovery.rs), which opens and checks the libraries,
-  and [`Availability`](src/discovery.rs), which keeps them loaded.
+  [`discover`](src/discovery.rs), which opens and checks the libraries;
+  [`discover_with`](src/discovery.rs), the same given the
+  [`PackagedLibraries`](src/libraries/packaged_libraries.rs) a package
+  manager installed; and [`Availability`](src/discovery.rs), which keeps
+  them loaded.
 - **Reports and faults:** [`AvailabilityReport`](src/discovery/report.rs),
   with a [`LibraryReport`](src/libraries/report.rs) per library and the
   [`Version`](src/libraries/report.rs)s it reports; and
@@ -296,7 +303,7 @@ flowchart TD
 - [`discover`](src/discovery.rs) selects no device, allocates no GPU memory
   and runs no GPU work.
 - [`discover_with`](src/discovery.rs) is `discover` also given the
-  [`PackagedLibraries`](src/libraries.rs): the library files a package
+  [`PackagedLibraries`](src/libraries/packaged_libraries.rs): the library files a package
   manager installed where no default path reaches (NVIDIA's wheels in a
   Python environment, say), and the command that installs them, which the
   setup check advises. `discover` gives none.
@@ -346,7 +353,7 @@ and how the bindings are made and checked.
 An override must be an absolute path to a file, or to a symlink to one, and
 is then the only path tried, so a wrong setting fails instead of loading
 another installation. Without one, the first of the
-[`PackagedLibraries`](src/libraries.rs) files with the library's file name,
+[`PackagedLibraries`](src/libraries/packaged_libraries.rs) files with the library's file name,
 when `discover_with` is given one, is tried before the default paths. An
 absolute packaged or default path is skipped when there is no file there,
 including when part of it is a file rather than a directory, and fails
@@ -371,9 +378,11 @@ cuTensorNet's.
 
 ## The GPU setup check
 
-[`GpuSetup::check`](src/gpu_setup.rs) is what a user runs while setting the
-GPU up, often without knowing CUDA. It never fails: the
-[`GpuSetup`](src/gpu_setup.rs) it returns lists what each step below found,
+A GPU run needs a driver, a device and two libraries, all outside the QDK,
+and a user who does not know CUDA cannot tell which is wrong.
+[`GpuSetup::check`](src/gpu_setup.rs), which the user runs while setting the
+GPU up, never fails: the [`GpuSetup`](src/gpu_setup.rs) it returns lists
+what each step below found,
 warns of other copies of a library, and says what to fix for the first
 problem met, looked for in the order of the steps. A caller shows it on
 request, and its text with the error of a GPU run that cannot start.

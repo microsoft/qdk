@@ -750,15 +750,10 @@ impl NativeLibrary for OpenedWithoutItsFunction {
     const VARIABLE: &'static str = "QDK_CUTENSORNET_TEST_UNSET_VARIABLE";
     const FILE_NAME: &'static str = "libc.so.6";
     const DEFAULTS: &'static [&'static str] = &[ALWAYS_PRESENT_LIBRARY];
-    const INSTALL: &'static str = "the C library";
     type Functions = AbsentFunctionTable;
 
     fn probe_versions<R: SymbolResolver>(_resolver: &R) -> ProbedVersions {
         ProbedVersions::default()
-    }
-
-    fn describe(_report: &LibraryReport) -> Vec<String> {
-        Vec::new()
     }
 }
 
@@ -792,15 +787,10 @@ impl NativeLibrary for OpenedBesideAnotherFile {
     const VARIABLE: &'static str = "QDK_CUTENSORNET_TEST_UNSET_VARIABLE";
     const FILE_NAME: &'static str = "libc.so.6";
     const DEFAULTS: &'static [&'static str] = &[ALWAYS_PRESENT_LIBRARY, "/bin/sh"];
-    const INSTALL: &'static str = "the C library";
     type Functions = AbsentFunctionTable;
 
     fn probe_versions<R: SymbolResolver>(_resolver: &R) -> ProbedVersions {
         ProbedVersions::default()
-    }
-
-    fn describe(_report: &LibraryReport) -> Vec<String> {
-        Vec::new()
     }
 }
 
