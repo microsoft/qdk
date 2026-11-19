@@ -448,6 +448,20 @@ fn failures_of_preparations_and_gates() -> Vec<FailureRow> {
         }
     }
 
+    // A gate whose sites, with the pending window's, number more than a
+    // window holds applies the window first: the gate itself fails as that
+    // application does.
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::GateSplit));
+    let mut state = engine.prepare(&capacity(4, 4)).expect("prepare");
+    engine
+        .apply(&mut state, &[0, 1], &cnot())
+        .expect("a fused gate takes no split");
+    let error = engine
+        .apply(&mut state, &[2, 3], &cnot())
+        .expect_err("the gate on sites 2 and 3 applies the window on 0 and 1");
+    let name = "a gate beside a full window".into();
+    failures.push((name, Method::GateSplit, error));
+
     // A gate on sites 0 and 2 of 3 is a matrix product operator, which,
     // once a read applies its window, uploads each site of its span
     // multiplied by its factor.
@@ -571,13 +585,13 @@ fn failures_of_reads_projections_and_forks() -> Vec<FailureRow> {
 
 /// A CNOT on sites 0 and 2 of 3, applied by the retained weight, whose
 /// read or upload of the span's second site fails, after the first site
-/// was read, multiplied and uploaded: the chain keeps the sites it had, so
-/// its neighbours still share each bond and its shape is the one before
-/// the gate, not a site of bond 2 beside one of bond 1. The preparation
-/// uploads each site and reads none, so the operator's calls are numbered
-/// after it.
+/// was read, multiplied and uploaded: the chain keeps the span's sites
+/// unmultiplied, so its neighbours still share each bond and its shape is
+/// the one before the gate, not a site of bond 2 beside one of bond 1.
+/// The preparation uploads each site and reads none, so the operator's
+/// calls are numbered after it.
 #[test]
-fn a_failed_read_or_upload_leaves_the_span_as_it_was() {
+fn a_failed_read_or_upload_leaves_the_span_unmultiplied() {
     let sites = 3;
     for (method, failing) in [(Method::Upload, sites + 1), (Method::Read, 1)] {
         let (algebra, asked) = FailingFakeAlgebra::on_call(method, failing);

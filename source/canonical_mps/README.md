@@ -76,20 +76,22 @@ Today the crate holds:
 - **[The dense linear algebra](#the-dense-linear-algebra):** the
   products, QR and checked SVD of the CPU algebra and of the engine's
   computations on the host; its error, [`SvdError`](src/dense_linalg/svd.rs),
-  is at the crate's root, and the whole module under the `conformance`
-  feature, for a backend's test fakes.
+  is public at the crate's root; the `conformance` feature makes the whole
+  module public, for a backend's test fakes.
 
 A simulator uses the engine: it starts with `CpuMpsEngine`, as in
 [On the host CPU](#on-the-host-cpu), or names `CanonicalMpsEngine` on
 another backend's algebra. A backend's author implements `SiteAlgebra`'s
 five tensor operations and runs the conformance kit and circuits on it, as
-[The backend contract](#the-backend-contract) shows; the backend then gets
-every `MpsEngine` method with no code of its own: the fusion of gates,
-gates on sites far apart, measurement, sampling, expectations, the
-contract's refusals, the retained weight and the statistics.
+[The backend contract](#the-backend-contract) shows; the backend then gets,
+with no code of its own, every `MpsEngine` method and the rules behind
+them: the fusion of gates, gates on sites far apart, measurement,
+sampling, expectations, the contract's refusals and the retained weight;
+and the state's statistics.
 
-**When each guarantee holds.** The engine's rustdoc,
-[`CanonicalMpsEngine`](src/engine.rs), states each one:
+**When each guarantee holds.** The rustdoc of
+[`CanonicalMpsEngine`](src/engine.rs) and of
+[`CanonicalMpsError`](src/engine/error.rs) states each one:
 
 - **At construction:** `with_cutoff` panics on a cutoff outside `[0, 1)`.
 - **At each call, before any backend call:** the contract's checks refuse
@@ -105,7 +107,7 @@ contract's refusals, the retained weight and the statistics.
   the weight.
 - **After a failure:** the state is unspecified, and the caller drops it;
   only a failed read or upload of a site of an MPO's span leaves that
-  span's sites as they were.
+  span's sites unmultiplied, so neighbours still share each bond.
 
 **Why this approach.**
 
