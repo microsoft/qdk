@@ -148,31 +148,32 @@ fn why_cannot_judge(result: Result<(), Nonconformance>) -> String {
     }
 }
 
-/// What the checks of an executor's rules, run in their order, write they
-/// did not judge on a part whose offer is not replayable: the rules whose
-/// every comparison is of runs sending the shots otherwise, then the
-/// guards of those that compare runs sent alike.
-const NOT_JUDGED_IF_NOT_REPLAYABLE: [&str; 5] = [
-    "GivesEachShotWhatItGivesAlone",
-    "ContinuesEachShotAcrossExecutes",
-    "ChangesNoShotOutsideItsBatches",
-    "whether its patterns can show StartsEachShotAfresh broken",
-    "whether its patterns can show DoesNothingUntilPolled broken",
+/// The rules the checks of an executor's rules, run in their order, write
+/// they did not judge on a part whose offer is not replayable: the rules
+/// whose every comparison is of runs sending the shots otherwise, then
+/// those whose guard compares runs sent alike, which the check could not
+/// run.
+const NOT_JUDGED_IF_NOT_REPLAYABLE: [Rule; 5] = [
+    Rule::GivesEachShotWhatItGivesAlone,
+    Rule::ContinuesEachShotAcrossExecutes,
+    Rule::ChangesNoShotOutsideItsBatches,
+    Rule::StartsEachShotAfresh,
+    Rule::DoesNothingUntilPolled,
 ];
 
-/// What each of `notes`, written on stderr, says a check did not judge
-/// because the part is not replayable, in their order.
-fn not_judged_as_not_replayable(notes: &[String]) -> Vec<&str> {
+/// The rule each of `notes`, written on stderr, names as not judged
+/// because the part is not replayable, in their order: each note that says
+/// the part is not replayable names one of
+/// [`NOT_JUDGED_IF_NOT_REPLAYABLE`].
+fn not_judged_as_not_replayable(notes: &[String]) -> Vec<Rule> {
     notes
         .iter()
         .filter(|note| note.contains("not replayable"))
         .map(|note| {
-            let (_, judged) = note
-                .split_once("did not judge ")
-                .expect("a note of what a check did not judge");
-            judged
-                .split_once(", since")
-                .map_or(judged, |(what, _)| what)
+            NOT_JUDGED_IF_NOT_REPLAYABLE
+                .into_iter()
+                .find(|rule| note.contains(&format!("{rule:?}")))
+                .unwrap_or_else(|| panic!("a note naming no rule it did not judge: {note}"))
         })
         .collect()
 }

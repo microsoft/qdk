@@ -10,7 +10,8 @@
 //! The conformance kit, `executor_protocol_conformance`, checks a part (a
 //! driver, an executor or an adapter), in the part's tests, against rules
 //! the protocol does not check as it runs; `docs/writing-a-part.md` says
-//! which. Anyone writing a part runs it.
+//! which. Anyone writing a driver, or a seedable executor or adapter, runs
+//! it.
 
 mod batch;
 mod composition;

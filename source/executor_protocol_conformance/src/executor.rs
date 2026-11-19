@@ -76,6 +76,7 @@ use crate::rule::Rule;
 use crate::script::Script;
 use crate::shared_run::RunSetup;
 use crate::shot_records::{ShotRecords, joined_fault, row_faults};
+use crate::trial_patterns::run_trials;
 use crate::trials::Trials;
 
 /// Checks that the executor writes every readout value of each batch it
@@ -95,9 +96,9 @@ use crate::trials::Trials;
 /// each slot that equals the kit's value in every run. The second run's
 /// values are the first's complements, so an executor that writes every slot
 /// and repeats its values for a seed passes in two runs; further runs, with
-/// new values, run while a slot still equals them, up to the kit's bound
-/// (`MAX_RUNS`, in the kit's `readout_prefills.rs`, which gives the argument
-/// and the odds of a wrong report). Trial 0 runs `script`; each drawn trial
+/// new values, run while a slot still equals them, up to a fixed number of
+/// runs that makes the odds of reporting a slot written with values that
+/// change from run to run negligible. Trial 0 runs `script`; each drawn trial
 /// runs it redrawn, with a seed of its own (the module's
 /// [trials](crate::executor#the-trials)).
 ///
@@ -583,7 +584,7 @@ pub(crate) fn writes_every_readout_on(
     script: &Script,
     trials: Trials,
 ) -> Result<(), Nonconformance> {
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let script = patterns.script(script);
         let mut findings = patterns.findings();
         let mut prefills = ReadoutPrefills::default();
@@ -621,7 +622,7 @@ pub(crate) fn gives_each_shot_what_it_gives_alone_on(
     script: &Script,
     trials: Trials,
 ) -> Result<(), Nonconformance> {
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let count = script.shots().len();
         if count < 3 {
             return Err(patterns.cannot_judge(format!(
@@ -703,7 +704,7 @@ pub(crate) fn continues_each_shot_across_executes_on(
 ) -> Result<(), Nonconformance> {
     let rule = Rule::ContinuesEachShotAcrossExecutes;
     let both: Vec<Instruction> = first.iter().chain(second).cloned().collect();
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let shots = patterns.shots(shots);
         let all: Vec<ShotId> = shots.iter().collect();
         let mut findings = patterns.findings();
@@ -797,7 +798,7 @@ pub(crate) fn changes_no_shot_outside_its_batches_on(
     trials: Trials,
 ) -> Result<(), Nonconformance> {
     let rule = Rule::ChangesNoShotOutsideItsBatches;
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         if shots.len() < 4 {
             return Err(patterns.cannot_judge(format!(
                 "`shots` holds {} shots; the check needs four or more, so that the shots at \
@@ -888,7 +889,7 @@ pub(crate) fn starts_each_shot_afresh_on(
 ) -> Result<(), Nonconformance> {
     let rule = Rule::StartsEachShotAfresh;
     let both: Vec<Instruction> = first.iter().chain(second).cloned().collect();
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let shots = patterns.shots(shots);
         let all: Vec<ShotId> = shots.iter().collect();
         // One cut per trial, sent in every run.
@@ -946,7 +947,7 @@ pub(crate) fn does_nothing_until_polled_on(
     trials: Trials,
 ) -> Result<(), Nonconformance> {
     let rule = Rule::DoesNothingUntilPolled;
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let script = patterns.script(script);
         let mut findings = patterns.findings();
         let clean = records(&mut findings, mount, script.clone())?;
@@ -994,7 +995,7 @@ pub(crate) fn keeps_its_accepts_and_offers_on(
     script: &Script,
     trials: Trials,
 ) -> Result<(), Nonconformance> {
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let script = patterns.script(script);
         let mut findings = patterns.findings();
         let log = noted_run(&mut findings, mount, RunSetup::of(script))?;
@@ -1013,7 +1014,7 @@ pub(crate) fn runs_as_new_after_a_failed_run_on(
     trials: Trials,
 ) -> Result<(), Nonconformance> {
     let rule = Rule::RunsAsNewAfterAFailedRun;
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let script = patterns.script(script);
         let fails_after = patterns.failing_execute(script.executes().len());
         let mut findings = patterns.findings();

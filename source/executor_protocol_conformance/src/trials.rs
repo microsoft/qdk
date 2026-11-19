@@ -3,18 +3,10 @@
 
 //! [`Trials`]: how many times a check runs its rule, each time on run
 //! patterns drawn from a seed, and why; each a [`Trial`], the one a report
-//! names. A check asks a trial's [`TrialPatterns`] for each choice it
-//! makes; in the kit's own tests, `detection_rates` measures how often
-//! the drawn trials alone catch each fake part.
+//! names.
 
-use crate::nonconformance::Nonconformance;
-
-#[cfg(test)]
-pub(crate) mod detection_rates;
-mod patterns;
 mod trial;
 
-pub(crate) use patterns::TrialPatterns;
 pub use trial::Trial;
 
 /// The trials a check runs: trial 0, on fixed patterns, then trials 1 to
@@ -155,28 +147,12 @@ impl Trials {
         }
     }
 
-    /// Runs `check` on each trial's patterns, in order, until one does not
-    /// pass: its result, naming the trial; or a pass.
-    pub(crate) fn run(
-        self,
-        mut check: impl FnMut(&mut TrialPatterns) -> Result<(), Nonconformance>,
-    ) -> Result<(), Nonconformance> {
-        let run = |trials: Self| {
-            for index in trials.first..=trials.last {
-                check(&mut TrialPatterns::new(Trial {
-                    seed: trials.seed,
-                    index,
-                }))?;
-            }
-            Ok(())
-        };
-        #[cfg(test)]
-        return detection_rates::measuring(self, self.first, run);
-        #[cfg(not(test))]
-        {
-            let mut run = run;
-            run(self)
-        }
+    /// Each trial, in order.
+    pub(crate) fn each(self) -> impl Iterator<Item = Trial> {
+        (self.first..=self.last).map(move |index| Trial {
+            seed: self.seed,
+            index,
+        })
     }
 }
 

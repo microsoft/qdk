@@ -20,7 +20,7 @@
 use std::cell::{Cell, RefCell};
 
 use crate::splitmix64::mix;
-use crate::{Nonconformance, Trials};
+use crate::{Nonconformance, Trial, Trials};
 
 /// The environment variable that sets how many seeds the measure runs.
 pub(crate) const SEEDS_VARIABLE: &str = "EXECUTOR_PROTOCOL_CONFORMANCE_DETECTION_SEEDS";
@@ -33,8 +33,8 @@ pub(crate) const TRIALS_VARIABLE: &str = "EXECUTOR_PROTOCOL_CONFORMANCE_DETECTIO
 thread_local! {
     /// The fake part made last on this thread: the one a check runs on.
     static PART: RefCell<String> = const { RefCell::new(String::new()) };
-    /// How deep in [`Trials::run`] this thread is: only the outermost run
-    /// is a check's own.
+    /// How deep in [`run_trials`](super::run_trials) this thread is: only
+    /// the outermost run is a check's own.
     static DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -47,18 +47,18 @@ pub(crate) fn name_the_part(part: impl Into<String>) {
 /// 0 on and the measure is on, measures what the drawn trials catch.
 pub(crate) fn measuring(
     trials: Trials,
-    first: u32,
     mut run: impl FnMut(Trials) -> Result<(), Nonconformance>,
 ) -> Result<(), Nonconformance> {
     let depth = DEPTH.with(|depth| {
         depth.set(depth.get() + 1);
         depth.get()
     });
+    let from_trial_0 = trials.each().next().is_some_and(Trial::is_fixed);
     let result = run(trials);
     let seeds = std::env::var(SEEDS_VARIABLE)
         .ok()
         .and_then(|seeds| seeds.parse::<u64>().ok());
-    if let (1, 0, Some(seeds)) = (depth, first, seeds) {
+    if let (1, true, Some(seeds)) = (depth, from_trial_0, seeds) {
         let count = std::env::var(TRIALS_VARIABLE)
             .ok()
             .and_then(|count| count.parse().ok())

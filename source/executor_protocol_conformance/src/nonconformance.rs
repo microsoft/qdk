@@ -5,8 +5,7 @@
 //! [`Nonconformance`], which names the part, each rule it broke
 //! ([`BrokenRule`]) and every place where it broke it ([`Fault`], at a
 //! [`Place`]), or why the check could not judge the part, and the trial
-//! that found it, to replay. A trial gathers what it finds in
-//! [`Findings`], which then gives the check's result.
+//! that found it, to replay.
 
 use std::fmt;
 
@@ -16,15 +15,11 @@ use crate::trials::{Trial, Trials};
 
 mod broken_rule;
 mod fault;
-mod findings;
 mod place;
 
 pub use broken_rule::BrokenRule;
 pub use fault::Fault;
 pub(crate) use fault::shot_list;
-pub(crate) use findings::Findings;
-#[cfg(test)]
-pub(crate) use findings::take_unexercised;
 pub use place::Place;
 
 /// Why a check does not pass: the part broke rules, or the check could not
@@ -96,16 +91,32 @@ fn replay(f: &mut fmt::Formatter<'_>, trial: Trial) -> fmt::Result {
 
 impl std::error::Error for Nonconformance {}
 
-/// Why a check cannot use a run that failed. A run refused because a part
-/// was not ready (a busy device, say) says the check can run again once
-/// the part is ready.
-pub(crate) fn failed_run(failure: &RunError) -> String {
+/// Why a check cannot use a run of `part` that failed, naming the part,
+/// and what to change: a run the chain refused ran nothing, so it says
+/// why, from the refusal, with the advice that fits it (a seedable build
+/// of a part that is not seedable, fewer shots for a part that offers
+/// fewer, a run again once a part that was not ready, a busy device say,
+/// is ready).
+pub(crate) fn failed_run(part: &str, failure: &RunError) -> String {
     match failure {
-        RunError::Refused(RunRefusal::PartNotReady { .. }) => format!(
-            "the chain refused a run ({failure}), so it ran nothing; run the check again when \
-             the part is ready"
+        RunError::Refused(RunRefusal::NotSeedable) => format!(
+            "the chain refused a run ({failure}), so it ran nothing: `{part}` is not seedable, \
+             and every run of a check fixes its seed, so that the check can compare runs and \
+             replay a trial; check a seedable build of the part, if it has one"
         ),
-        _ => format!("a run of the script failed ({failure}); the check needs runs that end"),
+        RunError::Refused(RunRefusal::TooManyShots { most, .. }) => format!(
+            "the chain refused a run ({failure}), so it ran nothing: `{part}` offers runs of \
+             at most {most} shots; give the check at most {most} shots"
+        ),
+        RunError::Refused(RunRefusal::PartNotReady { .. }) => format!(
+            "the chain refused a run ({failure}), so it ran nothing; run the check again once \
+             `{part}` is ready"
+        ),
+        RunError::Refused(_) => format!(
+            "the chain refused a run of `{part}` ({failure}), so it ran nothing; the check \
+             needs runs that end"
+        ),
+        _ => format!("a run of `{part}` failed ({failure}); the check needs runs that end"),
     }
 }
 

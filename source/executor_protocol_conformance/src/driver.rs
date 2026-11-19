@@ -33,10 +33,12 @@ use executor_protocol::{Drive, Driver, Executor, RunError, ShotConditions, ShotI
 
 use crate::caller_faults::{misstates_slots, note_misstated, repeated_shots, sends_something};
 use crate::chain::{RecordingExecutor, ScriptedDriver};
-use crate::nonconformance::{Findings, Nonconformance, Place, failed_run, shot_list, uncomposed};
+use crate::findings::Findings;
+use crate::nonconformance::{Nonconformance, Place, shot_list, uncomposed};
 use crate::rule::Rule;
 use crate::shared_run::{Raise, Raised, RunLog, RunSetup, SharedRun, every_kind, raised_in_turn};
-use crate::trials::{TrialPatterns, Trials};
+use crate::trial_patterns::{TrialPatterns, run_trials};
+use crate::trials::Trials;
 
 /// Checks that the driver gives one output per shot, in the order of the
 /// run's shots, each the one its shot gives alone
@@ -94,7 +96,7 @@ where
     D::Output: PartialEq + Debug,
 {
     let rule = Rule::GivesOneOutputPerShotInOrder;
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         if shots.len() < 2 {
             return Err(patterns.cannot_judge(
                 "`shots` holds one shot; an order needs two or more, whose outputs differ",
@@ -115,7 +117,7 @@ where
             let ran = run(&mut make, &set, RunSetup::default(), &mut findings)?;
             let outputs = ran
                 .outputs
-                .map_err(|failure| findings.failed(failed_run(&failure)))?;
+                .map_err(|failure| findings.run_failed(&failure))?;
             if outputs.len() != ids.len() {
                 findings.fault(
                     rule,
@@ -136,7 +138,7 @@ where
             )?;
             let mut outputs = ran
                 .outputs
-                .map_err(|failure| findings.failed(failed_run(&failure)))?;
+                .map_err(|failure| findings.run_failed(&failure))?;
             if outputs.len() == 1 {
                 alone.insert(shot, outputs.remove(0));
             } else {
@@ -212,13 +214,13 @@ pub fn states_readout_slots<D: Drive>(
     shots: &ShotSet,
     trials: Trials,
 ) -> Result<(), Nonconformance> {
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let mut findings = patterns.findings();
         let shots = patterns.shots(shots);
         let ran = run(&mut make, &shots, RunSetup::default(), &mut findings)?;
         if let Err(failure) = ran.outputs {
             if !misstates_slots(&failure) {
-                return Err(findings.failed(failed_run(&failure)));
+                return Err(findings.run_failed(&failure));
             }
             findings.fault(
                 Rule::StatesReadoutSlots,
@@ -273,12 +275,12 @@ pub fn sends_only_its_shots<D: Drive>(
     shots: &ShotSet,
     trials: Trials,
 ) -> Result<(), Nonconformance> {
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let mut findings = patterns.findings();
         let shots = patterns.shots(shots);
         let ran = run(&mut make, &shots, RunSetup::default(), &mut findings)?;
         if let Err(failure) = ran.outputs {
-            return Err(findings.failed(failed_run(&failure)));
+            return Err(findings.run_failed(&failure));
         }
         sends_something(&mut findings, &ran.log, "the driver");
         for below in &ran.log.below {
@@ -342,13 +344,13 @@ pub fn passes_the_seed_on<D: Drive>(
     shots: &ShotSet,
     trials: Trials,
 ) -> Result<(), Nonconformance> {
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let mut findings = patterns.findings();
         let shots = patterns.shots(shots);
         let given = seed_from_runner(&mut make, &shots, &mut findings)?;
         let ran = run(&mut make, &shots, RunSetup::default(), &mut findings)?;
         if let Err(failure) = ran.outputs {
-            return Err(findings.failed(failed_run(&failure)));
+            return Err(findings.run_failed(&failure));
         }
         sends_something(&mut findings, &ran.log, "the driver");
         for below in &ran.log.below {
@@ -444,13 +446,13 @@ pub fn merges_each_executes_conditions<D: Drive>(
     trials: Trials,
 ) -> Result<(), Nonconformance> {
     let rule = Rule::MergesEachExecutesConditions;
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let mut findings = patterns.findings();
         let shots = patterns.shots(shots);
         let plain = run(&mut make, &shots, RunSetup::default(), &mut findings)?;
         let plain_outputs = plain
             .outputs
-            .map_err(|failure| findings.failed(failed_run(&failure)))?;
+            .map_err(|failure| findings.run_failed(&failure))?;
         let ids: Vec<ShotId> = shots.iter().collect();
         if plain_outputs.len() != ids.len() {
             return Err(findings.failed(unpaired(plain_outputs.len(), ids.len())));
@@ -471,7 +473,7 @@ pub fn merges_each_executes_conditions<D: Drive>(
             let raising = run(&mut make, &shots, setup.clone(), &mut findings)?;
             let outputs = raising
                 .outputs
-                .map_err(|failure| findings.failed(failed_run(&failure)))?;
+                .map_err(|failure| findings.run_failed(&failure))?;
             if outputs.len() != ids.len() {
                 return Err(findings.failed(unpaired(outputs.len(), ids.len())));
             }
@@ -635,10 +637,11 @@ fn seed_from_runner<D: Drive>(
 ) -> Result<u64, Nonconformance> {
     let shared_run = SharedRun::new(RunSetup::default());
     let driver = make();
+    findings.note_part_name(driver.name());
     let kits_driver =
         ScriptedDriver::new(shared_run.clone(), driver.sends().clone(), driver.needs());
     over_kits_executor(kits_driver, &shared_run, shots, findings)?
-        .map_err(|failure| findings.failed(failed_run(&failure)))?;
+        .map_err(|failure| findings.run_failed(&failure))?;
     Ok(shared_run
         .log()
         .seed_from_runner

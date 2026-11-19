@@ -46,6 +46,14 @@ The rules and faults no check of the kit sees, each with why. The
   `starts_each_shot_afresh` and `does_nothing_until_polled` skip their
   check that the instructions given can show a broken rule. Each says so
   on the standard error in trial 0.
+- **A part that is not seedable:** every run of a check fixes its seed,
+  so that the check can compare runs and replay a trial, and the chain
+  refuses a fixed seed when a part's offer is not seedable
+  ([`Offer::not_seedable`](../../executor_protocol/src/offer.rs)). So
+  every check of an executor or an adapter that is not seedable, as a
+  device's runtime whose randomness is physical often is not, reports
+  that it cannot judge the part, naming it. Check a seedable build of the
+  part, if it has one, such as a simulator of the device.
 - **An executor's conditions across `execute`s:** an executor raises its
   own conditions on a shot from its state, so the kit cannot tell one
   raised anew from one carried from an earlier `execute`; that a row
@@ -77,7 +85,7 @@ The rules and faults no check of the kit sees, each with why. The
   (`k` and `k + 2¹⁶`), and the ids just below 2¹⁶, from 2¹⁶ up, and up to
   `u32::MAX` (`NEAR_AN_EDGE` of each), so that a part fitted to small ids
   (a `u64` bit mask), or to ids a `u16` holds, shows
-  ([`src/trials/patterns.rs`](../src/trials/patterns.rs)
+  ([`src/trial_patterns.rs`](../src/trial_patterns.rs)
   says how they are drawn); and a run sends at most four times the
   script's `execute`s, or the two lists' (a drawn trial splits some in
   two, and a check may split each in two again or send each twice). A

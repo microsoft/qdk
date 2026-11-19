@@ -44,7 +44,8 @@ pub(crate) use scripted_driver::ScriptedDriver;
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use crate::nonconformance::{Fault, Findings, Nonconformance, Place, failed_run, uncomposed};
+use crate::findings::Findings;
+use crate::nonconformance::{Fault, Nonconformance, Place, failed_run, uncomposed};
 use crate::script::Script;
 use crate::shared_run::{RowRecord, RunLog, RunSetup, SharedRun};
 use crate::shot_records::ShotRecords;
@@ -82,7 +83,7 @@ impl RunOutcome {
     /// device does.
     pub(crate) fn why_refused(&self) -> Option<String> {
         match &self.failure {
-            Some(failure @ RunError::Refused(_)) => Some(failed_run(failure)),
+            Some(failure @ RunError::Refused(_)) => Some(failed_run(&self.log.part, failure)),
             _ => None,
         }
     }
@@ -167,14 +168,15 @@ fn run_fresh(mount: &mut impl Mount, setup: RunSetup, seed: u64) -> Result<RunLo
     let ran = chain.run(setup, seed);
     if withholds_end_shots && let Err(panic) = catch_unwind(AssertUnwindSafe(|| drop(chain))) {
         return Err(format!(
-            "the part panicked when dropped with its shots never ended ({}); the check \
-             needs a part that can be dropped so, as a crash leaves it",
+            "`{}` panicked when dropped with its shots never ended ({}); the check needs a \
+             part that can be dropped so, as a crash leaves it",
+            ran.log.part,
             panic_message(&*panic)
         ));
     }
     match ran.failure {
         None => Ok(ran.log),
-        Some(failure) => Err(failed_run(&failure)),
+        Some(failure) => Err(failed_run(&ran.log.part, &failure)),
     }
 }
 

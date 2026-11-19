@@ -181,9 +181,10 @@ The conformance kit,
 [`executor_protocol_conformance`](../../executor_protocol_conformance/README.md),
 checks most of these rules in an implementer's tests (the kit's
 [limits](../../executor_protocol_conformance/docs/limits.md) lists those it
-does not), by a function per rule and role (and two rules every check of
-an executor or an adapter reports), and reports each place where a part
-breaks one. Anyone writing a part runs it.
+does not), and reports each place where a part breaks one. Anyone writing
+a driver, or a seedable executor or adapter, runs it: every run of a check
+fixes its seed, so the kit cannot judge an executor or an adapter that is
+not seedable.
 [The checks](../../executor_protocol_conformance/README.md#the-checks), in
 the kit's README, lists what each role's checks cover.
 

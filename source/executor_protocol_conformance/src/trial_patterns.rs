@@ -2,19 +2,47 @@
 // Licensed under the MIT License.
 
 //! [`TrialPatterns`]: the run patterns of one trial of a check, which the
-//! check asks for each choice it makes. In trial 0 each is the fixed
-//! pattern the check's documentation states; in a drawn trial each is
-//! drawn from the trial's seed and index, within what the protocol leaves
-//! free, so that a part fitted to the fixed patterns shows.
+//! check asks for each choice it makes, and [`run_trials`], which runs a
+//! check on each trial's patterns. In trial 0 each pattern is the fixed
+//! one the check's documentation states; in a drawn trial each is drawn
+//! from the trial's seed and index, within what the protocol leaves free,
+//! so that a part fitted to the fixed patterns shows. In the kit's own
+//! tests, `detection_rates` measures how often the drawn trials alone
+//! catch each fake part.
 
 use executor_protocol::{Instruction, ShotId, ShotSet};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::Trial;
-use crate::nonconformance::{Findings, Nonconformance};
+use crate::findings::Findings;
+use crate::nonconformance::Nonconformance;
 use crate::script::{Script, ScriptBatch};
 use crate::shared_run::{Raised, raising_halves};
 use crate::splitmix64::SplitMix64;
+use crate::trials::{Trial, Trials};
+
+#[cfg(test)]
+pub(crate) mod detection_rates;
+
+/// Runs `check` on each trial's patterns, in order, until one does not
+/// pass: its result, naming the trial; or a pass.
+pub(crate) fn run_trials(
+    trials: Trials,
+    mut check: impl FnMut(&mut TrialPatterns) -> Result<(), Nonconformance>,
+) -> Result<(), Nonconformance> {
+    let run = |trials: Trials| {
+        for trial in trials.each() {
+            check(&mut TrialPatterns::new(trial))?;
+        }
+        Ok(())
+    };
+    #[cfg(test)]
+    return detection_rates::measuring(trials, run);
+    #[cfg(not(test))]
+    {
+        let mut run = run;
+        run(trials)
+    }
+}
 
 /// The run patterns of one trial: fixed in trial 0, drawn in the others.
 pub(crate) struct TrialPatterns {
@@ -46,7 +74,7 @@ const NEAR_AN_EDGE: u32 = 64;
 
 impl TrialPatterns {
     /// The patterns of `trial`.
-    pub(crate) fn new(trial: Trial) -> Self {
+    fn new(trial: Trial) -> Self {
         Self {
             trial,
             draws: (!trial.is_fixed()).then(|| SplitMix64::new(trial.draws_seed())),

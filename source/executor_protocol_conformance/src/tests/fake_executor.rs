@@ -15,7 +15,7 @@ use executor_protocol::{
 
 use super::{CoinGates, QUBITS};
 use crate::splitmix64::{SplitMix64, mix};
-use crate::trials::detection_rates;
+use crate::trial_patterns::detection_rates;
 
 /// The rule a [`FakeExecutor`] breaks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,6 +126,8 @@ pub(crate) enum Breaks {
 enum Allowed {
     /// It offers runs of at most four shots.
     OffersRunsOfFourShotsAtMost,
+    /// Its offer is not seedable.
+    IsNotSeedable,
     /// It refuses its run of this count, from 1, as busy, in `ready`.
     IsBusyAtRun(u32),
     /// It panics in every `end_shots`.
@@ -330,6 +332,17 @@ impl FakeExecutor {
             ..Self::new()
         };
         detection_rates::name_the_part("FakeExecutor::offering_four_shots_at_most");
+        made
+    }
+
+    /// An executor that keeps every rule and is not seedable, as a
+    /// device's runtime whose randomness is physical is not.
+    pub(crate) fn not_seedable() -> Self {
+        let made = Self {
+            allowed: Some(Allowed::IsNotSeedable),
+            ..Self::new()
+        };
+        detection_rates::name_the_part("FakeExecutor::not_seedable");
         made
     }
 
@@ -584,6 +597,11 @@ impl ExecutorSetup for FakeExecutor {
         let offer = Offer::unlimited().max_qubits(qubits);
         let offer = if self.draws == Draws::Together {
             offer.not_replayable()
+        } else {
+            offer
+        };
+        let offer = if self.allowed == Some(Allowed::IsNotSeedable) {
+            offer.not_seedable()
         } else {
             offer
         };

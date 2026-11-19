@@ -13,7 +13,8 @@ A few more words, used by the checks' arguments and the reports.
   gives the same records each time
   ([`Offer::seedable`](../../executor_protocol/src/offer.rs)).
   Every run of a trial has the trial's seed, so a part under an
-  executor's or an adapter's check must be seedable.
+  executor's or an adapter's check must be seedable; one that is not
+  cannot be judged ([limits.md](limits.md)).
 - **`needs`:** what the kit's driver above an executor or an adapter
   needs of it (its qubits, for instance), which the part gets ready for
   at each run.
@@ -58,34 +59,25 @@ executor's rules above, checked by functions of the same names, except
 `keeps_its_accepts_and_offers`. As a caller of the part below, it keeps
 these:
 
-| Check                                   | Rule                                                                                                                                                |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sends_only_shots_it_got`               | it sends below only shots of the batches it got; it puts a shot in at most one batch of a call to the part below's `execute`                        |
-| `passes_the_seed_on`                    | it passes the seed below unchanged                                                                                                                  |
-| `states_readout_slots`                  | it states each batch's readout slots as its instructions count them                                                                                 |
-| `passes_each_shots_conditions_up`       | it merges into each row the conditions read below on its shot in the same `execute`, and no other shot's, and raises none because of one read below |
-| `reports_only_each_executes_conditions` | each row reports only its own `execute`'s conditions, and none raised because of an earlier one's                                                   |
-| `carries_checked_batches_below`         | it sends checked batches below for a checked batch                                                                                                  |
-
-Each takes a script the adapter sends batches below for, and
-`reports_only_each_executes_conditions` a script of two `execute`s or
-more.
+| Check                                   | Rule                                                                                                                                                | Takes                                                                         |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `sends_only_shots_it_got`               | it sends below only shots of the batches it got; it puts a shot in at most one batch of a call to the part below's `execute`                        | a script the adapter sends batches below for                                  |
+| `passes_the_seed_on`                    | it passes the seed below unchanged                                                                                                                  | a script the adapter sends batches below for                                  |
+| `states_readout_slots`                  | it states each batch's readout slots as its instructions count them                                                                                 | a script the adapter sends batches below for                                  |
+| `passes_each_shots_conditions_up`       | it merges into each row the conditions read below on its shot in the same `execute`, and no other shot's, and raises none because of one read below | a script the adapter sends batches below for                                  |
+| `reports_only_each_executes_conditions` | each row reports only its own `execute`'s conditions, and none raised because of an earlier one's                                                   | a script of two `execute`s or more, which the adapter sends batches below for |
+| `carries_checked_batches_below`         | it sends checked batches below for a checked batch                                                                                                  | a script the adapter sends batches below for                                  |
 
 **A driver's rules,** in [`src/driver.rs`](../src/driver.rs), each on the
 run's shots, over the kit's executor:
 
-| Check                                | Rule                                                                                                                         |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `gives_one_output_per_shot_in_order` | it gives one output per shot, in the order of the run's shots, each the one its shot gives alone                             |
-| `states_readout_slots`               | it states each batch's readout slots as its instructions count them                                                          |
-| `sends_only_its_shots`               | it sends only the run's shots; it puts a shot in at most one batch of a call to the part below's `execute`                   |
-| `passes_the_seed_on`                 | it passes the seed below unchanged                                                                                           |
-| `merges_each_executes_conditions`    | it merges each `execute`'s conditions into the shot's output, and no other shot's, and raises none because of one read below |
-
-Each takes shots the driver sends batches for;
-`gives_one_output_per_shot_in_order` needs two or more, whose outputs
-differ and depend on their shot only, and `merges_each_executes_conditions`
-takes how to read conditions in an output.
+| Check                                | Rule                                                                                                                         | Takes                                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `gives_one_output_per_shot_in_order` | it gives one output per shot, in the order of the run's shots, each the one its shot gives alone                             | two shots or more the driver sends batches for, whose outputs differ and depend on their shot only |
+| `states_readout_slots`               | it states each batch's readout slots as its instructions count them                                                          | shots the driver sends batches for                                                                 |
+| `sends_only_its_shots`               | it sends only the run's shots; it puts a shot in at most one batch of a call to the part below's `execute`                   | shots the driver sends batches for                                                                 |
+| `passes_the_seed_on`                 | it passes the seed below unchanged                                                                                           | shots the driver sends batches for                                                                 |
+| `merges_each_executes_conditions`    | it merges each `execute`'s conditions into the shot's output, and no other shot's, and raises none because of one read below | shots the driver sends batches for, and how to read conditions in an output                        |
 
 ## The rules every check of an executor or an adapter reports
 
@@ -118,8 +110,10 @@ then is not judged, and the report names the panic.
 `writes_every_readout` writes a value of its own into each readout slot
 before the part runs, and reports a slot that equals it in every run; a
 part that writes every slot and repeats its values for a seed passes in
-two runs, and [`src/readout_prefills.rs`](../src/readout_prefills.rs)
-gives the bound on runs, `MAX_RUNS`, and the odds of a wrong report.
+two runs. Further runs, with new values, run while a slot still equals
+them, up to a fixed number of runs;
+[`src/readout_prefills.rs`](../src/readout_prefills.rs) gives that number
+and the odds of a wrong report it makes.
 
 A report names the trial that found the fault; [trials.md](trials.md#replaying-a-report)
 says how to replay it.

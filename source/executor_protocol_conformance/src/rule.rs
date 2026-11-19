@@ -9,7 +9,7 @@ use std::fmt;
 
 /// A rule a part keeps, and which the kit checks: each check names its
 /// own; every check of an executor or an adapter also reports the shape
-/// of a batch's readouts and its ends of shots it does not hold.
+/// of a batch's readouts and how it ends shots it does not hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Rule {

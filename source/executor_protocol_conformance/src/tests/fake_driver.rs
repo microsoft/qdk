@@ -10,7 +10,7 @@ use executor_protocol::{
 };
 
 use super::{CoinGates, QUBITS, gates, needs};
-use crate::trials::detection_rates;
+use crate::trial_patterns::detection_rates;
 
 /// The rule a [`FakeDriver`] breaks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

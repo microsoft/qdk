@@ -18,7 +18,7 @@ use crate::adapter::{
     reports_only_each_executes_conditions, runs_as_new_after_a_failed_run, sends_only_shots_it_got,
     starts_each_shot_afresh, states_readout_slots, writes_every_readout,
 };
-use crate::nonconformance::take_unexercised;
+use crate::findings::take_unexercised;
 use crate::{Nonconformance, Place, Rule, Script};
 
 /// Where the kit's executor logs the `batch`th batch of the first call
@@ -78,11 +78,25 @@ fn an_adapter_that_keeps_every_rule_passes_every_check() {
 
 /// Runs every check on the adapters `make` makes, and asserts each passes,
 /// and that what they write they did not judge, as the part is not
-/// replayable, is `not_judged`.
-fn passes_every_check(adapter: &str, make: fn() -> FakeAdapter, not_judged: &[&str]) {
+/// replayable, is about the rules `not_judged`.
+fn passes_every_check(adapter: &str, make: fn() -> FakeAdapter, not_judged: &[Rule]) {
     take_unexercised();
+    for (check, result) in every_check(make) {
+        assert_eq!(result, Ok(()), "{check}, {adapter}");
+    }
+    let notes = take_unexercised();
+    assert_eq!(
+        not_judged_as_not_replayable(&notes),
+        not_judged,
+        "{adapter}"
+    );
+}
+
+/// Every check of an adapter, on the adapters `make` makes, each with what
+/// it needs.
+fn every_check(make: fn() -> FakeAdapter) -> [(&'static str, Result<(), Nonconformance>); 13] {
     let (all, first, second) = (shots(0..4), first(), second());
-    let checks: [(&str, Result<(), Nonconformance>); 13] = [
+    [
         (
             "writes_every_readout",
             writes_every_readout(make, needs(), &script(), trials()),
@@ -135,16 +149,7 @@ fn passes_every_check(adapter: &str, make: fn() -> FakeAdapter, not_judged: &[&s
             "runs_as_new_after_a_failed_run",
             runs_as_new_after_a_failed_run(make, needs(), &script(), trials()),
         ),
-    ];
-    for (check, result) in checks {
-        assert_eq!(result, Ok(()), "{check}, {adapter}");
-    }
-    let notes = take_unexercised();
-    assert_eq!(
-        not_judged_as_not_replayable(&notes),
-        not_judged,
-        "{adapter}"
-    );
+    ]
 }
 
 /// An adapter that panics in `end_shots` on a shot it no longer holds, as the
@@ -183,6 +188,22 @@ fn an_end_of_held_shots_that_panics_fails_the_run() {
             if why.contains("panicked: the shots' release failed")),
         "{result:?}"
     );
+}
+
+/// An adapter that is not seedable, as one drawing its noise from a
+/// physical source is not, cannot be judged by any check, though the
+/// kit's executor below is seedable: every run of a check fixes its seed,
+/// and the chain refuses such a run. Each check says so, naming the
+/// adapter and that it is not seedable.
+#[test]
+fn an_adapter_that_is_not_seedable_cannot_be_judged_by_any_check() {
+    for (check, result) in every_check(FakeAdapter::not_seedable) {
+        let why = why_cannot_judge(result);
+        assert!(
+            why.contains("FakeAdapter") && why.contains("is not seedable"),
+            "{check}: {why}"
+        );
+    }
 }
 
 /// A noisy adapter that breaks a rule on a shot's state, or on its calls, is
@@ -703,7 +724,7 @@ fn an_adapter_that_sends_nothing_below_cannot_be_judged_on_what_it_sends() {
 /// every `execute`, which the clean run shows. One that reports some kinds
 /// only (`REJECTED`) is judged, and carries nothing on.
 #[test]
-fn conditions_carried_over_are_judged_once_some_are_reported() {
+fn conditions_carried_over_are_judged_only_when_the_first_execute_reports_some() {
     for make in [
         (|| FakeAdapter::breaking(Breaks::DropsConditions)) as fn() -> FakeAdapter,
         || FakeAdapter::marking_breaking(0, Breaks::DropsConditions),

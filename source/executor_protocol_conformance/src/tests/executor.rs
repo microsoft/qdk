@@ -20,7 +20,7 @@ use crate::executor::{
     does_nothing_until_polled, gives_each_shot_what_it_gives_alone, keeps_its_accepts_and_offers,
     runs_as_new_after_a_failed_run, starts_each_shot_afresh, writes_every_readout,
 };
-use crate::nonconformance::take_unexercised;
+use crate::findings::take_unexercised;
 use crate::{Nonconformance, Place, Rule, Script, Trials};
 
 /// An executor that keeps every rule passes every check, each with what
@@ -223,7 +223,7 @@ fn an_end_of_held_shots_that_panics_fails_the_run() {
 /// run, is not run again: the check cannot judge the part. Every executor
 /// check judges the four-shot part this way too, each noting it once.
 #[test]
-fn a_run_goes_without_the_shot_never_sent_only_where_it_cannot_hold_one() {
+fn a_run_holds_a_shot_its_script_never_names_unless_it_cannot() {
     let four_shots = || FakeExecutor::offering_four_shots_at_most();
     let beyond_its_table = || FakeExecutor::breaking(Breaks::PanicsEndingShotsBeyondItsTable);
     let busy = || FakeExecutor::busy_at_run(1);
@@ -697,7 +697,7 @@ fn a_shot_kept_past_its_end_by_an_earlier_executor_is_reported() {
 #[test]
 fn a_second_not_reading_first_cannot_judge_starting_shots_if_replayable() {
     let second = gates(&[("mz", 0)]);
-    let unjudged: &[&str] = &["whether its patterns can show StartsEachShotAfresh broken"];
+    let unjudged = &[Rule::StartsEachShotAfresh][..];
     for first in [gates(&[("x", 2)]), gates(&[("x", 2), ("mz", 2)])] {
         for (make, not_judged) in [
             (FakeExecutor::new as fn() -> FakeExecutor, &[][..]),
@@ -795,8 +795,8 @@ fn work_done_before_the_future_is_polled_is_reported() {
 /// whether the script can show dropped work: it passes the part, and says
 /// so on stderr.
 #[test]
-fn a_script_judges_polling_only_if_an_execute_sent_twice_reads_otherwise_if_replayable() {
-    let unjudged: &[&str] = &["whether its patterns can show DoesNothingUntilPolled broken"];
+fn polling_is_judged_only_on_a_script_whose_resent_execute_reads_otherwise() {
+    let unjudged = &[Rule::DoesNothingUntilPolled][..];
     let cases = [
         (
             gates(&[("mz", 0)]),
@@ -906,8 +906,23 @@ fn a_refused_run_cannot_judge_running_again_after_a_failed_run() {
         assert!(
             why.contains("FakeExecutor")
                 && why.contains("is not ready: busy")
-                && why.ends_with("run the check again when the part is ready"),
+                && why.contains("run the check again"),
             "{refused}: {why}"
+        );
+    }
+}
+
+/// An executor that is not seedable, as a device's runtime whose
+/// randomness is physical is not, cannot be judged by any check, since
+/// every run of a check fixes its seed and the chain refuses such a run:
+/// each check says so, naming the part and that it is not seedable.
+#[test]
+fn an_executor_that_is_not_seedable_cannot_be_judged_by_any_check() {
+    for (check, result) in every_check(FakeExecutor::not_seedable) {
+        let why = why_cannot_judge(result);
+        assert!(
+            why.contains("FakeExecutor") && why.contains("is not seedable"),
+            "{check}: {why}"
         );
     }
 }

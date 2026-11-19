@@ -23,7 +23,7 @@ use super::fake_executor::{CoinGatesAndReset, Draws};
 use super::{CoinGates, QUBITS};
 use crate::shared_run::every_kind;
 use crate::splitmix64::SplitMix64;
-use crate::trials::detection_rates;
+use crate::trial_patterns::detection_rates;
 
 /// The rule a [`FakeAdapter`] breaks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,11 +147,13 @@ pub(crate) enum Breaks {
 }
 
 /// What a [`FakeAdapter`] does that breaks no rule, though a check meets
-/// it: a run it fails. Set by its constructors.
+/// it: a run it fails, or one the chain refuses. Set by its constructors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Allowed {
     /// It panics in every `end_shots`.
     PanicsEndingShots,
+    /// Its offer is not seedable, whatever the offer below.
+    IsNotSeedable,
 }
 
 /// The shot a [`FakeAdapter`] breaking [`Breaks::SendsAShotItDidNotGet`]
@@ -404,6 +406,18 @@ impl FakeAdapter {
             ..Self::new()
         };
         detection_rates::name_the_part("FakeAdapter::panicking_ending_shots");
+        made
+    }
+
+    /// An adapter without noise that keeps every rule and is not
+    /// seedable, as one whose noise is drawn from a physical source is
+    /// not.
+    pub(crate) fn not_seedable() -> Self {
+        let made = Self {
+            allowed: Some(Allowed::IsNotSeedable),
+            ..Self::new()
+        };
+        detection_rates::name_the_part("FakeAdapter::not_seedable");
         made
     }
 
@@ -838,10 +852,15 @@ impl AdapterSetup for FakeAdapter {
     }
 
     fn offers_above(&self, below: Offer) -> Offer {
-        if self.draws == Draws::Together {
+        let above = if self.draws == Draws::Together {
             below.not_replayable()
         } else {
             below
+        };
+        if self.allowed == Some(Allowed::IsNotSeedable) {
+            above.not_seedable()
+        } else {
+            above
         }
     }
 }

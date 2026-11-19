@@ -1,10 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Findings`]: what a trial of a check found, gathered from its runs,
-//! until it gives its result.
+//! [`Findings`]: what a trial of a check found, gathered from its runs'
+//! logs, until it gives its result: a [`Nonconformance`], or a pass.
 
-use super::{BrokenRule, Fault, Nonconformance, Place};
+use executor_protocol::RunError;
+
+use crate::nonconformance::{BrokenRule, Fault, Nonconformance, Place, failed_run};
 use crate::rule::Rule;
 use crate::shared_run::RunLog;
 use crate::trials::Trial;
@@ -147,6 +149,14 @@ impl Findings {
         taken
             .finish()
             .expect_err("a check with a reason not to judge the part does not pass")
+    }
+
+    /// The check's result once a run failed for `failure`, as
+    /// [`Findings::failed`] gives it, saying why the check cannot use the
+    /// run, and naming the part.
+    pub(crate) fn run_failed(&mut self, failure: &RunError) -> Nonconformance {
+        let why = failed_run(&self.part, failure);
+        self.failed(why)
     }
 
     /// The trial's result: the broken rules if any, else the reason it

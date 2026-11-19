@@ -54,11 +54,12 @@ use executor_protocol::{Adapt, Instruction, Needs, ShotConditions, ShotId, ShotS
 use crate::caller_faults::{misstates_slots, note_misstated, repeated_shots, sends_something};
 use crate::chain::{AdapterMount, Chain, noted_run};
 use crate::executor;
-use crate::nonconformance::{Nonconformance, Place, failed_run, shot_list};
+use crate::nonconformance::{Nonconformance, Place, shot_list};
 use crate::rule::Rule;
 use crate::script::Script;
 use crate::shared_run::{RAISED_IN_TURN, Raise, Raised, RowRecord, RunLog, RunSetup, every_kind};
-use crate::trials::{TrialPatterns, Trials};
+use crate::trial_patterns::{TrialPatterns, run_trials};
+use crate::trials::Trials;
 
 /// Checks that the adapter sends below only shots of the batches it got in
 /// the same `execute` ([`Rule::SendsOnlyShotsItGot`]), and each in at most
@@ -104,7 +105,7 @@ pub fn sends_only_shots_it_got<A: Adapt>(
     trials: Trials,
 ) -> Result<(), Nonconformance> {
     let mut mount = AdapterMount { make, needs };
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let script = patterns.script(script);
         let mut findings = patterns.findings();
         let log = noted_run(&mut findings, &mut mount, RunSetup::of(script.clone()))?;
@@ -180,7 +181,7 @@ pub fn passes_the_seed_on<A: Adapt>(
     trials: Trials,
 ) -> Result<(), Nonconformance> {
     let mut mount = AdapterMount { make, needs };
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let script = patterns.script(script);
         let mut findings = patterns.findings();
         let log = noted_run(&mut findings, &mut mount, RunSetup::of(script))?;
@@ -249,7 +250,7 @@ pub fn states_readout_slots<A: Adapt>(
     trials: Trials,
 ) -> Result<(), Nonconformance> {
     let mut mount = AdapterMount { make, needs };
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let script = patterns.script(script);
         let mut findings = patterns.findings();
         let seed = findings.run_seed();
@@ -264,7 +265,7 @@ pub fn states_readout_slots<A: Adapt>(
             findings.note_run(&ran.log);
             if let Some(failure) = ran.failure {
                 if !misstates_slots(&failure) {
-                    return Err(findings.failed(failed_run(&failure)));
+                    return Err(findings.run_failed(&failure));
                 }
                 findings.fault(
                     Rule::StatesReadoutSlots,
@@ -362,7 +363,7 @@ pub fn passes_each_shots_conditions_up<A: Adapt>(
 ) -> Result<(), Nonconformance> {
     let rule = Rule::PassesEachShotsConditionsUp;
     let mut mount = AdapterMount { make, needs };
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let script = patterns.script(script);
         let shots = script.shots();
         let mut findings = patterns.findings();
@@ -526,7 +527,7 @@ pub fn reports_only_each_executes_conditions<A: Adapt>(
     trials: Trials,
 ) -> Result<(), Nonconformance> {
     let mut mount = AdapterMount { make, needs };
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         if script.executes().len() < 2 {
             return Err(patterns.cannot_judge(
                 "the script sends one execute; the check needs two or more, to see conditions \
@@ -651,7 +652,7 @@ pub fn carries_checked_batches_below<A: Adapt>(
     trials: Trials,
 ) -> Result<(), Nonconformance> {
     let mut mount = AdapterMount { make, needs };
-    trials.run(|patterns| {
+    run_trials(trials, |patterns| {
         let script = patterns.script(script);
         let mut findings = patterns.findings();
         let log = noted_run(&mut findings, &mut mount, RunSetup::of(script))?;

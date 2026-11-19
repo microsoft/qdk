@@ -3,8 +3,8 @@
 The conformance kit, the QDK crate `executor_protocol_conformance`, was
 designed to solve the problem of checking that a part of the
 [executor protocol](../executor_protocol/README.md) (an executor, an
-adapter or a driver, such as a simulator, a device's runtime, a noise
-model or a program's runner) keeps the rules the protocol states but does
+adapter or a driver, such as a simulator, a noise model or a program's
+runner) keeps the rules the protocol states but does
 not check as shots run. The protocol checks at its boundaries only what it
 can check cheaply, such as the instructions of a checked batch and the
 readout slots it states; the other
@@ -32,7 +32,11 @@ after a failed run), compares what it sees, and returns `Ok(())` or a
 report naming each place where the part broke the rule. Trial 0 runs
 fixed patterns; each later trial draws its patterns (such as the shots'
 ids, order, batches and groups, where a run fails, and the conditions
-raised below) from a seed, which the report names.
+raised below) from a seed, which the report names. Every run of a check
+fixes its seed, so that runs can be compared and a trial replayed: an
+executor or an adapter that is not seedable, as a device's runtime often
+is not, cannot be judged
+([limits.md](docs/limits.md)).
 
 Today the kit holds:
 
@@ -112,18 +116,18 @@ executor_protocol_conformance = { path = "../executor_protocol_conformance" }
 ```
 
 An executor's test then checks that it writes every readout value, on a
-script of two `execute`s that read differently on each shot. Adapted
-from the kit's own tests ([`src/tests.rs`](src/tests.rs) and
-[`src/tests/executor.rs`](src/tests/executor.rs)), with `shots` and
-`needs` written out, the executor is `FakeExecutor`, a fake executor of
-classical bits from the kit's tests; `gates` writes each pair of a
-mnemonic and a qubit as an instruction of the set the executor accepts,
-here QIR's `h`, `x` and `mz`:
+script of two `execute`s that read differently on each shot. The lines
+below are copied from the kit's
+[test of reports](src/tests/nonconformance.rs), with `Script`, `Trials`
+and `executor` from the kit, and `Needs` and `ShotSet` from the protocol.
+There, the executor is `FakeExecutor`, a fake executor of classical bits
+from the kit's tests, made to leave one readout slot of shot 1 unwritten
+in each `execute`; and `gates` writes each pair of a mnemonic and a qubit
+as an instruction of the set the executor accepts, here QIR's `h`, `x` and
+`mz`:
 
 ```rust
-use executor_protocol::{Needs, ShotSet};
-use executor_protocol_conformance::{Script, Trials, executor};
-
+let make = || FakeExecutor::breaking(Breaks::LeavesASlotUnwritten);
 let script = Script::new()
     .execute([(
         ShotSet::ids(0..4),
@@ -134,22 +138,17 @@ let script = Script::new()
         (ShotSet::ids([2, 3]), gates(&[("h", 1), ("mz", 1)])),
     ]);
 let trials = Trials::from_env();
-if let Err(report) =
-    executor::writes_every_readout(FakeExecutor::new, Needs::qubits(4), &script, trials)
-{
-    panic!("{report}");
-}
+let result = executor::writes_every_readout(make, Needs::qubits(4), &script, trials);
 ```
 
 `Trials::from_env()` runs the default trials unless the environment asks
 for more (see [Running more trials](docs/trials.md#running-more-trials)).
+An implementer's test fails with the report, as in
+`if let Err(report) = result { panic!("{report}") }`.
 
-A part that breaks the rule fails the test with a report naming the part,
-the rule, each place and the trial. For example, for `FakeExecutor` made
-to leave one readout slot of shot 1 unwritten in each `execute`, the
-report reads as follows (the kit's [test of reports](src/tests/nonconformance.rs)
-checks that it names the part, the rule, each place and the trial; its
-wording may change):
+The report names the part, the rule, each place and the trial. For this
+executor it reads as follows; this is an example, whose wording may
+change, and the test checks only that the report names them:
 
 ```text
 `executor_protocol_conformance::tests::fake_executor::FakeExecutor` breaks 1 rule, in trial 0, on the fixed patterns:
@@ -160,14 +159,13 @@ wording may change):
 
 ## The checks
 
-A check is a function per rule, or per two rules it reads in the same
-runs, in its role's file, whose documentation
-says why the rule matters to the parts around the part, how the check
-runs it, an example of a fault with the report it gives, and what the
-check does not see. By role, the checks cover:
+Each check's documentation says why its rule matters to the parts
+around the part, how the check runs it, an example of a fault with the
+report it gives, and what the check does not see. By role, the checks
+cover:
 
 - [`src/executor.rs`](src/executor.rs): an executor's rules: its
-  readouts and their shape, each shot's records and state, its ends of
+  readouts and their shape, each shot's records and state, how it ends
   shots it does not hold, its work only once polled, its `accepts` and
   `offers` unchanged once composed, and a run after a failed one.
 - [`src/adapter.rs`](src/adapter.rs): an adapter's: an executor's rules
@@ -187,8 +185,8 @@ The guides in [`docs/`](docs):
 - [trials.md](docs/trials.md): why a check runs drawn trials, how to
   replay the trial a report names, and how to run more.
 - [limits.md](docs/limits.md): what the kit does not check, such as the
-  values themselves, how a part uses the seed, or a chain composed with
-  `>>`, each with why.
+  values themselves, how a part uses the seed, a part that is not
+  seedable, or a chain composed with `>>`, each with why.
 
 ## Tests
 

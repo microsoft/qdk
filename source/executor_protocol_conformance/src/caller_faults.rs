@@ -10,7 +10,8 @@ use std::collections::BTreeSet;
 
 use executor_protocol::{DriveError, ExecuteRefusal, Failure, RunError};
 
-use crate::nonconformance::{Fault, Findings, shot_list};
+use crate::findings::Findings;
+use crate::nonconformance::{Fault, shot_list};
 use crate::rule::Rule;
 use crate::shared_run::{BatchBelow, RunLog};
 
