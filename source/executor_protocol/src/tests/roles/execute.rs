@@ -12,16 +12,15 @@ use crate::{ExecuteRefusal, InstructionFault, Opcode, RetryClass, ShotId};
 /// every other refusal is refused again.
 #[test]
 fn only_a_not_ready_refusal_may_be_sent_again() {
-    for (refusal, class) in every_refusal_with_its_class() {
+    for (refusal, class) in every_refusal_with_its_class(ShotId::new(3)) {
         assert_eq!(refusal.retry_class(), class, "{refusal}");
     }
 }
 
-/// Every refusal, on shot 3, with its class. A refusal added to
+/// Every refusal, naming `shot`, with its class. A refusal added to
 /// [`ExecuteRefusal`] fails to compile in [`variant`], and then fails the
-/// test until it is listed here.
-fn every_refusal_with_its_class() -> Vec<(ExecuteRefusal, RetryClass)> {
-    let shot = ShotId::new(3);
+/// tests that use it until it is listed here.
+pub(crate) fn every_refusal_with_its_class(shot: ShotId) -> Vec<(ExecuteRefusal, RetryClass)> {
     let every = vec![
         (
             ExecuteRefusal::NotReady {

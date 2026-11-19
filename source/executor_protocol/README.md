@@ -119,7 +119,7 @@ Today the protocol holds:
   parts that draw on the protocol's seeds, a run in which no part sends an
   `execute` again gives the same outputs each time; and where the chain's
   shots replay, a shot run again alone, as a debugger does, gives back its
-  readouts.
+  readouts, for a run in which no part sends an `execute` again.
 - **Remote executors:** an executor that stands for a chain held by
   another process relies on what that chain accepts and offers, and on
   each `execute`'s seed, carried there as bits, as
@@ -198,9 +198,9 @@ them as defined here.
   serve, such as its most qubits, shots per run and instructions per
   batch. An offer also says whether a run may fix its seed (_seedable_: a
   quantum computer's measurements are not), and whether a shot run again
-  alone, as a debugger does, gives its readouts back (_replayable_: a
-  sampler that draws a run's shots from one random stream, in one call,
-  is not).
+  alone, as a debugger does, gives its readouts back, for a run in which
+  no part sends an `execute` again (_replayable_: a sampler that draws a
+  run's shots from one random stream, in one call, is not).
 - **Fit**: the check, by each `>>`, that every instruction the part above
   sends is accepted below, with the same blocks, parameters and readouts.
 - **Admission**: the check, by the `>>` that makes a runner, that at every
@@ -335,10 +335,10 @@ rebuilds it ([`Seed::to_bits` and `from_bits`](src/seed.rs)).
 
 The protocol carries neither what a chain accepts nor what it offers
 between processes: the remote executor and that process encode an
-`Offer`, whose fields are public, in a format of their own, and since an
-`InstructionSet` has no public reader of its declaration, both processes
-build the same set from the same code, such as one Qodec declaration, and
-may compare its name.
+`Offer`, whose fields are public, in a format of their own, and since no
+public method of an `InstructionSet` returns its declaration, both
+processes build the same set from the same code, such as one Qodec
+declaration, and may compare its name.
 
 When an `execute` is refused, the remote executor, or a part above it,
 asks the refusal's retry class whether it may send it again. It may when
@@ -348,8 +348,8 @@ the adapters below keep the rule that
 The `execute` sent again finds each shot's state in the executor as
 before, but an adapter below that drew for it draws again, so it may give
 records other than those of a run never refused: hence the guarantees at
-run time above hold a fixed seed's outputs only for a run in which no
-part sends an `execute` again.
+run time above hold a fixed seed's outputs, and a replayed shot's
+readouts, only for a run in which no part sends an `execute` again.
 
 ## Further reading
 

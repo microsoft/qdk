@@ -21,6 +21,7 @@ use crate::{
 };
 
 use super::{SEED, failed, runner};
+use crate::tests::roles::execute::every_refusal_with_its_class;
 
 /// A program trapping on shot 5, run on 8 shots: the run fails naming shot
 /// 5 and the trap, and gives no records.
@@ -76,12 +77,13 @@ impl Execute for Refuses {
     }
 }
 
-/// An executor refusing a run's `execute`, on a batch of shots 0 to 3,
-/// because shot 2 failed earlier or is not held there, or, on a batch of
-/// shots 2 to 5, because it cannot take the `execute` now: the run fails
-/// naming shot 2, the shot the refusal names, whether or not it is the
-/// batch's first, with the refusal. So too through an adapter that passes
-/// the refusal up, wherever the brackets go: each boundary passes a
+/// An executor refusing a run's `execute` with each refusal, on a batch
+/// of shots 0 to 3, because shot 2 failed earlier or is not held there,
+/// or, on a batch of shots 2 to 5, for its instructions, its readout
+/// slots, or because it cannot take the `execute` now: the run fails
+/// naming shot 2, the shot the refusal was made with, whether or not it is
+/// the batch's first, with the refusal. So too through an adapter that
+/// passes the refusal up, wherever the brackets go: each boundary passes a
 /// refusal from below up as it was made, so that the part above reads its
 /// shot and its [`retry_class`](ExecuteRefusal::retry_class) unchanged.
 #[test]
@@ -119,22 +121,25 @@ fn the_protocol_sends_a_refused_execute_once_whatever_its_class() {
     }
 }
 
-/// A refusal of each kind an executor makes, naming `shot`, with the shots
-/// of a run it ends: of shots 0 to 3, because `shot` failed earlier or is
-/// not held there, or of shots 2 to 5, because the executor cannot take
-/// the `execute` now.
-fn refusals_naming(shot: ShotId) -> [(ExecuteRefusal, ShotSet); 3] {
-    [
-        (ExecuteRefusal::EarlierFailure(shot), ShotSet::ids(0..4)),
-        (ExecuteRefusal::ShotNotHeld(shot), ShotSet::ids(0..4)),
-        (
-            ExecuteRefusal::NotReady {
-                shot,
-                why: "the device is calibrating".into(),
-            },
-            ShotSet::ids(2..6),
-        ),
-    ]
+/// Every refusal, naming `shot`, with the shots of a run it ends: a
+/// refusal of a shot, because it failed earlier or is not held there, ends
+/// a run of the shots up to two past `shot`, where it is not the first; a
+/// refusal of a batch names the batch's first shot, so it ends a run of
+/// `shot` and the three after it.
+fn refusals_naming(shot: ShotId) -> Vec<(ExecuteRefusal, ShotSet)> {
+    let first = shot.get();
+    every_refusal_with_its_class(shot)
+        .into_iter()
+        .map(|(refusal, _)| {
+            let shots = match refusal {
+                ExecuteRefusal::EarlierFailure(_) | ExecuteRefusal::ShotNotHeld(_) => {
+                    ShotSet::ids(0..first + 2)
+                }
+                _ => ShotSet::ids(first..first + 4),
+            };
+            (refusal, shots)
+        })
+        .collect()
 }
 
 /// Runs `shots` on [`measure`] over the executor `refuses` makes, with no

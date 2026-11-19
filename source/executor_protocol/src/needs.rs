@@ -46,7 +46,8 @@ pub struct Needs {
     /// ([`ParityNotNeeded`](crate::InstructionFault::ParityNotNeeded)).
     pub uses_readout_parity: bool,
     /// Whether a shot is run again alone and must give its readouts back,
-    /// so that the offer that meets these needs must be
+    /// for a run in which no part sends an `execute` again, so that the
+    /// offer that meets these needs must be
     /// [`replayable`](crate::Offer::replayable) and, since the shot is run
     /// with the run's seed, [`seedable`](crate::Offer::seedable). A driver
     /// states it when it runs one shot of an earlier run again, such as a

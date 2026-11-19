@@ -7,9 +7,10 @@
 //!
 //! A replayable part ([`Offer::replayable`](crate::Offer::replayable))
 //! draws each shot from streams of its own, so that, on a chain whose parts
-//! are replayable, a shot's records depend only on the chain, the run's
-//! seed and the shot's id: not on the shots run beside it, how its
-//! instructions are put in batches, or which other parts draw. So no stream
+//! are replayable, for a run in which no part sends an `execute` again,
+//! a shot's records depend only on the chain, the run's seed and the
+//! shot's id: not on the shots run beside it, how its instructions are put
+//! in batches, or which other parts draw. So no stream
 //! is shared, and none is chosen by a part's place in the chain, where
 //! inserting a part would shift the draws of those below it:
 //!

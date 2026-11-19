@@ -14,7 +14,9 @@
 //! not one per batch; and, of unchecked batches, into readouts that held
 //! readouts as large, no allocation. A receiver's refusal leaves it as it
 //! was, so an `execute` sent again after a not-ready refusal finds each
-//! shot's state below as before. The checks of one batch are in
+//! shot's state below as before; but a part above may have drawn for the
+//! refused `execute`, so a shot run alone gets its record back only if
+//! nothing was sent again. The checks of one batch are in
 //! `batch_limits.rs`.
 
 mod batch_limits;
@@ -31,8 +33,8 @@ use smallvec::smallvec;
 use super::runner::{SEED, failed, runner};
 use crate::tests::allocations;
 use crate::tests::fake_parts::{
-    Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, NamesBelow, ParityGates, Profiler,
-    Program, Renamed, coin_gate, coin_gates, in_each_bracketing,
+    BitFlip, Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, NamesBelow, ParityGates,
+    Profiler, Program, Renamed, coin_gate, coin_gates, in_each_bracketing,
 };
 use crate::{
     Adapt, Adapter, AdapterSetup, Argument, Batch, BatchReadouts, CompositionFaults, Drive,
@@ -1105,31 +1107,32 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
     assert_eq!(read, expected, "each shot's second `x` reads `Zero`");
 }
 
-/// A driver that tosses qubit 0 in one `execute` and reads it in the
-/// next, so that each shot's read finds the state its toss left below, and
-/// sends an `execute` again, once, when it is refused with the class
-/// [`Later`](RetryClass::Later). Each shot's output is its read.
-struct TossesThenReads {
-    toss: [Instruction; 1],
+/// A driver that applies a gate to qubit 0 in one `execute` and reads it
+/// in the next, so that each shot's read finds the state its gate left
+/// below, and sends an `execute` again, once, when it is refused with the
+/// class [`Later`](RetryClass::Later). Each shot's output is its read.
+struct AppliesThenReads {
+    gate: [Instruction; 1],
     read: [Instruction; 1],
 }
 
-impl TossesThenReads {
-    fn new() -> Self {
+impl AppliesThenReads {
+    /// Applies the gate of the [`coin_gates`] named `gate`.
+    fn new(gate: &str) -> Self {
         Self {
-            toss: [coin_gate("h", 0)],
+            gate: [coin_gate(gate, 0)],
             read: [coin_gate("mz", 0)],
         }
     }
 }
 
-impl DriverSetup for TossesThenReads {
+impl DriverSetup for AppliesThenReads {
     fn sends(&self) -> &InstructionSet {
         coin_gates()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
-        for instruction in self.toss.iter_mut().chain(&mut self.read) {
+        for instruction in self.gate.iter_mut().chain(&mut self.read) {
             instruction.opcode = below.map(instruction.opcode);
         }
     }
@@ -1139,7 +1142,7 @@ impl DriverSetup for TossesThenReads {
     }
 }
 
-impl Drive for TossesThenReads {
+impl Drive for AppliesThenReads {
     type Output = ReadoutValue;
 
     async fn drive(
@@ -1149,8 +1152,8 @@ impl Drive for TossesThenReads {
         below: &mut impl Execute,
     ) -> Result<Vec<ReadoutValue>, DriveError> {
         let mut kept = Readouts::new();
-        let toss = [Batch::new(shots, &self.toss, 0)];
-        sent_again_if_later(below, &toss, seed, kept.readouts_for(&toss)).await?;
+        let gate = [Batch::new(shots, &self.gate, 0)];
+        sent_again_if_later(below, &gate, seed, kept.readouts_for(&gate)).await?;
         let read = [Batch::new(shots, &self.read, 1)];
         let readouts = kept.readouts_for(&read);
         sent_again_if_later(below, &read, seed, readouts).await?;
@@ -1175,9 +1178,9 @@ async fn sent_again_if_later(
     }
 }
 
-/// [`Bits`] that refuse their `execute` numbered `at`, counted from 0,
-/// once, as not ready, before running any of it, counting their refusals
-/// in `refused`.
+/// [`Bits`] that refuse their `execute` numbered `at`, if any, counted
+/// from 0, once, as not ready, before running any of it, counting their
+/// refusals in `refused`.
 struct NotReadyOnce {
     bits: Bits,
     at: Option<usize>,
@@ -1185,10 +1188,10 @@ struct NotReadyOnce {
 }
 
 impl NotReadyOnce {
-    fn new(bits: Bits, at: usize, refused: &Rc<Cell<usize>>) -> Self {
+    fn new(bits: Bits, at: Option<usize>, refused: &Rc<Cell<usize>>) -> Self {
         Self {
             bits,
-            at: Some(at),
+            at,
             refused: Rc::clone(refused),
         }
     }
@@ -1246,7 +1249,7 @@ fn an_execute_sent_again_after_a_not_ready_refusal_finds_the_states_below_as_bef
     let shots = ShotSet::ids(0..16);
     let log = Log::default();
     let never_refused =
-        runner(Driver::new(TossesThenReads::new()) >> Executor::new(Bits::new(&log)))
+        runner(Driver::new(AppliesThenReads::new("h")) >> Executor::new(Bits::new(&log)))
             .run(&shots, SEED)
             .expect("the run succeeds");
     assert!(
@@ -1254,7 +1257,7 @@ fn an_execute_sent_again_after_a_not_ready_refusal_finds_the_states_below_as_bef
         "the tosses differ: {never_refused:?}"
     );
     let refused = Rc::new(Cell::new(0));
-    let refusing = || Executor::new(NotReadyOnce::new(Bits::new(&log), 1, &refused));
+    let refusing = || Executor::new(NotReadyOnce::new(Bits::new(&log), Some(1), &refused));
     let as_never_refused = |records: Vec<ReadoutValue>, brackets: &str| {
         assert_eq!(
             refused.replace(0),
@@ -1264,7 +1267,7 @@ fn an_execute_sent_again_after_a_not_ready_refusal_finds_the_states_below_as_bef
         assert_eq!(records, never_refused, "{brackets}");
     };
     as_never_refused(
-        runner(Driver::new(TossesThenReads::new()) >> refusing())
+        runner(Driver::new(AppliesThenReads::new("h")) >> refusing())
             .run(&shots, SEED)
             .expect("the run succeeds"),
         "no adapter",
@@ -1272,7 +1275,7 @@ fn an_execute_sent_again_after_a_not_ready_refusal_finds_the_states_below_as_bef
     let counted = Rc::default();
     in_each_bracketing!(
         [d, a, e] from {
-            let d = Driver::new(TossesThenReads::new());
+            let d = Driver::new(AppliesThenReads::new("h"));
             let a = Adapter::new(Profiler::new(&counted, &log));
             let e = refusing();
         },
@@ -1281,6 +1284,53 @@ fn an_execute_sent_again_after_a_not_ready_refusal_finds_the_states_below_as_bef
             brackets
         ),
     );
+}
+
+/// A driver that flips each shot's qubit, through a noise that draws, for
+/// each flip it passes, whether to flip it twice, then reads it, run with a
+/// fixed seed in each bracketing: each shot's record is the one the shot
+/// gets run alone when nothing is sent again, but not when the bits refuse
+/// the flip once as not ready and the driver sends it again, since the
+/// noise draws again for the `execute` sent again. So a shot's records
+/// come back only for a run in which no part sends an `execute` again.
+#[test]
+fn a_shot_run_alone_gets_its_record_back_only_if_nothing_was_sent_again() {
+    let shots = ShotSet::ids(0..16);
+    let log = Log::default();
+    let refused = Rc::new(Cell::new(0));
+    for (row, refused_at, as_alone) in [
+        ("nothing sent again", None, true),
+        ("the flip sent again", Some(0), false),
+    ] {
+        in_each_bracketing!(
+            [d, a, e] from {
+                let d = Driver::new(AppliesThenReads::new("x"));
+                let a = Adapter::new(BitFlip::new(0.5, &log));
+                let e = Executor::new(NotReadyOnce::new(Bits::new(&log), refused_at, &refused));
+            },
+            |chain, brackets| {
+                let mut runner = runner(chain);
+                let together = runner.run(&shots, SEED).expect("the run succeeds");
+                assert_eq!(
+                    refused.replace(0),
+                    usize::from(refused_at.is_some()),
+                    "{row}, {brackets}"
+                );
+                let alone: Vec<ReadoutValue> = shots
+                    .iter()
+                    .map(|id| {
+                        let one = ShotSet::ids([id.get()]);
+                        runner.run(&one, SEED).expect("the run succeeds")[0]
+                    })
+                    .collect();
+                assert_eq!(
+                    together == alone,
+                    as_alone,
+                    "{row}, {brackets}: {together:?} together, {alone:?} alone"
+                );
+            },
+        );
+    }
 }
 
 /// A [`Profiler`] that passes down readouts for all of its batches but the

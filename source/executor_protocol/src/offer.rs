@@ -43,17 +43,19 @@ pub struct Offer {
     /// an executor that holds a batch in a buffer of fixed size relies on
     /// it.
     pub max_instructions: Option<u32>,
-    /// Whether a run may fix its seed, so that it gives the same records
-    /// each time; a quantum computer's measurements cannot be seeded. A
-    /// chain is seedable only when every part's offer is.
+    /// Whether a run may fix its seed, so that a run in which no part sends
+    /// an `execute` again gives the same records each time; a quantum
+    /// computer's measurements cannot be seeded. A chain is seedable only
+    /// when every part's offer is.
     pub seedable: bool,
     /// Whether it resolves each readout parity
     /// ([`Bit::Parity`](crate::Bit::Parity)) per shot, as the shot runs.
     pub resolves_readout_parity: bool,
-    /// Whether its shots are replayable: with a fixed seed, a shot's
-    /// readouts depend on the chain, the seed and the shot's id, not on the
-    /// shots run beside it, so a shot run again alone gives them back. A
-    /// part that draws a run's shots together is not, as the crate's
+    /// Whether its shots are replayable: with a fixed seed, for a run in
+    /// which no part sends an `execute` again, a shot's readouts depend on
+    /// the chain, the seed and the shot's id, not on the shots run beside
+    /// it, so a shot run again alone gives them back. A part that draws a
+    /// run's shots together is not, as the crate's
     /// `docs/writing-a-part.md` says ("Seeds"). Replay fixes the seed, so
     /// the admission refuses this offer where the needs that reach it ask
     /// for replay ([`Needs::replayable`](crate::Needs::replayable)) unless
