@@ -295,10 +295,9 @@ fn a_call_whose_extents_overflow_is_refused() {
     let (a, b) = random_pair(1, 1, 1, 3);
     let (left, right) = (upload(&algebra, &a), upload(&algebra, &b));
     let huge = usize::MAX / 2 + 1;
-    for (side, l, m, r) in [("left", huge, 1, 1), ("right", 1, 1, huge)] {
+    for (side, l, r) in [("left", huge, 1), ("right", 1, huge)] {
         let split = Split {
             l,
-            m,
             r,
             ..one_qubit_split(&a, &b)
         };
@@ -306,7 +305,7 @@ fn a_call_whose_extents_overflow_is_refused() {
             a: &a,
             b: &b,
             l,
-            m,
+            m: 1,
             r,
             gate: None,
             centre: CentreSide::Right,
