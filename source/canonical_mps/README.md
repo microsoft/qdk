@@ -75,26 +75,46 @@ Today the crate holds:
   host CPU, which passes the kit and on which the engine's tests run.
 - **[The dense linear algebra](#the-dense-linear-algebra):** the
   products, QR and checked SVD of the CPU algebra and of the engine's
-  computations on the host; private, but for its error,
-  [`SvdError`](src/dense_linalg/svd.rs); the `conformance` feature makes
-  it public for a backend's test fakes.
+  computations on the host; its error, [`SvdError`](src/dense_linalg/svd.rs),
+  is at the crate's root, and the whole module under the `conformance`
+  feature, for a backend's test fakes.
 
 A simulator uses the engine: it starts with `CpuMpsEngine`, as in
 [On the host CPU](#on-the-host-cpu), or names `CanonicalMpsEngine` on
-another backend's algebra. A backend's author implements `SiteAlgebra` and
-runs the conformance kit and circuits on it, as
-[The backend contract](#the-backend-contract) shows.
+another backend's algebra. A backend's author implements `SiteAlgebra`'s
+five tensor operations and runs the conformance kit and circuits on it, as
+[The backend contract](#the-backend-contract) shows; the backend then gets
+every `MpsEngine` method with no code of its own: the fusion of gates,
+gates on sites far apart, measurement, sampling, expectations, the
+contract's refusals, the retained weight and the statistics.
+
+**When each guarantee holds.** The engine's rustdoc,
+[`CanonicalMpsEngine`](src/engine.rs), states each one:
+
+- **At construction:** `with_cutoff` panics on a cutoff outside `[0, 1)`.
+- **At each call, before any backend call:** the contract's checks refuse
+  a malformed call (a qudit that is not a qubit, a site out of range or
+  named twice, a gate on three sites), so the backend never sees one.
+- **At each projection or condition:** a value of probability zero or
+  NaN is refused, leaving what every read sees unchanged.
+- **At each split:** the split keeps its largest singular value, drops at
+  most the cutoff's fraction of its own weight and values of rounding's
+  size, and keeps at most the capacity's bond; a split that would take
+  the retained weight below the smallest normal `f64` fails with
+  `CanonicalMpsError::WeightUnderflow` instead, since callers divide by
+  the weight.
+- **After a failure:** the state is unspecified, and the caller drops it;
+  only a failed read or upload of a site of an MPO's span leaves that
+  span's sites as they were.
 
 **Why this approach.**
 
-- **One implementation of the rules.** The centre's moves, the fusion of
-  gates, their application to distant sites, the truncation's bookkeeping
-  and the checks of every call belong to the engine alone, so every
-  backend runs them alike, and a fix reaches every backend.
-- **Small backends.** A backend writes only the trait's tensor
-  operations, on a site's storage or on two neighbouring sites; it checks
-  no argument, since the engine checks every one before it calls, and
-  reports only its own failures.
+- **One implementation of the rules.** The rules belong to the engine
+  alone, so every backend runs them alike, and a fix reaches every
+  backend.
+- **Small backends.** A backend's operations act on a site's storage or
+  on two neighbouring sites; it checks no argument, since the engine
+  checks every one before it calls, and reports only its own failures.
 - **Open to more backends.** A new backend is a new type implementing the
   trait, in its own crate; nothing here changes.
 - **Checks written once.** The conformance kit checks each operation of
@@ -219,36 +239,8 @@ assert!((given - 1.0).abs() < 1e-12);
 ### The engine's parts
 
 [`src/engine.rs`](src/engine.rs) holds the engine and its `MpsEngine`
-implementation, which calls one part per kind of work:
-
-- [`state.rs`](src/engine/state.rs): `CanonicalMpsState`, a state of the
-  engine, which holds its chain;
-- [`chain.rs`](src/engine/chain.rs): the sites, the centre, the pending
-  gates, the retained weight and the statistics;
-- [`fusion.rs`](src/engine/fusion.rs): the pending window, which gathers
-  the gates;
-- [`gate_products.rs`](src/engine/gate_products.rs): the arithmetic of
-  the pending gates' operators;
-- [`truncation.rs`](src/engine/truncation.rs): a window applied by one
-  split of two neighbours, the one place where the state's bonds are
-  truncated;
-- [`mpo.rs`](src/engine/mpo.rs): any other window, applied as an
-  [MPO](#terms) across its span;
-- [`centre_moves.rs`](src/engine/centre_moves.rs): the centre's moves;
-- [`host_site.rs`](src/engine/host_site.rs): a site's elements on the
-  host, its pending gate applied, for the computations on the host;
-- [`measurement.rs`](src/engine/measurement.rs): the probabilities,
-  conditional probabilities and projections of one site;
-- [`expectation.rs`](src/engine/expectation.rs): an observable's
-  expectation;
-- [`statistics.rs`](src/engine/statistics.rs): what a state's history
-  cost ([statistics](#settings-and-statistics));
-- [`policy.rs`](src/engine/policy.rs): the default cutoff and the
-  operator's rank cutoff, with their reasons;
-- [`error.rs`](src/engine/error.rs): `CanonicalMpsError`, why a call was
-  refused or failed;
-- [`conformance.rs`](src/engine/conformance.rs): the engine's
-  [conformance circuits](#conformance-the-kit-and-the-engines-circuits).
+implementation; its header lists the part each kind of work calls, one
+file per part under [`src/engine/`](src/engine).
 
 ### Phases
 
@@ -294,13 +286,10 @@ The table names the phases each method runs, in order.
 | `shape`                          | window, toward the centre                                                                                       | the extents of the chain's bonds                                                                                                                                                                                                                               | a pending window's truncation sets its bonds                                                                                                                                                                                                                             |
 | `retained_weight`                | window, toward the centre                                                                                       | the product of the splits' retained fractions                                                                                                                                                                                                                  | a pending window's truncations set their retained fractions; the chain's norm stays about 1, so the weight is kept apart                                                                                                                                                 |
 
-A split that would take the retained weight below the smallest normal
-`f64` fails with `CanonicalMpsError::WeightUnderflow`, since callers divide
-by the weight, and the window fails with
-`CanonicalMpsError::OperatorDecomposition` when the host's factorisation
-of its operator fails, which checked gates are not expected to reach.
-After any failure the state is unspecified, as the contract says, and the
-caller drops it.
+Besides the failures that **When each guarantee holds**, at the top,
+lists, the window fails with `CanonicalMpsError::OperatorDecomposition`
+when the host's factorisation of its operator fails, which checked gates
+are not expected to reach.
 
 ### Settings and statistics
 

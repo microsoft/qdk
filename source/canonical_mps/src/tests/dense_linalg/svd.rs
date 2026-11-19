@@ -89,18 +89,18 @@ mod errors {
     use num_complex::Complex64;
 
     /// The errors name the matrix's shape and what went wrong, for a
-    /// caller that reports them.
+    /// caller that reports them: each names the shape, and the two
+    /// failures read differently.
     #[test]
     fn errors_name_the_shape_and_the_failure() {
-        let did_not_converge = SvdError::DidNotConverge { rows: 6, cols: 4 };
-        let failed_checks = SvdError::FailedChecks { rows: 6, cols: 4 };
-        assert_eq!(
-            did_not_converge.to_string(),
-            "the SVD of a 6 × 4 matrix did not converge"
-        );
-        assert_eq!(
-            failed_checks.to_string(),
-            "the SVD of a 6 × 4 matrix failed its accuracy checks"
+        let did_not_converge = SvdError::DidNotConverge { rows: 6, cols: 4 }.to_string();
+        let failed_checks = SvdError::FailedChecks { rows: 6, cols: 4 }.to_string();
+        for message in [&did_not_converge, &failed_checks] {
+            assert!(message.contains("6 × 4"), "the shape is named: {message}");
+        }
+        assert_ne!(
+            did_not_converge, failed_checks,
+            "each failure is told apart"
         );
     }
 

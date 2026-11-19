@@ -103,12 +103,13 @@ fn a_state_without_splits_reports_largest_bonds_of_1() {
     );
 }
 
-/// A gate on sites 3 and 0 of 5, unfused: a matrix product operator,
-/// which splits each of the three cuts of its span; then a gate on
-/// neighbours takes one split.
+/// A gate on sites 3 and 0 of 5: a matrix product operator, which splits
+/// each of the three cuts of its span once a gate on sites 1 and 2, which
+/// its window cannot take, applies it; then that gate on neighbours takes
+/// one split, once the retained weight applies its window.
 #[test]
 fn counts_the_splits_and_matrix_product_operators() {
-    let engine = Engine::new(CpuAlgebra).with_fusion(false);
+    let engine = Engine::new(CpuAlgebra);
     let mut state = engine.prepare(&capacity(5, 8)).expect("prepare");
     for site in 0..5 {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
@@ -122,6 +123,9 @@ fn counts_the_splits_and_matrix_product_operators() {
     engine
         .apply(&mut state, &[1, 2], &entangler(0.4))
         .expect("apply");
+    engine
+        .retained_weight(&state)
+        .expect("a read applies the window");
     let statistics = state.statistics();
     assert_eq!((statistics.splits(), statistics.mpo_applications()), (4, 1));
 }
@@ -161,12 +165,15 @@ fn counts_the_moves_of_the_centre() {
 /// starts with the parent's splits, operators and largest bonds.
 #[test]
 fn a_fork_starts_with_its_parents_history() {
-    let engine = Engine::new(CpuAlgebra).with_fusion(false);
+    let engine = Engine::new(CpuAlgebra);
     let mut state = engine.prepare(&capacity(5, 8)).expect("prepare");
     for site in 0..5 {
         engine.apply(&mut state, &[site], &ry(0.7)).expect("apply");
     }
     engine.apply(&mut state, &[3, 0], &cnot()).expect("apply");
+    engine
+        .retained_weight(&state)
+        .expect("a read applies the window");
     let statistics = state.statistics();
     assert_ne!(statistics, CanonicalMpsStatistics::default(), "a history");
     let fork = engine.fork(&state).expect("fork");
