@@ -11,6 +11,11 @@
 //! does not run, a call it cannot run, a capacity that is no chain, or the
 //! engine; or the run was stopped (no shot failed: the shot named is the
 //! first that had not ended).
+//!
+//! Its message says what failed and names the item; an error it wraps (the
+//! engine's, or why the shape is no chain) is its source, not repeated in
+//! its message, as `canonical_mps`' errors do, so a caller that shows the
+//! chain shows each cause once.
 
 use std::fmt;
 
@@ -76,13 +81,13 @@ impl<E: fmt::Display> fmt::Display for MpsResumerError<E> {
             Self::Capacity {
                 qubits,
                 max_bond_dimension,
-                source,
+                ..
             } => write!(
                 f,
-                "{qubits} qubits with bonds of at most {max_bond_dimension} make no chain: {source}"
+                "{qubits} qubits with bonds of at most {max_bond_dimension} make no chain"
             ),
-            Self::Engine(error) => write!(f, "the MPS engine failed or refused a call: {error}"),
-            Self::Stopped => write!(f, "the run was stopped"),
+            Self::Engine(_) => write!(f, "the MPS engine failed or refused a call"),
+            Self::Stopped => write!(f, "the run was stopped: its stop flag was set"),
         }
     }
 }

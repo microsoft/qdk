@@ -71,12 +71,12 @@ fn the_largest_bond_is_the_largest_any_state_reached() {
     }
 }
 
-/// The bond is read once per run of gates, where it ends, not before
+/// The bond is read once per sequence of gates, where it ends, not before
 /// every draw: a shot of a Bell pair, both qubits read, then an H gate,
 /// reads it before the first measurement (none before the second, with no
 /// gate between) and after the H, as its context ends.
 #[test]
-fn the_bond_is_read_once_per_run_of_gates() {
+fn the_bond_is_read_once_per_gate_sequence() {
     let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
     let program = program(
         2,
@@ -288,8 +288,9 @@ fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
     let mut lossy = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7);
     run_once(&mut lossy, &ghz(3));
     let at_tolerance = MpsRunReport {
+        largest_bond: 1,
         least_retained_weight: 1.0 - TRUNCATION_TOLERANCE,
-        ..MpsRunReport::new(8)
+        max_bond_dimension: 8,
     };
     let rows = [
         ("an exact run", *exact.last_run(), None),

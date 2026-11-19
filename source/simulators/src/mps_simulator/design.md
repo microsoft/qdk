@@ -44,7 +44,7 @@ the same names.
   qubits prepares none.
 - **apply** (`apply`): the engine applies each gate to the group's one
   state, one call for the group.
-- **read bond** (`read_bond`): where a run of gates ends, before a draw or
+- **read bond** (`read_bond`): where a sequence of gates ends, before a draw or
   a resume, the state's largest bond is read, and kept in the report
   ([`run_report.rs`](run_report.rs)) when it is the largest of the run so
   far. It is read before the draws, which may shrink it.
@@ -111,7 +111,7 @@ sequenceDiagram
   R->>E: prepare(capacity)
   Note over M,E: Phase: apply
   R->>E: apply(state, sites, matrix)
-  Note over M,E: Phase: read bond, where a run of gates ends
+  Note over M,E: Phase: read bond, where a sequence of gates ends
   R->>E: shape(state)
   Note over M,E: Phase: draw
   R->>E: probability_of_one(state, site)
