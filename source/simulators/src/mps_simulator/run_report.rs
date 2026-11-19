@@ -35,7 +35,12 @@ use std::fmt;
 /// The weight a shot may lose to truncation before a run warns.
 pub const TRUNCATION_TOLERANCE: f64 = 1e-3;
 
-/// What a run cost, over its shots.
+/// What a run cost, over its shots, as [`MpsResumer::last_run`] gives it:
+/// the largest bond, against the max bond dimension χ, and the least
+/// retained weight, which tell a user whether to raise χ
+/// ([`truncation_warning`](Self::truncation_warning)).
+///
+/// [`MpsResumer::last_run`]: super::MpsResumer::last_run
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MpsRunReport {
     /// The largest bond a state held where a run of gates ended,

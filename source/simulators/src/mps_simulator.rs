@@ -21,9 +21,10 @@
 //! report and fail a run (`run_report.rs`, `error.rs`).
 //!
 //! Shots that drew the same values share one state, forked where their
-//! draws differ, so a run costs what its distinct histories cost; each shot
-//! draws from its own stream, so its records do not depend on the shots
-//! beside it (beyond rounding, on some engines: [`MpsResumer`]).
+//! draws differ, so a run never makes more states than it has shots, and
+//! one for a program whose draws never differ; each shot draws from its own
+//! stream, so its records do not depend on the shots beside it (beyond
+//! rounding, on some engines: [`MpsResumer`]).
 //!
 //! An overview, with the phases of a run, the public types and an example,
 //! is in `src/mps_simulator/README.md`; each phase's mechanics and engine
