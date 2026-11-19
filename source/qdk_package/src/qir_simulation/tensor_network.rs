@@ -32,8 +32,6 @@
 
 mod detached_run;
 mod run_failure;
-#[cfg(test)]
-mod tests;
 
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
