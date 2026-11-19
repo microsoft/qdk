@@ -14,7 +14,8 @@
 use super::*;
 use tensornet::sampling::{TooManyValues, sample_by_conditionals};
 
-/// Reads move the orthogonality centre, never the state they read.
+/// Reads move the orthogonality centre, never the state they read; nor does
+/// a sample, which draws from forks.
 #[test]
 fn reads_keep_the_state() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
@@ -27,6 +28,7 @@ fn reads_keep_the_state() {
             engine
                 .conditional_probability_of_one(&state, 1, &[(site, true)])
                 .expect("a possible condition");
+            engine.sample(&state, &[site, 1], 8, 7).expect("a sample");
             let after = engine
                 .expectation(&state, &mixed_string())
                 .expect("expectation");
@@ -84,23 +86,38 @@ fn a_projection_returns_the_probability_of_its_value() {
 
 /// A sampler's conditional probability of site 5 given values of sites 0
 /// and 3 is the probability of site 5 on a fork projected on those values
-/// in order.
+/// in order. Site 5 may be among the conditions too: given One it answers
+/// 1, and given Zero 0.
 #[test]
 fn a_conditional_probability_is_the_probability_after_its_conditions() {
-    let given = [(0, true), (3, false)];
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let (state, _) = circuit(&engine, 6);
-        let p = engine
-            .conditional_probability_of_one(&state, 5, &given)
-            .expect("possible conditions");
-        let mut fork = engine.fork(&state).expect("fork");
-        for (site, one) in given {
-            engine
-                .project(&mut fork, site, one)
-                .expect("a possible value");
+    // The conditions, and the value they make certain, if any.
+    type Row = (&'static [(usize, bool)], Option<f64>);
+    let rows: [Row; 3] = [
+        (&[(0, true), (3, false)], None),
+        (&[(5, true)], Some(1.0)),
+        (&[(0, true), (5, false)], Some(0.0)),
+    ];
+    for (given, certain) in rows {
+        for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+            let (state, _) = circuit(&engine, 6);
+            let p = engine
+                .conditional_probability_of_one(&state, 5, given)
+                .expect("possible conditions");
+            let mut fork = engine.fork(&state).expect("fork");
+            for &(site, one) in given {
+                engine
+                    .project(&mut fork, site, one)
+                    .expect("a possible value");
+            }
+            let expected = engine.probability_of_one(&fork, 5).expect("P(One)");
+            assert!(
+                (p - expected).abs() < 1e-12,
+                "{name}, given {given:?}: {p} vs {expected}"
+            );
+            if let Some(certain) = certain {
+                assert!((p - certain).abs() < 1e-12, "{name}, given {given:?}: {p}");
+            }
         }
-        let expected = engine.probability_of_one(&fork, 5).expect("P(One)");
-        assert!((p - expected).abs() < 1e-12, "{name}: {p} vs {expected}");
     }
 }
 

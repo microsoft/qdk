@@ -61,9 +61,10 @@ fn assert_value_agrees(
 }
 
 /// An observable of terms left of the centre, right of it and across it,
-/// with an identity coefficient, on a state whose centre a read left at
-/// one end, in the middle or at the other end, with one-site gates
-/// pending: its value is the exact reference's wherever the centre lies.
+/// with an identity coefficient, and a term whose factors are given in
+/// reverse site order, on a state whose centre a read left at one end, in
+/// the middle or at the other end, with one-site gates pending: its value
+/// is the exact reference's wherever the centre lies.
 #[test]
 fn an_expectation_reads_the_value_wherever_the_centre_lies() {
     let o = observable(
@@ -74,6 +75,7 @@ fn an_expectation_reads_the_value_wherever_the_centre_lies() {
             (real(-0.8), &[(4, Z), (5, X)]),
             (real(1.2), &[(2, X), (3, Z), (4, Y)]),
             (real(0.3), &[(0, Y), (5, Y)]),
+            (real(0.4), &[(5, X), (0, Z)]),
         ],
     );
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
@@ -123,17 +125,45 @@ fn terms_that_share_factors_each_count() {
     }
 }
 
-/// An observable of no terms is its identity coefficient, whatever the
-/// state.
+/// The identity coefficient is added as it is, not divided by the state's
+/// norm: an observable of no terms is its identity coefficient, whatever
+/// the state, and one with terms is its identity coefficient plus their
+/// value, on a state whose norm drifted from 1, grown by the gate
+/// (1 + 1e-10)·I, which the unitarity check accepts.
 #[test]
-fn an_observable_without_terms_reads_its_identity_coefficient() {
+fn the_identity_coefficient_stands_outside_the_division_by_the_norm() {
     let identity = Complex64::new(-0.4, 2.5);
+    let s = 1.0 + 1e-10;
+    let grow = [real(s), real(0.0), real(0.0), real(s)];
+    let z0 = |identity| observable(identity, &[(real(1.0), &[(0, Z)])]);
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
         let (state, _) = circuit(&engine, 6);
         let value = engine
             .expectation(&state, &observable(identity, &[]))
             .expect("expectation");
         assert_eq!(value, identity, "{name}");
+
+        let mut drifted = engine.prepare(&capacity(2, 2)).expect("prepare");
+        engine
+            .apply(&mut drifted, &[0], &grow)
+            .expect("a gate within the unitarity tolerance");
+        engine
+            .probability_of_one(&drifted, 1)
+            .expect("a read carries the drift into the centre");
+        let value = engine
+            .expectation(&drifted, &observable(identity, &[]))
+            .expect("expectation");
+        assert_eq!(value, identity, "{name}, drifted");
+        let terms = engine
+            .expectation(&drifted, &z0(real(0.0)))
+            .expect("expectation");
+        let value = engine
+            .expectation(&drifted, &z0(identity))
+            .expect("expectation");
+        assert!(
+            (value - (identity + terms)).norm() < 1e-12,
+            "{name}, drifted: {value} vs {identity} + {terms}"
+        );
     }
 }
 
