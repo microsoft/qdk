@@ -879,12 +879,14 @@ fn only_the_copy_its_override_names_is_reported_so() {
     assert!(unset_later.from_override, "{unset_later:?}");
 }
 
-/// The setup check has advice for every library a GPU run opens, so none
-/// is left out of what it shows and advises.
+/// The setup check has advice for every library a GPU run opens, in the
+/// order it opens them, so none is left out of what it shows and advises,
+/// and the first library it lists at fault is the one its advice addresses
+/// (the CUDA Runtime before cuTensorNet, which runs on it).
 #[cfg(unix)]
 #[test]
 fn every_library_discovery_opens_has_setup_advice() {
-    let mut guided: Vec<_> = LoadedLibraries::SETUP_GUIDES
+    let guided: Vec<_> = LoadedLibraries::SETUP_GUIDES
         .iter()
         .map(|guide| guide.library)
         .collect();
@@ -897,12 +899,10 @@ fn every_library_discovery_opens_has_setup_advice() {
         LoadedLibraries::open(&mut opening).is_none(),
         "a relative override makes every library unusable"
     );
-    let mut opened: Vec<_> = opening
+    let opened: Vec<_> = opening
         .into_reports()
         .iter()
         .map(|report| report.library)
         .collect();
-    guided.sort_unstable();
-    opened.sort_unstable();
     assert_eq!(guided, opened);
 }

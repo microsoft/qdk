@@ -115,9 +115,9 @@ impl GpuSetup {
     /// looked for: discovery failed (an invalid override first, or else the
     /// first fault of the first library at fault, in the order they are
     /// opened); a library's report reveals a problem of the host (today the
-    /// CUDA Runtime's driver check); the devices could not be
-    /// read, or the GPU engine's device is missing, or of a compute
-    /// capability cuTensorNet does not support; the trial run failed.
+    /// CUDA Runtime's driver check); the devices could not be read, or the
+    /// GPU engine's device is missing, or of a compute capability
+    /// cuTensorNet does not support; the trial run failed.
     #[must_use]
     pub fn advice(&self) -> Option<String> {
         let loaded = match &self.loaded {
