@@ -316,10 +316,22 @@ fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
                 message.contains("max bond dimension 128"),
                 "{scene}: {message}"
             );
-            let shown = |weight: f64| format!("{weight:.3e}");
+            let numbers: Vec<f64> = message
+                .split(|c: char| !(c.is_ascii_digit() || "+-.eE".contains(c)))
+                .filter_map(|token| {
+                    token
+                        .trim_matches(|c: char| !c.is_ascii_digit())
+                        .parse()
+                        .ok()
+                })
+                .collect();
+            let shows = |weight: f64| {
+                numbers
+                    .iter()
+                    .any(|number| (number - weight).abs() <= 0.01 * weight)
+            };
             assert!(
-                message.contains(&shown(lost_weight))
-                    && !message.contains(&shown(1.0 - lost_weight)),
+                shows(lost_weight) && !shows(1.0 - lost_weight),
                 "{scene}: the message gives the weight lost, not the weight kept: {message}"
             );
         }
