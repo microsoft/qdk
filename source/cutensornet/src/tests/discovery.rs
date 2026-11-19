@@ -35,14 +35,19 @@ fn availability_can_be_shared_across_threads() {
     assert_send_sync::<Availability>();
 }
 
-/// On macOS or Windows, a GPU run is refused at once, with the platform.
+/// On macOS or Windows, a GPU run is refused at once, naming the platform:
+/// this host's OS and architecture (the message's wording is tested with
+/// the error).
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 #[test]
 fn discovery_off_linux_x86_64_is_unsupported() {
-    assert!(matches!(
-        crate::discover(),
-        Err(AvailabilityError::UnsupportedPlatform { .. })
-    ));
+    let Err(AvailabilityError::UnsupportedPlatform { platform }) = crate::discover() else {
+        panic!("discovery runs only on Linux x86-64");
+    };
+    assert_eq!(
+        platform,
+        format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)
+    );
 }
 
 /// A user whose CUDA Runtime override names a file that is not a library,
