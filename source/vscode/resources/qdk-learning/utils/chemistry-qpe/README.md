@@ -59,40 +59,38 @@ the authored notebooks, so they only resolve inside a learner's workspace.
 | Script               | What it does                                                                                                                                        |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rst_to_notebook.py` | Reconstructs selected unit notebooks. `RECIPES` holds the per-chapter decisions a human still has to make; `--check` detects drift without writing. |
-| `details_to_quiz.py` | Bakes a chapter's self-check questions into answerable quizzes. The quiz counterpart of `bake_outputs.py`; run it after `rst_to_notebook.py`.       |
+| `details_to_quiz.py` | Refreshes saved quiz outputs from the author notebook's literal definitions; `--check` reports drift without writing.                               |
 | `bake_outputs.py`    | Runs a notebook so its outputs ship with the course.                                                                                                |
 | `verify_course.py`   | Checks every unit loads, validates, and carries what the tree needs. Pass `--allow-outputs` when reviewing baked notebooks.                         |
 
 ## Self-check questions
 
-`details_to_quiz.py` bakes a chapter's self-check questions into the notebook,
-so a learner sees them on opening the file and can answer without a kernel. It
-is the quiz counterpart of `bake_outputs.py`, but a quiz is pure data, so it
-calls the emitter directly instead of starting a kernel.
+Write each question's full Python definition in a dedicated author notebook
+code cell tagged `quiz`, following the [authoring guide](../../../../authoring-courses.md).
+The author notebook is the source of truth; `_unit.py` binds the helper to that
+notebook once, without registering individual questions. Convert `<details>`
+questions by hand so their placement, correct answers, and new distractors can
+be reviewed for scientific accuracy.
 
-The first run on a chapter also creates the cells to bake. A chapter's
-`quiz-question` admonitions arrive as `<details>` disclosures whose only
-interaction is revealing the answer, and those blocks are replaced with
-`quiz("id")` calls. Afterwards every run is only a rebake.
+Run the final `author-only` validation cell to check the saved definitions.
+Validation does not bake outputs. Publishing first-open interaction is a
+separate, explicit step:
 
-The choices themselves live in the unit's `_unit.py`, registered by id, so the
-notebook cell a learner reads is just `quiz("id")` rather than the answer key.
-Write them by hand: which wrong answers are worth offering is a judgement about
-what a learner is likely to believe, and the converter never touches `_unit.py`.
-The answers do travel to the browser inside the baked cell output, because the
-renderer grades without a kernel — this raises the effort of looking them up
-rather than making it impossible, and it is no weaker than the collapsible
-answers it replaces.
-
-Regenerating a chapter puts the `<details>` back, so re-run this afterwards.
-Both steps are idempotent and safe to run either way:
-
-    python rst_to_notebook.py 06_iterative_phase_estimation
-    python details_to_quiz.py 06-iterative-phase-estimation --ids <ids in document order>
+    python details_to_quiz.py 01-energy-and-accuracy
+    python details_to_quiz.py 01-energy-and-accuracy --check
     python verify_course.py
 
-After that first conversion the notebook names its own ids, so rebaking edited
-questions, or checking for drift against `_unit.py`, is just:
+The baker calls the quiz emitter directly, without starting a kernel or executing
+notebook cells. It refreshes only quiz outputs, preserving source and cell IDs.
+`--check` reports stale outputs without writing. Materialization never invokes
+the baker: it preserves available outputs and replaces definitions with named
+calls such as `quiz("energy-total-components")`. Learner reruns resolve those
+calls against the saved author source, not its outputs.
 
-    python details_to_quiz.py 06-iterative-phase-estimation
-    python details_to_quiz.py 06-iterative-phase-estimation --check
+`rst_to_notebook.py` reconstructs notebooks from the upstream tutorial and does
+not retain handwritten quiz definitions. Do not regenerate a converted chapter
+merely to rebake it; preserve and reapply its reviewed definitions when updating
+from upstream.
+
+Answers travel to the browser in the saved MIME output because the renderer
+grades without a kernel. This is self-paced learning, not a secure assessment.
