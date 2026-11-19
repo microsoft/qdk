@@ -117,9 +117,9 @@ Today the protocol holds:
   shots on every part. A part's panic becomes a failure of the run (on
   every platform but wasm32, where a panic aborts). With a fixed seed,
   parts that draw on the protocol's seeds, and runs in which no part
-  sends an `execute` again, a run gives the same outputs each time; and
-  where the chain's shots replay, a shot run again alone, as a debugger
-  does, gives back its readouts.
+  sends an `execute` again, a run gives the same outputs each time; and,
+  on the same conditions, where the chain's shots replay, a shot run again
+  alone, as a debugger does, gives back its readouts.
 - **Remote executors:** an executor that stands for a chain held by
   another process relies on what that chain accepts and offers, and on
   each `execute`'s seed, carried there as bits, as
