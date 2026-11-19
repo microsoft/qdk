@@ -218,13 +218,13 @@ def tensornetwork_qir(
         ``queries`` is not iterable (a bare :class:`Sample`, say), a query
         is not a :class:`Sample`, ``engine`` is not a ``str``, or ``input``
         is not text, bitcode or a ``QirInputData``.
-    :raises OSError: When the GPU engine is not set up (no library, a version
-        not supported, no device): the message is the
-        :func:`check_tensornetwork_setup` report. When the setup was found
-        but no engine could be made: the engine's error, then that report.
-        Both end with a line saying that ``engine="cpu"`` runs without a
-        GPU. When the engine fails during the run: its error, with the
-        errors that caused it.
+    :raises OSError: When the GPU libraries are not set up (none found, a
+        version not supported): the message is the
+        :func:`check_tensornetwork_setup` report. When they were found but
+        no engine could be made (no device, say): the engine's error, then
+        that report. Both end with a line saying that ``engine="cpu"`` runs
+        without a GPU. When the engine fails during the run: its error,
+        with the errors that caused it.
     :raises RuntimeError: When a shot traps (a division by zero, say); the
         message names the shot.
     """
