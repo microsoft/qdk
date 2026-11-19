@@ -11,20 +11,20 @@
 //! record alone (to what precision: [`MpsResumer`]), and on a report of
 //! what truncation cost.
 //!
-//! [`qir`](crate::qir) runs a program's classical part and hands each
-//! shot's quantum calls to a resumer; an engine holds states and knows only
-//! sites and matrices. This module joins them: [`MpsResumer`], in this
-//! file, runs the calls of each shot on an MPS that an engine holds, and
-//! its parts, in `mps_simulator/`, map qubits to sites (`qubit_order.rs`),
-//! turn calls into steps on sites (`lowering.rs`), run the shots in groups
-//! (`grouped_run.rs`), give each shot its stream (`shot_stream.rs`), and
-//! report and fail a run (`run_report.rs`, `error.rs`).
+//! [`qir`](crate::qir) runs a program's classical part and hands each shot's
+//! quantum calls to a resumer; an engine holds states on a chain of sites,
+//! applies matrices to them and answers probabilities. This module joins them:
+//! [`MpsResumer`], in this file, runs the calls of each shot on an MPS that an
+//! engine holds, and its modules, in `mps_simulator/`, map qubits to sites
+//! (`qubit_order.rs`), turn calls into steps on sites (`lowering.rs`), run the
+//! shots in groups (`grouped_run.rs`), give each shot its stream
+//! (`shot_stream.rs`), and report and fail a run (`run_report.rs`, `error.rs`).
 //!
 //! Shots that drew the same values share one state, forked where their
-//! draws differ, so a run never makes more states than it has shots, and
-//! one for a program whose draws never differ; each shot draws from its own
-//! stream, so its records do not depend on the shots beside it (beyond
-//! rounding, on some engines: [`MpsResumer`]).
+//! draws differ, so a run of N shots holds at most ⌊log₂ N⌋ + 1 states at
+//! once, and at most one for a program whose draws never differ; each shot
+//! draws from its own stream, so its records do not depend on the shots
+//! beside it (beyond rounding, on some engines: [`MpsResumer`]).
 //!
 //! An overview, with the phases of a run, the public types and an example,
 //! is in `src/mps_simulator/README.md`; each phase's mechanics and engine
