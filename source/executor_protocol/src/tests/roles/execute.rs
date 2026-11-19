@@ -22,7 +22,7 @@ use crate::tests::fake_parts::{
     RowsGiven, SeesPieces, Sending, Spread, Values, in_each_bracketing, sorted_values,
 };
 use crate::{
-    Adapter, Driver, Executor, MAX_INSTRUCTIONS_PER_PIECE, Offer, ShotConditions, ShotSet,
+    Adapter, Driver, Execute, Executor, MAX_INSTRUCTIONS_PER_PIECE, Offer, ShotConditions, ShotSet,
 };
 
 /// The most instructions of any piece the default cuts, as a count.
@@ -274,31 +274,48 @@ fn execute_stream_by_default_runs_pieces_within_the_receivers_most_each_pulled_a
 }
 
 /// A driver sending a stream, each instruction made only when pulled, to
-/// an executor that cuts it by the default, takes at most 5 instructions
-/// or any count, and answers each `execute` on a later poll, as a device
-/// does: when the run's future is dropped after its first poll, as a
-/// caller cancels a run, the sender has made the first piece and no more,
-/// so a cancelled run of a long stream stops within a piece.
+/// an executor that takes at most 5 instructions or any count, and either
+/// cuts the stream by the default, answering each `execute` on a later
+/// poll, as a device does, or runs it itself, yielding once per piece's
+/// worth, as an override must: when the run's future is dropped after its
+/// first poll, as a caller cancels a run, the sender has made the first
+/// piece and no more, so a cancelled run of a long stream stops within a
+/// piece.
 #[test]
-fn execute_stream_by_default_pulls_no_more_than_a_piece_before_its_run_is_dropped() {
+fn execute_stream_pulls_no_more_than_a_piece_before_its_run_is_dropped() {
     let past_a_piece = vec![("x", 0); 2 * PIECE + 452];
-    let shots = ShotSet::ids(0..3);
     for (program, most, piece) in [(&PROGRAM[..], Some(5), 5), (&past_a_piece, None, PIECE)] {
-        let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
-        let mut runner = runner(
-            Driver::new(Program::new(program).sending_as(Sending::stream_counted(&produced)))
-                >> Executor::new(Later(bits(&log, most))),
-        );
-        {
-            let mut run = pin!(runner.run_async(&shots, SEED));
-            let polled = run.as_mut().poll(&mut Context::from_waker(Waker::noop()));
-            assert!(
-                polled.is_pending(),
-                "at most {most:?}: the first piece waits"
-            );
+        for receiver in ["the default over a later executor", "its own"] {
+            let case = format!("at most {most:?}, {receiver}");
+            let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
+            let waited = if receiver == "its own" {
+                polled_once_then_dropped(program, &produced, bits(&log, most))
+            } else {
+                polled_once_then_dropped(program, &produced, Later(bits(&log, most)))
+            };
+            assert!(waited, "{case}: the first piece waits");
+            assert_eq!(produced.get(), piece, "{case}, once dropped");
         }
-        assert_eq!(produced.get(), piece, "at most {most:?}, once dropped");
     }
+}
+
+/// Runs `program` on 3 shots, as a stream each instruction of which is
+/// counted in `produced` when it is made, to `executor`; polls the run's
+/// future once, then drops it. Whether that poll was pending.
+fn polled_once_then_dropped(
+    program: &[(&str, u32)],
+    produced: &Rc<Cell<usize>>,
+    executor: impl Execute,
+) -> bool {
+    let mut runner = runner(
+        Driver::new(Program::new(program).sending_as(Sending::stream_counted(produced)))
+            >> Executor::new(executor),
+    );
+    let shots = ShotSet::ids(0..3);
+    let mut run = pin!(runner.run_async(&shots, SEED));
+    run.as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending()
 }
 
 /// The pieces a [`SeesPieces`] logged running, in order.

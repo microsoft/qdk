@@ -217,8 +217,9 @@ pub trait Execute: ExecutorSetup {
     ///   of the stream, answered `Ok`, are a wrong result its sender could
     ///   not tell. Through the protocol's boundary, an `Ok` with instructions
     ///   left fails ([`Failure::StreamNotTakenWhole`], naming the
-    ///   executor): after the `Ok`, unless the stream already ended, the
-    ///   boundary asks the sender once more, and only once.
+    ///   executor): after the `Ok`, the boundary fails at once if an
+    ///   instruction it checked is left, and otherwise asks the sender once
+    ///   more, and only once, unless the stream already ended.
     /// - It stays cancellable: at least once per piece's worth of
     ///   instructions (as many as the default would put in a piece), it
     ///   awaits something that can be pending (a piece's `execute`, a

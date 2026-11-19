@@ -62,6 +62,7 @@ fn adapt_each_by_default_gives_no_row_when_adapt_fails() {
 fn adapt_stream_by_default_runs_pieces_of_the_most_it_offers_above() {
     for (most_above, bits_most, program, pieces) in [
         (Some(3), Some(5), &PROGRAM[..], &[3, 3, 3, 3][..]),
+        (Some(0), Some(5), &PROGRAM, &[1; 12]),
         (None, Some(5), &PROGRAM, &[5, 5, 2]),
         (None, Some(4), &PROGRAM, &[4, 4, 4]),
         (None, Some(12), &PROGRAM, &[12]),

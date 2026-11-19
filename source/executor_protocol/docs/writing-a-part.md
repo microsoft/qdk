@@ -253,10 +253,11 @@ in `each` is.
 A part that overrides a `_stream` form keeps two rules, which the
 default keeps. Its `Ok` means it took the stream whole: it pulled every
 instruction, though it need not pull the stream's end, as a part that
-stops at a count it knows; after an `Ok`, each boundary asks the sender
-once more, unless the stream ended, and fails the stream naming the
-receiver if an instruction is left, since readouts of a prefix of the
-stream would pass for those of the whole. And it stays cancellable: it
+stops at a count it knows; after an `Ok`, each boundary fails the stream
+naming the receiver if an instruction it checked is left, and otherwise
+asks the sender once more, unless the stream ended, and fails it if an
+instruction comes back, since readouts of a prefix of the stream would
+pass for those of the whole. And it stays cancellable: it
 awaits at least once per piece's worth of instructions (a piece's
 `execute`, a device, a link, a yield to the async runtime), so that a
 run whose future is dropped stops within a piece; the default awaits

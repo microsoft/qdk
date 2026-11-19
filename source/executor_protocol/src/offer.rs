@@ -39,9 +39,11 @@ pub struct Offer {
     /// executor's, never raise it.
     pub max_shots: Option<u32>,
     /// The most instructions one batch may hold; `None`: no limit. Every
-    /// batch sent to the executor is refused beyond it, checked or not, so
-    /// an executor that holds a batch in a buffer of fixed size relies on
-    /// it.
+    /// batch that crosses a boundary to the executor is refused beyond it,
+    /// checked or not, so an executor that holds a batch in a buffer of
+    /// fixed size relies on it. The default `execute_stream` calls the
+    /// executor's own `execute`, crossing no boundary, on pieces within it,
+    /// or of 1 when it is 0.
     pub max_instructions: Option<u32>,
     /// Whether a run may fix its seed, so that it gives the same records
     /// each time; a quantum computer's measurements cannot be seeded. A

@@ -62,7 +62,9 @@ pub enum Failure {
     /// taking it whole: its sender still had an instruction to give. Its
     /// readouts would be those of a prefix of the stream, which its sender
     /// could not tell from those of the whole. The protocol's boundary
-    /// finds it, asking the sender once more after the `Ok`.
+    /// finds it after the `Ok`: at once if an instruction it checked is
+    /// left, and otherwise asking the sender once more, unless the stream
+    /// ended.
     StreamNotTakenWhole {
         /// The part that answered early.
         part: PartId,

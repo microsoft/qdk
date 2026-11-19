@@ -89,7 +89,8 @@ pub trait AdapterSetup {
     /// every check of a run use that answer. It answers the same each
     /// time: the default [`adapt_stream`](crate::Adapt::adapt_stream)
     /// reads it again, to cut a stream into pieces of at most its most
-    /// instructions.
+    /// instructions, or of 1 when that most is 0, which its `adapt` may
+    /// refuse.
     fn offers_above(&self, below: Offer) -> Offer {
         below
     }

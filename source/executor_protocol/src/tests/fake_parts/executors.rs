@@ -14,6 +14,7 @@ use std::thread;
 use std::time::Duration;
 
 use super::{CoinGates, Log, RandomGenerator, YieldNow};
+use crate::roles::most_per_piece;
 use crate::{
     Batch, BatchReadouts, BlockType, Execute, ExecuteError, ExecuteRefusal, ExecutorSetup, Failure,
     FinalRow, Instruction, InstructionFault, InstructionSet, InstructionStream, Needs, NotReady,
@@ -24,7 +25,8 @@ use crate::{
 /// stream, `x` flips it, and `mz` reads it; any other instruction of its
 /// set does nothing. It gives each row as soon as its shot has run
 /// (`execute_each`), and runs a stream's instructions as they come, on
-/// every shot, without cutting it (`execute_stream`), as a simulator does.
+/// every shot, without cutting it (`execute_stream`), as a simulator does,
+/// yielding once per piece's worth so that it stays cancellable.
 pub(crate) struct Bits {
     set: InstructionSet,
     opcodes: [Option<Opcode>; 3],
@@ -247,7 +249,10 @@ impl Execute for Bits {
     }
 
     /// Runs each instruction on every shot as it is pulled, keeping each
-    /// one's readouts, joined at the end; logs `Bits execute_stream`.
+    /// one's readouts, joined at the end; logs `Bits execute_stream`. It
+    /// yields to the runtime before pulling past each piece's worth of
+    /// instructions (as many as the default would put in a piece), as an
+    /// override must to stay cancellable.
     async fn execute_stream(
         &mut self,
         stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
@@ -256,8 +261,16 @@ impl Execute for Bits {
     ) -> Result<(), ExecuteError> {
         self.log.push("Bits execute_stream");
         let shots = stream.shots;
+        let piece = most_per_piece(self.offer.max_instructions);
+        let mut instructions = stream.instructions;
         let mut read = Vec::new();
-        for instruction in stream.instructions {
+        loop {
+            if !read.is_empty() && read.len() % piece == 0 {
+                YieldNow::default().await;
+            }
+            let Some(instruction) = instructions.next() else {
+                break;
+            };
             let its_slots = self.set.readout_slots(instruction.opcode).unwrap_or(0);
             let mut its = BatchReadouts::new(shots.len(), its_slots);
             let batch = Batch::new(shots, slice::from_ref(&instruction), its_slots);

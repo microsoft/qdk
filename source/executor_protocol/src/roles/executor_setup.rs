@@ -48,7 +48,8 @@ pub trait ExecutorSetup {
     /// answer. It answers the same each time: the default
     /// [`execute_stream`](crate::Execute::execute_stream) and
     /// [`adapt_stream`](crate::Adapt::adapt_stream) read it again, to cut
-    /// a stream into pieces of at most its most instructions. Its most
+    /// a stream into pieces of at most its most instructions, or of 1 when
+    /// that most is 0, which its `execute` may refuse. Its most
     /// shots and whether it is seedable bound every run of the chain: no
     /// adapter above can raise them.
     fn offers(&self) -> Offer;
