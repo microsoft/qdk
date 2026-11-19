@@ -42,8 +42,7 @@
 //!    be the version its header declares, where the header declares one;
 //! 3. add its field to `LoadedLibraries`, and open it in
 //!    `LoadedLibraries::open` after the libraries it runs on, so that each
-//!    of those is loaded and checked before it is, and listed before it in
-//!    the report;
+//!    of those is listed before it in the report;
 //! 4. test its versions in `tests/libraries/`, and its tables there with the
 //!    naming rule (`assert_each_field_is_named_for_its_symbol`) and in the
 //!    case list of `function_table`'s tests; add its variable, paths and
@@ -94,10 +93,9 @@ pub(crate) struct LoadedLibraries {
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 impl LoadedLibraries {
-    /// Opens the libraries a GPU run needs, the CUDA Runtime first, then
-    /// cuTensorNet, which runs on it, so the CUDA Runtime discovery checked
-    /// is loaded before cuTensorNet is; they are kept loaded only when every
-    /// one is usable.
+    /// Opens the libraries a GPU run needs, each after those it runs on:
+    /// the CUDA Runtime, then cuTensorNet; they are kept loaded only when
+    /// every one is usable.
     ///
     /// Every library is opened before any is required, so each is checked
     /// whatever the faults of the others.

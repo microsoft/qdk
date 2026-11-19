@@ -244,7 +244,7 @@ they must match the C library's ABI (application binary interface: the sizes
 and layouts of its types, and its calling convention) exactly, as a wrong one
 is undefined behaviour when called, not a compile error. So they are
 generated from NVIDIA's headers, never written by hand, and the crate is
-checked against them when it compiles:
+checked against them:
 
 - **Generated from pinned inputs.**
   [`scripts/generate_bindings.py`](scripts/generate_bindings.py) runs bindgen
@@ -268,17 +268,17 @@ checked against them when it compiles:
   generated, so that GitHub hides them in a pull request's diff. The CUDA
   Runtime's bindings declare CUDA's stream type, and cuTensorNet's import
   it, so that a stream the one creates passes to the other unchanged.
-- **Checked when the crate compiles.** A library's function table is the
-  list of the functions the crate uses. Each row names its symbol, and its
-  function-pointer type is checked against the symbol's declaration in the
-  bindings, so each field has its symbol's type; the tests check that each
-  field is named for its symbol and that no symbol is held twice, which
-  catches two functions of one signature swapped or repeated. The
-  version each library is accepted at is asserted to be the version its
-  header declares.
+- **Checked when the crate compiles, and by its tests.** A library's
+  function table is the list of the functions the crate uses. Each row
+  names its symbol, and its function-pointer type is checked against the
+  symbol's declaration in the bindings, so each field has its symbol's
+  type; the tests check that each field is named for its symbol and that no
+  symbol is held twice, which catches two functions of one signature
+  swapped or repeated. The version each library is accepted at is asserted
+  to be the version its header declares.
 
-To bind another function of a bound release, add its row, with a field
-named for its symbol and its function-pointer type, to its library's
+To bind another function of a bound release, add its row (its field,
+named for its symbol, and its function-pointer type) to its library's
 module in [`src/libraries/`](src/libraries): the bindings already declare it.
 To bind another library, follow the steps at the top of
 [`src/libraries.rs`](src/libraries.rs). The script runs once per release of

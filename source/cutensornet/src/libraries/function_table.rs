@@ -76,7 +76,6 @@ macro_rules! function_table {
         impl $table {
             /// The rows, as `(field, symbol, required)`.
             #[cfg(test)]
-            #[allow(dead_code, reason = "only the tests read the rows")]
             pub(crate) const ROWS: &[(&str, &str, bool)] = &[
                 $((
                     stringify!($field),
