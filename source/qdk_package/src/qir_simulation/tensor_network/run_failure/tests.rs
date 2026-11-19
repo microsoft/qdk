@@ -8,6 +8,7 @@
 //! GPU not set up, which a program or a setup causes, are pinned by the
 //! Python tests alone.
 
+use std::error::Error;
 use std::fmt;
 
 use canonical_mps::CanonicalMpsError;
@@ -61,6 +62,20 @@ fn shot_0_failure<E: MpsEngineError>(error: MpsResumerError<E>) -> RunFailure {
     })
 }
 
+/// The failure of a run whose shot 0 met `error`, with the message of each
+/// error in `error`'s chain: `error`'s own, then each source's.
+fn shot_0_failure_and_its_chain<E: MpsEngineError + 'static>(
+    error: MpsResumerError<E>,
+) -> (RunFailure, Vec<String>) {
+    let mut chain = vec![error.to_string()];
+    let mut source = Error::source(&error);
+    while let Some(cause) = source {
+        chain.push(cause.to_string());
+        source = cause.source();
+    }
+    (shot_0_failure(error), chain)
+}
+
 /// An engine that fails during a run (a device out of memory) raises
 /// `OSError`, as a setup problem does: the machine must act.
 #[test]
@@ -72,11 +87,13 @@ fn an_engine_failure_is_an_os_error() {
     );
 }
 
-/// A failed shot's message shows each error that caused it once, whichever
-/// exception it raises: the canonical MPS engine's algebra failure says
-/// only that the site algebra failed and keeps the CUDA call that failed as
-/// its source, while the run's error, naming the shot, shows its source in
-/// its message and gives it as its source too.
+/// A failed shot's message shows each error of its chain once, whichever
+/// exception it raises: the MPS simulation method's failure, which keeps
+/// the engine's error or why the shape is no chain as its source; the
+/// canonical MPS engine's algebra failure, which says only that the site
+/// algebra failed and keeps the CUDA call that failed as its source; and
+/// the run's error, naming the shot, which shows its source in its message
+/// and gives it as its source too.
 #[test]
 fn a_failures_message_shows_each_cause_once() {
     let cuda_call_failed = CudaAlgebraError::NativeCallFailed {
@@ -88,34 +105,34 @@ fn a_failures_message_shows_each_cause_once() {
     let cases = [
         (
             "an engine's own failure, an OSError",
-            shot_0_failure(MpsResumerError::Engine(FakeEngineError::OutOfMemory)),
-            "the device ran out of memory".to_string(),
+            shot_0_failure_and_its_chain(MpsResumerError::Engine(FakeEngineError::OutOfMemory)),
         ),
         (
             "the canonical engine's algebra failure on the GPU, an OSError",
-            shot_0_failure(MpsResumerError::Engine(CanonicalMpsError::Algebra(
+            shot_0_failure_and_its_chain(MpsResumerError::Engine(CanonicalMpsError::Algebra(
                 cuda_call_failed,
             ))),
-            "CUDA Runtime cudaMalloc failed with status 2: out of memory".to_string(),
         ),
         (
             "a max bond dimension that makes no chain, a ValueError",
-            shot_0_failure(MpsResumerError::<FakeEngineError>::Capacity {
+            shot_0_failure_and_its_chain(MpsResumerError::<FakeEngineError>::Capacity {
                 qubits: 70,
                 max_bond_dimension: 1 << 40,
                 source: MpsShapeError::ElementCountOverflow { site: 35 },
             }),
-            MpsShapeError::ElementCountOverflow { site: 35 }.to_string(),
         ),
     ];
-    for (case, failure, cause) in cases {
+    for (case, (failure, chain)) in cases {
+        assert!(chain.len() >= 2, "{case}: the failure wraps a cause");
         let (RunFailure::Os(message) | RunFailure::Value(message) | RunFailure::Runtime(message)) =
             &failure;
-        assert_eq!(
-            message.matches(&cause).count(),
-            1,
-            "{case}: the message gives the cause once: {message}"
-        );
+        for error in &chain {
+            assert_eq!(
+                message.matches(error.as_str()).count(),
+                1,
+                "{case}: the message gives {error:?} once: {message}"
+            );
+        }
     }
 }
 

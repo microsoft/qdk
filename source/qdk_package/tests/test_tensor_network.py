@@ -16,6 +16,7 @@ import _thread
 import copy
 import pickle
 import platform
+import re
 import threading
 import time
 import warnings
@@ -344,8 +345,9 @@ def test_another_seed_gives_other_rows(engine):
 def test_a_run_that_lost_weight_warns(engine):
     """A Bell pair at max bond dimension 1: the bond the `cx` makes is cut
     to 1, losing about half the state's weight, so the run warns with
-    `RuntimeWarning`, pointing at the caller's line, and its report gives
-    the loss."""
+    `RuntimeWarning`, pointing at the caller's line, whose message gives
+    the loss the report gives, the tolerance (1e-3) and the max bond
+    dimension to raise."""
     with pytest.warns(RuntimeWarning, match=r"max bond dimension 1\b") as warned:
         results = tensornetwork_qir(
             BELL,
@@ -356,6 +358,15 @@ def test_a_run_that_lost_weight_warns(engine):
         )
     assert warned[0].filename == __file__
     assert results.report.discarded_weight > 1e-3
+    numbers = [
+        float(number)
+        for number in re.findall(r"\d+(?:\.\d+)?(?:e-?\d+)?", str(warned[0].message))
+    ]
+    assert any(
+        number == pytest.approx(results.report.discarded_weight, rel=1e-3)
+        for number in numbers
+    ), "the message gives the loss"
+    assert 1e-3 in numbers, "the message gives the tolerance"
     assert results.report.largest_bond == 1
 
 
@@ -377,9 +388,9 @@ def test_results_survive_pickling_and_copying(duplicate):
 
 
 def test_results_with_equal_rows_are_equal_whatever_their_reports():
-    """Results compare as the tuple of their rows: a user comparing two
-    runs' rows (an exact run and a truncated one that sampled the same, say)
-    finds them equal though their reports differ."""
+    """Results compare as the tuple of their per-query results: a user
+    comparing two runs' rows (an exact run and a truncated one that sampled
+    the same, say) finds them equal though their reports differ."""
     rows = [[Result.Zero], [Result.One]]
     exact = TensorNetworkResults(
         [rows],
@@ -597,15 +608,16 @@ def _spy_sample(received):
     return "_tensor_network_sample", sample, lambda: tensornetwork_qir(BELL, [Sample(1)])
 
 
-ENTRIES = [
+SPIED_ENTRIES = [
     pytest.param(_spy_check, id="check_tensornetwork_setup"),
     pytest.param(_spy_sample, id="tensornetwork_qir"),
 ]
 
 
 def received_by_native(monkeypatch, spy):
-    """What the entry `spy` stands for hands the native side, once called:
-    the library files the wheels installed and the install command."""
+    """Calls the public entry `spy` stands for, with its native function
+    replaced by `spy`'s recorder, and gives what the entry handed the native
+    side: the library files the wheels installed and the install command."""
     received = []
     native, fake, call = spy(received)
     monkeypatch.setattr(_native, native, fake)
@@ -644,7 +656,7 @@ def only_cutensornet_installed(monkeypatch, cutensornet_wheel):
     return library
 
 
-@pytest.mark.parametrize("spy", ENTRIES)
+@pytest.mark.parametrize("spy", SPIED_ENTRIES)
 def test_only_the_installed_wheels_file_is_found(
     monkeypatch, only_cutensornet_installed, spy
 ):
@@ -655,7 +667,7 @@ def test_only_the_installed_wheels_file_is_found(
     assert packaged == [only_cutensornet_installed]
 
 
-@pytest.mark.parametrize("spy", ENTRIES)
+@pytest.mark.parametrize("spy", SPIED_ENTRIES)
 def test_a_file_the_wheel_lacks_adds_no_file(monkeypatch, cutensornet_wheel, spy):
     """Each library is looked for in its own wheel: a wheel installed
     without the file (here, every wheel holds only `libcutensornet.so.2`)
@@ -668,7 +680,7 @@ def test_a_file_the_wheel_lacks_adds_no_file(monkeypatch, cutensornet_wheel, spy
     assert packaged == [library]
 
 
-@pytest.mark.parametrize("spy", ENTRIES)
+@pytest.mark.parametrize("spy", SPIED_ENTRIES)
 def test_each_entry_passes_the_install_command(monkeypatch, spy):
     """The setup check and a run each hand the native side the command that
     installs the libraries, which the setup check's advice gives when a
