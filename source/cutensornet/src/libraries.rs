@@ -55,7 +55,7 @@
 //! 3. add its field to `LoadedLibraries`, open it in `LoadedLibraries::open`
 //!    after the libraries it runs on, so that each of those is listed before
 //!    it in the report, and add its guide to `LoadedLibraries::SETUP_GUIDES`
-//!    in field order;
+//!    in the same order;
 //! 4. test its versions in `tests/libraries/`, and its tables there with the
 //!    naming rule (`assert_each_field_is_named_for_its_symbol`) and in the
 //!    case list of `function_table`'s tests; add its variable, paths and
@@ -127,11 +127,13 @@ impl LoadedLibraries {
         })
     }
 
-    /// What the setup check tells a user about each library, in field
-    /// order: so it lists cuTensorNet, then the CUDA Runtime it runs on.
+    /// What the setup check tells a user about each library, in the order
+    /// `open` opens them: so the check lists each library after those it
+    /// runs on, as discovery's report does, and the first library it lists
+    /// at fault is the one its advice addresses.
     pub(crate) const SETUP_GUIDES: [SetupGuide; 2] = [
-        SetupGuide::of::<cutensornet::CuTensorNet>(),
         SetupGuide::of::<cuda_runtime::CudaRuntime>(),
+        SetupGuide::of::<cutensornet::CuTensorNet>(),
     ];
 }
 
