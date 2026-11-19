@@ -52,6 +52,7 @@ use qsc_data_structures::{
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
     backend::{Backend, CliffordSim, SparseSim, TracingBackend},
+    compiled::{CodeCache, UnitSource},
     output::Receiver,
 };
 pub use qsc_eval::{
@@ -336,6 +337,12 @@ pub struct Interpreter {
     lowerer: qsc_lowerer::Lowerer,
     /// The execution graph for the last expression evaluated.
     expr_graph: Option<ExecGraph>,
+    /// The top-level code for the last expression evaluated, used by the closure-compiling
+    /// evaluator in place of `expr_graph`.
+    expr_unit: Option<ExprUnit>,
+    /// Code compiled by the closure-compiling evaluator. It must be cleared whenever the FIR
+    /// store changes.
+    code_cache: CodeCache,
     /// Checking if an `ItemId` corresponds to the `Std.OpenQASM.Angle.Angle` UDT
     /// is an expensive operation. So, we cache the id to avoid incurring that cost.
     angle_ty_cache: RefCell<Option<crate::hir::ItemId>>,
@@ -649,6 +656,8 @@ impl Interpreter {
             fir_store,
             lowerer: qsc_lowerer::Lowerer::new(),
             expr_graph: None,
+            expr_unit: None,
+            code_cache: CodeCache::default(),
             angle_ty_cache: None.into(),
             complex_ty_cache: None.into(),
             env: Env::default(),
@@ -1109,12 +1118,14 @@ impl Interpreter {
     /// # Errors
     /// Returns a vector of errors if evaluating the entry point fails.
     pub fn eval_entry(&mut self, receiver: &mut impl Receiver) -> InterpretResult {
-        let graph = self.get_entry_exec_graph()?;
+        let (graph, unit) = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
+        self.expr_unit = Some(unit.clone());
         eval(
-            self.source_package,
             self.classical_seed,
             graph,
+            &unit,
+            &self.code_cache,
             self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
@@ -1131,15 +1142,17 @@ impl Interpreter {
         sim: &mut impl Backend,
         receiver: &mut impl Receiver,
     ) -> InterpretResult {
-        let graph = self.get_entry_exec_graph()?;
+        let (graph, unit) = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
+        self.expr_unit = Some(unit.clone());
         if self.quantum_seed.is_some() {
             sim.set_seed(self.quantum_seed);
         }
         eval(
-            self.source_package,
             self.classical_seed,
             graph,
+            &unit,
+            &self.code_cache,
             self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
@@ -1149,10 +1162,13 @@ impl Interpreter {
         )
     }
 
-    fn get_entry_exec_graph(&self) -> std::result::Result<ExecGraph, Vec<Error>> {
+    fn get_entry_exec_graph(&self) -> std::result::Result<(ExecGraph, ExprUnit), Vec<Error>> {
         let unit = self.fir_store.get(self.source_package);
-        if unit.entry.is_some() {
-            return Ok(unit.entry_exec_graph.clone());
+        if let Some(entry) = unit.entry {
+            return Ok((
+                unit.entry_exec_graph.clone(),
+                ExprUnit::entry(self.source_package, entry),
+            ));
         }
         Err(vec![Error::NoEntryPoint])
     }
@@ -1209,6 +1225,13 @@ impl Interpreter {
     ) -> InterpretResult {
         let (graph, _) = self.lower(&increment)?;
         self.expr_graph = Some(graph.clone());
+        let unit = ExprUnit {
+            package: self.package,
+            stmts: self.lowerer.top_level_stmts().to_vec(),
+            entry: self.fir_store.get(self.package).entry,
+            fragments: true,
+        };
+        self.expr_unit = Some(unit.clone());
 
         // Updating the compiler state with the new AST/HIR nodes
         // is not necessary for the interpreter to function, as all
@@ -1219,9 +1242,10 @@ impl Interpreter {
         self.compiler.update(increment);
 
         eval(
-            self.package,
             self.classical_seed,
             graph,
+            &unit,
+            &self.code_cache,
             self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
@@ -1238,11 +1262,12 @@ impl Interpreter {
         callable: Value,
         args: Value,
     ) -> InterpretResult {
-        qsc_eval::invoke(
+        invoke(
             self.package,
             self.classical_seed,
-            &self.fir_store,
+            &self.code_cache,
             self.eval_config,
+            &self.fir_store,
             &mut self.env,
             &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
@@ -1989,7 +2014,19 @@ impl Interpreter {
     pub fn set_entry_expr(&mut self, entry_expr: &str) -> std::result::Result<(), Vec<Error>> {
         let (graph, _) = self.compile_entry_expr(entry_expr)?;
         self.expr_graph = Some(graph);
+        self.expr_unit = Some(self.compiled_entry_unit());
         Ok(())
+    }
+
+    /// The unit for the entry expression most recently compiled by `compile_entry_expr`.
+    fn compiled_entry_unit(&self) -> ExprUnit {
+        ExprUnit::entry(
+            self.package,
+            self.fir_store
+                .get(self.package)
+                .entry
+                .expect("entry expression should have been lowered"),
+        )
     }
 
     /// Runs the given entry expression on the given simulator with a new instance of the environment
@@ -2002,12 +2039,17 @@ impl Interpreter {
         seed: Option<u64>,
     ) -> InterpretResult {
         let mut tracing_backend = TracingBackend::no_tracer(sim);
-        let graph = if let Some(expr) = expr {
+        let (graph, unit) = if let Some(expr) = expr {
             let (graph, _) = self.compile_entry_expr(expr)?;
             self.expr_graph = Some(graph.clone());
-            graph
+            let unit = self.compiled_entry_unit();
+            self.expr_unit = Some(unit.clone());
+            (graph, unit)
         } else {
-            self.expr_graph.clone().ok_or(vec![Error::NoEntryPoint])?
+            (
+                self.expr_graph.clone().ok_or(vec![Error::NoEntryPoint])?,
+                self.expr_unit.clone().ok_or(vec![Error::NoEntryPoint])?,
+            )
         };
 
         if seed.is_some() {
@@ -2022,9 +2064,10 @@ impl Interpreter {
         };
 
         eval(
-            self.package,
             classical_seed,
             graph,
+            &unit,
+            &self.code_cache,
             self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
@@ -2041,21 +2084,22 @@ impl Interpreter {
         entry_expr: Option<&str>,
         config: ExecGraphConfig,
     ) -> InterpretResult {
-        let (package_id, graph) = if let Some(entry_expr) = entry_expr {
+        let (graph, unit) = if let Some(entry_expr) = entry_expr {
             // entry expression is provided
             let (graph, _) = self.compile_entry_expr(entry_expr)?;
-            (self.package, graph)
+            (graph, self.compiled_entry_unit())
         } else {
             // no entry expression, use the entrypoint in the package
-            (self.source_package, self.get_entry_exec_graph()?)
+            self.get_entry_exec_graph()?
         };
         if self.quantum_seed.is_some() {
             tracing_backend.set_seed(self.quantum_seed);
         }
         eval(
-            package_id,
             self.classical_seed,
             graph,
+            &unit,
+            &self.code_cache,
             config,
             self.compiler.package_store(),
             &self.fir_store,
@@ -2098,11 +2142,12 @@ impl Interpreter {
             Some(seed) => Some(seed),
             None => self.classical_seed,
         };
-        qsc_eval::invoke(
+        invoke(
             self.package,
             classical_seed,
-            &self.fir_store,
+            &self.code_cache,
             config,
+            &self.fir_store,
             &mut Env::default(),
             tracing_backend,
             receiver,
@@ -2164,6 +2209,8 @@ impl Interpreter {
     }
 
     fn lower_and_update_package(&mut self, unit: &qsc_frontend::incremental::Increment) {
+        // Compiled code may refer to FIR that is about to change.
+        self.code_cache.clear();
         {
             let fir_package = self.fir_store.get_mut(self.package);
             self.lowerer
@@ -2485,12 +2532,60 @@ impl Debugger {
     }
 }
 
+/// Identifies top-level code for the closure-compiling evaluator.
+#[derive(Clone)]
+struct ExprUnit {
+    package: PackageId,
+    stmts: Vec<StmtId>,
+    entry: Option<fir::ExprId>,
+    /// Whether the unit is notebook/REPL fragments whose locals persist in the environment.
+    fragments: bool,
+}
+
+impl ExprUnit {
+    fn entry(package: PackageId, entry: fir::ExprId) -> Self {
+        Self {
+            package,
+            stmts: Vec::new(),
+            entry: Some(entry),
+            fragments: false,
+        }
+    }
+
+    fn source(&self) -> UnitSource<'_> {
+        if self.fragments {
+            UnitSource::Fragments {
+                package: self.package,
+                stmts: &self.stmts,
+                entry: self.entry,
+            }
+        } else {
+            UnitSource::Entry {
+                package: self.package,
+                expr: self
+                    .entry
+                    .expect("entry unit should have an entry expression"),
+            }
+        }
+    }
+}
+
+/// Whether to evaluate with the closure-compiling evaluator. The exec-graph evaluator is
+/// still used for debugging, which needs resumable stepping, and can be forced by setting
+/// the `QSC_LEGACY_EVAL` environment variable (for comparisons).
+fn use_compiled(config: ExecGraphConfig) -> bool {
+    static LEGACY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    matches!(config, ExecGraphConfig::NoDebug)
+        && !*LEGACY.get_or_init(|| std::env::var_os("QSC_LEGACY_EVAL").is_some())
+}
+
 /// Wrapper function for `qsc_eval::eval` that handles error conversion.
 #[allow(clippy::too_many_arguments)]
 fn eval<B: Backend>(
-    package: PackageId,
     classical_seed: Option<u64>,
     exec_graph: ExecGraph,
+    unit: &ExprUnit,
+    code_cache: &CodeCache,
     exec_graph_config: ExecGraphConfig,
     package_store: &PackageStore,
     fir_store: &fir::PackageStore,
@@ -2498,17 +2593,70 @@ fn eval<B: Backend>(
     tracing_backend: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> InterpretResult {
-    qsc_eval::eval(
-        package,
-        classical_seed,
-        exec_graph,
-        exec_graph_config,
-        fir_store,
-        env,
-        tracing_backend,
-        receiver,
-    )
-    .map_err(|(error, call_stack)| eval_error(package_store, fir_store, call_stack, error))
+    let result = if use_compiled(exec_graph_config) {
+        qsc_eval::compiled::eval(
+            code_cache,
+            &unit.source(),
+            classical_seed,
+            fir_store,
+            env,
+            tracing_backend,
+            receiver,
+        )
+    } else {
+        qsc_eval::eval(
+            unit.package,
+            classical_seed,
+            exec_graph,
+            exec_graph_config,
+            fir_store,
+            env,
+            tracing_backend,
+            receiver,
+        )
+    };
+    result.map_err(|(error, call_stack)| eval_error(package_store, fir_store, call_stack, error))
+}
+
+/// Wrapper function for `qsc_eval::invoke` that selects the evaluator.
+#[allow(clippy::too_many_arguments)]
+fn invoke<B: Backend>(
+    package: PackageId,
+    classical_seed: Option<u64>,
+    code_cache: &CodeCache,
+    exec_graph_config: ExecGraphConfig,
+    fir_store: &fir::PackageStore,
+    env: &mut Env,
+    tracing_backend: &mut TracingBackend<'_, B>,
+    receiver: &mut impl Receiver,
+    callable: Value,
+    args: Value,
+) -> std::result::Result<Value, (qsc_eval::Error, Vec<Frame>)> {
+    if use_compiled(exec_graph_config) {
+        qsc_eval::compiled::invoke(
+            code_cache,
+            package,
+            classical_seed,
+            fir_store,
+            env,
+            tracing_backend,
+            receiver,
+            callable,
+            args,
+        )
+    } else {
+        qsc_eval::invoke(
+            package,
+            classical_seed,
+            fir_store,
+            exec_graph_config,
+            env,
+            tracing_backend,
+            receiver,
+            callable,
+            args,
+        )
+    }
 }
 
 /// Represents a stack frame for debugging.

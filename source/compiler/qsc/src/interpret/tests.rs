@@ -833,6 +833,97 @@ mod given_interpreter {
         }
 
         #[test]
+        fn deep_recursion_does_not_overflow_native_stack() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                "function Depth(n : Int) : Int { if n == 0 { 0 } else { 1 + Depth(n - 1) } }",
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = line(&mut interpreter, "Depth(20000)");
+            is_only_value(&result, &output, &Value::Int(20000));
+        }
+
+        #[test]
+        fn int_division_by_zero_in_callable_reports_error() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                "function Div(a : Int, b : Int) : Int { a / b }",
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = line(&mut interpreter, "Div(1, 0)");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    runtime error: division by zero
+                      cannot divide by zero [line_0] [b]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn int_compound_modulo_by_zero_in_callable_reports_error() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                "function Mod(a : Int, b : Int) : Int { mutable x = a; set x %= b; x }",
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = line(&mut interpreter, "Mod(7, 0)");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    runtime error: division by zero
+                      cannot divide by zero [line_0] [b]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn compound_assignment_reads_variable_before_right_hand_side() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                "function F() : Int { mutable x = 1; set x += { set x = 10; 2 }; x }",
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = line(&mut interpreter, "F()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn controlled_and_partial_application_dispatch() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation Flip(n : Int, q : Qubit) : Unit is Adj + Ctl {
+                        for _ in 1..n { X(q); }
+                    }
+                    operation Test() : (Result, Result) {
+                        use (c, t) = (Qubit(), Qubit());
+                        X(c);
+                        let f = Flip(1, _);
+                        Controlled f([c], t);
+                        Adjoint Controlled Flip([c], (3, t));
+                        let r = (MResetZ(c), MResetZ(t));
+                        r
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = line(&mut interpreter, "Test()");
+            is_only_value(
+                &result,
+                &output,
+                &Value::Tuple(vec![Value::RESULT_ONE, Value::RESULT_ZERO].into(), None),
+            );
+        }
+
+        #[test]
         fn global_qubits() {
             let mut interpreter = get_interpreter();
             let (result, output) = line(&mut interpreter, "import Std.Diagnostics.*;");

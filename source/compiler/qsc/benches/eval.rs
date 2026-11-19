@@ -239,6 +239,102 @@ pub fn large_nested_iteration(c: &mut Criterion) {
     });
 }
 
+fn interpreter_for(source: &str) -> Interpreter {
+    let sources = SourceMap::new([("bench.qs".into(), source.into())], None);
+    let (std_id, store) = qsc::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+    Interpreter::new(
+        sources,
+        PackageType::Exe,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+        Default::default(),
+    )
+    .expect("code should compile")
+}
+
+fn bench_entry(c: &mut Criterion, name: &str, source: &str) {
+    c.bench_function(name, |b| {
+        let mut evaluator = interpreter_for(source);
+        b.iter(move || {
+            let mut out = Vec::new();
+            let mut rec = GenericReceiver::new(&mut out);
+            assert!(evaluator.eval_entry(&mut rec).is_ok());
+        });
+    });
+}
+
+pub fn recursive_fibonacci(c: &mut Criterion) {
+    bench_entry(
+        c,
+        "Recursive Fibonacci evaluation",
+        indoc! {"
+            function Fib(n : Int) : Int {
+                if n < 2 { n } else { Fib(n - 1) + Fib(n - 2) }
+            }
+            @EntryPoint()
+            function Main() : Int { Fib(20) }
+        "},
+    );
+}
+
+pub fn nested_loop_arithmetic(c: &mut Criterion) {
+    bench_entry(
+        c,
+        "Nested loop arithmetic evaluation",
+        indoc! {"
+            @EntryPoint()
+            function Main() : Int {
+                mutable sum = 0;
+                for i in 0..299 {
+                    for j in 0..299 {
+                        set sum += (i * j) % 7;
+                    }
+                }
+                sum
+            }
+        "},
+    );
+}
+
+pub fn higher_order_functions(c: &mut Criterion) {
+    bench_entry(
+        c,
+        "Higher-order functions evaluation",
+        indoc! {"
+            import Std.Arrays.*;
+            @EntryPoint()
+            function Main() : Int {
+                let xs = SequenceI(0, 9999);
+                let squares = Mapped(x -> x * x, xs);
+                let evens = Filtered(x -> x % 2 == 0, squares);
+                Fold((acc, x) -> acc + x % 1000, 0, evens)
+            }
+        "},
+    );
+}
+
+pub fn quantum_fourier_transform(c: &mut Criterion) {
+    bench_entry(
+        c,
+        "QFT evaluation",
+        indoc! {"
+            import Std.Canon.*;
+            import Std.Arrays.*;
+            @EntryPoint()
+            operation Main() : Result[] {
+                use qs = Qubit[10];
+                for _ in 1..10 {
+                    ApplyQFT(qs);
+                    Adjoint ApplyQFT(qs);
+                }
+                MResetEachZ(qs)
+            }
+        "},
+    );
+}
+
 criterion_group!(
     benches,
     teleport,
@@ -249,5 +345,9 @@ criterion_group!(
     array_update,
     array_literal,
     large_nested_iteration,
+    recursive_fibonacci,
+    nested_loop_arithmetic,
+    higher_order_functions,
+    quantum_fourier_transform,
 );
 criterion_main!(benches);

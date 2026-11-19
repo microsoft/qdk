@@ -162,6 +162,8 @@ pub struct Lowerer {
     parallel_count: u32,
     /// The package every node lowered by this instance belongs to.
     package_id: fir::PackageId,
+    /// The top-level statements lowered by the last call to `lower_and_update_package`.
+    top_level_stmts: Vec<StmtId>,
 }
 
 impl Default for Lowerer {
@@ -184,6 +186,7 @@ impl Lowerer {
             fir_increment: FirIncrement::default(),
             parallel_count: 0,
             package_id: fir::PackageId::default(),
+            top_level_stmts: Vec::new(),
         }
     }
 
@@ -193,6 +196,13 @@ impl Lowerer {
 
     pub fn take_exec_graph(&mut self) -> ExecGraph {
         self.exec_graph.take()
+    }
+
+    /// The top-level statements lowered by the last call to `lower_and_update_package`,
+    /// in source order.
+    #[must_use]
+    pub fn top_level_stmts(&self) -> &[StmtId] {
+        &self.top_level_stmts
     }
 
     /// Consumes the lowerer and returns the Assigner with watermarks
@@ -287,9 +297,11 @@ impl Lowerer {
             })
             .collect();
 
-        for stmt in &hir_package.stmts {
-            let _ = self.lower_stmt(stmt);
-        }
+        self.top_level_stmts = hir_package
+            .stmts
+            .iter()
+            .map(|stmt| self.lower_stmt(stmt))
+            .collect();
 
         let entry = hir_package.entry.as_ref().map(|e| self.lower_expr(e));
 

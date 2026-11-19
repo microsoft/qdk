@@ -19,6 +19,7 @@ mod tests;
 
 pub mod backend;
 pub mod callable;
+pub mod compiled;
 pub mod debug;
 pub mod function_evaluator;
 pub mod intrinsic;
