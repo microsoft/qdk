@@ -61,9 +61,11 @@ Today the protocol holds:
   (`Driver >> Adapter`) is a `Driver`; (`Adapter >> Adapter`) is an
   `Adapter`; (`Adapter >> Executor`) is an `Executor`, each a composition
   ([`Composed`](src/composition/composed.rs)); and (`Driver >> Executor`)
-  is a [`Runner`](src/composition/runner.rs), which runs shots. So reusable parts mix
-  and match: a stack of adapters, or a noise model over a simulator, is a
-  composition, ready to join others as one part would.
+  is a [`Runner`](src/composition/runner.rs), which runs shots and gives
+  their outputs at the end of the run, or each as its shot ends. So
+  reusable parts mix and match: a stack of adapters, or a noise model
+  over a simulator, is a composition, ready to join others as one part
+  would.
 - **Instruction sets:** each part declares the instructions it sends or
   accepts as an [`InstructionSet`](src/instruction_set.rs). Each
   instruction's declaration, an
@@ -129,10 +131,11 @@ part of each role.
 - **Decoupled, open-closed parts.** One driver runs on every chain whose
   instructions and offers fit it, and a new part is a new type that
   implements a role, which joins a chain without changing any other part or
-  any type of the protocol. The protocol is open the same way: streaming a
-  run's outputs as they come is planned as a backward-compatible,
-  incremental extension that only adds methods and types, those of the
-  roles with a default, so a part written today keeps working unchanged.
+  any type of the protocol. The protocol is open the same way:
+  [streaming](#streaming), results out as they come and instructions in
+  as they are made, is a backward-compatible, incremental extension that
+  only adds methods and types, those of the roles with a default, so a
+  part written without them keeps working unchanged.
 - **Low cost per instruction.** A chain's type is built from its parts'
   types, so each call down it is a direct call; one `execute` carries many
   instructions on many shots, sharing its cost; the readouts' memory is
@@ -166,8 +169,8 @@ them as defined here.
 - **Shot**: one execution of the program, named by a
   [`ShotId`](src/batch/shot_set/shot_id.rs). A [`ShotSet`](src/batch/shot_set.rs) holds shots
   in the caller's order, never empty and none twice.
-- **Run**: one call of `Runner::run` or `Runner::run_async`, on a shot
-  set.
+- **Run**: one call of `Runner::run`, `run_async`, `run_each` or
+  `run_each_async`, on a shot set.
 - **Instruction set** ([`InstructionSet`](src/instruction_set.rs)): a
   named list of the instructions a part sends or accepts, each declared
   with its mnemonic, the blocks it acts on (qubits, or blocks of an
@@ -177,6 +180,15 @@ them as defined here.
 - **`execute`**: one call across a boundary, with any number of batches,
   the run's seed, and the caller's readouts: one
   [`BatchReadouts`](src/batch/batch_readouts.rs) per batch, a row per shot.
+- **Row** and **final row**: a shot's
+  [readout slots](docs/batches-and-readouts.md#readout-slots) in one
+  batch, with the shot's conditions; a row is final once the part that
+  answers the `execute` will not write it again, so the part above may use
+  it before that `execute` answers.
+- **Stream** ([`InstructionStream`](src/batch/instruction_stream.rs)):
+  instructions to run, in order, on each shot of a shot set, as a
+  sender makes them, which the receiver pulls as it runs them, so that
+  neither holds the whole program.
 - **Sender** and **receiver**: the two sides of an `execute`: the part
   above, which sends the batches, and the part below, which runs them and
   fills their readouts. The protocol stands between them on each call
@@ -218,7 +230,9 @@ two traits:
   take a run now, lets the driver send its batches down the chain (`drive`, then
   each `adapt`, then `execute`), and, once it ends, ends its shots on
   every part. It gives the driver's outputs, one per shot by `Drive`'s
-  rule, or a [`RunError`](src/composition/runner/run_error.rs).
+  rule, or a [`RunError`](src/composition/runner/run_error.rs);
+  `Runner::run_each` makes the same run, but gives each shot's output as
+  the driver gives it ([Streaming](#streaming)).
 
 A run's calls:
 
@@ -252,6 +266,41 @@ sequenceDiagram
 How each join's role follows from its two ends, what a run asks of each
 part, what is checked where and when, and how a run fails are in
 [Composing and running a chain](docs/composing-and-running.md).
+
+## Streaming
+
+A shot's program and its results need not cross a boundary whole.
+Results go out as they come, so a caller uses a shot's result while the
+other shots still run; instructions go in as they are made, so a sender
+whose program is too long to hold, such as a generator of millions of
+gates per shot, runs it in bounded memory. A shot's state is kept from
+its first batch until its shots are ended, across any number of
+`execute`s, so a shot's readouts are those of its instructions sent
+whole, however they are split.
+
+Each half is a set of forms of the roles' run-time methods, each with a
+default written in terms of its method, so every part has it; a part
+that can do better overrides it, and each composed part, each boundary
+and each `&mut` part passes it on, so an override below is never
+bypassed:
+
+- **Out**, the `_each` forms (`drive_each`, `adapt_each`,
+  `execute_each`, and the runner's `run_each`): each shot's output, or
+  each [final row](#terms), goes to the caller's `each` as soon as it is
+  ready.
+- **In**, the `_stream` forms
+  ([`Execute::execute_stream`](src/roles/execute.rs) and
+  [`Adapt::adapt_stream`](src/roles/adapt.rs)): a [stream](#terms) of a
+  shot set's instructions, pulled from the sender's iterator as they
+  run, gets the readouts of the same instructions sent whole. By
+  default, the protocol cuts it into pieces of at most the receiver's
+  most instructions per batch, and holds one piece of it at a time.
+
+Each boundary checks a checked stream as it checks a checked batch, a
+piece at a time, and the default's pieces never exceed the receiver's
+most. [Writing a part](docs/writing-a-part.md#streaming) gives each
+form's default, when a part overrides it, and what holds after an error
+or a panic.
 
 ## An example
 
@@ -323,8 +372,9 @@ write a part or compose a chain; the rustdoc of each item gives its
 mechanics and edge cases.
 
 - [Writing a part](docs/writing-a-part.md): each role's methods, phase by
-  phase, an executor in full, the rules a part keeps, and how a part draws
-  from the run's seed or says it cannot replay a shot.
+  phase, an executor in full, the rules a part keeps, the streaming forms,
+  their defaults and the panics of `each` and of a stream, and how a part
+  draws from the run's seed or says it cannot replay a shot.
 - [Batches and readouts](docs/batches-and-readouts.md): what a batch
   holds, and how its readouts are shaped, filled and kept.
 - [Instruction sets and their fit](docs/instruction-sets.md): what a set
@@ -335,14 +385,6 @@ mechanics and edge cases.
 - [Composing and running a chain](docs/composing-and-running.md): the
   joins of `>>`, a run's steps, seeds, where and when each check runs, and
   failures and panics.
-
-## Planned extensions
-
-Streaming: today a run gives its outputs when it ends. The planned
-extension gives each shot's outputs as the shot ends. Each role gains an
-`_each` form of its method, whose default gives every result once the call
-ends, and the runner gains `run_each`. A part that keeps the default runs
-unchanged; a part that overrides it streams.
 
 ## Tests
 
@@ -363,10 +405,10 @@ cargo run --release -p executor_protocol --example bench
 
 ## Platforms
 
-| Platform             | Status                                                                                                                                          |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Linux aarch64        | the tests and the examples run                                                                                                                  |
-| wasm32 (WebAssembly) | the library builds; `Runner::run`, which blocks, is not built there, so a caller awaits `Runner::run_async`; a panic aborts, and none is caught |
+| Platform             | Status                                                                                                                                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Linux aarch64        | the tests and the examples run                                                                                                                                                                     |
+| wasm32 (WebAssembly) | the library builds; `Runner::run` and `Runner::run_each`, which block, are not built there, so a caller awaits `Runner::run_async` or `Runner::run_each_async`; a panic aborts, and none is caught |
 
 - **Expected, not verified:** the other platforms the QDK builds for,
   Linux x86-64 among them: the crate uses only the standard library and

@@ -9,16 +9,19 @@ use std::task::{Context, Poll};
 
 use crate::{
     Adapt, AdapterSetup, Batch, BatchReadouts, Drive, DriveError, DriverSetup, Execute,
-    ExecuteError, ExecutorSetup, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Seed, ShotSet,
+    ExecuteError, ExecutorSetup, FinalRow, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Seed,
+    ShotId, ShotSet,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
-/// `execute` panic in their destructor when `armed`, once they have given
-/// `part`'s answer, or, when made with [`polled_too`](Self::polled_too),
-/// first when polled, before `part`'s future is; or, when made with
-/// [`in_ready`](Self::in_ready), whose future of `ready` does so instead.
-/// It does as `part` does otherwise, in each role `part` takes. So that a
-/// chain of such parts has one type whichever is armed.
+/// `execute`, or of their `_each` forms, panic in their destructor when
+/// `armed`, once they have given `part`'s answer, or, when made with
+/// [`polled_too`](Self::polled_too), first when polled, before `part`'s
+/// future is; or, when made with [`in_ready`](Self::in_ready), whose
+/// future of `ready` does so instead. It does as `part` does otherwise, in
+/// each role `part` takes, but forwards no `_stream` form: a stream sent
+/// to it is cut into batches, by the defaults. So that a chain of such
+/// parts has one type whichever is armed.
 pub(crate) struct PanicsInDrop<P> {
     part: P,
     armed: bool,
@@ -61,11 +64,7 @@ impl<P> PanicsInDrop<P> {
     /// `future`, a future of `part`'s `ready`, which panics as `in_ready`
     /// says.
     fn readying<F>(in_ready: bool, future: F) -> Dropping<F> {
-        Dropping {
-            future: Box::pin(future),
-            armed: in_ready,
-            polled: in_ready,
-        }
+        Dropping::calling(future, in_ready, in_ready)
     }
 }
 
@@ -75,6 +74,18 @@ struct Dropping<F> {
     future: Pin<Box<F>>,
     armed: bool,
     polled: bool,
+}
+
+impl<F> Dropping<F> {
+    /// `future`, a future of a part's call, which panics as `armed` and
+    /// `polled` say.
+    fn calling(future: F, armed: bool, polled: bool) -> Self {
+        Self {
+            future: Box::pin(future),
+            armed,
+            polled,
+        }
+    }
 }
 
 impl<F: Future> Future for Dropping<F> {
@@ -124,11 +135,18 @@ impl<P: Drive> Drive for PanicsInDrop<P> {
         below: &mut impl Execute,
     ) -> impl Future<Output = Result<Vec<P::Output>, DriveError>> {
         let future = self.part.drive(shots, seed, below);
-        Dropping {
-            future: Box::pin(future),
-            armed: self.armed,
-            polled: self.polled,
-        }
+        Dropping::calling(future, self.armed, self.polled)
+    }
+
+    fn drive_each(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Execute,
+        each: &mut impl FnMut(ShotId, P::Output),
+    ) -> impl Future<Output = Result<(), DriveError>> {
+        let future = self.part.drive_each(shots, seed, below, each);
+        Dropping::calling(future, self.armed, self.polled)
     }
 }
 
@@ -171,11 +189,19 @@ impl<P: Adapt> Adapt for PanicsInDrop<P> {
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         let future = self.part.adapt(batches, seed, below, readouts);
-        Dropping {
-            future: Box::pin(future),
-            armed: self.armed,
-            polled: self.polled,
-        }
+        Dropping::calling(future, self.armed, self.polled)
+    }
+
+    fn adapt_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        let future = self.part.adapt_each(batches, seed, below, readouts, each);
+        Dropping::calling(future, self.armed, self.polled)
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
@@ -209,11 +235,18 @@ impl<P: Execute> Execute for PanicsInDrop<P> {
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         let future = self.part.execute(batches, seed, readouts);
-        Dropping {
-            future: Box::pin(future),
-            armed: self.armed,
-            polled: self.polled,
-        }
+        Dropping::calling(future, self.armed, self.polled)
+    }
+
+    fn execute_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        let future = self.part.execute_each(batches, seed, readouts, each);
+        Dropping::calling(future, self.armed, self.polled)
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {

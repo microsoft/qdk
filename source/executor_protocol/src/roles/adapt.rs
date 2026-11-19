@@ -4,8 +4,14 @@
 //! The adapter's role at run time, [`Adapt`]: a part between a driver and
 //! an executor.
 
+use std::slice;
+
+use super::execute::give_every_row;
+use super::stream_pieces::{StreamPieces, most_per_piece};
+use crate::composition::part_panics::await_part;
 use crate::{
-    AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, Needs, NotReady, Seed, ShotSet,
+    AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, FinalRow, Instruction,
+    InstructionStream, Needs, NotReady, Seed, ShotSet,
 };
 
 /// Answers each `execute` it receives, in the instructions it accepts, by
@@ -74,12 +80,92 @@ pub trait Adapt: AdapterSetup {
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>>;
 
+    /// As [`adapt`](Self::adapt), and gives `each` each of its rows as
+    /// soon as it is final, as
+    /// [`Execute::execute_each`](crate::Execute::execute_each)
+    /// says, with the same rules. An adapter that gives rows as they are
+    /// final calls `below.execute_each` and, as each row below arrives,
+    /// writes and gives the rows above that it completes; by default, it is
+    /// `adapt`, then, once it answers `Ok`, every row, batch by batch, each
+    /// batch in its shots' order, so every adapter serves it, and the rows
+    /// of the parts below it reach the caller when it answers; an `adapt`
+    /// that fails gives no row.
+    fn adapt_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        async move {
+            await_part(self.adapt(batches, seed, below, readouts)).await?;
+            give_every_row(batches, readouts, each);
+            Ok(())
+        }
+    }
+
+    /// Answers `stream` as
+    /// [`Execute::execute_stream`](crate::Execute::execute_stream) says,
+    /// with the same rules, calling `below` as [`adapt`](Self::adapt) does.
+    /// By default, it runs the stream in pieces, each one `adapt` of one
+    /// batch of at most the most instructions it offers above (its
+    /// [`offers_above`](AdapterSetup::offers_above) `below`'s offer), so
+    /// every adapter serves it, holding what the default `execute_stream`
+    /// holds. An adapter whose instructions below follow from those it
+    /// receives one by one, such as a code that lowers each logical
+    /// instruction, overrides it, to stream its own instructions below
+    /// with `below.execute_stream`, so that a stream reaches the executor
+    /// as one.
+    fn adapt_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut BatchReadouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        async move {
+            let checked = stream.is_checked();
+            let InstructionStream {
+                shots,
+                instructions,
+                ..
+            } = stream;
+            let mut pieces = StreamPieces::new(
+                instructions,
+                most_per_piece(self.offers_above(below.offers()).max_instructions),
+            );
+            while pieces.pull() {
+                let answer = match pieces.batch(self.accepts(), shots, checked) {
+                    Ok((batch, piece_readouts)) => {
+                        await_part(self.adapt(
+                            slice::from_ref(&batch),
+                            seed,
+                            below,
+                            slice::from_mut(piece_readouts),
+                        ))
+                        .await
+                    }
+                    Err(refused) => Err(refused),
+                };
+                pieces.ran(answer)?;
+            }
+            pieces.join_into(shots, readouts);
+            Ok(())
+        }
+    }
+
     /// As [`Execute::end_shots`].
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }
 }
 
+// Every method forwarded: one left at its default would not reach `A`'s
+// own (a default `end_shots` does nothing; a default `adapt_each` gives no
+// row before `adapt` answers; a default `adapt_stream` cuts the stream into
+// batches `A` may stream below whole).
+#[deny(clippy::missing_trait_methods)]
 impl<A: Adapt + ?Sized> Adapt for &mut A {
     fn ready(&mut self, above: &Needs) -> impl Future<Output = Result<(), NotReady>> {
         (**self).ready(above)
@@ -93,6 +179,27 @@ impl<A: Adapt + ?Sized> Adapt for &mut A {
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         (**self).adapt(batches, seed, below, readouts)
+    }
+
+    fn adapt_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        (**self).adapt_each(batches, seed, below, readouts, each)
+    }
+
+    fn adapt_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut BatchReadouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        (**self).adapt_stream(stream, seed, below, readouts)
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {

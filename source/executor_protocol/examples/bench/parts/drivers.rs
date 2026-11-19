@@ -2,15 +2,15 @@
 // Licensed under the MIT License.
 
 //! The bench's drivers: a program sent in batches, through the chain or
-//! past it, and running a chain of them once.
+//! past it, or as one stream, and running a chain of them once.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use executor_protocol::{
     Batch, BatchReadouts, CompositionFaults, Drive, DriveError, DriverSetup, Execute, ExecuteError,
-    ExecutorSetup, Instruction, InstructionSet, Needs, OpcodeMap, ReadoutValue, Readouts, Runner,
-    Seed, ShotSet,
+    ExecutorSetup, Instruction, InstructionSet, InstructionStream, Needs, OpcodeMap, ReadoutValue,
+    Readouts, Runner, Seed, ShotSet,
 };
 
 use crate::workload::SEED;
@@ -138,6 +138,107 @@ impl Drive for ProgramInBatches<'_> {
     ) -> Result<Vec<Received>, DriveError> {
         let received = self.send(below, shots, seed, false).await?;
         Ok(vec![received])
+    }
+}
+
+/// A driver that sends its program below as one
+/// [`InstructionStream`] of its instructions, made one by one as they are
+/// pulled, one shot, the stream [`checked`](InstructionStream::checked)
+/// when `checked`, and returns every readout: the protocol, or the part
+/// below, cuts it into pieces. Or, [`cut_by_itself`](Self::cut_by_itself),
+/// the same instructions made the same way, in batches it cuts itself, as
+/// a sender does without `execute_stream`.
+pub(crate) struct ProgramAsStream<'p> {
+    set: InstructionSet,
+    /// As [`ProgramInBatches`]'s.
+    identity: OpcodeMap,
+    program: &'p [Instruction],
+    qubits: u32,
+    checked: bool,
+    /// The size of the batches it cuts itself, if it does.
+    cut: Option<usize>,
+}
+
+impl<'p> ProgramAsStream<'p> {
+    pub(crate) fn new(set: InstructionSet, program: &'p [Instruction], qubits: u32) -> Self {
+        let identity = set.fits(&set).expect("a set fits itself");
+        Self {
+            set,
+            identity,
+            program,
+            qubits,
+            checked: false,
+            cut: None,
+        }
+    }
+
+    /// The same driver, sending its stream checked if `on`.
+    pub(crate) fn checked_if(mut self, on: bool) -> Self {
+        self.checked = on;
+        self
+    }
+
+    /// The same driver, sending its instructions in batches of `batch` it
+    /// cuts itself, each `execute`'s readout slots counted as it cuts it.
+    pub(crate) fn cut_by_itself(mut self, batch: usize) -> Self {
+        self.cut = Some(batch);
+        self
+    }
+}
+
+impl DriverSetup for ProgramAsStream<'_> {
+    fn sends(&self) -> &InstructionSet {
+        &self.set
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        assert!(below == self.identity, "the receiver's set is the driver's");
+    }
+
+    /// As [`ProgramInBatches`]'s.
+    fn needs(&self) -> Needs {
+        Needs::qubits(self.qubits).with_readout_parity()
+    }
+}
+
+impl Drive for ProgramAsStream<'_> {
+    type Output = Received;
+
+    async fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<Received>, DriveError> {
+        let mut instructions = black_box(self.program).iter().cloned();
+        let mut received = Received {
+            values: Vec::new(),
+            call_times: Vec::new(),
+        };
+        let Some(batch) = self.cut else {
+            let mut readouts = BatchReadouts::new(shots.len(), 0);
+            let stream = InstructionStream::new(shots, instructions).checked_if(self.checked);
+            below.execute_stream(stream, seed, &mut readouts).await?;
+            received.values.extend_from_slice(readouts.row(0));
+            return Ok(vec![received]);
+        };
+        let mut piece = Vec::with_capacity(batch);
+        let mut kept = Readouts::new();
+        loop {
+            piece.clear();
+            piece.extend(instructions.by_ref().take(batch));
+            if piece.is_empty() {
+                return Ok(vec![received]);
+            }
+            let piece_slots = self
+                .set
+                .readout_slots_of(&piece)
+                .expect("a program of the set");
+            let batches = [Batch::new(shots, &piece, piece_slots).checked_if(self.checked)];
+            let readouts = kept.readouts_for(&batches);
+            below.execute(&batches, seed, readouts).await?;
+            received.values.extend_from_slice(readouts[0].row(0));
+        }
     }
 }
 

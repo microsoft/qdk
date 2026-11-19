@@ -8,8 +8,8 @@ use crate::composition::admission::by_part::ByPart;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
 use crate::{
-    Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, InstructionSet, Needs,
-    NotReady, Offer, OpcodeMap, Seed, ShotSet,
+    Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, FinalRow, Instruction,
+    InstructionSet, InstructionStream, Needs, NotReady, Offer, OpcodeMap, Seed, ShotSet,
 };
 
 /// Adapter `>>` adapter: an adapter, at composition time.
@@ -59,6 +59,8 @@ impl<U: AdapterSetup, L: AdapterSetup> AdapterSetup for Composed<U, L> {
 }
 
 /// Adapter `>>` adapter: an adapter, at run time.
+// Every method stated, for the reason `composed`'s module doc gives.
+#[deny(clippy::missing_trait_methods)]
 impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
     /// The part below first, with the needs kept for it, then the upper
     /// part with `above`; a refusal from below names the part that
@@ -90,6 +92,62 @@ impl<U: Adapt, L: Adapt> Adapt for Composed<U, L> {
         };
         await_part(self.upper.adapt(
             batches,
+            seed,
+            &mut BoundaryCrossing::new(&mut rest, part, offer, batch_limits),
+            readouts,
+        ))
+        .await
+    }
+
+    /// The upper adapter's rows, as it gives them over the lower one and
+    /// the chain below, through the boundary between them.
+    async fn adapt_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> Result<(), ExecuteError> {
+        let (part, offer, batch_limits) = kept(
+            self.below_part.as_ref(),
+            self.below_offer.as_ref(),
+            self.batch_limits.as_ref(),
+        );
+        let mut rest = ChainBelow {
+            adapter: &mut self.lower,
+            below,
+        };
+        await_part(self.upper.adapt_each(
+            batches,
+            seed,
+            &mut BoundaryCrossing::new(&mut rest, part, offer, batch_limits),
+            readouts,
+            each,
+        ))
+        .await
+    }
+
+    /// The upper adapter's answer to the stream, over the lower one and
+    /// the chain below, through the boundary between them.
+    async fn adapt_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        let (part, offer, batch_limits) = kept(
+            self.below_part.as_ref(),
+            self.below_offer.as_ref(),
+            self.batch_limits.as_ref(),
+        );
+        let mut rest = ChainBelow {
+            adapter: &mut self.lower,
+            below,
+        };
+        await_part(self.upper.adapt_stream(
+            stream,
             seed,
             &mut BoundaryCrossing::new(&mut rest, part, offer, batch_limits),
             readouts,

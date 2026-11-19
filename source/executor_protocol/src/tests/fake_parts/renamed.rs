@@ -10,7 +10,10 @@ use crate::{
 
 /// `part`, named `name`, as a part built at run time is named by what it
 /// was built from rather than by its type; it does as `part` does
-/// otherwise, in each role `part` takes.
+/// otherwise, in each role `part` takes. It forwards neither the `_each`
+/// nor the `_stream` forms: through it, a `part` that gives its rows as
+/// they come gives them at the end, and a stream is cut into batches, by
+/// the defaults.
 pub(crate) struct Renamed<P> {
     part: P,
     name: &'static str,

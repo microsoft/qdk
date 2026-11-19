@@ -18,16 +18,25 @@
 //! marked [`checked`](crate::Batch::checked). Once the run ends, whether it
 //! gave outputs, failed, or its future was dropped, the runner ends its
 //! shots on every part, so that none keeps them.
+//!
+//! A run gives its outputs at the end ([`Runner::run_async`]), or each as
+//! the driver gives it ([`Runner::run_each_async`]). Both also have a
+//! blocking form (`run`, `run_each`), not on wasm32. `run_async` and
+//! `run_each_async` share one body (`run_with`), and differ only in how it
+//! calls the driver (`delivery`), and in raising a panic of `each` once
+//! the shots are ended.
 
+mod delivery;
 mod run_error;
 mod run_limits;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod wait;
 
 use super::boundary_crossing::{BatchLimits, BoundaryCrossing};
-use super::part_panics::{await_part, catch_panic, end_both};
+use super::part_panics::{CallersCallback, await_part, catch_panic, end_both};
 use crate::roles::EndedRun;
-use crate::{Drive, DriveError, Execute, Failure, Needs, Offer, PartId, Seed, ShotSet};
+use crate::{Drive, DriveError, Execute, Failure, Needs, Offer, PartId, Seed, ShotId, ShotSet};
+use delivery::{AsTheDriverGives, AtTheEnd, Delivery};
 
 pub use run_error::{RunError, RunRefusal};
 pub(crate) use run_limits::RunLimits;
@@ -131,13 +140,16 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// # Panics
     ///
     /// Where a panic unwinds (on wasm32, it aborts), a part's panic fails
-    /// the run ([`Failure::Panicked`]) when it is in `drive`, `execute` or
+    /// the run ([`Failure::Panicked`]) when it is in `drive`, `adapt` or
+    /// `execute`, their `_each` and `_stream` forms included, in what a
+    /// part gives to a call below (the `each` of an `execute_each`, the
+    /// instructions of an `execute_stream`; named as that part's), or in
     /// an `end_shots` a part above calls, or in the destructor of the
-    /// future its `drive`, `adapt` or `execute` returned. The failure names
-    /// the part whose future it is when the protocol drops that future,
-    /// once it is ready or has panicked; when a part above stops waiting
-    /// and drops it unfinished, it names that part above, through whose
-    /// call the panic unwinds, as [`Failure::Panicked`] says.
+    /// future its `drive`, `adapt` or `execute`, any form, returned. The
+    /// failure names the part whose future it is when the protocol drops
+    /// that future, once it is ready or has panicked; when a part above
+    /// stops waiting and drops it unfinished, it names that part above,
+    /// through whose call the panic unwinds, as [`Failure::Panicked`] says.
     ///
     /// The run raises a part's panic again, instead of failing:
     /// - in a part's `ready`, which is not caught: the first one when the
@@ -163,65 +175,126 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     ///
     /// So a part's panic in `end_shots` leaves the run in one of two ways,
     /// by who ended the shots: in an end a part above calls (the driver in
-    /// `drive`, or an adapter in `adapt`), it unwinds through that part's
-    /// call, and the run fails naming that part; in the runner's end, it is
-    /// raised again from the run.
+    /// `drive` or `drive_each`, or an adapter in one of its `adapt`
+    /// methods), it unwinds through that part's call, and the run fails
+    /// naming that part; in the runner's end, it is raised again from the
+    /// run.
     pub fn run_async(
         &mut self,
         shots: &ShotSet,
         seed: impl Into<Option<u64>>,
     ) -> impl Future<Output = Result<Vec<D::Output>, RunError>> {
-        let seed = seed.into();
-        async move {
-            if let Some(most) = self.limits.max_shots
-                && shots.len() > most as usize
-            {
-                return Err(RunError::Refused(RunRefusal::TooManyShots {
-                    asked: u32::try_from(shots.len()).unwrap_or(u32::MAX),
-                    most,
-                }));
-            }
-            if seed.is_some() && !self.limits.seedable {
-                return Err(RunError::Refused(RunRefusal::NotSeedable));
-            }
-            await_part(self.executor.ready(&self.executor_needs))
-                .await
-                .map_err(|not_ready| {
-                    RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.executor_part))
-                })?;
-            await_part(self.driver.ready()).await.map_err(|not_ready| {
-                RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.driver_part))
-            })?;
-            let seed = Seed::new(seed.unwrap_or_else(drawn_seed));
-            let unended = UnendedShots {
-                driver: &mut self.driver,
-                executor: &mut self.executor,
-                shots,
-            };
-            let mut below = BoundaryCrossing::new(
-                &mut *unended.executor,
-                &self.executor_part,
-                &self.executor_offer,
-                &self.batch_limits,
-            );
-            let driver = &mut *unended.driver;
-            let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
-                Ok(Ok(outputs)) => {
-                    drop(unended);
-                    return Ok(outputs);
-                }
-                Ok(Err(failure)) => failure,
-                Err(message) => DriveError {
-                    shot: shots.iter().next().expect("a shot set is never empty"),
-                    failure: Failure::Panicked {
-                        part: self.driver_part.clone(),
-                        message,
-                    },
-                },
-            };
-            drop(unended);
-            Err(RunError::Failed(failure))
+        self.run_with(shots, seed.into(), AtTheEnd)
+    }
+
+    /// Runs `shots` with `seed`, as [`run`](Self::run) does, but gives
+    /// each shot's output to `each` as the driver gives it, as
+    /// [`run_each_async`](Self::run_each_async) says. It blocks until the
+    /// run ends. Its errors and panics are
+    /// [`run_each_async`](Self::run_each_async)'s. Not on wasm32: there,
+    /// use `run_each_async`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn run_each(
+        &mut self,
+        shots: &ShotSet,
+        seed: impl Into<Option<u64>>,
+        each: &mut impl FnMut(ShotId, D::Output),
+    ) -> Result<(), RunError> {
+        wait::wait(self.run_each_async(shots, seed, each))
+    }
+
+    /// Runs `shots` with `seed`, as [`run_async`](Self::run_async) does,
+    /// with its refusals, failures and end of the shots, but gives each
+    /// shot's output to `each` as the driver gives it
+    /// ([`Drive::drive_each`]): all at the end by default; a driver that
+    /// overrides `drive_each` may give each earlier, as its shot ends.
+    /// After an error, the outputs already given stand, and the shots not
+    /// given have none.
+    ///
+    /// The future is `Send` exactly when every part and every part's
+    /// future, `drive_each`'s included, is, and `each` is `Send`.
+    ///
+    /// A panic in `each` is the caller's, not the driver's: `each` is not
+    /// called again, the run goes on to its end, the shots are ended on
+    /// every part, and the panic is then raised again from the run, after
+    /// an `Ok` or an error alike; unless a part panics in the runner's end
+    /// of the shots, whose panic is then raised instead, as the Panics
+    /// section of `run_async` says, or unless the run's future is dropped
+    /// first.
+    pub fn run_each_async(
+        &mut self,
+        shots: &ShotSet,
+        seed: impl Into<Option<u64>>,
+        each: &mut impl FnMut(ShotId, D::Output),
+    ) -> impl Future<Output = Result<(), RunError>> {
+        self.run_with(
+            shots,
+            seed.into(),
+            AsTheDriverGives(CallersCallback::new(each)),
+        )
+    }
+
+    /// `run_async`'s body, shared with `run_each_async`, the driver called
+    /// as `delivery` says.
+    async fn run_with<V: Delivery<D>>(
+        &mut self,
+        shots: &ShotSet,
+        seed: Option<u64>,
+        mut delivery: V,
+    ) -> Result<V::Output, RunError> {
+        if let Some(most) = self.limits.max_shots
+            && shots.len() > most as usize
+        {
+            return Err(RunError::Refused(RunRefusal::TooManyShots {
+                asked: u32::try_from(shots.len()).unwrap_or(u32::MAX),
+                most,
+            }));
         }
+        if seed.is_some() && !self.limits.seedable {
+            return Err(RunError::Refused(RunRefusal::NotSeedable));
+        }
+        await_part(self.executor.ready(&self.executor_needs))
+            .await
+            .map_err(|not_ready| {
+                RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.executor_part))
+            })?;
+        await_part(self.driver.ready()).await.map_err(|not_ready| {
+            RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.driver_part))
+        })?;
+        let seed = Seed::new(seed.unwrap_or_else(drawn_seed));
+        let unended = UnendedShots {
+            driver: &mut self.driver,
+            executor: &mut self.executor,
+            shots,
+        };
+        let mut below = BoundaryCrossing::new(
+            &mut *unended.executor,
+            &self.executor_part,
+            &self.executor_offer,
+            &self.batch_limits,
+        );
+        let driver = &mut *unended.driver;
+        let failure = match catch_panic(|| delivery.drive(driver, shots, seed, &mut below)).await {
+            Ok(Ok(outputs)) => {
+                // The shots are ended before the caller's panic is
+                // raised, so a panic in this end is raised instead of
+                // the caller's, which is dropped.
+                drop(unended);
+                delivery.raise_callers_panic();
+                return Ok(outputs);
+            }
+            Ok(Err(failure)) => failure,
+            Err(message) => DriveError {
+                shot: shots.iter().next().expect("a shot set is never empty"),
+                failure: Failure::Panicked {
+                    part: self.driver_part.clone(),
+                    message,
+                },
+            },
+        };
+        drop(unended);
+        delivery.raise_callers_panic();
+        Err(RunError::Failed(failure))
     }
 }
 

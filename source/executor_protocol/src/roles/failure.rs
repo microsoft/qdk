@@ -15,8 +15,9 @@ use crate::{ExecuteRefusal, PartId};
 /// a whole batch, or a whole run, so it names the first shot of what
 /// failed: of the batch, for a refusal; of the first batch, for a panic in
 /// an `execute`, which includes a panic in an `end_shots` an adapter calls
-/// in `adapt`; of the run, for the driver's panic, which includes a panic
-/// in an `end_shots` the driver calls on the chain below.
+/// in one of its `adapt` methods; of the stream's shots, for a panic in an
+/// `execute_stream`; of the run, for the driver's panic, which includes a
+/// panic in an `end_shots` the driver calls on the chain below.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Failure {
@@ -32,15 +33,20 @@ pub enum Failure {
     /// an error.
     Panicked {
         /// The part whose call panicked: the driver, for a panic in its
-        /// `drive`; else the part whose `execute` or `adapt` panicked. A
-        /// panic in the destructor of the future such a call returned is
-        /// that part's too when the protocol drops the future, once it is
-        /// ready or has panicked. Two panics unwind through the call of a
-        /// part above instead, and so name that part: one in the destructor
-        /// of a future that part stopped waiting for and dropped
-        /// unfinished, and one in an `end_shots` it calls on the chain
-        /// below (the driver, for an end it calls as each shot ends; an
-        /// adapter, for an end it calls in `adapt`).
+        /// `drive` or `drive_each`; else the part whose `execute` or
+        /// `adapt`, plain, `_each` or `_stream`, panicked. A panic in the
+        /// destructor of the future such a call returned is that part's
+        /// too when the protocol drops the future, once it is ready or has
+        /// panicked. Two panics unwind through the call of a part above
+        /// instead, and so name that part: one in the destructor of a
+        /// future that part stopped waiting for and dropped unfinished, and
+        /// one in an `end_shots` it calls on the chain below (the driver,
+        /// for an end it calls as each shot ends; an adapter, for an end it
+        /// calls in one of its `adapt` methods). A panic in what a part
+        /// gives to a call below, the `each` of an `execute_each` or the
+        /// instructions of an `execute_stream`, is that part's too: it is
+        /// raised again through the part's own call once that call answers,
+        /// and dropped if that call is dropped before it answers.
         part: PartId,
         /// Its message, when the panic's payload is text (a `&str` or a
         /// `String`): its poll's, when the future's destructor panics

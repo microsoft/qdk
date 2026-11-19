@@ -18,6 +18,9 @@
 //!     is a.adapt(batches, seed, e, readouts).
 //! ```
 //!
+//! Their `_each` and `_stream` forms (`drive_each`, `adapt_each`,
+//! `execute_each`, `adapt_stream`, `execute_stream`) map the same way.
+//!
 //! The upper part reaches the lower one through a boundary crossing
 //! (`BoundaryCrossing`), so every boundary of the chain is crossed
 //! the same way, whatever the brackets: the boundary inside a `Composed`
@@ -31,6 +34,14 @@
 //! runner reads every part's set, needs and offer, so that the checks and
 //! the names are the same wherever the brackets go. So are the needs that
 //! cross the boundary, which the lower part gets ready for on every run.
+//!
+//! Every run-time `impl` here and in the role files (`adapt`, `drive`,
+//! `execute`) states each method of its trait, which
+//! `#[deny(clippy::missing_trait_methods)]` enforces. A method left at its
+//! trait's default would not reach the joined parts (a default `end_shots`
+//! does nothing; a default `_each` form gives no row before the call
+//! answers; a default `_stream` form cuts a stream the parts below may
+//! take whole), so not passing a call on is written here, never inherited.
 
 mod adapt;
 mod drive;
@@ -39,8 +50,8 @@ mod execute;
 use super::boundary_crossing::BatchLimits;
 use super::part_panics::end_both;
 use crate::{
-    Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup,
-    InstructionSet, Needs, Offer, PartId, Seed, ShotSet,
+    Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup, FinalRow,
+    Instruction, InstructionSet, InstructionStream, Needs, NotReady, Offer, PartId, Seed, ShotSet,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
@@ -115,7 +126,17 @@ impl<A: AdapterSetup, B: ExecutorSetup> ExecutorSetup for ChainBelow<'_, A, B> {
     }
 }
 
+// Every method stated, for the reason the module doc gives.
+#[deny(clippy::missing_trait_methods)]
 impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
+    /// `Ok`, as by default: the runner asks each part itself, at most once
+    /// per run, before the driver starts; a part above that asks at run
+    /// time does not ask the adapter or the chain below again.
+    fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = needs;
+        std::future::ready(Ok(()))
+    }
+
     /// The adapter's `adapt`: it keeps [`Execute::execute`]'s rule, doing
     /// its work only once polled, when the adapter's `adapt` does, and
     /// either way it is reached only through a boundary crossing, which
@@ -128,6 +149,29 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.adapter
             .adapt(batches, seed, &mut *self.below, readouts)
+    }
+
+    /// The adapter's rows, as it gives them over the chain below.
+    fn execute_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        self.adapter
+            .adapt_each(batches, seed, &mut *self.below, readouts, each)
+    }
+
+    /// The adapter's answer to the stream, over the chain below.
+    fn execute_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        readouts: &mut BatchReadouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        self.adapter
+            .adapt_stream(stream, seed, &mut *self.below, readouts)
     }
 
     /// The adapter, then the chain below it, ended even if the adapter

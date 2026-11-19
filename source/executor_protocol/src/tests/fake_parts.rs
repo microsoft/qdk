@@ -5,12 +5,17 @@
 //! the tests compose between them, on a toy whose shot state is classical
 //! bits, written in QIR's `h`, `x` and `mz`.
 //!
-//! - Drivers: [`CoinCopy`], which branches on a readout, and [`Program`],
+//! - Drivers: [`CoinCopy`], which branches on a readout; [`Program`],
 //!   one batch for every shot, or one for each half of them, in
-//!   [`CoinGates`] or another set, such as [`ParityGates`].
+//!   [`CoinGates`] or another set, such as [`ParityGates`], or sent as a
+//!   stream, whole or in pieces; and [`OutputsAsRowsCome`], which keeps
+//!   each row as it is given and gives its shot's output then.
 //! - Executors: [`Bits`], and executors that answer later ([`Later`]) or
-//!   from a thread ([`FromThread`]).
-//! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
+//!   from a thread ([`FromThread`]), whose rows come one at a time from a
+//!   thread ([`RowsFromThread`]), or that log the pieces a stream is cut
+//!   into ([`SeesPieces`]).
+//! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws
+//!   nothing, and passes rows and streams on as they come;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
 //!   [`NamesBelow`], which logs the names of the part below and its set;
 //!   [`Spread`], which changes the needs and the offer; [`Offering`], a
@@ -49,7 +54,7 @@ use std::sync::OnceLock;
 use std::task::{Context, Poll};
 
 use crate::{
-    Batch, BatchReadouts, Execute, ExecuteError, Instruction, InstructionSet, OpcodeMap,
+    Batch, BatchReadouts, Execute, ExecuteError, FinalRow, Instruction, InstructionSet, OpcodeMap,
     ReadoutValue, Seed, instruction_set,
 };
 
@@ -86,7 +91,7 @@ instruction_set! {
 pub(crate) struct Log(Rc<RefCell<Vec<String>>>);
 
 impl Log {
-    fn push(&self, entry: impl Into<String>) {
+    pub(crate) fn push(&self, entry: impl Into<String>) {
         self.0.borrow_mut().push(entry.into());
     }
 
@@ -101,11 +106,12 @@ impl Log {
     }
 }
 
-/// A shot's random stream: `SplitMix64`, seeded from the shot's seed.
-struct Stream(u64);
+/// A shot's random stream: `SplitMix64`, seeded from the shot's seed, or
+/// from a test's own seed for what it draws.
+pub(crate) struct Stream(pub(crate) u64);
 
 impl Stream {
-    fn next(&mut self) -> u64 {
+    pub(crate) fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -151,15 +157,39 @@ async fn forward(
     rewrite: impl FnMut(&Batch<'_>) -> Vec<Instruction>,
 ) -> Result<(), ExecuteError> {
     let sent: Vec<Vec<Instruction>> = batches.iter().map(rewrite).collect();
-    let below_batches: Vec<Batch<'_>> = batches
+    below
+        .execute(&rewritten(batches, &sent), seed, readouts)
+        .await
+}
+
+/// [`forward`], by `execute_each`: each row below is the row above at the
+/// same batch and position, so each is given to `each` as it comes.
+async fn forward_each(
+    batches: &[Batch<'_>],
+    seed: Seed,
+    below: &mut impl Execute,
+    readouts: &mut [BatchReadouts],
+    rewrite: impl FnMut(&Batch<'_>) -> Vec<Instruction>,
+    each: &mut impl FnMut(FinalRow<'_>),
+) -> Result<(), ExecuteError> {
+    let sent: Vec<Vec<Instruction>> = batches.iter().map(rewrite).collect();
+    below
+        .execute_each(&rewritten(batches, &sent), seed, readouts, each)
+        .await
+}
+
+/// Each of `batches`, to its own shots, with its instructions of `sent`,
+/// its readout slots, and checked if it is: what [`forward`] and
+/// [`forward_each`] send below.
+fn rewritten<'a>(batches: &[Batch<'a>], sent: &'a [Vec<Instruction>]) -> Vec<Batch<'a>> {
+    batches
         .iter()
-        .zip(&sent)
+        .zip(sent)
         .map(|(batch, instructions)| {
             Batch::new(batch.shots, instructions, batch.readout_slots())
                 .checked_if(batch.is_checked())
         })
-        .collect();
-    below.execute(&below_batches, seed, readouts).await
+        .collect()
 }
 
 /// The receiver's opcodes, given by `>>`'s `bind`.

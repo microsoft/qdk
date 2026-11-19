@@ -6,7 +6,11 @@
 //! failure of it, and in its `end_shots` ([`end_both`]), which ends every
 //! other part before raising it again. Wherever the protocol awaits a
 //! part's future, it does so through [`await_part`], so that a panic
-//! leaves no live future of a part behind it.
+//! leaves no live future of a part behind it. A panic in what the caller
+//! gives a part to call back, an `execute_each`'s `each`, a run's `each`,
+//! or an `execute_stream`'s instructions, is kept by [`CallersCallback`]
+//! and raised again on the caller's side, so that it names the caller, not
+//! the part that called it back.
 //!
 //! So that one part's panic neither leaves another part's shots held nor
 //! escapes where the protocol promises a failure, nor aborts the process
@@ -26,9 +30,9 @@
 //! directly, with no generator's state of its own. The gain is the
 //! shape's, not inlining's: it holds with their polls out of line. Measured
 //! on a batch of one instruction, it more than halves the cost of a call
-//! through three boundaries (about 125 ns to 56). The bench's section D
-//! (`examples/bench/main.rs`) times the boundary's cost per call against a
-//! direct one.
+//! through three boundaries (about 125 ns to 56). The bench's `chains`
+//! section (`examples/bench/chains.rs`) times the boundary's cost per call
+//! against a direct one.
 //!
 //! A future written by hand that holds another one must poll it where it
 //! lies: a part's future, made by an `async fn` for instance, may point
@@ -195,6 +199,12 @@ impl<F: Future> AwaitPart<F> {
     /// raised inside the catch, unless the thread is already unwinding, so
     /// the output is dropped as it unwinds, as std drops a value held when
     /// a panic leaves.
+    // Inlined where it can be: the default `execute_stream` awaits the
+    // part's `execute` through this too, a second caller of the same
+    // instance, and LLVM then left it out of line under the boundary's
+    // `execute`, a call per batch (a quarter slower on batches of one
+    // instruction, in the bench's `chains` section).
+    #[inline]
     fn poll_caught(
         self: Pin<&mut Self>,
         context: &mut Context<'_>,
@@ -265,6 +275,52 @@ pub(crate) fn end_both(first: impl FnOnce(), second: impl FnOnce()) {
         && !std::thread::panicking()
     {
         resume_unwind(payload);
+    }
+}
+
+/// The caller's callback (an `execute_each`'s `each`, a run's `each`, an
+/// `execute_stream`'s instructions), as the part below calls it, so that a
+/// panic in it is the caller's, not that part's: each call is made in a
+/// catch, the first panic is kept, and no later call reaches the callback;
+/// the protocol raises the panic again with
+/// [`raise_panic`](Self::raise_panic) once the part below has answered
+/// (for a run's `each`, once the run's shots are ended), outside the catch
+/// that names that part, so that it unwinds through the caller.
+/// `AssertUnwindSafe`, as for [`catch_panic`]: the callback is not called
+/// again once it has panicked.
+///
+/// Known issue: if the future holding it is dropped before `raise_panic`,
+/// the kept panic is dropped with it.
+pub(crate) struct CallersCallback<C> {
+    callback: C,
+    panic: Option<Box<dyn Any + Send>>,
+}
+
+impl<C> CallersCallback<C> {
+    /// `callback`, not yet called.
+    pub(crate) fn new(callback: C) -> Self {
+        Self {
+            callback,
+            panic: None,
+        }
+    }
+
+    /// Calls the callback by `call`, in a catch, unless it has panicked
+    /// before: its first panic is kept.
+    #[inline]
+    pub(crate) fn call(&mut self, call: impl FnOnce(&mut C)) {
+        if self.panic.is_none()
+            && let Err(payload) = catch_unwind(AssertUnwindSafe(|| call(&mut self.callback)))
+        {
+            self.panic = Some(payload);
+        }
+    }
+
+    /// Raises the callback's first panic again, if it panicked.
+    pub(crate) fn raise_panic(&mut self) {
+        if let Some(payload) = self.panic.take() {
+            resume_unwind(payload);
+        }
     }
 }
 

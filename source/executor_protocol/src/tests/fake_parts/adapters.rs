@@ -8,13 +8,14 @@ use std::collections::BTreeMap;
 use std::future::poll_fn;
 use std::pin::pin;
 use std::rc::Rc;
+use std::slice;
 use std::task::Poll;
 
-use super::{CoinGates, Log, Stream, bound, coin_gate, coin_gates, forward, mapped};
+use super::{CoinGates, Log, Stream, bound, coin_gate, coin_gates, forward, forward_each, mapped};
 use crate::{
-    Adapt, AdapterSetup, Batch, BatchReadouts, BlockType, Execute, ExecuteError, Failure,
-    Instruction, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Readouts, Seed, ShotId,
-    ShotSet,
+    Adapt, AdapterSetup, Batch, BatchReadouts, BlockType, Execute, ExecuteError, Failure, FinalRow,
+    Instruction, InstructionSet, InstructionStream, Needs, NotReady, Offer, OpcodeMap, Readouts,
+    Seed, ShotId, ShotSet,
 };
 
 /// A toy bit-flip noise: after each `x`, another `x` with probability
@@ -118,12 +119,16 @@ impl Adapt for BitFlip {
 }
 
 /// An adapter that counts the instructions passing through it and changes
-/// nothing: it draws nothing, and sends each batch as it came.
+/// nothing: it draws nothing, and sends each batch as it came, each row
+/// below given as it comes (`adapt_each`), and each stream below as a
+/// stream, each instruction counted and passed on as it is pulled
+/// (`adapt_stream`, which logs `Profiler adapt_stream`).
 pub(crate) struct Profiler {
     set: InstructionSet,
     below: Option<OpcodeMap>,
     instructions: Rc<Cell<usize>>,
     busy: Option<&'static str>,
+    panics_in_its_each: bool,
     log: Log,
 }
 
@@ -140,6 +145,7 @@ impl Profiler {
             below: None,
             instructions: Rc::clone(instructions),
             busy: None,
+            panics_in_its_each: false,
             log: log.clone(),
         }
     }
@@ -148,6 +154,26 @@ impl Profiler {
     pub(crate) fn busy(mut self, why: &'static str) -> Self {
         self.busy = Some(why);
         self
+    }
+
+    /// This profiler, whose `adapt` sends its batches through
+    /// `execute_each`, with an `each` of its own that panics on the first
+    /// row.
+    pub(crate) fn panicking_in_its_each(mut self) -> Self {
+        self.panics_in_its_each = true;
+        self
+    }
+
+    /// Counts the instructions of `batches`, then gives how to rewrite
+    /// each of them in the receiver's opcodes.
+    fn count_and_rewrite(
+        &self,
+        batches: &[Batch<'_>],
+    ) -> impl FnMut(&Batch<'_>) -> Vec<Instruction> + '_ {
+        let count: usize = batches.iter().map(|batch| batch.instructions.len()).sum();
+        self.instructions.set(self.instructions.get() + count);
+        let map = bound(self.below.as_ref());
+        move |batch| mapped(map, batch.instructions)
     }
 }
 
@@ -181,13 +207,50 @@ impl Adapt for Profiler {
         below: &mut impl Execute,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        let count: usize = batches.iter().map(|batch| batch.instructions.len()).sum();
-        self.instructions.set(self.instructions.get() + count);
-        let map = bound(self.below.as_ref());
-        forward(batches, seed, below, readouts, |batch| {
-            mapped(map, batch.instructions)
-        })
-        .await
+        let rewrite = self.count_and_rewrite(batches);
+        if self.panics_in_its_each {
+            let mut each = |_: FinalRow<'_>| panic!("the adapter's `each` panicked");
+            return forward_each(batches, seed, below, readouts, rewrite, &mut each).await;
+        }
+        forward(batches, seed, below, readouts, rewrite).await
+    }
+
+    /// As `adapt`, each row below given to `each` as it comes.
+    async fn adapt_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> Result<(), ExecuteError> {
+        let rewrite = self.count_and_rewrite(batches);
+        forward_each(batches, seed, below, readouts, rewrite, each).await
+    }
+
+    /// As `adapt`, the stream passed below as a stream, each instruction
+    /// counted and rewritten as it is pulled.
+    async fn adapt_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        self.log.push("Profiler adapt_stream");
+        let (map, counted) = (bound(self.below.as_ref()), &self.instructions);
+        let checked = stream.is_checked();
+        let instructions = stream.instructions.map(|instruction| {
+            counted.set(counted.get() + 1);
+            mapped(map, slice::from_ref(&instruction)).remove(0)
+        });
+        below
+            .execute_stream(
+                InstructionStream::new(stream.shots, instructions).checked_if(checked),
+                seed,
+                readouts,
+            )
+            .await
     }
 }
 
@@ -312,6 +375,19 @@ impl Spread {
             log: log.clone(),
         }
     }
+
+    /// How to rewrite each batch in the receiver's opcodes, on the first
+    /// of each qubit's `k` qubits below.
+    fn rewrite(&self) -> impl FnMut(&Batch<'_>) -> Vec<Instruction> + '_ {
+        let map = bound(self.below.as_ref());
+        move |batch| {
+            let mut instructions = mapped(map, batch.instructions);
+            for instruction in &mut instructions {
+                instruction.blocks[0] *= self.k;
+            }
+            instructions
+        }
+    }
 }
 
 impl AdapterSetup for Spread {
@@ -357,15 +433,19 @@ impl Adapt for Spread {
         below: &mut impl Execute,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        let map = bound(self.below.as_ref());
-        forward(batches, seed, below, readouts, |batch| {
-            let mut instructions = mapped(map, batch.instructions);
-            for instruction in &mut instructions {
-                instruction.blocks[0] *= self.k;
-            }
-            instructions
-        })
-        .await
+        forward(batches, seed, below, readouts, self.rewrite()).await
+    }
+
+    /// As `adapt`, each row below given to `each` as it comes.
+    async fn adapt_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> Result<(), ExecuteError> {
+        forward_each(batches, seed, below, readouts, self.rewrite(), each).await
     }
 }
 
@@ -1049,6 +1129,19 @@ impl Adapt for PanicsEnding {
     ) -> Result<(), ExecuteError> {
         self.pass_through
             .adapt(batches, seed, below, readouts)
+            .await
+    }
+
+    async fn adapt_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> Result<(), ExecuteError> {
+        self.pass_through
+            .adapt_each(batches, seed, below, readouts, each)
             .await
     }
 

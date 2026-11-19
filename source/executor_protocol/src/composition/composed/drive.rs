@@ -10,7 +10,7 @@ use crate::composition::part_panics::{await_part, end_both};
 use crate::roles::EndedRun;
 use crate::{
     Adapt, AdapterSetup, Drive, DriveError, DriverSetup, Execute, InstructionSet, Needs, NotReady,
-    Offer, OpcodeMap, Seed, ShotSet,
+    Offer, OpcodeMap, Seed, ShotId, ShotSet,
 };
 
 /// Driver `>>` adapter: a driver, at composition time.
@@ -52,6 +52,8 @@ impl<U: DriverSetup, L: AdapterSetup> DriverSetup for Composed<U, L> {
 }
 
 /// Driver `>>` adapter: a driver, at run time.
+// Every method stated, for the reason `composed`'s module doc gives.
+#[deny(clippy::missing_trait_methods)]
 impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
     type Output = U::Output;
 
@@ -86,6 +88,33 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
             shots,
             seed,
             &mut BoundaryCrossing::new(&mut rest, part, offer, batch_limits),
+        ))
+        .await
+    }
+
+    /// The driver's outputs as it gives them, over the adapter, through
+    /// the boundary between them.
+    async fn drive_each(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Execute,
+        each: &mut impl FnMut(ShotId, U::Output),
+    ) -> Result<(), DriveError> {
+        let (part, offer, batch_limits) = kept(
+            self.below_part.as_ref(),
+            self.below_offer.as_ref(),
+            self.batch_limits.as_ref(),
+        );
+        let mut rest = ChainBelow {
+            adapter: &mut self.lower,
+            below,
+        };
+        await_part(self.upper.drive_each(
+            shots,
+            seed,
+            &mut BoundaryCrossing::new(&mut rest, part, offer, batch_limits),
+            each,
         ))
         .await
     }

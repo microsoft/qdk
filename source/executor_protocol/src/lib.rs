@@ -25,8 +25,8 @@ mod seed;
 mod tests;
 
 pub use batch::{
-    Batch, BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
-    ShotId, ShotSet, ShotSetFault,
+    Batch, BatchReadouts, InstructionStream, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts,
+    ShotConditions, ShotId, ShotSet, ShotSetFault,
 };
 pub use composition::{
     Adapter, AdmissionFaults, Compose, Composed, CompositionFaults, Driver, Executor, PartId,
@@ -42,6 +42,6 @@ pub use needs::{Needs, UnmetNeed};
 pub use offer::Offer;
 pub use roles::{
     Adapt, AdapterSetup, Drive, DriveError, DriverSetup, Execute, ExecuteError, ExecuteRefusal,
-    ExecutorSetup, Failure, NotReady,
+    ExecutorSetup, Failure, FinalRow, NotReady,
 };
 pub use seed::Seed;

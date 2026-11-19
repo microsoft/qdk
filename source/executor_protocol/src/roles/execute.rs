@@ -1,17 +1,26 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The executor's role at run time, [`Execute`], and what an `execute`
-//! returns when it does not answer: [`ExecuteError`], with
+//! The executor's role at run time, [`Execute`], the rows it gives as they
+//! are final when its caller asks for them ([`FinalRow`]), and what an
+//! `execute` returns when it does not answer: [`ExecuteError`], with
 //! [`ExecuteRefusal`] when nothing of it ran.
+
+mod final_row;
 
 use std::error::Error;
 use std::fmt;
+use std::slice;
 
+use super::stream_pieces::{StreamPieces, most_per_piece};
+use crate::composition::part_panics::await_part;
 use crate::{
-    Batch, BatchReadouts, ExecutorSetup, Failure, InstructionFault, Needs, NotReady, Seed, ShotId,
-    ShotSet,
+    Batch, BatchReadouts, ExecutorSetup, Failure, Instruction, InstructionFault, InstructionStream,
+    Needs, NotReady, Seed, ShotId, ShotSet,
 };
+
+pub use final_row::FinalRow;
+pub(crate) use final_row::give_every_row;
 
 /// Runs batches of the instructions it accepts on their shots' states.
 ///
@@ -74,7 +83,13 @@ pub trait Execute: ExecutorSetup {
     /// replayable executor, [`seed.shot(id)`](Seed::shot), as [`Seed`]
     /// says, and kept until [`end_shots`](Self::end_shots), across any
     /// number of `execute`s, whether or not they read anything: a shot's
-    /// instructions may come in as many batches as its caller sends.
+    /// instructions may come in as many batches as its caller sends, each
+    /// within the most this executor takes, and its readouts across them
+    /// are those it would get from the same instructions sent in one
+    /// batch. The protocol holds only the batches of one `execute`, so the
+    /// caller chooses how much of a program it holds;
+    /// [`execute_stream`](Self::execute_stream) cuts a stream of
+    /// instructions into such batches for it.
     ///
     /// The caller passes one `BatchReadouts` per batch, of any shape, as
     /// [`Readouts::readouts_for`](crate::Readouts::readouts_for) gives them;
@@ -120,6 +135,125 @@ pub trait Execute: ExecutorSetup {
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>>;
 
+    /// As [`execute`](Self::execute), and gives `each` each shot's row as
+    /// soon as it is final, before the `execute` answers: so that a caller
+    /// can use a shot's readouts (record them, show progress, start the
+    /// shot's classical work) while the executor runs the other shots. An
+    /// executor that finishes its shots one by one, or a group or a shard
+    /// at a time, overrides it; by default, it is `execute`, then, once it
+    /// answers `Ok`, every row, batch by batch, each batch in its shots'
+    /// order, so every executor serves it; an `execute` that fails gives no
+    /// row. A row is its batch's in this call: for a shot whose
+    /// instructions come over several calls, each call gives the row of
+    /// that call's instructions.
+    ///
+    /// The rules between the caller and the executor, which the executor
+    /// keeps and the protocol does not check:
+    ///
+    /// - `each` is given each row at most once; after an `Ok`, it was given
+    ///   each row of every batch exactly once; after an error, any rows it
+    ///   was given are final, and the others are unspecified;
+    /// - after an `Ok`, a row given to `each` holds the values and
+    ///   conditions `readouts[batch]` holds for that row when the call
+    ///   answers: the executor does not write the row again; after an
+    ///   error, a row given is final as given, and the readouts are
+    ///   unspecified, as after any error;
+    /// - `each` is called on the thread that polls this future: an
+    ///   executor that runs shots on other threads passes their rows back
+    ///   to it, so a caller's `each` need not be `Send`.
+    ///
+    /// Through the protocol's boundary, a panic in `each` is the caller's,
+    /// not the executor's: the boundary gives no more rows once `each`
+    /// panicked, and raises the panic again once the executor answers,
+    /// through the caller's call, so that the run fails naming the caller,
+    /// even when the executor panicked or failed too. If this call is
+    /// dropped before the executor answers, that panic is dropped with it.
+    fn execute_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        async move {
+            await_part(self.execute(batches, seed, readouts)).await?;
+            give_every_row(batches, readouts, each);
+            Ok(())
+        }
+    }
+
+    /// Runs `stream`'s instructions on its shots' states, pulling them as
+    /// it runs them, and writes their readouts into `readouts`, the
+    /// caller's, which it shapes as the protocol shapes a batch's: a row per
+    /// shot, in its set's order, of a value per readout slot of the
+    /// stream's instructions. They are the readouts the same instructions
+    /// would get sent as one batch, and the shots' states are kept after it
+    /// as after an `execute`, so a sender may send a shot's program over any
+    /// number of streams and `execute`s.
+    ///
+    /// For a sender whose program is too long to hold
+    /// ([`InstructionStream`]). By default, it runs the stream in pieces,
+    /// each one `execute` of one batch of at most the most instructions
+    /// this executor takes ([`Offer::max_instructions`](crate::Offer), or
+    /// a thousand or so when it sets none), pulling each piece only once
+    /// the one before it has answered, so every executor serves it. It then
+    /// holds one piece, and, until the stream ends, the readouts of the
+    /// pieces that read anything, joined into `readouts` at the end: about
+    /// twice the stream's readouts, and little more than a piece for a
+    /// stream that reads only at its end. An executor that applies
+    /// instructions as they come, such as a simulator, or one that passes
+    /// them on over a network, overrides it, to take the stream whole.
+    ///
+    /// A refusal ends the stream: of the first piece, as an
+    /// [`ExecuteError::Refused`], nothing having run; of a later one, as a
+    /// failure ([`Failure::Refused`]), the pieces before it having run. A
+    /// refusal names the stream as batch 0, and an instruction by its
+    /// position in the stream. As after an `execute`'s error, the readouts
+    /// are then unspecified, and the shots' states are kept until
+    /// [`end_shots`](Self::end_shots); so they are when its future is
+    /// dropped mid-stream. A sender whose production fails ends its
+    /// iterator, and reports its own error once this call answers.
+    ///
+    /// Through the protocol's boundary, a
+    /// [`checked`](InstructionStream::checked) stream is checked a piece at
+    /// a time, and a panic in the stream's iterator is the caller's, not
+    /// the executor's: the stream ends there, and the panic is raised again
+    /// once the executor answers, through the caller's call, as a panic in
+    /// [`execute_each`](Self::execute_each)'s `each` is.
+    fn execute_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        readouts: &mut BatchReadouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        async move {
+            let checked = stream.is_checked();
+            let InstructionStream {
+                shots,
+                instructions,
+                ..
+            } = stream;
+            let mut pieces =
+                StreamPieces::new(instructions, most_per_piece(self.offers().max_instructions));
+            while pieces.pull() {
+                let answer = match pieces.batch(self.accepts(), shots, checked) {
+                    Ok((batch, piece_readouts)) => {
+                        await_part(self.execute(
+                            slice::from_ref(&batch),
+                            seed,
+                            slice::from_mut(piece_readouts),
+                        ))
+                        .await
+                    }
+                    Err(refused) => Err(refused),
+                };
+                pieces.ran(answer)?;
+            }
+            pieces.join_into(shots, readouts);
+            Ok(())
+        }
+    }
+
     /// Frees what it holds for shots that ended. The protocol calls it on
     /// every part, so a part never forwards it below; by default it does
     /// nothing. `shots` may hold shots it does not hold, or no longer
@@ -130,14 +264,19 @@ pub trait Execute: ExecutorSetup {
     /// waited, or a part above stopped waiting for it: the part then
     /// cancels the work that `execute` started for these shots, or ignores
     /// its readouts. A panic here, in an end a part above calls (the driver,
-    /// or an adapter in `adapt`), fails the run naming that part; in the
-    /// runner's end, it is raised again from the run
+    /// or an adapter in one of its `adapt` methods), fails the run naming
+    /// that part; in the runner's end, it is raised again from the run
     /// ([`Runner::run_async`](crate::Runner::run_async)).
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }
 }
 
+// Every method forwarded: one left at its default would not reach `E`'s
+// own (a default `end_shots` does nothing; a default `execute_each` gives
+// no row before `execute` answers; a default `execute_stream` cuts the
+// stream into batches `E` may take whole).
+#[deny(clippy::missing_trait_methods)]
 impl<E: Execute + ?Sized> Execute for &mut E {
     fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {
         (**self).ready(needs)
@@ -150,6 +289,25 @@ impl<E: Execute + ?Sized> Execute for &mut E {
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         (**self).execute(batches, seed, readouts)
+    }
+
+    fn execute_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        (**self).execute_each(batches, seed, readouts, each)
+    }
+
+    fn execute_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        readouts: &mut BatchReadouts,
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        (**self).execute_stream(stream, seed, readouts)
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {

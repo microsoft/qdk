@@ -33,13 +33,15 @@ mod execute;
 mod executor_setup;
 mod failure;
 mod not_ready;
+mod stream_pieces;
 
 pub use adapt::Adapt;
 pub use adapter_setup::AdapterSetup;
 pub(crate) use drive::EndedRun;
 pub use drive::{Drive, DriveError};
 pub use driver_setup::DriverSetup;
-pub use execute::{Execute, ExecuteError, ExecuteRefusal};
+pub use execute::{Execute, ExecuteError, ExecuteRefusal, FinalRow};
 pub use executor_setup::ExecutorSetup;
 pub use failure::Failure;
 pub use not_ready::NotReady;
+pub(crate) use stream_pieces::most_per_piece;

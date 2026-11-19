@@ -35,7 +35,7 @@ mod composition_faults;
 mod driver;
 mod executor;
 mod part_id;
-mod part_panics;
+pub(crate) mod part_panics;
 pub(crate) mod runner;
 
 use crate::{FitFaults, InstructionSet, OpcodeMap};

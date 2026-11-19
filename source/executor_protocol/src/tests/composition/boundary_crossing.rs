@@ -4,8 +4,9 @@
 //! Crossing a boundary, wherever the brackets go: a refusal or a
 //! panic at a boundary inside a composition ends the run as it does at
 //! the executor's; a checked batch is checked at every boundary it
-//! crosses, beside unchecked ones of its `execute`; an `execute` of no
-//! batches does not reach the receiver; a boundary calls its receiver
+//! crosses, beside unchecked ones of its `execute`, plain or `_each`; an
+//! `execute` of no batches does not reach the receiver; a refused
+//! `execute_each` gives no row; a boundary calls its receiver
 //! only once its own `execute` is polled; and it shapes the readouts a
 //! caller passes: each batch's to its batch, with the readout slots its
 //! sender stated, prefilled, whatever they held, before the executor
@@ -29,14 +30,16 @@ use smallvec::smallvec;
 use super::runner::{SEED, failed, runner};
 use crate::tests::allocations;
 use crate::tests::fake_parts::{
-    Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, NamesBelow, ParityGates, Profiler,
-    Program, Renamed, coin_gate, coin_gates, in_each_bracketing,
+    Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, NamesBelow, OutputsAsRowsCome,
+    ParityGates, Profiler, Program, Renamed, RowsGiven, SeesPieces, Sending, coin_gate, coin_gates,
+    in_each_bracketing, rows_logged,
 };
 use crate::{
     Adapt, Adapter, AdapterSetup, Argument, Batch, BatchReadouts, CompositionFaults, Drive,
     DriveError, Driver, DriverSetup, Execute, ExecuteError, ExecuteRefusal, Executor,
-    ExecutorSetup, Failure, Instruction, InstructionFault, InstructionSet, Needs, NotReady, Offer,
-    OpcodeMap, PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    ExecutorSetup, Failure, FinalRow, Instruction, InstructionFault, InstructionSet,
+    InstructionStream, Needs, NotReady, Offer, OpcodeMap, PartId, ReadoutValue, Readouts, Runner,
+    Seed, ShotConditions, ShotId, ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -518,49 +521,212 @@ fn a_checked_batch_is_checked_at_every_boundary_wherever_the_brackets_go() {
     });
 }
 
-/// Two batches of one `execute`, on shots 4 and 2 a measure of qubit 0,
-/// on shots 9 and 7 a flip of qubit 5 beyond the program's 2 qubits, one
-/// checked and the other not: each batch is checked as its sender chose.
-/// Checked, the second batch is refused, naming batch 1 and its first
-/// shot, 9; unchecked, after a checked first batch, it reaches the bits,
-/// which panic on it.
+/// A driver sending, by `execute_each`, a checked batch with an
+/// instruction beyond its needs, through a profiler, wherever the brackets
+/// go: the boundary refuses it before the bits run anything, and the driver
+/// is given no row.
+#[test]
+fn a_refused_execute_each_gives_no_row() {
+    let counted = Rc::new(Cell::new(0));
+    in_each_bracketing!([d, a, e] from {
+        let (given, log) = (RowsGiven::default(), Log::default());
+        let d = Driver::new(OutputsAsRowsCome::new(&given, &log).beyond_its_needs());
+        let a = Adapter::new(Profiler::new(&counted, &log));
+        let e = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Refused(ExecuteRefusal::Instruction {
+                    fault: InstructionFault::BlockBeyondNeeds { .. },
+                    ..
+                })
+            ),
+            "{brackets}: {error:?}"
+        );
+        assert!(given.borrow().is_empty(), "{brackets}: no row given");
+        assert_eq!(rows_logged(&log), Vec::<String>::new(), "{brackets}");
+    });
+}
+
+/// Two batches of one `execute`, plain or `_each`, on shots 4 and 2 a
+/// measure of qubit 0, on shots 9 and 7 a flip of qubit 5 beyond the
+/// program's 2 qubits, one checked and the other not: each batch is
+/// checked as its sender chose, in both forms. Checked, the second batch
+/// is refused, naming batch 1 and its first shot, 9; unchecked, after a
+/// checked first batch, it reaches the bits, which panic on it.
 #[test]
 fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     let shots = ShotSet::ids([4, 2, 9, 7]);
     let log = Log::default();
-    let run = |first, second| {
-        runner(
-            Driver::new(
-                Program::halves(&[("mz", 0)], &[("x", 5)])
-                    .needing(Needs::qubits(2))
-                    .with_checked_halves(first, second),
-            ) >> Executor::new(Bits::new(&log)),
-        )
-        .run(&shots, SEED)
-    };
-    let error = failed(run(false, true));
-    assert!(
-        matches!(
-            error.failure,
-            Failure::Refused(ExecuteRefusal::Instruction {
-                shot,
-                batch: 1,
-                at: 0,
-                fault: InstructionFault::BlockBeyondNeeds { .. },
-            }) if shot == ShotId::new(9)
-        ),
-        "the checked second batch: {error:?}"
-    );
-    let error = failed(run(true, false));
-    let bits = PartId::new(1, type_name::<Bits>());
-    assert!(
-        matches!(&error.failure, Failure::Panicked { part, .. } if *part == bits),
-        "the unchecked second batch: {error:?}"
-    );
+    for (by, sending) in [("execute", Sending::Whole), ("execute_each", Sending::Each)] {
+        let run = |first, second| {
+            runner(
+                Driver::new(
+                    Program::halves(&[("mz", 0)], &[("x", 5)])
+                        .needing(Needs::qubits(2))
+                        .with_checked_halves(first, second)
+                        .sending_as(sending.clone()),
+                ) >> Executor::new(Bits::new(&log)),
+            )
+            .run(&shots, SEED)
+        };
+        let error = failed(run(false, true));
+        assert!(
+            matches!(
+                error.failure,
+                Failure::Refused(ExecuteRefusal::Instruction {
+                    shot,
+                    batch: 1,
+                    at: 0,
+                    fault: InstructionFault::BlockBeyondNeeds { .. },
+                }) if shot == ShotId::new(9)
+            ),
+            "the checked second batch, by {by}: {error:?}"
+        );
+        let error = failed(run(true, false));
+        let bits = PartId::new(1, type_name::<Bits>());
+        assert!(
+            matches!(&error.failure, Failure::Panicked { part, .. } if *part == bits),
+            "the unchecked second batch, by {by}: {error:?}"
+        );
+    }
 }
 
-/// A driver making one `execute` of no batches, with no readouts.
-struct SendsNothing;
+/// A driver sending one checked stream of 6 instructions on qubit 0,
+/// needing 1 qubit, with a flip of qubit 3 beyond its needs at `beyond`;
+/// it keeps the error of its `execute_stream`, rather than failing, so
+/// that a test reads it whole.
+struct StreamsBeyondItsNeeds {
+    instructions: Vec<Instruction>,
+    error: Rc<RefCell<Option<ExecuteError>>>,
+}
+
+impl StreamsBeyondItsNeeds {
+    fn new(beyond: usize, error: &Rc<RefCell<Option<ExecuteError>>>) -> Self {
+        let instructions = (0..6)
+            .map(|at| match at {
+                at if at == beyond => coin_gate("x", 3),
+                at if at % 2 == 0 => coin_gate("x", 0),
+                _ => coin_gate("mz", 0),
+            })
+            .collect();
+        Self {
+            instructions,
+            error: Rc::clone(error),
+        }
+    }
+}
+
+impl DriverSetup for StreamsBeyondItsNeeds {
+    fn sends(&self) -> &InstructionSet {
+        coin_gates()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        for instruction in &mut self.instructions {
+            instruction.opcode = below.map(instruction.opcode);
+        }
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::qubits(1)
+    }
+}
+
+impl Drive for StreamsBeyondItsNeeds {
+    type Output = ();
+
+    async fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<()>, DriveError> {
+        let stream = InstructionStream::new(shots, self.instructions.iter().cloned()).checked();
+        let mut readouts = BatchReadouts::new(0, 0);
+        let answer = below.execute_stream(stream, seed, &mut readouts).await;
+        *self.error.borrow_mut() = answer.err();
+        below.end_shots(shots);
+        Ok(vec![(); shots.len()])
+    }
+}
+
+/// A checked stream on shots 4 and 2, with a flip beyond its needs at
+/// position 0 or 4, to bits taking at most 2 instructions per batch, which
+/// run streams themselves or cut them by the default: the boundary checks
+/// the stream a piece of 2 at a time, before any of the piece reaches the
+/// bits. A fault in the first piece refuses the stream, naming batch 0,
+/// before anything runs; a fault in a later piece fails it, as refused at
+/// its position in the stream, after the pieces before it ran, since their
+/// shots' states have changed.
+#[test]
+fn a_checked_stream_is_refused_at_its_first_faulty_piece() {
+    let shots = ShotSet::ids([4, 2]);
+    let capped = |log: &Log| {
+        let offer = Offer::unlimited().max_qubits(64).without_readout_parity();
+        Bits::new(log).offering(offer.max_instructions(2))
+    };
+    let beyond = |at| ExecuteRefusal::Instruction {
+        shot: ShotId::new(4),
+        batch: 0,
+        at,
+        fault: InstructionFault::BlockBeyondNeeds {
+            mnemonic: "x".to_owned(),
+            block: 3,
+            needs: 1,
+        },
+    };
+    for (beyond_at, pieces_ran) in [(0, 0), (4, 2)] {
+        let refusal = beyond(beyond_at);
+        let expected = |error: Option<&ExecuteError>| match error {
+            Some(ExecuteError::Refused(refused)) => pieces_ran == 0 && *refused == refusal,
+            Some(ExecuteError::Failed {
+                shot,
+                failure: Failure::Refused(refused),
+            }) => pieces_ran > 0 && *shot == ShotId::new(4) && *refused == refusal,
+            _ => false,
+        };
+        let case = format!("a flip beyond the needs at {beyond_at}");
+        let (error, log, produced) = (Rc::default(), Log::default(), Rc::new(Cell::new(0)));
+        runner(
+            Driver::new(StreamsBeyondItsNeeds::new(beyond_at, &error))
+                >> Executor::new(SeesPieces::new(capped(&log), &produced, &log)),
+        )
+        .run(&shots, SEED)
+        .expect("the driver keeps the error");
+        let error = error.take();
+        assert!(
+            expected(error.as_ref()),
+            "{case}, by the default: {error:?}"
+        );
+        assert_eq!(
+            log.count("Bits execute"),
+            pieces_ran,
+            "{case}: the pieces before it ran, {:?}",
+            log.entries()
+        );
+        let (error, log) = (Rc::default(), Log::default());
+        runner(
+            Driver::new(StreamsBeyondItsNeeds::new(beyond_at, &error))
+                >> Executor::new(capped(&log)),
+        )
+        .run(&shots, SEED)
+        .expect("the driver keeps the error");
+        let error = error.take();
+        assert!(
+            expected(error.as_ref()),
+            "{case}, by the bits' own: {error:?}"
+        );
+    }
+}
+
+/// A driver making one `execute` of no batches, with no readouts, plain
+/// or `_each`.
+struct SendsNothing {
+    through_each: bool,
+}
 
 impl DriverSetup for SendsNothing {
     fn sends(&self) -> &InstructionSet {
@@ -584,34 +750,55 @@ impl Drive for SendsNothing {
         below: &mut impl Execute,
     ) -> Result<Vec<()>, DriveError> {
         let mut kept = Readouts::new();
-        below.execute(&[], seed, kept.readouts_for(&[])).await?;
+        let readouts = kept.readouts_for(&[]);
+        if self.through_each {
+            below
+                .execute_each(&[], seed, readouts, &mut |_| panic!("no row to give"))
+                .await?;
+        } else {
+            below.execute(&[], seed, readouts).await?;
+        }
         Ok(vec![(); shots.len()])
     }
 }
 
-/// A driver making one `execute` of no batches, directly over an executor
-/// that counts its calls, or through an adapter that counts its own, in
-/// each bracketing: the run succeeds and no part below is called, so an
-/// executor never has to answer an `execute` of no batches.
+/// A driver making one `execute` of no batches, plain or `_each`,
+/// directly over an executor that counts its calls, or through an adapter
+/// that counts its own, in each bracketing: the run succeeds and no part
+/// below is called, so an executor never has to answer an `execute` of no
+/// batches.
 #[test]
 fn an_execute_of_no_batches_reaches_no_part_below() {
-    let executed = Rc::new(Cell::new(0));
-    runner(Driver::new(SendsNothing) >> Executor::new(AnswersWhenCalled(Rc::clone(&executed))))
+    for through_each in [false, true] {
+        let executed = Rc::new(Cell::new(0));
+        runner(
+            Driver::new(SendsNothing { through_each })
+                >> Executor::new(AnswersWhenCalled(Rc::clone(&executed))),
+        )
         .run(&ShotSet::ids(0..2), SEED)
         .expect("the run succeeds");
-    assert_eq!(executed.get(), 0, "no adapter");
+        assert_eq!(
+            executed.get(),
+            0,
+            "no adapter, through_each: {through_each}"
+        );
 
-    let adapted = Rc::new(Cell::new(0));
-    in_each_bracketing!([d, a, e] from {
-        let d = Driver::new(SendsNothing);
-        let a = Adapter::new(ForwardsWhenCalled(Rc::clone(&adapted)));
-        let e = Executor::new(AnswersWhenCalled(Rc::clone(&executed)));
-    }, |chain, brackets| {
-        runner(chain)
-            .run(&ShotSet::ids(0..2), SEED)
-            .expect("the run succeeds");
-        assert_eq!((adapted.get(), executed.get()), (0, 0), "{brackets}");
-    });
+        let adapted = Rc::new(Cell::new(0));
+        in_each_bracketing!([d, a, e] from {
+            let d = Driver::new(SendsNothing { through_each });
+            let a = Adapter::new(ForwardsWhenCalled(Rc::clone(&adapted)));
+            let e = Executor::new(AnswersWhenCalled(Rc::clone(&executed)));
+        }, |chain, brackets| {
+            runner(chain)
+                .run(&ShotSet::ids(0..2), SEED)
+                .expect("the run succeeds");
+            assert_eq!(
+                (adapted.get(), executed.get()),
+                (0, 0),
+                "{brackets}, through_each: {through_each}"
+            );
+        });
+    }
 }
 
 /// A driver that makes one `execute` of an empty batch below, and awaits
@@ -758,6 +945,8 @@ struct TwoBatches {
     /// The readout slots it states for each batch.
     stated: [u32; 2],
     passes: Passes,
+    /// Whether it calls `execute_each` rather than `execute`.
+    through_each: bool,
     read: Rc<RefCell<Option<Vec<BatchReadouts>>>>,
 }
 
@@ -781,6 +970,7 @@ impl TwoBatches {
             ],
             stated: [2, 0],
             passes: Passes::OnePerBatch,
+            through_each: false,
             read: Rc::clone(read),
         }
     }
@@ -794,6 +984,12 @@ impl TwoBatches {
     /// This driver, passing below as `passes` says.
     fn passing(mut self, passes: Passes) -> Self {
         self.passes = passes;
+        self
+    }
+
+    /// This driver, calling `execute_each`, its rows ignored.
+    fn through_each(mut self) -> Self {
+        self.through_each = true;
         self
     }
 }
@@ -856,7 +1052,13 @@ impl Drive for TwoBatches {
             Passes::FewerThanBatches => (&batches, &mut readouts[..1]),
             Passes::WithoutBatches => (&[], &mut readouts[..1]),
         };
-        below.execute(sent, seed, passed).await?;
+        if self.through_each {
+            below
+                .execute_each(sent, seed, passed, &mut |_: FinalRow<'_>| {})
+                .await?;
+        } else {
+            below.execute(sent, seed, passed).await?;
+        }
         *self.read.borrow_mut() = Some(readouts.to_vec());
         Ok(vec![(); shots.len()])
     }
@@ -1124,9 +1326,10 @@ impl Adapt for PassesTooFewReadouts {
 }
 
 /// A driver passing one `BatchReadouts` for its two batches, or for no
-/// batch, or an adapter passing down one fewer than its batches, in each
-/// bracketing: the protocol panics in the caller's `execute`, once polled,
-/// so the run fails naming the caller, before the executor runs.
+/// batch, by `execute` or `execute_each`, or an adapter passing down one
+/// fewer than its batches, in each bracketing: the protocol panics in the
+/// caller's `execute`, once polled, so the run fails naming the caller,
+/// before the executor runs.
 #[test]
 fn readouts_not_one_per_batch_fail_the_run_naming_the_caller() {
     let log = Log::default();
@@ -1147,6 +1350,30 @@ fn readouts_not_one_per_batch_fail_the_run_naming_the_caller() {
             runner(
                 Driver::new(TwoBatches::new(&read).passing(Passes::WithoutBatches))
                     >> Executor::new(Bits::new(&log)),
+            )
+            .run(&ShotSet::ids(0..3), SEED),
+            PartId::new(0, type_name::<TwoBatches>()),
+        ),
+        (
+            "the driver, for two batches, by `execute_each`",
+            runner(
+                Driver::new(
+                    TwoBatches::new(&read)
+                        .passing(Passes::FewerThanBatches)
+                        .through_each(),
+                ) >> Executor::new(Bits::new(&log)),
+            )
+            .run(&ShotSet::ids(0..3), SEED),
+            PartId::new(0, type_name::<TwoBatches>()),
+        ),
+        (
+            "the driver, for no batch, by `execute_each`",
+            runner(
+                Driver::new(
+                    TwoBatches::new(&read)
+                        .passing(Passes::WithoutBatches)
+                        .through_each(),
+                ) >> Executor::new(Bits::new(&log)),
             )
             .run(&ShotSet::ids(0..3), SEED),
             PartId::new(0, type_name::<TwoBatches>()),

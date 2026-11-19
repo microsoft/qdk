@@ -4,7 +4,10 @@
 //! A part's panics, from its call, its future's poll or drop, or its end
 //! of the shots: each is a failure named after the right part, or is
 //! raised from the run, wherever the brackets go, and the run's shots are
-//! ended on every other part.
+//! ended on every other part. A panic in a caller's code that a part
+//! runs, the `each` it gives to an `_each` form, the one given to
+//! `run_each`, or the instructions of the stream it sends, is the
+//! caller's.
 
 use std::any::{Any, type_name};
 use std::cell::Cell;
@@ -14,11 +17,13 @@ use std::rc::Rc;
 use std::task::{Context, Waker};
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, EndsBelow, Impatient, Later, Log, Misbehaving, Misbehaviour, Panics,
-    PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Renamed, in_each_bracketing,
+    BitFlip, Bits, CoinCopy, EndsBelow, Impatient, Later, Log, Misbehaving, Misbehaviour,
+    OutputsAsRowsCome, Panics, PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Renamed,
+    RowsFromThread, RowsGiven, Sending, in_each_bracketing,
 };
 use crate::{
-    Adapter, Drive, Driver, Execute, Executor, Failure, PartId, RunError, Runner, ShotId, ShotSet,
+    Adapter, Drive, DriveError, Driver, Execute, Executor, Failure, PartId, RunError, Runner,
+    ShotId, ShotSet,
 };
 
 use super::runner::{SEED, failed, runner};
@@ -268,11 +273,11 @@ fn of_two_panics_ending_shots_the_first_is_raised() {
     );
 }
 
-/// A part that panics, as a driver, an executor or an adapter, alone or
-/// composed, wherever the brackets go: the run of shots 3 and 1 fails
-/// naming shot 3, the first of the batch or the run the panic hit, the
-/// part at its position, not a part composed with it, and the panic's
-/// message, or none if it is not text.
+/// A part that panics, as a driver, an executor, in an `execute` or an
+/// `execute_each`, or an adapter, alone or composed, wherever the brackets
+/// go: the run of shots 3 and 1 fails naming shot 3, the first of the
+/// batch or the run the panic hit, the part at its position, not a part
+/// composed with it, and the panic's message, or none if it is not text.
 #[test]
 fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
     let shots = ShotSet::ids([3, 1]);
@@ -293,6 +298,12 @@ fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
             runner(Driver::new(Panics(when)) >> Executor::new(Bits::new(&log))).run(&shots, SEED);
         let driver = PartId::new(0, type_name::<Panics>());
         names_the_panic("a driver", run, &driver, message);
+        let (given, log) = (RowsGiven::default(), Log::default());
+        let run = runner(
+            Driver::new(OutputsAsRowsCome::new(&given, &log)) >> Executor::new(Panics(when)),
+        )
+        .run(&shots, SEED);
+        names_the_panic("an executor, by `execute_each`", run, &panics, message);
     }
     let executor = PartId::new(2, type_name::<Panics>());
     in_each_bracketing!(
@@ -562,31 +573,80 @@ type CompoundChain = (
     Executor<PanicsInDrop<Bits>>,
 );
 
-/// The parts of a [`CompoundChain`], whose part at position `armed`
-/// panics when its futures are polled, and again when they are dropped.
-fn compound_chain(armed: usize, log: &Log) -> CompoundChain {
+/// A [`CompoundChain`] whose parts are each [`Renamed`] for the type it
+/// wraps, so that their `_each` forms are the defaults. The default
+/// `adapt_each` calls `execute` below, so the parts below the profiler
+/// are reached by their plain forms.
+type CompoundChainByDefaults = (
+    Driver<Renamed<PanicsInDrop<Program>>>,
+    Adapter<Renamed<PanicsInDrop<Profiler>>>,
+    Adapter<Renamed<PanicsInDrop<BitFlip>>>,
+    Adapter<Renamed<PanicsInDrop<BitFlip>>>,
+    Executor<Renamed<PanicsInDrop<Bits>>>,
+);
+
+/// The parts of a [`CompoundChain`], before each takes its role.
+type CompoundParts = (
+    PanicsInDrop<Program>,
+    PanicsInDrop<Profiler>,
+    PanicsInDrop<BitFlip>,
+    PanicsInDrop<BitFlip>,
+    PanicsInDrop<Bits>,
+);
+
+/// The [`CompoundParts`], whose part at position `armed` panics when its
+/// futures are polled, and again when they are dropped; the program sends
+/// as `sending` says.
+fn compound_parts(armed: usize, sending: Sending, log: &Log) -> CompoundParts {
     let counted = Rc::new(Cell::new(0));
     (
-        Driver::new(PanicsInDrop::polled_too(
-            Program::new(&[("mz", 0)]),
-            armed == 0,
-        )),
-        Adapter::new(PanicsInDrop::polled_too(
-            Profiler::new(&counted, log),
-            armed == 1,
-        )),
-        Adapter::new(PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 2)),
-        Adapter::new(PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 3)),
-        Executor::new(PanicsInDrop::polled_too(Bits::new(log), armed == 4)),
+        PanicsInDrop::polled_too(Program::new(&[("mz", 0)]).sending_as(sending), armed == 0),
+        PanicsInDrop::polled_too(Profiler::new(&counted, log), armed == 1),
+        PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 2),
+        PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 3),
+        PanicsInDrop::polled_too(Bits::new(log), armed == 4),
+    )
+}
+
+/// The [`CompoundChain`] of [`compound_parts`].
+fn compound_chain(armed: usize, sending: Sending, log: &Log) -> CompoundChain {
+    let (program, profiler, noise, more_noise, bits) = compound_parts(armed, sending, log);
+    (
+        Driver::new(program),
+        Adapter::new(profiler),
+        Adapter::new(noise),
+        Adapter::new(more_noise),
+        Executor::new(bits),
+    )
+}
+
+/// The [`CompoundChainByDefaults`] of [`compound_parts`], whose program
+/// calls `execute_each`.
+fn compound_chain_by_defaults(armed: usize, log: &Log) -> CompoundChainByDefaults {
+    let (program, profiler, noise, more_noise, bits) = compound_parts(armed, Sending::Each, log);
+    (
+        Driver::new(Renamed::new(program, type_name::<Program>())),
+        Adapter::new(Renamed::new(profiler, type_name::<Profiler>())),
+        Adapter::new(Renamed::new(noise, type_name::<BitFlip>())),
+        Adapter::new(Renamed::new(more_noise, type_name::<BitFlip>())),
+        Executor::new(Renamed::new(bits, type_name::<Bits>())),
     )
 }
 
 /// A program, over a profiler, over two noises, over bits, in each of
 /// the 14 bracketings, one of them panicking while its future is polled,
-/// and again when that future is dropped: the run fails naming that
-/// part, at its position, with the message of its first panic, and the
-/// second is dropped; the process does not abort, as it would if a
-/// composition's future dropped the part's while the first unwinds.
+/// and again when that future is dropped; in a run whose program calls
+/// `execute`, or `execute_stream` (cut into pieces by the defaults), and
+/// in a `run_each` whose program calls `execute_each`, whose parts give
+/// their `_each` forms themselves, or by the defaults: every part's, or,
+/// in a program over a profiler over bits, the bits' alone, below parts
+/// that give rows as they are final (`BitFlip` does not). The run fails
+/// naming that part, at its position, with the message of its first
+/// panic, and the second is dropped. The process does not abort, as it
+/// would if the protocol (the runner, a composition's future, or a
+/// default `_each` or `_stream` form) dropped the part's future while the
+/// first panic unwinds; such an abort kills the test binary (`SIGABRT`),
+/// which is this test failing.
 #[test]
 fn a_part_panicking_polled_then_dropped_is_named_with_its_first_panic() {
     let parts = [
@@ -596,23 +656,80 @@ fn a_part_panicking_polled_then_dropped_is_named_with_its_first_panic() {
         type_name::<BitFlip>(),
         type_name::<Bits>(),
     ];
+    let shots = ShotSet::ids([9, 1]);
+    let is_first_panic = |error: DriveError, named: &PartId, run: &str| {
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(message) }
+                    if part == named && message == "the part's future broke when polled"
+            ),
+            "{named}, {run}: {error:?}"
+        );
+    };
     for (armed, name) in parts.into_iter().enumerate() {
         let named = PartId::new(armed, name);
+        for (by, sending) in [
+            ("execute", Sending::Whole),
+            ("execute_each", Sending::Each),
+            ("execute_stream", Sending::stream()),
+        ] {
+            in_each_bracketing!(
+                [program, profiler, noise, more_noise, bits] from {
+                    let log = Log::default();
+                    let (program, profiler, noise, more_noise, bits) =
+                        compound_chain(armed, sending.clone(), &log);
+                },
+                |chain, brackets| {
+                    let mut chain = runner(chain);
+                    let error = if matches!(sending, Sending::Each) {
+                        failed(chain.run_each(&shots, SEED, &mut |_, _| {}))
+                    } else {
+                        failed(chain.run(&shots, SEED))
+                    };
+                    is_first_panic(error, &named, &format!("{brackets}, by {by}"));
+                }
+            );
+        }
         in_each_bracketing!(
             [program, profiler, noise, more_noise, bits] from {
                 let log = Log::default();
-                let (program, profiler, noise, more_noise, bits) = compound_chain(armed, &log);
+                let (program, profiler, noise, more_noise, bits) =
+                    compound_chain_by_defaults(armed, &log);
             },
             |chain, brackets| {
-                let error = failed(runner(chain).run(&ShotSet::ids([9, 1]), SEED));
-                assert!(
-                    matches!(
-                        &error.failure,
-                        Failure::Panicked { part, message: Some(message) }
-                            if *part == named && message == "the part's future broke when polled"
-                    ),
-                    "{named}, {brackets}: {error:?}"
-                );
+                let error = failed(runner(chain).run_each(&shots, SEED, &mut |_, _| {}));
+                is_first_panic(error, &named, &format!("{brackets}, by the defaults"));
+            }
+        );
+    }
+    let parts = [
+        type_name::<Program>(),
+        type_name::<Profiler>(),
+        type_name::<Bits>(),
+    ];
+    for (armed, name) in parts.into_iter().enumerate() {
+        let named = PartId::new(armed, name);
+        in_each_bracketing!(
+            [program, profiler, bits] from {
+                let log = Log::default();
+                let counted = Rc::new(Cell::new(0));
+                let program = Driver::new(PanicsInDrop::polled_too(
+                    Program::new(&[("mz", 0)]).sending_as(Sending::Each),
+                    armed == 0,
+                ));
+                let profiler = Adapter::new(PanicsInDrop::polled_too(
+                    Profiler::new(&counted, &log),
+                    armed == 1,
+                ));
+                let bits = Executor::new(Renamed::new(
+                    PanicsInDrop::polled_too(Bits::new(&log), armed == 2),
+                    type_name::<Bits>(),
+                ));
+            },
+            |chain, brackets| {
+                let error = failed(runner(chain).run_each(&shots, SEED, &mut |_, _| {}));
+                is_first_panic(error, &named, &format!("{brackets}, over the bits' default"));
             }
         );
     }
@@ -657,4 +774,262 @@ fn a_panic_in_ready_polled_then_dropped_is_raised_with_its_first_message() {
             }
         );
     }
+}
+
+/// A driver whose `each`, given to its `execute_each`, panics on the first
+/// row, through a profiler, wherever the brackets go: the run fails naming
+/// the driver, whose code panicked, not the bits that called `each`; `each`
+/// is not called again, and the bits still end every shot. On an executor
+/// that panics too, after giving that row, or that fails after it, the run
+/// still names the driver. A profiler whose own `each`, given to the bits'
+/// `execute_each`, panics: the run fails naming the profiler.
+#[test]
+fn a_panic_in_a_parts_each_names_that_part() {
+    let driver = PartId::new(0, type_name::<OutputsAsRowsCome>());
+    let counted = Rc::new(Cell::new(0));
+    in_each_bracketing!([d, a, e] from {
+        let (given, log) = (RowsGiven::default(), Log::default());
+        let d = Driver::new(OutputsAsRowsCome::new(&given, &log).panicking_in_each());
+        let a = Adapter::new(Profiler::new(&counted, &log));
+        let e = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(message) }
+                    if *part == driver && message == "the driver's `each` panicked"
+            ),
+            "{brackets}: {error:?}"
+        );
+        assert_eq!(given.borrow().len(), 1, "{brackets}: `each` called once");
+        assert_eq!(
+            log.count("Bits end_shots, holding 0"),
+            1,
+            "{brackets}: every shot ended"
+        );
+    });
+    let names_the_driver = |error: &DriveError| {
+        matches!(
+            &error.failure,
+            Failure::Panicked { part, message: Some(message) }
+                if *part == driver && message == "the driver's `each` panicked"
+        )
+    };
+    let (given, log) = (RowsGiven::default(), Log::default());
+    let error = failed(
+        runner(
+            Driver::new(OutputsAsRowsCome::new(&given, &log).panicking_in_each())
+                >> Executor::new(Panics(PanicsWhen::PolledAfterARow)),
+        )
+        .run(&ShotSet::ids(0..4), SEED),
+    );
+    assert!(
+        names_the_driver(&error),
+        "an executor panicking too: {error:?}"
+    );
+    let error = failed(
+        runner(
+            Driver::new(OutputsAsRowsCome::new(&given, &log).panicking_in_each())
+                >> Executor::new(RowsFromThread::new(Bits::new(&log), &log).stopping_after(1)),
+        )
+        .run(&ShotSet::ids(0..4), SEED),
+    );
+    assert!(
+        names_the_driver(&error),
+        "an executor failing too: {error:?}"
+    );
+    let adapter = PartId::new(1, type_name::<Profiler>());
+    in_each_bracketing!([d, a, e] from {
+        let log = Log::default();
+        let d = Driver::new(CoinCopy::new());
+        let a = Adapter::new(Profiler::new(&counted, &log).panicking_in_its_each());
+        let e = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(message) }
+                    if *part == adapter && message == "the adapter's `each` panicked"
+            ),
+            "an adapter's `each`, {brackets}: {error:?}"
+        );
+    });
+}
+
+/// A driver whose stream of instructions panics when pulled for its second
+/// instruction, sent through a profiler that maps the stream on, over bits
+/// that consume it themselves, or over bits behind a renaming whose stream
+/// is cut into pieces by the default, wherever the brackets go: the run
+/// fails naming the driver, whose code panicked, not the part that pulled
+/// the instruction, and the bits still end every shot.
+#[test]
+fn a_panic_in_a_senders_stream_names_the_sender() {
+    let driver = PartId::new(0, type_name::<Program>());
+    let counted = Rc::new(Cell::new(0));
+    let panicking = || Sending::Stream {
+        produced: Rc::default(),
+        panics_at: Some(1),
+    };
+    let names_the_driver = |error: &DriveError, log: &Log, case: &str| {
+        assert!(
+            matches!(
+                &error.failure,
+                Failure::Panicked { part, message: Some(message) }
+                    if *part == driver && message.contains("stream")
+            ),
+            "{case}: {error:?}"
+        );
+        assert_eq!(
+            log.count("Bits end_shots, holding 0"),
+            1,
+            "{case}: every shot ended"
+        );
+    };
+    in_each_bracketing!([d, a, e] from {
+        let log = Log::default();
+        let d = Driver::new(Program::new(&[("x", 0), ("mz", 0)]).sending_as(panicking()));
+        let a = Adapter::new(Profiler::new(&counted, &log));
+        let e = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
+        names_the_driver(&error, &log, &format!("bits, {brackets}"));
+    });
+    in_each_bracketing!([d, a, e] from {
+        let log = Log::default();
+        let d = Driver::new(Program::new(&[("x", 0), ("mz", 0)]).sending_as(panicking()));
+        let a = Adapter::new(Profiler::new(&counted, &log));
+        let e = Executor::new(Renamed::new(Bits::new(&log), type_name::<Bits>()));
+    }, |chain, brackets| {
+        let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
+        names_the_driver(&error, &log, &format!("bits by the default, {brackets}"));
+    });
+}
+
+/// A driver whose `each` panics on the first row a worker thread hands
+/// over, and that drops its `execute_each` once that row was given: the
+/// call never answers, so the panic kept for it is dropped with it, and
+/// the run answers `Ok`, with `each` called once.
+#[test]
+fn a_panic_in_a_parts_each_is_dropped_with_a_call_dropped_before_it_answers() {
+    let (given, log) = (RowsGiven::default(), Log::default());
+    let records = runner(
+        Driver::new(
+            OutputsAsRowsCome::new(&given, &log)
+                .panicking_in_each()
+                .dropping_its_call(),
+        ) >> Executor::new(RowsFromThread::new(Bits::new(&log), &log)),
+    )
+    .run(&ShotSet::ids(0..4), SEED)
+    .expect("the run answers `Ok`");
+    assert_eq!(records.len(), 4, "a record per shot");
+    assert_eq!(given.borrow().len(), 1, "`each` called once");
+}
+
+/// `run_each` with an `each` that panics on the first output, in a run
+/// that goes on to its end, in one whose executor fails after that output,
+/// and in one whose driver panics on the next row: the panic is raised from
+/// the run, not taken for the driver's nor replaced by the failure or the
+/// driver's panic; `each` is not called again, and every shot is ended
+/// before the panic is raised.
+#[test]
+fn a_panic_in_the_runs_each_is_raised_once_the_shots_end() {
+    let (given, log) = (RowsGiven::default(), Log::default());
+    let ends =
+        runner(Driver::new(OutputsAsRowsCome::new(&given, &log)) >> Executor::new(Bits::new(&log)));
+    raises_the_panic_in_each("a run that ends", ends, (&given, 6), &log);
+    let (given, log) = (RowsGiven::default(), Log::default());
+    let fails = runner(
+        Driver::new(OutputsAsRowsCome::new(&given, &log))
+            >> Executor::new(RowsFromThread::new(Bits::new(&log), &log).stopping_after(1)),
+    );
+    raises_the_panic_in_each("a run that fails", fails, (&given, 1), &log);
+    let (given, log) = (RowsGiven::default(), Log::default());
+    let driver_panics = runner(
+        Driver::new(OutputsAsRowsCome::new(&given, &log).panicking_in_each_after(1))
+            >> Executor::new(Bits::new(&log)),
+    );
+    let case = "a run whose driver panics";
+    raises_the_panic_in_each(case, driver_panics, (&given, 2), &log);
+}
+
+/// `run_each` with an `each` that panics on the first output, over an
+/// adapter whose first `end_shots` panics, in a run that ends (of a
+/// program that never ends its shots) and in one whose executor fails
+/// after that output (of a driver that ends its shots only once its call
+/// answers): the runner's end of the shots comes first, so the end's panic
+/// is raised from the run, and `each`'s is dropped.
+#[test]
+fn a_panic_in_the_runners_end_is_raised_over_one_in_the_runs_each() {
+    let log = Log::default();
+    let ends = runner(
+        Driver::new(Program::new(&[("mz", 0)]).not_ending())
+            >> Adapter::new(PanicsEnding::once(&log))
+            >> Executor::new(Bits::new(&log)),
+    );
+    raises_the_ends_panic("a run that ends", ends, &log);
+    let (given, log) = (RowsGiven::default(), Log::default());
+    let fails = runner(
+        Driver::new(OutputsAsRowsCome::new(&given, &log))
+            >> Adapter::new(PanicsEnding::once(&log))
+            >> Executor::new(RowsFromThread::new(Bits::new(&log), &log).stopping_after(1)),
+    );
+    raises_the_ends_panic("a run that fails", fails, &log);
+}
+
+/// Checks that `runner`'s `run_each` of shots 0 to 3, whose `each` panics
+/// on the first output, raises the panic of the runner's end of the shots
+/// instead, once every shot was ended.
+fn raises_the_ends_panic<D: Drive, E: Execute>(case: &str, mut runner: Runner<D, E>, log: &Log) {
+    let calls = Cell::new(0);
+    let raised = catch_unwind(AssertUnwindSafe(|| {
+        runner.run_each(&ShotSet::ids(0..4), SEED, &mut |_, _| {
+            calls.set(calls.get() + 1);
+            panic!("the run's `each` panicked");
+        })
+    }));
+    let payload = raised.expect_err("a panic is raised from the run");
+    assert_eq!(
+        payload.downcast_ref::<&str>(),
+        Some(&"end_shots broke"),
+        "{case}"
+    );
+    assert_eq!(calls.get(), 1, "{case}: `each` called once");
+    assert_eq!(
+        log.count("Bits end_shots, holding 0"),
+        1,
+        "{case}: every shot ended"
+    );
+}
+
+/// Checks that `runner`'s `run_each` of shots 0 to 5, whose `each` panics
+/// on the first output, raises that panic after its driver was given
+/// `rows` rows and every shot was ended.
+fn raises_the_panic_in_each<D: Drive, E: Execute>(
+    case: &str,
+    mut runner: Runner<D, E>,
+    (given, rows): (&RowsGiven, usize),
+    log: &Log,
+) {
+    let calls = Cell::new(0);
+    let raised = catch_unwind(AssertUnwindSafe(|| {
+        runner.run_each(&ShotSet::ids(0..6), SEED, &mut |_, _| {
+            calls.set(calls.get() + 1);
+            panic!("the run's `each` panicked");
+        })
+    }));
+    let payload = raised.expect_err("the panic is raised from the run");
+    assert_eq!(
+        payload.downcast_ref::<&str>(),
+        Some(&"the run's `each` panicked"),
+        "{case}"
+    );
+    assert_eq!(calls.get(), 1, "{case}: `each` called once");
+    assert_eq!(given.borrow().len(), rows, "{case}: the rows given");
+    assert_eq!(
+        log.entries().last().map(String::as_str),
+        Some("Bits end_shots, holding 0"),
+        "{case}: every shot ended before the panic was raised"
+    );
 }

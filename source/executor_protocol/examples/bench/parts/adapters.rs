@@ -5,12 +5,14 @@
 
 use executor_protocol::{
     Adapt, AdapterSetup, Arguments, Batch, BatchReadouts, BlockType, Execute, ExecuteError,
-    Instruction, InstructionSet, Needs, Offer, Opcode, OpcodeMap, ReadoutValue, Readouts, Seed,
+    Instruction, InstructionSet, InstructionStream, Needs, Offer, Opcode, OpcodeMap, ReadoutValue,
+    Readouts, Seed,
 };
 
 use super::{LogicalGates, MixGates, PhysicalGates};
 
-/// An adapter that forwards every batch as it is: the cost of a boundary.
+/// An adapter that forwards every batch, and every stream, as it is: the
+/// cost of a boundary.
 pub(crate) struct Forward {
     set: InstructionSet,
     identity: OpcodeMap,
@@ -50,6 +52,16 @@ impl Adapt for Forward {
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         below.execute(batches, seed, readouts).await
+    }
+
+    async fn adapt_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        below: &mut impl Execute,
+        readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        below.execute_stream(stream, seed, readouts).await
     }
 }
 

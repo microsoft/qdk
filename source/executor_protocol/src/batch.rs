@@ -3,14 +3,18 @@
 
 //! What an `execute` sends down and gets back: [`Batch`]es, each
 //! instructions on a [`ShotSet`] of [`ShotId`]s, checked before they run
-//! when their sender asks, and for each its [`BatchReadouts`].
+//! when their sender asks, and for each its [`BatchReadouts`]; and the
+//! batch whose instructions come as they are produced, an
+//! [`InstructionStream`].
 
 mod batch_readouts;
+mod instruction_stream;
 mod shot_set;
 
 pub use batch_readouts::{
     BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
 };
+pub use instruction_stream::InstructionStream;
 pub use shot_set::{ShotId, ShotSet, ShotSetFault};
 
 use crate::Instruction;

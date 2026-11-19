@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! What the protocol costs, per instruction and per `execute`, against a
-//! driver that calls its executor itself, in four benches, each in its
+//! driver that calls its executor itself, in five benches, each in its
 //! file:
 //!
 //! - `chains`: one driver on four chains, batches of 1 to 10 000
@@ -13,6 +13,8 @@
 //!   count of a batch's instructions against a most offered;
 //! - `lowering`: a lowering adapter, each logical instruction sent as
 //!   three physical;
+//! - `stream`: a program sent as one stream, which the protocol cuts into
+//!   pieces of 10 to 10 000 instructions, against batches of that size;
 //! - `worker`: an executor that answers from a worker thread: the time
 //!   of a call, which includes copying its batches to the worker.
 //!
@@ -24,13 +26,13 @@
 //! program's instructions, compared once before it is timed, and count
 //! them on every run). It runs once untimed before it is timed, and keeps
 //! the best of 7. `worker` has no untimed run, and keeps the best of up to
-//! 5 runs' median call. `chains`, `lowering` and `worker` send every batch
-//! unchecked, the default, or
+//! 5 runs' median call. `chains`, `lowering`, `stream` and `worker` send
+//! every batch, or stream, unchecked, the default, or
 //! [`checked`](executor_protocol::Batch::checked) with `--checked`;
-//! `checks` runs both. `chains`, `checks` and `worker` draw the common
-//! mix, or the parity-heavy one with `--parity-heavy`. Run it with
+//! `checks` runs both. `chains`, `checks`, `stream` and `worker` draw the
+//! common mix, or the parity-heavy one with `--parity-heavy`. Run it with
 //! `cargo run --release --example bench`, followed by at most one of
-//! `chains`, `checks`, `lowering` and `worker`, and the flags.
+//! `chains`, `checks`, `lowering`, `stream` and `worker`, and the flags.
 //!
 //! The parts the benches compose are in `parts`, the mix they draw in
 //! `workload`, and how a variant is timed in `timing`.
@@ -46,6 +48,7 @@ mod chains;
 mod checks;
 mod lowering;
 mod parts;
+mod stream;
 mod timing;
 mod worker;
 mod workload;
@@ -56,7 +59,8 @@ use workload::{Mix, build, draws};
 
 /// How much each bench runs.
 struct Size {
-    /// The mix's instructions, for `chains`, `checks` and `worker`.
+    /// The mix's instructions, for `chains`, `checks`, `stream` and
+    /// `worker`.
     instructions: usize,
     /// The timed runs of each variant, of which the best is kept.
     repeats: usize,
@@ -84,7 +88,7 @@ const TINY: Size = Size {
 };
 
 /// The benches, by the names `main` takes.
-const BENCHES: [&str; 4] = ["chains", "checks", "lowering", "worker"];
+const BENCHES: [&str; 5] = ["chains", "checks", "lowering", "stream", "worker"];
 
 /// The flag that sends every batch checked.
 const CHECKED: &str = "--checked";
@@ -114,7 +118,8 @@ fn main() {
         && (benches.len() > 1 || !BENCHES.contains(&only.as_str()))
     {
         eprintln!(
-            "no bench {only:?}: the benches are chains, checks, lowering and worker, one at most"
+            "no bench {only:?}: the benches are {}, one at most",
+            BENCHES.join(", ")
         );
         std::process::exit(2);
     }
@@ -123,25 +128,25 @@ fn main() {
 
 /// Runs the benches, or only the one named `only`, each batch
 /// [`checked`](executor_protocol::Batch::checked) if `checked` (`checks`
-/// runs both), `chains`, `checks` and `worker` on `mix`.
+/// runs both), `chains`, `checks`, `stream` and `worker` on `mix`.
 fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix) {
     let wants = |bench: &str| only.is_none_or(|only| only == bench);
     println!("an instruction is {} bytes", size_of::<Instruction>());
-    if wants("chains") || wants("lowering") || wants("worker") {
+    if wants("chains") || wants("lowering") || wants("stream") || wants("worker") {
         println!(
-            "chains, lowering and worker: batches {}",
+            "chains, lowering, stream and worker: batches {}",
             if checked { "checked" } else { "unchecked" }
         );
     }
-    if wants("chains") || wants("checks") || wants("lowering") {
+    if wants("chains") || wants("checks") || wants("lowering") || wants("stream") {
         println!(
-            "chains, checks and lowering: the best of {} runs",
+            "chains, checks, lowering and stream: the best of {} runs",
             size.repeats
         );
     }
-    if wants("chains") || wants("checks") || wants("worker") {
+    if wants("chains") || wants("checks") || wants("stream") || wants("worker") {
         println!(
-            "chains, checks and worker: {} instructions of the {} mix",
+            "chains, checks, stream and worker: {} instructions of the {} mix",
             size.instructions,
             match mix {
                 Mix::Common => "common",
@@ -155,6 +160,9 @@ fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix) {
         }
         if wants("checks") {
             checks::bench(size, &draws, &program);
+        }
+        if wants("stream") {
+            stream::bench(size, &program, checked);
         }
         if wants("worker") {
             worker::bench(size, &program, checked);

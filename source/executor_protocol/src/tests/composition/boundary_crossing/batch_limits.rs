@@ -6,13 +6,15 @@
 //! shot's blocks, and its stated readout slots against theirs, on a
 //! checked batch. One batch of instructions written as struct literals, as
 //! a part writes them on its hot path, sent by a driver straight to an
-//! executor.
+//! executor, by `execute`, by `execute_each`, and, when it states no readout
+//! slots and fits one piece, as a stream by `execute_stream`, which check
+//! alike.
 
 use crate::{
     Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, Drive, DriveError, Driver,
-    DriverSetup, Execute, ExecuteError, ExecuteRefusal, Executor, ExecutorSetup, Failure,
-    Instruction, InstructionDef, InstructionFault, InstructionSet, Needs, Offer, Opcode, OpcodeMap,
-    ParameterKind, ReadoutValue, Readouts, RunError, Seed, ShotId, ShotSet,
+    DriverSetup, Execute, ExecuteError, ExecuteRefusal, Executor, ExecutorSetup, Failure, FinalRow,
+    Instruction, InstructionDef, InstructionFault, InstructionSet, InstructionStream, Needs, Offer,
+    Opcode, OpcodeMap, ParameterKind, ReadoutValue, Readouts, RunError, Seed, ShotId, ShotSet,
 };
 use smallvec::smallvec;
 
@@ -83,14 +85,27 @@ type Mark = for<'a> fn(Batch<'a>) -> Batch<'a>;
 /// A driver sending `instructions` as one batch to every shot, marked by
 /// `mark`, as they were written: in the opcodes of `set`, which is also
 /// the receiver's, stating `stated` readout slots, or else theirs (0 if
-/// they cannot be counted). Each shot's record is the readout slots of
-/// the batch's readouts.
+/// they cannot be counted), by the call `by` says. Each shot's record is
+/// the readout slots of the batch's readouts.
+#[derive(Clone)]
 struct Literal {
     set: InstructionSet,
     instructions: Vec<Instruction>,
     stated: Option<u32>,
     needs: Needs,
     mark: Mark,
+    by: By,
+}
+
+/// The call a [`Literal`] sends its batch by.
+#[derive(Clone, Copy, Debug)]
+enum By {
+    Execute,
+    /// `execute_each`, its rows ignored.
+    ExecuteEach,
+    /// `execute_stream`, of a stream of its instructions, checked as its
+    /// mark leaves a batch, stating no readout slots.
+    ExecuteStream,
 }
 
 impl DriverSetup for Literal {
@@ -124,7 +139,19 @@ impl Drive for Literal {
         ))];
         let mut kept = Readouts::new();
         let readouts = kept.readouts_for(&batches);
-        below.execute(&batches, seed, readouts).await?;
+        match self.by {
+            By::Execute => below.execute(&batches, seed, readouts).await?,
+            By::ExecuteEach => {
+                below
+                    .execute_each(&batches, seed, readouts, &mut |_: FinalRow<'_>| {})
+                    .await?;
+            }
+            By::ExecuteStream => {
+                let stream = InstructionStream::new(shots, self.instructions.iter().cloned())
+                    .checked_if(batches[0].is_checked());
+                below.execute_stream(stream, seed, &mut readouts[0]).await?;
+            }
+        }
         Ok(vec![readouts[0].readout_slots(); shots.len()])
     }
 }
@@ -162,63 +189,10 @@ impl Execute for Zeros {
     }
 }
 
-/// The run of shots 0 and 1, needing `needs`, each sent `instructions` of
-/// `set` as one batch, checked if `checked`, over an executor of `set`
-/// taking `most` instructions at most: the readout slots of the readouts
-/// it filled, or the failure.
-fn run(
-    set: &InstructionSet,
-    instructions: Vec<Instruction>,
-    needs: Needs,
-    most: Option<u32>,
-    checked: bool,
-) -> Result<u32, DriveError> {
-    let mark: Mark = if checked {
-        |batch| batch.checked()
-    } else {
-        |batch| batch
-    };
-    run_marked(set, instructions, None, needs, most, mark)
-}
-
-/// As [`run`], with the batch marked by `mark`, stating `stated` readout
-/// slots if some.
-fn run_marked(
-    set: &InstructionSet,
-    instructions: Vec<Instruction>,
-    stated: Option<u32>,
-    needs: Needs,
-    most: Option<u32>,
-    mark: Mark,
-) -> Result<u32, DriveError> {
-    let mut offer = Offer::unlimited().max_blocks(carbon(), 64);
-    if let Some(most) = most {
-        offer = offer.max_instructions(most);
-    }
-    let driver = Driver::new(Literal {
-        set: set.clone(),
-        instructions,
-        stated,
-        needs,
-        mark,
-    });
-    let executor = Executor::new(Zeros {
-        set: set.clone(),
-        offer,
-    });
-    let Ok(mut runner) = driver >> executor else {
-        panic!("the chain composes");
-    };
-    match runner.run(&ShotSet::ids(0..2), 7) {
-        Ok(slots) => Ok(slots[0]),
-        Err(RunError::Failed(error)) => Err(error),
-        Err(other) => panic!("a run, not {other:?}"),
-    }
-}
-
-/// What the protocol makes of `instructions` of `set`, as [`run`] sends
-/// them: the readout slots their readouts were shaped with, if they ran, or
-/// the refusal.
+/// What the protocol makes of `instructions` of `set`, sent to shots 0 and
+/// 1, needing `needs`, as one batch, checked if `checked`, over an executor
+/// of `set` taking `most` instructions at most: the readout slots their
+/// readouts were shaped with, if they ran, or the refusal.
 fn checked(
     set: &InstructionSet,
     instructions: Vec<Instruction>,
@@ -226,7 +200,75 @@ fn checked(
     most: Option<u32>,
     checked: bool,
 ) -> Result<u32, ExecuteRefusal> {
-    refusal_of(run(set, instructions, needs, most, checked))
+    let mark: Mark = if checked {
+        |batch| batch.checked()
+    } else {
+        |batch| batch
+    };
+    checked_as_marked(set, instructions, None, needs, most, mark)
+}
+
+/// As [`checked`], with the batch marked by `mark`, stating `stated`
+/// readout slots if some: what `execute` makes of it, after checking that
+/// `execute_each` makes the same, and so does `execute_stream` when the
+/// batch states no slots and fits one piece, the piece then being the
+/// batch.
+fn checked_as_marked(
+    set: &InstructionSet,
+    instructions: Vec<Instruction>,
+    stated: Option<u32>,
+    needs: Needs,
+    most: Option<u32>,
+    mark: Mark,
+) -> Result<u32, ExecuteRefusal> {
+    let mut offer = Offer::unlimited().max_blocks(carbon(), 64);
+    if let Some(most) = most {
+        offer = offer.max_instructions(most);
+    }
+    let fits_a_piece = most.is_none_or(|most| instructions.len() <= most as usize);
+    let run = |literal: Literal| run_over_zeros(literal, offer.clone());
+    let plain = Literal {
+        set: set.clone(),
+        instructions,
+        stated,
+        needs,
+        mark,
+        by: By::Execute,
+    };
+    let executed = run(plain.clone());
+    let mut alike = vec![By::ExecuteEach];
+    if stated.is_none() && fits_a_piece {
+        alike.push(By::ExecuteStream);
+    }
+    for by in alike {
+        assert_eq!(
+            run(Literal {
+                by,
+                ..plain.clone()
+            }),
+            executed,
+            "{by:?} checks as `execute`"
+        );
+    }
+    executed
+}
+
+/// What `literal` makes of its batch on shots 0 and 1, over [`Zeros`] of
+/// its set offering `offer`: the readout slots its readouts were shaped
+/// with, if it ran, or the refusal.
+fn run_over_zeros(literal: Literal, offer: Offer) -> Result<u32, ExecuteRefusal> {
+    let executor = Executor::new(Zeros {
+        set: literal.set.clone(),
+        offer,
+    });
+    let Ok(mut runner) = Driver::new(literal) >> executor else {
+        panic!("the chain composes");
+    };
+    refusal_of(match runner.run(&ShotSet::ids(0..2), 7) {
+        Ok(slots) => Ok(slots[0]),
+        Err(RunError::Failed(error)) => Err(error),
+        Err(other) => panic!("a run, not {other:?}"),
+    })
 }
 
 /// The readout slots of a run that ran, or the refusal of one refused.
@@ -360,7 +402,7 @@ fn a_batch_is_checked_as_its_last_mark_says() {
     ];
     for (faulty, instruction, fault) in faults {
         for (marked, mark, refused) in marks {
-            let run = run_marked(
+            let run = checked_as_marked(
                 &set,
                 vec![instruction.clone()],
                 None,
@@ -373,7 +415,7 @@ fn a_batch_is_checked_as_its_last_mark_says() {
             } else {
                 Ok(0)
             };
-            assert_eq!(refusal_of(run), expected, "{faulty}, {marked}");
+            assert_eq!(run, expected, "{faulty}, {marked}");
         }
     }
 }
@@ -381,7 +423,8 @@ fn a_batch_is_checked_as_its_last_mark_says() {
 /// A batch's readout slots are a `u32`: a checked batch whose
 /// instructions' readout slots sum to more is refused, naming the
 /// instruction from which they no longer fit, before any later instruction
-/// is checked.
+/// is checked. So is a stream, checked or not, since its receiver counts
+/// its slots as it runs it, to shape its readouts.
 #[test]
 fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
     let set = InstructionSet::new(
@@ -406,14 +449,28 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
         ),
         ("1, 2^31, then 2^31 - 1", vec![one, half, rest], 2),
     ] {
+        let too_many = Err(ExecuteRefusal::TooManyReadoutSlots {
+            shot: ShotId::new(0),
+            batch: 0,
+            at,
+        });
         assert_eq!(
-            checked(&set, batch, Needs::qubits(1), None, true),
-            Err(ExecuteRefusal::TooManyReadoutSlots {
-                shot: ShotId::new(0),
-                batch: 0,
-                at,
-            }),
+            checked(&set, batch.clone(), Needs::qubits(1), None, true),
+            too_many,
             "{scene}"
+        );
+        let unchecked_stream = Literal {
+            set: set.clone(),
+            instructions: batch,
+            stated: None,
+            needs: Needs::qubits(1),
+            mark: |batch| batch,
+            by: By::ExecuteStream,
+        };
+        assert_eq!(
+            run_over_zeros(unchecked_stream, Offer::unlimited()),
+            too_many,
+            "{scene}, as an unchecked stream"
         );
     }
 }
@@ -436,7 +493,7 @@ fn a_checked_batch_stating_other_readout_slots_is_refused() {
     };
     let mark_checked: Mark = |batch| batch.checked();
     for (stated, expected) in [(4, Ok(4)), (3, misstated(3)), (5, misstated(5))] {
-        let run = run_marked(
+        let run = checked_as_marked(
             &set,
             batch.clone(),
             Some(stated),
@@ -444,7 +501,7 @@ fn a_checked_batch_stating_other_readout_slots_is_refused() {
             None,
             mark_checked,
         );
-        assert_eq!(refusal_of(run), expected, "stating {stated}");
+        assert_eq!(run, expected, "stating {stated}");
     }
 }
 

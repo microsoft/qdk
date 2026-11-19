@@ -10,7 +10,9 @@
 //! that none runs such a batch's instruction its set does not declare, a
 //! block its shots do not have, or a readout parity its shots' needs do
 //! not use, and that the readout slots its sender stated, which
-//! the batch's readouts are shaped with, are its instructions'. An
+//! the batch's readouts are shaped with, are its instructions'; the same
+//! checks but the last run on each piece of a checked stream
+//! ([`BatchLimits::check_instructions`]). An
 //! unchecked batch's readouts are shaped with the slots its sender stated,
 //! unread.
 //!
@@ -88,7 +90,30 @@ impl BatchLimits {
         instructions: &[Instruction],
         stated: u32,
     ) -> Result<(), BatchFault> {
-        let mut slots: u32 = 0;
+        let slots = self.check_instructions(instructions, 0)?;
+        if slots == stated {
+            Ok(())
+        } else {
+            Err(BatchFault::ReadoutSlotsMisstated {
+                stated,
+                counted: slots,
+            })
+        }
+    }
+
+    /// Checks `instructions` as [`check`](Self::check) does, but for the
+    /// slots they state: what a checked stream's pieces are checked with,
+    /// a piece at a time, whose slots no sender states. `before` is the
+    /// slots of the instructions before them, which a `u32` must still
+    /// count with theirs. Returns `before` plus their slots, or the first
+    /// fault.
+    #[inline]
+    pub(crate) fn check_instructions(
+        &self,
+        instructions: &[Instruction],
+        before: u32,
+    ) -> Result<u32, BatchFault> {
+        let mut slots = before;
         for (at, instruction) in instructions.iter().enumerate() {
             let its_slots = self
                 .set
@@ -98,14 +123,7 @@ impl BatchLimits {
                 .checked_add(its_slots)
                 .ok_or(BatchFault::TooManyReadoutSlots { at })?;
         }
-        if slots == stated {
-            Ok(())
-        } else {
-            Err(BatchFault::ReadoutSlotsMisstated {
-                stated,
-                counted: slots,
-            })
-        }
+        Ok(slots)
     }
 }
 
@@ -119,4 +137,21 @@ pub(crate) enum BatchFault {
     Instruction { at: usize, fault: InstructionFault },
     TooManyReadoutSlots { at: usize },
     ReadoutSlotsMisstated { stated: u32, counted: u32 },
+}
+
+impl BatchFault {
+    /// This fault, of a piece of a stream after `before` instructions, at
+    /// its position in the stream.
+    pub(crate) fn after(self, before: usize) -> Self {
+        match self {
+            Self::Instruction { at, fault } => Self::Instruction {
+                at: at + before,
+                fault,
+            },
+            Self::TooManyReadoutSlots { at } => Self::TooManyReadoutSlots { at: at + before },
+            fault @ (Self::TooManyInstructions { .. } | Self::ReadoutSlotsMisstated { .. }) => {
+                fault
+            }
+        }
+    }
 }

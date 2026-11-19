@@ -43,7 +43,14 @@ receiver (the executor, or an adapter in its `adapt`) fills the rows in
 place (`row_mut`, `set_conditions`), and the part above reads a shot's row
 by its position in the batch (`row(i)`, `value(i, slot)`), with no check
 of its own. A value no part wrote stays missing, never a bit made up for
-it. A caller reads its readouts only once its `execute` answers `Ok`.
+it. A caller reads its readouts only once its `execute` answers `Ok`, or,
+through `execute_each`, a row once it is given to `each`, final
+([Writing a part](writing-a-part.md#results-out-as-they-come)).
+
+A [stream](writing-a-part.md#instructions-in-as-they-are-made) of
+instructions on a shot set gets its readouts shaped as one batch's would
+be: a row per shot, of one value per readout slot of the whole stream,
+with the conditions raised on the shot over the whole stream.
 
 ## Values
 

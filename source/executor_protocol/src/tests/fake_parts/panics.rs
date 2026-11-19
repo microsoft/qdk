@@ -6,7 +6,7 @@
 use super::coin_gates;
 use crate::{
     Batch, BatchReadouts, Drive, DriveError, DriverSetup, Execute, ExecuteError, ExecutorSetup,
-    InstructionSet, Needs, Offer, OpcodeMap, Seed, ShotSet,
+    FinalRow, InstructionSet, Needs, Offer, OpcodeMap, Seed, ShotSet,
 };
 
 /// When a [`Panics`] part panics.
@@ -16,10 +16,13 @@ pub(crate) enum PanicsWhen {
     MakingItsFuture,
     /// While its future is polled.
     Polled,
+    /// While its future is polled, after an `execute_each` gave its
+    /// first row to `each`; as [`Polled`](Self::Polled) otherwise.
+    PolledAfterARow,
 }
 
 /// A part that panics, as a driver in `drive` and as an executor in
-/// `execute`.
+/// `execute` and `execute_each`.
 pub(crate) struct Panics(pub(crate) PanicsWhen);
 
 /// A part's panic while its future is polled.
@@ -49,7 +52,7 @@ impl Drive for Panics {
         _below: &mut impl Execute,
     ) -> impl Future<Output = Result<Vec<()>, DriveError>> {
         assert!(
-            matches!(self.0, PanicsWhen::Polled),
+            !matches!(self.0, PanicsWhen::MakingItsFuture),
             "the part broke while making its future"
         );
         async { broken() }
@@ -74,9 +77,28 @@ impl Execute for Panics {
         _readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         assert!(
-            matches!(self.0, PanicsWhen::Polled),
+            !matches!(self.0, PanicsWhen::MakingItsFuture),
             "the part broke while making its future"
         );
         async { broken() }
+    }
+
+    fn execute_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> impl Future<Output = Result<(), ExecuteError>> {
+        assert!(
+            !matches!(self.0, PanicsWhen::MakingItsFuture),
+            "the part broke while making its future"
+        );
+        async move {
+            if matches!(self.0, PanicsWhen::PolledAfterARow) {
+                each(FinalRow::of(0, 0, &readouts[0]));
+            }
+            self.execute(batches, seed, readouts).await
+        }
     }
 }

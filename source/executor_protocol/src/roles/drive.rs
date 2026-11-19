@@ -7,6 +7,7 @@
 use std::error::Error;
 use std::fmt;
 
+use crate::composition::part_panics::await_part;
 use crate::{DriverSetup, Execute, ExecuteError, Failure, NotReady, Seed, ShotId, ShotSet};
 
 /// Calls the part below with batches of the instructions it sends, each
@@ -16,8 +17,10 @@ use crate::{DriverSetup, Execute, ExecuteError, Failure, NotReady, Seed, ShotId,
 ///
 /// Such as a program's interpreter, which sends each shot's instructions
 /// up to its next branch on a readout, or a generator of a program too
-/// long to hold, which sends it in bounded batches and reads only at the
-/// end: a driver calls the part below as many times as it likes per shot.
+/// long to hold, which sends it in bounded batches, or as a stream
+/// ([`Execute::execute_stream`]) that the protocol cuts into them, and
+/// reads only at the end: a driver calls the part below as many times as
+/// it likes per shot.
 /// It is the part at the top of a chain, and the one a runner runs shots
 /// on.
 ///
@@ -56,8 +59,8 @@ pub trait Drive: DriverSetup {
     /// a shot below as soon as that shot ends, to free its state early; the
     /// runner's second end of it does nothing. A part's panic in an end the
     /// driver calls fails the run naming the driver (and in one an adapter
-    /// calls in `adapt`, naming that adapter), where the same panic in the
-    /// runner's end is raised again from the run
+    /// calls in one of its `adapt` methods, naming that adapter), where the
+    /// same panic in the runner's end is raised again from the run
     /// ([`Runner::run_async`](crate::Runner::run_async)).
     ///
     /// A `drive` does its work, calling `below` included, when its future is
@@ -72,6 +75,40 @@ pub trait Drive: DriverSetup {
         seed: Seed,
         below: &mut impl Execute,
     ) -> impl Future<Output = Result<Vec<Self::Output>, DriveError>>;
+
+    /// As [`drive`](Self::drive), but gives each shot's output to `each` as
+    /// the driver gives it, rather than all at once when `drive` answers:
+    /// so that a user sees a shot's result (records it, plots it) while
+    /// the other shots still run. A driver whose shots end at different
+    /// times (in different rounds, say) overrides it, to give each output
+    /// as its shot ends; by default, it is `drive`, then, after an `Ok`,
+    /// each output, in the order of `shots`, so every driver serves it.
+    ///
+    /// The rules the driver keeps, which the protocol does not check:
+    ///
+    /// - `each` is given each shot's output at most once; after an `Ok`, it
+    ///   was given each shot's output, in any order (the default gives
+    ///   them in the order of `shots`);
+    /// - the output it gives a shot is the one [`drive`](Self::drive)
+    ///   would give it, with the same seed and chain;
+    /// - `each` is called on the thread that polls this future;
+    /// - after an error, the outputs given are final, and the shots not
+    ///   given have none.
+    fn drive_each(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Execute,
+        each: &mut impl FnMut(ShotId, Self::Output),
+    ) -> impl Future<Output = Result<(), DriveError>> {
+        async move {
+            let outputs = await_part(self.drive(shots, seed, below)).await?;
+            for (id, output) in shots.iter().zip(outputs) {
+                each(id, output);
+            }
+            Ok(())
+        }
+    }
 
     // Protocol hook: sealed and hidden. Its parameter type, `EndedRun`,
     // cannot be named outside this crate, so no other crate can call or

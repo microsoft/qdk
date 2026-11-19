@@ -8,8 +8,8 @@ use crate::composition::admission::by_part::ByPart;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
 use crate::{
-    Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup,
-    InstructionSet, Needs, NotReady, Offer, Seed, ShotSet,
+    Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup, FinalRow,
+    Instruction, InstructionSet, InstructionStream, Needs, NotReady, Offer, Seed, ShotSet,
 };
 
 /// Adapter `>>` executor: an executor, at composition time.
@@ -47,6 +47,8 @@ impl<U: AdapterSetup, L: ExecutorSetup> ExecutorSetup for Composed<U, L> {
 }
 
 /// Adapter `>>` executor: an executor, at run time.
+// Every method stated, for the reason `composed`'s module doc gives.
+#[deny(clippy::missing_trait_methods)]
 impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
     /// The part below first, with the needs kept for it, then the adapter
     /// with `needs`, as for an adapter; a refusal from below names the
@@ -73,6 +75,52 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         );
         await_part(self.upper.adapt(
             batches,
+            seed,
+            &mut BoundaryCrossing::new(&mut self.lower, part, offer, batch_limits),
+            readouts,
+        ))
+        .await
+    }
+
+    /// The adapter's rows, as it gives them over the executor, through
+    /// the boundary between them.
+    async fn execute_each(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+        each: &mut impl FnMut(FinalRow<'_>),
+    ) -> Result<(), ExecuteError> {
+        let (part, offer, batch_limits) = kept(
+            self.below_part.as_ref(),
+            self.below_offer.as_ref(),
+            self.batch_limits.as_ref(),
+        );
+        await_part(self.upper.adapt_each(
+            batches,
+            seed,
+            &mut BoundaryCrossing::new(&mut self.lower, part, offer, batch_limits),
+            readouts,
+            each,
+        ))
+        .await
+    }
+
+    /// The adapter's answer to the stream, over the executor, through the
+    /// boundary between them.
+    async fn execute_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        let (part, offer, batch_limits) = kept(
+            self.below_part.as_ref(),
+            self.below_offer.as_ref(),
+            self.batch_limits.as_ref(),
+        );
+        await_part(self.upper.adapt_stream(
+            stream,
             seed,
             &mut BoundaryCrossing::new(&mut self.lower, part, offer, batch_limits),
             readouts,

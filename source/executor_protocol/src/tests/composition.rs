@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! Composing parts with `>>`: the fit at each boundary, the laws of the
-//! brackets, the fit and the admission reported together, and what each
+//! brackets, each row given once as soon as it is final wherever the
+//! brackets go, the fit and the admission reported together, and what each
 //! part gets ready for and is told on every run, as composition read it.
 //! The admission of a chain is in `composition/admission.rs`, running its
 //! shots in `composition/runner.rs`, the calls across its boundaries in
@@ -12,19 +13,20 @@
 mod admission;
 mod boundary_crossing;
 mod part_panics;
-mod runner;
+pub(super) mod runner;
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Profiler, Program, Shifting,
-    Spread, Values, in_each_bracketing,
+    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, OutputsAsRowsCome, Profiler,
+    Program, RowsGiven, Shifting, Spread, Values, in_each_bracketing, rows_logged, sorted_values,
 };
 use crate::{
     Adapter, BlockType, CompositionFaults, Drive, Driver, Execute, Executor, FitFaults,
     InstructionDef, InstructionSet, Needs, Offer, Runner, ShotSet,
 };
+use runner::runner;
 
 const SEED: u64 = 7;
 
@@ -219,6 +221,103 @@ fn where_the_brackets_go_changes_no_record() {
         },
         |chain, brackets| assert_eq!(records(chain, &shots), expected, "{brackets}"),
     );
+}
+
+/// A driver calling `execute_each` for 6 shots on bits that give rows as
+/// they are final, through one profiler or two that do too, wherever the
+/// brackets go, with no adapter, and with the profiler and the bits behind
+/// `&mut`, run by `run`: the driver is given each row once, as soon as it
+/// is final (the bits have run its shot), before they run the next one,
+/// with the values the `execute` answers.
+#[test]
+fn each_row_is_given_once_as_soon_as_it_is_final() {
+    rows_and_outputs_wherever_the_brackets_go(false);
+}
+
+/// The same chains as
+/// [`each_row_is_given_once_as_soon_as_it_is_final`], run by `run_each`
+/// with a driver that gives each output as its row comes: `each` is given
+/// each shot's output as the driver gives it, right after its row, inside
+/// the run's call, wherever the brackets go.
+#[test]
+fn run_each_gives_each_output_as_the_driver_gives_it_wherever_the_brackets_go() {
+    rows_and_outputs_wherever_the_brackets_go(true);
+}
+
+/// Runs the chains of the two tests above, by `run_each` if `each`, else
+/// by `run`, and checks the rows and outputs logged.
+fn rows_and_outputs_wherever_the_brackets_go(each: bool) {
+    let shots = ShotSet::ids(0..6);
+    let check = |case: &str, records: Vec<Values>, given: &RowsGiven, log: &Log| {
+        let expected: Vec<String> = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
+            .into_iter()
+            .flat_map(|(batch, position)| {
+                let output = each.then(|| format!("output {}", 3 * batch + position));
+                [
+                    format!("Bits row {batch} {position}"),
+                    format!("row {batch} {position}"),
+                ]
+                .into_iter()
+                .chain(output)
+            })
+            .collect();
+        assert_eq!(rows_logged(log), expected, "{case}: each row as it ran");
+        assert_eq!(sorted_values(given), records, "{case}: the final values");
+    };
+    let counted = Rc::new(Cell::new(0));
+    let by = if each { "run_each" } else { "run" };
+    in_each_bracketing!([d, a, e] from {
+        let (given, log) = (RowsGiven::default(), Log::default());
+        let d = Driver::new(OutputsAsRowsCome::new(&given, &log));
+        let a = Adapter::new(Profiler::new(&counted, &log));
+        let e = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        let records = outputs_of(runner(chain), &shots, each, &log);
+        check(&format!("{by}, {brackets}"), records, &given, &log);
+    });
+    in_each_bracketing!([d, a, b, e] from {
+        let (given, log) = (RowsGiven::default(), Log::default());
+        let d = Driver::new(OutputsAsRowsCome::new(&given, &log));
+        let a = Adapter::new(Profiler::new(&counted, &log));
+        let b = Adapter::new(Profiler::new(&counted, &log));
+        let e = Executor::new(Bits::new(&log));
+    }, |chain, brackets| {
+        let records = outputs_of(runner(chain), &shots, each, &log);
+        check(&format!("{by}, two profilers, {brackets}"), records, &given, &log);
+    });
+    let (given, log) = (RowsGiven::default(), Log::default());
+    let chain = Driver::new(OutputsAsRowsCome::new(&given, &log)) >> Executor::new(Bits::new(&log));
+    let records = outputs_of(runner(chain), &shots, each, &log);
+    check(&format!("{by}, no adapter"), records, &given, &log);
+    let (given, log) = (RowsGiven::default(), Log::default());
+    let (mut profiler, mut bits) = (Profiler::new(&counted, &log), Bits::new(&log));
+    let chain = Driver::new(OutputsAsRowsCome::new(&given, &log))
+        >> Adapter::new(&mut profiler)
+        >> Executor::new(&mut bits);
+    let records = outputs_of(runner(chain), &shots, each, &log);
+    check(&format!("{by}, parts behind `&mut`"), records, &given, &log);
+}
+
+/// The outputs of `runner`'s run of `shots`, in their order: by `run`, or
+/// by `run_each`, whose `each` logs `output <shot>` as it is given one.
+fn outputs_of<D: Drive<Output = Values>, E: Execute>(
+    mut runner: Runner<D, E>,
+    shots: &ShotSet,
+    each: bool,
+    log: &Log,
+) -> Vec<Values> {
+    if !each {
+        return runner.run(shots, SEED).expect("the run succeeds");
+    }
+    let mut outputs = Vec::new();
+    runner
+        .run_each(shots, SEED, &mut |id, values| {
+            log.push(format!("output {id}"));
+            outputs.push((id, values));
+        })
+        .expect("the run succeeds");
+    outputs.sort_by_key(|&(id, _)| id);
+    outputs.into_iter().map(|(_, values)| values).collect()
 }
 
 // --------------------------------------------------------- the faults together

@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Running shots on a chain: the records each shot gets, how a run is
-//! awaited, and the parts' refusals. The runner's own refusals are in
+//! Running shots on a chain: the records each shot gets, at the end or as
+//! the driver gives them (`run_each`), how a run is awaited, and the parts'
+//! refusals. The runner's own refusals are in
 //! `run_limits.rs`, and the failures that end a run in `run_error.rs`.
 
 mod run_error;
@@ -19,21 +20,22 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen, Profiler,
-    Program, SeesSeeds, Splitter, Spread, Trap, Values, YieldNow, in_each_bracketing,
+    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, OutputsAsRowsCome, Panics,
+    PanicsWhen, Profiler, Program, RowsFromThread, RowsGiven, SeesSeeds, Splitter, Spread, Trap,
+    Values, YieldNow, in_each_bracketing,
 };
 use crate::{
     Adapter, Drive, DriveError, Driver, Execute, Executor, Failure, ReadoutFailure, ReadoutValue,
-    RunError, RunRefusal, Runner, ShotConditions, ShotSet,
+    RunError, RunRefusal, Runner, ShotConditions, ShotId, ShotSet,
 };
 
-pub(super) const SEED: u64 = 7;
+pub(crate) const SEED: u64 = 7;
 
 /// How long a test waits for a thread before it fails, rather than hangs.
 const PATIENT: Duration = Duration::from_secs(20);
 
 /// The runner of the chain `composed` gave, which must compose.
-pub(super) fn runner<D: Drive, E: Execute>(
+pub(crate) fn runner<D: Drive, E: Execute>(
     composed: Result<Runner<D, E>, crate::CompositionFaults>,
 ) -> Runner<D, E> {
     let Ok(runner) = composed else {
@@ -55,7 +57,7 @@ fn plain(shots: &ShotSet) -> Vec<Values> {
 }
 
 /// The failure that ended a run.
-pub(super) fn failed<T: std::fmt::Debug>(result: Result<T, RunError>) -> DriveError {
+pub(crate) fn failed<T: std::fmt::Debug>(result: Result<T, RunError>) -> DriveError {
     match result {
         Err(RunError::Failed(error)) => error,
         other => panic!("a failed run, not {other:?}"),
@@ -63,7 +65,7 @@ pub(super) fn failed<T: std::fmt::Debug>(result: Result<T, RunError>) -> DriveEr
 }
 
 /// The refusal of a run.
-pub(super) fn refused<T: std::fmt::Debug>(result: Result<T, RunError>) -> RunRefusal {
+pub(crate) fn refused<T: std::fmt::Debug>(result: Result<T, RunError>) -> RunRefusal {
     match result {
         Err(RunError::Refused(refusal)) => refusal,
         other => panic!("a refused run, not {other:?}"),
@@ -339,6 +341,50 @@ fn a_runs_shots_are_ended_on_every_part_top_to_bottom() {
     );
 }
 
+/// The outputs `run_each` gives `each` for `shots` on `runner`, in the
+/// order of the shots, each given once.
+fn each_given<D: Drive<Output = Values>, E: Execute>(
+    mut runner: Runner<D, E>,
+    shots: &ShotSet,
+) -> Vec<Values> {
+    let mut outputs: Vec<(ShotId, Values)> = Vec::new();
+    runner
+        .run_each(shots, SEED, &mut |id, values| outputs.push((id, values)))
+        .expect("the run succeeds");
+    once_each("run_each", outputs, shots)
+}
+
+/// The `outputs` an `each` was given, in the order of `shots`, after
+/// checking that each shot of `shots` was given one, once.
+fn once_each(case: &str, mut outputs: Vec<(ShotId, Values)>, shots: &ShotSet) -> Vec<Values> {
+    outputs.sort_by_key(|&(id, _)| id);
+    let ids: Vec<ShotId> = outputs.iter().map(|&(id, _)| id).collect();
+    assert_eq!(ids, shots.iter().collect::<Vec<_>>(), "{case}: once each");
+    outputs.into_iter().map(|(_, values)| values).collect()
+}
+
+/// `run_each` on 6 shots gives `each` every shot's output once, equal to
+/// the record `run` gives it: from a driver that gives each as its row
+/// comes, and from one that gives them all at the end (`drive_each`'s
+/// default).
+#[test]
+fn run_each_gives_every_shot_one_output_equal_to_runs() {
+    let shots = ShotSet::ids(0..6);
+    let recording = || {
+        runner(
+            Driver::new(OutputsAsRowsCome::new(
+                &RowsGiven::default(),
+                &Log::default(),
+            )) >> Executor::new(Bits::new(&Log::default())),
+        )
+    };
+    let records = recording().run(&shots, SEED).expect("the run succeeds");
+    assert_eq!(each_given(recording(), &shots), records, "as its row comes");
+    let records = plain(&shots);
+    let coin_copy = || coin_copy(&Log::default());
+    assert_eq!(each_given(coin_copy(), &shots), records, "at the end");
+}
+
 // ---------------------------------------------------------------- async
 
 /// Polls `future` with a waker that does nothing, until it is ready: an
@@ -506,6 +552,72 @@ fn two_tasks_on_one_thread() {
     );
 }
 
+/// A device's rows come one at a time from the thread that receives them
+/// ([`RowsFromThread`]): `run_each` gives shot 0's output while the call
+/// that ran it still waits for the other rows, whether the run blocks its
+/// thread (`run_each`) or is awaited on a runtime of one thread
+/// (`run_each_async`), and gives every shot's output once, equal to the
+/// record `run` gives it.
+#[test]
+fn run_each_gives_an_output_while_its_call_waits_for_the_others() {
+    ends_soon(an_output_while_its_call_waits);
+}
+
+/// The body of
+/// `run_each_gives_an_output_while_its_call_waits_for_the_others`, run
+/// within a deadline.
+fn an_output_while_its_call_waits() {
+    let shots = ShotSet::ids(0..4);
+    let recording = |log: &Log| {
+        runner(
+            Driver::new(OutputsAsRowsCome::new(&RowsGiven::default(), log))
+                >> Executor::new(RowsFromThread::new(Bits::new(log), log)),
+        )
+    };
+    let records = recording(&Log::default())
+        .run(&shots, SEED)
+        .expect("the run succeeds");
+    for (how, awaited) in [("blocking", false), ("awaited", true)] {
+        let log = Log::default();
+        let mut runner = recording(&log);
+        let mut outputs = Vec::new();
+        let mut each = |id: ShotId, values: Values| {
+            log.push(format!("each {id}"));
+            outputs.push((id, values));
+        };
+        if awaited {
+            let run = async {
+                runner
+                    .run_each_async(&shots, SEED, &mut each)
+                    .await
+                    .expect("the run succeeds");
+            };
+            run_tasks(vec![Box::pin(run)], &RefCell::default());
+        } else {
+            runner
+                .run_each(&shots, SEED, &mut each)
+                .expect("the run succeeds");
+        }
+        let entries = log.entries();
+        let at = |entry: &str| {
+            entries
+                .iter()
+                .position(|e| e == entry)
+                .unwrap_or_else(|| panic!("{how}: no {entry}: {entries:?}"))
+        };
+        let (given, answered) = (at("each 0"), at("RowsFromThread answers"));
+        assert!(
+            entries[given.min(answered)..answered].contains(&"RowsFromThread pending".to_owned()),
+            "{how}: shot 0's output given while its call waited: {entries:?}"
+        );
+        assert_eq!(
+            once_each(how, outputs, &shots),
+            records,
+            "{how}: the records of `run`"
+        );
+    }
+}
+
 /// Coin copies under a noise flipping 30% of the `x`s, over bits, in both
 /// bracketings, whose first run does not finish: it is dropped after its
 /// first `execute`, the bits answering later, or failed by an adapter
@@ -595,7 +707,8 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
 fn is_send<T: Send>(_: &T) {}
 
 /// Parts that are `Send`, and whose futures are, in three bracketings:
-/// the future of `run_async` may move to another thread.
+/// the future of `run_async` may move to another thread, and so may
+/// `run_each_async`'s, given an `each` that is `Send`.
 #[test]
 fn a_runs_future_is_send_when_every_part_and_its_future_are() {
     let shots = ShotSet::ids(0..2);
@@ -608,6 +721,8 @@ fn a_runs_future_is_send_when_every_part_and_its_future_are() {
     is_send(&left.run_async(&shots, SEED));
     let mut right = runner(driver() >> (splitter() >> executor()));
     is_send(&right.run_async(&shots, SEED));
+    let mut each = |_, ()| {};
+    is_send(&right.run_each_async(&shots, SEED, &mut each));
 }
 
 // ---------------------------------------------------------------- refusals
