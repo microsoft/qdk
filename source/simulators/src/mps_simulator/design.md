@@ -126,7 +126,7 @@ sequenceDiagram
   R->>E: retained_weight(state)
 ```
 
-## Planned
+## Planned extensions
 
 - **Noise and loss on matrix product states:** the calls `MpsResumer`
   refuses today (correlated noise, readout noise and loss checks), and a
