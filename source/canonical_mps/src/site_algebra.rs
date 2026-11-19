@@ -14,7 +14,11 @@
 //! which library factors them, and which values a truncation keeps within
 //! those bounds. So the engine is written once over this trait, and a
 //! backend implements only its operations: a gate split and a move of the
-//! centre on two neighbouring sites, and the storage of a site.
+//! centre on two neighbouring sites, and the storage of a site. Each of
+//! the two calls passes its inputs as one type and gets its outputs as
+//! another: [`GateSplitCall`] and [`GateSplitOutcome`], [`QrMoveCall`]
+//! and [`QrMoveOutcome`], each naming the site that holds the centre
+//! afterwards as a [`CentreSide`].
 //!
 //! # The layout
 //!
@@ -27,9 +31,16 @@
 //! packed: a site of extents `[left, 2, right]` holds exactly
 //! `left·2·right` elements.
 
+mod centre_side;
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
 pub(crate) mod cpu_algebra;
+mod gate_split;
+mod qr_move;
+
+pub use centre_side::CentreSide;
+pub use gate_split::{GateSplitCall, GateSplitOutcome};
+pub use qr_move::{QrMoveCall, QrMoveOutcome};
 
 use num_complex::Complex64;
 use std::borrow::Cow;
@@ -64,11 +75,16 @@ pub trait SiteAlgebra {
     type Error: std::error::Error + 'static;
 
     /// A new tensor holding `values`. `values` holds at least one element
-    /// (a site tensor, at least two).
+    /// (a site tensor, at least two). The engine uploads a new state's
+    /// sites, and each site it computes on the host: a projected site, an
+    /// MPO's multiplied sites.
     fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error>;
 
     /// The first `len` elements of `tensor`, borrowed where they already
-    /// live on the host. `tensor` holds at least `len` elements.
+    /// live on the host. `tensor` holds at least `len` elements. The engine
+    /// reads sites to compute on the host (a probability, an expectation,
+    /// an MPO's span), so reads are frequent: a backend whose tensors live
+    /// on the host borrows them rather than copy.
     fn read<'t>(
         &self,
         tensor: &'t Self::Tensor,
@@ -77,7 +93,8 @@ pub trait SiteAlgebra {
 
     /// A new tensor holding the first `len` elements of `tensor`, which
     /// later calls on either leave the other unchanged. `tensor` holds at
-    /// least `len` elements, and `len` is at least 1.
+    /// least `len` elements, and `len` is at least 1. A fork of a state
+    /// duplicates each of its sites, and the two states then change apart.
     fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Self::Error>;
 
     /// Applies a two-site gate to a pair of neighbouring sites and splits
@@ -104,6 +121,10 @@ pub trait SiteAlgebra {
     /// The bond need not be the smallest that meets the cutoff, and a tail
     /// whose squares sum to exactly the cutoff's share may be kept or
     /// dropped: a backend whose library decides these keeps its own rule.
+    ///
+    /// The engine calls it to apply a window of gates on two neighbouring
+    /// qubits, with the centre on the pair, and to compress an MPO's span,
+    /// one cut at a time, the identity as gate.
     fn gate_split(
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,
@@ -122,111 +143,12 @@ pub trait SiteAlgebra {
     ///   left;
     /// - the site the centre leaves is an isometry, as for
     ///   [`gate_split`](SiteAlgebra::gate_split).
+    ///
+    /// The engine calls it to bring the centre to a gate or a read without
+    /// truncating, applying a pending one-site gate on the way, and to
+    /// sweep an MPO's span exactly.
     fn qr_move(
         &self,
         call: &QrMoveCall<'_, Self::Tensor>,
     ) -> Result<QrMoveOutcome<Self::Tensor>, Self::Error>;
-}
-
-/// The site that holds the orthogonality centre after a call: the other
-/// site of the pair is an isometry towards it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum CentreSide {
-    /// The pair's left site.
-    Left,
-    /// The pair's right site.
-    Right,
-}
-
-/// One gate split of the pair `A[a, p, j]`, `B[j, q, b]`: the gated pair
-/// `θ[a, s, t, b] = Σ G[(s, t), (p, q)] · A[a, p, j] · B[j, q, b]`, read as
-/// the column-major `(2·left_extent) × (2·right_extent)` matrix of rows
-/// `a + left_extent·s` and columns `t + 2·b`, is split as `θ ≈ L·R`, with
-/// `L` of extents `[left_extent, 2, k]` and `R` of extents
-/// `[k, 2, right_extent]`, `k` the outcome's bond
-/// ([`SiteAlgebra::gate_split`]).
-///
-/// `θ` is never zero: the caller's states have a norm of 1 to rounding (a
-/// gate may drift from it within the unitarity check's tolerance).
-#[derive(Debug)]
-pub struct GateSplitCall<'t, T> {
-    /// `A`, of extents `[left_extent, 2, bond]`.
-    pub left: &'t T,
-    /// `B`, of extents `[bond, 2, right_extent]`.
-    pub right: &'t T,
-    /// `A`'s left extent.
-    pub left_extent: usize,
-    /// The extent of the bond the pair shares before the split.
-    pub bond: usize,
-    /// `B`'s right extent.
-    pub right_extent: usize,
-    /// The gate `G`, row-major, the left site the most significant bit:
-    /// `G[(s, t), (p, q)]` at `(2s + t)·4 + 2p + q`.
-    pub gate: [Complex64; 16],
-    /// The largest bond the split may keep, at least 1; `usize::MAX`: no
-    /// cap.
-    pub max_extent: usize,
-    /// The share of the squared singular values the split may drop, in
-    /// `[0, 1)`, and beyond it values of rounding's size, which an SVD may
-    /// give where the exact values are zero: their squares may add the
-    /// share the conformance kit allows for rounding (`ROUNDING_SHARE`, in
-    /// its `gate_split.rs`). So 0 drops the zeros, and may drop such values.
-    pub cutoff: f64,
-    /// The site that absorbs the singular values, and so holds the centre
-    /// afterwards.
-    pub centre: CentreSide,
-}
-
-/// What one gate split returned ([`SiteAlgebra::gate_split`]).
-#[derive(Debug)]
-pub struct GateSplitOutcome<T> {
-    /// The new left site, of extents `[left_extent, 2, bond]`, packed.
-    pub left: T,
-    /// The new right site, of extents `[bond, 2, right_extent]`, packed.
-    pub right: T,
-    /// The extent of the bond kept.
-    pub bond: usize,
-    /// The share of the squared singular values kept, in `(0, 1]`: the
-    /// engine multiplies the state's retained weight by it.
-    pub retained_fraction: f64,
-}
-
-/// One move of the centre across the bond of the pair `A[a, p, j]`,
-/// `B[j, q, b]` ([`SiteAlgebra::qr_move`]).
-///
-/// To the right ([`CentreSide::Right`]): `A`, gated, read as the
-/// `(2·left_extent) × bond` matrix of rows `(a, p)`, is `Q·R`; `A` becomes
-/// `Q` and `B` becomes `R·B`. To the left ([`CentreSide::Left`]): `B`,
-/// gated, read as the `bond × (2·right_extent)` matrix of columns `(q, b)`,
-/// is `L·Q` with `Q`'s rows orthonormal; `B` becomes `Q` and `A` becomes
-/// `A·L`.
-#[derive(Debug)]
-pub struct QrMoveCall<'t, T> {
-    /// `A`, of extents `[left_extent, 2, bond]`.
-    pub left: &'t T,
-    /// `B`, of extents `[bond, 2, right_extent]`.
-    pub right: &'t T,
-    /// `A`'s left extent.
-    pub left_extent: usize,
-    /// The extent of the bond the pair shares before the move.
-    pub bond: usize,
-    /// `B`'s right extent.
-    pub right_extent: usize,
-    /// A one-site gate `G` to apply to the site the centre leaves before
-    /// its QR, row-major: `G[s, p]` at `2s + p`. `None`: no gate.
-    pub gate: Option<[Complex64; 4]>,
-    /// The site that holds the centre afterwards: [`CentreSide::Right`]
-    /// moves it right, [`CentreSide::Left`] left.
-    pub centre: CentreSide,
-}
-
-/// What one move of the centre returned ([`SiteAlgebra::qr_move`]).
-#[derive(Debug)]
-pub struct QrMoveOutcome<T> {
-    /// The new left site, of extents `[left_extent, 2, bond]`, packed.
-    pub left: T,
-    /// The new right site, of extents `[bond, 2, right_extent]`, packed.
-    pub right: T,
-    /// The extent of the bond after the move.
-    pub bond: usize,
 }

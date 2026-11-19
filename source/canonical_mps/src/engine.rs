@@ -23,6 +23,8 @@
 //!
 //! Each operation moves the centre only as far as it must, by its part:
 //!
+//! - [`state`]: the engine's state, [`CanonicalMpsState`], which holds
+//!   the chain;
 //! - [`chain`]: the sites, the centre, the gates still pending, and the
 //!   state's statistics;
 //! - [`fusion`]: a one-site gate waits, pending, on its site, and two-site
@@ -71,11 +73,13 @@ mod host_site;
 mod measurement;
 mod mpo;
 mod policy;
+mod state;
 mod statistics;
 mod truncation;
 
 pub use error::CanonicalMpsError;
 pub use policy::DEFAULT_CUTOFF;
+pub use state::CanonicalMpsState;
 pub use statistics::CanonicalMpsStatistics;
 
 use crate::site_algebra::SiteAlgebra;
@@ -212,45 +216,6 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     }
 }
 
-/// A state of a [`CanonicalMpsEngine`]: a chain of site tensors in
-/// canonical form, wherever the algebra `A` keeps them, with the bond each
-/// cut may grow to.
-///
-/// Every method that takes the state by shared reference may change its
-/// chain: the reads move the centre, which changes the tensors but not the
-/// state they describe, and the reads and [`MpsEngine::fork`] apply the
-/// window that fusion left pending, which applies the truncation its gates
-/// deferred. So the chain sits in a [`RefCell`]. The state is `Send` when
-/// its algebra's tensors are.
-pub struct CanonicalMpsState<A: SiteAlgebra> {
-    chain: RefCell<Chain<A::Tensor>>,
-}
-
-impl<A: SiteAlgebra> CanonicalMpsState<A> {
-    /// What the splits and moves of this state's history cost so far. A
-    /// state made by [`MpsEngine::fork`] starts with its parent's history.
-    #[must_use]
-    pub fn statistics(&self) -> CanonicalMpsStatistics {
-        self.chain.borrow().statistics
-    }
-}
-
-/// The chain's length, centre, retained weight and statistics, not its
-/// tensors, which the algebra may keep where the host cannot print them.
-impl<A: SiteAlgebra> std::fmt::Debug for CanonicalMpsState<A> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug = f.debug_struct("CanonicalMpsState");
-        if let Ok(chain) = self.chain.try_borrow() {
-            debug
-                .field("sites", &chain.sites.len())
-                .field("centre", &chain.centre)
-                .field("retained_weight", &chain.retained_weight)
-                .field("statistics", &chain.statistics);
-        }
-        debug.finish_non_exhaustive()
-    }
-}
-
 impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
     type State = CanonicalMpsState<A>;
     type Error = CanonicalMpsError<A::Error>;
@@ -318,9 +283,9 @@ impl<A: SiteAlgebra> MpsEngine for CanonicalMpsEngine<A> {
     ///
     /// Drops no singular value of its own: a projection does not compress
     /// the chain again, so the bonds [`MpsEngine::shape`] reports after it
-    /// may exceed the state's Schmidt ranks. Recompressing was measured
-    /// slower at the same accuracy, on H₂ phase estimation and a polyene's:
-    /// the gates that follow regrow the bonds it shrinks.
+    /// may exceed the state's Schmidt ranks. Recompressing was measured 1 to
+    /// 14% slower at the same accuracy, on H₂ phase estimation and a
+    /// polyene's: the gates that follow regrow the bonds it shrinks.
     fn project(&self, state: &mut Self::State, site: usize, one: bool) -> Result<f64, Self::Error> {
         let chain = state.chain.get_mut();
         checks::project(chain.sites.len(), site)?;

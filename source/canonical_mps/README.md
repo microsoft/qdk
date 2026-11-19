@@ -1,42 +1,86 @@
 # canonical_mps: a canonical-form MPS engine, its backend contract, and the CPU algebra
 
-The `canonical_mps` crate lets a QDK simulator written against
-`tensornet`'s `MpsEngine` trait run its matrix product states (MPS) in
-canonical form on any backend that implements a small set of tensor
-operations, the host CPU's included. It has three parts:
+The `canonical_mps` crate was designed to solve the problem of running a
+QDK simulator's matrix product states (MPS), in canonical form, on several
+backends, the host CPU and GPU libraries, by one set of rules. The problem
+includes:
+
+- rules that are the same on every backend: where the orthogonality
+  centre moves, which sites a gate splits, how gates on distant qubits are
+  applied, how the retained weight is kept, and the bounds every
+  truncation stays within; written once per backend, they drift apart;
+- so a backend should write only what differs: where its tensors live,
+  which library factors them, and which values a truncation keeps within
+  those bounds;
+- and a new backend, such as one on a GPU library, should need no change
+  to the rules or to the backends before it;
+- each backend then needs its operations checked, and the rules run on
+  them, without writing those checks again;
+- a simulator needs an engine where no GPU is present, on every platform
+  the QDK ships to;
+- and a shot's cost should stay low, since it applies many gates and reads
+  observables of hundreds of Pauli strings.
+
+The crate solves these with an engine that holds the rules, written once
+over a contract of tensor operations that a backend implements. A
+simulator calls `tensornet`'s `MpsEngine` methods on the engine; the
+engine checks each call, and turns it into the backend's operations on
+site tensors: it uploads, reads and duplicates sites, splits two
+neighbours after a gate, and moves the centre. A backend's tests run the
+contract's conformance kit, and the engine's conformance circuits, on it.
+The crate's own backend is the CPU algebra: its tensors are vectors in the
+host's memory, and its products, QR and SVD are the crate's
+[dense linear algebra](#the-dense-linear-algebra)'s, on the calling
+thread. A backend on a GPU library goes in a crate of its own, for the
+chemistry instances beyond the CPU's reach, such as benzene, or N₂ at a
+large bond extent, on an NVIDIA A100 GPU. The engine keeps the cost low by
+deferring work it can share: it fuses gates into one application, and
+reads an observable's sites once for all its terms.
+
+Today the crate holds:
 
 - **[The engine](#the-engine):**
   [`CanonicalMpsEngine`](src/engine.rs) implements `tensornet::MpsEngine`
   over any `SiteAlgebra`: it fuses, applies, truncates and reads by one
   set of rules. [`CpuMpsEngine`](src/lib.rs) is the engine on the CPU
   algebra.
+- **[Its state, settings and statistics](#settings-and-statistics):**
+  [`CanonicalMpsState`](src/engine/state.rs), a chain of the backend's
+  tensors; [`DEFAULT_CUTOFF`](src/engine/policy.rs) and
+  `CanonicalMpsEngine::with_cutoff`, which trade time for accuracy; and
+  [`CanonicalMpsStatistics`](src/engine/statistics.rs), what a state's
+  history cost.
+- **Refusals and failures:**
+  [`CanonicalMpsError`](src/engine/error.rs): a call `tensornet`'s checks
+  refused, the backend's own failure, or the engine's (a truncation that
+  would leave too little weight, a failed factorisation of a gate
+  window's operator).
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/site_algebra.rs), the tensor operations a backend
-  implements, and the [conformance kit and the engine's conformance
-  circuits](#conformance-the-kit-and-the-engines-circuits) that check a backend against it.
+  implements.
+- **What passes between the engine and a backend:** site tensors, of
+  the backend's type `SiteAlgebra::Tensor`, in the contract's
+  [layout](#the-layout); a gate split's
+  [`GateSplitCall`](src/site_algebra/gate_split.rs) and
+  `GateSplitOutcome`; a centre move's
+  [`QrMoveCall`](src/site_algebra/qr_move.rs) and `QrMoveOutcome`; and
+  [`CentreSide`](src/site_algebra/centre_side.rs), the site of the pair
+  that holds the centre after either call.
+- **[Conformance](#conformance-the-kit-and-the-engines-circuits):** the
+  kit, `site_algebra::conformance`, and the engine's conformance circuits,
+  `engine_conformance`, which check a backend against the contract.
 - **[The CPU algebra](#the-cpu-algebra):**
-  [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), the contract on the host CPU,
-  which passes the kit and on which the engine's tests run.
+  [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), the contract on the
+  host CPU, which passes the kit and on which the engine's tests run.
+- **[The dense linear algebra](#the-dense-linear-algebra):** the CPU
+  algebra's products, QR and checked SVD, private but for its error,
+  [`SvdError`](src/dense_linalg/svd.rs).
 
-**The problem.** Some of an MPS engine's rules are the same on every
-backend, the CPU or a GPU library: where the orthogonality centre moves,
-which sites a gate splits, how gates on distant qubits are applied, how the
-retained weight is kept, and the bounds every truncation stays within.
-What differs is where the tensors live, which library factors them, and
-which values a truncation keeps within those bounds. Written once per
-backend, those rules drift apart. A simulator also needs an engine where
-no GPU is present, on every platform the QDK ships to, and a backend on a
-GPU library needs a way to check its operations.
-
-**How it is solved.** The engine holds the rules, written once over the
-contract, and a backend writes only the contract's operations. The
-CPU algebra is this crate's backend: its tensors are vectors in the
-host's memory, and its products, QR and SVD are the crate's
-[dense linear algebra](#the-dense-linear-algebra)'s, on the calling
-thread. A backend's tests run the contract's conformance kit on it. A
-backend on a GPU library goes in a crate of its own, for the chemistry
-instances beyond the CPU's reach, such as benzene, or N₂ at a large bond
-extent, on an NVIDIA A100 GPU.
+A simulator uses the engine: it starts with `CpuMpsEngine`, as in
+[On the host CPU](#on-the-host-cpu), or names `CanonicalMpsEngine` on
+another backend's algebra. A backend's author implements `SiteAlgebra` and
+runs the conformance kit and circuits on it, as
+[The backend contract](#the-backend-contract) shows.
 
 **Why this approach.**
 
@@ -52,10 +96,15 @@ extent, on an NVIDIA A100 GPU.
   trait, in its own crate; nothing here changes.
 - **Checks written once.** The conformance kit checks each operation of
   a backend against the contract's formulas, and the engine's conformance
-  circuits run the engine on it against an exact reference, so no backend writes those checks again.
+  circuits run the engine on it against an exact reference, so no backend
+  writes those checks again.
 - **Portable.** The crate depends on `tensornet`, `num-complex`,
   `t4a-faer` and `thiserror`, all pure Rust, so it builds on every
   [platform](#platforms) the QDK supports.
+- **Low cost.** Gates fused into one application per window, one read per
+  site for all of an observable's terms, and a fast route for the dense
+  linear algebra's SVD keep a shot's cost low;
+  [`accuracy_and_cost`](examples/accuracy_and_cost.rs) measures it.
 
 ## Terms
 
@@ -122,9 +171,9 @@ The engine calls the backend's _operations_ (`gate_split`, `qr_move`, …).
 
 ```mermaid
 flowchart LR
-  S["an MPS simulation method<br/>(gates, measurements, shots)"] -->|"MpsEngine methods"| E["<b>CanonicalMpsEngine</b>"]
-  E -->|"SiteAlgebra operations"| B["a backend<br/>(the site tensors, where they live)"]
-  E -->|"host products"| D["the dense linear algebra"]
+  S["MPS simulation method<br/>(gates, measurements, shots)"] -->|"MpsEngine methods"| E["CanonicalMpsEngine"]
+  E -->|"SiteAlgebra operations"| B["SiteAlgebra backend<br/>(the site tensors, where they live)"]
+  E -->|"host products"| D["Dense linear algebra"]
 ```
 
 ### On the host CPU
@@ -166,10 +215,11 @@ assert!((given - 1.0).abs() < 1e-12);
 
 ### The engine's parts
 
-[`src/engine.rs`](src/engine.rs) holds the engine, its state
-(`CanonicalMpsState`, a chain of the backend's tensors) and the
-`MpsEngine` implementation, which calls one part per kind of work:
+[`src/engine.rs`](src/engine.rs) holds the engine and its `MpsEngine`
+implementation, which calls one part per kind of work:
 
+- [`state.rs`](src/engine/state.rs): `CanonicalMpsState`, a state of the
+  engine, which holds its chain;
 - [`chain.rs`](src/engine/chain.rs): the sites, the centre, the pending
   gates, the retained weight and the statistics;
 - [`fusion.rs`](src/engine/fusion.rs): the pending window, which gathers
@@ -275,10 +325,10 @@ is for.
 | `gate_split` | $\theta$ factored by one SVD, truncated as the call says, the kept values normalised and absorbed on the centre's side, the other side an isometry; the bond and retained fraction | a window of gates on two neighbouring qubits, with the centre on the pair; and the compression of an MPO's span, one cut at a time, the identity as gate |
 | `qr_move`    | the centre moved across a bond, exactly, by one QR of the site it leaves, a one-site gate applied to that site first                                                               | bringing the centre to a gate or a read without truncating, applying a pending one-site gate on the way, and the exact sweep of an MPO's span            |
 
-[`GateSplitCall`](src/site_algebra.rs) and [`QrMoveCall`](src/site_algebra.rs) define
-each operation's inputs exactly, and
-[`GateSplitOutcome`](src/site_algebra.rs) and [`QrMoveOutcome`](src/site_algebra.rs)
-its outputs. `gate_split` and `qr_move` leave their input tensors
+[`GateSplitCall`](src/site_algebra/gate_split.rs) and
+[`QrMoveCall`](src/site_algebra/qr_move.rs) define each operation's inputs
+exactly, and [`GateSplitOutcome`](src/site_algebra/gate_split.rs) and
+[`QrMoveOutcome`](src/site_algebra/qr_move.rs) its outputs. `gate_split` and `qr_move` leave their input tensors
 unchanged, since the caller may still hold them, as the sites of a state
 it forked.
 
@@ -377,7 +427,8 @@ contractions), come from the crate's module
 QR and a checked SVD, which either answers factors checked against the
 matrix or reports a failure (`SvdError`, exported at the crate's root).
 [`docs/dense_linalg.md`](docs/dense_linalg.md) gives the SVD's guarantees
-and steps, and the library it uses for speed, t4a-faer.
+and steps, and the library it computes its products, QR decompositions
+and fast route with, t4a-faer, with why.
 
 ## Examples
 
