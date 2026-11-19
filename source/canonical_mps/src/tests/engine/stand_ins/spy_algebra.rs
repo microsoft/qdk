@@ -16,7 +16,7 @@ use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-/// How many calls of each counted method a [`SpyAlgebra`] answered,
+/// How many calls of each counted operation a [`SpyAlgebra`] answered,
 /// and the values of each upload, in order.
 #[derive(Default)]
 pub(crate) struct SpiedCalls {
