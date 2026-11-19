@@ -56,12 +56,13 @@ The extension point is an MPS simulation method: written once against
 `CudaMpsEngine::try_from(&availability)` (Linux x86-64), at the engine's
 default cutoff (`.with_cutoff(c)` sets another), as the example on
 [`CudaMpsEngine`](src/engine.rs) does; or, to hold the algebra itself,
-with `CudaMpsEngine::new(CudaAlgebra::new(&availability)?)`. It opens the
-engine in each run's first step, on the thread that runs it, and drops it
-at the run's end: the engine holds device 0's stream and cuTensorNet
-handle, and the memory it lent cuTensorNet, grown to the run's largest
-call, until it is dropped. On an error, the simulator tells the user what
-is missing, or runs on `CpuMpsEngine`.
+with `CudaMpsEngine::new(CudaAlgebra::new(&availability)?)`. The
+simulator opens the engine in each run's first step, on the thread that
+runs it, and drops it at the run's end: the engine holds device 0's
+stream and cuTensorNet handle, the memory it lent cuTensorNet (grown to
+the run's largest call) and the contraction networks it prepared, until
+it is dropped. On an error, the simulator tells the user what is missing,
+or runs on `CpuMpsEngine`.
 
 ## The MPS engine
 
@@ -142,18 +143,20 @@ The settings the algebra fixes, with how each was chosen, are in
 
 ### When each guarantee holds
 
-The guarantees the sections below state, grouped by when they hold:
+A caller can rely on each from the step named, whatever the method:
 
 - **At discovery** (`discover`): no device selected and no GPU work;
   every fault found at once; the audited versions only.
 - **At the opening** (`CudaAlgebra::new`, `CudaMpsEngine::try_from`):
   `CudaAlgebraError::NoDevice` on a host without device 0, before any
   device is selected; a failed opening releases what it had made.
-- **At each method:** another engine's tensor refused before the bind; a
-  tensor shorter than the call reads, or an empty one, refused before any
-  native object; the inputs left unchanged; a return with the device
-  idle; on a failure, the outputs freed once the device is waited for, or
-  the algebra poisoned when that wait fails.
+- **At each method:** another engine's tensor refused before the device
+  is selected; a tensor shorter than the call reads, an empty one, or
+  extents whose product overflows, refused before any native object; the
+  inputs left unchanged; a return with the device idle; on a failure, the
+  outputs freed once the device is waited for, or the algebra poisoned
+  when that wait fails; a failed release leaked, the method failing with
+  the first such failure, nothing poisoned.
 - **At a drop:** every release attempted, a failed one leaked, never
   retried, and written to stderr in debug builds; nothing freed when the
   device cannot be selected, so nothing is freed on another device.

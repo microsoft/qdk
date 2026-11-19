@@ -36,9 +36,10 @@
 //! [`contraction`](super::contraction), the QR through `tensor_qr`, each
 //! waited for before the next starts.
 
-use super::call_scope::{CallScope, element_count};
+use super::call_scope::CallScope;
 use super::contraction::{ContractionInput, contract};
 use super::device_tensor::DeviceTensor;
+use super::extents::element_count;
 use super::modes::{BOND, LEFT, NEW_BOND, P, P_OUT, Q, Q_OUT, RIGHT};
 use crate::engine::cuda_algebra_error::CudaAlgebraError;
 use crate::engine::native_calls::OpaqueHandle;

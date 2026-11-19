@@ -14,7 +14,7 @@
 //! again.
 
 use super::call_scope::CallScope;
-use super::call_scope::native_extents;
+use super::extents::native_extents;
 use super::policy;
 use crate::engine::cuda_algebra_error::{
     CudaAlgebraError, combine_execution_and_cleanup, first_failure,
