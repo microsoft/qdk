@@ -8,13 +8,13 @@
 //! A simulator that gets an error must decide whether the state can still
 //! be used. It can after a refusal: the contract refuses a call whose
 //! arguments break its rules ([`Refusal`]: a site out of range, a gate on
-//! more than two sites, a projection on a value of probability zero, among
-//! others), before the state changes, or so that every read sees it
-//! unchanged. The engine's own failures are a sample too large for memory,
-//! a failure of the backend, a truncation that would leave too little
-//! weight, and a failed factorisation of a window's operator; the last
-//! three may fail the application of a pending window, after which the
-//! state is unspecified and the caller drops it.
+//! more than two sites, among others) before any call of the algebra, and
+//! a projection or condition on a value of probability zero so that every
+//! read sees the state unchanged. The engine's own failures are a sample
+//! too large for memory, a failure of the backend, a truncation that would
+//! leave too little weight, and a failed factorisation of a window's
+//! operator; the last three may fail the application of a pending window,
+//! after which the state is unspecified and the caller drops it.
 //! [`MpsEngineError::refusal`] tells a refusal from a failure.
 
 use tensornet::sampling::TooManyValues;

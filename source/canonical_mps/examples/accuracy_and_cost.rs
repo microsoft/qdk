@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! cargo run --release -p canonical_mps --example accuracy_and_cost -- \
-//!     --family u3cx|ising|qft --n 20 [--depth 20] [--seed 1] [--chi …] \
+//!     --family brickwork|ising|qft --n 20 [--depth 20] [--seed 1] [--chi …] \
 //!     [--order …] [--cutoff 1e-14] [--strings 3n] [--samples 256] \
 //!     [--engine-only]
 //! cargo run --release -p canonical_mps --example accuracy_and_cost -- \
@@ -15,7 +15,7 @@
 //!     [--samples 256] [--engine-only]
 //! ```
 //!
-//! - `u3cx`: random `u3` on every qubit, then CNOT or CY on alternating
+//! - `brickwork`: random `u3` on every qubit, then CNOT or CY on alternating
 //!   neighbours; `ising`: a quench of the critical transverse-field Ising
 //!   chain; `qft`: a random product state, then the Fourier transform.
 //! - `--n` is required with a family: its number of qubits.
@@ -71,8 +71,8 @@ fn main() -> Res<()> {
         let (n, depth) = (qubits(&args)?, number("--depth", 20)?);
         let seed = u64::try_from(number("--seed", 1)?)?;
         match family.as_str() {
-            "u3cx" => (
-                format!("u3cx n {n} depth {depth} seed {seed}"),
+            "brickwork" => (
+                format!("brickwork n {n} depth {depth} seed {seed}"),
                 brickwork(n, depth, seed),
             ),
             "ising" => (format!("ising n {n} depth {depth}"), ising(n, depth)),

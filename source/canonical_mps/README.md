@@ -352,7 +352,7 @@ fakes):
 - **The engine's conformance circuits,**
   [`engine_conformance`](src/engine/conformance.rs), run a `CanonicalMpsEngine`
   on the backend over two long circuits, one without truncation and one
-  truncated, and compares its reads with `tensornet`'s exact reference:
+  truncated, and compare its reads with `tensornet`'s exact reference:
   hundreds of calls in a row, on the backend's own memory and settings.
 
 A backend's test of the contract (the kit's documentation):
