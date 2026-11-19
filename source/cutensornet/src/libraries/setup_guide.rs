@@ -22,8 +22,8 @@ use super::report::LibraryReport;
 use std::fmt;
 
 /// What the setup check tells a user about one library, beside what
-/// discovery needs of it (its `NativeLibrary`): read only by
-/// [`SetupGuide::of`], when the check advises.
+/// discovery needs of it (its `NativeLibrary`): read only through
+/// [`SetupGuide::of`], whose guides the check shows and advises from.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) trait LibrarySetupGuide: super::NativeLibrary {
     /// What to install, for instance `cuTensorNet 2.13`: the library at its
@@ -46,10 +46,9 @@ pub(crate) trait LibrarySetupGuide: super::NativeLibrary {
     }
 }
 
-/// What the setup check tells a user about one library: what it shows of
-/// the library and what it advises. Each library's module declares it, as
-/// its `LibrarySetupGuide`, and `LoadedLibraries::SETUP_GUIDES` lists
-/// them.
+/// A library's `LibrarySetupGuide` as a value, so that the guides of
+/// different libraries sit in one list (`LoadedLibraries::SETUP_GUIDES`):
+/// what the setup check shows of the library and what it advises.
 pub(crate) struct SetupGuide {
     /// The library's name, as its report gives it.
     pub(crate) library: &'static str,

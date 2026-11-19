@@ -3,12 +3,12 @@
 
 //! The CUDA Runtime, NVIDIA's API to the GPU, on which cuTensorNet runs.
 //!
-//! Everything the crate assumes of the CUDA Runtime is in this module, as its
-//! `NativeLibrary`: where it is looked for, the functions looked up in it
-//! (`CudaFunctions`), and its versions: `CUDA Runtime`, which must be 12.9,
-//! and `CUDA driver`, reported only. CUDA encodes a version as
-//! `1000·major + 10·minor` (`12090` is 12.9). Its `LibrarySetupGuide` says
-//! what the setup check shows of it and advises. This module also declares
+//! Everything the crate assumes of the CUDA Runtime is in this module: as
+//! its `NativeLibrary`, where it is looked for, the functions looked up in
+//! it (`CudaFunctions`), and its versions (`CUDA Runtime`, which must be
+//! 12.9, and `CUDA driver`, reported only); as its `LibrarySetupGuide`,
+//! what the setup check shows of it and advises. CUDA encodes a version as
+//! `1000·major + 10·minor` (`12090` is 12.9). This module also declares
 //! the function-pointer types of the table's rows.
 //!
 //! `cudart_12`, in `generated/`, declares the CUDA Runtime 12's API, the

@@ -17,8 +17,8 @@
 //! Three parts of the engine make it, so it sits beside them rather than in
 //! any one: the CUDA algebra (`cuda_algebra/`), the device session it runs
 //! in (`device_session.rs`), and the native calls they make
-//! (`native_calls/`), whose only users they are. Each case's doc names the
-//! parts that make it.
+//! (`native_calls/`), which the setup check's device step makes too. Each
+//! case's doc names the parts that make it.
 //!
 //! When an operation and the cleanup after it both fail, both errors are
 //! kept (`combine_execution_and_cleanup`), so a cleanup never hides the
