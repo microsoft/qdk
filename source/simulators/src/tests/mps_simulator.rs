@@ -17,10 +17,10 @@
 mod grouped_run;
 mod lowering;
 mod mps_resumer_error;
+mod mps_run_report;
 mod programs;
 mod qubit_order;
 mod reference_spy;
-mod run_report;
 mod shot_stream;
 
 use std::num::NonZeroUsize;

@@ -11,7 +11,7 @@ problem of running the QDK's QIR programs on any MPS engine, present or
 future, without changing `qir`'s machine or the engine. `qir`'s machine
 runs a program's classical part, hands each shot's quantum calls, on
 qubits, to a [`QirResumer`](../qir/resumer.rs), and branches on the values
-it draws; an MPS engine
+the resumer draws and hands back; an MPS engine
 ([`MpsEngine`](../../../tensornet/src/engine.rs)) holds states on a chain
 of sites, applies matrices to them and answers probabilities. The problem
 includes:
@@ -29,11 +29,10 @@ includes:
 engine's sites, turns each call into steps on sites, and runs the shots
 that drew the same values as one group on one state, forking the state
 where their draws differ. Each shot draws from its own stream, so its
-records are those it would get alone: exactly on an engine whose fork is an
-exact copy and whose operations are deterministic, such as `tensornet`'s
-exact reference, and otherwise to
-rounding (what may then differ is in
-[`MpsResumer`'s doc](../mps_simulator.rs)).
+records are those it would get alone: exactly on an engine whose fork is
+an exact copy and whose operations are deterministic, such as
+`tensornet`'s exact reference, and otherwise to rounding (what may then
+differ is in [`MpsResumer`'s doc](../mps_simulator.rs)).
 
 Today the module holds:
 
@@ -41,9 +40,9 @@ Today the module holds:
   program's shots on an engine, with a max bond dimension χ (by default
   [`DEFAULT_MAX_BOND_DIMENSION`](../mps_simulator.rs)), a seed and a stop
   flag;
-- **its report:** [`MpsRunReport`](run_report.rs), what the last run cost,
-  and its [`TruncationWarning`](run_report.rs) when a shot lost more than
-  [`TRUNCATION_TOLERANCE`](run_report.rs) of its weight, for the user to
+- **its report:** [`MpsRunReport`](mps_run_report.rs), what the last run cost,
+  and its [`TruncationWarning`](mps_run_report.rs) when a shot lost more than
+  [`TRUNCATION_TOLERANCE`](mps_run_report.rs) of its weight, for the user to
   raise χ;
 - **its failures:** [`MpsResumerError`](mps_resumer_error.rs), why the
   resumer failed a shot, apart from a trap of its program.
@@ -57,9 +56,10 @@ Each file's header gives the rules it implements.
   one onto the other.
 - **One implementation.** The resumer is written once, and runs on any
   `MpsEngine`: a new engine needs no change here, and gets every program
-  `qir`'s machine runs, shots grouped by their draws, the qubit order, the
-  stop flag and the truncation report; what it must keep is `tensornet`'s
-  contract, checked by its conformance kit.
+  `qir`'s machine runs but those whose shots reach a noise or loss call
+  (planned), shots grouped by their draws, the qubit order, the stop flag
+  and the truncation report; what it must keep is `tensornet`'s contract,
+  checked by `tensornet`'s conformance kit.
 - **One state per group.** The shots that drew the same values share one
   state, forked only where their draws differ: a program whose draws never
   differ runs every shot on at most one state, and a run holds few states
@@ -101,10 +101,9 @@ The two traits speak different terms, `qir`'s of qubits, calls and shots,
 
 ## The model
 
-The resumer bridges the machine's terms (`QirMachine`, which runs the
-program's classical part) and the engine's: the diagram shows what passes
-between them, and the table which phase maps each, the phases being those
-of [How it runs a program](#how-it-runs-a-program).
+The resumer bridges `QirMachine`'s terms and `MpsEngine`'s: the diagram
+shows what passes between them, and the table which phase maps each, the
+phases being those of [How it runs a program](#how-it-runs-a-program).
 
 ```mermaid
 flowchart LR

@@ -13,9 +13,14 @@
 //! first that had not ended).
 //!
 //! Its message says what failed and names the item; an error it wraps (the
-//! engine's, or why the shape is no chain) is its source, not repeated in
-//! its message, as `canonical_mps`' errors do, so a caller that shows the
-//! chain shows each cause once.
+//! engine's, or why the shape is no chain) is its [`source`], not repeated
+//! in its message (Rust's convention for a wrapped error), so a caller
+//! that shows this error's chain shows each cause once. The run's error
+//! around it does not follow that convention: `QirResumeError` repeats
+//! this error in its message and also gives it as its source, so a caller
+//! that walks a run's chain skips a cause its message already holds.
+//!
+//! [`source`]: std::error::Error::source
 
 use std::fmt;
 
@@ -25,7 +30,10 @@ use crate::qir::QirInstruction;
 use tensornet::MpsShapeError;
 
 /// Why an [`MpsResumer`] failed a shot. Variants are added as the MPS
-/// simulation method needs them, hence `#[non_exhaustive]`.
+/// simulation method needs them, hence `#[non_exhaustive]`. The engine's
+/// error, and why a shape is no chain, are its `source()`, not in its
+/// message: a caller that prints the message alone walks `source()` for
+/// them.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum MpsResumerError<E> {
@@ -68,7 +76,7 @@ pub enum MpsResumerError<E> {
     Stopped,
 }
 
-impl<E: fmt::Display> fmt::Display for MpsResumerError<E> {
+impl<E> fmt::Display for MpsResumerError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unsupported { instruction } => write!(
