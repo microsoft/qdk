@@ -269,9 +269,9 @@ fn logged_over_two_runs<D: Drive, E: Execute>(
 /// reach it as the `>>` that makes the runner read them. Under a driver of
 /// 2 qubits, they come down as 4, then 12. Under a program stating 1 qubit,
 /// then 3 once ready, which its rule forbids, each part below it still
-/// gets ready for the 1 qubit the admission checked. Bits that two chains
-/// share through `&mut`, one needing 1 qubit and one 3, run in turn, get
-/// ready for the needs of the chain that runs.
+/// gets ready for the 1 qubit the admission checked. Bits that three
+/// chains share through `&mut`, needing 1, 3 and 1 qubits, run in turn,
+/// get ready for each chain's needs.
 #[test]
 fn every_part_gets_ready_on_every_run_for_the_needs_read_at_composition() {
     in_each_bracketing!(
@@ -336,7 +336,7 @@ fn every_part_gets_ready_on_every_run_for_the_needs_read_at_composition() {
             "Bits ready for 3 qubits",
             "Bits ready for 1 qubits",
         ],
-        "bits shared by two chains"
+        "bits shared by three chains"
     );
 }
 
