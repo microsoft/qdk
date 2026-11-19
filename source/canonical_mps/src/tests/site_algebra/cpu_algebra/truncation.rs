@@ -230,16 +230,17 @@ fn tiny_values_truncate_as_at_scale_one() {
 }
 
 /// A zero gated pair, which the contract rules out but a caller may still
-/// send, and whose SVD gives `min(rows, cols)` zeros: the split keeps one
-/// value, zero, with a retained fraction of 1 and no NaN.
+/// send, and whose SVD gives one value, 0 (`Svd::of`): the split keeps it,
+/// with a retained fraction of 1 and no NaN.
 // DISCUSS COMPATIBILITY: the earlier CPU MPS engine's SVD gave the zero
-// matrix one value, zero, so its truncation never met an all-zero
-// spectrum (its `0 / 0` would have failed the split with a weight
-// underflow); the engine does not reach it either, since its states have
-// a norm of 1 to rounding (a gate may drift from it within the unitarity
-// check's tolerance). We think a total rule is better
-// than a NaN, and a retained fraction of 1 agrees with "exactly 1 when
-// every dropped value is zero", so we recommend keeping it.
+// matrix one value, 0, as this crate's does; its truncation then divided
+// 0 by 0, which would have failed the split with a weight underflow, where
+// this one keeps the value with a retained fraction of 1. The engine does
+// not reach it, since its states have a norm of 1 to rounding (a gate may
+// drift from it within the unitarity check's tolerance). We think a total
+// rule is better than failing on a NaN, and a retained fraction of 1
+// agrees with "exactly 1 when every dropped value is zero", so we
+// recommend keeping it.
 #[test]
 fn the_zero_spectrum_keeps_one_zero_value() {
     let split = split_of(&[0.0, 0.0, 0.0], 0.5, usize::MAX);
