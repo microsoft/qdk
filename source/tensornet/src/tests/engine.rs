@@ -144,12 +144,18 @@ fn the_default_conditional_probability_given_nothing_is_the_probability() {
     assert!((actual - expected).abs() < 1e-12, "{actual}");
 }
 
-/// The answer of a site among its own conditions is its value.
+/// The answer of a site among its own conditions is its value: 1 for One,
+/// 0 for Zero.
 #[test]
 fn the_default_conditional_probability_of_a_given_site_is_its_value() {
     let state = entangled();
-    let actual = conditional(&state, 1, &[(0, false), (1, true)]).expect("a valid condition");
-    assert!((actual - 1.0).abs() < 1e-12, "{actual}");
+    for (one, expected) in [(true, 1.0), (false, 0.0)] {
+        let actual = conditional(&state, 1, &[(0, false), (1, one)]).expect("a valid condition");
+        assert!(
+            (actual - expected).abs() < 1e-12,
+            "site 1 given {one}: {actual}"
+        );
+    }
 }
 
 #[test]
@@ -163,9 +169,11 @@ fn the_default_conditional_probability_runs_the_checks() {
 
 /// On a GHZ state, site 0 One and site 1 Zero never happen together: the
 /// projection on the second value refuses it, and the default passes its
-/// refusal on.
+/// refusal on. On a state whose norm is NaN or zero, every probability is
+/// NaN, and with no condition nothing is projected: the default refuses the
+/// empty condition itself, as the reference does.
 #[test]
-fn the_default_conditional_probability_refuses_a_condition_of_probability_zero() {
+fn the_default_conditional_probability_refuses_a_condition_of_probability_zero_or_nan() {
     let capacity = MpsShape::qubit_chain(3, usize::MAX).expect("three sites form a chain");
     let mut ghz = REFERENCE.prepare(&capacity).expect("three sites are held");
     for (sites, matrix) in [
@@ -181,4 +189,13 @@ fn the_default_conditional_probability_refuses_a_condition_of_probability_zero()
         conditional(&ghz, 2, &[(0, true), (1, false)]),
         Err(Some(Refusal::ZeroProbabilityOutcome))
     );
+    let zero = c(0.0, 0.0);
+    for amplitudes in [[c(f64::NAN, 0.0), c(1.0, 0.0)], [zero, zero]] {
+        let state = ReferenceState::from_amplitudes(&amplitudes);
+        assert_eq!(
+            conditional(&state, 0, &[]),
+            Err(Some(Refusal::ZeroProbabilityOutcome)),
+            "{amplitudes:?}"
+        );
+    }
 }

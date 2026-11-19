@@ -50,9 +50,7 @@ pub mod sampling;
 
 pub use mps_engine_error::MpsEngineError;
 
-#[cfg(doc)]
-use crate::Refusal;
-use crate::{MpsShape, PauliSum};
+use crate::{MpsShape, PauliSum, Refusal};
 use num_complex::Complex64;
 
 /// A matrix product state engine.
@@ -170,9 +168,11 @@ pub trait MpsEngine {
     /// from [`shape`](Self::shape)), then forks the state and
     /// [`project`](Self::project)s the fork on each condition in order, as a
     /// split would, passing on the projection's refusal of a value of
-    /// probability zero. It reads [`shape`](Self::shape) only for the site
-    /// count, so an engine whose `shape` costs a synchronization or a
-    /// contraction should override this method.
+    /// probability zero, and refuses itself an answer of NaN, which an
+    /// empty `given` gives on a state whose norm is zero or NaN. It reads
+    /// [`shape`](Self::shape) only for the site count, so an engine whose
+    /// `shape` costs a synchronization or a contraction should override
+    /// this method.
     ///
     /// A condition is refused only when its probability is exactly zero (as
     /// the QDK's `PostSelectZ` refuses it) or NaN. An impossible condition
@@ -200,7 +200,13 @@ pub trait MpsEngine {
         for &(at, one) in given {
             self.project(&mut fork, at, one)?;
         }
-        self.probability_of_one(&fork, site)
+        let probability = self.probability_of_one(&fork, site)?;
+        // An empty `given` projects nothing, so no projection has refused a
+        // state whose norm is zero or NaN, where `given` has probability NaN.
+        if probability.is_nan() {
+            return Err(Refusal::ZeroProbabilityOutcome.into());
+        }
+        Ok(probability)
     }
 
     /// Projects `site` on One when `one` is true, on Zero when it is false,
@@ -269,7 +275,9 @@ pub trait MpsEngine {
     /// itself and gives no values; the sites are checked all the same.
     ///
     /// Any `u64` is a seed, and every bit of it selects the values: seeds
-    /// that differ in one bit, the lowest or the highest, give other values.
+    /// that differ in one bit, the lowest or the highest, give other values
+    /// (with overwhelming probability, when enough of the values are
+    /// random).
     /// An engine that draws the values itself from its conditional
     /// probabilities may use the shared
     /// [`sample_by_conditionals`](crate::sampling::sample_by_conditionals).
@@ -277,9 +285,11 @@ pub trait MpsEngine {
     /// # Errors
     ///
     /// Refused ([`checks::sample`]) with [`Refusal::SiteOutOfRange`] or
-    /// [`Refusal::RepeatedSite`], with any number of shots, zero included.
-    /// Fails as every method may, for example when the values do not fit in
-    /// memory.
+    /// [`Refusal::RepeatedSite`], with any number of shots, zero included;
+    /// and, by an engine that draws from its conditional probabilities,
+    /// with [`Refusal::ZeroProbabilityOutcome`] when one of them refuses
+    /// (a state whose norm is zero or NaN). Fails as every method may, for
+    /// example when the values do not fit in memory.
     fn sample(
         &self,
         state: &Self::State,
