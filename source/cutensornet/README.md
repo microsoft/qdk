@@ -25,12 +25,12 @@ algebra, and with libraries opened at run time. The engine's rules are
 written once, in `canonical_mps`; this crate writes only the five tensor
 operations of its `SiteAlgebra` trait, run by cuTensorNet on one GPU,
 with the sites in the GPU's memory. cuTensorNet and the CUDA Runtime are
-never linked: they are opened at run time and checked
-([discovery](#the-discovery-and-loading-of-the-libraries)), which returns
-the loaded libraries, on which an engine opens, or why they cannot be
-used: every fault it found, or, off Linux x86-64, that the platform is
-unsupported. The GPU setup check reuses discovery, and adds a device read
-and a trial run.
+never linked: they are opened at run time and checked ([discovery](#the-
+discovery-and-loading-of-the-libraries)), which returns the loaded
+libraries, on which an engine opens, or why they cannot be used: every
+fault it found, or, off Linux x86-64, that the platform is unsupported.
+The GPU setup check reuses discovery, adds a device read and a trial
+run, and says what to fix.
 
 Today the crate holds:
 
@@ -57,8 +57,8 @@ Today the crate holds:
   [`LibraryFault`](src/libraries/report.rs)s it lists.
 - **[The GPU setup check](#the-gpu-setup-check):** for a user setting the
   GPU up, [`GpuSetup::check`](src/gpu_setup.rs) runs the same discovery,
-  counts the CUDA devices and reads device 0, makes one trial run, and
-  says what to fix.
+  counts the CUDA devices and reads CUDA device 0, where the engine runs,
+  makes one trial run, and says what to fix.
 
 The extension point is an MPS simulation method: written once against
 `tensornet::MpsEngine`, it runs on this engine as on `canonical_mps`'s
