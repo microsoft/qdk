@@ -27,10 +27,10 @@ use tensornet::MpsShapeError;
 /// in its message (Rust's convention for a wrapped error): a caller that
 /// prints the message alone walks `source()` for it, and one that shows
 /// this error's chain shows each cause once. The run's error around it does
-/// not follow that convention: `QirResumeError` repeats this error in its
-/// message and also gives it as its source, so a caller that walks a run's
-/// chain shows each cause once only if it skips a cause its message already
-/// holds.
+/// not follow that convention: [`QirResumeError`](crate::qir::QirResumeError)
+/// repeats this error in its message and also gives it as its source, so a
+/// caller that walks a run's chain shows each cause once only if it skips a
+/// cause its message already holds.
 ///
 /// [`source`]: std::error::Error::source
 #[derive(Debug)]
