@@ -4,9 +4,11 @@
 //! Which Python exception a run's failure raises, and with what message,
 //! for the failures the package's Python tests cannot cause: an engine's
 //! failure and a stopped run ([`RunFailure::of`]), and a GPU engine that
-//! was not made ([`engine_not_made`]). A trap, an engine's refusal and a
-//! GPU not set up, which a program or a setup causes, are pinned by the
-//! Python tests alone.
+//! was not made ([`engine_not_made`]); and that each error of a failure's
+//! chain is shown once in its message, which needs the chain the Python
+//! side cannot see. A trap, an engine's refusal and a GPU not set up,
+//! which a program or a setup causes, are pinned by the Python tests
+//! alone.
 
 use std::error::Error;
 use std::fmt;
@@ -36,7 +38,7 @@ impl fmt::Display for FakeEngineError {
     }
 }
 
-impl std::error::Error for FakeEngineError {}
+impl Error for FakeEngineError {}
 
 impl From<Refusal> for FakeEngineError {
     fn from(refusal: Refusal) -> Self {
@@ -68,7 +70,7 @@ fn shot_0_failure_and_its_chain<E: MpsEngineError + 'static>(
     error: MpsResumerError<E>,
 ) -> (RunFailure, Vec<String>) {
     let mut chain = vec![error.to_string()];
-    let mut source = Error::source(&error);
+    let mut source = error.source();
     while let Some(cause) = source {
         chain.push(cause.to_string());
         source = cause.source();
@@ -87,13 +89,13 @@ fn an_engine_failure_is_an_os_error() {
     );
 }
 
-/// A failed shot's message shows each error of its chain once, whichever
-/// exception it raises: the MPS simulation method's failure, which keeps
-/// the engine's error or why the shape is no chain as its source; the
+/// A failed shot's message shows each error of its chain once, as an
+/// `OSError` or a `ValueError`: the MPS simulation method's failure, which
+/// keeps the engine's error or why the shape is no chain as its source; the
 /// canonical MPS engine's algebra failure, which says only that the site
-/// algebra failed and keeps the CUDA call that failed as its source; and
-/// the run's error, naming the shot, which shows its source in its message
-/// and gives it as its source too.
+/// algebra failed and keeps the CUDA call that failed as its source; and the
+/// run's error, naming the shot, which shows its source in its message and
+/// gives it as its source too.
 #[test]
 fn a_failures_message_shows_each_cause_once() {
     let cuda_call_failed = CudaAlgebraError::NativeCallFailed {

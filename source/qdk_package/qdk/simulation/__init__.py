@@ -3,8 +3,8 @@
 
 """Simulation utilities for the Q# ecosystem.
 
-This module exposes the core building blocks for quantum simulation,
-noise-aware and on tensor networks:
+This module exposes the core building blocks for noise-aware and
+tensor-network simulation:
 
 - :class:`~qdk.simulation.NeutralAtomDevice` — models a
   neutral atom quantum device with configurable zone layouts, qubit registers,
