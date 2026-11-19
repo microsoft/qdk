@@ -43,8 +43,8 @@ use crate::ShotId;
 /// bits ([`to_bits`](Self::to_bits)), and that process rebuilds the seed
 /// from those bits ([`from_bits`](Self::from_bits)), and from no other
 /// number, so that every part of a run, in either process, draws each
-/// shot's streams from the run's seed. It holds the run's seed after one
-/// `SplitMix64` step, or, once derived, that value plus the key's id in
+/// shot's streams from the run's seed. A seed holds the run's seed after
+/// one `SplitMix64` step, or, once derived, that value plus the key's id in
 /// its high half.
 #[derive(Clone, Copy, Debug)]
 pub struct Seed(u64);
@@ -105,9 +105,8 @@ impl Seed {
 
     /// The seed whose [`to_bits`](Self::to_bits) is `bits`, for the process
     /// that receives a seed's bits from a remote executor, as [`Seed`]
-    /// says. A
-    /// seed made from any other number is not the run's, so a shot's
-    /// records would no longer depend only on the run's seed.
+    /// says. A seed made from any other number is not the run's, so a
+    /// shot's records would no longer depend only on the run's seed.
     #[must_use]
     pub const fn from_bits(bits: u64) -> Self {
         Self(bits)

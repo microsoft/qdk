@@ -28,10 +28,10 @@ pub enum RetryClass {
     /// each shot's state in the executor below, such as its qubits, is as
     /// before it. An adapter below may have changed a state of its own for
     /// the `execute`, such as drawing from its streams, so the `execute`
-    /// sent again gives a valid run, not necessarily the records of a run
-    /// never refused. The protocol does not check this: it holds where
-    /// every adapter below keeps the rule
-    /// [`Adapt::adapt`](crate::Adapt::adapt) states, that once a call below
-    /// has run for an `execute`, the adapter answers no refusal.
+    /// sent again may give records other than those of a run never refused.
+    /// The protocol does not check this: it holds where every adapter below
+    /// keeps the rule [`Adapt::adapt`](crate::Adapt::adapt) states, that
+    /// once a call below has been polled for an `execute` and not refused,
+    /// the adapter answers no refusal.
     Later,
 }

@@ -60,16 +60,18 @@ pub trait Adapt: AdapterSetup {
     /// planned, will check it in the implementer's tests.
     ///
     /// A refusal ([`ExecuteError::Refused`]) says that nothing of the
-    /// `execute` ran. So once a call below has run for this `adapt`,
-    /// answering `Ok` or failing, it answers no refusal: a refusal from a
-    /// later call, which `?` would pass up as is, or one of its own becomes
-    /// a failure, [`ExecuteError::Failed`] naming the refusal's shot, with
-    /// [`Failure::Refused`](crate::Failure::Refused). Otherwise a part
-    /// above that retries a refusal whose
+    /// `execute` ran. A call below may send work from its first poll, as
+    /// the next paragraph says, so once a call below has been polled for
+    /// this `adapt` and not refused, whether it answered `Ok`, failed or
+    /// was dropped unanswered (as on a timeout), it answers no refusal: a
+    /// refusal from a later call, which `?` would pass up as is, or one of
+    /// its own becomes a failure, [`ExecuteError::Failed`] naming the
+    /// refusal's shot, with [`Failure::Refused`](crate::Failure::Refused).
+    /// Otherwise a part above that retries a refusal whose
     /// [`retry_class`](crate::ExecuteRefusal::retry_class) is
     /// [`Later`](crate::RetryClass::Later) would send the `execute` again,
-    /// and the calls that ran would run twice on the same shots. It is a
-    /// rule the adapter keeps, which the protocol does not check.
+    /// and the work those calls sent would run twice on the same shots. It
+    /// is a rule the adapter keeps, which the protocol does not check.
     ///
     /// An `adapt` does its work, calling `below` included, when its future
     /// is first polled, not when it is called, as Rust's futures do by

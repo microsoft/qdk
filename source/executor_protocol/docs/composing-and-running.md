@@ -46,7 +46,8 @@ future is `Send`.
 
 ## Seeds
 
-A run with a fixed seed gives the same outputs each time, from parts that
+A run with a fixed seed, in which no part sends an `execute` again, gives
+the same outputs each time, from parts that
 draw only from it; a run with no seed draws one, which is not reported.
 How a part draws from the run's seed is in
 [Writing a part](writing-a-part.md#seeds).

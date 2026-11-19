@@ -583,7 +583,9 @@ impl Adapt for Offering {
 /// An adapter that stops waiting: it polls its answer from below once,
 /// drops that future unfinished, then asks below again, into the same
 /// readouts, and waits. At run time it passes instructions through, as a
-/// [`Spread`] of 1.
+/// [`Spread`] of 1. Since its first call below was polled, it answers no
+/// refusal, as [`Adapt::adapt`] asks: a refusal of its second call becomes
+/// a failure naming the refusal's shot.
 pub(crate) struct Impatient(Spread);
 
 impl Impatient {
@@ -622,7 +624,16 @@ impl Adapt for Impatient {
             })
             .await;
         }
-        self.0.adapt(batches, seed, below, readouts).await
+        self.0
+            .adapt(batches, seed, below, readouts)
+            .await
+            .map_err(|error| match error {
+                ExecuteError::Refused(refusal) => ExecuteError::Failed {
+                    shot: refusal.shot(),
+                    failure: Failure::Refused(refusal),
+                },
+                error => error,
+            })
     }
 }
 

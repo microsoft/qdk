@@ -102,7 +102,8 @@ impl<D: Drive, E: Execute> Runner<D, E> {
     /// [`Drive::drive`]'s rule makes one per shot, in the order of `shots`;
     /// the runner does not check their count or order.
     ///
-    /// A `Some` seed gives the same outputs each time. `None` draws a seed
+    /// A `Some` seed gives the same outputs each time for a run in which no
+    /// part sends an `execute` again. `None` draws a seed
     /// that is not reported, so the run cannot be repeated. On wasm32,
     /// where the runner reads no clock, a drawn seed differs between
     /// processes only where the platform gives random numbers, so a caller

@@ -138,15 +138,13 @@ The protocol does not check these; the rustdoc of each role, and of
 - an adapter sends the batches it makes for a checked batch checked
   ([`Batch::checked_if`](../src/batch.rs)), so that its sender's checks
   reach every boundary below;
-- a refusal says that nothing of the `execute` ran: so once a call below
-  has run for an `execute`, answering `Ok` or failing, an adapter answers
-  no refusal. A refusal from a later call, which `?` would pass up as is,
-  or one of its own becomes a failure naming the refusal's shot, with
-  `Failure::Refused`.
-  Otherwise a part above that retries a refusal whose
+- a refusal says that nothing of the `execute` ran, so once a call below
+  has been polled for an `execute` and not refused, whether it answered
+  `Ok`, failed or was dropped unanswered, an adapter answers no refusal
+  but a failure naming the refusal's shot (`Failure::Refused`), since a
+  part above that retries a refusal whose
   [`retry_class`](../src/roles/execute.rs) is `Later`, today only
-  `NotReady`, would send the `execute` again, and the calls that ran
-  would run twice on the same shots;
+  `NotReady`, would run the work those calls sent twice;
 - a driver gives one output per shot, in the order of the run's shots;
 - a part that draws takes its streams from the run's seed, one per shot
   if it is replayable, as [Seeds](#seeds) says;

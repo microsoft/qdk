@@ -116,15 +116,13 @@ Today the protocol holds:
   sender marks it checked) and shaping its readouts. It ends each run's
   shots on every part. A part's panic becomes a failure of the run (on
   every platform but wasm32, where a panic aborts). With a fixed seed, and
-  parts that draw on the protocol's seeds, a run gives the same outputs
-  each time; and where the chain's shots replay, a shot run again alone,
-  as a debugger does, gives back its readouts.
-- **What a remote executor relies on:** a remote executor stands for a
-  chain held by another process; that process reads what the chain
-  accepts and offers
-  ([`Executor::accepts` and `offers`](src/composition/executor.rs)), and
-  the remote executor carries each `execute`'s seed there as bits
-  ([`Seed::to_bits` and `from_bits`](src/seed.rs)), as
+  parts that draw on the protocol's seeds, a run in which no part sends an
+  `execute` again gives the same outputs each time; and where the chain's
+  shots replay, a shot run again alone, as a debugger does, gives back its
+  readouts.
+- **Remote executors:** an executor that stands for a chain held by
+  another process relies on what that chain accepts and offers, and on
+  each `execute`'s seed, carried there as bits, as
   [Remote executors](#remote-executors) says.
 
 Users write the parts: any type that implements a role, written new or
@@ -328,17 +326,19 @@ Run it with `cargo run -p executor_protocol --example compose_and_run`.
 ## Remote executors
 
 A remote executor is an executor that stands for a chain held by another
-process, or for a device reached over a network. The protocol runs in one
-process, and a remote executor is a part of it like any other.
+process. In the chain it stands in, it is a part like any other. The
+process that holds the other chain reads what that chain accepts and
+offers ([`Executor::accepts` and `offers`](src/composition/executor.rs)),
+for the remote executor to give as its own, and the remote executor
+carries each `execute`'s seed there as bits, from which that process
+rebuilds it ([`Seed::to_bits` and `from_bits`](src/seed.rs)).
 
-The process that holds the chain reads what the chain accepts and offers,
-and the remote executor gives them as its own. The protocol carries
-neither between processes: a link encodes an `Offer`, whose fields are
-public, in a format of its own, and since an `InstructionSet` has no
-public reader of its declaration, both processes build the same set from
-the same code, such as one Qodec declaration, and may compare its name.
-The remote executor carries each `execute`'s seed as bits, from which the
-other process rebuilds it.
+The protocol carries neither what a chain accepts nor what it offers
+between processes: the remote executor and that process encode an
+`Offer`, whose fields are public, in a format of their own, and since an
+`InstructionSet` has no public reader of its declaration, both processes
+build the same set from the same code, such as one Qodec declaration, and
+may compare its name.
 
 When an `execute` is refused, the remote executor, or a part above it,
 asks the refusal's retry class whether it may send it again. It may when
@@ -346,9 +346,10 @@ the receiver cannot take it now (`ExecuteRefusal::NotReady`), as long as
 the adapters below keep the rule that
 [Writing a part](docs/writing-a-part.md#the-rules-a-part-keeps) states.
 The `execute` sent again finds each shot's state in the executor as
-before, but an adapter below that drew for it draws again, so it gives a
-valid run, not necessarily the records of a run never refused: a fixed
-seed fixes the records of runs in which no `execute` is sent again.
+before, but an adapter below that drew for it draws again, so it may give
+records other than those of a run never refused: hence the guarantees at
+run time above hold a fixed seed's outputs only for a run in which no
+part sends an `execute` again.
 
 ## Further reading
 
