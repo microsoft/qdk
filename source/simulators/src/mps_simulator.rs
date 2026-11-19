@@ -21,10 +21,11 @@
 //! (`shot_stream.rs`), and report and fail a run (`run_report.rs`, `error.rs`).
 //!
 //! Shots that drew the same values share one state, forked where their draws
-//! differ, so a program whose draws never differ holds at most one; as the part
-//! with fewer shots goes on, a run of N shots holds at most ⌊log₂ N⌋ + 1 states
-//! at once. Each shot draws from its own stream, so its records do not depend
-//! on the shots beside it (beyond rounding, on some engines: [`MpsResumer`]).
+//! differ, so a program whose draws never differ holds at most one; as the
+//! smaller group goes on where they differ, a run of N shots holds at most
+//! ⌊log₂ N⌋ + 1 states at once. Each shot draws from its own stream, so its
+//! records do not depend on the shots beside it (beyond rounding, on some
+//! engines: [`MpsResumer`]).
 //!
 //! An overview, with the phases of a run, the public types and an example,
 //! is in `src/mps_simulator/README.md`; each phase's mechanics and engine
@@ -115,18 +116,18 @@ impl<E: MpsEngine> MpsResumer<E> {
     /// The resumer stopping its runs once `stop_flag` is set: a user who
     /// interrupts a run of hours (Ctrl-C from Python, say) gets it back once
     /// the batch under way ends, its states freed. The flag is read before a
-    /// group runs its steps (when it first runs, when a part split off by a
+    /// group runs its steps (when it first runs, when a group split off by a
     /// draw runs on, and once each batch is lowered), and after each resume
     /// that gives a group its next batch or a trap, before the batch is lowered
     /// or the trap reported. So a flag set while a group runs its batch lets
-    /// that group run the rest of the batch, and stops each part split off by a
-    /// draw before it runs on: of a Base Profile program that measures into
+    /// that group run the rest of the batch, and stops each group split off by
+    /// a draw before it runs on: of a Base Profile program that measures into
     /// each result once, one batch, the group under way runs to its end, and
-    /// the parts split off do not run on. Once read set, the flag fails the run
-    /// with [`MpsResumerError::Stopped`], naming the first shot that had not
-    /// ended, whatever the batch after the read would have done (trapped, or
-    /// been refused); a run whose every shot has ended returns its records, and
-    /// a run of no shots returns none. Whoever sets it clears it before the
+    /// the groups split off do not run on. Once read set, the flag fails the
+    /// run with [`MpsResumerError::Stopped`], naming the first shot that had
+    /// not ended, whatever the batch after the read would have done (trapped,
+    /// or been refused); a run whose every shot has ended returns its records,
+    /// and a run of no shots returns none. Whoever sets it clears it before the
     /// next run.
     #[must_use]
     pub fn with_stop_flag(mut self, stop_flag: Arc<AtomicBool>) -> Self {
