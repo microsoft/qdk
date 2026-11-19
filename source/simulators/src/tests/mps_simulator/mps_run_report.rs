@@ -4,7 +4,11 @@
 //! The run's report: the largest bond, the max bond dimension the engine is
 //! given, and the warning when truncation lost more than the tolerance.
 
+mod truncation_warning;
+
 use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use tensornet::reference::ExactReference;
@@ -196,6 +200,55 @@ fn each_run_reports_its_own_cost() {
     assert_eq!(resumer.last_run().largest_bond, 1);
 }
 
+/// A failed run's report is its own, not the cost of the run before it: a
+/// run that fails before it prepares a state reports that none was
+/// prepared. Each scene is a run, then a failed one: a run that lost 1% of
+/// its weight, then a stop; a Bell pair's bond of 2, then a max bond
+/// dimension that makes no chain of 64 qubits.
+#[test]
+fn a_failed_run_does_not_report_the_cost_of_the_run_before() {
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let mut stopped = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7)
+        .with_stop_flag(Arc::clone(&stop_flag));
+    run_once(&mut stopped, &ghz(4));
+    assert!(
+        stopped.last_run().truncation_warning().is_some(),
+        "the first run lost 1% of its weight"
+    );
+    stop_flag.store(true, Ordering::Relaxed);
+    run(&mut stopped, &ghz(4), &QirShotId::first(2)).expect_err("the flag stops the run");
+
+    let mut no_chain =
+        MpsResumer::new(ExactReference::new(), 7).with_max_bond_dimension(NonZeroUsize::MAX);
+    run_once(&mut no_chain, &ghz(2));
+    assert_eq!(no_chain.last_run().largest_bond, 2, "a Bell pair's bond");
+    run(
+        &mut no_chain,
+        &program(64, &[&[gate1(OPID_H, 0), ret()]]),
+        &QirShotId::first(2),
+    )
+    .expect_err("64 qubits with unbounded bonds make no chain");
+
+    for (scene, report, max_bond_dimension) in [
+        (
+            "a stop",
+            *stopped.last_run(),
+            DEFAULT_MAX_BOND_DIMENSION.get(),
+        ),
+        ("no chain", *no_chain.last_run(), usize::MAX),
+    ] {
+        assert_eq!(
+            report,
+            MpsRunReport {
+                largest_bond: 1,
+                least_retained_weight: 1.0,
+                max_bond_dimension,
+            },
+            "{scene}"
+        );
+    }
+}
+
 /// A run of no shots reports what a run that prepared no state reports,
 /// not the cost of the run before it: a caller that runs an empty batch
 /// after a truncated run reads no stale warning.
@@ -274,9 +327,11 @@ fn the_report_gives_the_max_bond_dimension_set_even_before_a_run() {
 
 /// A run warns when its shots lost more weight to truncation than the
 /// tolerance, giving the weight lost (not the weight kept) and the max bond
-/// dimension, and only then. Each row is a run's report, and the weight
-/// lost it warns of: an exact run, which keeps all its weight, none; a run
-/// that lost 1%, 1%; and a loss of exactly the tolerance, none.
+/// dimension, and only then (the message the warning gives:
+/// `mps_run_report/truncation_warning.rs`). Each row is a run's report,
+/// and the weight lost it warns of: an exact run, which keeps all its
+/// weight, none; a run that lost 1%, 1%; and a loss of exactly the
+/// tolerance, none.
 #[test]
 fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
     let mut exact = MpsResumer::new(ExactReference::new(), 7);
@@ -310,29 +365,6 @@ fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
                 warning.max_bond_dimension,
                 DEFAULT_MAX_BOND_DIMENSION.get(),
                 "{scene}"
-            );
-            let message = warning.to_string();
-            assert!(
-                message.contains("max bond dimension 128"),
-                "{scene}: {message}"
-            );
-            let numbers: Vec<f64> = message
-                .split(|c: char| !(c.is_ascii_digit() || "+-.eE".contains(c)))
-                .filter_map(|token| {
-                    token
-                        .trim_matches(|c: char| !c.is_ascii_digit())
-                        .parse()
-                        .ok()
-                })
-                .collect();
-            let shows = |weight: f64| {
-                numbers
-                    .iter()
-                    .any(|number| (number - weight).abs() <= 0.01 * weight)
-            };
-            assert!(
-                shows(lost_weight) && !shows(1.0 - lost_weight),
-                "{scene}: the message gives the weight lost, not the weight kept: {message}"
             );
         }
     }

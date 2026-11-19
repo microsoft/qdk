@@ -14,7 +14,7 @@
 //! run before the next batch.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::bytecode::Instruction;
 use crate::mps_simulator::shot_stream::shot_stream;
@@ -711,23 +711,49 @@ fn a_failure_settling_the_fork_fails_only_the_shots_that_wait() {
 }
 
 /// A run whose stop flag is already set fails before any gate, naming its
-/// first shot.
+/// first shot, even when its program would end at its first resume; the
+/// resumer leaves the flag set, so each run fails so until the caller
+/// clears it, and the run after is then a fresh resumer's. Each row is a
+/// run with the flag set: four coins; a program that only returns; and
+/// four coins again.
 #[test]
 fn a_set_stop_flag_fails_the_run_before_any_gate() {
     let stop_flag = Arc::new(AtomicBool::new(true));
-    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7).with_stop_flag(stop_flag);
-    let result = run(&mut resumer, &coins(4), &ids(&[3, 1, 2]));
-    assert!(
-        matches!(
-            result,
-            Err(QirResumeError::Resumer {
-                shot: QirShotId(3),
-                error: MpsResumerError::Stopped,
-            })
+    let mut resumer =
+        MpsResumer::new(ReferenceSpy::new(), 7).with_stop_flag(Arc::clone(&stop_flag));
+    let rows = [
+        ("four coins", coins(4), ids(&[3, 1, 2])),
+        (
+            "a program that only returns",
+            program(1, &[&[ret()]]),
+            ids(&[4, 1]),
         ),
-        "{result:?}"
-    );
+        ("four coins again", coins(4), ids(&[3, 1, 2])),
+    ];
+    for (scene, program, shots) in rows {
+        let result = run(&mut resumer, &program, &shots);
+        assert!(
+            matches!(
+                result,
+                Err(QirResumeError::Resumer {
+                    shot,
+                    error: MpsResumerError::Stopped,
+                }) if shot == shots[0]
+            ),
+            "{scene}: {result:?}"
+        );
+    }
     assert_eq!(resumer.engine().applies(), 0);
+    stop_flag.store(false, Ordering::Relaxed);
+    let shots = ids(&[3, 1, 2]);
+    let cleared = run(&mut resumer, &coins(4), &shots).expect("a cleared flag stops nothing");
+    let fresh = run(
+        &mut MpsResumer::new(ReferenceSpy::new(), 7),
+        &coins(4),
+        &shots,
+    )
+    .expect("the program runs");
+    assert_eq!(cleared, fresh);
 }
 
 /// A flag set during a batch lets the group under way run the rest of it,
@@ -735,7 +761,8 @@ fn a_set_stop_flag_fails_the_run_before_any_gate() {
 /// first gate of eight coins on 16 shots, a program of one batch whose
 /// draws split the shots into many groups, the run applies the eight gates
 /// of the group under way, none of the groups split off, and names shot 0,
-/// which was in a group that split off and had not ended.
+/// which was in a group that split off and had not ended. The run frees
+/// every state it held.
 #[test]
 fn a_stop_flag_set_during_a_run_stops_it_once_the_batch_under_way_ends() {
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -757,6 +784,7 @@ fn a_stop_flag_set_during_a_run_stops_it_once_the_batch_under_way_ends() {
         8,
         "the gates of the group under way, none of the groups split off"
     );
+    assert_eq!(resumer.engine().live(), 0, "no state is kept");
 }
 
 /// A stopped run names the first shot that had not ended, not the first of
