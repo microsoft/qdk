@@ -31,10 +31,11 @@ use tensornet::MpsEngine;
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum CanonicalMpsError<E> {
     /// A call the contract refuses: one whose arguments break the contract,
-    /// refused before the state changed, or a projection or condition on a
-    /// value of probability zero (or NaN), refused after the engine applied its
-    /// pending window, as a read does, so that the state every read sees is
-    /// unchanged. It displays as the refusal, word for word.
+    /// refused before any call of the algebra, so the state is unchanged,
+    /// or a projection or condition on a value of probability zero (or
+    /// NaN), refused after the engine applied its pending window, as a read
+    /// does, so that the state every read sees is unchanged. It displays as
+    /// the refusal, word for word.
     #[error(transparent)]
     Refused(#[from] Refusal),
 

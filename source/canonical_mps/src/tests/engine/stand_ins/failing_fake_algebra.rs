@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! [`FailingFakeAlgebra`]: a fake, the CPU algebra ([`CpuAlgebra`])
-//! except that the calls of one method fail, for the tests of what the
+//! except that the calls of one operation fail, for the tests of what the
 //! engine does when its backend fails: [`CpuAlgebra`] fails only when its
 //! SVD does, and the engine's tests give the SVD finite matrices, which it
 //! answers.
@@ -17,9 +17,9 @@ use std::borrow::Cow;
 use std::cell::Cell;
 use std::rc::Rc;
 
-/// A method of [`SiteAlgebra`].
+/// An operation of [`SiteAlgebra`], one of its methods.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Method {
+pub(crate) enum Operation {
     Upload,
     Read,
     Duplicate,
@@ -27,46 +27,46 @@ pub(crate) enum Method {
     QrMove,
 }
 
-/// The failure of a [`FailingFakeAlgebra`]'s call: the method that failed.
+/// The failure of a [`FailingFakeAlgebra`]'s call: the operation that failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("the failing fake algebra's {0:?} failed")]
-pub(crate) struct AlgebraFailure(pub(crate) Method);
+pub(crate) struct AlgebraFailure(pub(crate) Operation);
 
-/// [`CpuAlgebra`], except that the call of `method` numbered `failing`
+/// [`CpuAlgebra`], except that the call of `operation` numbered `failing`
 /// (from 0) fails, or every call of it when `failing` is `None`; `asked`
-/// counts the calls of `method` asked of it.
+/// counts the calls of `operation` asked of it.
 #[derive(Clone)]
 pub(crate) struct FailingFakeAlgebra {
-    method: Method,
+    operation: Operation,
     failing: Option<usize>,
     asked: Rc<Cell<usize>>,
 }
 
 impl FailingFakeAlgebra {
-    /// A fake on which every call of `method` fails.
-    pub(crate) fn every(method: Method) -> Self {
+    /// A fake on which every call of `operation` fails.
+    pub(crate) fn every(operation: Operation) -> Self {
         Self {
-            method,
+            operation,
             failing: None,
             asked: Rc::default(),
         }
     }
 
-    /// A fake on which the call of `method` numbered `failing` (from 0)
-    /// fails, and the count of the calls of `method` asked of it.
-    pub(crate) fn on_call(method: Method, failing: usize) -> (Self, Rc<Cell<usize>>) {
+    /// A fake on which the call of `operation` numbered `failing` (from 0)
+    /// fails, and the count of the calls of `operation` asked of it.
+    pub(crate) fn on_call(operation: Operation, failing: usize) -> (Self, Rc<Cell<usize>>) {
         let asked = Rc::new(Cell::new(0));
         let algebra = Self {
-            method,
+            operation,
             failing: Some(failing),
             asked: Rc::clone(&asked),
         };
         (algebra, asked)
     }
 
-    /// Fails when the call of `method` is the failing one.
-    fn call(&self, method: Method) -> Result<(), AlgebraFailure> {
-        if method != self.method {
+    /// Fails when the call of `operation` is the failing one.
+    fn call(&self, operation: Operation) -> Result<(), AlgebraFailure> {
+        if operation != self.operation {
             return Ok(());
         }
         let number = self.asked.get();
@@ -74,7 +74,7 @@ impl FailingFakeAlgebra {
         if self.failing.is_some_and(|failing| failing != number) {
             Ok(())
         } else {
-            Err(AlgebraFailure(method))
+            Err(AlgebraFailure(operation))
         }
     }
 }
@@ -89,7 +89,7 @@ impl SiteAlgebra for FailingFakeAlgebra {
     type Error = AlgebraFailure;
 
     fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error> {
-        self.call(Method::Upload)?;
+        self.call(Operation::Upload)?;
         Ok(cpu_answer(CpuAlgebra.upload(values)))
     }
 
@@ -98,12 +98,12 @@ impl SiteAlgebra for FailingFakeAlgebra {
         tensor: &'t Self::Tensor,
         len: usize,
     ) -> Result<Cow<'t, [Complex64]>, Self::Error> {
-        self.call(Method::Read)?;
+        self.call(Operation::Read)?;
         Ok(cpu_answer(CpuAlgebra.read(tensor, len)))
     }
 
     fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Self::Error> {
-        self.call(Method::Duplicate)?;
+        self.call(Operation::Duplicate)?;
         Ok(cpu_answer(CpuAlgebra.duplicate(tensor, len)))
     }
 
@@ -111,7 +111,7 @@ impl SiteAlgebra for FailingFakeAlgebra {
         &self,
         call: &GateSplitCall<'_, Self::Tensor>,
     ) -> Result<GateSplitOutcome<Self::Tensor>, Self::Error> {
-        self.call(Method::GateSplit)?;
+        self.call(Operation::GateSplit)?;
         Ok(cpu_answer(CpuAlgebra.gate_split(call)))
     }
 
@@ -119,7 +119,7 @@ impl SiteAlgebra for FailingFakeAlgebra {
         &self,
         call: &QrMoveCall<'_, Self::Tensor>,
     ) -> Result<QrMoveOutcome<Self::Tensor>, Self::Error> {
-        self.call(Method::QrMove)?;
+        self.call(Operation::QrMove)?;
         Ok(cpu_answer(CpuAlgebra.qr_move(call)))
     }
 }
