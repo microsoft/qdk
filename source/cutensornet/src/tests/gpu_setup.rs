@@ -917,16 +917,18 @@ fn another_copy_of_a_library_is_a_warning_that_leaves_the_setup_ready() {
     assert!(setup.is_ready());
     let warnings = setup.warnings();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
+    let cutensornet = warnings
+        .iter()
+        .find(|warning| warning.contains("/env/cuquantum/lib/libcutensornet.so.2"))
+        .expect("a warning names cuTensorNet's other copy");
     assert!(
-        warnings[0].contains("/env/cuquantum/lib/libcutensornet.so.2")
-            && warnings[0].contains("/opt/override/libcutensornet.so.2"),
-        "{}",
-        warnings[0]
+        cutensornet.contains("/opt/override/libcutensornet.so.2"),
+        "{cutensornet}"
     );
     assert!(
         setup
             .to_string()
-            .contains(&format!("warning: {}", warnings[0])),
+            .contains(&format!("warning: {cutensornet}")),
         "{setup}"
     );
 }

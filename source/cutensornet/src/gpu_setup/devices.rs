@@ -60,9 +60,8 @@ pub(crate) const MINIMUM_COMPUTE_CAPABILITY: (i32, i32) = (7, 5);
 
 /// How many devices `calls` sees, and the GPU engine's device,
 /// [`DEVICE_ORDINAL`], read with it current; no other device is selected
-/// or read. The engine's device is
-/// left current, which the GPU engine, selecting its device on every call,
-/// does not rely on.
+/// or read. The engine's device is left current, which the GPU engine,
+/// selecting its device on every call, does not rely on.
 ///
 /// # Errors
 ///

@@ -17,7 +17,11 @@
 //! An `Availability`, and the error when a library is at fault
 //! ([`AvailabilityError::Unusable`]), carry an [`AvailabilityReport`], with
 //! one [`LibraryReport`](crate::LibraryReport) per library: where it was
-//! loaded from, the versions it reports, and its faults.
+//! loaded from, the versions it reports, its faults, the other copies
+//! visible beside it, and whether it is the copy its override names. The
+//! report is in `report`, and each library's entry, made where the library
+//! is opened, in `libraries::report`; the error, and the message it shows,
+//! in `error`.
 //!
 //! Discovery names no library: `libraries::LoadedLibraries` lists the
 //! libraries a GPU run needs, in the order they are opened, and each
@@ -57,7 +61,7 @@ pub struct Availability {
 }
 
 impl Availability {
-    /// The paths and versions [`discover`] found.
+    /// The paths and versions [`discover`] or [`discover_with`] found.
     #[must_use]
     pub fn report(&self) -> &AvailabilityReport {
         &self.report

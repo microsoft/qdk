@@ -19,7 +19,8 @@
 use std::path::PathBuf;
 use thiserror::Error;
 
-/// What [`discover`](crate::discover) found of one library.
+/// What [`discover`](crate::discover) or
+/// [`discover_with`](crate::discover_with) found of one library.
 ///
 /// A library is usable when it has no fault. A library with a fault is
 /// reported with what was found of it all the same: its path once it was
