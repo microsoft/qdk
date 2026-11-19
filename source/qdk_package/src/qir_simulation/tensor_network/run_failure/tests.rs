@@ -4,11 +4,10 @@
 //! Which Python exception a run's failure raises, and with what message,
 //! for the failures the package's Python tests cannot cause: an engine's
 //! failure and a stopped run ([`RunFailure::of`]), and a GPU engine that
-//! was not made ([`engine_not_made`]); and that each error of a failure's
-//! chain is shown once in its message, which needs the chain the Python
-//! side cannot see. A trap, an engine's refusal and a GPU not set up,
-//! which a program or a setup causes, are pinned by the Python tests
-//! alone.
+//! was not made ([`engine_not_made`]). And that a failure's message shows
+//! each error of its chain once, which needs the chain the Python side
+//! cannot see. A trap, an engine's refusal and a GPU not set up, which a
+//! program or a setup causes, are pinned by the Python tests alone.
 
 use std::error::Error;
 use std::fmt;
@@ -106,17 +105,17 @@ fn a_failures_message_shows_each_cause_once() {
     };
     let cases = [
         (
-            "an engine's own failure, an OSError",
+            "an engine's own failure",
             shot_0_failure_and_its_chain(MpsResumerError::Engine(FakeEngineError::OutOfMemory)),
         ),
         (
-            "the canonical engine's algebra failure on the GPU, an OSError",
+            "the canonical engine's algebra failure on the GPU",
             shot_0_failure_and_its_chain(MpsResumerError::Engine(CanonicalMpsError::Algebra(
                 cuda_call_failed,
             ))),
         ),
         (
-            "a max bond dimension that makes no chain, a ValueError",
+            "a max bond dimension that makes no chain",
             shot_0_failure_and_its_chain(MpsResumerError::<FakeEngineError>::Capacity {
                 qubits: 70,
                 max_bond_dimension: 1 << 40,
