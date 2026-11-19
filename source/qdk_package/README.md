@@ -679,7 +679,7 @@ Submodules:
 - `qdk.openqasm` – OpenQASM compilation, execution, parsing, semantic analysis,
   source navigation, visitors, and canonical serialization.
 - `qdk.estimator` – resource estimation utilities.
-- `qdk.simulation` – noise-aware simulators and a tensor-network simulator: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types; and `tensornetwork_qir`, which simulates QIR programs on matrix product states (its GPU engine requires the `qdk[tensornetwork]` extra), with `check_tensornetwork_setup`, which checks that engine's setup.
+- `qdk.simulation` – noise-aware and tensor-network simulation: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types; and `tensornetwork_qir`, which simulates QIR programs on matrix product states (its GPU engine requires the `qdk[tensornetwork]` extra), with `check_tensornetwork_setup`, which checks that engine's setup.
 - `qdk.code` – dynamic namespace populated at runtime with user-defined Q# and OpenQASM callables.
 - `qdk.qre` – quantum resource estimation v3: `estimate`, `Application`, `Architecture`, `ISA`, `ISATransform`, and related types.
 - `qdk.applications` – domain-specific quantum applications (e.g. `qdk.applications.magnets`).

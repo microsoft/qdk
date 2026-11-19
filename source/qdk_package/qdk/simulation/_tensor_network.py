@@ -88,7 +88,8 @@ class TensorNetworkReport:
     shots.
 
     :param largest_bond: The largest bond a state held where a sequence of
-        gates ended: what the run's costliest gates paid for.
+        gates ended, before the measurements after it: what the run's
+        costliest gates paid for.
     :param discarded_weight: The most weight a shot's state lost to
         truncation: an estimate of the fidelity lost, 0 when the run was
         exact (to rounding).
@@ -288,7 +289,7 @@ def check_tensornetwork_setup() -> TensorNetworkSetup:
     ``QDK_CUTENSORNET_LIBRARY`` or ``QDK_CUDART_LIBRARY``, alone when set; else
     the copy ``pip install "qdk[tensornetwork]"`` installed; else the
     system's), the driver, CUDA device 0 and a one-gate trial run, as the
-    report it prints lists them.
+    report it returns lists them.
 
     ::
 
