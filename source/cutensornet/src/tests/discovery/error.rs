@@ -77,6 +77,8 @@ fn the_message_names_every_fault_with_its_library() {
                 path: Some(PathBuf::from(cuda_path)),
                 versions: Vec::new(),
                 faults: Vec::new(),
+                other_copies: Vec::new(),
+                from_override: false,
             },
             LibraryReport {
                 library: "cuTensorNet",
@@ -85,6 +87,8 @@ fn the_message_names_every_fault_with_its_library() {
                 faults: vec![LibraryFault::MissingRequiredSymbol {
                     symbol: "cutensornetCreate",
                 }],
+                other_copies: Vec::new(),
+                from_override: false,
             },
         ],
     };
