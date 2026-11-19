@@ -80,15 +80,29 @@ fn each_fault_follows_its_library_and_path() {
         !message.contains("Some("),
         "the path is shown, not Rust's value around it: {message}"
     );
-}
-
-/// A library with no fault is named neither by its file nor by its name, so
-/// the user looks only at the library to fix, whichever it is.
-/// (cuTensorNet's name is in the message's lead, so only its file is checked
-/// when it is the healthy one.)
-#[test]
-fn a_library_without_a_fault_is_not_named() {
-    let only_cuda_at_fault = message_of(vec![missing("cudaMalloc")], Vec::new());
+    let only_cutensornet_at_fault = AvailabilityReport {
+        libraries: vec![
+            LibraryReport {
+                library: "CUDA Runtime",
+                path: Some(PathBuf::from(cuda_path)),
+                versions: Vec::new(),
+                faults: Vec::new(),
+                other_copies: Vec::new(),
+                from_override: false,
+            },
+            LibraryReport {
+                library: "cuTensorNet",
+                path: Some(PathBuf::from("/opt/cutensornet/libcutensornet.so.2")),
+                versions: Vec::new(),
+                faults: vec![LibraryFault::MissingRequiredSymbol {
+                    symbol: "cutensornetCreate",
+                }],
+                other_copies: Vec::new(),
+                from_override: false,
+            },
+        ],
+    };
+    let message = AvailabilityError::Unusable(only_cutensornet_at_fault).to_string();
     assert!(
         !only_cuda_at_fault.contains("libcutensornet"),
         "the healthy cuTensorNet is not named: {only_cuda_at_fault}"
