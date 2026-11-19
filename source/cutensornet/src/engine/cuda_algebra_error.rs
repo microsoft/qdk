@@ -17,7 +17,9 @@
 //! Three parts of the engine make it, so it sits beside them rather than in
 //! any one: the CUDA algebra (`cuda_algebra/`), the device session it runs
 //! in (`device_session.rs`), and the native calls they make
-//! (`native_calls/`), which the setup check's device step calls too. Each
+//! (`native_calls/`). The setup check's device step calls three of those
+//! native calls too, and makes a `NativeCallFailed` itself, from its own
+//! read of a device's compute capability (`gpu_setup/devices/`). Each
 //! case's doc names the parts that make it.
 //!
 //! When an operation and the cleanup after it both fail, both errors are
@@ -37,8 +39,9 @@ pub enum CudaAlgebraError {
     NoDevice,
 
     /// A CUDA Runtime or cuTensorNet call returned an error status: made by
-    /// the native calls, from the status a loaded library returns (or one
-    /// the fake libraries are told to return).
+    /// the native calls, and by the setup check's compute-capability read,
+    /// from the status a loaded library returns (or one the fake libraries
+    /// are told to return).
     #[error("{component} {operation} failed with status {status}: {message}")]
     NativeCallFailed {
         component: &'static str,

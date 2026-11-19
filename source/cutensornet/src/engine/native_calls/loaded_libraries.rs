@@ -6,15 +6,19 @@
 //! (`crate::libraries`) through the function tables discovery looked up,
 //! one file per trait (`loaded_libraries/session_calls.rs`,
 //! `loaded_libraries/memory_calls.rs`, `loaded_libraries/tensor_calls.rs`).
-//! This file holds what they share: turning a status into a
-//! `CudaAlgebraError` with the library's message.
+//! This file holds what they, and the setup check's read of a device's
+//! compute capability, share: turning a status into a `CudaAlgebraError`
+//! with the library's message.
 //!
 //! This module holds every call the engine makes to cuTensorNet and the
 //! CUDA Runtime, so it is where their foreign-function obligations are
-//! kept: each `unsafe` call says what makes it sound (the handles live,
-//! the buffers large enough and kept alive, the values in the audited
-//! representation). It owns nothing: `DeviceSession` and `CudaAlgebra`
-//! create the streams, handles, objects and buffers, and release them.
+//! kept (the setup check's one call of its own, `cudaDeviceGetAttribute`,
+//! keeps its obligation where it is made, in
+//! `gpu_setup/devices/device_calls/`): each `unsafe` call says what makes
+//! it sound (the handles live, the buffers large enough and kept alive,
+//! the values in the audited representation). It owns nothing:
+//! `DeviceSession` and `CudaAlgebra` create the streams, handles, objects
+//! and buffers, and release them.
 //! Discovery has checked the versions, so this code assumes cuTensorNet
 //! 2.13 and the CUDA Runtime 12.9. It compiles only on Linux x86-64, and no
 //! host test reaches it; a new native call needs its function's row in its
@@ -54,6 +58,10 @@ impl LoadedLibraries {
         message
     }
 
+    /// `Ok` for a CUDA Runtime success, otherwise `NativeCallFailed` naming
+    /// `operation`, with the runtime's message for `status`. Visible to the
+    /// crate for the setup check's compute-capability read, so that its
+    /// failure reads as every other CUDA Runtime call's.
     pub(crate) fn check_cuda(
         &self,
         operation: &'static str,

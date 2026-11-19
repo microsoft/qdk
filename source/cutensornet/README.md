@@ -60,9 +60,16 @@ Today the crate holds:
   counts the CUDA devices and reads CUDA device 0, where the engine runs,
   makes one trial run, and says what to fix.
 
-The extension point is an MPS simulation method: written once against
-`tensornet::MpsEngine`, it runs on this engine as on `canonical_mps`'s
-`CpuMpsEngine`, and gets the GPU for free. A simulator calls
+The extension points are an MPS simulation method and a library. An MPS
+simulation method, written once against `tensornet::MpsEngine`, runs on
+this engine as on `canonical_mps`'s `CpuMpsEngine`, and gets the GPU for
+free. A library bound later is one module under
+[`src/libraries/`](src/libraries), implementing
+[`NativeLibrary`](src/libraries.rs) for discovery and
+[`LibrarySetupGuide`](src/libraries/setup_guide.rs) for the setup check
+([`docs/loading.md`](docs/loading.md)).
+
+A user writes no part of the crate. A simulator calls
 `discover()`, then makes the engine with
 `CudaMpsEngine::try_from(&availability)` (Linux x86-64), at the engine's
 default cutoff (`.with_cutoff(c)` sets another), as the example on
@@ -73,11 +80,8 @@ runs it, and drops it at the run's end: the engine holds device 0's
 stream and cuTensorNet handle, the memory it lent cuTensorNet (grown to
 the run's largest call) and the contraction networks it prepared, until
 it is dropped. On an error, the simulator tells the user what is missing,
-or runs on `CpuMpsEngine`. A user setting the GPU up writes nothing, and
-calls `GpuSetup::check`. A library bound later is one module under
-[`src/libraries/`](src/libraries), implementing `NativeLibrary` for
-discovery and `LibrarySetupGuide` for the setup check
-([`docs/loading.md`](docs/loading.md)).
+or runs on `CpuMpsEngine`. A user setting the GPU up calls
+`GpuSetup::check`.
 
 ## The MPS engine
 

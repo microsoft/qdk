@@ -1,9 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`NativeCalls`]: every call the CUDA algebra, its session and the setup
-//! check make to the CUDA Runtime and cuTensorNet, and the two
-//! implementations that answer them.
+//! [`NativeCalls`]: every call the CUDA algebra and its session make to the
+//! CUDA Runtime and cuTensorNet, and the two implementations that answer
+//! them. The setup check reads the devices through three of them (the
+//! count, the selection and the memory read).
 //!
 //! The algebra's code must run where it is tested, and CI has no GPU. So
 //! `DeviceSession` and `CudaAlgebra` make each native call through these
@@ -23,9 +24,9 @@
 //!                        fake_libraries.rs, fake_libraries/ (tests only)
 //! ```
 //!
-//! Each implementation has one file per trait. A new native call is a
-//! method of the trait of its kind, implemented in that trait's file of
-//! each implementation.
+//! Each implementation has one file per trait. A new native call of the
+//! algebra is a method of the trait of its kind, implemented in that
+//! trait's file of each implementation.
 
 pub(super) mod complex;
 #[cfg(test)]
@@ -52,8 +53,7 @@ pub(crate) use self::{
 
 use std::{ffi::c_void, ptr::NonNull};
 
-/// Every native call the CUDA algebra, its session and the setup check
-/// make.
+/// Every native call the CUDA algebra and its session make.
 pub(crate) trait NativeCalls:
     session_calls::SessionCalls + tensor_calls::TensorCalls
 {

@@ -2,9 +2,7 @@
 // Licensed under the MIT License.
 
 //! [`DeviceCalls`]: the CUDA Runtime calls that read the devices, a seam so
-//! that the setup check's rules run on a host with no GPU. The loaded
-//! libraries implement it (`device_calls/loaded_libraries.rs`), and the
-//! tests a fake.
+//! that the setup check's rules run on a host with no GPU.
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod loaded_libraries;
