@@ -336,6 +336,19 @@ mechanics and edge cases.
   joins of `>>`, a run's steps, seeds, where and when each check runs, and
   failures and panics.
 
+## Remote executors
+
+A part that stands for a composed executor in another process, or that
+reaches a device over a network, is an executor like any other, since a
+boundary joins two parts in one process. Such a part reads what the
+executor it stands for accepts and offers
+([`Executor::accepts` and `offers`](src/composition/executor.rs)),
+carries an `execute`'s `Seed` as bits
+([`Seed::to_bits` and `from_bits`](src/seed.rs)), and asks a refusal
+whether the same `execute` may be sent again later
+([`ExecuteRefusal::retry_class`](src/roles/execute.rs)), as it may be
+when the receiver is not ready for it now (`ExecuteRefusal::NotReady`).
+
 ## Planned extensions
 
 Streaming: today a run gives its outputs when it ends. The planned

@@ -61,15 +61,24 @@ impl Execute for Refuses {
     }
 }
 
-/// An executor refusing a run's `execute` because one of its shots, shot
-/// 2, failed earlier or is not held there: the run fails naming that
-/// shot, not the batch's first, with the refusal.
+/// An executor refusing a run's `execute`, on a batch of shots 0 to 3,
+/// because shot 2 failed earlier or is not held there, or, on a batch of
+/// shots 2 to 5, because it cannot take the `execute` now: the run fails
+/// naming shot 2, the shot the refusal names, whether or not it is the
+/// batch's first, with the refusal.
 #[test]
-fn a_refused_shot_ends_the_run_naming_it() {
+fn a_refusal_ends_the_run_naming_its_shot() {
     let shot = ShotId::new(2);
-    for refusal in [
-        ExecuteRefusal::EarlierFailure(shot),
-        ExecuteRefusal::ShotNotHeld(shot),
+    for (refusal, shots) in [
+        (ExecuteRefusal::EarlierFailure(shot), ShotSet::ids(0..4)),
+        (ExecuteRefusal::ShotNotHeld(shot), ShotSet::ids(0..4)),
+        (
+            ExecuteRefusal::NotReady {
+                shot,
+                why: "the device is calibrating".into(),
+            },
+            ShotSet::ids(2..6),
+        ),
     ] {
         let mut runner = runner(
             measure()
@@ -77,7 +86,7 @@ fn a_refused_shot_ends_the_run_naming_it() {
                     refusal: refusal.clone(),
                 }),
         );
-        let error = failed(runner.run(&ShotSet::ids(0..4), SEED));
+        let error = failed(runner.run(&shots, SEED));
         assert_eq!(error.shot, shot, "{refusal:?}");
         assert!(
             matches!(&error.failure, Failure::Refused(why) if *why == refusal),
@@ -94,8 +103,9 @@ fn measure() -> Driver<Program> {
 /// The errors of runs refused or failed, as a user reads them: each
 /// message says the run was refused or failed, and names what is at fault
 /// with what is wrong: the shots asked and the most a run may have, the
-/// fixed seed, the part's reason, the shot and the part's error, the part
-/// that panicked and its message.
+/// fixed seed, the part's reason, the shot and the part's error, the shot
+/// of an `execute` the executor cannot take now and why, the part that
+/// panicked and its message.
 #[test]
 fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
     let log = Log::default();
@@ -130,6 +140,26 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
                 .run(&shots, SEED)
                 .map(drop),
             &["run failed", "shot 5", "the program trapped"],
+        ),
+        (
+            "an execute the executor cannot take now",
+            runner(
+                measure()
+                    >> Executor::new(Refuses {
+                        refusal: ExecuteRefusal::NotReady {
+                            shot: ShotId::new(0),
+                            why: "the device is calibrating".into(),
+                        },
+                    }),
+            )
+            .run(&shots, SEED)
+            .map(drop),
+            &[
+                "run failed",
+                "shot 0",
+                "not ready",
+                "the device is calibrating",
+            ],
         ),
         (
             "a part panicking",

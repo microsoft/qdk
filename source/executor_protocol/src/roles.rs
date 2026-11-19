@@ -39,7 +39,7 @@ pub use adapter_setup::AdapterSetup;
 pub(crate) use drive::EndedRun;
 pub use drive::{Drive, DriveError};
 pub use driver_setup::DriverSetup;
-pub use execute::{Execute, ExecuteError, ExecuteRefusal};
+pub use execute::{Execute, ExecuteError, ExecuteRefusal, RetryClass};
 pub use executor_setup::ExecutorSetup;
 pub use failure::Failure;
 pub use not_ready::NotReady;

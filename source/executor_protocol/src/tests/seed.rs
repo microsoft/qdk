@@ -3,7 +3,8 @@
 
 //! Each shot's stream is a fixed function of the run's seed and the shot's
 //! id; a derived seed's streams are apart from the run's and from other
-//! keys'.
+//! keys'; a seed carried to another process as its bits draws the same
+//! streams there.
 
 use std::collections::BTreeSet;
 
@@ -80,4 +81,24 @@ fn derived_streams_are_fixed_by_seed_and_key() {
         derived(u64::MAX, "(BpV!", u32::MAX),
         1_350_438_703_845_026_390
     );
+}
+
+/// A part that carries an `execute` to another process sends its seed as
+/// bits, and the part there rebuilds the seed from them: that seed draws,
+/// there, what the seed draws here, for the run's seed and a derived one,
+/// each shot's stream and those of the seeds derived from it.
+#[test]
+fn a_seed_rebuilt_from_its_bits_draws_the_same_streams() {
+    for seed in [Seed::new(7), Seed::new(7).derive("bit_flip")] {
+        let far = Seed::from_bits(seed.to_bits());
+        for shot in [0, 1, u32::MAX] {
+            let shot = ShotId::new(shot);
+            assert_eq!(far.shot(shot), seed.shot(shot), "{seed:?}, {shot}");
+            assert_eq!(
+                far.derive("readout").shot(shot),
+                seed.derive("readout").shot(shot),
+                "{seed:?}, {shot}, derived"
+            );
+        }
+    }
 }

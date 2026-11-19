@@ -48,8 +48,9 @@ future is `Send`.
 
 A run with a fixed seed gives the same outputs each time, from parts that
 draw only from it; a run with no seed draws one, which is not reported.
-How a part draws from the run's seed is in
-[Writing a part](writing-a-part.md#seeds).
+A part that carries an `execute` to another process carries its seed as
+bits, as [`Seed`](../src/seed.rs) says. How a part draws from the run's
+seed is in [Writing a part](writing-a-part.md#seeds).
 
 ## Where and when each check runs
 
@@ -82,7 +83,10 @@ can be corrected and sent again; or `Failed`, with a
 [`ExecuteRefusal`](../src/roles/execute.rs), when nothing of it ran, or
 `Failed`, naming the shot and its `Failure`. A driver passes either up
 with `?`, and a refusal from below then fails the run as
-`Failure::Refused`.
+`Failure::Refused`. An `ExecuteRefusal` tells, by its
+[`retry_class`](../src/roles/execute.rs), whether the same `execute` may
+be sent again: today, only `ExecuteRefusal::NotReady`, from a receiver
+that cannot take it now, may be.
 
 A `Failure` is a part's own error (`Part`), such as a program's trap; a
 refusal once the run started (`Refused`); or a part's panic (`Panicked`),

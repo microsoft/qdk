@@ -3,7 +3,10 @@
 
 //! The executor's role at run time, [`Execute`], and what an `execute`
 //! returns when it does not answer: [`ExecuteError`], with
-//! [`ExecuteRefusal`] when nothing of it ran.
+//! [`ExecuteRefusal`] when nothing of it ran, whose [`RetryClass`] says
+//! whether the part above may send it again.
+
+mod retry_class;
 
 use std::error::Error;
 use std::fmt;
@@ -12,6 +15,8 @@ use crate::{
     Batch, BatchReadouts, ExecutorSetup, Failure, InstructionFault, Needs, NotReady, Seed, ShotId,
     ShotSet,
 };
+
+pub use retry_class::RetryClass;
 
 /// Runs batches of the instructions it accepts on their shots' states.
 ///
@@ -200,9 +205,13 @@ impl Error for ExecuteError {}
 /// [`ReadoutSlotsMisstated`](Self::ReadoutSlotsMisstated). The part makes
 /// the shot refusals, since only it knows which shots it holds:
 /// [`ShotNotHeld`](Self::ShotNotHeld) and
-/// [`EarlierFailure`](Self::EarlierFailure). They share one type because
-/// the boundary is itself an [`Execute`] to the part above, which gets
-/// either kind from the `execute` it calls.
+/// [`EarlierFailure`](Self::EarlierFailure); and
+/// [`NotReady`](Self::NotReady), since only it knows whether it can take
+/// the `execute` now. They share one type because the boundary is itself
+/// an [`Execute`] to the part above, which gets either kind from the
+/// `execute` it calls. Each says, by its
+/// [`retry_class`](Self::retry_class), whether the part above may send the
+/// same `execute` again.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ExecuteRefusal {
@@ -268,6 +277,21 @@ pub enum ExecuteRefusal {
     /// The shot failed in an earlier `execute`: a bug of the part that sent
     /// it again.
     EarlierFailure(ShotId),
+    /// The receiver cannot take the `execute` now, such as a device that is
+    /// busy or calibrating, or one reached over a link that is down, and
+    /// why; `shot` is the first of its first batch. Unlike the other
+    /// refusals, the same `execute` sent again later may run
+    /// ([`RetryClass::Later`]). Where a part's [`ready`](Execute::ready)
+    /// refuses a run before anything of it runs, this refuses one
+    /// `execute` of a run under way.
+    NotReady {
+        /// The first shot of the first batch.
+        shot: ShotId,
+        /// Why it cannot take it now. A text, not an error as
+        /// [`NotReady::why`](crate::NotReady::why) is, so that the refusal
+        /// stays `Clone` and `Eq`.
+        why: String,
+    },
 }
 
 impl ExecuteRefusal {
@@ -281,7 +305,26 @@ impl ExecuteRefusal {
             | ExecuteRefusal::TooManyReadoutSlots { shot, .. }
             | ExecuteRefusal::ReadoutSlotsMisstated { shot, .. }
             | ExecuteRefusal::ShotNotHeld(shot)
-            | ExecuteRefusal::EarlierFailure(shot) => *shot,
+            | ExecuteRefusal::EarlierFailure(shot)
+            | ExecuteRefusal::NotReady { shot, .. } => *shot,
+        }
+    }
+
+    /// Whether the part above may send the same `execute` again:
+    /// [`RetryClass::Later`] for [`NotReady`](Self::NotReady),
+    /// [`RetryClass::Never`] for every other refusal. A part that retries
+    /// asks this, rather than matching variants, so that a refusal added
+    /// later with its class is retried, or not, with no change to the part.
+    #[must_use]
+    pub fn retry_class(&self) -> RetryClass {
+        match self {
+            ExecuteRefusal::NotReady { .. } => RetryClass::Later,
+            ExecuteRefusal::Instruction { .. }
+            | ExecuteRefusal::TooManyInstructions { .. }
+            | ExecuteRefusal::TooManyReadoutSlots { .. }
+            | ExecuteRefusal::ReadoutSlotsMisstated { .. }
+            | ExecuteRefusal::ShotNotHeld(_)
+            | ExecuteRefusal::EarlierFailure(_) => RetryClass::Never,
         }
     }
 }
@@ -327,6 +370,9 @@ impl fmt::Display for ExecuteRefusal {
             }
             ExecuteRefusal::EarlierFailure(shot) => {
                 write!(f, "shot {shot} failed in an earlier execute")
+            }
+            ExecuteRefusal::NotReady { shot, why } => {
+                write!(f, "not ready (first shot {shot}): {why}")
             }
         }
     }

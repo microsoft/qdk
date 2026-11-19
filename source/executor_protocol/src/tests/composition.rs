@@ -2,8 +2,9 @@
 // Licensed under the MIT License.
 
 //! Composing parts with `>>`: the fit at each boundary, the laws of the
-//! brackets, the fit and the admission reported together, and what each
-//! part gets ready for and is told on every run, as composition read it.
+//! brackets, the fit and the admission reported together, what each
+//! part gets ready for and is told on every run, as composition read it,
+//! and what a composed executor accepts and offers.
 //! The admission of a chain is in `composition/admission.rs`, running its
 //! shots in `composition/runner.rs`, the calls across its boundaries in
 //! `composition/boundary_crossing.rs`, and its parts' panics in
@@ -18,8 +19,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Profiler, Program, Shifting,
-    Spread, Values, in_each_bracketing,
+    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Offering, Profiler, Program,
+    Shifting, Spread, Values, in_each_bracketing,
 };
 use crate::{
     Adapter, BlockType, CompositionFaults, Drive, Driver, Execute, Executor, FitFaults,
@@ -349,4 +350,71 @@ fn every_boundary_answers_the_offer_read_at_composition() {
             ),
         );
     }
+}
+
+// ------------------------------------- what a composed executor tells
+
+/// A part that stands for a chain in another process reads what the chain
+/// accepts before the chain is composed with a driver: the set of its top
+/// part, an adapter's when it has one, not those of the parts below, in
+/// each bracketing, whether or not the parts below fit it.
+#[test]
+fn an_executor_accepts_the_instructions_of_its_top_part() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    assert_eq!(
+        Executor::new(Bits::accepting(no_x(), &log))
+            .accepts()
+            .name(),
+        "NoX",
+        "no adapter"
+    );
+    in_each_bracketing!(
+        [a, b, e] from {
+            let a = Adapter::new(Profiler::on(no_mz(), &counted, &log));
+            let b = Adapter::new(Profiler::new(&counted, &log));
+            let e = Executor::new(Bits::accepting(no_x(), &log));
+        },
+        |chain, brackets| assert_eq!(chain.accepts().name(), "NoMz", "{brackets}"),
+    );
+}
+
+/// A part that stands for a chain in another process reads what the chain
+/// offers before the chain is composed with a driver: the offer of its
+/// bottom part, as each adapter it holds adapts it, the lowest first, in
+/// each of the offer's limits. A queue of 8 shots over 100 qubits offers
+/// 100 qubits and 8 shots. An encoding of 7 qubits per qubit over a part
+/// reserving an ancilla, over 100 qubits, offers 14 qubits in each
+/// bracketing, where the other order would give 13.
+#[test]
+fn an_executor_offers_its_bottom_parts_offer_as_its_adapters_adapt_it() {
+    let log = Log::default();
+    let bits = || Executor::new(Bits::new(&log).offering(Offer::unlimited().max_qubits(100)));
+    let cases = [
+        (
+            "no adapter",
+            bits().offers(),
+            Offer::unlimited().max_qubits(100),
+        ),
+        (
+            "a queue of 8 shots",
+            (Adapter::new(Offering::queue(8, &log)) >> bits()).offers(),
+            Offer::unlimited().max_qubits(100).max_shots(8),
+        ),
+    ];
+    for (chain, offered, expected) in cases {
+        assert_eq!(offered, expected, "{chain}");
+    }
+    in_each_bracketing!(
+        [encoding, ancilla, e] from {
+            let encoding = Adapter::new(Spread::new(7, &log));
+            let ancilla = Adapter::new(Offering::reserving_an_ancilla(&log));
+            let e = bits();
+        },
+        |chain, brackets| assert_eq!(
+            chain.offers(),
+            Offer::unlimited().max_qubits(14),
+            "{brackets}"
+        ),
+    );
 }

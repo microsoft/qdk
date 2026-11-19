@@ -158,7 +158,9 @@ A replayable part draws each shot from a stream of its own:
 `seed.shot(id)` for the executor, and `seed.derive(key).shot(id)` for
 another part, such as a noise model, with a key no other part uses, such
 as `"bit_flip"`. [`seed.rs`](../src/seed.rs) says which stream each part
-takes, why, and how the streams are computed.
+takes, why, and how the streams are computed, and how a part that
+carries an `execute` to another process carries its seed
+(`Seed::to_bits` and `from_bits`).
 
 A part whose draws for a shot depend on the shots run beside it offers
 `Offer::not_replayable`, so that the admission refuses it where a need for

@@ -5,7 +5,7 @@
 //! nothing goes below it.
 
 use super::check;
-use crate::{Execute, FitFaults};
+use crate::{Execute, FitFaults, InstructionSet, Offer};
 
 /// An executor, ready to compose with `>>`.
 pub struct Executor<E: Execute> {
@@ -25,5 +25,20 @@ impl<E: Execute> Executor<E> {
     /// As [`Driver::check`](crate::Driver::check).
     pub fn check(&self) -> Result<(), &[FitFaults]> {
         check(&self.fit)
+    }
+
+    /// The instructions it accepts: its top part's, which the part above it
+    /// is fitted to. A part that stands for this executor in another
+    /// process reads it to accept what this executor does.
+    pub fn accepts(&self) -> &InstructionSet {
+        self.part.accepts()
+    }
+
+    /// Its offer, as it reaches the part above it: its bottom part's,
+    /// adapted by each adapter it holds, the lowest first. A part that
+    /// stands for this executor in another process reads it, as it reads
+    /// [`accepts`](Self::accepts), to offer what this executor does.
+    pub fn offers(&self) -> Offer {
+        self.part.offers()
     }
 }

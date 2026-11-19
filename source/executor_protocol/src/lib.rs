@@ -42,6 +42,6 @@ pub use needs::{Needs, UnmetNeed};
 pub use offer::Offer;
 pub use roles::{
     Adapt, AdapterSetup, Drive, DriveError, DriverSetup, Execute, ExecuteError, ExecuteRefusal,
-    ExecutorSetup, Failure, NotReady,
+    ExecutorSetup, Failure, NotReady, RetryClass,
 };
 pub use seed::Seed;
