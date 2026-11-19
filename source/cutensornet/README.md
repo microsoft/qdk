@@ -8,9 +8,9 @@ QDK. The problem includes:
 - an MPS engine's rules (where the orthogonality centre moves, how gates
   are fused and applied, what a truncation keeps track of) are the same on
   the CPU and on a GPU; written once per backend, they drift apart;
-- the instances a GPU is wanted for lie beyond the CPU's reach, such as
-  chemistry at a large bond extent, so their site tensors should stay in
-  the GPU's memory and be factored there;
+- the instances a GPU is wanted for are slow on the CPU, such as
+  chemistry at a large bond dimension, so their site tensors should stay
+  in the GPU's memory and be factored there;
 - most QDK users have neither cuTensorNet nor the CUDA Runtime it runs on
   (NVIDIA's library for driving a GPU), so the QDK must build, load and
   simulate on the CPU without them;
@@ -57,12 +57,11 @@ or runs on `canonical_mps`'s `CpuMpsEngine`.
 
 ## The MPS engine
 
-**The problem.** Of an MPS engine, only where the site tensors live and
-which library factors them differ between the CPU and a GPU.
+**The problem.** Between a CPU and a GPU engine, only where the site
+tensors live and which library factors them differ; the rest must not be
+written twice.
 
-**How it is solved.** `canonical_mps` writes the engine once, over the
-five tensor operations of its `SiteAlgebra` trait, and this crate writes
-only those operations, on cuTensorNet: [`CudaMpsEngine`](src/engine.rs) is
+**How it is solved.** [`CudaMpsEngine`](src/engine.rs) is
 `CanonicalMpsEngine<CudaAlgebra>`. What the engine does, and the contract
 its algebra meets, are in
 [`canonical_mps`'s README](../canonical_mps/README.md#the-backend-contract)
@@ -78,9 +77,9 @@ calls of each phase and the numerics, and each file's header the details.
   checked by `canonical_mps`'s conformance kit.
 - **Compared read by read.** The GPU engine reads as `canonical_mps`'s
   `CpuMpsEngine` does, up to rounding.
-- **Reach.** The GPU engine is for the instances beyond the CPU's reach:
-  its sites live in the GPU's memory, where cuTensorNet factors them, and
-  only an upload or a read copies one between the host and the GPU.
+- **Speed.** The GPU engine is for the instances slow on the CPU: its
+  sites live in the GPU's memory, where cuTensorNet factors them, and only
+  an upload or a read copies one between the host and the GPU.
 
 Here the engine's `MpsEngine` methods call the _`SiteAlgebra` methods_
 (`upload`, `read`, `duplicate`, `gate_split`, `qr_move`), which this
