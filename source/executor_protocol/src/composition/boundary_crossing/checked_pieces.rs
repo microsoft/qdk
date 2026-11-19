@@ -34,8 +34,8 @@ pub(crate) struct CheckedPieces<'a, I> {
     before: usize,
     /// The readout slots of the pieces checked so far.
     slots: u32,
-    /// Whether the stream ended, or was refused.
-    ended: bool,
+    /// Whether a piece was refused, which ends the stream.
+    refused: bool,
     /// The fault of a piece after the first, once found, its position
     /// counted from the stream's first instruction.
     later_fault: &'a Cell<Option<BatchFault>>,
@@ -58,7 +58,7 @@ impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
             piece: VecDeque::new(),
             before: 0,
             slots: 0,
-            ended: false,
+            refused: false,
             later_fault,
         };
         pieces.check_next_piece()?;
@@ -69,11 +69,10 @@ impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
     /// whole; on a fault, the stream ends, and the fault is returned, its
     /// position counted from the stream's first instruction.
     fn check_next_piece(&mut self) -> Result<(), BatchFault> {
+        // The boundary fuses `instructions`, so a pull after the stream's
+        // end makes an empty piece.
         self.piece
             .extend(self.instructions.by_ref().take(self.most));
-        // A short piece is the last: the source is not asked again once it
-        // has ended, fused or not.
-        self.ended = self.piece.len() < self.most;
         if self.piece.is_empty() {
             return Ok(());
         }
@@ -87,7 +86,7 @@ impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
             }
             Err(fault) => {
                 self.piece.clear();
-                self.ended = true;
+                self.refused = true;
                 Err(fault.after(self.before))
             }
         }
@@ -99,7 +98,7 @@ impl<I: Iterator<Item = Instruction>> Iterator for CheckedPieces<'_, I> {
 
     fn next(&mut self) -> Option<Instruction> {
         if self.piece.is_empty() {
-            if self.ended {
+            if self.refused {
                 return None;
             }
             if let Err(fault) = self.check_next_piece() {

@@ -710,6 +710,87 @@ impl Execute for PanicsAfterAStream {
     }
 }
 
+/// Bits whose own `execute_stream` pulls the stream in chunks of `chunk`
+/// (`by_ref().take(chunk)`) until a chunk comes empty, so after a short
+/// chunk, which met the stream's end, it pulls again; it logs how many
+/// instructions it pulled, then runs them on the bits' own
+/// `execute_stream`. A receiver that pulls past the end, as a receiver
+/// may.
+struct PullsInChunks {
+    bits: Bits,
+    chunk: usize,
+    log: Log,
+}
+
+impl PullsInChunks {
+    fn new(bits: Bits, chunk: usize, log: &Log) -> Self {
+        Self {
+            bits,
+            chunk,
+            log: log.clone(),
+        }
+    }
+
+    /// What it logs having pulled `count` instructions.
+    fn pulled(count: usize) -> String {
+        format!("PullsInChunks pulled {count}")
+    }
+}
+
+impl ExecutorSetup for PullsInChunks {
+    fn accepts(&self) -> &InstructionSet {
+        self.bits.accepts()
+    }
+
+    fn offers(&self) -> Offer {
+        self.bits.offers()
+    }
+}
+
+impl Execute for PullsInChunks {
+    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
+        self.bits.ready(needs).await
+    }
+
+    async fn execute(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        self.bits.execute(batches, seed, readouts).await
+    }
+
+    async fn execute_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        let checked = stream.is_checked();
+        let InstructionStream {
+            shots,
+            mut instructions,
+            ..
+        } = stream;
+        let mut pulled = Vec::new();
+        loop {
+            let chunk: Vec<Instruction> = instructions.by_ref().take(self.chunk).collect();
+            if chunk.is_empty() {
+                break;
+            }
+            pulled.extend(chunk);
+        }
+        self.log.push(Self::pulled(pulled.len()));
+        let stream = InstructionStream::new(shots, pulled.into_iter()).checked_if(checked);
+        self.bits.execute_stream(stream, seed, readouts).await
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        self.bits.end_shots(shots);
+    }
+}
+
 /// The error a [`StreamsBeyondItsNeeds`] on shots 4 and 2, with its flip
 /// at `beyond_at`, checked if `checked`, keeps from its stream to
 /// `executor`.
@@ -739,7 +820,9 @@ fn streamed_beyond_the_needs(
 /// each before any of it reaches the bits, the first before the bits are
 /// called, even those that run streams themselves; an unchecked one by
 /// the bits, at the piece the default sends them. The boundary's refusal
-/// is the answer, even when the bits panic once the stream ends short.
+/// is the answer, even when the bits panic once the stream ends short;
+/// and bits that pull again after the stream's end, in chunks of 3 that
+/// cut across its pieces, get none of the instructions after the fault.
 #[test]
 fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
     let capped = |log: &Log| {
@@ -761,6 +844,7 @@ fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
     for (checked, beyond_at, pieces_ran) in [
         (true, 0, 0),
         (true, 1, 0),
+        (true, 3, 1),
         (true, 4, 2),
         (false, 1, 0),
         (false, 3, 1),
@@ -795,15 +879,22 @@ fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
             // The bits' own `execute_stream` does not check its blocks.
             continue;
         }
-        for (receiver, panics) in [
-            ("the bits' own", false),
-            ("the bits' own, then a panic", true),
+        for receiver in [
+            "the bits' own",
+            "the bits' own, then a panic",
+            "the bits' own, pulled in chunks of 3",
         ] {
             let log = Log::default();
-            let error = if panics {
-                streamed_beyond_the_needs(beyond_at, checked, PanicsAfterAStream(capped(&log)))
-            } else {
-                streamed_beyond_the_needs(beyond_at, checked, capped(&log))
+            let error = match receiver {
+                "the bits' own" => streamed_beyond_the_needs(beyond_at, checked, capped(&log)),
+                "the bits' own, then a panic" => {
+                    streamed_beyond_the_needs(beyond_at, checked, PanicsAfterAStream(capped(&log)))
+                }
+                _ => streamed_beyond_the_needs(
+                    beyond_at,
+                    checked,
+                    PullsInChunks::new(capped(&log), 3, &log),
+                ),
             };
             assert!(expected(error.as_ref()), "{case}, by {receiver}: {error:?}");
             assert_eq!(
@@ -811,6 +902,20 @@ fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
                 usize::from(pieces_ran > 0),
                 "{case}, by {receiver}: the bits' own are called only past the first piece, {:?}",
                 log.entries()
+            );
+            let pulled: Vec<String> = log
+                .entries()
+                .into_iter()
+                .filter(|entry| entry.starts_with("PullsInChunks"))
+                .collect();
+            let reached = if receiver.ends_with("chunks of 3") && pieces_ran > 0 {
+                vec![PullsInChunks::pulled(2 * pieces_ran)]
+            } else {
+                vec![]
+            };
+            assert_eq!(
+                pulled, reached,
+                "{case}, by {receiver}: only the pieces before the fault reach it"
             );
         }
     }
@@ -862,8 +967,10 @@ impl Drive for ResumesAfterItsEnd {
 
 /// A stream from a source that gives more after its first `None`, checked
 /// or not, to bits taking at most 2 instructions per batch, which run
-/// streams themselves or cut them by the default: the stream ends at the
-/// first `None`, after a short piece, so its readouts hold its 3 reads.
+/// streams themselves, cut them by the default, or pull them in chunks of
+/// 2 until one comes empty, so again after the first `None`: the stream
+/// ends at the first `None`, after a short piece, so its readouts hold its
+/// 3 reads.
 #[test]
 fn a_stream_ends_at_its_senders_first_none() {
     let capped = |log: &Log| {
@@ -886,6 +993,15 @@ fn a_stream_ends_at_its_senders_first_none() {
             .run(&ShotSet::ids(0..2), SEED)
             .expect("the run succeeds");
         assert_eq!(by_default, vec![3; 2], "checked: {checked}, by the default");
+        let in_chunks =
+            runner(driver() >> Executor::new(PullsInChunks::new(capped(&log), 2, &log)))
+                .run(&ShotSet::ids(0..2), SEED)
+                .expect("the run succeeds");
+        assert_eq!(
+            in_chunks,
+            vec![3; 2],
+            "checked: {checked}, pulled in chunks of 2, again after the end"
+        );
     }
 }
 

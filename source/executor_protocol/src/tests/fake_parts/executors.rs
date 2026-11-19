@@ -34,6 +34,9 @@ pub(crate) struct Bits {
     busy: Option<&'static str>,
     /// Whether a shot loses every value it reads, and is found suspect.
     loses: fn(ShotId) -> bool,
+    /// The qubit whose toss makes a batch find its shots inconsistent, if
+    /// any.
+    inconsistent_tossing: Option<u32>,
     /// Whether each `execute` fails once it has run its shots.
     fails: bool,
     /// Whether an `execute` refuses, itself, a batch with a block beyond
@@ -60,6 +63,7 @@ impl Bits {
             shots: BTreeMap::new(),
             busy: None,
             loses: |_| false,
+            inconsistent_tossing: None,
             fails: false,
             checks_blocks: false,
             set_once_ready: None,
@@ -99,6 +103,14 @@ impl Bits {
     /// conditions.
     pub(crate) fn losing_odd_shots(mut self) -> Self {
         self.loses = |id| id.get() % 2 == 1;
+        self
+    }
+
+    /// These bits, finding each shot inconsistent in a batch that tosses
+    /// `qubit`, beside any other condition: a batch's conditions then
+    /// depend on which of the program's instructions it holds.
+    pub(crate) fn inconsistent_tossing(mut self, qubit: u32) -> Self {
+        self.inconsistent_tossing = Some(qubit);
         self
     }
 
@@ -273,6 +285,7 @@ impl Bits {
         mut ran: impl FnMut(usize, usize, &BatchReadouts),
     ) {
         let ([h, x, mz], loses) = (self.opcodes, self.loses);
+        let inconsistent_tossing = self.inconsistent_tossing;
         for (index, (batch, batch_readouts)) in batches.iter().zip(readouts).enumerate() {
             for (position, id) in batch.shots.iter().enumerate() {
                 let (qubits, lost) = (self.qubits, loses(id));
@@ -281,11 +294,18 @@ impl Bits {
                     .entry(id)
                     .or_insert_with(|| (vec![false; qubits], RandomGenerator(seed.shot(id))));
                 let mut row = batch_readouts.row_mut(position).iter_mut();
+                let mut raised = ShotConditions::NONE;
+                if lost {
+                    raised |= ShotConditions::REJECTED;
+                }
                 for instruction in batch.instructions {
                     let q = instruction.blocks[0] as usize;
                     let opcode = Some(instruction.opcode);
                     if opcode == h {
                         bits[q] = random.chance(0.5);
+                        if inconsistent_tossing == Some(instruction.blocks[0]) {
+                            raised |= ShotConditions::INCONSISTENT;
+                        }
                     } else if opcode == x {
                         bits[q] = !bits[q];
                     } else if opcode == mz {
@@ -298,8 +318,8 @@ impl Bits {
                         };
                     }
                 }
-                if lost {
-                    batch_readouts.set_conditions(position, ShotConditions::REJECTED);
+                if !raised.is_empty() {
+                    batch_readouts.set_conditions(position, raised);
                 }
                 ran(index, position, batch_readouts);
             }

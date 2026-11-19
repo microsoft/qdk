@@ -15,8 +15,9 @@ use crate::{
 /// The most instructions of a piece when the receiver's offer sets no most
 /// ([`Offer::max_instructions`](crate::Offer::max_instructions)): enough
 /// that the cost of a call per piece is spread thin (the bench's `stream`
-/// section times it), few enough that a piece stays small beside a shot's
-/// state.
+/// section times it, and is flat from about 100 per piece up), few enough
+/// that a piece stays small beside a shot's state. The bench compares its
+/// pieces with batches of the same size, stated there again.
 const PIECE: usize = 1024;
 
 /// The most instructions of a piece for a receiver whose most is `most`:

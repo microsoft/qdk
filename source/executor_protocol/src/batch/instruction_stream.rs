@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A batch whose instructions come as they are produced:
+//! A stream of instructions, the streamed counterpart of a batch:
 //! [`InstructionStream`], what
 //! [`Execute::execute_stream`](crate::Execute::execute_stream) runs.
 
@@ -22,8 +22,9 @@ use crate::{Instruction, ShotSet};
 /// states no readout slots: the sender could not count them without
 /// holding the program, so the receiver counts them as it runs.
 ///
-/// [`new`](Self::new) makes a stream, unchecked; its fields are public,
-/// and its checks are read by [`is_checked`](Self::is_checked).
+/// [`new`](Self::new) makes a stream, unchecked; its `shots` and
+/// `instructions` are public, and its checks are read by
+/// [`is_checked`](Self::is_checked).
 #[derive(Clone, Debug)]
 pub struct InstructionStream<'a, I> {
     /// The shots the instructions run on, in the order of its readouts'
@@ -31,7 +32,8 @@ pub struct InstructionStream<'a, I> {
     pub shots: &'a ShotSet,
     /// The instructions, run in order on each shot, pulled as they run.
     /// The stream ends at the iterator's first `None`, which need not be
-    /// fused: the protocol's checks and default cuts never pull past it.
+    /// fused: each boundary the stream crosses gives its receiver nothing
+    /// after it, and the default cuts never pull past it.
     pub instructions: I,
     /// Whether each boundary that receives it checks each piece before it
     /// runs.
@@ -52,9 +54,10 @@ impl<'a, I: Iterator<Item = Instruction>> InstructionStream<'a, I> {
         }
     }
 
-    /// This stream, checked: each boundary that receives it checks it as
-    /// [`Batch::checked`](crate::Batch::checked) checks a batch, a piece at
-    /// a time, each piece before any of its instructions reaches the
+    /// This stream, checked: each boundary that receives it checks each
+    /// piece's instructions as it checks a
+    /// [`checked`](crate::Batch::checked) batch's, each piece before any of
+    /// its instructions reaches the
     /// receiver, and the first before the receiver is called, so a refused
     /// piece runs nothing; the pieces before it may have run. A refusal
     /// names the stream as batch 0, and an instruction by its position in

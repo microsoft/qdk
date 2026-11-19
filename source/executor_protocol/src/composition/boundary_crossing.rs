@@ -172,7 +172,8 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// caller in a catch, so that a panic there is the caller's: the
     /// stream ends there, and the panic is raised again once the receiver
     /// answers, or once the stream's first piece is refused, through the
-    /// caller's call. A
+    /// caller's call. The stream ends at the caller's first `None`: the
+    /// receiver gets nothing after it, however often it pulls. A
     /// [`checked`](InstructionStream::checked) stream is checked a piece
     /// at a time, each piece of the most instructions the receiver takes
     /// (as its `execute_stream` cuts them by default) before any of it
@@ -195,9 +196,16 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
             ..
         } = stream;
         let mut callers = CallersCallback::new(instructions);
+        // Fused: the caller's source need not be, and no receiver may get
+        // an instruction after the stream's end.
+        let mut ended = false;
         let pulled = iter::from_fn(|| {
+            if ended {
+                return None;
+            }
             let mut next = None;
             callers.call(|instructions| next = instructions.next());
+            ended = next.is_none();
             next
         });
         let later_fault = Cell::new(None);

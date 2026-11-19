@@ -93,28 +93,30 @@ fn sent_whole(
 /// whole, then in 2 to 5 `execute`s cut at seeded points, then as one
 /// stream, to receivers taking at most 1, 2, 5, 12 instructions, or any
 /// count, and executors that run the stream themselves or cut it by the
-/// default, losing no shot or the odd shots, directly, through an adapter
-/// that forwards streams or one that cuts them by its default, in each
-/// bracketing, and behind `&mut`: each shot's readouts and conditions are
-/// those of the program sent whole, since its state is kept between
-/// calls, and a condition is kept from every piece, even one that reads
-/// nothing.
+/// default, raising no condition, or losing the odd shots (in every
+/// piece) and finding every shot inconsistent in the piece that tosses
+/// qubit 0 (in one), directly, through an adapter that forwards streams
+/// or one that cuts them by its default, in each bracketing, and behind
+/// `&mut`: each shot's readouts and conditions are those of the program
+/// sent whole, since its state is kept between calls, and its conditions
+/// are the union of its pieces', even of a piece that reads nothing.
 #[test]
 fn a_shots_readouts_are_the_same_however_its_instructions_are_split_over_calls() {
     let shots = ShotSet::ids(0..5);
     let reading_nothing = reading_nothing();
     let plain: MakesBits = |bits| bits;
+    let raising: MakesBits = |bits| bits.losing_odd_shots().inconsistent_tossing(0);
     let programs = [
         ("reads through it", &PROGRAM, plain),
         (
-            "reads through it, odd shots lost",
+            "reads through it, odd shots lost, inconsistent where qubit 0 is tossed",
             &PROGRAM,
-            Bits::losing_odd_shots,
+            raising,
         ),
         (
-            "reads nothing, odd shots lost",
+            "reads nothing, odd shots lost, inconsistent where qubit 0 is tossed",
             &reading_nothing,
-            Bits::losing_odd_shots,
+            raising,
         ),
     ];
     for (program_named, program, executor) in programs {
@@ -191,17 +193,15 @@ fn sent_in_every_split(
 /// A driver sending [`PROGRAM`] as one stream, each instruction made only
 /// when pulled, to an executor that cuts it by the default and takes at
 /// most 5, 4, 12, 13, 0 instructions, or any count, directly or through an
-/// adapter that forwards streams, or one that cuts them by its default,
-/// in each bracketing: each piece holds at most the receiver's most, a
+/// adapter that forwards streams, in each bracketing: each piece holds at
+/// most the executor's most, a
 /// short piece only at the end, and when each runs, the driver has made
 /// only the instructions of the pieces so far, so no part holds more than
 /// a piece of the stream. An executor taking 0 instructions a batch gets
-/// pieces of 1, rather than a stream that runs nothing (not through an
-/// adapter cutting by its default, whose pieces of 1 the boundary below it
-/// refuses). An empty stream runs no piece, and gets a row of no value per
-/// shot.
+/// pieces of 1, rather than a stream that runs nothing. An empty stream
+/// runs no piece, and gets a row of no value per shot.
 #[test]
-fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
+fn execute_stream_by_default_runs_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
     let shots = ShotSet::ids(0..3);
     let stream = |program: &[(&str, u32)], produced: &Rc<Cell<usize>>| {
         Driver::new(Program::new(program).sending_as(Sending::stream_counted(produced)))
@@ -243,20 +243,6 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
         }, |chain, brackets| {
             runner(chain).run(&shots, SEED).expect("the run succeeds");
             seen(&log, &format!("an adapter forwarding streams, {brackets}"));
-        });
-        if most == Some(0) {
-            // An adapter cutting by its default, offering 0 above as the
-            // bits do, sends pieces of 1 below, which the boundary refuses.
-            continue;
-        }
-        in_each_bracketing!([d, a, e] from {
-            let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
-            let d = stream(program, &produced);
-            let a = Adapter::new(Spread::new(1, &log));
-            let e = Executor::new(SeesPieces::new(bits(&log, most), &produced, &log));
-        }, |chain, brackets| {
-            runner(chain).run(&shots, SEED).expect("the run succeeds");
-            seen(&log, &format!("an adapter cutting streams by the default, {brackets}"));
         });
     }
 }

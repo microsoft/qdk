@@ -299,8 +299,9 @@ bypassed:
   shot set's instructions, pulled from the sender's iterator as they
   run, gets the readouts of the same instructions sent whole. By
   default, the protocol cuts it into pieces of at most the receiver's
-  most instructions per batch, or 1 for a receiver taking none, and
-  holds one piece of it at a time.
+  most instructions per batch, or 1 for a receiver taking none, or about
+  a thousand for one that sets none, and holds one piece of it at a
+  time.
 
 Each boundary checks each piece of a checked stream that its receiver
 pulls, before any of the piece reaches it, as it checks a checked

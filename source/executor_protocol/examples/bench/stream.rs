@@ -29,9 +29,10 @@ use crate::workload::QUBITS;
 const MOSTS: [Option<u32>; 5] = [Some(10), Some(100), Some(1_000), Some(10_000), None];
 
 /// The batch size the batches are compared at when the executor sets no
-/// most: "a thousand or so", as `execute_stream`'s rustdoc gives the
-/// protocol's own piece size.
-const WHEN_NONE: usize = 1_000;
+/// most: the protocol's own piece size then, `PIECE` in
+/// `src/roles/stream_pieces.rs`, so that the stream and the batches are
+/// of one size.
+const WHEN_NONE: usize = 1_024;
 
 /// Per piece size, the program in batches as held, cut by the driver, and
 /// as a stream, in ns per instruction, and the stream's time over the
@@ -72,7 +73,9 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
             stream / cut
         );
     }
-    println!("  * the executor sets no most: the protocol's own pieces, batches of {WHEN_NONE}");
+    println!(
+        "  * the executor sets no most: the protocol's own pieces of {WHEN_NONE}, batches of {WHEN_NONE}"
+    );
 }
 
 /// How the program goes below.
