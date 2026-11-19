@@ -129,9 +129,9 @@ over the kept elements $x$, with $m$ their largest modulus, not as
 $\sqrt{p}$, so the site it hands the algebra, and with it the state, has a
 norm of 1 to rounding, even when $p$ is subnormal, and later projections
 stay possible. It truncates nothing, so $W$ is unchanged, and it does not
-compress the chain again: recompressing was measured slower at the same
-accuracy, on H₂ phase estimation and a polyene's, as the gates that follow
-regrow the bonds it shrinks.
+compress the chain again: recompressing was measured 1 to 14% slower at
+the same accuracy, on H₂ phase estimation and a polyene's, as the gates
+that follow regrow the bonds it shrinks.
 
 **An expectation.** An observable $c_0 + \sum_k c_k P_k$, each $P_k$ a
 product of one-site Paulis, has the value
