@@ -5,13 +5,16 @@
 //! once `execute` answers `Ok` and none when it fails; a shot's readouts
 //! however its instructions are split over calls, by `execute` or
 //! `execute_stream`; a stream run in pieces of at most the receiver's
-//! most, each pulled only once the one before it answered; an executor's
+//! most, each pulled only once the one before it answered, so that a
+//! run dropped while a piece runs has pulled no more; an executor's
 //! own `execute_stream` reached through the parts that forward it; and
 //! a shot's rows over several `execute_each`s.
 
 use std::cell::Cell;
 use std::collections::BTreeSet;
+use std::pin::pin;
 use std::rc::Rc;
+use std::task::{Context, Waker};
 
 use crate::tests::composition::runner::{SEED, failed, runner};
 use crate::tests::fake_parts::{
@@ -264,6 +267,34 @@ fn execute_stream_by_default_runs_pieces_within_the_receivers_most_each_pulled_a
     }
 }
 
+/// A driver sending a stream, each instruction made only when pulled, to
+/// an executor that cuts it by the default, takes at most 5 instructions
+/// or any count, and answers each `execute` on a later poll, as a device
+/// does: when the run's future is dropped after its first poll, as a
+/// caller cancels a run, the sender has made the first piece and no more,
+/// so a cancelled run of a long stream stops within a piece.
+#[test]
+fn execute_stream_by_default_pulls_no_more_than_a_piece_before_its_run_is_dropped() {
+    let past_a_piece = vec![("x", 0); 2500];
+    let shots = ShotSet::ids(0..3);
+    for (program, most, piece) in [(&PROGRAM[..], Some(5), 5), (&past_a_piece, None, 1024)] {
+        let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
+        let mut runner = runner(
+            Driver::new(Program::new(program).sending_as(Sending::stream_counted(&produced)))
+                >> Executor::new(Later(bits(&log, most))),
+        );
+        {
+            let mut run = pin!(runner.run_async(&shots, SEED));
+            let polled = run.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+            assert!(
+                polled.is_pending(),
+                "at most {most:?}: the first piece waits"
+            );
+        }
+        assert_eq!(produced.get(), piece, "at most {most:?}, once dropped");
+    }
+}
+
 /// The pieces a [`SeesPieces`] logged running, in order.
 pub(crate) fn pieces_run(log: &Log) -> Vec<String> {
     log.entries()
@@ -289,7 +320,7 @@ pub(crate) fn pieces_made(pieces: &[usize]) -> Vec<String> {
 /// streams, in each bracketing, and behind `&mut`: the bits' own
 /// `execute_stream` gets the stream, once, never cut into `execute`s, and
 /// so does each adapter's own `adapt_stream`, so a part that takes streams
-/// whole is never bypassed, not even by an empty stream.
+/// in one call is never bypassed, not even by an empty stream.
 #[test]
 fn an_executors_own_execute_stream_is_reached_through_every_part_that_forwards_it() {
     for program in [&PROGRAM[..], &[]] {

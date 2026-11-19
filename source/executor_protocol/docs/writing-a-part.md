@@ -154,11 +154,11 @@ The protocol does not check these; the rustdoc of each role, and of
   so that `each` need not be `Send`
   ([`Execute::execute_each`](../src/roles/execute.rs) says what holds
   after an error);
-- a part that takes a stream whole ([Streaming](#streaming)) answers
-  with the readouts the same instructions would get as one batch, keeps
-  the shots' states after it as after an `execute`, and pulls the
-  stream's instructions only as it runs them, so that its sender holds no
-  more of the program than it would by the default;
+- a part that takes a stream in one call ([Streaming](#streaming))
+  answers with the readouts the same instructions would get as one
+  batch, keeps the shots' states after it as after an `execute`, and
+  pulls the stream's instructions only as it runs them, so that its
+  sender holds no more of the program than it would by the default;
 - a part that draws seeds its random-number generators from the run's
   seed, one per shot if it is replayable, as [Seeds](#seeds) says;
 - a `drive`, `adapt` or `execute` does its work when its future is first
@@ -228,7 +228,7 @@ stream, as one batch would:
 
 | Method                                               | By default                                                                                                                                                                                                                                                                                | A part overrides it when                                                                                                                                                                 |
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`Execute::execute_stream`](../src/roles/execute.rs) | `execute` of one piece at a time, each one batch of at most the executor's most instructions per batch (1 if it takes none) and at most about a thousand, pulled from the iterator only once the piece before it answered; each piece's readouts are joined to those before as it answers | it applies instructions as they come, such as a simulator, or passes the stream on whole, such as a link to a remote executor                                                            |
+| [`Execute::execute_stream`](../src/roles/execute.rs) | `execute` of one piece at a time, each one batch of at most the executor's most instructions per batch (1 if it takes none) and at most about a thousand, pulled from the iterator only once the piece before it answered; each piece's readouts are joined to those before as it answers | it applies instructions as they come, such as a simulator, or passes the stream on as it comes, such as a link to a remote executor                                                      |
 | [`Adapt::adapt_stream`](../src/roles/adapt.rs)       | `adapt` of one piece at a time, each of at most the most instructions per batch it offers above, as for `execute_stream`                                                                                                                                                                  | its instructions below follow from those it gets one by one, such as a code that lowers each logical instruction: it passes its own stream below, so that an executor's own form gets it |
 
 So by default a part holds one piece of the stream, never the whole
@@ -243,10 +243,28 @@ so it holds one piece however much its receiver takes at once. A refusal
 ends the stream: of its first piece, as a refusal, nothing having run;
 of a later piece, as a failure, the pieces before it having run, and a
 piece refused by the boundary running nothing if the receiver cuts the
-stream by the default. A receiver that takes the stream whole gets it a
-checked piece at a time too, and may have run what it pulled before the
-refused piece. A panic in the stream's iterator is the sender's, as one
+stream by the default. A receiver that takes the stream in one call gets
+it a checked piece at a time too, and may have run what it pulled before
+the refused piece. A panic in the stream's iterator is the sender's, as one
 in `each` is.
+
+A part that overrides a `_stream` form keeps two rules, which the
+default keeps. Its `Ok` means it took the stream whole: it pulled every
+instruction, though it need not pull the stream's end, as a part that
+stops at a count it knows; after an `Ok`, each boundary asks the sender
+once more, unless the stream ended, and fails the stream naming the
+receiver if an instruction is left, since readouts of a prefix of the
+stream would pass for those of the whole. And it stays cancellable: it
+awaits at least once per piece's worth of instructions (a piece's
+`execute`, a device, a link, a yield to the async runtime), so that a
+run whose future is dropped stops within a piece; the default awaits
+each piece's `execute` before it pulls the next.
+
+A stream bounds memory only as far as its source is lazy: a driver that
+reads a compiled program holds what its source holds, however the stream
+is cut. Values that are not readouts, such as a simulator's final state,
+do not cross a boundary: compose the part that makes them by `&mut`, and
+read them from it after the run answers `Ok`.
 
 ## Seeds
 

@@ -310,7 +310,8 @@ bypassed:
 Each boundary checks a checked stream in those pieces, each before any
 of it reaches the receiver, as it checks a checked batch's instructions,
 so a boundary holds one piece of it however much its receiver takes at
-once. [Writing a part](docs/writing-a-part.md#streaming)
+once. Every stream's `Ok` means its receiver took it whole, which each
+boundary checks. [Writing a part](docs/writing-a-part.md#streaming)
 gives each form's default, when a part overrides it, and what holds
 after an error or a panic.
 

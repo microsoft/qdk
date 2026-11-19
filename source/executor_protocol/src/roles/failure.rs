@@ -16,8 +16,9 @@ use crate::{ExecuteRefusal, PartId};
 /// failed: of the batch, for a refusal; of the first batch, for a panic in
 /// an `execute`, which includes a panic in an `end_shots` an adapter calls
 /// in one of its `adapt` methods; of the stream's shots, for a panic in an
-/// `execute_stream`; of the run, for the driver's panic, which includes a
-/// panic in an `end_shots` the driver calls on the chain below.
+/// `execute_stream` or a stream not taken whole; of the run, for the
+/// driver's panic, which includes a panic in an `end_shots` the driver
+/// calls on the chain below.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Failure {
@@ -55,6 +56,17 @@ pub enum Failure {
     },
     /// An `execute` was refused once the run had started.
     Refused(ExecuteRefusal),
+    /// A part answered `Ok` to a stream
+    /// ([`Execute::execute_stream`](crate::Execute::execute_stream), or an
+    /// adapter's [`adapt_stream`](crate::Adapt::adapt_stream)) before
+    /// taking it whole: its sender still had an instruction to give. Its
+    /// readouts would be those of a prefix of the stream, which its sender
+    /// could not tell from those of the whole. The protocol's boundary
+    /// finds it, asking the sender once more after the `Ok`.
+    StreamNotTakenWhole {
+        /// The part that answered early.
+        part: PartId,
+    },
 }
 
 impl fmt::Display for Failure {
@@ -70,6 +82,9 @@ impl fmt::Display for Failure {
                 message: None,
             } => write!(f, "{part} panicked"),
             Failure::Refused(refusal) => write!(f, "an execute was refused: {refusal}"),
+            Failure::StreamNotTakenWhole { part } => {
+                write!(f, "{part} answered a stream before taking it whole")
+            }
         }
     }
 }

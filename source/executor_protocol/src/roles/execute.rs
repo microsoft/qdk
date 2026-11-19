@@ -204,7 +204,27 @@ pub trait Execute: ExecutorSetup {
     /// becomes `readouts`: at most about twice the stream's readouts,
     /// however small or large its pieces. An executor that applies
     /// instructions as they come, such as a simulator, or one that passes
-    /// them on over a network, overrides it, to take the stream whole.
+    /// them on over a network, overrides it, to take the stream in one call.
+    ///
+    /// Two rules hold for an executor that overrides it, which the default
+    /// keeps:
+    ///
+    /// - `Ok` means it took the stream whole: it pulled every instruction
+    ///   up to the stream's end, though it need not pull the final `None`
+    ///   (an executor that stops at a count it knows). Readouts of a prefix
+    ///   of the stream, answered `Ok`, are a wrong result its sender could
+    ///   not tell. Through the protocol's boundary, an `Ok` with instructions
+    ///   left fails ([`Failure::StreamNotTakenWhole`], naming the
+    ///   executor): after the `Ok`, unless the stream already ended, the
+    ///   boundary asks the sender once more, and only once.
+    /// - It stays cancellable: at least once per piece's worth of
+    ///   instructions (as many as the default would put in a piece), it
+    ///   awaits something that can be pending (a piece's `execute`, a
+    ///   device, a link, a yield to the async runtime), so that a run of
+    ///   hours stops within a piece when its future is dropped. The default
+    ///   awaits each piece's `execute` before it pulls the next: dropped
+    ///   while that `execute` is pending, it has pulled that piece and no
+    ///   more.
     ///
     /// A refusal ends the stream: of the first piece, as an
     /// [`ExecuteError::Refused`], nothing having run; of a later one, as a
@@ -221,7 +241,7 @@ pub trait Execute: ExecutorSetup {
     /// pieces the default cuts, each before any of it reaches the executor,
     /// the first before the executor is called, so that a stream refused in
     /// its first piece never reaches it, and a piece the default refuses
-    /// runs nothing. An executor that takes the stream whole gets it a
+    /// runs nothing. An executor that takes the stream in one call gets it a
     /// checked piece at a time too: at a later piece's fault, the stream
     /// ends there, as a failure, and what it pulled of the pieces before
     /// may have run. And a panic in the
@@ -277,7 +297,7 @@ pub trait Execute: ExecutorSetup {
 // Every method forwarded: one left at its default would not reach `E`'s
 // own (a default `end_shots` does nothing; a default `execute_each` gives
 // no row before `execute` answers; a default `execute_stream` cuts the
-// stream into batches `E` may take whole).
+// stream into batches `E` may take in one call).
 #[deny(clippy::missing_trait_methods)]
 impl<E: Execute + ?Sized> Execute for &mut E {
     fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {

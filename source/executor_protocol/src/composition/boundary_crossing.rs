@@ -107,8 +107,8 @@ impl<E: ExecutorSetup> ExecutorSetup for BoundaryCrossing<'_, E> {
 // Every method stated: one left at its default would not reach the
 // receiver (a default `end_shots` does nothing; a default `execute_each`
 // gives no row before `execute` answers; a default `execute_stream` cuts
-// the stream into batches the receiver may take whole), so not passing a
-// call on is written here, never inherited.
+// the stream into batches the receiver may take in one call), so not
+// passing a call on is written here, never inherited.
 #[deny(clippy::missing_trait_methods)]
 impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// `Ok`, as by default: the runner asks each part itself, at most once
@@ -183,8 +183,13 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// the receiver is called, refuses the stream, named as batch 0,
     /// without calling it. At a later piece's fault, the stream ends
     /// there, and the fault is the answer, as a failure, whatever the
-    /// receiver answers to the stream's end, or if it panics. Makes a
-    /// failure of the receiver's panic, named by the stream's first shot.
+    /// receiver answers to the stream's end, or if it panics. Once the
+    /// receiver answers `Ok`, it must have taken the stream whole: an
+    /// instruction left of its checked piece, or else one the caller's
+    /// stream gives when asked once more (unless it already ended), fails
+    /// the stream, naming the receiver ([`Failure::StreamNotTakenWhole`]).
+    /// Makes a failure of the receiver's panic, named by the stream's
+    /// first shot.
     async fn execute_stream(
         &mut self,
         stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
@@ -201,7 +206,7 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
         // Fused: the caller's source need not be, and no receiver may get
         // an instruction after the stream's end.
         let mut ended = false;
-        let pulled = iter::from_fn(|| {
+        let mut pulled = iter::from_fn(|| {
             if ended {
                 return None;
             }
@@ -211,12 +216,17 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
             next
         });
         let later_fault = Cell::new(None);
-        let ran = if checked {
+        // The receiver gets the stream by `&mut`, so that once it answers
+        // `Ok`, the boundary can ask once more whether it took it whole.
+        let (ran, cut_short) = if checked {
             let most = most_per_piece(self.offer.max_instructions);
             match CheckedPieces::first_checked(pulled, self.batch_limits, most, &later_fault) {
-                Ok(pieces) => {
-                    let stream = InstructionStream::new(shots, pieces).checked();
-                    catch_panic(|| self.inner.execute_stream(stream, seed, readouts)).await
+                Ok(mut pieces) => {
+                    let stream = InstructionStream::new(shots, pieces.by_ref()).checked();
+                    let ran =
+                        catch_panic(|| self.inner.execute_stream(stream, seed, readouts)).await;
+                    let cut_short = matches!(ran, Ok(Ok(()))) && !pieces.ends_here();
+                    (ran, cut_short)
                 }
                 Err(fault) => {
                     callers.raise_panic();
@@ -224,12 +234,22 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
                 }
             }
         } else {
-            let stream = InstructionStream::new(shots, pulled);
-            catch_panic(|| self.inner.execute_stream(stream, seed, readouts)).await
+            let stream = InstructionStream::new(shots, pulled.by_ref());
+            let ran = catch_panic(|| self.inner.execute_stream(stream, seed, readouts)).await;
+            let cut_short = matches!(ran, Ok(Ok(()))) && pulled.next().is_some();
+            (ran, cut_short)
         };
         callers.raise_panic();
         if let Some((fault, before)) = later_fault.into_inner() {
             return Err(refusal(0, shots, fault).of_a_stream_after(before));
+        }
+        if cut_short {
+            return Err(ExecuteError::Failed {
+                shot: shots.first(),
+                failure: Failure::StreamNotTakenWhole {
+                    part: self.part.clone(),
+                },
+            });
         }
         match ran {
             Ok(ran) => ran,

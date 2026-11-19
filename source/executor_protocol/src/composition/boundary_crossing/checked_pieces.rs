@@ -67,6 +67,16 @@ impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
         Ok(pieces)
     }
 
+    /// Whether the stream ends where the receiver stopped pulling: no
+    /// checked instruction is left for it, and its sender, asked once more
+    /// unless the stream already ended, gives none. So that the boundary
+    /// can tell a receiver that took the stream whole without pulling its
+    /// final `None` from one that answered early, pulling the sender at
+    /// most once, and checking nothing more.
+    pub(crate) fn ends_here(&mut self) -> bool {
+        self.piece.is_empty() && (self.refused || self.instructions.next().is_none())
+    }
+
     /// Pulls and checks the next piece, once the one before it was pulled
     /// whole; on a fault, the stream ends, and the fault is returned, its
     /// position counted in the piece.

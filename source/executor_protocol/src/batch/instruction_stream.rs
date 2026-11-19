@@ -62,10 +62,10 @@ impl<'a, I: Iterator<Item = Instruction>> InstructionStream<'a, I> {
     /// before the receiver is called. So a boundary holds one piece,
     /// however much its receiver takes at once; a refused piece runs
     /// nothing if its receiver cuts the stream by default, and the pieces
-    /// before it may have run. A receiver that takes the stream whole gets
-    /// it a checked piece at a time, and may have run what it pulled
-    /// before a refused piece. A refusal names the stream as batch 0, and
-    /// an instruction by its position in the stream.
+    /// before it may have run. A receiver that takes the stream in one
+    /// call gets it a checked piece at a time, and may have run what it
+    /// pulled before a refused piece. A refusal names the stream as batch
+    /// 0, and an instruction by its position in the stream.
     #[must_use]
     pub fn checked(self) -> Self {
         self.checked_if(true)

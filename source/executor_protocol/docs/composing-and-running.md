@@ -77,6 +77,7 @@ check, are in
 | Whether each part can take a run now                                                                                                                                                    | each part's `ready`, bottom to top                                         | each run, before the driver starts                                                                                                                                                                                                                                              | [`NotReady`](../src/roles/not_ready.rs), as `RunRefusal::PartNotReady`, naming the part                                                                                                                                                              |
 | A batch's count of instructions against the most its receiver offers                                                                                                                    | every boundary                                                             | each batch, checked or not, before the receiver runs any batch of the `execute`; a [stream](writing-a-part.md#instructions-in-as-they-are-made)'s pieces are cut at that most, or 1 for a receiver taking none, and at most about a thousand, by the receiver's default instead | [`ExecuteRefusal::TooManyInstructions`](../src/roles/execute.rs)                                                                                                                                                                                     |
 | A batch's instructions against the receiver's set and the shots' needs, and its [readout slots](batches-and-readouts.md#readout-slots): countable in a `u32`, and equal to those stated | every boundary                                                             | each checked batch, before the receiver runs any batch of the `execute`, and each piece of a checked stream before the receiver pulls any of it                                                                                                                                 | [`ExecuteRefusal`](../src/roles/execute.rs): `Instruction`, `TooManyReadoutSlots`, `ReadoutSlotsMisstated` (never for a stream, which states no slots); for a stream's piece after the first, as `Failure::Refused`, the pieces before it having run |
+| A stream answered `Ok`: taken whole by its receiver                                                                                                                                     | every boundary                                                             | each stream, once its receiver answers `Ok`: its sender asked at most once more, unless the stream ended                                                                                                                                                                        | [`Failure::StreamNotTakenWhole`](../src/roles/failure.rs), naming the receiver                                                                                                                                                                       |
 
 ## Failures and panics
 
@@ -93,9 +94,10 @@ with `?`, and a refusal from below then fails the run as
 `Failure::Refused`.
 
 A `Failure` is a part's own error (`Part`), such as a program's trap; a
-refusal once the run started (`Refused`); or a part's panic (`Panicked`),
-where a panic unwinds. A panic names the part whose call panicked, by its
-position and its name; the rustdoc of [`Failure`](../src/roles/failure.rs) lists
+refusal once the run started (`Refused`); a stream answered `Ok` before
+its receiver took it whole (`StreamNotTakenWhole`); or a part's panic
+(`Panicked`), where a panic unwinds. A panic names the part whose call
+panicked, by its position and its name; the rustdoc of [`Failure`](../src/roles/failure.rs) lists
 the few that name instead the part above, whose call they unwound
 through, and that of [`Runner::run_async`](../src/composition/runner.rs) those raised
 again from the run, such as one in a part's `ready`.

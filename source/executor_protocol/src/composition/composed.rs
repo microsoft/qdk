@@ -41,7 +41,8 @@
 //! trait's default would not reach the joined parts (a default `end_shots`
 //! does nothing; a default `_each` form gives no row before the call
 //! answers; a default `_stream` form cuts a stream the parts below may
-//! take whole), so not passing a call on is written here, never inherited.
+//! take in one call), so not passing a call on is written here, never
+//! inherited.
 
 mod adapt;
 mod drive;

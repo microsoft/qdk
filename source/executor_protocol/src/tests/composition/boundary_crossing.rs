@@ -15,8 +15,9 @@
 //! not one per batch; and, of unchecked batches, into readouts that held
 //! readouts as large, no allocation. A stream is checked a piece at a
 //! time, its refusal answered by where its fault is, and it ends at its
-//! sender's first `None`. The checks of one batch are in
-//! `batch_limits.rs`.
+//! sender's first `None`; an `Ok` to it means its receiver took it
+//! whole, which the boundary learns asking the sender at most once more.
+//! The checks of one batch are in `batch_limits.rs`.
 
 mod batch_limits;
 
@@ -1025,7 +1026,7 @@ fn a_stream_ends_at_its_senders_first_none() {
     );
 }
 
-/// Bits that take a stream whole, with their own `execute_stream`, and
+/// Bits that take a stream in one call, with their own `execute_stream`, and
 /// note in `most_ahead` the most instructions its sender had made, as the
 /// counter `produced` says, beyond those they had pulled: what the parts
 /// between them held of the stream.
@@ -1082,7 +1083,7 @@ impl Execute for SeesMostAhead {
 }
 
 /// A checked stream of 3000 instructions, each made only when pulled, to
-/// bits that take it whole and offer to take at most 5, about a thousand,
+/// bits that take it in one call and offer to take at most 5, about a thousand,
 /// or any count of instructions at once, directly or through an adapter
 /// that forwards streams, in each bracketing: the boundaries check it in
 /// the pieces the default would cut, so the sender is never more than one
@@ -1133,6 +1134,176 @@ fn a_checked_stream_crosses_a_boundary_a_piece_at_a_time_however_much_its_receiv
             runner(chain).run(&shots, SEED).expect("the run succeeds");
             ahead(&most_ahead, &format!("an adapter forwarding streams, {brackets}"));
         });
+    }
+}
+
+/// Bits whose own `execute_stream` pulls the stream `pulls` times, its
+/// end included, then runs what it got on the bits' own, and answers as
+/// they do: a receiver that stops at a count it knows, or one that
+/// answers before the stream's end.
+struct PullsExactly {
+    bits: Bits,
+    pulls: usize,
+}
+
+impl ExecutorSetup for PullsExactly {
+    fn accepts(&self) -> &InstructionSet {
+        self.bits.accepts()
+    }
+
+    fn offers(&self) -> Offer {
+        self.bits.offers()
+    }
+}
+
+impl Execute for PullsExactly {
+    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
+        self.bits.ready(needs).await
+    }
+
+    async fn execute(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        self.bits.execute(batches, seed, readouts).await
+    }
+
+    async fn execute_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        let checked = stream.is_checked();
+        let InstructionStream {
+            shots,
+            mut instructions,
+            ..
+        } = stream;
+        let pulled: Vec<Instruction> = (0..self.pulls)
+            .filter_map(|_| instructions.next())
+            .collect();
+        let stream = InstructionStream::new(shots, pulled.into_iter()).checked_if(checked);
+        self.bits.execute_stream(stream, seed, readouts).await
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        self.bits.end_shots(shots);
+    }
+}
+
+/// The parts of a stream of `length` flips of qubit 0 on shots 0 and 1,
+/// checked if `checked`, each made only when pulled, counted in
+/// `produced`, to a [`PullsExactly`] pulling `pulls` times and taking at
+/// most 2 instructions per batch, so that a checked stream crosses the
+/// boundary in pieces of 2.
+fn stream_to_one_pulling(
+    length: usize,
+    checked: bool,
+    pulls: usize,
+    produced: &Rc<Cell<usize>>,
+    log: &Log,
+) -> (Driver<Program>, Executor<PullsExactly>) {
+    let program = Program::new(&vec![("x", 0); length])
+        .needing(Needs::qubits(1))
+        .sending_as(Sending::stream_counted(produced));
+    let offer = Offer::unlimited().max_qubits(64).without_readout_parity();
+    let receiver = PullsExactly {
+        bits: Bits::new(log).offering(offer.max_instructions(2)),
+        pulls,
+    };
+    let program = if checked {
+        program.with_checked_batches()
+    } else {
+        program
+    };
+    (Driver::new(program), Executor::new(receiver))
+}
+
+/// A stream of 6 flips, checked or not, to an executor that takes it
+/// in one call and answers as the bits it runs them on answer, after
+/// pulling it a set number of times, directly or through an adapter that
+/// forwards streams, in each bracketing; and an empty stream. An `Ok`
+/// means the executor took the stream whole: one that pulled every
+/// instruction, with or without the stream's final `None`, succeeds, as
+/// one that pulls none of an empty stream; one that answers `Ok` with
+/// instructions left, of the sender's or of a checked piece the boundary
+/// holds, fails, naming it, at the stream's first shot, since its
+/// readouts would be those of a part of the stream.
+#[test]
+fn an_ok_to_a_stream_not_taken_whole_fails_naming_its_receiver() {
+    let receiver = PartId::new(2, type_name::<PullsExactly>());
+    for (length, pulls, whole) in [
+        (6, 6, true),
+        (6, 7, true),
+        (0, 0, true),
+        (6, 5, false),
+        (6, 4, false),
+        (6, 3, false),
+        (6, 0, false),
+    ] {
+        for checked in [false, true] {
+            let case = format!("{pulls} pulls of a stream of {length}, checked: {checked}");
+            let log = Log::default();
+            let (d, e) = stream_to_one_pulling(length, checked, pulls, &Rc::default(), &log);
+            let run = runner(d >> e).run(&ShotSet::ids(0..2), SEED);
+            assert_eq!(run.is_ok(), whole, "{case}, no adapter: {run:?}");
+            let counted = Rc::new(Cell::new(0));
+            in_each_bracketing!([d, a, e] from {
+                let log = Log::default();
+                let (d, e) = stream_to_one_pulling(length, checked, pulls, &Rc::default(), &log);
+                let a = Adapter::new(Profiler::new(&counted, &log));
+            }, |chain, brackets| {
+                let run = runner(chain).run(&ShotSet::ids(0..2), SEED);
+                if whole {
+                    assert!(run.is_ok(), "{case}, {brackets}: {run:?}");
+                } else {
+                    let error = failed(run);
+                    assert!(
+                        error.shot == ShotId::new(0)
+                            && matches!(
+                                &error.failure,
+                                Failure::StreamNotTakenWhole { part } if *part == receiver
+                            ),
+                        "{case}, {brackets}: {error:?}"
+                    );
+                }
+            });
+        }
+    }
+}
+
+/// A stream of 6 flips, each made only when pulled, checked or not, to an
+/// executor that takes it itself, pulling it a set number of times, then
+/// answering `Ok`: to learn whether the executor took it whole, the
+/// boundary asks the sender for at most one more instruction, and none
+/// once the stream ended, or while a checked piece it holds still has
+/// some, so that a long stream answered early is not run to its end.
+/// A checked stream's sender has made, besides, the pieces of 2 the
+/// boundary checked before the executor pulled them.
+#[test]
+fn after_an_ok_to_a_stream_its_sender_is_asked_at_most_once_more() {
+    for (checked, pulls, produced_then) in [
+        (false, 7, 6),
+        (false, 6, 6),
+        (false, 4, 5),
+        (false, 0, 1),
+        (true, 7, 6),
+        (true, 6, 6),
+        (true, 4, 5),
+        (true, 3, 4),
+        (true, 0, 2),
+    ] {
+        let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
+        let (d, e) = stream_to_one_pulling(6, checked, pulls, &produced, &log);
+        let _ = runner(d >> e).run(&ShotSet::ids(0..2), SEED);
+        assert_eq!(
+            produced.get(),
+            produced_then,
+            "{pulls} pulls of a stream of 6, checked: {checked}"
+        );
     }
 }
 

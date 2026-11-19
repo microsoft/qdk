@@ -117,6 +117,10 @@ pub trait Adapt: AdapterSetup {
     /// by one, such as a code that lowers each logical instruction,
     /// overrides it, to stream its own instructions below with
     /// `below.execute_stream`, so that a stream reaches the executor as one.
+    /// An override keeps `execute_stream`'s two rules: its `Ok` means it
+    /// took the stream whole, which the protocol's boundary checks, and it
+    /// stays cancellable, awaiting at least once per piece's worth of
+    /// instructions.
     fn adapt_stream(
         &mut self,
         stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
@@ -155,7 +159,7 @@ pub trait Adapt: AdapterSetup {
 // Every method forwarded: one left at its default would not reach `A`'s
 // own (a default `end_shots` does nothing; a default `adapt_each` gives no
 // row before `adapt` answers; a default `adapt_stream` cuts the stream into
-// batches `A` may stream below whole).
+// batches `A` may stream below in one call).
 #[deny(clippy::missing_trait_methods)]
 impl<A: Adapt + ?Sized> Adapt for &mut A {
     fn ready(&mut self, above: &Needs) -> impl Future<Output = Result<(), NotReady>> {
