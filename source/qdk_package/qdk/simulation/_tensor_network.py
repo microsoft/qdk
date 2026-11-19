@@ -176,10 +176,10 @@ def tensornetwork_qir(
 
     The run leaves the Python thread, and Ctrl-C stops it between batches
     of gates (a batch: the gates and measurements a program runs until it
-    next needs a measurement's result or measures into a result again; a
-    Base profile program that measures into each result once does neither
-    before its end, so it is one batch, and it runs all its gates before
-    Ctrl-C takes effect). Noise is not simulated: a noise intrinsic
+    next reads, or writes again, a result the batch measured into; a Base
+    profile program that measures into each result once does neither before
+    its end, so it is one batch, and it runs all its gates before Ctrl-C
+    takes effect). Noise is not simulated: a noise intrinsic
     (a function with the ``qdk_noise`` attribute) runs as identity, as no
     noise model is given, and a readout-noise call or a loss check raises
     ``ValueError``.
