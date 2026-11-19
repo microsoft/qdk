@@ -13,14 +13,16 @@ use crate::site_algebra::{CentreSide, QrMoveCall, SiteAlgebra};
 /// that returns other elements or another number of them, and an upload
 /// that changes them.
 pub(super) fn upload_and_read<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
-    let values = values(12, 700);
-    let tensor = upload(algebra, &values)?;
+    let seed = 700;
+    let failed = |message: String| format!("12 values of seed {seed}: {message}");
+    let values = values(12, seed);
+    let tensor = upload(algebra, &values).map_err(failed)?;
     for len in [0, 1, 7, 12] {
-        let read = read(algebra, &tensor, len)?;
+        let read = read(algebra, &tensor, len).map_err(failed)?;
         if read != values[..len] {
-            return Err(format!(
+            return Err(failed(format!(
                 "a read of {len} of 12 uploaded elements returned others"
-            ));
+            )));
         }
     }
     Ok(())
@@ -32,29 +34,38 @@ pub(super) fn upload_and_read<A: SiteAlgebra>(algebra: &A) -> Result<(), String>
 /// source. Catches a duplicate that copies other elements, and one that
 /// shares the source's storage.
 pub(super) fn duplicate<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
-    let values = values(12, 710);
+    let seed = 710;
+    let failed = |message: String| format!("12 values of seed {seed}: {message}");
+    let values = values(12, seed);
 
-    let source = upload(algebra, &values)?;
-    let copy = duplicate_of(algebra, &source, 7)?;
-    if read(algebra, &copy, 7)? != values[..7] {
-        return Err("a duplicate of 7 of 12 elements holds others".to_owned());
+    let source = upload(algebra, &values).map_err(failed)?;
+    let copy = duplicate_of(algebra, &source, 7).map_err(failed)?;
+    if read(algebra, &copy, 7).map_err(failed)? != values[..7] {
+        return Err(failed(
+            "a duplicate of 7 of 12 elements holds others".to_owned(),
+        ));
     }
     drop(source);
-    if read(algebra, &copy, 7)? != values[..7] {
-        return Err("a duplicate changed when its source was dropped".to_owned());
+    if read(algebra, &copy, 7).map_err(failed)? != values[..7] {
+        return Err(failed(
+            "a duplicate changed when its source was dropped".to_owned(),
+        ));
     }
 
-    let source = upload(algebra, &values)?;
-    drop(duplicate_of(algebra, &source, 12)?);
-    if read(algebra, &source, 12)? != values {
-        return Err("a tensor changed when its duplicate was dropped".to_owned());
+    let source = upload(algebra, &values).map_err(failed)?;
+    drop(duplicate_of(algebra, &source, 12).map_err(failed)?);
+    if read(algebra, &source, 12).map_err(failed)? != values {
+        return Err(failed(
+            "a tensor changed when its duplicate was dropped".to_owned(),
+        ));
     }
 
     // The copy is the left site `[2, 2, 3]` of a pair whose right site is
     // `[3, 2, 1]`; the move's outcome is not checked here.
-    let copy = duplicate_of(algebra, &source, 12)?;
+    let copy = duplicate_of(algebra, &source, 12).map_err(failed)?;
     let pair = Pair::graded((2, 3, 1), 720);
-    let right = upload(algebra, &pair.right)?;
+    let failed = |message: String| format!("12 values of seed {seed}, {pair}: {message}");
+    let right = upload(algebra, &pair.right).map_err(failed)?;
     let call = QrMoveCall {
         left: &copy,
         right: &right,
@@ -66,10 +77,12 @@ pub(super) fn duplicate<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     };
     let outcome = algebra
         .qr_move(&call)
-        .map_err(|error| format!("a move of a duplicate failed: {error}"))?;
+        .map_err(|error| failed(format!("a move of a duplicate failed: {error}")))?;
     drop((outcome, copy));
-    if read(algebra, &source, 12)? != values {
-        return Err("a tensor changed when its duplicate was moved".to_owned());
+    if read(algebra, &source, 12).map_err(failed)? != values {
+        return Err(failed(
+            "a tensor changed when its duplicate was moved".to_owned(),
+        ));
     }
     Ok(())
 }

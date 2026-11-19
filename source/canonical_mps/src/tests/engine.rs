@@ -63,7 +63,7 @@ fn cz() -> Vec<Complex64> {
     m
 }
 
-/// The Z⊗Z gate, which commutes with X on every site.
+/// The Z⊗Z gate, which commutes with X⊗X.
 fn zz() -> Vec<Complex64> {
     let mut m = vec![real(0.0); 16];
     for (at, value) in [1.0, -1.0, -1.0, 1.0].into_iter().enumerate() {

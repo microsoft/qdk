@@ -134,7 +134,10 @@ fn counts_the_splits_and_matrix_product_operators() {
 /// centre moves by four sites, then by three, each move counted, and a
 /// gate on neighbours, whose split carries the centre, adds none. A sample
 /// leaves the centre on the first site it samples, its first read, or where
-/// it was when it reads nothing (refused, or of no shots).
+/// it was when it reads nothing (refused, or of no shots). A sample that
+/// draws no value (of no sites, no shots, or more values than memory holds)
+/// does not apply a gate on sites 1 and 3 left pending either, so it moves
+/// nothing and splits nothing, while a sample of one shot applies it.
 #[test]
 fn counts_the_moves_of_the_centre() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
@@ -158,6 +161,22 @@ fn counts_the_moves_of_the_centre() {
         let statistics = state.statistics();
         assert_eq!(statistics.splits(), 1, "{name}: precondition, a split");
         assert_eq!(statistics.centre_moves(), 7, "{name}");
+
+        let mut state = engine.prepare(&capacity(5, 4)).expect("prepare");
+        engine.apply(&mut state, &[1, 3], &cnot()).expect("apply");
+        let before = state.statistics();
+        engine.sample(&state, &[], 8, 0).expect("no sites");
+        engine.sample(&state, &[3], 0, 0).expect("no shots");
+        engine
+            .sample(&state, &[0, 1], usize::MAX, 0)
+            .expect_err("more values than memory holds");
+        assert_eq!(state.statistics(), before, "{name}: no value drawn");
+        engine.sample(&state, &[3], 1, 0).expect("one shot");
+        assert_eq!(
+            state.statistics().mpo_applications(),
+            1,
+            "{name}: a value drawn"
+        );
     }
 }
 

@@ -6,8 +6,9 @@
 //!
 //! Refusals: a condition or a projection on a value of probability zero or
 //! NaN is refused, leaving what reads see, while a value of rounding
-//! weight or rare but possible is accepted; a gate on three sites; and
-//! each checked method's refusal (a qutrit, a site out of range or named
+//! weight or rare but possible is accepted; a gate refused (on three sites,
+//! of the wrong length, not unitary) leaving what reads see; and each
+//! checked method's refusal (a qutrit, a site out of range or named
 //! twice), reported before any call of the algebra.
 //!
 //! Failures: a sample too large for memory, and each operation of the algebra
@@ -33,24 +34,41 @@ fn one_of_rounding_weight(engine: &Engine) -> State {
     state
 }
 
-/// A condition or a projection on a value of probability exactly zero,
-/// |00⟩'s One, is refused with the contract's refusal.
+/// A condition or a projection on a value of probability exactly zero is
+/// refused with the contract's refusal, a condition on the site read
+/// included: |00⟩'s One, and the One of site 0 turned by 2e-200, whose
+/// elements are not zero but whose squared weight underflows to zero, so it
+/// reads exactly 0, before and after the refusal.
 #[test]
 fn a_value_of_probability_zero_is_refused() {
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
-        let condition = engine
-            .conditional_probability_of_one(&state, 1, &[(0, true)])
-            .expect_err("an impossible condition");
-        let projection = engine
-            .project(&mut state, 0, true)
-            .expect_err("an impossible value");
-        for (call, error) in [("condition", condition), ("projection", projection)] {
-            assert_eq!(
-                error,
-                Refusal::ZeroProbabilityOutcome.into(),
-                "{name}: {call}"
-            );
+    for (turn, scene) in [(0.0, "|00⟩"), (2e-200, "a turn by 2e-200")] {
+        for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+            let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
+            engine.apply(&mut state, &[0], &ry(turn)).expect("apply");
+            let read = engine.probability_of_one(&state, 0).expect("P(One)");
+            assert_eq!(read, 0.0, "{scene}, {name}: before");
+            let condition = engine
+                .conditional_probability_of_one(&state, 1, &[(0, true)])
+                .expect_err("an impossible condition");
+            let on_the_site_read = engine
+                .conditional_probability_of_one(&state, 0, &[(0, true)])
+                .expect_err("an impossible condition on the site read");
+            let projection = engine
+                .project(&mut state, 0, true)
+                .expect_err("an impossible value");
+            for (call, error) in [
+                ("condition", condition),
+                ("condition on the site read", on_the_site_read),
+                ("projection", projection),
+            ] {
+                assert_eq!(
+                    error,
+                    Refusal::ZeroProbabilityOutcome.into(),
+                    "{scene}, {name}: {call}"
+                );
+            }
+            let read = engine.probability_of_one(&state, 0).expect("P(One)");
+            assert_eq!(read, 0.0, "{scene}, {name}: after");
         }
     }
 }
@@ -156,49 +174,142 @@ fn a_refused_projection_leaves_what_reads_see_with_or_without_fusion() {
     }
 }
 
-/// A Toffoli the simulation method did not decompose, after a gate that
-/// fusion keeps pending: the engine refuses it with the contract's refusal,
-/// with or without fusion, and the reads after it are the reads before it.
+/// A gate the contract refuses, after a gate that fusion keeps pending: the
+/// engine refuses it with the contract's refusal, with or without fusion,
+/// and the reads after it are the reads before it, so it neither changed
+/// the state nor joined the pending window. One row per refusal: a Toffoli
+/// the simulation method did not decompose, refused as such whatever its
+/// matrix's length; a matrix of the wrong length; and matrices that are not
+/// unitary, on one site or on the pending gate's two.
 #[test]
-fn refuses_a_gate_on_three_sites_leaving_what_reads_see() {
+fn a_refused_gate_leaves_what_reads_see() {
+    type Row = (
+        &'static str,
+        &'static [usize],
+        Vec<Complex64>,
+        fn(&Refusal) -> bool,
+    );
     let identity: Vec<Complex64> = (0..64)
         .map(|at| real(if at % 9 == 0 { 1.0 } else { 0.0 }))
         .collect();
-    for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
-        let mut state = engine.prepare(&capacity(3, 4)).expect("prepare");
-        engine.apply(&mut state, &[0], &ry(0.8)).expect("apply");
-        engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
-        let p1 = |state: &State| -> Vec<f64> {
-            (0..3)
-                .map(|site| engine.probability_of_one(state, site).expect("P(One)"))
-                .collect()
-        };
-        let before = p1(&state);
-        let error = engine
-            .apply(&mut state, &[0, 1, 2], &identity)
-            .expect_err("a gate on three sites");
-        assert_eq!(error, Refusal::TooManySites { sites: 3 }.into(), "{name}");
-        let after = p1(&state);
-        for (a, b) in after.iter().zip(&before) {
-            assert!((a - b).abs() < 1e-12, "{name}: {after:?} vs {before:?}");
+    let too_many: fn(&Refusal) -> bool = |r| *r == Refusal::TooManySites { sites: 3 };
+    let not_unitary: fn(&Refusal) -> bool = |r| matches!(r, Refusal::NotUnitary { .. });
+    let rows: [Row; 7] = [
+        ("a Toffoli", &[0, 1, 2], identity, too_many),
+        (
+            "a short matrix on three sites",
+            &[0, 1, 2],
+            vec![real(1.0); 3],
+            too_many,
+        ),
+        ("a short matrix", &[0], vec![real(1.0)], |r| {
+            *r == Refusal::MatrixLength {
+                sites: 1,
+                expected: 4,
+                actual: 1,
+            }
+        }),
+        ("a NaN matrix", &[0], vec![real(f64::NAN); 4], not_unitary),
+        (
+            "an infinite matrix",
+            &[0],
+            vec![real(f64::INFINITY); 4],
+            not_unitary,
+        ),
+        (
+            "2·I",
+            &[0],
+            vec![real(2.0), real(0.0), real(0.0), real(2.0)],
+            not_unitary,
+        ),
+        (
+            "a non-unitary gate on the pending pair",
+            &[0, 1],
+            vec![real(2.0); 16],
+            not_unitary,
+        ),
+    ];
+    for (row, sites, matrix, refusal) in &rows {
+        for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
+            let pending = || {
+                let mut state = engine.prepare(&capacity(3, 4)).expect("prepare");
+                engine.apply(&mut state, &[0], &ry(0.8)).expect("apply");
+                engine.apply(&mut state, &[0, 1], &cnot()).expect("apply");
+                state
+            };
+            let p1 = |state: &State| -> Vec<f64> {
+                (0..3)
+                    .map(|site| engine.probability_of_one(state, site).expect("P(One)"))
+                    .collect()
+            };
+            // Read on a state of its own, since a read applies the window.
+            let before = p1(&pending());
+            let mut state = pending();
+            let error = engine
+                .apply(&mut state, sites, matrix)
+                .expect_err("a refused gate");
+            assert!(
+                error.refusal().is_some_and(refusal),
+                "{row}, {name}: {error:?}"
+            );
+            let after = p1(&state);
+            for (a, b) in after.iter().zip(&before) {
+                assert!(
+                    (a - b).abs() < 1e-12,
+                    "{row}, {name}: {after:?} vs {before:?}"
+                );
+            }
         }
     }
 }
+
+type SpiedEngine = CanonicalMpsEngine<SpyAlgebra>;
+type SpiedState = CanonicalMpsState<SpyAlgebra>;
+
+/// A call of a checked method on a state of two sites, and the error it
+/// returns.
+type CheckedCall = fn(&SpiedEngine, &mut SpiedState) -> CanonicalMpsError<SvdError>;
 
 /// A simulator that gets an error asks it whether it was a refusal, to
 /// keep the state: each method the contract checks refuses an invalid call
 /// with the contract's refusal, before any call of the algebra, even with
 /// a window pending (a CX on two sites, under fusion). One row per checked
-/// method and kind of fault; `sample` also with no shot, which draws
-/// nothing yet still checks its sites.
+/// method and kind of fault, in [`invalid_calls`].
 #[test]
 fn a_refused_call_reports_its_refusal_before_any_call_of_the_algebra() {
-    type SpiedEngine = CanonicalMpsEngine<SpyAlgebra>;
-    type SpiedState = CanonicalMpsState<SpyAlgebra>;
-    type Call = fn(&SpiedEngine, &mut SpiedState) -> CanonicalMpsError<SvdError>;
+    let (algebra, calls) = SpyAlgebra::new();
+    let engine = CanonicalMpsEngine::new(algebra);
+    let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
+    engine.apply(&mut state, &[0], &ry(0.8)).expect("apply");
+    engine
+        .apply(&mut state, &[0, 1], &cnot())
+        .expect("a pending window");
+    let tally = |calls: &SpiedCalls| {
+        [
+            calls.gate_splits.get(),
+            calls.qr_moves.get(),
+            calls.reads.get(),
+            calls.duplicates.get(),
+            calls.uploads.borrow().len(),
+        ]
+    };
+    for (row, call, refusal) in invalid_calls() {
+        let before = tally(&calls);
+        let error = call(&engine, &mut state);
+        assert_eq!(error.refusal(), Some(&refusal), "{row}");
+        assert_eq!(tally(&calls), before, "{row}: calls of the algebra");
+    }
+}
+
+/// The invalid calls of
+/// [`a_refused_call_reports_its_refusal_before_any_call_of_the_algebra`],
+/// with the refusal each gets: `apply` on three sites is refused as such
+/// before its sites or its matrix are checked; `sample` also with no shot,
+/// which draws nothing yet still checks its sites.
+fn invalid_calls() -> [(&'static str, CheckedCall, Refusal); 14] {
     let out_of_range = Refusal::SiteOutOfRange { site: 2, sites: 2 };
     let repeated = Refusal::RepeatedSite { site: 0 };
-    let rows: [(&str, Call, Refusal); 11] = [
+    [
         // The engine holds qubits only.
         (
             "prepare a qutrit",
@@ -217,6 +328,37 @@ fn a_refused_call_reports_its_refusal_before_any_call_of_the_algebra() {
             "apply on site 0 twice",
             |engine, state| engine.apply(state, &[0, 0], &cnot()).expect_err("refused"),
             repeated.clone(),
+        ),
+        (
+            "apply a short matrix on three sites",
+            |engine, state| {
+                engine
+                    .apply(state, &[0, 1, 2], &[real(1.0); 3])
+                    .expect_err("refused")
+            },
+            Refusal::TooManySites { sites: 3 },
+        ),
+        (
+            "apply a short matrix",
+            |engine, state| {
+                engine
+                    .apply(state, &[0], &[real(1.0)])
+                    .expect_err("refused")
+            },
+            Refusal::MatrixLength {
+                sites: 1,
+                expected: 4,
+                actual: 1,
+            },
+        ),
+        // `M·M† − I` is `3·I`, whose entries sum to 6 in magnitude.
+        (
+            "apply 2·I",
+            |engine, state| {
+                let twice = [real(2.0), real(0.0), real(0.0), real(2.0)];
+                engine.apply(state, &[0], &twice).expect_err("refused")
+            },
+            Refusal::NotUnitary { deviation: 6.0 },
         ),
         (
             "probability_of_one of site 2",
@@ -266,29 +408,7 @@ fn a_refused_call_reports_its_refusal_before_any_call_of_the_algebra() {
             },
             out_of_range,
         ),
-    ];
-    let (algebra, calls) = SpyAlgebra::new();
-    let engine = CanonicalMpsEngine::new(algebra);
-    let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
-    engine.apply(&mut state, &[0], &ry(0.8)).expect("apply");
-    engine
-        .apply(&mut state, &[0, 1], &cnot())
-        .expect("a pending window");
-    let tally = |calls: &SpiedCalls| {
-        [
-            calls.gate_splits.get(),
-            calls.qr_moves.get(),
-            calls.reads.get(),
-            calls.duplicates.get(),
-            calls.uploads.borrow().len(),
-        ]
-    };
-    for (row, call, refusal) in rows {
-        let before = tally(&calls);
-        let error = call(&engine, &mut state);
-        assert_eq!(error.refusal(), Some(&refusal), "{row}");
-        assert_eq!(tally(&calls), before, "{row}: calls of the algebra");
-    }
+    ]
 }
 
 /// A stub of a backend whose reads come back NaN, as a device's may after

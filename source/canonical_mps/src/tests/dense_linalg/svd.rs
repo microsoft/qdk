@@ -89,19 +89,19 @@ mod errors {
     use num_complex::Complex64;
 
     /// The errors name the matrix's shape and what went wrong, for a
-    /// caller that reports them: each names the shape, and the two
-    /// failures read differently.
+    /// caller that reports them: each names the shape, and each its own
+    /// failure, the rotations' convergence or the factors' checks.
     #[test]
     fn errors_name_the_shape_and_the_failure() {
         let did_not_converge = SvdError::DidNotConverge { rows: 6, cols: 4 }.to_string();
         let failed_checks = SvdError::FailedChecks { rows: 6, cols: 4 }.to_string();
-        for message in [&did_not_converge, &failed_checks] {
+        for (message, failure) in [(&did_not_converge, "converge"), (&failed_checks, "check")] {
             assert!(message.contains("6 × 4"), "the shape is named: {message}");
+            assert!(
+                message.contains(failure),
+                "the failure is named ({failure}): {message}"
+            );
         }
-        assert_ne!(
-            did_not_converge, failed_checks,
-            "each failure is told apart"
-        );
     }
 
     /// A matrix with no rows or no columns has no singular value: the

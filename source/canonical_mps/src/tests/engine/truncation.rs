@@ -63,14 +63,21 @@ fn truncates_to_the_capacity() {
     }
 }
 
-/// Schmidt weights 0.8 and 0.2 between two sites, on engines built
-/// `with_cutoff`: the engine's cutoff reaches the gate's split, and the
-/// weight it drops leaves the retained weight. A cutoff above 0.2 keeps
-/// one value and a weight of 0.8; one below keeps both and a weight of 1.
+/// Schmidt weights between two sites, on engines built `with_cutoff`: the
+/// engine's cutoff reaches the gate's split, and the weight it drops leaves
+/// the retained weight. With weights 0.8 and 0.2, a cutoff above 0.2 keeps
+/// one value and a weight of 0.8, and one below keeps both and a full
+/// weight. A Bell pair's weights are 0.5 and 0.5, and the largest cutoff,
+/// the largest `f64` below 1, keeps one value and a weight of 0.5.
 #[test]
 fn the_engines_cutoff_drops_a_splits_tail_from_the_retained_weight() {
-    let theta = 2.0 * 0.2f64.sqrt().asin();
-    for (cutoff, bond, weight) in [(0.25, 1, 0.8), (0.15, 2, 1.0)] {
+    let rows = [
+        (0.2f64, 0.25, 1, 0.8),
+        (0.2, 0.15, 2, 1.0),
+        (0.5, f64::next_down(1.0), 1, 0.5),
+    ];
+    for (tail, cutoff, bond, weight) in rows {
+        let theta = 2.0 * tail.sqrt().asin();
         for (engine, name) in both_fusions(cutoff) {
             let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
             engine.apply(&mut state, &[0], &ry(theta)).expect("apply");
@@ -139,9 +146,13 @@ fn the_cutoff_is_a_fraction_of_the_splits_own_weight() {
 }
 
 /// A cutoff is a fraction of a split's weight: one below 0, of 1 or more,
-/// or NaN is a caller's error, and the engine panics on it.
+/// or NaN is a caller's error, and the engine panics on it, while both
+/// zeros and the largest value below 1 are accepted.
 #[test]
 fn a_cutoff_must_lie_in_zero_to_one() {
+    for cutoff in [0.0, -0.0, f64::next_down(1.0)] {
+        let _ = Engine::new(CpuAlgebra).with_cutoff(cutoff);
+    }
     for cutoff in [-1e-300, 1.0, 2.0, f64::INFINITY, f64::NAN] {
         let payload = std::panic::catch_unwind(|| Engine::new(CpuAlgebra).with_cutoff(cutoff))
             .expect_err("a cutoff outside [0, 1)");

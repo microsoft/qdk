@@ -3,7 +3,8 @@
 
 //! The kit's inputs: seeded pairs of sites, with graded singular values or
 //! with values known by construction, and seeded gates, so that a failure
-//! repeats.
+//! repeats. A failure names its pair's seed; a scene's random gate is drawn
+//! from that seed plus 5, so the seed repeats the whole scene.
 
 use crate::dense_linalg::{Matrix, Qr};
 use num_complex::Complex64;
@@ -58,6 +59,8 @@ pub(super) struct Pair {
     pub(super) m: usize,
     /// `B`'s right extent.
     pub(super) r: usize,
+    /// The seed it was drawn from.
+    seed: u64,
 }
 
 impl Pair {
@@ -79,6 +82,7 @@ impl Pair {
             l,
             m,
             r,
+            seed,
         }
     }
 
@@ -110,13 +114,18 @@ impl Pair {
             l,
             m,
             r,
+            seed,
         }
     }
 }
 
 impl fmt::Display for Pair {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "the pair [{}, {}, {}]", self.l, self.m, self.r)
+        write!(
+            f,
+            "the pair [{}, {}, {}] of seed {}",
+            self.l, self.m, self.r, self.seed
+        )
     }
 }
 
