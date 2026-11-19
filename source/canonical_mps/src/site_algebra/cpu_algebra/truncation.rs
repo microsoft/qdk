@@ -17,9 +17,10 @@
 //! sum of the kept values' squares, are at least 1, and neither underflows
 //! however small the values are. A value so small, against the largest,
 //! that its square underflows to zero counts as zero: a cutoff of 0 drops
-//! it ([`Truncation::of`] says how small). The CPU algebra's splits never
-//! meet one: its SVD leaves out the values of rounding's size first
-//! (`Svd::of`).
+//! it ([`Truncation::of`] says how small). The CPU algebra's splits rarely
+//! meet one: its SVD first leaves out the rows of rounding's size
+//! (`Svd::of`), so only a matrix whose pivoted QR hides a value that small
+//! could bring one.
 
 /// Which singular values a split keeps, from [`Truncation::of`].
 #[derive(Clone, Debug, PartialEq)]
