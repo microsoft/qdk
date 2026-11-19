@@ -4,10 +4,11 @@
 //! [`ReferenceSpy`]: a test spy over the exact reference, which runs every
 //! call on [`ExactReference`] and records what the resumer asked of it: it
 //! counts the gates it applies, the shapes it reads, the states it
-//! prepares and forks, and the states alive at once; keeps the capacities
-//! it is given; and, as a test sets it, reports a retained weight below
-//! one, as an engine that truncates would, fails where a device would, or
-//! sets a stop flag at a given gate, as a user's interrupt would.
+//! prepares and forks, and the states alive, now and at most at once;
+//! keeps the capacities it is given; and, as a test sets it, reports a
+//! retained weight below one, as an engine that truncates would, fails
+//! where a device would, or sets a stop flag at a given gate, as a user's
+//! interrupt would.
 //! A state a call failed on is unspecified, by the `MpsEngine` contract's
 //! rule for every method's failure, which a fork's source falls under as
 //! well: the spy counts each later call given it, which it runs on the
@@ -169,6 +170,11 @@ impl ReferenceSpy {
     /// The most states alive at once.
     pub(super) fn most_live(&self) -> usize {
         self.most_live.get()
+    }
+
+    /// The states alive now.
+    pub(super) fn live(&self) -> usize {
+        self.live.get()
     }
 
     /// The calls given a state that a call had failed on.
