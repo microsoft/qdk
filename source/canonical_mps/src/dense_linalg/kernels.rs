@@ -8,10 +8,10 @@
 //! The SVD's rules are the module's own and computed once, on top of these
 //! steps: the checks, the trim's choice of rows, the scaling (the thin
 //! QR's too), the one-sided Jacobi rotations and the rule that routes a
-//! matrix to the fast route. A library brings only what it computes faster
-//! or better than code written here: the product, the thin QR, the
-//! column-pivoted QR and the application of its `Q`, and the fast route's
-//! SVD (`kernels/t4a_faer.rs`'s header gives how much faster).
+//! matrix to the fast route. A library brings the steps that set the
+//! module's speed: the product, the thin QR, the column-pivoted QR and the
+//! application of its `Q`, and the fast route's SVD
+//! (`kernels/t4a_faer.rs`'s header gives how much faster than nalgebra).
 //!
 //! [`DefaultKernels`] is the implementation the public API computes with.
 
