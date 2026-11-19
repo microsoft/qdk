@@ -4,11 +4,16 @@
 //! A tensor's extents as cuTensorNet takes them ([`native_extents`]), and
 //! its element count ([`element_count`]), for the calls that describe,
 //! read and make tensors. Both refuse a size that does not fit, with
-//! [`CudaAlgebraError::ResourceSizeOverflow`].
+//! [`CudaAlgebraError::ResourceSizeOverflow`]. A call checks its inputs'
+//! counts before it makes any native object, and every other count it
+//! computes is bounded by them.
 
 use crate::engine::cuda_algebra_error::CudaAlgebraError;
 
-/// `extents` as a descriptor takes them.
+/// `extents` as a descriptor takes them. Its refusal is unreachable while
+/// each call checks its inputs' `element_count` first (each descriptor
+/// holds a leg of 2, so a larger extent overflows the count); it is kept
+/// for a defect.
 pub(super) fn native_extents(extents: &[usize]) -> Result<Vec<i64>, CudaAlgebraError> {
     extents
         .iter()

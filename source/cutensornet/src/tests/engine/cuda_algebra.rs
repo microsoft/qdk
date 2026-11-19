@@ -264,7 +264,7 @@ fn a_call_reading_past_a_tensors_elements_is_refused() {
         centre: CentreSide::Right,
     };
     let is_refused = |method: &str, refuse: &dyn Fn() -> Result<(), CudaAlgebraError>| {
-        let refused = making_no_native_object(&libraries, method, refuse);
+        let refused = run_making_no_native_object(&libraries, method, refuse);
         assert!(
             matches!(refused, Err(CudaAlgebraError::InvalidNativeCall { .. })),
             "{method}: {refused:?}"
@@ -309,7 +309,7 @@ fn a_call_whose_extents_overflow_is_refused() {
         };
         let is_refused = |method: &str, refuse: &dyn Fn() -> Result<(), CudaAlgebraError>| {
             let method = format!("{method}, {side} extent");
-            let refused = making_no_native_object(&libraries, &method, refuse);
+            let refused = run_making_no_native_object(&libraries, &method, refuse);
             assert!(
                 matches!(refused, Err(CudaAlgebraError::ResourceSizeOverflow { .. })),
                 "{method}: {refused:?}"
@@ -333,7 +333,7 @@ fn a_call_for_an_empty_tensor_is_refused() {
     let (algebra, libraries) = algebra();
     let tensor = upload(&algebra, &random(2, 7));
     let is_refused = |method: &str, refuse: &dyn Fn() -> Result<(), CudaAlgebraError>| {
-        let refused = making_no_native_object(&libraries, method, refuse);
+        let refused = run_making_no_native_object(&libraries, method, refuse);
         assert!(
             matches!(refused, Err(CudaAlgebraError::InvalidNativeCall { .. })),
             "{method}: {refused:?}"
@@ -343,9 +343,9 @@ fn a_call_for_an_empty_tensor_is_refused() {
     is_refused("duplicate", &|| algebra.duplicate(&tensor, 0).map(drop));
 }
 
-/// What `call` returns, once checked, with `method` named in the message,
-/// to have made no native object: no `create_*` call and no allocation.
-fn making_no_native_object(
+/// Runs `call`, asserts that it made no native object (no `create_*` call,
+/// no allocation), naming `method` if it did, and returns its result.
+fn run_making_no_native_object(
     libraries: &FakeLibraries,
     method: &str,
     call: impl FnOnce() -> Result<(), CudaAlgebraError>,
