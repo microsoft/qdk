@@ -5,8 +5,9 @@
 //! instruction sets they speak:
 //!
 //! - drivers: [`ProgramInBatches`], which sends a program in batches,
-//!   [`ProgramAsStream`], which sends it as one stream, and [`Direct`],
-//!   which sends it past the chain, the baseline;
+//!   [`ProgramMadeAsPulled`], which makes its instructions as they are
+//!   pulled and sends them as one stream or in batches it cuts itself, and
+//!   [`Direct`], which sends it past the chain, the baseline;
 //! - adapters: [`Forward`], which forwards every batch, and
 //!   [`Repetition3`], a toy lowering;
 //! - executors: [`Profiler`] and [`Sink`], which count what they get, and

@@ -42,8 +42,7 @@ use crate::part_panics::{CallersCallback, catch_panic};
 use crate::roles::most_per_piece;
 use crate::{
     Batch, BatchReadouts, Execute, ExecuteError, ExecuteRefusal, ExecutorSetup, Failure, FinalRow,
-    Instruction, InstructionSet, InstructionStream, Needs, NotReady, Offer, PartId, Seed, ShotId,
-    ShotSet,
+    Instruction, InstructionSet, InstructionStream, Needs, NotReady, Offer, PartId, Seed, ShotSet,
 };
 use batch_limits::BatchFault;
 use checked_pieces::CheckedPieces;
@@ -281,7 +280,7 @@ impl<E: Execute> BoundaryCrossing<'_, E> {
     /// those of its call's first batch or of its stream.
     fn panic_failure(&self, shots: &ShotSet, message: Option<String>) -> ExecuteError {
         ExecuteError::Failed {
-            shot: first_shot(shots),
+            shot: shots.first(),
             failure: Failure::Panicked {
                 part: self.part.clone(),
                 message,
@@ -293,7 +292,7 @@ impl<E: Execute> BoundaryCrossing<'_, E> {
 /// The refusal of `batches[index]`, whose shots are `shots`, for `fault`,
 /// named by its first shot.
 fn refusal(index: usize, shots: &ShotSet, fault: BatchFault) -> ExecuteRefusal {
-    let shot = first_shot(shots);
+    let shot = shots.first();
     match fault {
         BatchFault::TooManyInstructions { max, got } => ExecuteRefusal::TooManyInstructions {
             shot,
@@ -321,9 +320,4 @@ fn refusal(index: usize, shots: &ShotSet, fault: BatchFault) -> ExecuteRefusal {
             }
         }
     }
-}
-
-/// The first of `shots`, in its order.
-fn first_shot(shots: &ShotSet) -> ShotId {
-    shots.iter().next().expect("a shot set is never empty")
 }

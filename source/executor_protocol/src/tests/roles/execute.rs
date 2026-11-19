@@ -90,9 +90,10 @@ fn sent_whole(
 }
 
 /// A driver sending [`PROGRAM`], or the same program reading nothing,
-/// whole, then in 2 to 5 `execute`s cut at seeded points, then as one
-/// stream, to receivers taking at most 1, 2, 5, 12 instructions, or any
-/// count, and executors that run the stream themselves or cut it by the
+/// whole, then, checked or not, in 2 to 5 `execute`s cut at seeded
+/// points, or as one stream, to receivers taking at most 1, 2, 5, 12
+/// instructions, or any count, and executors that run the stream
+/// themselves or cut it by the
 /// default, raising no condition, or losing the odd shots (in every
 /// piece) and finding every shot inconsistent in the piece that tosses
 /// qubit 0 (in one), directly, through an adapter that forwards streams
@@ -146,13 +147,24 @@ fn sent_in_every_split(
         let sent = format!("a stream, to a receiver taking at most {most:?}");
         sendings.push((sent, Sending::stream(), most));
     }
-    for (sent, sending, most) in sendings {
-        let program = || Driver::new(Program::new(program).sending_as(sending.clone()));
+    let checked_or_not = [false, true];
+    let sendings = sendings
+        .into_iter()
+        .flat_map(|sending| checked_or_not.map(|checked| (sending.clone(), checked)));
+    for ((sent, sending, most), checked) in sendings {
+        let program = || {
+            let program = Program::new(program).sending_as(sending.clone());
+            Driver::new(if checked {
+                program.with_checked_batches()
+            } else {
+                program
+            })
+        };
         let same = |run: Result<Vec<(Values, ShotConditions)>, _>, chain: &str| {
             let records: Vec<_> = run.expect("the run succeeds");
             assert_eq!(
                 records, whole,
-                "a program that {program_named}, {sent}, {chain}"
+                "a program that {program_named}, {sent}, checked: {checked}, {chain}"
             );
         };
         let (log, counted) = (Log::default(), Rc::new(Cell::new(0)));

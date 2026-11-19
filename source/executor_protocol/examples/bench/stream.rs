@@ -18,8 +18,8 @@ use executor_protocol::{Adapter, Driver, Execute, Executor, Instruction, Offer};
 
 use crate::Size;
 use crate::parts::{
-    Forward, MixGates, Profile, Profiler, ProgramAsStream, ProgramInBatches, Received, run_once,
-    slots_per_batch,
+    Forward, MixGates, Profile, Profiler, ProgramInBatches, ProgramMadeAsPulled, Received,
+    run_once, slots_per_batch,
 };
 use crate::timing::{best, per};
 use crate::workload::QUBITS;
@@ -128,13 +128,17 @@ fn send_down<E: Execute>(
     checked: bool,
     executor: E,
 ) -> Received {
-    let as_stream = || ProgramAsStream::new(MixGates::set(), program, QUBITS).checked_if(checked);
+    let as_one_stream =
+        || ProgramMadeAsPulled::as_one_stream(MixGates::set(), program, QUBITS).checked_if(checked);
     match sending {
-        Sending::CutThroughForward => run_once(
-            Driver::new(as_stream().cut_by_itself(batch))
-                >> Adapter::new(Forward::new())
-                >> Executor::new(executor),
-        ),
+        Sending::CutThroughForward => {
+            let in_batches =
+                ProgramMadeAsPulled::in_batches_of(MixGates::set(), program, QUBITS, batch)
+                    .checked_if(checked);
+            run_once(
+                Driver::new(in_batches) >> Adapter::new(Forward::new()) >> Executor::new(executor),
+            )
+        }
         Sending::HeldThroughForward => {
             let in_batches = ProgramInBatches::new(MixGates::set(), program, slots, QUBITS, batch)
                 .checked_if(checked);
@@ -142,9 +146,9 @@ fn send_down<E: Execute>(
                 Driver::new(in_batches) >> Adapter::new(Forward::new()) >> Executor::new(executor),
             )
         }
-        Sending::Stream => run_once(Driver::new(as_stream()) >> Executor::new(executor)),
+        Sending::Stream => run_once(Driver::new(as_one_stream()) >> Executor::new(executor)),
         Sending::StreamThroughForward => run_once(
-            Driver::new(as_stream()) >> Adapter::new(Forward::new()) >> Executor::new(executor),
+            Driver::new(as_one_stream()) >> Adapter::new(Forward::new()) >> Executor::new(executor),
         ),
     }
 }

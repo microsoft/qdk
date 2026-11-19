@@ -199,10 +199,10 @@ pub trait Execute: ExecutorSetup {
     /// executor takes ([`Offer::max_instructions`](crate::Offer), or 1 if it
     /// takes none, or a thousand or so when it sets none), pulling each piece
     /// only once the one before it has answered, so every executor serves it.
-    /// It then holds one piece, and, until the stream ends, the readouts of the
-    /// pieces that read anything, joined into `readouts` at the end: about
-    /// twice the stream's readouts, and little more than a piece for a
-    /// stream that reads only at its end. An executor that applies
+    /// It then holds one piece and its readouts, and the rows of the pieces
+    /// that ran, joined as they come into one buffer that becomes
+    /// `readouts`: at most about twice the stream's readouts, however small
+    /// its pieces. An executor that applies
     /// instructions as they come, such as a simulator, or one that passes
     /// them on over a network, overrides it, to take the stream whole.
     ///

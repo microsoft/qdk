@@ -3,8 +3,8 @@
 
 //! What an `execute` sends down and gets back: [`Batch`]es, each
 //! instructions on a [`ShotSet`] of [`ShotId`]s, checked before they run
-//! when their sender asks, and for each its [`BatchReadouts`]; and the
-//! batch whose instructions come as they are produced, an
+//! when their sender asks, and for each its [`BatchReadouts`]; and a
+//! stream of instructions, the streamed counterpart of a batch, an
 //! [`InstructionStream`].
 
 mod batch_readouts;

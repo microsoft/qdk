@@ -39,6 +39,8 @@ pub(crate) struct Bits {
     inconsistent_tossing: Option<u32>,
     /// Whether each `execute` fails once it has run its shots.
     fails: bool,
+    /// Whether each `execute` panics once it has run its shots.
+    panics: bool,
     /// Whether an `execute` refuses, itself, a batch with a block beyond
     /// the shots' needs.
     checks_blocks: bool,
@@ -65,6 +67,7 @@ impl Bits {
             loses: |_| false,
             inconsistent_tossing: None,
             fails: false,
+            panics: false,
             checks_blocks: false,
             set_once_ready: None,
             log: log.clone(),
@@ -122,6 +125,13 @@ impl Bits {
         self
     }
 
+    /// These bits, panicking in each `execute` once they have run its
+    /// shots, as a device's code with a bug in its answer.
+    pub(crate) fn panicking(mut self) -> Self {
+        self.panics = true;
+        self
+    }
+
     /// These bits, refusing, themselves, an `execute` holding an
     /// instruction on a block beyond the shots' needs, before they run or
     /// log anything, naming the batch and the instruction's position in
@@ -169,6 +179,7 @@ impl Bits {
 
     /// The answer of an `execute` on `shots` that has run.
     fn answer(&self, shots: &ShotSet) -> Result<(), ExecuteError> {
+        assert!(!self.panics, "the bits broke as they answered");
         if !self.fails {
             return Ok(());
         }

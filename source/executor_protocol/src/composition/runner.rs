@@ -285,7 +285,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             }
             Ok(Err(failure)) => failure,
             Err(message) => DriveError {
-                shot: shots.iter().next().expect("a shot set is never empty"),
+                shot: shots.first(),
                 failure: Failure::Panicked {
                     part: self.driver_part.clone(),
                     message,

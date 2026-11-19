@@ -9,7 +9,6 @@
 //! reaches it.
 
 use std::cell::Cell;
-use std::collections::VecDeque;
 
 use super::batch_limits::{BatchFault, BatchLimits};
 use crate::Instruction;
@@ -28,8 +27,9 @@ pub(crate) struct CheckedPieces<'a, I> {
     instructions: I,
     batch_limits: &'a BatchLimits,
     most: usize,
-    /// The piece checked, as the receiver has not yet pulled it.
-    piece: VecDeque<Instruction>,
+    /// The piece checked, as the receiver has not yet pulled it, last
+    /// first, so that each pull pops it.
+    piece: Vec<Instruction>,
     /// The instructions the receiver pulled.
     before: usize,
     /// The readout slots of the pieces checked so far.
@@ -55,7 +55,7 @@ impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
             instructions,
             batch_limits,
             most,
-            piece: VecDeque::new(),
+            piece: Vec::new(),
             before: 0,
             slots: 0,
             refused: false,
@@ -78,10 +78,11 @@ impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
         }
         match self
             .batch_limits
-            .check_instructions(self.piece.make_contiguous(), self.slots)
+            .check_instructions(&self.piece, self.slots)
         {
             Ok(slots) => {
                 self.slots = slots;
+                self.piece.reverse();
                 Ok(())
             }
             Err(fault) => {
@@ -105,7 +106,7 @@ impl<I: Iterator<Item = Instruction>> Iterator for CheckedPieces<'_, I> {
                 self.later_fault.set(Some(fault));
             }
         }
-        let instruction = self.piece.pop_front()?;
+        let instruction = self.piece.pop()?;
         self.before += 1;
         Some(instruction)
     }

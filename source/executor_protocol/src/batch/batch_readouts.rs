@@ -134,6 +134,37 @@ impl BatchReadouts {
         self.conditions.clear();
     }
 
+    /// Readouts of `shots` rows of `readout_slots` values each, laid one
+    /// after another in `values`, and `conditions`, one per shot or none
+    /// while every shot is clear: rows a part joined itself, such as a
+    /// stream's, taken without a copy.
+    ///
+    /// # Panics
+    ///
+    /// When `values` or `conditions` do not hold that many.
+    pub(crate) fn from_rows(
+        shots: usize,
+        readout_slots: u32,
+        values: Vec<ReadoutValue>,
+        conditions: Vec<ShotConditions>,
+    ) -> Self {
+        assert_eq!(
+            Some(values.len()),
+            shots.checked_mul(readout_slots as usize),
+            "a value per readout slot of each row"
+        );
+        assert!(
+            conditions.is_empty() || conditions.len() == shots,
+            "conditions for every shot, or for none"
+        );
+        Self {
+            readout_slots,
+            shots,
+            values,
+            conditions,
+        }
+    }
+
     /// The number of values in each row: the readout slots of the batch's
     /// instructions, as its sender stated them
     /// ([`Batch::readout_slots`](crate::Batch::readout_slots)).

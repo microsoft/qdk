@@ -17,6 +17,8 @@ problem includes:
   maintained apart;
 - a cost at every hand-off, converting each instruction to the next tool's
   types, paid again on every shot;
+- a long program held whole at every hand-off, and results only once the
+  whole run ends;
 - a new tool or feature that changes the tools around it.
 
 In addition to these, adaptive programs require a back-and-forth: a shot's
@@ -28,7 +30,9 @@ driver on top, such as a program's interpreter; any number of adapters
 below it, such as a noise model, a code's lowering and decoding, or a
 debugger; and an executor at the bottom, such as a simulator or a device.
 A part calls the part below it with `execute`: batches of instructions,
-each on a set of shots, answered with each shot's readouts. So a driver
+each on a set of shots, answered with each shot's readouts; or, through
+its streaming forms, sends the instructions as they are made and gets each
+shot's readouts as they come ([Streaming](#streaming)). So a driver
 sends each shot's instructions up to its next branch, reads the readouts,
 and sends the next, as an adaptive program needs. A part depends on the
 protocol alone, never on another part: the rest of the chain below it is
@@ -62,7 +66,7 @@ Today the protocol holds:
   `Adapter`; (`Adapter >> Executor`) is an `Executor`, each a composition
   ([`Composed`](src/composition/composed.rs)); and (`Driver >> Executor`)
   is a [`Runner`](src/composition/runner.rs), which runs shots and gives
-  their outputs at the end of the run, or each as its shot ends. So
+  their outputs at the end of the run, or each as the driver gives it. So
   reusable parts mix and match: a stack of adapters, or a noise model
   over a simulator, is a composition, ready to join others as one part
   would.
@@ -383,7 +387,8 @@ mechanics and edge cases.
   their defaults and the panics of `each` and of a stream, and how a part
   draws from the run's seed or says it cannot replay a shot.
 - [Batches and readouts](docs/batches-and-readouts.md): what a batch
-  holds, and how its readouts are shaped, filled and kept.
+  holds, and how its readouts, and a stream's, are shaped, filled, given
+  and kept.
 - [Instruction sets and their fit](docs/instruction-sets.md): what a set
   declares, how it is built, and when two sets fit.
 - [Needs, offers and the admission](docs/admission.md): what a part needs

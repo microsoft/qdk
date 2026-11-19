@@ -45,8 +45,12 @@ pub trait ExecutorSetup {
     /// What it can ever serve, such as its most qubits, which the driver's
     /// needs, as adapted down to it, must fit. The `>>` that makes a runner
     /// reads it once, and the admission and every check of a run use that
-    /// answer. Its most shots and whether it is seedable bound every
-    /// run of the chain: no adapter above can raise them.
+    /// answer. It answers the same each time: the default
+    /// [`execute_stream`](crate::Execute::execute_stream) and
+    /// [`adapt_stream`](crate::Adapt::adapt_stream) read it again, to cut
+    /// a stream into pieces of its most instructions. Its most shots and
+    /// whether it is seedable bound every run of the chain: no adapter
+    /// above can raise them.
     fn offers(&self) -> Offer;
 
     // Protocol hooks: sealed and hidden. Their parameter type, `ByPart`,

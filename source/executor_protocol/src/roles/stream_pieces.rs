@@ -5,11 +5,9 @@
 //! `execute_stream` and `adapt_stream` run a stream, each piece one
 //! `execute` or one `adapt` of one batch, holding one piece at a time.
 
-use std::mem;
-
 use crate::{
     Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, Instruction, InstructionSet,
-    InstructionStream, ShotConditions, ShotId, ShotSet,
+    InstructionStream, ReadoutFailure, ReadoutValue, ShotConditions, ShotSet,
 };
 
 /// The most instructions of a piece when the receiver's offer sets no most
@@ -37,10 +35,10 @@ pub(crate) fn most_per_piece(most: Option<u32>) -> usize {
 /// row is its rows in the pieces, in order, and its conditions their union.
 ///
 /// It holds one piece of instructions at a time, pulled from the stream
-/// only once the piece before it has answered; the readouts of each piece
-/// that reads anything, until the end, where they are joined; and, for the
-/// pieces that read nothing, the union of their conditions per shot. An
-/// empty stream runs nothing.
+/// only once the piece before it has answered, and its readouts; and the
+/// rows of the pieces that ran, joined as they come ([`JoinedRows`]): the
+/// stream's readouts so far, and at most as much again of room for those
+/// to come, however small the pieces. An empty stream runs nothing.
 pub(crate) struct StreamPieces<I: Iterator<Item = Instruction>> {
     instructions: I,
     most: usize,
@@ -50,13 +48,8 @@ pub(crate) struct StreamPieces<I: Iterator<Item = Instruction>> {
     ended: bool,
     /// The readouts of the piece pulled last, shaped by [`Self::batch`].
     piece_readouts: BatchReadouts,
-    /// The readouts of each piece that ran and read anything, in order.
-    read: Vec<BatchReadouts>,
-    /// The readout slots of `read`, all together.
-    read_slots: u32,
-    /// Per shot, the conditions of the pieces that ran and read nothing;
-    /// empty until a shot has any.
-    unread_conditions: Vec<ShotConditions>,
+    /// The rows of the pieces that ran, joined.
+    joined: JoinedRows,
     /// The instructions of the pieces that ran.
     sent: usize,
 }
@@ -106,9 +99,7 @@ impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
             piece: Vec::new(),
             ended: false,
             piece_readouts: BatchReadouts::new(0, 0),
-            read: Vec::new(),
-            read_slots: 0,
-            unread_conditions: Vec::new(),
+            joined: JoinedRows::new(),
             sent: 0,
         }
     }
@@ -151,9 +142,9 @@ impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
         let piece_slots: u64 = self.piece.iter().map(slots_of).sum();
         let Some(piece_slots) = u32::try_from(piece_slots)
             .ok()
-            .filter(|slots| slots.checked_add(self.read_slots).is_some())
+            .filter(|slots| slots.checked_add(self.joined.slots).is_some())
         else {
-            let room = u64::from(u32::MAX - self.read_slots);
+            let room = u64::from(u32::MAX - self.joined.slots);
             let mut summed = 0;
             let at = self
                 .piece
@@ -164,7 +155,7 @@ impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
                 })
                 .expect("the piece's slots go beyond the room left");
             return Err(ExecuteError::Refused(ExecuteRefusal::TooManyReadoutSlots {
-                shot: first_shot(shots),
+                shot: shots.first(),
                 batch: 0,
                 at,
             }));
@@ -176,34 +167,94 @@ impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
         ))
     }
 
-    /// Takes how the piece pulled last ran: its readouts kept, or its
-    /// error, which ends the stream, returned with its positions in the
-    /// stream: a refusal of the first piece as it is, since nothing of the
-    /// stream ran; a refusal of a later one as [`Failure::Refused`], since
-    /// the pieces before it ran.
+    /// Takes how the piece pulled last ran: its readouts joined to those
+    /// before, or its error, which ends the stream, returned with its
+    /// positions in the stream: a refusal of the first piece as it is,
+    /// since nothing of the stream ran; a refusal of a later one as
+    /// [`Failure::Refused`], since the pieces before it ran.
     fn ran(&mut self, answer: Result<(), ExecuteError>) -> Result<(), ExecuteError> {
         answer.map_err(|error| in_the_stream(error, self.sent))?;
         self.sent += self.piece.len();
-        if self.piece_readouts.readout_slots() > 0 {
-            self.read_slots += self.piece_readouts.readout_slots();
-            self.read.push(mem::replace(
-                &mut self.piece_readouts,
-                BatchReadouts::new(0, 0),
-            ));
-        } else {
-            union_conditions(&mut self.unread_conditions, &self.piece_readouts);
-        }
+        self.joined.append(&self.piece_readouts);
         Ok(())
     }
 
     /// Fills `readouts` with the readouts of every piece that ran, joined,
     /// for `shots`.
     fn join_into(self, shots: &ShotSet, readouts: &mut BatchReadouts) {
-        readouts.shape(shots.len(), self.read_slots);
-        readouts.concat_from(&self.read);
-        for (position, &raised) in self.unread_conditions.iter().enumerate() {
-            readouts.set_conditions(position, readouts.conditions(position) | raised);
+        *readouts = self.joined.into_readouts(shots.len());
+    }
+}
+
+/// The rows of a stream's pieces that ran, joined as they come, in one
+/// buffer: each shot's row is its rows in the pieces, in order, and its
+/// conditions their union. A row has room for more values than it holds,
+/// and the room doubles when a piece's rows outgrow it, so the buffer holds
+/// the stream's readouts so far, and at most as much again, however small
+/// its pieces: no piece's readouts are kept whole.
+struct JoinedRows {
+    /// The rows, one after another, each of `room` values: shot i's is
+    /// `values[i * room..i * room + slots]`, the rest room for the pieces
+    /// to come.
+    values: Vec<ReadoutValue>,
+    /// The values each row has room for.
+    room: usize,
+    /// The values each row holds: the readout slots of the pieces that
+    /// ran, all together.
+    slots: u32,
+    /// Each shot's conditions, by its position; empty until a shot has
+    /// any.
+    conditions: Vec<ShotConditions>,
+}
+
+impl JoinedRows {
+    /// No rows yet.
+    fn new() -> Self {
+        Self {
+            values: Vec::new(),
+            room: 0,
+            slots: 0,
+            conditions: Vec::new(),
         }
+    }
+
+    /// Appends each shot's row of `piece`, a piece's readouts on the
+    /// stream's shots, to its row so far, and adds its conditions to the
+    /// shot's. Its slots fit a `u32` with those before, as
+    /// [`StreamPieces::batch`] checked.
+    fn append(&mut self, piece: &BatchReadouts) {
+        let shots = piece.shots();
+        let (held, added) = (self.slots as usize, piece.readout_slots() as usize);
+        if held + added > self.room {
+            let room = (held + added).max(2 * self.room);
+            self.values
+                .resize(shots * room, ReadoutValue::Missing(ReadoutFailure::Other));
+            // The rows move to their wider places last first, so that none
+            // is written over before it has moved.
+            for position in (1..shots).rev() {
+                let from = position * self.room;
+                self.values.copy_within(from..from + held, position * room);
+            }
+            self.room = room;
+        }
+        for position in 0..shots {
+            let at = position * self.room + held;
+            self.values[at..at + added].copy_from_slice(piece.row(position));
+        }
+        self.slots += piece.readout_slots();
+        union_conditions(&mut self.conditions, piece);
+    }
+
+    /// The rows joined, as the readouts of `shots` shots, in the same
+    /// buffer: each row moved next to the one before it.
+    fn into_readouts(mut self, shots: usize) -> BatchReadouts {
+        let held = self.slots as usize;
+        for position in 1..shots {
+            let from = position * self.room;
+            self.values.copy_within(from..from + held, position * held);
+        }
+        self.values.truncate(shots * held);
+        BatchReadouts::from_rows(shots, self.slots, self.values, self.conditions)
     }
 }
 
@@ -229,8 +280,8 @@ fn in_the_stream(error: ExecuteError, sent: usize) -> ExecuteError {
     }
 }
 
-/// Adds the conditions of `piece_readouts`, a piece's that reads nothing,
-/// to `conditions`, one per shot, made only once a shot has any.
+/// Adds the conditions of `piece_readouts`, a piece's, to `conditions`,
+/// one per shot, made only once a shot has any.
 fn union_conditions(conditions: &mut Vec<ShotConditions>, piece_readouts: &BatchReadouts) {
     for position in 0..piece_readouts.shots() {
         let raised = piece_readouts.conditions(position);
@@ -242,9 +293,4 @@ fn union_conditions(conditions: &mut Vec<ShotConditions>, piece_readouts: &Batch
         }
         conditions[position] |= raised;
     }
-}
-
-/// The first of `shots`, in its order.
-fn first_shot(shots: &ShotSet) -> ShotId {
-    shots.iter().next().expect("a shot set is never empty")
 }

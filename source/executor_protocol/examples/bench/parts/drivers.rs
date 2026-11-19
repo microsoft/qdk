@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! The bench's drivers: a program sent in batches, through the chain or
-//! past it, or as one stream, and running a chain of them once.
+//! past it, or made as pulled, as one stream or in batches, and running a
+//! chain of them once.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -141,14 +142,14 @@ impl Drive for ProgramInBatches<'_> {
     }
 }
 
-/// A driver that sends its program below as one
-/// [`InstructionStream`] of its instructions, made one by one as they are
-/// pulled, one shot, the stream [`checked`](InstructionStream::checked)
-/// when `checked`, and returns every readout: the protocol, or the part
-/// below, cuts it into pieces. Or, [`cut_by_itself`](Self::cut_by_itself),
-/// the same instructions made the same way, in batches it cuts itself, as
+/// A driver that makes its program's instructions one by one, as they are
+/// pulled, a copy of each of the program's, and sends them below on one
+/// shot, [`checked`](InstructionStream::checked) when `checked`, and
+/// returns every readout: either [`as_one_stream`](Self::as_one_stream),
+/// which the protocol, or the part below, cuts into pieces; or
+/// [`in_batches_of`](Self::in_batches_of) a size, which it cuts itself, as
 /// a sender does without `execute_stream`.
-pub(crate) struct ProgramAsStream<'p> {
+pub(crate) struct ProgramMadeAsPulled<'p> {
     set: InstructionSet,
     /// As [`ProgramInBatches`]'s.
     identity: OpcodeMap,
@@ -159,8 +160,13 @@ pub(crate) struct ProgramAsStream<'p> {
     cut: Option<usize>,
 }
 
-impl<'p> ProgramAsStream<'p> {
-    pub(crate) fn new(set: InstructionSet, program: &'p [Instruction], qubits: u32) -> Self {
+impl<'p> ProgramMadeAsPulled<'p> {
+    /// `program`, of `set` on `qubits` qubits, sent as one stream.
+    pub(crate) fn as_one_stream(
+        set: InstructionSet,
+        program: &'p [Instruction],
+        qubits: u32,
+    ) -> Self {
         let identity = set.fits(&set).expect("a set fits itself");
         Self {
             set,
@@ -172,21 +178,29 @@ impl<'p> ProgramAsStream<'p> {
         }
     }
 
-    /// The same driver, sending its stream checked if `on`.
+    /// `program`, of `set` on `qubits` qubits, sent in batches of `batch`
+    /// it cuts itself, each `execute`'s readout slots counted as it cuts
+    /// it.
+    pub(crate) fn in_batches_of(
+        set: InstructionSet,
+        program: &'p [Instruction],
+        qubits: u32,
+        batch: usize,
+    ) -> Self {
+        Self {
+            cut: Some(batch),
+            ..Self::as_one_stream(set, program, qubits)
+        }
+    }
+
+    /// The same driver, sending its instructions checked if `on`.
     pub(crate) fn checked_if(mut self, on: bool) -> Self {
         self.checked = on;
         self
     }
-
-    /// The same driver, sending its instructions in batches of `batch` it
-    /// cuts itself, each `execute`'s readout slots counted as it cuts it.
-    pub(crate) fn cut_by_itself(mut self, batch: usize) -> Self {
-        self.cut = Some(batch);
-        self
-    }
 }
 
-impl DriverSetup for ProgramAsStream<'_> {
+impl DriverSetup for ProgramMadeAsPulled<'_> {
     fn sends(&self) -> &InstructionSet {
         &self.set
     }
@@ -201,7 +215,7 @@ impl DriverSetup for ProgramAsStream<'_> {
     }
 }
 
-impl Drive for ProgramAsStream<'_> {
+impl Drive for ProgramMadeAsPulled<'_> {
     type Output = Received;
 
     async fn drive(

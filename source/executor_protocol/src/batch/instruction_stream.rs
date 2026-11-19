@@ -7,17 +7,18 @@
 
 use crate::{Instruction, ShotSet};
 
-/// A request, as a [`Batch`](crate::Batch) is, whose instructions come one
-/// by one from an iterator rather than as a slice: run `instructions`, in
-/// order, on each of `shots`, checked before they run if its sender marked
-/// it [`checked`](Self::checked).
+/// Instructions to run on a shot set, as a [`Batch`](crate::Batch)'s are,
+/// but pulled one by one from an iterator rather than given as a slice:
+/// run `instructions`, in order, on each of `shots`, checked before they
+/// run if its sender marked it [`checked`](Self::checked).
 ///
 /// For a sender whose program is too long to hold, such as a time
 /// evolution of millions of instructions per shot, or a program
 /// interpreted as it runs: it hands the iterator to
 /// [`Execute::execute_stream`](crate::Execute::execute_stream), and the
 /// receiver pulls instructions as it runs them, by default in pieces of
-/// the most it takes, so neither side holds the whole program. Its
+/// at most the most it takes, as `execute_stream` says, so neither side
+/// holds the whole program. Its
 /// instructions are in the receiver's opcodes, as a batch's are, and it
 /// states no readout slots: the sender could not count them without
 /// holding the program, so the receiver counts them as it runs.
