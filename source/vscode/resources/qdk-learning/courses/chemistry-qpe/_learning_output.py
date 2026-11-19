@@ -140,12 +140,8 @@ def multiple_choice(
     then has to find all of them, and is told so.
     """
     normalized = _normalize_options(options, multi_select=multi_select)
-    prompt = str(prompt)
-    # The renderer refuses a payload with no question text, so an empty prompt
-    # would bake cleanly and then fail for the learner. Catch it here, where
-    # the author is the one running the cell.
-    if not prompt.strip():
-        raise ValueError("multiple_choice requires question text")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("multiple_choice requires question text as a non-empty string")
     payload: dict[str, Any] = {
         "schemaVersion": 1,
         "kind": "multiple-choice",

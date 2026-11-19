@@ -13,6 +13,9 @@ _helper = (
 _helpers = runpy.run_path(str(_helper))
 validate_quizzes = _helpers["validate_quizzes"]
 validate_cell_roles = _helpers["validate_cell_roles"]
+MIME_TYPE = _helpers["MIME_TYPE"]
+_baker = _helper.parents[2] / "utils" / "chemistry-qpe" / "details_to_quiz.py"
+bake_quizzes = runpy.run_path(str(_baker))["bake_quizzes"]
 
 
 def _quiz_cell(*, tags: tuple[str, ...] = ("quiz",)) -> dict:
@@ -32,6 +35,30 @@ def _write_notebook(tmp_path: Path, *cells: dict) -> Path:
     path = tmp_path / "author.ipynb"
     path.write_text(json.dumps({"cells": list(cells)}), encoding="utf-8")
     return path
+
+
+@pytest.mark.parametrize(
+    ("field", "malformed_value"),
+    [("prompt", ["Pick one"]), ("schemaVersion", True)],
+)
+def test_baker_repairs_payload_types_without_rewriting_text_fallbacks(
+    field: str, malformed_value: list[str] | bool
+) -> None:
+    cell = _quiz_cell()
+    notebook = {"cells": [cell]}
+    assert bake_quizzes(notebook) == ["question-cell"]
+    bundle = cell["outputs"][0]["data"]
+    expected = bundle[MIME_TYPE].copy()
+    for mime in ("text/plain", "text/html"):
+        bundle[mime] = bundle[mime].splitlines(keepends=True)
+    assert bake_quizzes(notebook) == []
+
+    bundle[MIME_TYPE][field] = malformed_value
+    assert bake_quizzes(notebook) == ["question-cell"]
+    payload = cell["outputs"][0]["data"][MIME_TYPE]
+    assert payload == expected
+    assert type(payload[field]) is type(expected[field])
+    assert bake_quizzes(notebook) == []
 
 
 def test_validation_reads_source_without_requiring_or_writing_outputs(
@@ -84,6 +111,8 @@ def test_validation_rejects_misclassified_quiz_cells(
     ("prompt", "message"),
     [
         ('" "', "requires question text"),
+        ("None", "requires question text"),
+        ("123", "requires question text"),
         ("question_text", "prompt must be literal data"),
     ],
 )

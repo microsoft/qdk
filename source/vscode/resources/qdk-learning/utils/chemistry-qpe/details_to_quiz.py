@@ -33,7 +33,16 @@ def _normalize_bundle(value: Any) -> Any:
             return "".join(value)
         return [_normalize_bundle(item) for item in value]
     if isinstance(value, dict):
-        return {key: _normalize_bundle(item) for key, item in value.items()}
+        # Compare the QDK payload as JSON to distinguish arrays from strings
+        # and booleans from integers, which compare equal in Python.
+        return {
+            key: (
+                json.dumps(item, sort_keys=True)
+                if key == MIME_TYPE
+                else _normalize_bundle(item)
+            )
+            for key, item in value.items()
+        }
     return value
 
 

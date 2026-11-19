@@ -76,6 +76,22 @@ export function renderMultipleChoice(
 
   const controls = document.createElement("div");
   controls.className = "qdk-learning-controls";
+  const onControlsKeyDown = (event: KeyboardEvent) => {
+    // Let Enter activate the button without VS Code also focusing the cell editor.
+    if (
+      event.key === "Enter" &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.shiftKey
+    ) {
+      event.stopPropagation();
+    }
+  };
+  controls.addEventListener("keydown", onControlsKeyDown);
+  context.addDisposable(() =>
+    controls.removeEventListener("keydown", onControlsKeyDown),
+  );
 
   const actionList = document.createElement("div");
   actionList.className = "qdk-learning-action-list";

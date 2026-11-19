@@ -149,6 +149,18 @@
   white-space: nowrap;
 }
 
+/* Forced colors remove the custom selection colors. Show the native state. */
+@media (forced-colors: active) {
+  .qdk-learning-option input {
+    position: static;
+    flex: none;
+    width: auto;
+    height: auto;
+    margin-block-start: 0.25em;
+    clip-path: none;
+  }
+}
+
 .qdk-learning-option-badge {
   display: inline-flex;
   align-items: center;
