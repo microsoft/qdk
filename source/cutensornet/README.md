@@ -17,14 +17,13 @@ without them.
 asked for: [`discover`](src/discovery.rs) finds and opens the two libraries
 installed on the host, looks up by name each C function of a table per
 library (each such exported name is a _symbol_), and checks the versions the
-libraries report against the audited ones. It returns an
-[`Availability`](src/discovery.rs), which keeps the libraries loaded, or an
-[`AvailabilityError`](src/discovery/error.rs) that says what is missing, so
-the caller can tell the user or run on the CPU.
+libraries report against the audited ones. It returns an `Availability`,
+which keeps the libraries loaded, or an `AvailabilityError` that says what
+is missing, so the caller can tell the user or run on the CPU.
 
 Today the crate holds:
 
-- **Discovery:** [`discover`](src/discovery.rs), which opens and checks the
+- **The discovery:** [`discover`](src/discovery.rs), which opens and checks the
   libraries, and [`Availability`](src/discovery.rs), which keeps them loaded
   with the table of each library's functions, typed function pointers
   ready to call; the MPS engine, added in a later change, calls cuTensorNet
@@ -279,9 +278,8 @@ checked against them when it compiles:
   header declares.
 
 To bind another function of a bound release, add its row, with a field
-named for its symbol (the tests check it), and its function-pointer type, to
-its library's module in [`src/libraries/`](src/libraries): the bindings
-already declare it.
+named for its symbol and its function-pointer type, to its library's
+module in [`src/libraries/`](src/libraries): the bindings already declare it.
 To bind another library, follow the steps at the top of
 [`src/libraries.rs`](src/libraries.rs). The script runs once per release of
 a library; its documentation, at the top of
