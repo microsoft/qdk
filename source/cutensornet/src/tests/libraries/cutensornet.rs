@@ -16,7 +16,8 @@ use crate::{
 };
 
 /// Each cuTensorNet table looks each field up by the function it is named
-/// for: its two version functions, of one signature, cannot be swapped.
+/// for: its two version functions, of one signature, can be neither
+/// swapped nor repeated.
 #[test]
 fn the_cutensornet_tables_look_each_field_up_by_its_symbol() {
     for rows in [

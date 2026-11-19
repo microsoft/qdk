@@ -16,7 +16,8 @@ use crate::{
 use std::ffi::c_char;
 
 /// Each CUDA Runtime table looks each field up by the function it is named
-/// for: two functions of one signature cannot be swapped.
+/// for: two functions of one signature can be neither swapped nor
+/// repeated.
 #[test]
 fn the_cuda_runtime_tables_look_each_field_up_by_its_symbol() {
     for rows in [CudaFunctions::ROWS, CudaVersionFunctions::ROWS] {

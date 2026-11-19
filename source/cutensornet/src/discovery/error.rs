@@ -22,7 +22,9 @@ pub enum AvailabilityError {
     UnsupportedPlatform { platform: String },
 
     /// A library is at fault. The report has one entry per library, in the
-    /// order they are opened; each library at fault lists its faults.
+    /// order they are opened; each library at fault lists its faults. The
+    /// message shows each fault after its library and, once opened, its
+    /// path, so each can be read alone.
     #[error("cuTensorNet acceleration is unavailable: {}", faults_message(.0))]
     Unusable(AvailabilityReport),
 }
