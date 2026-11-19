@@ -12,6 +12,8 @@ mod cuda_runtime;
 #[cfg(unix)]
 mod cutensornet;
 #[cfg(unix)]
+mod function_table;
+#[cfg(unix)]
 mod loader;
 mod report;
 
@@ -32,7 +34,7 @@ use crate::{
 };
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use crate::{
-    libraries::loader::{FunctionTable, SymbolResolver, resolve_required},
+    libraries::function_table::{FunctionTable, SymbolResolver, resolve_required},
     libraries::{ProbedVersions, open},
 };
 use std::ffi::OsString;
@@ -48,6 +50,30 @@ fn opened<L: NativeLibrary>() -> LibraryReport {
         versions: Vec::new(),
         faults: Vec::new(),
     }
+}
+
+/// The reason `validate_override_path` gives for refusing `value` as
+/// `QDK_CUDART_LIBRARY`, once the fault is checked to be an invalid
+/// override whose message names the variable and the path.
+fn refusal_reason(value: impl Into<OsString>) -> &'static str {
+    let value = value.into();
+    let refused = validate_override_path("QDK_CUDART_LIBRARY", Some(value.clone()));
+    let Err(
+        fault @ LibraryFault::InvalidOverride {
+            variable: "QDK_CUDART_LIBRARY",
+            path,
+            reason,
+        },
+    ) = &refused
+    else {
+        panic!("{value:?} is refused as an invalid override: {refused:?}");
+    };
+    assert_eq!(path.as_os_str(), value, "the fault keeps the path as set");
+    let message = fault.to_string();
+    for named in ["QDK_CUDART_LIBRARY", &*value.to_string_lossy()] {
+        assert!(message.contains(named), "{named} is named: {message}");
+    }
+    reason
 }
 
 /// An unset variable leaves the default search in place.
@@ -75,17 +101,8 @@ fn an_absolute_path_to_a_file_is_the_override() {
 /// copy on its search path.
 #[test]
 fn a_relative_override_is_refused() {
-    assert!(matches!(
-        validate_override_path(
-            "QDK_CUDART_LIBRARY",
-            Some(OsString::from("libcudart.so.12"))
-        ),
-        Err(LibraryFault::InvalidOverride {
-            variable: "QDK_CUDART_LIBRARY",
-            reason: "path must be absolute",
-            ..
-        })
-    ));
+    let reason = refusal_reason("libcudart.so.12");
+    assert!(reason.contains("absolute"), "{reason}");
 }
 
 /// A mistyped path is reported with the variable that holds it, and the
@@ -95,35 +112,48 @@ fn a_relative_override_is_refused() {
 fn an_override_that_cannot_be_read_is_refused_with_why() {
     let missing = unique_temp_path("missing-override");
     #[cfg_attr(not(unix), expect(unused_mut, reason = "only Unix adds rows"))]
-    let mut rows = vec![("a mistyped path", missing, "path does not exist")];
+    let mut rows = vec![("a mistyped path", missing, "does not exist")];
     #[cfg(unix)]
     let _remove = {
         let (looping, locked_dir, guard) = unreadable_overrides();
-        rows.push(("a symlink loop", looping, "path cannot be read"));
+        rows.push(("a symlink loop", looping, "cannot be read"));
         // Root reads a directory whatever its mode, so the row runs only
         // where the mode applies.
         if std::fs::read_dir(&locked_dir).is_err() {
             rows.push((
                 "a file in a directory the user cannot search",
                 locked_dir.join("libcudart.so.12"),
-                "path cannot be read: permission denied",
+                "permission denied",
             ));
         }
         guard
     };
     for (case, path, expected) in rows {
-        let refused =
-            validate_override_path("QDK_CUDART_LIBRARY", Some(path.clone().into_os_string()));
+        let reason = refusal_reason(path);
+        assert!(reason.contains(expected), "{case}: {reason}");
+    }
+}
+
+/// A user reads from the reason alone which of their mistakes to fix: a
+/// relative path, a missing one, one that cannot be read, or a folder.
+#[test]
+fn each_kind_of_invalid_override_has_its_own_reason() {
+    #[cfg_attr(not(unix), expect(unused_mut, reason = "only Unix adds rows"))]
+    let mut reasons = vec![
+        refusal_reason("libcudart.so.12"),
+        refusal_reason(unique_temp_path("missing-override")),
+        refusal_reason(std::env::temp_dir()),
+    ];
+    #[cfg(unix)]
+    let _remove = {
+        let (looping, _, guard) = unreadable_overrides();
+        reasons.push(refusal_reason(looping));
+        guard
+    };
+    for (i, reason) in reasons.iter().enumerate() {
         assert!(
-            matches!(
-                &refused,
-                Err(LibraryFault::InvalidOverride {
-                    variable: "QDK_CUDART_LIBRARY",
-                    path: found,
-                    reason,
-                }) if *found == path && *reason == expected
-            ),
-            "{case}: {refused:?}"
+            !reasons[..i].contains(reason),
+            "{reason:?} is given for two kinds: {reasons:?}"
         );
     }
 }
@@ -169,15 +199,8 @@ impl Drop for RemoveUnreadable {
 /// The variable names the library's folder instead of the library.
 #[test]
 fn an_override_naming_a_directory_is_refused() {
-    let path = std::env::temp_dir();
-    assert!(matches!(
-        validate_override_path("QDK_CUDART_LIBRARY", Some(path.clone().into_os_string())),
-        Err(LibraryFault::InvalidOverride {
-            variable: "QDK_CUDART_LIBRARY",
-            path: found,
-            reason: "path must name a file",
-        }) if found == path
-    ));
+    let reason = refusal_reason(std::env::temp_dir());
+    assert!(reason.contains("file"), "{reason}");
 }
 
 /// Installations name a library by a link to its versioned file:
@@ -202,16 +225,9 @@ fn an_override_naming_a_dangling_link_is_refused() {
     let link = unique_temp_path("dangling-link");
     std::os::unix::fs::symlink(unique_temp_path("removed-target"), &link)
         .expect("the temporary directory is writable");
-    let found = validate_override_path("QDK_CUDART_LIBRARY", Some(link.clone().into_os_string()));
+    let reason = refusal_reason(link.clone());
     std::fs::remove_file(&link).expect("the test created the link");
-    assert!(matches!(
-        found,
-        Err(LibraryFault::InvalidOverride {
-            variable: "QDK_CUDART_LIBRARY",
-            path,
-            reason: "path does not exist",
-        }) if path == link
-    ));
+    assert!(reason.contains("does not exist"), "{reason}");
 }
 
 /// A user who sets `QDK_CUDART_LIBRARY` changes where the CUDA Runtime is

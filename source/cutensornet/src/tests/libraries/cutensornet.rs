@@ -4,15 +4,28 @@
 //! What the crate needs of cuTensorNet: the functions it looks up, and the
 //! one version it accepts, built against the audited CUDA Runtime.
 
+use super::function_table::assert_each_field_is_named_for_its_symbol;
 use crate::tests::stand_ins::{StandInResolver, cutensornet_version};
 use crate::{
     LibraryFault,
-    libraries::loader::FunctionTable,
+    libraries::function_table::FunctionTable,
     libraries::{
         NativeLibrary,
-        cutensornet::{CuTensorNet, CuTensorNetFunctions},
+        cutensornet::{CuTensorNet, CuTensorNetFunctions, CuTensorNetVersionFunctions},
     },
 };
+
+/// Each cuTensorNet table looks each field up by the function it is named
+/// for: its two version functions, of one signature, cannot be swapped.
+#[test]
+fn the_cutensornet_tables_look_each_field_up_by_its_symbol() {
+    for rows in [
+        CuTensorNetFunctions::ROWS,
+        CuTensorNetVersionFunctions::ROWS,
+    ] {
+        assert_each_field_is_named_for_its_symbol(rows, "cutensornet");
+    }
+}
 
 /// An installation whose cuTensorNet lacks required functions is refused,
 /// naming each one.

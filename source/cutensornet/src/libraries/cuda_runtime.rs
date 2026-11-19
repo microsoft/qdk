@@ -46,12 +46,13 @@ use super::{NativeLibrary, ProbedVersions};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::{
     LibraryFault,
-    libraries::loader::{FunctionTable, SymbolResolver},
+    libraries::function_table::{FunctionTable, SymbolResolver},
 };
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use std::ffi::CStr;
 
-/// The CUDA Runtime.
+/// The CUDA Runtime library (libcudart): where its file is looked for, the
+/// version it must have, and the tables of the functions looked up in it.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) struct CudaRuntime;
 
@@ -113,7 +114,7 @@ impl NativeLibrary for CudaRuntime {
 }
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-super::loader::function_table! {
+super::function_table::function_table! {
     /// Every CUDA Runtime function discovery looks up.
     #[expect(
         dead_code,
@@ -139,7 +140,7 @@ super::loader::function_table! {
 }
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-super::loader::function_table! {
+super::function_table::function_table! {
     /// The functions that read the versions, looked up on their own, and
     /// each optional, so that each version is read even when other
     /// functions are missing; the main table reports those missing.

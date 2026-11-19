@@ -1,10 +1,9 @@
 # Loading cuTensorNet at run time
 
-The `qdk_cutensornet` crate lets the QDK run tensor-network simulations on an
-NVIDIA GPU, through NVIDIA's cuTensorNet library, without making NVIDIA
-software part of the QDK's build. Its first user is the MPS (matrix product
-state) simulator; another simulator would widen the bound functions by adding
-rows to the cuTensorNet table of
+The `qdk_cutensornet` crate finds, checks and loads the NVIDIA libraries a
+GPU tensor-network simulation needs, without linking them. Its first user is
+the MPS (matrix product state) simulator; another simulator would widen the
+bound functions by adding rows to the cuTensorNet table of
 [`src/libraries/cutensornet.rs`](src/libraries/cutensornet.rs).
 
 **The problem.** cuTensorNet is a tensor-network library that runs on the
@@ -14,13 +13,14 @@ Linking them, as Rust code normally links a C library, would make every QDK
 build and every process that loads the QDK need them, and fail to start
 without them.
 
-**How it is solved.** Nothing is linked. When a GPU run is asked for,
-[`discover`](src/discovery.rs) finds and opens the two libraries installed on the
-host, looks up by name each C function of a table per library (each such
-exported name is a _symbol_), and checks the versions the libraries report
-against the audited ones. It returns an [`Availability`](src/discovery.rs), which
-keeps the libraries loaded, or an [`AvailabilityError`](src/discovery/error.rs) that
-says what is missing, so the caller can tell the user or run on the CPU.
+**How it is solved.** Each library is opened at run time, when a GPU run is
+asked for: [`discover`](src/discovery.rs) finds and opens the two libraries
+installed on the host, looks up by name each C function of a table per
+library (each such exported name is a _symbol_), and checks the versions the
+libraries report against the audited ones. It returns an
+[`Availability`](src/discovery.rs), which keeps the libraries loaded, or an
+[`AvailabilityError`](src/discovery/error.rs) that says what is missing, so
+the caller can tell the user or run on the CPU. Nothing is linked.
 
 **Why this approach.**
 
@@ -47,12 +47,6 @@ says what is missing, so the caller can tell the user or run on the CPU.
   the result is a value the caller holds, not a process-wide singleton, so
   tests and threads choose what they share.
 
-**Evidence.** The crate's [unit tests](src/tests) drive each way discovery
-fails, on any Unix host and without NVIDIA's libraries: missing and refused
-libraries, missing functions, failed version probes, refused versions, and
-bad override variables, each reported with the others. On a host with the audited libraries,
-[`tests/availability.rs`](tests/availability.rs) discovers them.
-
 ## The model
 
 ```mermaid
@@ -63,25 +57,34 @@ flowchart TD
   loader -->|"Err"| error["AvailabilityError: what is missing"]
 ```
 
-- [`discover`](src/discovery.rs) does the whole check once. It selects no device,
-  allocates no GPU memory and runs no GPU work.
-- [`Availability`](src/discovery.rs) holds the loaded libraries and the table of
-  each library's functions, typed function pointers ready to call; the MPS
-  engine, added in a later change, calls cuTensorNet through them. It is
-  `Send` and `Sync`.
-- [`AvailabilityReport`](src/discovery/report.rs) has a
-  [`LibraryReport`](src/libraries/report.rs) per library, in the order they are
-  opened: the library's name, the path it was opened from, the
-  [`Version`](src/libraries/report.rs)s it reports, and its faults.
-- Each library's file,
-  [`src/libraries/cutensornet.rs`](src/libraries/cutensornet.rs) and
-  [`src/libraries/cuda_runtime.rs`](src/libraries/cuda_runtime.rs), holds
-  everything the crate assumes of that library: its name, where it is looked
-  for, the table of its functions, and its versions and the ones accepted.
-- [`AvailabilityError`](src/discovery/error.rs) is `UnsupportedPlatform` off Linux
-  x86-64, or else `Unusable` with the report, in which each library at fault
-  lists its [`LibraryFault`](src/libraries/report.rs)s: the variable, path, function or
-  version at fault.
+Today the crate holds:
+
+- **Discovery:** [`discover`](src/discovery.rs), which opens and checks the
+  libraries, and [`Availability`](src/discovery.rs), which keeps them loaded
+  with the table of each library's functions, typed function pointers
+  ready to call; the MPS engine, added in a later change, calls cuTensorNet
+  through them.
+- **Its error:** [`AvailabilityError`](src/discovery/error.rs),
+  `UnsupportedPlatform` off Linux x86-64, or else `Unusable` with the
+  report.
+- **The reports:** [`AvailabilityReport`](src/discovery/report.rs), with a
+  [`LibraryReport`](src/libraries/report.rs) per library, in the order they
+  are opened: the library's name, the path it was opened from, the
+  [`Version`](src/libraries/report.rs)s it reports, and its
+  [`LibraryFault`](src/libraries/report.rs)s, which name the variable, path,
+  function or version at fault.
+
+What the crate guarantees, by when it holds:
+
+- **When the crate compiles:** each function the crate looks up has the
+  type its declaration has in the bindings generated from the audited
+  headers, and each library is accepted only at the version its header
+  declares.
+- **When `discover` returns:** every fault of every library is reported at
+  once; only the audited versions are accepted; no device was selected, no
+  GPU memory allocated and no GPU work run.
+- **While an `Availability` is held:** the libraries stay loaded, so their
+  functions stay ready to call; it is `Send` and `Sync`.
 
 Copied from [`tests/availability.rs`](tests/availability.rs), which runs on a
 host with the libraries installed:
@@ -102,44 +105,18 @@ println!("{report:#?}");
 
 ## From a library to an `Availability`
 
-Discovery is the same for every library, and knows none of them: each
-library says what the crate needs of it, and one list says which libraries
-a GPU run needs.
-
-```mermaid
-flowchart TD
-  NL["<b>NativeLibrary</b><br/>one library: where it is looked for,<br/>its function table, its versions"]
-  CL["<b>CheckLibrary</b><br/>opens and checks one library"]
-  CK["<b>Checked</b><br/>its LibraryReport, and with no fault<br/>a BoundLibrary: the open file and its table"]
-  OP["<b>Opening</b><br/>each library in turn,<br/>keeping every LibraryReport"]
-  LL["<b>LoadedLibraries</b><br/>every BoundLibrary a GPU run needs"]
-  AV["<b>Availability</b><br/>LoadedLibraries and the AvailabilityReport"]
-  ER["<b>AvailabilityError::Unusable</b><br/>the AvailabilityReport"]
-  NL --> CL --> CK --> OP
-  OP -->|"every library usable"| LL --> AV
-  OP -->|"a library at fault"| ER
-```
-
-- [`NativeLibrary`](src/libraries.rs) is one library as the crate needs it,
-  implemented once per library, in its module: its name, its override
-  variable and default paths, the table of its functions
-  ([`FunctionTable`](src/libraries/loader.rs)), and how its versions are
-  read and which are accepted.
-- [`CheckLibrary`](src/libraries.rs) opens and checks one library. It
-  returns the library's [`LibraryReport`](src/libraries/report.rs), with
-  every fault found, and, when it found none, the
-  [`BoundLibrary`](src/libraries.rs): the open library file and its table
-  of functions, ready to call. It is a trait so that what discovery
-  concludes from the checks is tested without library files.
-- [`Opening`](src/libraries.rs) checks the libraries one at a time, with a
-  `CheckLibrary`, and keeps every report, the usable libraries' included.
-- [`LoadedLibraries`](src/libraries.rs) is the one list of the libraries a
-  GPU run needs, each bound, and the order they are opened in. It opens
-  every library before it requires any, so the report lists every fault
-  of every library.
-- [`Availability`](src/discovery.rs) holds the loaded libraries with their
-  report; with any library at fault, discovery returns
-  `AvailabilityError::Unusable` with the report instead.
+Discovery is the same for every library, and knows none of them. Each
+library's module, [`src/libraries/cutensornet.rs`](src/libraries/cutensornet.rs)
+and [`src/libraries/cuda_runtime.rs`](src/libraries/cuda_runtime.rs), says
+what the crate needs of it, as its [`NativeLibrary`](src/libraries.rs): its
+name, its override variable and default paths, the table of its functions
+([`FunctionTable`](src/libraries/function_table.rs)), and how its versions
+are read and which are accepted. One list,
+[`LoadedLibraries`](src/libraries.rs), says which libraries a GPU run needs;
+it opens every library before it requires any, so the report lists every
+fault of every library. The map at the top of
+[`src/libraries.rs`](src/libraries.rs) shows the steps from one to the
+other.
 
 A library's life, from discovery to the `Availability` that keeps it:
 
@@ -159,14 +136,13 @@ stateDiagram-v2
 ```
 
 A loaded library stays open while the `Availability` lives, and is closed
-with it, cuTensorNet before the CUDA Runtime it runs on.
+with it.
 
 ## The steps of discovery
 
 The CUDA Runtime, and then cuTensorNet, goes through the same steps: read
 its override variable, open it, look up its functions, and read and check
-its versions. Each library is checked whatever the other's faults, and each
-fault is recorded in the library's report:
+its versions. Each step records its faults in the library's report:
 
 - reading the variable and opening: `InvalidOverride` (an override that is
   not an absolute path to a file, or cannot be read), `NotFound` or
@@ -232,6 +208,14 @@ assumed compatible. The CUDA driver's version is reported for diagnostics
 only. A [`LibraryReport`](src/libraries/report.rs) names each version by its
 component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
 `cuTensorNet` and `cuTensorNet's CUDA Runtime` in cuTensorNet's.
+
+## Tests
+
+The crate's [unit tests](src/tests) drive each way discovery fails, on any
+Unix host and without NVIDIA's libraries: missing and refused libraries,
+missing functions, failed version probes, refused versions, and bad override
+variables, each reported with the others. On a host with the audited
+libraries, [`tests/availability.rs`](tests/availability.rs) discovers them.
 
 ## Platforms
 
