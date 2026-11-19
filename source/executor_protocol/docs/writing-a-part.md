@@ -140,8 +140,9 @@ The protocol does not check these; the rustdoc of each role, and of
   reach every boundary below;
 - a refusal says that nothing of the `execute` ran: so once a call below
   has run for an `execute`, answering `Ok` or failing, an adapter answers
-  no refusal. A later call's, passed up as is (as `?` does), or its own,
-  becomes a failure naming the refusal's shot, with `Failure::Refused`.
+  no refusal. A refusal from a later call, which `?` would pass up as is,
+  or one of its own becomes a failure naming the refusal's shot, with
+  `Failure::Refused`.
   Otherwise a part above that retries a refusal whose
   [`retry_class`](../src/roles/execute.rs) is `Later`, today only
   `NotReady`, would send the `execute` again, and the calls that ran
@@ -166,8 +167,8 @@ A replayable part draws each shot from a stream of its own:
 `seed.shot(id)` for the executor, and `seed.derive(key).shot(id)` for
 another part, such as a noise model, with a key no other part uses, such
 as `"bit_flip"`. [`seed.rs`](../src/seed.rs) says which stream each part
-takes, why, and how the streams are computed, and how a part that
-carries an `execute` to another process carries its seed
+takes, why, and how the streams are computed, and how a remote executor,
+which carries an `execute` to another process, carries its seed
 (`Seed::to_bits` and `from_bits`).
 
 A part whose draws for a shot depend on the shots run beside it offers

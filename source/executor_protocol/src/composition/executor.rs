@@ -28,16 +28,18 @@ impl<E: Execute> Executor<E> {
     }
 
     /// The instructions it accepts: its top part's, which the part above it
-    /// is fitted to. A part that stands for this executor in another
-    /// process reads it to accept what this executor does.
+    /// is fitted to. The process that holds this executor reads it for a
+    /// remote executor, one that stands for this executor in another
+    /// process, to accept what this executor does.
     pub fn accepts(&self) -> &InstructionSet {
         self.part.accepts()
     }
 
     /// Its offer, as it reaches the part above it: its bottom part's,
-    /// adapted by each adapter it holds, the lowest first. A part that
-    /// stands for this executor in another process reads it, as it reads
-    /// [`accepts`](Self::accepts), to offer what this executor does.
+    /// adapted by each adapter it holds, the lowest first. The process that
+    /// holds this executor reads it, as it reads
+    /// [`accepts`](Self::accepts), for a remote executor to offer what this
+    /// executor does.
     pub fn offers(&self) -> Offer {
         self.part.offers()
     }

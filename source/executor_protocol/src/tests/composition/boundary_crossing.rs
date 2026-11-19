@@ -12,7 +12,9 @@
 //! fills them; again when an adapter sends an `execute` again after a
 //! failure; a panic in the caller's `execute`, once polled, when they are
 //! not one per batch; and, of unchecked batches, into readouts that held
-//! readouts as large, no allocation. The checks of one batch are in
+//! readouts as large, no allocation. A receiver's refusal leaves it as it
+//! was, so an `execute` sent again after a not-ready refusal finds each
+//! shot's state below as before. The checks of one batch are in
 //! `batch_limits.rs`.
 
 mod batch_limits;
@@ -36,7 +38,8 @@ use crate::{
     Adapt, Adapter, AdapterSetup, Argument, Batch, BatchReadouts, CompositionFaults, Drive,
     DriveError, Driver, DriverSetup, Execute, ExecuteError, ExecuteRefusal, Executor,
     ExecutorSetup, Failure, Instruction, InstructionFault, InstructionSet, Needs, NotReady, Offer,
-    OpcodeMap, PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    OpcodeMap, PartId, ReadoutValue, Readouts, RetryClass, Runner, Seed, ShotConditions, ShotId,
+    ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -1042,6 +1045,8 @@ impl Execute for FailsFirst {
 
 /// A [`Profiler`] that, when the `execute` below fails, sends it again,
 /// with the same readouts, as an adapter recovering from a failure would.
+/// The first call ran, so a refusal of the second becomes a failure, as
+/// [`Adapt::adapt`] asks.
 struct RetriesAfterAFailure(Profiler);
 
 impl AdapterSetup for RetriesAfterAFailure {
@@ -1066,10 +1071,17 @@ impl Adapt for RetriesAfterAFailure {
         below: &mut impl Execute,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        if self.0.adapt(batches, seed, below, readouts).await.is_ok() {
-            return Ok(());
+        match self.0.adapt(batches, seed, below, readouts).await {
+            Err(ExecuteError::Failed { .. }) => {}
+            answer => return answer,
         }
-        self.0.adapt(batches, seed, below, readouts).await
+        match self.0.adapt(batches, seed, below, readouts).await {
+            Err(ExecuteError::Refused(refusal)) => Err(ExecuteError::Failed {
+                shot: refusal.shot(),
+                failure: Failure::Refused(refusal),
+            }),
+            answer => answer,
+        }
     }
 }
 
@@ -1091,6 +1103,184 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
         expected[0].row_mut(position).copy_from_slice(&[Zero, Zero]);
     }
     assert_eq!(read, expected, "each shot's second `x` reads `Zero`");
+}
+
+/// A driver that tosses qubit 0 in one `execute` and reads it in the
+/// next, so that each shot's read finds the state its toss left below, and
+/// sends an `execute` again, once, when it is refused with the class
+/// [`Later`](RetryClass::Later). Each shot's output is its read.
+struct TossesThenReads {
+    toss: [Instruction; 1],
+    read: [Instruction; 1],
+}
+
+impl TossesThenReads {
+    fn new() -> Self {
+        Self {
+            toss: [coin_gate("h", 0)],
+            read: [coin_gate("mz", 0)],
+        }
+    }
+}
+
+impl DriverSetup for TossesThenReads {
+    fn sends(&self) -> &InstructionSet {
+        coin_gates()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        for instruction in self.toss.iter_mut().chain(&mut self.read) {
+            instruction.opcode = below.map(instruction.opcode);
+        }
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::qubits(1)
+    }
+}
+
+impl Drive for TossesThenReads {
+    type Output = ReadoutValue;
+
+    async fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<ReadoutValue>, DriveError> {
+        let mut kept = Readouts::new();
+        let toss = [Batch::new(shots, &self.toss, 0)];
+        sent_again_if_later(below, &toss, seed, kept.readouts_for(&toss)).await?;
+        let read = [Batch::new(shots, &self.read, 1)];
+        let readouts = kept.readouts_for(&read);
+        sent_again_if_later(below, &read, seed, readouts).await?;
+        below.end_shots(shots);
+        Ok((0..shots.len()).map(|i| readouts[0].row(i)[0]).collect())
+    }
+}
+
+/// `batches` sent below, and sent again, once, if they are refused with
+/// the class [`Later`](RetryClass::Later).
+async fn sent_again_if_later(
+    below: &mut impl Execute,
+    batches: &[Batch<'_>],
+    seed: Seed,
+    readouts: &mut [BatchReadouts],
+) -> Result<(), ExecuteError> {
+    match below.execute(batches, seed, readouts).await {
+        Err(ExecuteError::Refused(refusal)) if refusal.retry_class() == RetryClass::Later => {
+            below.execute(batches, seed, readouts).await
+        }
+        answer => answer,
+    }
+}
+
+/// [`Bits`] that refuse their `execute` numbered `at`, counted from 0,
+/// once, as not ready, before running any of it, counting their refusals
+/// in `refused`.
+struct NotReadyOnce {
+    bits: Bits,
+    at: Option<usize>,
+    refused: Rc<Cell<usize>>,
+}
+
+impl NotReadyOnce {
+    fn new(bits: Bits, at: usize, refused: &Rc<Cell<usize>>) -> Self {
+        Self {
+            bits,
+            at: Some(at),
+            refused: Rc::clone(refused),
+        }
+    }
+}
+
+impl ExecutorSetup for NotReadyOnce {
+    fn accepts(&self) -> &InstructionSet {
+        self.bits.accepts()
+    }
+
+    fn offers(&self) -> Offer {
+        self.bits.offers()
+    }
+}
+
+impl Execute for NotReadyOnce {
+    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
+        self.bits.ready(needs).await
+    }
+
+    async fn execute(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        match self.at {
+            Some(0) => {
+                self.at = None;
+                self.refused.set(self.refused.get() + 1);
+                let shot = batches[0].shots.iter().next().expect("a shot");
+                return Err(ExecuteError::Refused(ExecuteRefusal::NotReady {
+                    shot,
+                    why: "the device is calibrating".into(),
+                }));
+            }
+            Some(at) => self.at = Some(at - 1),
+            None => {}
+        }
+        self.bits.execute(batches, seed, readouts).await
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        self.bits.end_shots(shots);
+    }
+}
+
+/// A driver that tosses each shot's qubit, then reads it, and sends the
+/// read again when the bits refuse it once as not ready, directly or
+/// through an adapter that draws nothing, in each bracketing: the refusal
+/// leaves each shot's state in the bits as its toss left it, so the run
+/// gives the records of a run never refused.
+#[test]
+fn an_execute_sent_again_after_a_not_ready_refusal_finds_the_states_below_as_before() {
+    let shots = ShotSet::ids(0..16);
+    let log = Log::default();
+    let never_refused =
+        runner(Driver::new(TossesThenReads::new()) >> Executor::new(Bits::new(&log)))
+            .run(&shots, SEED)
+            .expect("the run succeeds");
+    assert!(
+        never_refused.contains(&One) && never_refused.contains(&Zero),
+        "the tosses differ: {never_refused:?}"
+    );
+    let refused = Rc::new(Cell::new(0));
+    let refusing = || Executor::new(NotReadyOnce::new(Bits::new(&log), 1, &refused));
+    let as_never_refused = |records: Vec<ReadoutValue>, brackets: &str| {
+        assert_eq!(
+            refused.replace(0),
+            1,
+            "the read is refused once, {brackets}"
+        );
+        assert_eq!(records, never_refused, "{brackets}");
+    };
+    as_never_refused(
+        runner(Driver::new(TossesThenReads::new()) >> refusing())
+            .run(&shots, SEED)
+            .expect("the run succeeds"),
+        "no adapter",
+    );
+    let counted = Rc::default();
+    in_each_bracketing!(
+        [d, a, e] from {
+            let d = Driver::new(TossesThenReads::new());
+            let a = Adapter::new(Profiler::new(&counted, &log));
+            let e = refusing();
+        },
+        |chain, brackets| as_never_refused(
+            runner(chain).run(&shots, SEED).expect("the run succeeds"),
+            brackets
+        ),
+    );
 }
 
 /// A [`Profiler`] that passes down readouts for all of its batches but the

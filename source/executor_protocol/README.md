@@ -119,10 +119,11 @@ Today the protocol holds:
   parts that draw on the protocol's seeds, a run gives the same outputs
   each time; and where the chain's shots replay, a shot run again alone,
   as a debugger does, gives back its readouts.
-- **What a part that stands for a chain elsewhere reads:** what the chain
+- **What a remote executor relies on:** a remote executor stands for a
+  chain held by another process; that process reads what the chain
   accepts and offers
   ([`Executor::accepts` and `offers`](src/composition/executor.rs)), and
-  each `execute`'s seed as bits
+  the remote executor carries each `execute`'s seed there as bits
   ([`Seed::to_bits` and `from_bits`](src/seed.rs)), as
   [Remote executors](#remote-executors) says.
 
@@ -326,18 +327,28 @@ Run it with `cargo run -p executor_protocol --example compose_and_run`.
 
 ## Remote executors
 
-The protocol runs in one process. A part that stands for a chain held by
-another process, or for a device reached over a network, is an executor
-like any other. The process that holds the chain reads what the chain
-accepts and offers, and sends both to the part standing for it, which
-gives them as its own. The part sends each `execute`'s seed as bits, from
-which the other process rebuilds it.
+A remote executor is an executor that stands for a chain held by another
+process, or for a device reached over a network. The protocol runs in one
+process, and a remote executor is a part of it like any other.
 
-When an `execute` is refused, the part asks the refusal's retry class
-whether it may send it again. It may when the receiver cannot take it now
-(`ExecuteRefusal::NotReady`), as long as the adapters below keep the rule
-that [Writing a part](docs/writing-a-part.md#the-rules-a-part-keeps)
-states.
+The process that holds the chain reads what the chain accepts and offers,
+and the remote executor gives them as its own. The protocol carries
+neither between processes: a link encodes an `Offer`, whose fields are
+public, in a format of its own, and since an `InstructionSet` has no
+public reader of its declaration, both processes build the same set from
+the same code, such as one Qodec declaration, and may compare its name.
+The remote executor carries each `execute`'s seed as bits, from which the
+other process rebuilds it.
+
+When an `execute` is refused, the remote executor, or a part above it,
+asks the refusal's retry class whether it may send it again. It may when
+the receiver cannot take it now (`ExecuteRefusal::NotReady`), as long as
+the adapters below keep the rule that
+[Writing a part](docs/writing-a-part.md#the-rules-a-part-keeps) states.
+The `execute` sent again finds each shot's state in the executor as
+before, but an adapter below that drew for it draws again, so it gives a
+valid run, not necessarily the records of a run never refused: a fixed
+seed fixes the records of runs in which no `execute` is sent again.
 
 ## Further reading
 

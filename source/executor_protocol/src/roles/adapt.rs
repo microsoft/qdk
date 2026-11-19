@@ -61,9 +61,9 @@ pub trait Adapt: AdapterSetup {
     ///
     /// A refusal ([`ExecuteError::Refused`]) says that nothing of the
     /// `execute` ran. So once a call below has run for this `adapt`,
-    /// answering `Ok` or failing, it answers no refusal: a later call's,
-    /// passed up as is (as `?` does), or its own, becomes a failure,
-    /// [`ExecuteError::Failed`] naming the refusal's shot, with
+    /// answering `Ok` or failing, it answers no refusal: a refusal from a
+    /// later call, which `?` would pass up as is, or one of its own becomes
+    /// a failure, [`ExecuteError::Failed`] naming the refusal's shot, with
     /// [`Failure::Refused`](crate::Failure::Refused). Otherwise a part
     /// above that retries a refusal whose
     /// [`retry_class`](crate::ExecuteRefusal::retry_class) is

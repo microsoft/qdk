@@ -354,8 +354,8 @@ fn every_boundary_answers_the_offer_read_at_composition() {
 
 // ------------------------------------- what a composed executor tells
 
-/// A part that stands for a chain in another process reads what the chain
-/// accepts before the chain is composed with a driver: the set of its top
+/// The process that holds a chain reads what it accepts, for a remote
+/// executor, before the chain is composed with a driver: the set of its top
 /// part, an adapter's when it has one, not those of the parts below, in
 /// each bracketing, even where the parts below do not fit it.
 #[test]
@@ -382,8 +382,8 @@ fn an_executor_accepts_the_instructions_of_its_top_part() {
     );
 }
 
-/// A part that stands for a chain in another process reads what the chain
-/// offers before the chain is composed with a driver: the offer of its
+/// The process that holds a chain reads what it offers, for a remote
+/// executor, before the chain is composed with a driver: the offer of its
 /// bottom part, as each adapter it holds adapts it, the lowest first, in
 /// each of the offer's limits. A queue of 8 shots over 100 qubits offers
 /// 100 qubits and 8 shots. An encoding of 7 qubits per qubit over a part

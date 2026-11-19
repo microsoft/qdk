@@ -38,12 +38,12 @@ use crate::ShotId;
 /// unchanged, to every `execute` it makes below. A part that draws derives
 /// its own from it ([`derive`](Self::derive)).
 ///
-/// The runner makes one from the run's seed. A part that carries an
-/// `execute` to another process sends its seed's bits
-/// ([`to_bits`](Self::to_bits)), and the part there rebuilds the seed from
-/// those bits ([`from_bits`](Self::from_bits)), and from no other number,
-/// so that every part of a run, in either process, draws each shot's
-/// streams from the run's seed. It holds the run's seed after one
+/// The runner makes one from the run's seed. A remote executor, one that
+/// carries an `execute` to a chain in another process, sends its seed's
+/// bits ([`to_bits`](Self::to_bits)), and that process rebuilds the seed
+/// from those bits ([`from_bits`](Self::from_bits)), and from no other
+/// number, so that every part of a run, in either process, draws each
+/// shot's streams from the run's seed. It holds the run's seed after one
 /// `SplitMix64` step, or, once derived, that value plus the key's id in
 /// its high half.
 #[derive(Clone, Copy, Debug)]
@@ -96,15 +96,16 @@ impl Seed {
         Self(splitmix(seed))
     }
 
-    /// This seed as a `u64`, for a part that carries an `execute` to
-    /// another process, as [`Seed`] says.
+    /// This seed as a `u64`, for a remote executor to send, as [`Seed`]
+    /// says.
     #[must_use]
     pub const fn to_bits(self) -> u64 {
         self.0
     }
 
-    /// The seed whose [`to_bits`](Self::to_bits) is `bits`, for a part that
-    /// receives a seed's bits from another process, as [`Seed`] says. A
+    /// The seed whose [`to_bits`](Self::to_bits) is `bits`, for the process
+    /// that receives a seed's bits from a remote executor, as [`Seed`]
+    /// says. A
     /// seed made from any other number is not the run's, so a shot's
     /// records would no longer depend only on the run's seed.
     #[must_use]

@@ -2,11 +2,11 @@
 // Licensed under the MIT License.
 
 //! What a run returns when it gives no outputs: the failures that end it,
-//! a part's error or refusal at the shot it names, and what the messages
-//! of a run's errors say. A part's panics are in `part_panics.rs`; that a
-//! failed run's shots are ended top to bottom is in `runner.rs`, beside
-//! the successful run's; the runner's own refusals are in
-//! `run_limits.rs`.
+//! a part's error or refusal at the shot it names, a refused `execute`
+//! sent once, and what the messages of a run's errors say. A part's
+//! panics are in `part_panics.rs`; that a failed run's shots are ended top
+//! to bottom is in `runner.rs`, beside the successful run's; the runner's
+//! own refusals are in `run_limits.rs`.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -84,12 +84,47 @@ impl Execute for Refuses {
 /// the refusal up, wherever the brackets go: each boundary passes a
 /// refusal from below up as it was made, so that the part above reads its
 /// shot and its [`retry_class`](ExecuteRefusal::retry_class) unchanged.
-/// The protocol sends a refused `execute` once, whatever its class: the
-/// executor is asked once per run.
 #[test]
 fn a_refusal_ends_the_run_naming_its_shot() {
     let shot = ShotId::new(2);
-    for (refusal, shots) in [
+    for (refusal, shots) in refusals_naming(shot) {
+        let refuses = || Executor::new(Refuses::new(refusal.clone(), &Rc::default()));
+        in_each_chain(&shots, refuses, |error, brackets| {
+            assert_eq!(error.shot, shot, "{refusal:?}, {brackets}");
+            assert!(
+                matches!(&error.failure, Failure::Refused(why) if *why == refusal),
+                "{brackets}: {error:?}"
+            );
+        });
+    }
+}
+
+/// The same refusals, by an executor counting its calls, directly or
+/// through an adapter, wherever the brackets go: the protocol sends a
+/// refused `execute` once, whatever its class, even one that may be sent
+/// again later, so that the executor is asked once per run; a part that
+/// retries does so itself.
+#[test]
+fn the_protocol_sends_a_refused_execute_once_whatever_its_class() {
+    for (refusal, shots) in refusals_naming(ShotId::new(2)) {
+        let calls = Rc::new(Cell::new(0));
+        let refuses = || Executor::new(Refuses::new(refusal.clone(), &calls));
+        in_each_chain(&shots, refuses, |_, brackets| {
+            assert_eq!(
+                calls.replace(0),
+                1,
+                "the refused execute is sent once, {refusal:?}, {brackets}"
+            );
+        });
+    }
+}
+
+/// A refusal of each kind an executor makes, naming `shot`, with the shots
+/// of a run it ends: of shots 0 to 3, because `shot` failed earlier or is
+/// not held there, or of shots 2 to 5, because the executor cannot take
+/// the `execute` now.
+fn refusals_naming(shot: ShotId) -> [(ExecuteRefusal, ShotSet); 3] {
+    [
         (ExecuteRefusal::EarlierFailure(shot), ShotSet::ids(0..4)),
         (ExecuteRefusal::ShotNotHeld(shot), ShotSet::ids(0..4)),
         (
@@ -99,36 +134,31 @@ fn a_refusal_ends_the_run_naming_its_shot() {
             },
             ShotSet::ids(2..6),
         ),
-    ] {
-        let calls = Rc::new(Cell::new(0));
-        let refuses = || Executor::new(Refuses::new(refusal.clone(), &calls));
-        let ends_the_run = |error: DriveError, brackets: &str| {
-            assert_eq!(error.shot, shot, "{refusal:?}, {brackets}");
-            assert!(
-                matches!(&error.failure, Failure::Refused(why) if *why == refusal),
-                "{brackets}: {error:?}"
-            );
-            assert_eq!(
-                calls.replace(0),
-                1,
-                "the refused execute is sent once, {refusal:?}, {brackets}"
-            );
-        };
-        ends_the_run(
-            failed(runner(measure() >> refuses()).run(&shots, SEED)),
-            "no adapter",
-        );
-        let log = Log::default();
-        let counted = Rc::new(Cell::new(0));
-        in_each_bracketing!(
-            [d, a, e] from {
-                let d = measure();
-                let a = Adapter::new(Profiler::new(&counted, &log));
-                let e = refuses();
-            },
-            |chain, brackets| ends_the_run(failed(runner(chain).run(&shots, SEED)), brackets),
-        );
-    }
+    ]
+}
+
+/// Runs `shots` on [`measure`] over the executor `refuses` makes, with no
+/// adapter, then through a profiler in each bracketing, and calls `check`
+/// with each run's failure and its chain.
+fn in_each_chain(
+    shots: &ShotSet,
+    refuses: impl Fn() -> Executor<Refuses>,
+    check: impl Fn(DriveError, &str),
+) {
+    check(
+        failed(runner(measure() >> refuses()).run(shots, SEED)),
+        "no adapter",
+    );
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    in_each_bracketing!(
+        [d, a, e] from {
+            let d = measure();
+            let a = Adapter::new(Profiler::new(&counted, &log));
+            let e = refuses();
+        },
+        |chain, brackets| check(failed(runner(chain).run(shots, SEED)), brackets),
+    );
 }
 
 /// The program measuring qubit 0 in one batch.

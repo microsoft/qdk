@@ -278,7 +278,7 @@ pub enum ExecuteRefusal {
     /// it again.
     EarlierFailure(ShotId),
     /// The receiver cannot take the `execute` now, such as a device that is
-    /// busy or calibrating, or one reached over a link that is down, and
+    /// busy or calibrating, or a remote executor whose link is down, and
     /// why; `shot` is the first of its first batch. Unlike the other
     /// refusals, the same `execute` sent again later may run
     /// ([`RetryClass::Later`], which says on what that relies). Where a
