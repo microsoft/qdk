@@ -29,8 +29,8 @@ time and checks them
 ([discovery](#the-discovery-and-loading-of-the-libraries)), which returns
 the loaded libraries, on which an engine opens, or why they cannot be
 used: every fault it found, or, off Linux x86-64, that the platform is
-unsupported. The GPU setup check runs the same discovery, reads the GPUs
-and makes one trial run, and says what to fix.
+unsupported. The GPU setup check reuses discovery, and adds a device read
+and a trial run.
 
 Today the crate holds:
 
@@ -57,7 +57,8 @@ Today the crate holds:
   [`LibraryFault`](src/libraries/report.rs)s it lists.
 - **[The GPU setup check](#the-gpu-setup-check):** for a user setting the
   GPU up, [`GpuSetup::check`](src/gpu_setup.rs) runs the same discovery,
-  reads the CUDA devices, makes one trial run, and says what to fix.
+  counts the CUDA devices and reads device 0, makes one trial run, and
+  says what to fix.
 
 The extension point is an MPS simulation method: written once against
 `tensornet::MpsEngine`, it runs unchanged on this engine, on the GPU, as on
@@ -285,10 +286,10 @@ flowchart TD
 - [`discover`](src/discovery.rs) selects no device, allocates no GPU memory
   and runs no GPU work.
 - [`discover_with`](src/discovery.rs) is `discover` also given the
-  [`PackagedLibraries`](src/libraries/packaged_libraries.rs): the library files a package
-  manager installed where no default path reaches (NVIDIA's wheels in a
-  Python environment, say), and the command that installs them, which the
-  setup check advises. `discover` gives none.
+  [`PackagedLibraries`](src/libraries/packaged_libraries.rs): the library
+  files a package manager installed where no default path reaches
+  (NVIDIA's wheels in a Python environment, say), and the command that
+  installs them, which the setup check advises. `discover` gives none.
 - [`Availability`](src/discovery.rs) holds each library's functions as typed
   function pointers, which the algebra calls. It is `Send` and `Sync`, so
   one discovery serves every thread; an engine, its algebra and its states
@@ -340,16 +341,16 @@ and how the bindings are made and checked.
 An override must be an absolute path to a file, or to a symlink to one, and
 is then the only path tried, so a wrong setting fails instead of loading
 another installation. Without one, the first of the
-[`PackagedLibraries`](src/libraries/packaged_libraries.rs) files with the library's file name,
-when `discover_with` is given one, is tried before the default paths. An
-absolute packaged or default path is skipped when there is no file there,
-including when part of it is a file rather than a directory, and fails
-discovery when the process cannot access it, for instance behind a directory
-it may not search; a bare file name is searched for on the system
+[`PackagedLibraries`](src/libraries/packaged_libraries.rs) files with the
+library's file name, when `discover_with` is given one, is tried before the
+default paths. An absolute packaged or default path is skipped when there is
+no file there, including when part of it is a file rather than a directory,
+and fails discovery when the process cannot access it, for instance behind a
+directory it may not search; a bare file name is searched for on the system
 loader's usual path, and skipped when the loader reports no file of that
-name (glibc reports so too when its search found only files of that name
-it could not use, such as another machine's). A library that is found but
-fails to load, for instance for a missing dependency, fails discovery.
+name (glibc reports so too when its search found only files of that name it
+could not use, such as another machine's). A library that is found but fails
+to load, for instance for a missing dependency, fails discovery.
 
 ### Versions
 
@@ -369,10 +370,10 @@ A GPU run needs a driver, a device and two libraries, all outside the QDK,
 and a user who does not know CUDA cannot tell which is wrong.
 [`GpuSetup::check`](src/gpu_setup.rs), which the user runs while setting the
 GPU up, never fails: the [`GpuSetup`](src/gpu_setup.rs) it returns lists
-what each step below found,
-warns of other copies of a library, and says what to fix for the first
-problem met, looked for in the order of the steps. A caller shows it on
-request, and its text with the error of a GPU run that cannot start.
+what each step below found, warns of other copies of a library, and says
+what to fix for the first problem met, looked for in the order of the steps.
+A caller shows it on request, and its text with the error of a GPU run that
+cannot start.
 
 The check reports the GPUs in CUDA's terms, which a user who does not know
 CUDA meets first here; a **CUDA device** is defined with
