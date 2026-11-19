@@ -2,7 +2,12 @@
 // Licensed under the MIT License.
 
 import type { MultipleChoicePayload } from "./schema.js";
-import { isCorrectQuizAnswer, isLearningId, RENDERER_ID } from "./schema.js";
+import {
+  canRestoreQuizAnswer,
+  isCorrectQuizAnswer,
+  isLearningId,
+  RENDERER_ID,
+} from "./schema.js";
 import {
   appendRichTextElement,
   appendTextElement,
@@ -17,7 +22,7 @@ export function renderMultipleChoice(
   payload: MultipleChoicePayload,
   element: HTMLElement,
   context: RenderContext,
-): void {
+): { restoreAnswer(optionIds: readonly string[]): void } {
   const root = document.createElement("section");
   root.className = "qdk-learning qdk-learning-card";
 
@@ -80,6 +85,7 @@ export function renderMultipleChoice(
   // share a radio group even if a notebook repeats an id.
   const groupName = `qdk-learning-${payload.payloadId ?? "output"}-${groupId++}`;
   const optionViews: OptionView[] = [];
+  let interacted = false;
   for (const [index, option] of payload.options.entries()) {
     const letter = optionLetter(index);
     const label = document.createElement("label");
@@ -94,6 +100,7 @@ export function renderMultipleChoice(
     // `change`, so grading here would submit whichever option a keyboard
     // user landed on first and disable the rest of the group.
     const onChange = () => {
+      interacted = true;
       syncSelectedStates();
       updateCheckButton();
     };
@@ -177,7 +184,8 @@ export function renderMultipleChoice(
   root.append(fieldset, feedback, controls, actionList);
   element.appendChild(root);
 
-  function evaluateAnswer(): void {
+  function evaluateAnswer(submit = true): void {
+    interacted = true;
     const selectedIds = new Set(
       optionViews
         .filter((view) => view.input.checked)
@@ -215,10 +223,7 @@ export function renderMultipleChoice(
     actionList.replaceChildren();
     actionList.hidden = true;
 
-    // A right answer ends the question: nothing is left to retry, and the cell
-    // redraws from its saved output whenever the notebook is reopened, so the
-    // learner can always start it over. Hiding the row rather than emptying it
-    // keeps its spacing from leaving a gap.
+    // A right answer ends this attempt. Rerunning the cell starts a fresh one.
     if (isCorrect) {
       controls.replaceChildren();
       controls.hidden = true;
@@ -227,7 +232,7 @@ export function renderMultipleChoice(
       showWhyWrongAction(selectedIds);
     }
 
-    if (isLearningId(payload.payloadId)) {
+    if (submit && isLearningId(payload.payloadId)) {
       context.postMessage({
         type: "qdk-learning/quiz-answered",
         rendererId: RENDERER_ID,
@@ -238,10 +243,13 @@ export function renderMultipleChoice(
 
     // Grading detached the focused Check button, which would otherwise drop
     // focus to the document. Move it to whatever replaced it.
-    (isCorrect ? feedback : tryAgainButton).focus();
+    if (submit) {
+      (isCorrect ? feedback : tryAgainButton).focus();
+    }
   }
 
   function resetAnswer(): void {
+    interacted = true;
     for (const view of optionViews) {
       view.input.checked = false;
       view.input.disabled = false;
@@ -320,6 +328,18 @@ export function renderMultipleChoice(
     actionList.hidden = false;
     actionList.replaceChildren(whyWrongButton);
   }
+
+  return {
+    restoreAnswer(optionIds) {
+      if (interacted || !canRestoreQuizAnswer(payload, optionIds)) {
+        return;
+      }
+      for (const view of optionViews) {
+        view.input.checked = optionIds.includes(view.option.id);
+      }
+      evaluateAnswer(false);
+    },
+  };
 }
 
 type OptionView = {

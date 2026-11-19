@@ -3,7 +3,10 @@
 
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
-import type { CopilotActionId } from "../notebookRenderer/schema.js";
+import type {
+  CopilotActionId,
+  QuizStateMessage,
+} from "../notebookRenderer/schema.js";
 import {
   isRendererToExtensionMessage,
   RENDERER_ID,
@@ -26,6 +29,24 @@ export function registerNotebookRendererMessaging(
   const messaging = vscode.notebooks.createRendererMessaging(RENDERER_ID);
 
   context.subscriptions.push(
+    vscode.workspace.onDidChangeNotebookDocument((event) => {
+      if (!service.isCourseWorkbook(event.notebook.uri)) {
+        return;
+      }
+      for (const change of event.cellChanges) {
+        const cellId = change.cell.metadata?.id;
+        if (change.outputs !== undefined && typeof cellId === "string") {
+          void service
+            .clearQuizAnswer(event.notebook.uri, cellId)
+            .catch((error) => {
+              log.error(
+                "Learning: failed to clear a replaced quiz answer.",
+                error,
+              );
+            });
+        }
+      }
+    }),
     messaging.onDidReceiveMessage(async (event) => {
       const message: unknown = event.message;
       if (!isRendererToExtensionMessage(message)) {
@@ -66,6 +87,23 @@ export function registerNotebookRendererMessaging(
             event.editor.notebook,
             message.quizId,
             message.optionIds,
+          );
+          return;
+        }
+
+        if (message.type === "qdk-learning/quiz-state-request") {
+          await messaging.postMessage(
+            {
+              type: "qdk-learning/quiz-state",
+              rendererId: RENDERER_ID,
+              quizId: message.quizId,
+              requestId: message.requestId,
+              optionIds: service.getQuizAnswer(
+                event.editor.notebook,
+                message.quizId,
+              ),
+            } satisfies QuizStateMessage,
+            event.editor,
           );
           return;
         }

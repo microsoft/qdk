@@ -19,8 +19,7 @@ type LearningPayloadBase = {
   /**
    * Identifies the payload. For a quiz this is its authored id, which keeps
    * radio groups unique and names the question when the learner asks about it.
-   * Deliberately not an ipynb cell id: one quiz-cell activity can contain
-   * several questions.
+   * Deliberately distinct from the stable notebook cell ID used for progress.
    */
   payloadId?: string;
 };
@@ -74,9 +73,30 @@ type QuizAnsweredMessage = {
   optionIds: string[];
 };
 
+type QuizStateRequest = {
+  type: "qdk-learning/quiz-state-request";
+  rendererId: typeof RENDERER_ID;
+  quizId: string;
+  requestId: string;
+};
+
+export type QuizAnswerState = {
+  quizId: string;
+  optionIds: string[];
+};
+
+export type QuizStateMessage = {
+  type: "qdk-learning/quiz-state";
+  rendererId: typeof RENDERER_ID;
+  quizId: string;
+  requestId: string;
+  optionIds?: string[];
+};
+
 export type RendererToExtensionMessage =
   | RendererActionMessage
-  | QuizAnsweredMessage;
+  | QuizAnsweredMessage
+  | QuizStateRequest;
 
 /**
  * The shape every id crossing the bridge must have.
@@ -113,12 +133,10 @@ export function isRendererToExtensionMessage(
   }
 
   if (x.type === "qdk-learning/quiz-answered") {
-    return (
-      isLearningId(x.quizId) &&
-      isQuizOptionIds(x.optionIds) &&
-      x.optionIds.length > 0 &&
-      new Set(x.optionIds).size === x.optionIds.length
-    );
+    return isQuizAnswerState(x);
+  }
+  if (x.type === "qdk-learning/quiz-state-request") {
+    return isLearningId(x.quizId) && isLearningId(x.requestId);
   }
 
   if (x.type !== "qdk-learning/action" || !isCopilotActionId(x.actionId)) {
@@ -130,6 +148,40 @@ export function isRendererToExtensionMessage(
   }
 
   return x.optionIds === undefined || isQuizOptionIds(x.optionIds);
+}
+
+export function isQuizAnswerState(value: unknown): value is QuizAnswerState {
+  return (
+    isRecord(value) &&
+    isLearningId(value.quizId) &&
+    isQuizOptionIds(value.optionIds) &&
+    value.optionIds.length > 0 &&
+    new Set(value.optionIds).size === value.optionIds.length
+  );
+}
+
+export function isQuizStateMessage(value: unknown): value is QuizStateMessage {
+  return (
+    isRecord(value) &&
+    value.type === "qdk-learning/quiz-state" &&
+    value.rendererId === RENDERER_ID &&
+    isLearningId(value.quizId) &&
+    isLearningId(value.requestId) &&
+    (value.optionIds === undefined || isQuizAnswerState(value))
+  );
+}
+
+export function canRestoreQuizAnswer(
+  payload: MultipleChoicePayload,
+  optionIds: readonly string[],
+): boolean {
+  return (
+    isQuizOptionIds(optionIds) &&
+    optionIds.length > 0 &&
+    new Set(optionIds).size === optionIds.length &&
+    (payload.multiSelect === true || optionIds.length === 1) &&
+    optionIds.every((id) => payload.options.some((option) => option.id === id))
+  );
 }
 
 export function isLearningId(value: unknown): value is string {

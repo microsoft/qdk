@@ -14,6 +14,9 @@ declare module "vscode-notebook-renderer" {
   export interface RendererContext {
     /** Absent when no extension host is listening, as in an HTML export. */
     postMessage?(message: unknown): void | PromiseLike<boolean>;
+    onDidReceiveMessage?(listener: (message: unknown) => void): {
+      dispose(): void;
+    };
   }
 
   export interface OutputItem {

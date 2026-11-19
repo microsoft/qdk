@@ -235,9 +235,17 @@ payloads supply the answer key. The extension validates their shape and checks
 selected IDs itself, but does not prevent a learner editing those payloads or
 the progress file. Copilot actions still send only bounded identifiers, not
 notebook prose or commands.
-The answer controls and feedback currently start fresh when an output is
-re-rendered: completion persists, but restoring the last checked selection is
-not yet supported.
+The last checked question/option IDs are saved in an optional `quizAnswers`
+section of the same workspace progress file, separately from completion.
+Reopening the workbook restores those choices, their verdict, and explanations
+using the current question payload. Unchecked selections and unfinished retries
+are not saved. Unknown options, duplicate choices, or selections incompatible
+with single-select mode are not restored.
+
+Replacing/clearing a quiz output (including a rerun) starts a fresh attempt and
+clears its saved answer display without revoking completion. Resetting the unit
+clears both answer state and completion. Restoration never submits another
+answer, grants completion, opens chat, or moves keyboard focus.
 
 Quiz ids and option ids are lowercase letters, digits and hyphens, up to 64 characters.
 An invalid ID fails when you run the cell: those ids are the only thing the renderer's Copilot action sends to the extension, so a shape it can't accept would leave that button doing less than it should.

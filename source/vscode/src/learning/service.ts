@@ -7,9 +7,12 @@ import * as vscode from "vscode";
 import { FullProgramConfig, getProgramForDocument } from "../programConfig.js";
 import { getVenvInFolder } from "../pythonEnvs.js";
 import {
+  canRestoreQuizAnswer,
   isCorrectQuizAnswer,
   isLearningId,
+  isQuizAnswerState,
   isQuizOptionIds,
+  isRecord,
   MIME_TYPE,
   parseLearningPayload,
   type MultipleChoicePayload,
@@ -479,12 +482,96 @@ export class LearningService {
     return true;
   }
 
-  /** Complete the quiz-cell activity after a correct checked answer. */
+  /** Save the checked answer and complete the quiz-cell activity only if correct. */
   async recordQuizAnswer(
     workbook: vscode.NotebookDocument,
     quizId: string,
     optionIds: string[],
   ): Promise<boolean> {
+    const matched = this.resolveWorkbookQuiz(workbook, quizId);
+    if (!matched) {
+      return false;
+    }
+    const { location, question } = matched;
+    if (!canRestoreQuizAnswer(question, optionIds)) {
+      log.warn(`Learning: ignoring invalid choices for quiz "${quizId}".`);
+      return false;
+    }
+    const ws = this.requireWorkspace();
+    ws.progressData.quizAnswers ??= {};
+    ws.progressData.quizAnswers[this.completionKey(location)] = {
+      quizId,
+      optionIds: [...optionIds],
+    };
+    const correct = isCorrectQuizAnswer(question.options, optionIds);
+    if (correct && !this.isComplete(location)) {
+      this.markComplete(location);
+    }
+    ws.progressData.position = location;
+    await this.saveProgress();
+    this._onDidChangeState.fire(this.getState());
+    return correct;
+  }
+
+  /** Read compatible checked choices without grading again for completion. */
+  getQuizAnswer(
+    workbook: vscode.NotebookDocument,
+    quizId: string,
+  ): string[] | undefined {
+    const matched = this.resolveWorkbookQuiz(workbook, quizId);
+    if (!matched) {
+      return undefined;
+    }
+    const saved =
+      this.requireWorkspace().progressData.quizAnswers?.[
+        this.completionKey(matched.location)
+      ];
+    if (saved === undefined) {
+      return undefined;
+    }
+    if (
+      !isQuizAnswerState(saved) ||
+      saved.quizId !== quizId ||
+      !canRestoreQuizAnswer(matched.question, saved.optionIds)
+    ) {
+      log.warn(
+        `Learning: ignoring an incompatible saved answer for quiz "${quizId}".`,
+      );
+      return undefined;
+    }
+    return [...saved.optionIds];
+  }
+
+  /** Output replacement starts a fresh attempt, but does not revoke completion. */
+  async clearQuizAnswer(workbook: vscode.Uri, cellId: string): Promise<void> {
+    const resolved = this.workspace
+      ? this.resolveWorkbookLocation(workbook)
+      : undefined;
+    if (
+      !resolved?.unit.activities.some(
+        (activity) => activity.type === "quiz" && activity.id === cellId,
+      )
+    ) {
+      return;
+    }
+    const answers = this.requireWorkspace().progressData.quizAnswers;
+    const key = this.completionKey({
+      courseId: resolved.course.id,
+      unitId: resolved.unit.id,
+      activityId: cellId,
+    });
+    if (answers && key in answers) {
+      delete answers[key];
+      await this.saveProgress();
+    }
+  }
+
+  private resolveWorkbookQuiz(
+    workbook: vscode.NotebookDocument,
+    quizId: string,
+  ):
+    | { location: ActivityLocation; question: MultipleChoicePayload }
+    | undefined {
     const resolved = this.workspace
       ? this.resolveWorkbookLocation(workbook.uri)
       : undefined;
@@ -492,18 +579,9 @@ export class LearningService {
       log.warn(
         "Learning: ignoring a quiz answer outside a loaded course workbook.",
       );
-      return false;
+      return undefined;
     }
     const { course, unit } = resolved;
-    if (
-      !isQuizOptionIds(optionIds) ||
-      optionIds.length === 0 ||
-      new Set(optionIds).size !== optionIds.length
-    ) {
-      log.warn(`Learning: ignoring invalid choices for quiz "${quizId}".`);
-      return false;
-    }
-
     let matched:
       | {
           cellId: string;
@@ -553,7 +631,7 @@ export class LearningService {
         log.warn(
           `Learning: ignoring ambiguous quiz ID "${quizId}" in this workbook.`,
         );
-        return false;
+        return undefined;
       }
       matched = { cellId: activity.id, question };
     }
@@ -561,39 +639,15 @@ export class LearningService {
       log.warn(
         `Learning: ignoring unknown quiz "${quizId}" in unit "${unit.id}".`,
       );
-      return false;
+      return undefined;
     }
     const { cellId, question } = matched;
-    if (
-      !optionIds.every((id) =>
-        question.options.some((option) => option.id === id),
-      )
-    ) {
-      log.warn(`Learning: ignoring invalid choices for quiz "${quizId}".`);
-      return false;
-    }
     const location: ActivityLocation = {
       courseId: course.id,
       unitId: unit.id,
       activityId: cellId,
     };
-    const correct = isCorrectQuizAnswer(question.options, optionIds);
-    const newlyComplete = correct && !this.isComplete(location);
-    const positionChanged =
-      this.position.courseId !== course.id ||
-      this.position.unitId !== unit.id ||
-      this.position.activityId !== cellId;
-    if (newlyComplete) {
-      this.markComplete(location);
-    }
-    if (positionChanged) {
-      this.requireWorkspace().progressData.position = location;
-    }
-    if (newlyComplete || positionChanged) {
-      await this.saveProgress();
-      this._onDidChangeState.fire(this.getState());
-    }
-    return correct;
+    return { location, question };
   }
 
   /**
@@ -1913,6 +1967,12 @@ export class LearningService {
       throw new Error(this._progressLoadingError);
     }
 
+    if (parsed.quizAnswers !== undefined && !isRecord(parsed.quizAnswers)) {
+      this._progressLoadingError =
+        'The qdk-learning.json file has an invalid "quizAnswers" field. Fix or delete that field to continue.';
+      throw new Error(this._progressLoadingError);
+    }
+
     ws.progressData = parsed as ProgressFileData;
     ws.progressData.pythonEnvironments ??= {};
 
@@ -2050,11 +2110,16 @@ export class LearningService {
   /** Clear completion for every activity in the given unit. */
   private markUnitIncomplete(courseId: string, unit: CatalogUnit): void {
     for (const activity of unit.activities) {
-      this.markIncomplete({
+      const location = {
         courseId,
         unitId: unit.id,
         activityId: activity.id,
-      });
+      };
+      this.markIncomplete(location);
+      const answers = this.requireWorkspace().progressData.quizAnswers;
+      if (answers) {
+        delete answers[this.completionKey(location)];
+      }
     }
   }
 

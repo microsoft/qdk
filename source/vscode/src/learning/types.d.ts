@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import type { Uri } from "vscode";
+import type { QuizAnswerState } from "../notebookRenderer/schema.js";
 
 /**
  * Shared types for the QDK Learning feature.
@@ -143,6 +144,8 @@ export interface ProgressFileData {
   version: 1;
   position: ActivityLocation;
   completions: Record<string, { completedAt: string }>;
+  /** Last checked quiz answers, keyed like completions; independent of earned completion. */
+  quizAnswers?: Record<string, QuizAnswerState>;
   startedAt: string;
   pythonEnvironments: Record<string, { id: string; path: string }>;
   /**

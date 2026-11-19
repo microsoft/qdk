@@ -10,6 +10,8 @@ import { renderMultipleChoice } from "./multipleChoice.js";
 import type { LearningPayload, RendererToExtensionMessage } from "./schema.js";
 import {
   isRendererToExtensionMessage,
+  isLearningId,
+  isQuizStateMessage,
   MIME_TYPE,
   parseLearningPayload,
   RENDERER_ID,
@@ -39,6 +41,7 @@ type Cleanup = () => void;
 
 const cleanupByOutputId = new Map<string, Cleanup>();
 const cleanupByElement = new WeakMap<HTMLElement, Cleanup>();
+let requestSequence = 0;
 
 export const activate: ActivationFunction = (context: RendererContext) => {
   const postMessage = (message: RendererToExtensionMessage) => {
@@ -60,7 +63,7 @@ export const activate: ActivationFunction = (context: RendererContext) => {
         : undefined;
     const safe = isRendererToExtensionMessage(message) ? message : fallback;
     if (!safe) {
-      console.warn("QDK Learning: discarding an invalid quiz answer message.");
+      console.warn("QDK Learning: discarding an invalid quiz message.");
       return false;
     }
 
@@ -93,12 +96,40 @@ export const activate: ActivationFunction = (context: RendererContext) => {
       try {
         const payload = readPayload(outputItem);
         switch (payload.kind) {
-          case "multiple-choice":
-            renderMultipleChoice(payload, element, {
+          case "multiple-choice": {
+            const view = renderMultipleChoice(payload, element, {
               postMessage,
               addDisposable: (dispose) => disposables.push(dispose),
             });
+            if (
+              isLearningId(payload.payloadId) &&
+              context.onDidReceiveMessage &&
+              context.postMessage
+            ) {
+              const requestId = String(++requestSequence);
+              const subscription = context.onDidReceiveMessage((message) => {
+                if (
+                  !isQuizStateMessage(message) ||
+                  message.requestId !== requestId ||
+                  message.quizId !== payload.payloadId
+                ) {
+                  return;
+                }
+                subscription.dispose();
+                if (message.optionIds) {
+                  view.restoreAnswer(message.optionIds);
+                }
+              });
+              disposables.push(() => subscription.dispose());
+              postMessage({
+                type: "qdk-learning/quiz-state-request",
+                rendererId: RENDERER_ID,
+                quizId: payload.payloadId,
+                requestId,
+              });
+            }
             break;
+          }
         }
       } catch (error) {
         cleanup();

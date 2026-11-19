@@ -7,7 +7,10 @@ import {
   stripAuthoringCells,
 } from "../../../src/learning/notebookExercises.js";
 import {
+  canRestoreQuizAnswer,
   isCorrectQuizAnswer,
+  isQuizAnswerState,
+  isQuizStateMessage,
   isRendererToExtensionMessage,
   MIME_TYPE,
   parseLearningPayload,
@@ -285,6 +288,51 @@ suite("Learning notebook quiz activities", () => {
           options: [{ id: "right", text: "Right", correct: "false" }],
         }),
       /does not say whether it is correct/,
+    );
+  });
+
+  test("restore only compatible checked selections", () => {
+    assert.isTrue(canRestoreQuizAnswer(quiz, ["right"]));
+    assert.isTrue(canRestoreQuizAnswer(quiz, ["wrong"]));
+    for (const selection of [
+      [],
+      ["unknown"],
+      ["right", "right"],
+      ["right", "wrong"],
+    ]) {
+      assert.isFalse(canRestoreQuizAnswer(quiz, selection));
+    }
+    assert.isTrue(
+      canRestoreQuizAnswer({ ...quiz, multiSelect: true }, ["right", "wrong"]),
+    );
+    assert.isTrue(
+      isQuizAnswerState({ quizId: "first-question", optionIds: ["wrong"] }),
+    );
+    assert.isFalse(
+      isQuizAnswerState({ quizId: "first-question", optionIds: "wrong" }),
+    );
+  });
+
+  test("bound and correlate answer-state request/response messages", () => {
+    const request = {
+      type: "qdk-learning/quiz-state-request",
+      rendererId: RENDERER_ID,
+      quizId: "first-question",
+      requestId: "42",
+    };
+    assert.isTrue(isRendererToExtensionMessage(request));
+    assert.isFalse(
+      isRendererToExtensionMessage({ ...request, requestId: "not an id" }),
+    );
+    const response = { ...request, type: "qdk-learning/quiz-state" };
+    assert.isTrue(isQuizStateMessage(response));
+    assert.isTrue(isQuizStateMessage({ ...response, optionIds: ["wrong"] }));
+    assert.isFalse(isQuizStateMessage({ ...response, optionIds: [] }));
+    assert.isFalse(
+      isQuizStateMessage({ ...response, optionIds: ["wrong", "wrong"] }),
+    );
+    assert.isFalse(
+      isQuizStateMessage({ ...response, rendererId: "another-renderer" }),
     );
   });
 });
