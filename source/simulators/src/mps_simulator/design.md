@@ -46,8 +46,8 @@ the same names.
   state, one call for the group.
 - **read bond** (`read_bond`): where a sequence of gates ends, before a draw or
   a resume, the state's largest bond is read, and kept in the report
-  ([`run_report.rs`](run_report.rs)) when it is the largest of the run so
-  far. It is read before the draws, which may shrink it.
+  ([`mps_run_report.rs`](mps_run_report.rs)) when it is the largest of the
+  run so far. It is read before the draws, which may shrink it.
 - **draw** (`draw`): the state's probability of One at the site is read
   once per group; each shot draws a uniform from its own stream
   ([`shot_stream.rs`](shot_stream.rs)) and reads One when it is below that
@@ -67,7 +67,8 @@ the same names.
 - **end** (`end`): the context ended; the state's retained weight is read,
   and kept in the report when the least of the run; the group's records
   are each of its shots'. The weight is an estimate of the fidelity, not a
-  bound ([`run_report.rs`](run_report.rs) says when it bounds a readout).
+  bound ([`mps_run_report.rs`](mps_run_report.rs) says when it bounds a
+  readout).
 
 ## How a run fails
 
