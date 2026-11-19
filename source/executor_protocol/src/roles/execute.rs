@@ -45,8 +45,10 @@ pub trait Execute: ExecutorSetup {
     /// now, such as when its device is busy or its resources are not
     /// available, answers [`NotReady`], which refuses the run
     /// ([`RunRefusal::PartNotReady`](crate::RunRefusal::PartNotReady)). By
-    /// default `Ok`. `needs` are the same on every run, so work that
-    /// depends only on them may be done once and kept.
+    /// default `Ok`. `needs` are the same on every run of one chain, so work
+    /// that depends only on them may be done once and kept; a part that
+    /// several chains share through `&mut` gets each chain's needs, so work
+    /// kept from one run serves only the needs it was done for.
     ///
     /// The runner asks the parts in turn, each at most once per run, the
     /// part below first, before the driver starts, and stops at the first

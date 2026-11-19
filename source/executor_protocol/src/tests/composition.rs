@@ -269,7 +269,9 @@ fn logged_over_two_runs<D: Drive, E: Execute>(
 /// reach it as the `>>` that makes the runner read them. Under a driver of
 /// 2 qubits, they come down as 4, then 12. Under a program stating 1 qubit,
 /// then 3 once ready, which its rule forbids, each part below it still
-/// gets ready for the 1 qubit the admission checked.
+/// gets ready for the 1 qubit the admission checked. Bits that two chains
+/// share through `&mut`, one needing 1 qubit and one 3, run in turn, get
+/// ready for the needs of the chain that runs.
 #[test]
 fn every_part_gets_ready_on_every_run_for_the_needs_read_at_composition() {
     in_each_bracketing!(
@@ -314,6 +316,27 @@ fn every_part_gets_ready_on_every_run_for_the_needs_read_at_composition() {
             .repeat(2),
             "needs changed once ready, {brackets}"
         ),
+    );
+    let log = Log::default();
+    let mut bits = Bits::new(&log);
+    for qubits in [1, 3, 1] {
+        (Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(qubits)))
+            >> Executor::new(&mut bits))
+        .expect("the bits offer 64 qubits")
+        .run(&ShotSet::ids(0..4), SEED)
+        .expect("the run succeeds");
+    }
+    assert_eq!(
+        log.entries()
+            .into_iter()
+            .filter(|entry| entry.contains("ready"))
+            .collect::<Vec<_>>(),
+        [
+            "Bits ready for 1 qubits",
+            "Bits ready for 3 qubits",
+            "Bits ready for 1 qubits",
+        ],
+        "bits shared by two chains"
     );
 }
 

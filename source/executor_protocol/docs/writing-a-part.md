@@ -124,7 +124,10 @@ The protocol does not check these; the rustdoc of each role, and of
 
 - its instruction sets, needs and offer do not change once it is composed,
   since the fit and the admission rely on those contracts staying the
-  same, as do the needs each part gets ready for on every run;
+  same, as do the needs each part gets ready for on every run of one
+  chain; a part that several chains share through `&mut` gets each
+  chain's needs, so work it kept from one run serves only the needs it was
+  done for;
 - a part that calls `execute` puts a shot in at most one of its batches,
   and only shots it was given: the run's, for a driver, those of the
   batches it got, for an adapter;
