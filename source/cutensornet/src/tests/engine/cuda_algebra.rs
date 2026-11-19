@@ -282,19 +282,23 @@ fn a_call_reading_past_a_tensors_elements_is_refused() {
     }
 }
 
-/// A call whose extents multiply past `usize` names a tensor no buffer
-/// could hold: a defect of its caller, refused with an error, not a panic,
-/// before the call makes any native object, whichever method makes it and
-/// whichever of a pair's extents overflows.
+/// A call whose extents multiply past `usize`, or pass the `i64` the
+/// library takes, names a tensor no buffer could hold: a defect of its
+/// caller, refused with an error, not a panic, before the call makes any
+/// native object, whichever method makes it and whichever of a pair's
+/// extents is at fault. A right extent past `i64::MAX` beside a bond of 0
+/// gives tensors of no element, so only the library's extent type refuses
+/// it: a move of the centre to the left describes that site first.
 #[test]
 fn a_call_whose_extents_overflow_is_refused() {
     let (algebra, libraries) = algebra();
     let (a, b) = random_pair(1, 1, 1, 3);
     let (left, right) = (upload(&algebra, &a), upload(&algebra, &b));
     let huge = usize::MAX / 2 + 1;
-    for (side, l, r) in [("left", huge, 1), ("right", 1, huge)] {
+    for (side, l, m, r) in [("left", huge, 1, 1), ("right", 1, 1, huge)] {
         let split = Split {
             l,
+            m,
             r,
             ..one_qubit_split(&a, &b)
         };
@@ -302,7 +306,7 @@ fn a_call_whose_extents_overflow_is_refused() {
             a: &a,
             b: &b,
             l,
-            m: 1,
+            m,
             r,
             gate: None,
             centre: CentreSide::Right,
@@ -322,6 +326,22 @@ fn a_call_whose_extents_overflow_is_refused() {
             algebra.qr_move(&moved.call(&left, &right)).map(drop)
         });
     }
+    let no_element = Move {
+        a: &a,
+        b: &b,
+        l: 1,
+        m: 0,
+        r: huge,
+        gate: None,
+        centre: CentreSide::Left,
+    };
+    let refused = run_making_no_native_object(&libraries, "move beside a bond of 0", || {
+        algebra.qr_move(&no_element.call(&left, &right)).map(drop)
+    });
+    assert!(
+        matches!(refused, Err(CudaAlgebraError::ResourceSizeOverflow { .. })),
+        "move beside a bond of 0: {refused:?}"
+    );
 }
 
 /// `SiteAlgebra`'s contract never asks for an empty tensor (an upload holds
@@ -606,38 +626,61 @@ fn every_call_selects_the_algebras_device_first() {
 /// algebra dropped while the algebra's device cannot be selected frees
 /// nothing, so that nothing is freed on another device, and its memory is
 /// leaked. Cases: the tensor dropped, or the algebra, after a split grew
-/// the algebra's buffers.
+/// the algebra's buffers; or the algebra dropped first and then its last
+/// tensor, whose drop also closes the session, which still destroys its
+/// handle and stream.
 #[test]
 fn a_drop_that_cannot_select_the_device_frees_nothing() {
-    for tensor_dropped in [true, false] {
-        let dropped = if tensor_dropped {
-            "a tensor"
-        } else {
-            "the algebra"
-        };
+    for dropped in [
+        Dropped::Tensor,
+        Dropped::Algebra,
+        Dropped::LastTensorAfterTheAlgebra,
+    ] {
         let (algebra, libraries) = algebra();
         let (a, b) = random_pair(1, 1, 1, 15);
         drop(one_qubit_split(&a, &b).on(&algebra).expect("the split"));
         let tensor = upload(&algebra, &a);
+        let algebra = match dropped {
+            Dropped::LastTensorAfterTheAlgebra => {
+                drop(algebra);
+                None
+            }
+            Dropped::Tensor | Dropped::Algebra => Some(algebra),
+        };
         let (before, live) = (libraries.events().len(), libraries.live_objects());
-        libraries.fail("set_device", libraries.count("set_device") + 1);
-        if tensor_dropped {
-            drop(tensor);
-        } else {
-            drop(algebra);
+        let selections = libraries.count("set_device");
+        libraries.fail("set_device", selections + 1);
+        match dropped {
+            Dropped::Algebra => drop(algebra),
+            Dropped::Tensor => drop(tensor),
+            Dropped::LastTensorAfterTheAlgebra => {
+                libraries.fail("set_device", selections + 2);
+                drop(tensor);
+            }
         }
-        let events = libraries.events();
-        let released = events[before..]
-            .iter()
-            .filter(|&&event| event == "free" || event.starts_with("destroy_"));
-        assert_eq!(
-            released.count(),
-            0,
-            "{dropped}: nothing freed: {:?}",
-            &events[before..]
-        );
-        assert_eq!(libraries.live_objects(), live, "{dropped}: leaked");
+        let events = &libraries.events()[before..];
+        let frees = events.iter().filter(|&&event| event == "free").count();
+        assert_eq!(frees, 0, "{dropped:?}: nothing freed: {events:?}");
+        if dropped == Dropped::LastTensorAfterTheAlgebra {
+            assert!(
+                events.contains(&"destroy_handle") && events.contains(&"destroy_stream"),
+                "{dropped:?}: the session's handle and stream destroyed: {events:?}"
+            );
+            assert_eq!(libraries.live_handles(), 0, "{dropped:?}: no handle left");
+        } else {
+            let destroys = events.iter().filter(|event| event.starts_with("destroy_"));
+            assert_eq!(destroys.count(), 0, "{dropped:?}: nothing destroyed");
+            assert_eq!(libraries.live_objects(), live, "{dropped:?}: leaked");
+        }
     }
+}
+
+/// What `a_drop_that_cannot_select_the_device_frees_nothing` drops.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Dropped {
+    Tensor,
+    Algebra,
+    LastTensorAfterTheAlgebra,
 }
 
 /// The first native call `run` makes, if any.

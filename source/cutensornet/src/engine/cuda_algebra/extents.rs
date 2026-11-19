@@ -6,14 +6,15 @@
 //! read and make tensors. Both refuse a size that does not fit, with
 //! [`CudaAlgebraError::ResourceSizeOverflow`]. A call checks its inputs'
 //! counts before it makes any native object, and every other count it
-//! computes is bounded by them.
+//! computes is at most a few times an input's, which fits, as each input
+//! is a buffer the device holds.
 
 use crate::engine::cuda_algebra_error::CudaAlgebraError;
 
-/// `extents` as a descriptor takes them. Its refusal is unreachable while
-/// each call checks its inputs' `element_count` first (each descriptor
-/// holds a leg of 2, so a larger extent overflows the count); it is kept
-/// for a defect.
+/// `extents` as a descriptor takes them. Refuses an extent past
+/// `i64::MAX`, which only a tensor of no element can reach: an extent of
+/// 0 before it in `extents` (any other tensor passes its `element_count`
+/// first, which overflows).
 pub(super) fn native_extents(extents: &[usize]) -> Result<Vec<i64>, CudaAlgebraError> {
     extents
         .iter()
