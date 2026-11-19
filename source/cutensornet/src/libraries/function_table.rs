@@ -6,10 +6,10 @@
 //! `function_table!` declares a library's table: one row per function the
 //! crate uses, each checked when the crate compiles against the function's
 //! declaration in the library's bindings. Filling a table looks each
-//! function up through a [`SymbolResolver`]; it stores the function's address and does not call
-//! it. It returns every missing required function, so that the user fixes
-//! them all at once. The MPS engine, added in a later change, calls the
-//! libraries through these tables.
+//! function up through a [`SymbolResolver`]; it stores the function's
+//! address and does not call it. It returns every missing required
+//! function, so that the user fixes them all at once. The MPS engine, added
+//! in a later change, calls the libraries through these tables.
 
 use crate::LibraryFault;
 

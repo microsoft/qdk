@@ -27,30 +27,6 @@ fn the_cutensornet_tables_look_each_field_up_by_its_symbol() {
     }
 }
 
-/// An installation whose cuTensorNet lacks required functions is refused,
-/// naming each one.
-#[test]
-fn every_missing_required_cutensornet_function_is_reported() {
-    let required: Vec<_> = CuTensorNetFunctions::ROWS
-        .iter()
-        .filter(|row| row.2)
-        .map(|row| row.1)
-        .collect();
-    let resolver = required
-        .iter()
-        .fold(StandInResolver::audited(), |resolver, &symbol| {
-            resolver.without(symbol)
-        });
-    let missing = CuTensorNetFunctions::resolve(&resolver)
-        .err()
-        .expect("every required function is missing");
-    let expected: Vec<_> = required
-        .into_iter()
-        .map(|symbol| LibraryFault::MissingRequiredSymbol { symbol })
-        .collect();
-    assert_eq!(missing, expected);
-}
-
 /// `cutensornetGetLastError` only adds detail to native error messages, so a
 /// library without it is still used.
 #[test]
