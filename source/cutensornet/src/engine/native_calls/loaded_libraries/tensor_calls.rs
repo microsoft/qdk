@@ -14,8 +14,8 @@ use crate::engine::cuda_algebra_error::{CudaAlgebraError, combine_execution_and_
 use crate::engine::native_calls::{
     OpaqueHandle, Stream,
     tensor_calls::{
-        ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
-        TensorCalls, TensorModes, TensorOperand,
+        GateSplitDescriptors, GateSplitOperands, NativeContractionNetwork, SvdSetting,
+        SvdTruncation, TensorCalls, TensorModes, TensorOperand,
     },
 };
 use crate::libraries::LoadedLibraries;
@@ -316,7 +316,7 @@ impl TensorCalls for LoadedLibraries {
         handle: OpaqueHandle,
         inputs: [TensorModes<'_>; 2],
         output_modes: &[i32],
-    ) -> Result<ContractionNetwork, CudaAlgebraError> {
+    ) -> Result<NativeContractionNetwork, CudaAlgebraError> {
         let functions = &self.cutensornet.functions;
         let input_mode_counts = [mode_count(inputs[0])?, mode_count(inputs[1])?];
         let output_mode_count = i32::try_from(output_modes.len()).map_err(|_| {
@@ -337,7 +337,7 @@ impl TensorCalls for LoadedLibraries {
             (output_mode_count, output_modes),
         );
         match described {
-            Ok(input_ids) => Ok(ContractionNetwork {
+            Ok(input_ids) => Ok(NativeContractionNetwork {
                 descriptor: network,
                 input_ids,
             }),
@@ -491,7 +491,7 @@ impl TensorCalls for LoadedLibraries {
     fn contract(
         &self,
         handle: OpaqueHandle,
-        network: ContractionNetwork,
+        network: NativeContractionNetwork,
         inputs: [OpaqueHandle; 2],
         output: OpaqueHandle,
         workspace: OpaqueHandle,

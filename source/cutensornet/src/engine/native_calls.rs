@@ -45,8 +45,8 @@ pub(crate) use self::{
     memory_calls::{MemoryCalls, WorkspaceSlot},
     session_calls::SessionCalls,
     tensor_calls::{
-        ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
-        TensorCalls, TensorModes, TensorOperand,
+        GateSplitDescriptors, GateSplitOperands, NativeContractionNetwork, SvdSetting,
+        SvdTruncation, TensorCalls, TensorModes, TensorOperand,
     },
 };
 

@@ -63,11 +63,6 @@ pub(crate) mod native_calls;
 pub use cuda_algebra::{CudaAlgebra, DeviceTensor};
 pub use cuda_algebra_error::CudaAlgebraError;
 
-// What the tests under `src/tests` name of the engine's private modules:
-// the session.
-#[cfg(test)]
-pub(crate) use self::device_session::DeviceSession;
-
 /// The `tensornet::MpsEngine` on one CUDA device:
 /// `canonical_mps::CanonicalMpsEngine` on a [`CudaAlgebra`].
 ///
@@ -77,6 +72,11 @@ pub(crate) use self::device_session::DeviceSession;
 /// promises beyond the contract (how it fuses gates, the bounds its
 /// truncations stay within) is `canonical_mps`'s; what this crate adds is
 /// the algebra.
+///
+/// Open one in each run's first step, on the thread that runs it, and drop
+/// it at the run's end: it holds device 0's stream and cuTensorNet handle,
+/// and the memory it lent cuTensorNet, grown to the run's largest call,
+/// until it is dropped.
 ///
 /// Its states' sites are its algebra's tensors, which another algebra
 /// refuses: a method given another engine's state that passes its sites to
