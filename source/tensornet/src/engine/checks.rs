@@ -135,18 +135,6 @@ pub fn probability_of_one(site_count: usize, site: usize) -> Result<(), Refusal>
     in_range(site_count, site)
 }
 
-/// `site` out of range.
-fn in_range(site_count: usize, site: usize) -> Result<(), Refusal> {
-    if site < site_count {
-        Ok(())
-    } else {
-        Err(Refusal::SiteOutOfRange {
-            site,
-            sites: site_count,
-        })
-    }
-}
-
 /// The refusals of [`MpsEngine::conditional_probability_of_one`][method]
 /// that its arguments alone decide, on a state of `site_count` sites: a
 /// site of `given` out of range or named twice, or `site` out of range. A
@@ -208,6 +196,18 @@ pub fn expectation(site_count: usize, observable: &PauliSum) -> Result<(), Refus
         .iter()
         .flat_map(|term| term.factors().iter().map(|&(site, _)| site))
         .try_for_each(|site| in_range(site_count, site))
+}
+
+/// `site` out of range.
+fn in_range(site_count: usize, site: usize) -> Result<(), Refusal> {
+    if site < site_count {
+        Ok(())
+    } else {
+        Err(Refusal::SiteOutOfRange {
+            site,
+            sites: site_count,
+        })
+    }
 }
 
 /// A site of `items` out of range or named twice. Takes the items as they

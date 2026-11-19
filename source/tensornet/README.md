@@ -124,8 +124,8 @@ sequenceDiagram
   end
   M->>E: probability_of_one(state, s), or conditional_probability_of_one(state, s, given)
   Note over M: draws the value v with its own generator
+  M->>E: fork(state), when a group of shots splits (planned), each copy projected next
   M->>E: project(state, s, v), which returns p_v
-  M->>E: fork(state), when a group of shots splits (planned)
   M->>E: sample(state, sites, N, seed)
   M->>E: expectation(state, O)
   M->>E: shape(state), retained_weight(state)

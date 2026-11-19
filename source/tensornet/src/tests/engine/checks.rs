@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+//! The argument checks, each refusing its faults and accepting its edges:
+//! an engine calls them before it touches its state, so every engine
+//! refuses a bad call with the same refusal.
+
 use crate::tests::{c, cx, hadamard};
 use crate::{MpsShape, Pauli, PauliSum, PauliTerm, Refusal, checks};
 use num_complex::Complex64;
@@ -51,12 +55,15 @@ fn z_terms(sites: &[&[usize]]) -> PauliSum {
     PauliSum::new(c(0.0, 0.0), terms).expect("finite coefficients")
 }
 
+/// A chain of qubits, which every qubit program prepares.
 #[test]
 fn prepare_accepts_a_chain_of_qubits() {
     let capacity = MpsShape::qubit_chain(3, 2).expect("three sites form a chain");
     assert_eq!(checks::prepare(&capacity), Ok(()));
 }
 
+/// A qutrit between qubits: an engine of qubits meets it before it lays
+/// out any site.
 #[test]
 fn prepare_refuses_a_site_that_is_not_two_level() {
     let capacity = MpsShape::new(vec![vec![2, 1], vec![1, 3, 1], vec![1, 2]])
@@ -89,6 +96,8 @@ fn prepare_refuses_a_lone_site_that_is_not_two_level() {
     );
 }
 
+/// A CNOT on two of three sites, given in reverse order, as a simulator
+/// passes a gate whose control is the later qubit.
 #[test]
 fn apply_accepts_a_unitary_on_distinct_sites_in_range() {
     assert_eq!(checks::apply(3, &[2, 0], &cx()), Ok(()));
@@ -101,6 +110,8 @@ fn apply_refuses_no_site() {
     assert_eq!(checks::apply(2, &[], &[c(1.0, 0.0)]), Err(Refusal::NoSites));
 }
 
+/// A gate on a qubit the program never allocated, refused before an engine
+/// reads a site past its chain.
 #[test]
 fn apply_refuses_a_site_out_of_range() {
     assert_eq!(
@@ -109,6 +120,8 @@ fn apply_refuses_a_site_out_of_range() {
     );
 }
 
+/// A CNOT whose control is its target, which no two-site contraction can
+/// apply.
 #[test]
 fn apply_refuses_a_site_named_twice() {
     assert_eq!(
@@ -117,6 +130,9 @@ fn apply_refuses_a_site_named_twice() {
     );
 }
 
+/// A one-site matrix given for two sites, and a two-site one for one: an
+/// engine reading `4^k` entries would read past the first or ignore most
+/// of the second.
 #[test]
 fn apply_refuses_a_matrix_of_the_wrong_length() {
     assert_eq!(
@@ -199,6 +215,8 @@ fn apply_refuses_a_matrix_of_the_wrong_length_whatever_its_entries() {
     );
 }
 
+/// A measurement's projector passed as a gate: it is the right length, so
+/// only its deviation from unitary, reported, tells it apart.
 #[test]
 fn apply_refuses_a_projector_with_its_deviation() {
     assert_eq!(
@@ -254,6 +272,8 @@ fn apply_refuses_a_matrix_with_a_nan_entry() {
     ));
 }
 
+/// An infinite entry makes the deviation infinite or NaN; either is
+/// refused.
 #[test]
 fn apply_refuses_a_matrix_with_an_infinite_entry() {
     assert!(matches!(
@@ -269,6 +289,8 @@ fn apply_accepts_a_product_of_a_thousand_gates() {
     assert_eq!(checks::apply(2, &[0, 1], &fused_gates(1000)), Ok(()));
 }
 
+/// A measurement of the chain's last qubit is read; one past it is
+/// refused.
 #[test]
 fn probability_of_one_accepts_the_last_site_and_refuses_the_next() {
     assert_eq!(checks::probability_of_one(3, 2), Ok(()));
@@ -278,24 +300,29 @@ fn probability_of_one_accepts_the_last_site_and_refuses_the_next() {
     );
 }
 
+/// A shot's earlier outcomes, given as conditions, name a qubit past the
+/// chain.
 #[test]
-fn a_condition_on_a_site_out_of_range_is_refused() {
+fn conditional_probability_of_one_refuses_a_condition_out_of_range() {
     assert_eq!(
         checks::conditional_probability_of_one(2, 0, &[(1, true), (2, false)]),
         Err(Refusal::SiteOutOfRange { site: 2, sites: 2 })
     );
 }
 
+/// A shot's earlier outcomes name one qubit twice, which may give it two
+/// values.
 #[test]
-fn a_condition_naming_a_site_twice_is_refused() {
+fn conditional_probability_of_one_refuses_a_condition_named_twice() {
     assert_eq!(
         checks::conditional_probability_of_one(3, 0, &[(1, true), (2, false), (1, true)]),
         Err(Refusal::RepeatedSite { site: 1 })
     );
 }
 
+/// The qubit asked about is past the chain, the conditions in range.
 #[test]
-fn a_conditional_probability_of_a_site_out_of_range_is_refused() {
+fn conditional_probability_of_one_refuses_a_site_out_of_range() {
     assert_eq!(
         checks::conditional_probability_of_one(2, 2, &[(0, true)]),
         Err(Refusal::SiteOutOfRange { site: 2, sites: 2 })
@@ -304,31 +331,32 @@ fn a_conditional_probability_of_a_site_out_of_range_is_refused() {
 
 /// The answer is then 0 or 1, which a caller may ask for.
 #[test]
-fn the_site_may_be_among_the_condition() {
+fn conditional_probability_of_one_accepts_the_site_among_the_conditions() {
     assert_eq!(
         checks::conditional_probability_of_one(2, 1, &[(1, true)]),
         Ok(())
     );
 }
 
+/// A measurement's projection on the chain's last qubit is made; one past
+/// it is refused.
 #[test]
-fn project_refuses_a_site_out_of_range() {
+fn project_accepts_the_last_site_and_refuses_the_next() {
+    assert_eq!(checks::project(2, 1), Ok(()));
     assert_eq!(
         checks::project(2, 2),
         Err(Refusal::SiteOutOfRange { site: 2, sites: 2 })
     );
 }
 
-#[test]
-fn project_accepts_a_site_in_range() {
-    assert_eq!(checks::project(2, 1), Ok(()));
-}
-
+/// A sample of no qubits, which a program measuring none asks for, is no
+/// fault in itself.
 #[test]
 fn sample_accepts_no_sites() {
     assert_eq!(checks::sample(2, &[]), Ok(()));
 }
 
+/// A sample of a qubit past the chain.
 #[test]
 fn sample_refuses_a_site_out_of_range() {
     assert_eq!(
@@ -337,6 +365,7 @@ fn sample_refuses_a_site_out_of_range() {
     );
 }
 
+/// A sample naming one qubit twice, whose two columns could disagree.
 #[test]
 fn sample_refuses_a_site_named_twice() {
     assert_eq!(
@@ -345,6 +374,8 @@ fn sample_refuses_a_site_named_twice() {
     );
 }
 
+/// An observable whose terms name sites in any order, and the identity
+/// alone, which has no factor.
 #[test]
 fn expectation_accepts_factors_in_range_and_the_identity_alone() {
     assert_eq!(checks::expectation(3, &z_terms(&[&[2, 0], &[1]])), Ok(()));

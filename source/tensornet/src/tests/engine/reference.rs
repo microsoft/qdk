@@ -546,6 +546,8 @@ fn samples_are_shot_major_in_the_order_of_the_sites() {
     );
 }
 
+/// A Bell pair's first qubit, of probability one half, reads One in
+/// about half of 1000 shots.
 #[test]
 fn samples_follow_the_probabilities() {
     let values = ENGINE
@@ -652,8 +654,9 @@ fn the_reference_reports_a_chain_that_outgrows_its_capacity() {
     assert!(!shape.fits_within(&capacity));
 }
 
-/// A rank that elimination along the shorter side could miss: 3 sites,
-/// cut 0 has 2 rows and 4 columns, cut 1 has 4 rows and 2 columns.
+/// A rank that an elimination always along the rows (or always along
+/// the columns) would miss: 3 sites, cut 0 has 2 rows and 4 columns,
+/// cut 1 has 4 rows and 2 columns.
 #[test]
 fn the_schmidt_rank_is_found_along_either_side_of_a_cut() {
     let mut state = prepared(3);
