@@ -64,12 +64,12 @@ The extension points are an MPS simulation method and a library. An MPS
 simulation method, written once against `tensornet::MpsEngine`, runs on
 this engine as on `canonical_mps`'s `CpuMpsEngine`, and gets the GPU for
 free. A library bound later is one module under
-[`src/libraries/`](src/libraries), implementing
+[`src/libraries/`](src/libraries), listed in `LoadedLibraries`, implementing
 [`NativeLibrary`](src/libraries.rs) for discovery and
 [`LibrarySetupGuide`](src/libraries/setup_guide.rs) for the setup check
 ([`docs/loading.md`](docs/loading.md)).
 
-A user writes no part of the crate. A simulator calls
+A caller writes no part of the crate: a simulator calls
 `discover()`, then makes the engine with
 `CudaMpsEngine::try_from(&availability)` (Linux x86-64), at the engine's
 default cutoff (`.with_cutoff(c)` sets another), as the example on

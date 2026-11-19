@@ -19,8 +19,9 @@
 //! in (`device_session.rs`), and the native calls they make
 //! (`native_calls/`). The setup check's device step calls three of those
 //! native calls too, and makes a `NativeCallFailed` itself, from its own
-//! read of a device's compute capability (`gpu_setup/devices/`). Each
-//! case's doc names the parts that make it.
+//! read of a device's compute capability
+//! (`gpu_setup/devices/device_calls/loaded_libraries.rs`). Each case's doc
+//! names the parts that make it.
 //!
 //! When an operation and the cleanup after it both fail, both errors are
 //! kept (`combine_execution_and_cleanup`), so a cleanup never hides the
