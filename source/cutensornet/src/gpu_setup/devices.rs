@@ -16,8 +16,7 @@
 //!
 //! [`read_devices`] reads them through [`DeviceCalls`]
 //! (`cudaGetDeviceCount`, then, on the engine's device, `cudaSetDevice`,
-//! `cudaMemGetInfo` and `cudaDeviceGetAttribute`), a seam so that the
-//! rules run on a host with no GPU.
+//! `cudaMemGetInfo` and `cudaDeviceGetAttribute`).
 
 mod device_calls;
 

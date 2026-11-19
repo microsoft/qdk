@@ -5,8 +5,10 @@
 //! ready, and for each kind of problem, the fix that applies to it.
 //!
 //! The tests check what each message names (a library, a variable, a
-//! path, a version, `nvidia-smi`, a command), never its wording, so that a
-//! reworded message keeps its tests.
+//! path, a version, `nvidia-smi`, a command), the word that tells one kind
+//! of remedy or outcome from another (restart, remove, unset, not read,
+//! not tried) and the report's labels, never a message's full text, so
+//! that a reworded message keeps its tests.
 
 mod devices;
 
@@ -620,17 +622,18 @@ fn a_failed_trial_run_is_advised_with_its_error() {
 }
 
 /// A trial run that finds no device, as the devices step would have, gets
-/// that step's advice: the driver check.
+/// that step's advice: the same as a host whose process sees no device.
 #[cfg(unix)]
 #[test]
 fn a_trial_run_that_finds_no_device_is_advised_as_no_device() {
-    let advice = advice(&setup(LoadedSetup {
+    let trial_run_advice = advice(&setup(LoadedSetup {
         trial_run: Err(CanonicalMpsError::Algebra(CudaAlgebraError::NoDevice)),
         ..loaded(audited_report(), Some(a100()))
     }));
-    assert!(
-        advice.contains("nvidia-smi") && !advice.contains("trial run"),
-        "{advice}"
+    assert_eq!(
+        trial_run_advice,
+        advice(&found(audited_report(), None)),
+        "the advice of a host with no device"
     );
 }
 
@@ -734,7 +737,7 @@ fn a_failed_discovery_reports_what_it_found_its_faults_and_no_trial_run() {
 /// capability and the minimum, and one of 7.5, 8.0 or 9.0 is ready.
 #[cfg(unix)]
 #[test]
-fn a_device_0_below_the_minimum_compute_capability_is_a_problem() {
+fn device_0_is_supported_from_the_minimum_compute_capability_on() {
     for (compute_capability, supported) in [
         ((6, 1), false),
         ((7, 0), false),
