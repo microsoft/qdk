@@ -18,8 +18,8 @@ includes:
   them, without writing those checks again;
 - a simulator needs an engine where no GPU is present, on every platform
   the QDK ships to;
-- and a shot's cost should stay low, since it applies many gates and reads
-  observables of hundreds of Pauli strings.
+- and a shot's cost should stay low, since it applies many gates, and a
+  state's observables hold hundreds of Pauli strings.
 
 The crate solves these with an engine that holds the rules, written once
 over a contract of tensor operations that a backend implements. A
@@ -32,9 +32,9 @@ The crate's own backend is the CPU algebra: its tensors are vectors in the
 host's memory, and its products, QR and SVD are the crate's
 [dense linear algebra](#the-dense-linear-algebra)'s, on the calling
 thread. A backend on a GPU library goes in a crate of its own, for the
-chemistry instances beyond the CPU's reach, such as benzene, or N₂ at a
-large bond extent, on an NVIDIA A100 GPU. The engine keeps the cost low by
-deferring work it can share: it fuses gates into one application, and
+chemistry instances that are slow on the CPU, such as benzene, or N₂ at a
+large bond dimension, on an NVIDIA A100 GPU. The engine keeps the cost low
+by deferring and sharing work: it fuses gates into one application, and
 reads an observable's sites once for all its terms.
 
 Today the crate holds:
@@ -51,10 +51,11 @@ Today the crate holds:
   [`CanonicalMpsStatistics`](src/engine/statistics.rs), what a state's
   history cost.
 - **Refusals and failures:**
-  [`CanonicalMpsError`](src/engine/error.rs): a call `tensornet`'s checks
-  refused, the backend's own failure, or the engine's (a truncation that
-  would leave too little weight, a failed factorisation of a gate
-  window's operator).
+  [`CanonicalMpsError`](src/engine/error.rs): a call the contract refuses
+  (one whose arguments break its rules, or a projection or condition on a
+  value of probability zero), the backend's own failure, or the engine's
+  (a sample too large for memory, a truncation that would leave too
+  little weight, a failed factorisation of a gate window's operator).
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/site_algebra.rs), the tensor operations a backend
   implements.
@@ -72,9 +73,11 @@ Today the crate holds:
 - **[The CPU algebra](#the-cpu-algebra):**
   [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), the contract on the
   host CPU, which passes the kit and on which the engine's tests run.
-- **[The dense linear algebra](#the-dense-linear-algebra):** the CPU
-  algebra's products, QR and checked SVD, private but for its error,
-  [`SvdError`](src/dense_linalg/svd.rs).
+- **[The dense linear algebra](#the-dense-linear-algebra):** the
+  products, QR and checked SVD of the CPU algebra and of the engine's
+  computations on the host, private but for its error,
+  [`SvdError`](src/dense_linalg/svd.rs), and public under the
+  `conformance` feature, for a backend's tests.
 
 A simulator uses the engine: it starts with `CpuMpsEngine`, as in
 [On the host CPU](#on-the-host-cpu), or names `CanonicalMpsEngine` on
@@ -427,8 +430,8 @@ contractions), come from the crate's module
 QR and a checked SVD, which either answers factors checked against the
 matrix or reports a failure (`SvdError`, exported at the crate's root).
 [`docs/dense_linalg.md`](docs/dense_linalg.md) gives the SVD's guarantees
-and steps, and the library it computes its products, QR decompositions
-and fast route with, t4a-faer, with why.
+and steps, and t4a-faer, the library that computes its products, QR
+decompositions and fast route, with why.
 
 ## Examples
 

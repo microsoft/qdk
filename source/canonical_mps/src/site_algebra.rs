@@ -17,7 +17,7 @@
 //! centre on two neighbouring sites, and the storage of a site. Each of
 //! the two calls passes its inputs as one type and gets its outputs as
 //! another: [`GateSplitCall`] and [`GateSplitOutcome`], [`QrMoveCall`]
-//! and [`QrMoveOutcome`], each naming the site that holds the centre
+//! and [`QrMoveOutcome`], each call naming the site that holds the centre
 //! afterwards as a [`CentreSide`].
 //!
 //! # The layout
@@ -84,7 +84,7 @@ pub trait SiteAlgebra {
     /// live on the host. `tensor` holds at least `len` elements. The engine
     /// reads sites to compute on the host (a probability, an expectation,
     /// an MPO's span), so reads are frequent: a backend whose tensors live
-    /// on the host borrows them rather than copy.
+    /// on the host borrows them rather than copying.
     fn read<'t>(
         &self,
         tensor: &'t Self::Tensor,
