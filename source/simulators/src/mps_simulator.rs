@@ -15,16 +15,16 @@
 //! quantum calls to a resumer; an engine holds states on a chain of sites,
 //! applies matrices to them and answers probabilities. This module joins them:
 //! [`MpsResumer`], in this file, runs the calls of each shot on an MPS that an
-//! engine holds, and its modules, in `mps_simulator/`, map qubits to sites
-//! (`qubit_order.rs`), turn calls into steps on sites (`lowering.rs`), run the
-//! shots in groups (`grouped_run.rs`), give each shot its stream
+//! engine holds, and this module's submodules, in `mps_simulator/`, map qubits
+//! to sites (`qubit_order.rs`), turn calls into steps on sites (`lowering.rs`),
+//! run the shots in groups (`grouped_run.rs`), give each shot its stream
 //! (`shot_stream.rs`), and report and fail a run (`run_report.rs`, `error.rs`).
 //!
-//! Shots that drew the same values share one state, forked where their
-//! draws differ, so a run of N shots holds at most ⌊log₂ N⌋ + 1 states at
-//! once, and at most one for a program whose draws never differ; each shot
-//! draws from its own stream, so its records do not depend on the shots
-//! beside it (beyond rounding, on some engines: [`MpsResumer`]).
+//! Shots that drew the same values share one state, forked where their draws
+//! differ, so a program whose draws never differ holds at most one; as the part
+//! with fewer shots goes on, a run of N shots holds at most ⌊log₂ N⌋ + 1 states
+//! at once. Each shot draws from its own stream, so its records do not depend
+//! on the shots beside it (beyond rounding, on some engines: [`MpsResumer`]).
 //!
 //! An overview, with the phases of a run, the public types and an example,
 //! is in `src/mps_simulator/README.md`; each phase's mechanics and engine
@@ -120,13 +120,14 @@ impl<E: MpsEngine> MpsResumer<E> {
     /// that gives a group its next batch or a trap, before the batch is lowered
     /// or the trap reported. So a flag set while a group runs its batch lets
     /// that group run the rest of the batch, and stops each part split off by a
-    /// draw before it runs on: of a Base Profile program, one batch, the group
-    /// under way runs to its end, and the parts split off do not run on. Once
-    /// read set, the flag fails the run with [`MpsResumerError::Stopped`],
-    /// naming the first shot that had not ended, whatever the batch after the
-    /// read would have done (trapped, or been refused); a run whose every shot
-    /// has ended returns its records, and a run of no shots returns none.
-    /// Whoever sets it clears it before the next run.
+    /// draw before it runs on: of a Base Profile program that measures into
+    /// each result once, one batch, the group under way runs to its end, and
+    /// the parts split off do not run on. Once read set, the flag fails the run
+    /// with [`MpsResumerError::Stopped`], naming the first shot that had not
+    /// ended, whatever the batch after the read would have done (trapped, or
+    /// been refused); a run whose every shot has ended returns its records, and
+    /// a run of no shots returns none. Whoever sets it clears it before the
+    /// next run.
     #[must_use]
     pub fn with_stop_flag(mut self, stop_flag: Arc<AtomicBool>) -> Self {
         self.stop_flag = Some(stop_flag);

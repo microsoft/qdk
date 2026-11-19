@@ -619,7 +619,7 @@ fn a_state_an_engine_call_failed_on_is_not_used_again() {
 }
 
 /// When the fork of a group's state fails, the whole group fails, before
-/// its shots part: the engine leaves the state it failed on unspecified, so
+/// its shots split: the engine leaves the state it failed on unspecified, so
 /// no part may go on with it. On a coin, the shot that reads 0 would go on,
 /// the fewer, and the two that read 1 would wait; the run names the first
 /// shot, which ends alone, whichever part it would be in: the shot that
