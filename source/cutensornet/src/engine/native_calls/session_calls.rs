@@ -26,7 +26,8 @@ pub(crate) trait SessionCalls: Send + Sync {
     /// Makes device `ordinal` the calling thread's current device
     /// (`cudaSetDevice`), which every later call on this thread runs on.
     fn set_device(&self, ordinal: i32) -> Result<(), CudaAlgebraError>;
-    /// The (major, minor) compute capability of device `ordinal`.
+    /// The (major, minor) compute capability of device `ordinal`
+    /// (`cudaDeviceGetAttribute`).
     fn compute_capability(&self, ordinal: i32) -> Result<(i32, i32), CudaAlgebraError>;
     /// A new non-blocking stream on the current device
     /// (`cudaStreamCreateWithFlags`), the queue the session's work runs in.

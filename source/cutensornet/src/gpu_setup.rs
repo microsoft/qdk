@@ -22,8 +22,8 @@
 //! 1. the libraries: [`discover_with`](crate::discover_with), which runs no
 //!    GPU work;
 //! 2. the host: a problem of the host a library's report reveals, as its
-//!    `SetupGuide` (in `libraries::setup_guide`) says, today the CUDA
-//!    Runtime's driver check;
+//!    `LibrarySetupGuide` (in `libraries::setup_guide`) says, today the
+//!    CUDA Runtime's driver check;
 //! 3. the devices: how many CUDA devices the process sees, and the compute
 //!    capability and memory of the one the GPU engine runs on, the only
 //!    one read (`devices`);
@@ -32,11 +32,11 @@
 //!    probability, the smallest run that touches the device.
 //!
 //! What the library and host steps show and advise of a library, the
-//! library declares in its `SetupGuide`, so a library bound later brings
-//! its own; `advice` holds the advice shared by every library and that of
-//! the steps after discovery. The device step is the exception: the check
-//! holds its facts, cuTensorNet's compute-capability floor and the CUDA
-//! Runtime's driver advice.
+//! library declares in its `LibrarySetupGuide`, so a library bound later
+//! brings its own; `advice` holds the advice shared by every library and
+//! that of the steps after discovery. The device step is the exception: the
+//! check holds its facts, cuTensorNet's compute-capability floor and the
+//! CUDA Runtime's driver advice.
 
 mod advice;
 pub(crate) mod devices;
@@ -53,6 +53,10 @@ use std::fmt;
 /// The state of this machine's GPU setup, as [`GpuSetup::check`] found it:
 /// each step's outcome. Its [`Display`](fmt::Display) is the report a user
 /// reads.
+///
+/// It is the state when checked, and holds no library, device or engine: a
+/// GPU run discovers the libraries and opens its device again, so a setup
+/// changed since (a driver updated, a library installed) is found then.
 #[derive(Debug)]
 pub struct GpuSetup {
     /// What the steps found once the libraries loaded, or why discovery

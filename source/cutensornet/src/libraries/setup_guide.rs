@@ -2,13 +2,14 @@
 // Licensed under the MIT License.
 
 //! [`SetupGuide`]: what the setup check tells a user about one library, as
-//! the library's module declares it.
+//! the library's module declares it in its [`LibrarySetupGuide`].
 //!
 //! The setup check shows each library and advises what to fix, and its
-//! library steps name none: each library's module declares, as part of
-//! its `NativeLibrary`, what the check shows of it, what to install, the
-//! variable that overrides it, what to do when its version probe fails,
-//! and the problems of the host its report reveals;
+//! library steps name none: each library's module implements
+//! `LibrarySetupGuide` beside its `NativeLibrary`, saying what the check
+//! shows of it, what to install, what to do when its version probe fails,
+//! and the problems of the host its report reveals (the variable that
+//! overrides it comes from its `NativeLibrary`);
 //! `LoadedLibraries::SETUP_GUIDES` lists the guides, and [`setup_guides`]
 //! gives them to the check. So a library bound later brings its own, and
 //! the library steps change nothing. The device step is the exception:
@@ -20,9 +21,34 @@
 use super::report::LibraryReport;
 use std::fmt;
 
+/// What the setup check tells a user about one library, beside what
+/// discovery needs of it (its `NativeLibrary`): read only by
+/// [`SetupGuide::of`], when the check advises.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) trait LibrarySetupGuide: super::NativeLibrary {
+    /// What to install, for instance `cuTensorNet 2.13`: the library at its
+    /// audited version.
+    const INSTALL: &'static str;
+    /// What to do when a call that reads one of its versions fails; `None`
+    /// when no such call can fail, and the check advises the install.
+    const VERSION_PROBE_ADVICE: Option<&'static str> = None;
+
+    /// What the check shows of the library once loaded (its report has a
+    /// path), whether or not discovery succeeded, one line per item: where
+    /// it was loaded from, and its versions, each version `unread` when the
+    /// report lacks it.
+    fn describe(report: &LibraryReport) -> Vec<String>;
+
+    /// A problem of the host that the usable library's report reveals, in
+    /// words for the user with its fix: none by default.
+    fn host_problem(_report: &LibraryReport) -> Option<String> {
+        None
+    }
+}
+
 /// What the setup check tells a user about one library: what it shows of
 /// the library and what it advises. Each library's module declares it, as
-/// part of its `NativeLibrary`, and `LoadedLibraries::SETUP_GUIDES` lists
+/// its `LibrarySetupGuide`, and `LoadedLibraries::SETUP_GUIDES` lists
 /// them.
 pub(crate) struct SetupGuide {
     /// The library's name, as its report gives it.
@@ -42,7 +68,7 @@ pub(crate) struct SetupGuide {
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 impl SetupGuide {
     /// The guide that `L`'s module declares.
-    pub(crate) const fn of<L: super::NativeLibrary>() -> Self {
+    pub(crate) const fn of<L: LibrarySetupGuide>() -> Self {
         Self {
             library: L::NAME,
             variable: L::VARIABLE,
