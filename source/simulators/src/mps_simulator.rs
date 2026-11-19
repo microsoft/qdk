@@ -18,7 +18,8 @@
 //! engine holds, and this module's submodules, in `mps_simulator/`, map qubits
 //! to sites (`qubit_order.rs`), turn calls into steps on sites (`lowering.rs`),
 //! run the shots in groups (`grouped_run.rs`), give each shot its stream
-//! (`shot_stream.rs`), and report and fail a run (`run_report.rs`, `error.rs`).
+//! (`shot_stream.rs`), and report and fail a run (`run_report.rs`,
+//! `mps_resumer_error.rs`).
 //!
 //! Shots that drew the same values share one state, forked where their draws
 //! differ, so a program whose draws never differ holds at most one; as the
@@ -39,14 +40,14 @@ use crate::OutputRecord;
 use crate::qir::{QirMachine, QirResumeError, QirResumer, QirShotId};
 use tensornet::MpsEngine;
 
-mod error;
 mod grouped_run;
 pub(crate) mod lowering;
+mod mps_resumer_error;
 pub(crate) mod qubit_order;
 mod run_report;
 pub(crate) mod shot_stream;
 
-pub use error::MpsResumerError;
+pub use mps_resumer_error::MpsResumerError;
 pub use run_report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
 
 use grouped_run::GroupedRun;
@@ -136,7 +137,7 @@ impl<E: MpsEngine> MpsResumer<E> {
     }
 
     /// What the last run cost: the largest bond any of its states held
-    /// where a run of gates ended, and the least weight kept by a shot
+    /// where a sequence of gates ended, and the least weight kept by a shot
     /// that ended, with the warning they call for
     /// ([`MpsRunReport::truncation_warning`]). After a failed run, what it
     /// read until it stopped: groups holding a shot before the failing one

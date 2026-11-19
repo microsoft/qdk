@@ -425,9 +425,10 @@ fn a_failed_run_names_its_first_failing_shot_in_shot_order() {
 }
 
 /// No group runs on when its shots all come after the run's first failing
-/// shot, since it could not change the shot the run names. Each row is a
-/// scene, the shot the run names, how it fails, and the gates the run
-/// applies.
+/// shot, since it could not change the shot the run names; so which group
+/// of a tie goes on (the one that drew Zero) decides which gates a run
+/// applies. Each row is a scene, the shot the run names, how it fails, and
+/// the gates the run applies.
 #[test]
 fn no_group_runs_on_for_shots_after_the_first_failure() {
     let (trap, rest) = (1, 2);
@@ -455,17 +456,32 @@ fn no_group_runs_on_for_shots_after_the_first_failure() {
     let failing = failing_alone(make, &coin_then_three_x, &all);
     let passing: Vec<_> = all.iter().filter(|shot| !failing.contains(shot)).collect();
     assert!(
-        !failing.is_empty() && passing.len() >= 3,
-        "some of 16 coins read 1, and three read 0"
+        failing.len() >= 2 && passing.len() >= 3,
+        "two of 16 coins read 1, and three read 0"
     );
     let scene_run = FailingRun {
         scene: "the groups that wait".to_string(),
         engine: ReferenceSpy::new,
         seed: 7,
-        program: coin_then_three_x,
+        program: coin_then_three_x.clone(),
         shots: vec![failing[0], *passing[0], *passing[1], *passing[2]],
     };
     rows.push((scene_run, failing[0], Failure::Trap, 1));
+
+    // A tie, two shots that read 1 and two that read 0, on the same
+    // program: the group that drew Zero goes on, as the docs promise, runs
+    // its three X gates and ends, then the group that drew One traps. Had
+    // the group that drew One gone on, it would trap first, and the group
+    // that drew Zero, all of whose shots come after the first, would be
+    // dropped, its X gates never applied.
+    let scene_run = FailingRun {
+        scene: "a tie".to_string(),
+        engine: ReferenceSpy::new,
+        seed: 7,
+        program: coin_then_three_x,
+        shots: vec![failing[0], *passing[0], *passing[1], failing[1]],
+    };
+    rows.push((scene_run, failing[0], Failure::Trap, 4));
 
     // The group going on from a split whose waiting copy failed: a coin,
     // then three X gates on a second qubit, on an engine whose projections
