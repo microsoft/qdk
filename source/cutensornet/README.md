@@ -158,8 +158,9 @@ A caller can rely on each from the step named, whatever the method:
   when that wait fails; a failed release leaked, the method failing with
   the first such failure, nothing poisoned.
 - **At a drop:** every release attempted, a failed one leaked, never
-  retried, and written to stderr in debug builds; nothing freed when the
-  device cannot be selected, so nothing is freed on another device.
+  retried, and written to stderr in debug builds; no buffer or algebra
+  object freed when the device cannot be selected, so none is freed on
+  another device; the session's close still destroys its handle and stream.
 
 ### The algebra's phases
 
