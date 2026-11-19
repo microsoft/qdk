@@ -37,12 +37,17 @@ pub enum Rule {
     /// No check is named for this rule: the kit's driver ends each shot
     /// after its last `execute`, and a run holds a shot the driver never
     /// sends ([`Script`](crate::Script) says when), so every check of an
-    /// executor or an adapter reports each `end_shots` that panicked on
-    /// shots the part did not hold, in each run, except in the run where a
-    /// check drops the part and withholds its ends: run 4 of
+    /// executor or an adapter reports each `end_shots` that panicked
+    /// ending shots among which some the part did not hold, in each of its
+    /// runs that ends or that the check fails on purpose, except in the
+    /// run where a check drops the part and
+    /// withholds its ends: run 4 of
     /// [`executor::starts_each_shot_afresh`](crate::executor::starts_each_shot_afresh),
-    /// and of the adapter's check of the same name.
-    /// An `end_shots` whose every shot the part held is not reported: its
+    /// and of the adapter's check of the same name. The kit cannot tell
+    /// which shot a panic came from, so a panic that a held shot of such an
+    /// `end_shots` caused is reported under this rule too; the report
+    /// quotes the panic. An `end_shots` whose every shot the part held is
+    /// not reported: its
     /// panic fails the run, or is raised again from it, as the protocol
     /// says. An executor that expects each shot it ends to be held, under a
     /// script whose shots all end at execute 1, is reported as

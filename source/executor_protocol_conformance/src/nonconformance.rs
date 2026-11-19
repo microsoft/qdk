@@ -3,9 +3,10 @@
 
 //! What a check returns when a part does not keep its rule:
 //! [`Nonconformance`], which names the part, each rule it broke
-//! ([`BrokenRule`]) and every place where it broke it ([`Fault`], at a
-//! [`Place`]), or why the check could not judge the part, and the trial
-//! that found it, to replay.
+//! ([`BrokenRule`]) and the places where the check found it broken
+//! ([`Fault`], at a [`Place`]; which places, each check's Errors section
+//! says), or why the check could not judge the part, and the trial that
+//! found it, to replay.
 
 use std::fmt;
 
@@ -35,7 +36,7 @@ pub enum Nonconformance {
         /// The trial that found them: its places are that trial's shots,
         /// batches and `execute`s.
         trial: Trial,
-        /// Each rule broken, with every place where it was.
+        /// Each rule broken, with the places where the check found it so.
         rules: Vec<BrokenRule>,
     },
     /// The check could not judge the part: what it was given does not let

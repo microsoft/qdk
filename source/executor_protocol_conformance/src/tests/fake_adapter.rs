@@ -14,9 +14,9 @@ use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 use executor_protocol::{
-    Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, ExecuteRefusal, Instruction,
-    InstructionSet, Offer, OpcodeMap, ReadoutValue, Readouts, Seed, ShotConditions, ShotId,
-    ShotSet,
+    Adapt, AdapterSetup, Batch, BatchReadouts, BlockType, Execute, ExecuteError, ExecuteRefusal,
+    Instruction, InstructionSet, Needs, NotReady, Offer, OpcodeMap, ReadoutValue, Readouts, Seed,
+    ShotConditions, ShotId, ShotSet,
 };
 
 use super::fake_executor::{CoinGatesAndReset, Draws};
@@ -154,6 +154,8 @@ enum Allowed {
     PanicsEndingShots,
     /// Its offer is not seedable, whatever the offer below.
     IsNotSeedable,
+    /// It refuses its run of this count, from 1, as busy, in `ready`.
+    IsBusyAtRun(u32),
 }
 
 /// The shot a [`FakeAdapter`] breaking [`Breaks::SendsAShotItDidNotGet`]
@@ -209,6 +211,12 @@ pub(crate) struct FakeAdapter {
     /// adapters of one test, if it sends that seed below for every later
     /// one.
     first_seed: Option<Rc<Cell<Option<Seed>>>>,
+    /// Where it sends each qubit below, if it lays the qubits out: one
+    /// place per qubit the needs its latest `ready` got state.
+    layout: Option<Vec<u32>>,
+    /// How many times it was asked whether it can take a run, for
+    /// [`Allowed::IsBusyAtRun`].
+    asked_ready: u32,
     /// What it does that breaks no rule, if anything: set by its
     /// constructors.
     allowed: Option<Allowed>,
@@ -236,6 +244,8 @@ impl FakeAdapter {
             rejected: BTreeSet::new(),
             got: BTreeSet::new(),
             first_seed: None,
+            layout: None,
+            asked_ready: 0,
             allowed: None,
         };
         detection_rates::name_the_part("FakeAdapter::new");
@@ -421,6 +431,32 @@ impl FakeAdapter {
         made
     }
 
+    /// An adapter without noise that keeps every rule and sends each qubit
+    /// below to its place in a layout made at each `ready`, of the qubits
+    /// the needs above state, as a router laying out a run's qubits when
+    /// it gets ready would: a run readied for fewer qubits than its
+    /// instructions use fails.
+    pub(crate) fn laying_out_its_needs() -> Self {
+        let made = Self {
+            layout: Some(Vec::new()),
+            ..Self::new()
+        };
+        detection_rates::name_the_part("FakeAdapter::laying_out_its_needs");
+        made
+    }
+
+    /// An adapter without noise that keeps every rule and refuses its
+    /// `run`-th run as busy, in `ready`, taking the others, as a decoder
+    /// shared with another user's run would.
+    pub(crate) fn busy_at_run(run: u32) -> Self {
+        let made = Self {
+            allowed: Some(Allowed::IsBusyAtRun(run)),
+            ..Self::new()
+        };
+        detection_rates::name_the_part(format!("FakeAdapter::busy_at_run({run})"));
+        made
+    }
+
     /// An adapter without noise that breaks `breaks`.
     pub(crate) fn breaking(breaks: Breaks) -> Self {
         let made = Self {
@@ -552,6 +588,13 @@ impl FakeAdapter {
                         if self.breaks(Breaks::SendsQubitsBeyondNeeds) {
                             for block in &mut mapped.blocks {
                                 *block += QUBITS;
+                            }
+                        }
+                        if let Some(layout) = &self.layout {
+                            for block in &mut mapped.blocks {
+                                *block = *layout.get(*block as usize).unwrap_or_else(|| {
+                                    panic!("qubit {block} is outside the layout made at `ready`")
+                                });
                             }
                         }
                         mapped
@@ -866,6 +909,21 @@ impl AdapterSetup for FakeAdapter {
 }
 
 impl Adapt for FakeAdapter {
+    fn ready(&mut self, above: &Needs) -> impl Future<Output = Result<(), NotReady>> {
+        if let Some(layout) = &mut self.layout {
+            *layout = (0..above.blocks_of(&BlockType::qubit())).collect();
+        }
+        self.asked_ready += 1;
+        let busy = self.allowed == Some(Allowed::IsBusyAtRun(self.asked_ready));
+        async move {
+            if busy {
+                Err(NotReady::new("busy"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
     fn adapt(
         &mut self,
         batches: &[Batch<'_>],

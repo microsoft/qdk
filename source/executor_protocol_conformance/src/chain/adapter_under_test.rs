@@ -22,8 +22,9 @@ use crate::shared_run::SharedRun;
 /// The adapter under test, wrapped: it forwards each call, and around each
 /// `adapt`, logs the seed it got, prefills the readouts in a prefill run,
 /// may first drop a call unpolled, and logs the rows the adapter answered.
-/// It logs, too, each `end_shots` that panics on shots the adapter did not
-/// hold, and keeps every `end_shots` from the adapter when the setup says.
+/// It logs, too, each `end_shots` that panics ending shots among which some
+/// the adapter did not hold, and keeps every `end_shots` from the adapter
+/// when the setup says.
 pub(crate) struct AdapterUnderTest<A> {
     part: A,
     run: SharedRun,

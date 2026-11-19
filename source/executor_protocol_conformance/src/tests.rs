@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! The kit's tests: each check passes a part that keeps its rule, and
-//! reports a part that breaks it, with the rule and every place where it
+//! reports a part that breaks it, with the rule and the places where it
 //! broke it. The parts are fakes on a toy whose shot state is classical
 //! bits, written in QIR's `h`, `x` and `mz`: an executor
 //! ([`FakeExecutor`](fake_executor::FakeExecutor)), an adapter
@@ -19,6 +19,8 @@ mod fake_executor;
 mod nonconformance;
 mod script;
 mod trials;
+
+use std::collections::BTreeSet;
 
 use executor_protocol::{Instruction, Needs, ShotSet, instruction_set};
 
@@ -117,6 +119,15 @@ fn faults_found(rule: Rule, result: Result<(), Nonconformance>) -> Vec<(Place, S
         }
         other => panic!("expected broken rules, got {other:?}"),
     }
+}
+
+/// The numbers a fault's text names, such as the ids of the shots at fault,
+/// whatever its wording.
+fn numbers_named(found: &str) -> BTreeSet<u32> {
+    found
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|number| number.parse().ok())
+        .collect()
 }
 
 /// Asserts that `result` reports only `rule` broken, with, for each

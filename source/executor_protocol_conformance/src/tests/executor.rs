@@ -25,10 +25,12 @@ use crate::{Nonconformance, Place, Rule, Script, Trials};
 
 /// An executor that keeps every rule passes every check, each with what
 /// it needs, whether it raises no condition, raises one on a shot by its
-/// state, or draws a run's shots from one stream, offering shots that are
-/// not replayable: the checks comparing runs that send the shots
-/// otherwise then write on stderr that they did not judge it, and only
-/// then.
+/// state, makes each shot with the qubits the needs it got ready for
+/// state, at each run, so that a check must get it ready for the needs it
+/// is given, in each run, or draws a run's shots from one stream, offering
+/// shots that are not replayable: the checks comparing runs that send the
+/// shots otherwise then write on stderr that they did not judge it, and
+/// only then.
 #[test]
 fn an_executor_that_keeps_every_rule_passes_every_check() {
     let not_replayable = &NOT_JUDGED_IF_NOT_REPLAYABLE[..];
@@ -39,6 +41,11 @@ fn an_executor_that_keeps_every_rule_passes_every_check() {
             &[][..],
         ),
         ("raising conditions", FakeExecutor::flagging, &[]),
+        (
+            "sizing its shots by its needs",
+            FakeExecutor::sizing_shots_by_its_needs,
+            &[],
+        ),
         (
             "drawing shots together",
             FakeExecutor::drawing_shots_together,

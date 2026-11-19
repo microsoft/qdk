@@ -27,10 +27,12 @@ impl HeldShots {
 
     /// Ends `shots` on the part, by `end`, unless the setup withholds it.
     /// If `end` panics while some of `shots` are not held, logs it as a
-    /// fault of [`Rule::IgnoresEndsOfShotsItDoesNotHold`](crate::Rule)
-    /// and goes on; the shots the panic left unended may show as faults of
-    /// other rules. If every shot was held, the panic unwinds on, as the
-    /// protocol handles it.
+    /// fault of [`Rule::IgnoresEndsOfShotsItDoesNotHold`](crate::Rule),
+    /// naming the shots ended, those not held, and the panic, and goes on:
+    /// which shot the panic came from is unknown, so a held shot's panic
+    /// is logged so too. The shots the panic left unended may show as
+    /// faults of other rules. If every shot was held, the panic unwinds
+    /// on, as the protocol handles it.
     pub(crate) fn end(&mut self, run: &SharedRun, shots: &ShotSet, end: impl FnOnce()) {
         if run.setup().withholds_end_shots {
             return;

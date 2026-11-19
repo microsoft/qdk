@@ -81,22 +81,30 @@ run's shots, over the kit's executor:
 
 ## The rules every check of an executor or an adapter reports
 
-Every check of an executor or an adapter also reports each batch answered
-with readouts of another shape than the batch's, and each `end_shots` that
-panics on shots the part does not hold, or no longer holds, which it must
-ignore: the kit's driver ends each shot after its last `execute`, and a
-run holds one more shot the driver never sends, so that the runner's end
-of the run ends both kinds ([`Script`](../src/script.rs) says when a run
-goes without that shot). In trial 0, a check some of whose runs went
-without that shot writes to the standard error, which `cargo test` shows
-beside a failing test or with `--nocapture`, that those runs did not
+Every check of an executor or an adapter also reports, in each of its runs
+that ends (and in the run that `runs_as_new_after_a_failed_run` fails on
+purpose; another run that fails ends the check, as
+[Reading a report](#reading-a-report) says), each batch answered with
+readouts of another shape than the batch's, and each `end_shots` that
+panics ending shots among which some the part does not hold, or no longer
+holds, which it must ignore: the kit's driver ends each shot after its last
+`execute`, and a run holds one more shot the driver never sends, so that
+the runner's end of the run ends both kinds ([`Script`](../src/script.rs)
+says when a run goes without that shot). The kit cannot tell which shot of
+an `end_shots` a panic came from, so a panic that a held shot caused, in
+an `end_shots` that also ends shots not held, is reported under that rule
+too; the report quotes the panic. In trial 0, a check some of whose runs
+went without that shot writes to the standard error, which `cargo test`
+shows beside a failing test or with `--nocapture`, that those runs did not
 exercise an end of a shot never held.
 
 ## Reading a report
 
-A check reports every place where the part broke its rule, not only the
-first, and the other rules it saw broken on the way, each fault at a
-place counted as [`Place`](../src/nonconformance/place.rs)'s documentation says.
+A check reports the places where the part broke its rule that its
+documentation's Errors section lists, for most checks every place, not
+only the first, and the other rules it saw broken on the way, each fault
+at a place counted as [`Place`](../src/nonconformance/place.rs)'s
+documentation says.
 A part refused below on every checked run, for slots it misstates, makes
 the checks that need runs that end return `CannotJudge`, naming the
 refusal: fix the rule that the adapter's or the driver's

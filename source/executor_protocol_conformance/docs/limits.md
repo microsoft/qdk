@@ -13,7 +13,10 @@ The rules and faults no check of the kit sees, each with why. The
 - **Some ways to mishandle an end of shots not held:** a part whose
   `end_shots` panics on such shots is reported; one that instead changes
   a shot it holds shows only where a later run on the same part reads it
-  (`runs_as_new_after_a_failed_run`).
+  (`runs_as_new_after_a_failed_run`). And the kit cannot tell which shot
+  of an `end_shots` a panic came from: a panic that a held shot caused is
+  reported under the rule on shots not held when the same `end_shots` also
+  ends shots not held, and fails the run otherwise.
 - **An executor's `accepts` and `offers` between runs:**
   `keeps_its_accepts_and_offers` reads them before `>>`, once the executor
   got ready for a run, and at each `execute` of a run, so a change at a

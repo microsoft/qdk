@@ -22,8 +22,8 @@ use crate::shared_run::SharedRun;
 /// call unpolled, and logs the rows the executor answered. It logs, too,
 /// each time `accepts` or `offers` reads otherwise than before `>>`, once
 /// the executor got ready and at each `execute`, and each `end_shots` that
-/// panics on shots the executor did not hold, and keeps every `end_shots`
-/// from the executor when the setup says.
+/// panics ending shots among which some the executor did not hold, and
+/// keeps every `end_shots` from the executor when the setup says.
 pub(crate) struct ExecutorUnderTest<E> {
     part: E,
     run: SharedRun,

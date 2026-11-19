@@ -7,7 +7,7 @@
 use executor_protocol::{ShotConditions, ShotId};
 
 use super::fake_driver::{Breaks, FakeDriver, Record};
-use super::{faults_found, faults_of, shots, trials, why_cannot_judge};
+use super::{faults_found, faults_of, numbers_named, shots, trials, why_cannot_judge};
 use crate::driver::{
     gives_one_output_per_shot_in_order, merges_each_executes_conditions, passes_the_seed_on,
     sends_only_its_shots, states_readout_slots,
@@ -227,13 +227,13 @@ fn a_run_refused_for_another_fault_cannot_judge_stated_slots() {
 #[test]
 fn a_shot_not_the_runs_is_reported_at_its_batch() {
     let make = || FakeDriver::breaking(Breaks::SendsAShotNotItsOwn);
-    assert_eq!(
-        faults_found(
-            Rule::SendsOnlyItsShots,
-            sends_only_its_shots(make, &shots(0..4), trials())
-        ),
-        [(batch(1, 2), "holds shot 999, not the run's".to_owned())]
+    let found = faults_found(
+        Rule::SendsOnlyItsShots,
+        sends_only_its_shots(make, &shots(0..4), trials()),
     );
+    let places: Vec<Place> = found.iter().map(|(place, _)| place.clone()).collect();
+    assert_eq!(places, [batch(1, 2)]);
+    assert_eq!(numbers_named(&found[0].1), [999].into(), "{}", found[0].1);
 }
 
 /// A driver that puts a shot in two batches of one `execute` is reported

@@ -9,8 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use executor_protocol::{
-    Batch, BatchReadouts, Execute, ExecuteError, ExecuteRefusal, ExecutorSetup, InstructionSet,
-    Needs, NotReady, Offer, Opcode, Seed, ShotConditions, ShotId, ShotSet, instruction_set,
+    Batch, BatchReadouts, BlockType, Execute, ExecuteError, ExecuteRefusal, ExecutorSetup,
+    InstructionSet, Needs, NotReady, Offer, Opcode, Seed, ShotConditions, ShotId, ShotSet,
+    instruction_set,
 };
 
 use super::{CoinGates, QUBITS};
@@ -199,6 +200,10 @@ pub(crate) struct FakeExecutor {
     /// How many times it was asked whether it can take a run, for
     /// [`Allowed::IsBusyAtRun`].
     asked_ready: u32,
+    /// The qubits it makes each shot with, if as many as the needs its
+    /// latest `ready` got state (none before its first): otherwise
+    /// [`QUBITS`].
+    qubits_by_needs: Option<usize>,
     /// What it does that breaks no rule, if anything: set by its
     /// constructors.
     allowed: Option<Allowed>,
@@ -242,6 +247,7 @@ impl FakeExecutor {
             largest_made: None,
             made: Vec::new(),
             asked_ready: 0,
+            qubits_by_needs: None,
             allowed: None,
             _leak_check: None,
         };
@@ -343,6 +349,19 @@ impl FakeExecutor {
             ..Self::new()
         };
         detection_rates::name_the_part("FakeExecutor::not_seedable");
+        made
+    }
+
+    /// An executor that keeps every rule and makes each shot with as many
+    /// qubits as the needs its latest `ready` got state, as a device
+    /// allocating a run's qubits when it gets ready would: a run readied
+    /// for fewer qubits than its instructions use fails.
+    pub(crate) fn sizing_shots_by_its_needs() -> Self {
+        let made = Self {
+            qubits_by_needs: Some(0),
+            ..Self::new()
+        };
+        detection_rates::name_the_part("FakeExecutor::sizing_shots_by_its_needs");
         made
     }
 
@@ -499,6 +518,7 @@ impl FakeExecutor {
         let mut shots = self.shots.borrow_mut();
         let mut shared = SplitMix64::new(seed.shot(ShotId::new(0)));
         let row_slots = self.row_slots(batches);
+        let qubits = self.qubits_by_needs.unwrap_or(QUBITS as usize);
         let [h, x, mz] = self.opcodes;
         for (index, (batch, readouts)) in batches.iter().zip(readouts).enumerate() {
             if index == 0 && self.breaks(Breaks::ReplacesItsReadouts) {
@@ -535,7 +555,7 @@ impl FakeExecutor {
                 };
                 let (bits, stream) = shots.entry(key).or_insert_with(|| {
                     (
-                        vec![false; QUBITS as usize],
+                        vec![false; qubits],
                         SplitMix64::new(seed.shot(shot) ^ by_batch),
                     )
                 });
@@ -615,7 +635,9 @@ impl ExecutorSetup for FakeExecutor {
 
 impl Execute for FakeExecutor {
     fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = needs;
+        if let Some(qubits) = &mut self.qubits_by_needs {
+            *qubits = needs.blocks_of(&BlockType::qubit()) as usize;
+        }
         self.asked_ready += 1;
         let busy = self.allowed == Some(Allowed::IsBusyAtRun(self.asked_ready));
         self.got_ready |= !busy;

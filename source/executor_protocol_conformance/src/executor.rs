@@ -21,10 +21,14 @@
 //! in [`runs_as_new_after_a_failed_run`], whose rule is about an executor's
 //! later runs.
 //!
-//! Every check also reports each batch the executor answered with readouts
-//! of another shape ([`Rule::KeepsEachBatchsShape`]), and each `end_shots`
-//! that panicked on shots the executor did not hold
-//! ([`Rule::IgnoresEndsOfShotsItDoesNotHold`]).
+//! Every check also reports, in each of its runs that ends (and in the run
+//! that [`runs_as_new_after_a_failed_run`] fails on purpose), each batch
+//! the executor answered with readouts of another shape
+//! ([`Rule::KeepsEachBatchsShape`]), and each `end_shots` that panicked
+//! ending shots among which some the executor did not hold
+//! ([`Rule::IgnoresEndsOfShotsItDoesNotHold`], which says why a held
+//! shot's panic there is reported too). Another run that fails ends the
+//! check, as `docs/checks.md` says under "Reading a report".
 //!
 //! # The trials
 //!

@@ -29,7 +29,8 @@ sends a script of batches above an executor or an adapter, and an
 executor that answers below an adapter or a driver. It runs the part as
 often as the rule needs (alone and among other shots, in several orders,
 after a failed run), compares what it sees, and returns `Ok(())` or a
-report naming each place where the part broke the rule. Trial 0 runs
+report naming the part, the rule and where the part broke it (which
+places, each check's documentation says under Errors). Trial 0 runs
 fixed patterns; each later trial draws its patterns (such as the shots'
 ids, order, batches and groups, where a run fails, and the conditions
 raised below) from a seed, which the report names. Every run of a check
@@ -69,14 +70,20 @@ part, what to run and the trials, as [An example](#an-example) shows.
   check of its own, only a few lines per rule in its tests, and a new rule
   is a new function and a new `Rule`
   ([adding a rule](docs/checks.md#adding-a-rule)).
-- **Any implementation, as it runs in a chain.** The kit sees the part
-  through its role's traits alone, so it checks any implementation; and
-  its driver and executor join the part with the protocol's own `>>`, so
-  the part runs as it does in a chain.
+- **Any implementation of a part, as it runs in a chain.** The kit sees
+  the part through its role's traits alone, so it checks any
+  implementation of an executor, an adapter or a driver on its own, not a
+  chain composed with `>>`, nor a part that is not seedable
+  ([limits.md](docs/limits.md)); and its driver and executor join the
+  part with the protocol's own `>>`, so the part runs as it does in a
+  chain.
 - **Drawn patterns, replayed exactly.** A part built by iterating against
   fixed runs may pass them all and break the rule elsewhere; patterns
-  drawn from a seed cannot be fitted so, and a report names its seed and
-  trial, so the failure replays exactly.
+  drawn from a seed expose faults fitted to trial 0's fixed patterns, as
+  the kit's [tests](#tests) of fitted fakes show, and more seeds or
+  trials broaden the search, though none makes a part's faults sure to
+  show. A report names its seed and trial, so the failure replays
+  exactly.
 
 ## Terms
 
@@ -146,7 +153,7 @@ for more (see [Running more trials](docs/trials.md#running-more-trials)).
 An implementer's test fails with the report, as in
 `if let Err(report) = result { panic!("{report}") }`.
 
-The report names the part, the rule, each place and the trial. For this
+The report names the part, the rule, the places and the trial. For this
 executor it reads as follows; this is an example, whose wording may
 change, and the test checks only that the report names them:
 

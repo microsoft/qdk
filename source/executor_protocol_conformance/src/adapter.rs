@@ -18,10 +18,14 @@
 //! `execute`, and none of another shot's or of an earlier `execute` (the
 //! crate's `docs/limits.md` lists what the checks do not see).
 //!
-//! Every check also reports each batch the adapter answered with readouts
-//! of another shape ([`Rule::KeepsEachBatchsShape`]), and each `end_shots`
-//! that panicked on shots the adapter did not hold
-//! ([`Rule::IgnoresEndsOfShotsItDoesNotHold`]).
+//! Every check also reports, in each of its runs that ends (and in the run
+//! that [`runs_as_new_after_a_failed_run`] fails on purpose), each batch
+//! the adapter answered with readouts of another shape
+//! ([`Rule::KeepsEachBatchsShape`]), and each `end_shots` that panicked
+//! ending shots among which some the adapter did not hold
+//! ([`Rule::IgnoresEndsOfShotsItDoesNotHold`], which says why a held
+//! shot's panic there is reported too). Another run that fails ends the
+//! check, as `docs/checks.md` says under "Reading a report".
 //!
 //! Each function takes `make`, which builds the adapter afresh, the same
 //! each time; `needs`, what the kit's driver above it needs of it; and what
@@ -530,8 +534,8 @@ pub fn reports_only_each_executes_conditions<A: Adapt>(
     run_trials(trials, |patterns| {
         if script.executes().len() < 2 {
             return Err(patterns.cannot_judge(
-                "the script sends one execute; the check needs two or more, to see conditions \
-                 carried from one to the next",
+                "the script sends fewer than two executes; the check needs two or more, to see \
+                 conditions carried from one to the next",
             ));
         }
         let script = patterns.script(script);

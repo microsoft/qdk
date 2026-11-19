@@ -125,8 +125,8 @@ impl Findings {
 
     /// Notes what a run's log shows of every check's rules: the part's
     /// name, each batch answered in another shape, each `end_shots` that
-    /// panicked on shots the part did not hold, and whether the run went
-    /// without the shot its script never names.
+    /// panicked ending shots among which some the part did not hold, and
+    /// whether the run went without the shot its script never names.
     pub(crate) fn note_run(&mut self, log: &RunLog) {
         self.note_part_name(&log.part);
         self.runs += 1;

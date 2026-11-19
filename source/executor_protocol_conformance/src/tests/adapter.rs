@@ -4,12 +4,15 @@
 //! The adapter's checks: each passes an adapter that keeps every rule, and
 //! reports an adapter that breaks its rule at the places it breaks it.
 
+use std::collections::BTreeSet;
+
 use executor_protocol::{ReadoutSlot, ShotConditions, ShotId};
 
 use super::fake_adapter::{Breaks, FakeAdapter, Noise};
 use super::{
     NOT_JUDGED_IF_NOT_REPLAYABLE, faults_found, faults_of, first, gates, needs,
-    not_judged_as_not_replayable, script, second, shots, shows_each, trials, why_cannot_judge,
+    not_judged_as_not_replayable, numbers_named, script, second, shots, shows_each, trials,
+    why_cannot_judge,
 };
 use crate::adapter::{
     carries_checked_batches_below, changes_no_shot_outside_its_batches,
@@ -44,7 +47,9 @@ fn row(execute: usize, batch: usize, row: usize, shot: u32) -> Place {
 /// An adapter that keeps every rule passes every check, each with what it
 /// needs: with noise or without, sending each `execute` below in one call,
 /// two or three, or each batch in a call of its own, marking a shot of the
-/// first batch of each `execute` or of a later batch, or drawing a run's
+/// first batch of each `execute` or of a later batch, laying out the
+/// qubits the needs above it state, at each run, so that a check must get
+/// it ready for the needs it is given, in each run, or drawing a run's
 /// noise from one stream, offering shots that are not replayable: the
 /// checks comparing runs that send the shots otherwise then write on
 /// stderr that they did not judge it, and only then.
@@ -66,6 +71,10 @@ fn an_adapter_that_keeps_every_rule_passes_every_check() {
         ("marking a shot until it is rejected", || {
             FakeAdapter::marking_until_rejected(1)
         }),
+        (
+            "laying out the qubits its needs state",
+            FakeAdapter::laying_out_its_needs,
+        ),
     ] {
         passes_every_check(adapter, make, &[]);
     }
@@ -154,22 +163,19 @@ fn every_check(make: fn() -> FakeAdapter) -> [(&'static str, Result<(), Nonconfo
 
 /// An adapter that panics in `end_shots` on a shot it no longer holds, as the
 /// runner ends every shot of a run that the driver ended after its last
-/// `execute`, is reported at that end.
+/// `execute`, is reported at that end, naming the shots it ended and
+/// quoting its panic.
 #[test]
 fn an_end_of_shots_no_longer_held_that_panics_is_reported() {
     let make = || FakeAdapter::breaking(Breaks::PanicsEndingShotsItDoesNotHold);
-    assert_eq!(
-        faults_found(
-            Rule::IgnoresEndsOfShotsItDoesNotHold,
-            writes_every_readout(make, needs(), &script(), trials())
-        )[0],
-        (
-            Place::EndShots { after: Some(1) },
-            "panicked ending shots 0, 1, 2, 3, 57, among which shots 0, 1, 2, 3, 57 it did not \
-             hold, or no longer held: shot 0 is not held"
-                .to_owned()
-        )
-    );
+    let (place, found) = faults_found(
+        Rule::IgnoresEndsOfShotsItDoesNotHold,
+        writes_every_readout(make, needs(), &script(), trials()),
+    )
+    .swap_remove(0);
+    assert_eq!(place, Place::EndShots { after: Some(1) });
+    assert_eq!(numbers_named(&found), [0, 1, 2, 3, 57].into(), "{found}");
+    assert!(found.contains("shot 0 is not held"), "the panic: {found}");
 }
 
 /// An adapter whose `end_shots` panics on shots it holds is not reported as
@@ -372,35 +378,27 @@ fn a_shot_sent_below_that_the_adapter_did_not_get_is_reported() {
         .execute([(shots(0..4), gates(&[("h", 0), ("mz", 0)]))])
         .execute([(shots([0, 1]), gates(&[("x", 0), ("mz", 0)]))])
         .execute([(shots([2, 3]), gates(&[("x", 0), ("mz", 0)]))]);
-    let stranger = "holds shot 999 that no batch of the execute holds";
     for (breaks, script, expected) in [
         (
             Breaks::SendsAShotItDidNotGet,
             script(),
-            vec![(below(0, 1), stranger), (below(1, 2), stranger)],
+            vec![(below(0, 1), [999].into()), (below(1, 2), [999].into())],
         ),
         (
             Breaks::SendsShotsOfEarlierExecutes,
             fewer_later,
-            vec![(
-                below(1, 1),
-                "holds shots 2, 3 that no batch of the execute holds",
-            )],
+            vec![(below(1, 1), [2, 3].into())],
         ),
     ] {
         let make = || FakeAdapter::breaking(breaks);
-        let expected: Vec<(Place, String)> = expected
-            .into_iter()
-            .map(|(place, found)| (place, found.to_owned()))
-            .collect();
-        assert_eq!(
-            faults_found(
-                Rule::SendsOnlyShotsItGot,
-                sends_only_shots_it_got(make, needs(), &script, trials())
-            ),
-            expected,
-            "{breaks:?}"
-        );
+        let found: Vec<(Place, BTreeSet<u32>)> = faults_found(
+            Rule::SendsOnlyShotsItGot,
+            sends_only_shots_it_got(make, needs(), &script, trials()),
+        )
+        .into_iter()
+        .map(|(place, found)| (place, numbers_named(&found)))
+        .collect();
+        assert_eq!(found, expected, "{breaks:?}");
     }
 }
 
@@ -479,6 +477,39 @@ fn a_part_whose_every_run_fails_cannot_judge_running_again() {
         trials(),
     ));
     assert!(why.contains("a run"), "{why}");
+}
+
+/// A run the adapter refuses as busy in `ready`, as a decoder shared with
+/// other users may, which the protocol allows, ran nothing: a check cannot
+/// judge the adapter, names the refusal, and says to run the check again
+/// once the adapter is ready, whether the adapter refuses its first run,
+/// or the second run of the adapter that `runs_as_new_after_a_failed_run`
+/// runs twice.
+#[test]
+fn a_run_the_adapter_refuses_as_busy_cannot_judge_it() {
+    for (refused, result) in [
+        (
+            "its first run",
+            writes_every_readout(|| FakeAdapter::busy_at_run(1), needs(), &script(), trials()),
+        ),
+        (
+            "the second run of the adapter run twice",
+            runs_as_new_after_a_failed_run(
+                || FakeAdapter::busy_at_run(2),
+                needs(),
+                &script(),
+                trials(),
+            ),
+        ),
+    ] {
+        let why = why_cannot_judge(result);
+        assert!(
+            why.contains("FakeAdapter")
+                && why.contains("is not ready: busy")
+                && why.contains("run the check again"),
+            "{refused}: {why}"
+        );
+    }
 }
 
 /// An adapter that drops the conditions read below, keeps of an `execute`'s
