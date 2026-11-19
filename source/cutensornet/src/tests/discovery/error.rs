@@ -7,9 +7,11 @@ use crate::{AvailabilityError, AvailabilityReport, LibraryFault, LibraryReport};
 use std::path::PathBuf;
 
 /// A user whose CUDA Runtime lacks two functions reads both, each after the
-/// library and the path it was opened from; a library with no fault is not
-/// named. The faults are on the CUDA Runtime, whose name the message's lead
-/// ("cuTensorNet acceleration…") does not hold, so each fault must name it.
+/// library and the path it was opened from; a library with no fault is
+/// named neither by its file nor by its name. The faults are on the CUDA
+/// Runtime, whose name the message's lead ("cuTensorNet acceleration…")
+/// does not hold, so each fault must name it; when only cuTensorNet is at
+/// fault, the healthy CUDA Runtime's name is absent.
 #[test]
 fn the_message_names_every_fault_with_its_library() {
     let cuda_path = "/opt/cuda/libcudart.so.12";
@@ -64,6 +66,35 @@ fn the_message_names_every_fault_with_its_library() {
         !message.contains("Some("),
         "the path is shown, not Rust's value around it: {message}"
     );
+    let only_cutensornet_at_fault = AvailabilityReport {
+        libraries: vec![
+            LibraryReport {
+                library: "CUDA Runtime",
+                path: Some(PathBuf::from(cuda_path)),
+                versions: Vec::new(),
+                faults: Vec::new(),
+            },
+            LibraryReport {
+                library: "cuTensorNet",
+                path: Some(PathBuf::from("/opt/cutensornet/libcutensornet.so.2")),
+                versions: Vec::new(),
+                faults: vec![LibraryFault::MissingRequiredSymbol {
+                    symbol: "cutensornetCreate",
+                }],
+            },
+        ],
+    };
+    let message = AvailabilityError::Unusable(only_cutensornet_at_fault).to_string();
+    assert!(
+        message.contains("cutensornetCreate"),
+        "the fault is named: {message}"
+    );
+    for part in ["CUDA Runtime", "libcudart"] {
+        assert!(
+            !message.contains(part),
+            "the library with no fault is not named ({part}): {message}"
+        );
+    }
 }
 
 /// A library that was not opened is named without a path. The fixture's
@@ -89,4 +120,18 @@ fn a_library_not_opened_is_named_without_a_path() {
         !message.contains('/') && !message.contains("None"),
         "no path, nor Rust's word for its absence, is given for a library not opened: {message}"
     );
+}
+
+/// A user on an unsupported host reads which platform it is and which one
+/// is supported. Discovery's test that it names this host runs only off
+/// Linux x86-64; this one runs everywhere.
+#[test]
+fn an_unsupported_platform_is_named_beside_the_supported_one() {
+    let message = AvailabilityError::UnsupportedPlatform {
+        platform: "macos aarch64".to_owned(),
+    }
+    .to_string();
+    for part in ["macos aarch64", "Linux x86-64"] {
+        assert!(message.contains(part), "{part} is named: {message}");
+    }
 }
