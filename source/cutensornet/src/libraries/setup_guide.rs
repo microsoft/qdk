@@ -12,9 +12,8 @@
 //! overrides it comes from its `NativeLibrary`);
 //! `LoadedLibraries::SETUP_GUIDES` lists the guides, and [`setup_guides`]
 //! gives them to the check. So a library bound later brings its own, and
-//! the library steps change nothing. The device step is the exception:
-//! the check holds its facts, cuTensorNet's compute-capability floor and
-//! the CUDA Runtime's driver advice.
+//! the library steps change nothing; the device step's facts are the
+//! check's (`gpu_setup`).
 //! [`or_unread`] is how a guide, and the check, show one of a report's
 //! optional values.
 
