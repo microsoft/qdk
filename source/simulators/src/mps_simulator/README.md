@@ -7,17 +7,19 @@ program entangles them little, as chemistry programs such as H₂'s phase
 estimation do.
 
 **The problem.** The MPS simulation method was designed to solve the
-problem of running the QDK's QIR programs on an MPS engine. `qir`'s machine
+problem of running the QDK's QIR programs on any MPS engine, present or
+future, without changing `qir`'s machine or the engine. `qir`'s machine
 runs a program's classical part and hands each shot's quantum calls, on
 qubits, to a [`QirResumer`](../qir/resumer.rs); an MPS engine
-([`MpsEngine`](../../../tensornet/src/engine.rs)) knows only sites,
-matrices and probabilities. The problem includes:
+([`MpsEngine`](../../../tensornet/src/engine.rs)) holds states on a chain
+of sites, applies matrices to them and answers probabilities. The problem
+includes:
 
 - placing the program's qubits on the engine's chain of sites;
 - turning each call on those qubits, a gate by its name or a measurement,
   into matrices and draws on sites;
-- running the shots, which branch on what they draw, without a state for
-  each shot;
+- running the shots, which branch on what they draw, without holding a
+  state for each shot;
 - and, with the shots sharing states, giving each shot the records it
   would get alone, whatever shots run beside it.
 
@@ -33,8 +35,8 @@ rounding (what may then differ is in
 
 Today the module holds:
 
-- **the runner:** [`MpsResumer`](../mps_simulator.rs), which runs a
-  program's shots on an engine, with a max bond dimension (by default
+- **the resumer:** [`MpsResumer`](../mps_simulator.rs), which runs a
+  program's shots on an engine, with a max bond dimension χ (by default
   [`DEFAULT_MAX_BOND_DIMENSION`](../mps_simulator.rs)), a seed and a stop
   flag;
 - **its report:** [`MpsRunReport`](run_report.rs), what the last run cost,
@@ -44,7 +46,7 @@ Today the module holds:
 - **its failures:** [`MpsResumerError`](error.rs), why the resumer failed a
   shot, apart from a trap of its program.
 
-Each file's header gives the rules of its part.
+Each file's header gives the rules it implements.
 
 **Why this approach.**
 
@@ -55,8 +57,8 @@ Each file's header gives the rules of its part.
   `MpsEngine`: a new engine needs no change here.
 - **One state per group.** The shots that drew the same values share one
   state, forked only where their draws differ: a program whose draws never
-  differ runs every shot on one state, and a run never makes more states
-  than it has shots.
+  differ runs every shot on at most one state, and a run of N shots holds
+  at most ⌊log₂ N⌋ + 1 states at once.
 - **Reproducible shots.** A shot's records depend only on the program, the
   seed, its id and the settings, not on the shots run beside it (beyond
   rounding, on some engines, as above).
@@ -122,14 +124,14 @@ flowchart LR
 order run once per run; the other phases run for each group, until its
 shots' contexts end.
 
-| Phase                                         | How                                                                                                                                                                                                                                                                                                                                                                                     | Why                                                                                                                                                                                                                                                                                           |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **start** and **qubit order**                 | Once per run, from the program alone, before any shot: the chain is set, one site per qubit with bonds of at most χ, and a χ that makes no chain fails the run's first shot; a local search places qubits that share two-qubit gates on nearby sites, and keeps the identity unless another order spans less.                                                                           | An engine applies a gate on distant sites at more cost, and each bond depends on which qubits sit on its two sides. On an engine that does not truncate, every order holds the same state, to rounding; on one that truncates, the order can change it beyond rounding.                       |
-| **prepare**                                   | At a group's first gate or draw, the engine prepares a state of all zeros on that chain.                                                                                                                                                                                                                                                                                                | A shot with no quantum call costs no state.                                                                                                                                                                                                                                                   |
-| **resume** and **lower**                      | The machine runs the group's context to its next batch, and each call becomes steps on sites, through the qubit order: a gate its matrix, a measurement or reset a draw, one in X or Y a draw between the gates that turn its basis into Z and back. A noise or loss call, or a gate on one qubit twice, fails the shot that reaches it.                                                | The engine knows only matrices and sites. Noise on matrix product states is planned; refused at the call, noise on a path no shot takes fails nothing.                                                                                                                                        |
-| **apply**, **draw**, **split** and **settle** | The engine applies each gate once to the group's one state, and each shot of the group draws against it. When its shots drew both values, the part with fewer shots goes on (on a tie, the part that drew Zero), and the other waits with a fork of the state; each part's state is projected on its value.                                                                             | A fork copies the state, so each shot records what it would alone (to rounding, on some engines). A run of N shots holds at most ⌊log₂ N⌋ + 1 states at once, which bounds a GPU's memory.                                                                                                    |
-| **read bond** and **end**                     | The largest bond is read where a run of gates ends, and each shot's retained weight where its context ends; the run's report (`MpsResumer::last_run`) keeps the largest and the least, and warns on a low weight.                                                                                                                                                                       | The bond is what χ caps; the weight estimates the fidelity, so the user knows when to raise χ.                                                                                                                                                                                                |
-| **stop**                                      | A stop flag is read before a group runs its steps (when it first runs, when a part split off by a draw runs on, and once each batch is lowered), and after each resume that gives a batch or a trap, before the batch is lowered or the trap reported. Once read set, it fails the run, naming the first shot that had not ended; a run whose every shot has ended returns its records. | A user who interrupts a run of hours gets it back, its states freed. A flag set while a group runs its batch lets that group run the rest of the batch, and stops each part split off by a draw before it runs on: of a Base Profile program, one batch, the group under way runs to its end. |
+| Phase                                         | How                                                                                                                                                                                                                                                                                                                                                                                     | Why                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **start** and **qubit order**                 | Once per run, from the program alone, before any shot: the chain is set, one site per qubit with bonds of at most χ, and a χ that makes no chain fails the run's first shot; a local search places qubits that share two-qubit gates on nearby sites, and keeps the identity unless another order spans less.                                                                           | An engine applies a gate on distant sites at more cost, and each bond depends on which qubits sit on its two sides. On an engine that does not truncate, every order holds the same state, to rounding; on one that truncates, the order can change it beyond rounding.                                                           |
+| **prepare**                                   | At a group's first gate or draw, the engine prepares a state of all zeros on that chain.                                                                                                                                                                                                                                                                                                | A shot with no quantum call costs no state.                                                                                                                                                                                                                                                                                       |
+| **resume** and **lower**                      | The machine runs the group's context to its next batch, and each call becomes steps on sites, through the qubit order: a gate its matrix, a measurement or reset a draw, one in X or Y a draw between the gates that turn its basis into Z and back. A noise or loss call, or a gate on one qubit twice, fails the shot that reaches it.                                                | The engine knows no gate names. Noise on matrix product states is planned; refused at the call, noise on a path no shot takes fails nothing.                                                                                                                                                                                      |
+| **apply**, **draw**, **split** and **settle** | The engine applies each gate once to the group's one state, and each shot of the group draws against it. When its shots drew both values, the part with fewer shots goes on (on a tie, the part that drew Zero), and the other waits with a fork of the state; each part's state is projected on its value.                                                                             | A fork copies the state, so each shot records what it would alone (to rounding, on some engines). A run of N shots holds at most ⌊log₂ N⌋ + 1 states at once, which bounds a GPU's memory.                                                                                                                                        |
+| **read bond** and **end**                     | The largest bond is read where a run of gates ends, and each shot's retained weight where its context ends; the run's report (`MpsResumer::last_run`) keeps the largest and the least, and warns on a low weight.                                                                                                                                                                       | The bond is what χ caps; the weight estimates the fidelity, so the user knows when to raise χ.                                                                                                                                                                                                                                    |
+| **stop**                                      | A stop flag is read before a group runs its steps (when it first runs, when a part split off by a draw runs on, and once each batch is lowered), and after each resume that gives a batch or a trap, before the batch is lowered or the trap reported. Once read set, it fails the run, naming the first shot that had not ended; a run whose every shot has ended returns its records. | A user who interrupts a run of hours gets it back, its states freed. A flag set while a group runs its batch lets that group run the rest of the batch, and stops each part split off by a draw before it runs on: of a Base Profile program that measures into each result once, one batch, the group under way runs to its end. |
 
 A failure (a trap of the program, a refused call, or the engine's) fails
 the shots that share the state it was met on, and the run names the
@@ -173,8 +175,8 @@ assert!(records.iter().all(|shot| shot[0] == shot[1]));
 
 ## Planned extensions
 
-Each item names a case that needs it; [the design notes](design.md#planned-extensions)
-give each in detail.
+Each item names a case that needs it;
+[the design notes](design.md#planned-extensions) give each in detail.
 
 - **Noise and loss** on matrix product states, the calls refused today in
   [`lowering.rs`](lowering.rs), with a noise model setting. Its case: a

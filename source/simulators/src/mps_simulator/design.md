@@ -1,7 +1,7 @@
 # The MPS simulation method: design notes
 
 The [README](README.md) gives the phases of a run, what each does and why,
-at a high level. Each file's header gives the rules of its part. This page
+at a high level. Each file's header gives the rules it implements. This page
 gives what lies between: each phase's steps in a group, how a run fails,
 the methods of `QirMachine` and `MpsEngine` each phase calls, and the
 planned items in detail.
@@ -76,7 +76,7 @@ in any phase from resume to end: its context traps, a call is refused, or
 the engine fails. The engine leaves a state unspecified after it fails, so
 the group is dropped with it:
 
-- a failed fork fails the whole group, before its shots part;
+- a failed fork fails the whole group, before its shots split;
 - a failure settling the fork (the projection, and a reset's X) fails only
   the part that was to wait, and drops the fork.
 
