@@ -17,7 +17,7 @@ use crate::{LibraryFault, discovery::discover_from};
 use crate::{
     LibraryReport,
     discovery::availability_of,
-    libraries::loader::FunctionTable,
+    libraries::function_table::FunctionTable,
     libraries::{BoundLibrary, CheckLibrary, Checked, NativeLibrary},
     tests::stand_ins::{StandInResolver, always_present_library},
 };

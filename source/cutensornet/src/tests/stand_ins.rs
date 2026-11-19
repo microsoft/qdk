@@ -6,7 +6,7 @@
 //! instead of a library's, and, on Linux with glibc, a real library that is
 //! always present.
 
-use crate::libraries::loader::SymbolResolver;
+use crate::libraries::function_table::SymbolResolver;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use crate::libraries::loader::{OpenLibraryFile, load_library};
 use std::mem::{size_of, transmute_copy};

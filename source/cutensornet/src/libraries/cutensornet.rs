@@ -54,11 +54,13 @@ mod generated {
 pub(crate) use generated::v2_13;
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use super::loader::{FunctionTable, SymbolResolver};
+use super::function_table::{FunctionTable, SymbolResolver};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use super::{NativeLibrary, ProbedVersions, cuda_runtime};
 
-/// cuTensorNet.
+/// The cuTensorNet library (libcutensornet): where its file is looked for,
+/// the version it must have and the CUDA Runtime it must be built against,
+/// and the tables of the functions looked up in it.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) struct CuTensorNet;
 
@@ -113,7 +115,7 @@ impl NativeLibrary for CuTensorNet {
 }
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-super::loader::function_table! {
+super::function_table::function_table! {
     /// Every cuTensorNet function discovery looks up.
     #[expect(
         dead_code,
@@ -186,7 +188,7 @@ super::loader::function_table! {
 }
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-super::loader::function_table! {
+super::function_table::function_table! {
     /// The functions that read the versions, looked up on their own, and
     /// each optional, so that each version is read even when other
     /// functions are missing; the main table reports those missing.

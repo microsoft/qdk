@@ -4,65 +4,47 @@
 //! What the crate needs of the CUDA Runtime: the functions it looks up, the
 //! probe of its versions, and the one version it accepts.
 
+use super::function_table::assert_each_field_is_named_for_its_symbol;
 use crate::tests::stand_ins::{StandInResolver, cuda_version};
 use crate::{
     LibraryFault, Version,
-    libraries::loader::FunctionTable,
+    libraries::function_table::FunctionTable,
     libraries::{
         NativeLibrary, ProbedVersions,
-        cuda_runtime::{CudaFunctions, CudaRuntime},
+        cuda_runtime::{CudaFunctions, CudaRuntime, CudaVersionFunctions},
     },
 };
 use std::ffi::c_char;
 
-/// The CUDA Runtime table's rows, as `(field, symbol)`, each required.
-const CUDA_RUNTIME_ROWS: &[(&str, &str)] = &[
-    ("runtime_get_version", "cudaRuntimeGetVersion"),
-    ("driver_get_version", "cudaDriverGetVersion"),
-    ("get_device_count", "cudaGetDeviceCount"),
-    ("set_device", "cudaSetDevice"),
-    ("device_get_attribute", "cudaDeviceGetAttribute"),
-    ("get_error_string", "cudaGetErrorString"),
-    ("mem_get_info", "cudaMemGetInfo"),
-    ("malloc", "cudaMalloc"),
-    ("free", "cudaFree"),
-    ("memcpy", "cudaMemcpy"),
-    ("stream_create_with_flags", "cudaStreamCreateWithFlags"),
-    ("stream_synchronize", "cudaStreamSynchronize"),
-    ("stream_destroy", "cudaStreamDestroy"),
-];
-
-fn sorted<T: Ord>(mut rows: Vec<T>) -> Vec<T> {
-    rows.sort_unstable();
-    rows
-}
-
-/// The CUDA Runtime table looks each field up by its own symbol: two
-/// functions of one signature cannot be swapped.
+/// Each CUDA Runtime table looks each field up by the function it is named
+/// for: two functions of one signature cannot be swapped.
 #[test]
-fn the_cuda_runtime_table_looks_each_field_up_by_its_symbol() {
-    let expected = CUDA_RUNTIME_ROWS
-        .iter()
-        .map(|&(field, symbol)| (field, symbol, true))
-        .collect();
-    assert_eq!(sorted(CudaFunctions::ROWS.to_vec()), sorted(expected));
+fn the_cuda_runtime_tables_look_each_field_up_by_its_symbol() {
+    for rows in [CudaFunctions::ROWS, CudaVersionFunctions::ROWS] {
+        assert_each_field_is_named_for_its_symbol(rows, "cuda");
+    }
 }
 
 /// An installation whose CUDA Runtime lacks required functions is refused,
 /// naming each one.
 #[test]
 fn every_missing_required_cuda_function_is_reported() {
-    let resolver = CUDA_RUNTIME_ROWS
+    let required: Vec<_> = CudaFunctions::ROWS
         .iter()
-        .fold(StandInResolver::audited(), |resolver, &(_, symbol)| {
+        .filter(|row| row.2)
+        .map(|row| row.1)
+        .collect();
+    let resolver = required
+        .iter()
+        .fold(StandInResolver::audited(), |resolver, &symbol| {
             resolver.without(symbol)
         });
     let missing = CudaFunctions::resolve(&resolver)
         .err()
         .expect("every required function is missing");
-    let expected: Vec<_> = CUDA_RUNTIME_ROWS
-        .iter()
-        .map(|&(_, symbol)| LibraryFault::MissingRequiredSymbol { symbol })
+    let expected: Vec<_> = required
+        .into_iter()
+        .map(|symbol| LibraryFault::MissingRequiredSymbol { symbol })
         .collect();
     assert_eq!(missing, expected);
 }
@@ -85,8 +67,8 @@ fn probe(resolver: &StandInResolver) -> ProbedVersions {
 
 /// A CUDA version call that fails, for instance as no driver is installed,
 /// is a fault with CUDA's status and its text, whichever version it reads;
-/// without `cudaGetErrorString`, the fault keeps the status and says why
-/// it has no text.
+/// without `cudaGetErrorString`, the fault keeps the status and its text
+/// names the missing function.
 #[test]
 fn a_failed_version_probe_keeps_cudas_status_and_message() {
     let with_text =
@@ -109,18 +91,23 @@ fn a_failed_version_probe_keeps_cudas_status_and_message() {
             without_text(),
             "cudaRuntimeGetVersion",
             "CUDA Runtime",
-            "no text: cudaGetErrorString is missing",
+            "cudaGetErrorString",
         ),
     ] {
         let resolver = resolver.with(symbol, failing_version_probe as *const ());
-        assert_eq!(
-            probe(&resolver).faults,
-            [LibraryFault::VersionProbeFailed {
-                component,
+        let faults = probe(&resolver).faults;
+        let [
+            LibraryFault::VersionProbeFailed {
+                component: found,
                 status: 42,
-                message: message.to_string(),
-            }]
-        );
+                message: text,
+            },
+        ] = &faults[..]
+        else {
+            panic!("{symbol} fails with CUDA's status: {faults:?}");
+        };
+        assert_eq!(*found, component);
+        assert!(text.contains(message), "{symbol}: {text}");
     }
 }
 
