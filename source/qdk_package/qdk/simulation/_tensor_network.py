@@ -42,8 +42,8 @@ _INSTALL_COMMAND = 'pip install "qdk[tensornetwork]"'
 @dataclass(frozen=True)
 class MpsOptions:
     """Options of the MPS simulation method (``method="mps"``), which
-    :func:`tensornetwork_qir` takes as ``options``: how accurate, and so how
-    costly, a run is.
+    :func:`tensornetwork_qir` takes as ``options``. They set how accurate,
+    and so how costly, a run is.
 
     :param max_bond_dimension: The max bond dimension χ: every bond of the
         matrix product state is at most χ. Larger is more accurate and costs
@@ -175,9 +175,10 @@ def tensornetwork_qir(
         results.report.largest_bond, results.report.discarded_weight
 
     The run leaves the Python thread, and Ctrl-C stops it between batches
-    of gates (a batch: the gates and measurements a program runs before it
-    next needs a measurement's result; a Base profile program needs none
-    until its end, so it is one batch, and it runs all its gates before
+    of gates (a batch: the gates and measurements a program runs until it
+    next needs a measurement's result or measures into a result again; a
+    Base profile program that measures into each result once does neither
+    before its end, so it is one batch, and it runs all its gates before
     Ctrl-C takes effect). Noise is not simulated: a noise intrinsic
     (a function with the ``qdk_noise`` attribute) runs as identity, as no
     noise model is given, and a readout-noise call or a loss check raises
