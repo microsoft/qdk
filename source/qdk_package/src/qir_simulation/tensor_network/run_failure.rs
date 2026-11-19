@@ -44,8 +44,7 @@ pub(super) enum RunFailure {
     Value(String),
     /// The run: a trap or a stop (made by [`of`](Self::of)), or a defect, a
     /// run thread that panicked (by
-    /// [`lost_run`](super::detached_run::lost_run)).
-    /// `RuntimeError`.
+    /// [`lost_run`](super::detached_run::lost_run)). `RuntimeError`.
     Runtime(String),
 }
 
