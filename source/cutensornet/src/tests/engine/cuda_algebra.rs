@@ -243,7 +243,8 @@ fn a_host_without_a_cuda_device_is_refused() {
 /// A call that would read past a tensor's elements is a defect of its
 /// caller, refused before the device reads memory the tensor does not
 /// own, and before the call makes any native object, whichever method
-/// makes it and whichever of a pair's tensors is short.
+/// makes it and whichever of a pair's tensors is short. A read of no
+/// element reads nothing: it returns no value and copies nothing.
 #[test]
 fn a_call_reading_past_a_tensors_elements_is_refused() {
     let (algebra, libraries) = algebra();
@@ -280,6 +281,15 @@ fn a_call_reading_past_a_tensors_elements_is_refused() {
             algebra.qr_move(&moved.call(left, right)).map(drop)
         });
     }
+    let before = libraries.events().len();
+    let nothing = algebra.read(&small, 0).expect("a read of no element");
+    assert!(nothing.is_empty(), "{nothing:?}");
+    let events = libraries.events();
+    assert!(
+        !events[before..].contains(&"copy_to_host"),
+        "nothing copied, not {:?}",
+        &events[before..]
+    );
 }
 
 /// A call whose extents multiply past `usize`, or pass the `i64` the
@@ -384,8 +394,9 @@ fn run_making_no_native_object(
 /// algebra, whose failed call could not keep the tensor from being freed
 /// while that call's work may still read it, refuses it before any native
 /// call, whichever method is given it and whichever of a pair's tensors it
-/// is, and so does an engine method that passes another engine's sites to
-/// the algebra (its fork). Nothing is leaked.
+/// is, even when it reads no element, and so does an engine method that
+/// passes another engine's sites to the algebra (its fork). Nothing is
+/// leaked.
 #[test]
 fn a_tensor_of_another_algebra_is_refused() {
     use crate::CudaMpsEngine;
@@ -433,6 +444,12 @@ fn a_tensor_of_another_algebra_is_refused() {
     };
     is_refused("read", &|| algebra.read(&foreign_a, 2).map(drop));
     is_refused("duplicate", &|| algebra.duplicate(&foreign_a, 2).map(drop));
+    is_refused("read of no element", &|| {
+        algebra.read(&foreign_a, 0).map(drop)
+    });
+    is_refused("duplicate of no element", &|| {
+        algebra.duplicate(&foreign_a, 0).map(drop)
+    });
     for (side, left, right) in [("left", &foreign_a, &own_b), ("right", &own_a, &foreign_b)] {
         is_refused(&format!("gate split, {side} foreign"), &|| {
             algebra.gate_split(&split.call(left, right)).map(drop)
@@ -731,8 +748,9 @@ fn is_a_failed_wait(error: &CudaAlgebraError) -> bool {
 /// A failed call waits for the device before it releases its buffers;
 /// when that wait fails, nothing tells when the device is done with them,
 /// so every later call is refused as poisoned, whichever method makes it
-/// and whatever its arguments (a tensor too short for the call, or another
-/// algebra's, included), the wait's failure kept beside the call's.
+/// and whatever its arguments (a tensor too short for the call, another
+/// algebra's, or no element at all, included), the wait's failure kept
+/// beside the call's.
 #[test]
 fn a_failed_call_that_cannot_wait_for_the_device_poisons_the_algebra() {
     let (algebra, _libraries, pair, failed) = a_failed_split(true);
@@ -764,6 +782,10 @@ fn a_failed_call_that_cannot_wait_for_the_device_poisons_the_algebra() {
         );
     };
     is_poisoned("upload", &|| algebra.upload(&values).map(drop));
+    is_poisoned("upload of no element", &|| algebra.upload(&[]).map(drop));
+    is_poisoned("read of no element", &|| {
+        algebra.read(&pair[0], 0).map(drop)
+    });
     is_poisoned("read, short", &|| algebra.read(&pair[0], 3).map(drop));
     is_poisoned("duplicate, short", &|| {
         algebra.duplicate(&pair[0], 3).map(drop)
