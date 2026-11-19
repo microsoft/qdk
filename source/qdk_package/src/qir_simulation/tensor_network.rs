@@ -163,10 +163,12 @@ type RunResults = (Vec<Vec<OutputRecord>>, MpsRunReport);
 /// discovery finds (trying the `packaged` files). When discovery fails, the
 /// run raises the setup check's report: the check is made again for it, so
 /// the text is the check's by construction. The check runs the same
-/// discovery, on the same files and variables, so it fails as this one did
-/// and its report shows each fault discovery found; only a file or a
-/// variable changed between the two could make it differ. Discovery loads
-/// the libraries, so it runs with the GIL released.
+/// discovery, on the same files and variables, so while the loading
+/// conditions stay the same it normally fails as this one did and its
+/// report shows the faults discovery found; a file or a variable changed
+/// between the two, or a load that failed for a passing reason (the
+/// process out of memory or file handles, say), could make it differ.
+/// Discovery loads the libraries, so it runs with the GIL released.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn gpu_run(
     py: Python<'_>,

@@ -77,8 +77,10 @@ class Sample:
 
 
 # The queries `tensornetwork_qir` answers. Planned: other queries
-# (expectation values, states) will join `Sample`; signatures name `Sample`
-# until then.
+# (expectation values; the current state, to read it or to run on from it)
+# will join `Sample`, and a run will take an initial state in place of all
+# zeros (a Néel or Hartree–Fock state, or one another method found);
+# signatures name `Sample` until then.
 Query = Sample
 
 
@@ -177,10 +179,13 @@ def tensornetwork_qir(
 
     The run leaves the Python thread, and Ctrl-C stops it between batches
     of gates (a batch: the gates and measurements a program runs until it
-    next reads, or writes again, a result the batch measured into; a Base
-    profile program that measures into each result once does neither before
-    its end, so it is one batch, and it runs all its gates before Ctrl-C
-    takes effect). Noise is not simulated: a noise intrinsic
+    next reads or records a result the batch measured into, or writes one
+    again).
+    A Base profile program that measures into each result once and records
+    its results only after its last measurement is one batch: a Ctrl-C
+    during it lets the group of shots under way run it to its end, and
+    stops each group a measurement split off before it runs on. Noise is
+    not simulated: a noise intrinsic
     (a function with the ``qdk_noise`` attribute) runs as identity, as no
     noise model is given, and a readout-noise call or a loss check raises
     ``ValueError``.
