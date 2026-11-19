@@ -5,10 +5,9 @@
 //! (MPS) and the library that holds them, in tensor terms only: the method
 //! asks an engine ([`MpsEngine`]) for a state within a capacity
 //! ([`MpsShape`]), applies unitaries to its sites, reads probabilities,
-//! projects, forks and samples it from a seed, and reads expectations of
-//! Pauli sums ([`PauliSum`]); the engine answers in tensor terms, and
-//! refuses a call that breaks the contract the same way on every engine
-//! ([`Refusal`]).
+//! projects and forks it, samples it from a seed, and reads expectations of
+//! Pauli sums ([`PauliSum`]); the engine answers, and refuses a call that
+//! breaks the contract the same way on every engine ([`Refusal`]).
 //!
 //! Today the crate holds:
 //!

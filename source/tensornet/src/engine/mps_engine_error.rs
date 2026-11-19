@@ -3,19 +3,13 @@
 
 //! [`MpsEngineError`]: the bound of an engine's error, which says whether
 //! a call was refused, with a [`Refusal`], or failed in the engine.
-//!
-//! An engine's error says either that the call was refused, with a
-//! `Refusal`, or that the engine failed (out of memory, a device error, a
-//! limit of its own). The caller tells them apart with
-//! [`MpsEngineError::refusal`]: a refusal is a bug in the caller, the same
-//! on every engine, and leaves the state unchanged, while a failure
-//! belongs to the engine, and leaves the state unspecified, for the caller
-//! to drop.
 
 use crate::Refusal;
 
 /// The error of an [`MpsEngine`](crate::MpsEngine): an engine's own type,
-/// which says whether the call was refused.
+/// which says whether the call was refused. A caller tells a refusal from
+/// a failure with [`refusal`](Self::refusal), and drops the state after a
+/// failure.
 ///
 /// An engine's error is its own, because each fails in its own ways (a
 /// device error, a limit of its own), and holds a [`Refusal`] beside them,

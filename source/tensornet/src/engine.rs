@@ -232,8 +232,10 @@ pub trait MpsEngine {
     fn project(&self, state: &mut Self::State, site: usize, one: bool) -> Result<f64, Self::Error>;
 
     /// An independent copy of `state`: what one changes, the other does
-    /// not see. Its case is grouped shots (planned): the shots of a group
-    /// share one state until a measurement splits them.
+    /// not see. Its cases are the default
+    /// [`conditional_probability_of_one`], which projects a fork, and
+    /// grouped shots (planned): the shots of a group share one state until
+    /// a measurement splits them.
     ///
     /// The copy holds the state it copies, truncated or not: it reads what
     /// `state` reads and has its retained weight, to rounding. So a fork
@@ -245,6 +247,8 @@ pub trait MpsEngine {
     /// # Errors
     ///
     /// Fails when the engine cannot hold the copy; refuses nothing.
+    ///
+    /// [`conditional_probability_of_one`]: Self::conditional_probability_of_one
     fn fork(&self, state: &Self::State) -> Result<Self::State, Self::Error>;
 
     /// Draws a value for each of `sites` (distinct), for `shots` shots, from

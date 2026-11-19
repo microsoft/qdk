@@ -125,20 +125,32 @@ fn a_probability_is_asked_once_per_distinct_prefix() {
 
 /// A value of probability exactly zero is never drawn, even at the
 /// extreme uniforms: Zero where P(One) is 0 and the uniform is 0, One
-/// where P(One) is 1 and the uniform is the largest. The uniforms are
-/// those extremes: P(One) 2⁻⁵³ draws One from the first, and P(One)
-/// 1 − 2⁻⁵³ draws Zero from the second.
+/// where P(One) is 1 and the uniform is the largest. The seeds' uniforms
+/// are those extremes, checked first as preconditions: P(One) 2⁻⁵³ draws
+/// One from the first, and P(One) 1 − 2⁻⁵³ draws Zero from the second.
 #[test]
 fn a_value_of_probability_zero_is_never_drawn() {
     let largest = 1.0 - f64::EPSILON / 2.0;
+    let draw = |seed, p1| sample_by_conditionals(&[0], 1, seed, |_, _| Ok::<_, Error>(p1));
+    assert_eq!(
+        draw(SEED_OF_A_ZERO_UNIFORM, 2f64.powi(-53)),
+        Ok(vec![true]),
+        "precondition: the seed gives the uniform 0"
+    );
+    assert_eq!(
+        draw(SEED_OF_THE_LARGEST_UNIFORM, largest),
+        Ok(vec![false]),
+        "precondition: the seed gives the uniform 1 − 2⁻⁵³"
+    );
     for (seed, p1, expected) in [
         (SEED_OF_A_ZERO_UNIFORM, 0.0, false),
-        (SEED_OF_A_ZERO_UNIFORM, 2f64.powi(-53), true),
         (SEED_OF_THE_LARGEST_UNIFORM, 1.0, true),
-        (SEED_OF_THE_LARGEST_UNIFORM, largest, false),
     ] {
-        let values = sample_by_conditionals(&[0], 1, seed, |_, _| Ok::<_, Error>(p1));
-        assert_eq!(values, Ok(vec![expected]), "seed {seed:#x}, P(One) {p1}");
+        assert_eq!(
+            draw(seed, p1),
+            Ok(vec![expected]),
+            "seed {seed:#x}, P(One) {p1}"
+        );
     }
 }
 

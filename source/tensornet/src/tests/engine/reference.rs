@@ -562,7 +562,7 @@ fn samples_follow_the_probabilities() {
 #[test]
 fn seeds_that_differ_in_one_bit_give_other_samples() {
     let state = bell(2);
-    for (seed, other) in [(7, 8), (0, 1), (0, 1 << 63)] {
+    for (seed, other) in [(0, 1), (0, 1 << 63)] {
         assert_ne!(
             ENGINE.sample(&state, &[0], 64, seed),
             ENGINE.sample(&state, &[0], 64, other),

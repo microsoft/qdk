@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The argument checks of every [`MpsEngine`](crate::MpsEngine) method:
-//! one function per method, which every engine calls before it changes the
-//! state, so that every engine refuses a call with one fault with the same
-//! [`Refusal`]. They make every refusal but
+//! The argument checks of the [`MpsEngine`](crate::MpsEngine) methods that
+//! take arguments: one function per such method, which every engine calls
+//! before it changes the state, so that every engine refuses a call with
+//! one fault with the same [`Refusal`]. They make every refusal but
 //! [`Refusal::ZeroProbabilityOutcome`], which reads the state, so the
 //! projection and the conditional probability make it after their checks.
 //!
