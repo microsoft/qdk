@@ -36,11 +36,15 @@ use tensornet::MpsEngineError;
 /// Why a run gave no records, as the Python exception it raises.
 #[derive(Debug)]
 pub(super) enum RunFailure {
-    /// The machine: the GPU setup, or the engine failing. `OSError`.
+    /// The machine: the GPU setup (made by [`gpu_not_set_up`] and
+    /// [`engine_not_made`]), or the engine failing (by
+    /// [`of`](Self::of)). `OSError`.
     Os(String),
-    /// The program or the settings. `ValueError`.
+    /// The program or the settings (made by [`of`](Self::of)). `ValueError`.
     Value(String),
-    /// The run: a trap, a stop, or a defect. `RuntimeError`.
+    /// The run: a trap or a stop (made by [`of`](Self::of)), or a defect, a
+    /// run thread that panicked (by `detached_run::lost_run`).
+    /// `RuntimeError`.
     Runtime(String),
 }
 
