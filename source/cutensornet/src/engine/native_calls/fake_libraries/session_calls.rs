@@ -21,15 +21,6 @@ impl SessionCalls for FakeLibraries {
         }
     }
 
-    fn compute_capability(&self, ordinal: i32) -> Result<(i32, i32), CudaAlgebraError> {
-        drop(self.call("compute_capability")?);
-        if ordinal == 0 {
-            Ok((8, 0))
-        } else {
-            Err(failed("compute_capability", "no such device"))
-        }
-    }
-
     fn create_stream(&self) -> Result<Stream, CudaAlgebraError> {
         Ok(self.call("create_stream")?.create(Object::Stream))
     }
