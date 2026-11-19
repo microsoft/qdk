@@ -122,9 +122,11 @@ impl<E: MpsEngine> MpsResumer<E> {
     /// that gives a group its next batch or a trap, before the batch is lowered
     /// or the trap reported. So a flag set while a group runs its batch lets
     /// that group run the rest of the batch, and stops each group split off by
-    /// a draw before it runs on: of a Base Profile program that measures into
-    /// each result once, one batch, the group under way runs to its end, and
-    /// the groups split off do not run on. Once read set, the flag fails the
+    /// a draw before it runs on. A record, read or write of a result the batch
+    /// measures into ends the batch, so a Base Profile program that measures
+    /// into each result once and records its results after its last
+    /// measurement is one batch: the group under way runs to its end, and the
+    /// groups split off do not run on. Once read set, the flag fails the
     /// run with [`MpsResumerError::Stopped`], naming the first shot that had
     /// not ended, whatever the batch after the read would have done (trapped,
     /// or been refused); a run whose every shot has ended returns its records,

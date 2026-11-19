@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! Lowering's rules: each call acts on the site the qubit order gives its
-//! qubit; a rotation turns by its angle, sign included; a measurement in X
+//! qubit; a rotation turns by its angle, sign included, and one by an angle
+//! that is not finite is the engine's to refuse; a measurement in X
 //! or Y reads, and leaves, the state in that basis; a shot that reaches a
 //! call the MPS simulation method does not run fails, naming it; and a
 //! call no shot reaches fails nothing.
@@ -13,16 +14,17 @@ use crate::bytecode::Instruction;
 use crate::mps_simulator::qubit_order::QubitOrder;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
 use crate::qir::{QirInstruction, QirProgram, QirResumeError, QirShotId};
+use tensornet::MpsEngineError;
 use tensornet::reference::ExactReference;
 
 use super::programs::{
-    branch, correlated_noise, gate, gate1, gate2, jump, measure, mz, peek_loss, program,
+    branch, coins, correlated_noise, gate, gate1, gate2, jump, measure, mz, peek_loss, program,
     program_with, readout_noise, reset, ret, set,
 };
 use super::{ids, results, run};
 use crate::bytecode::encoding::{
-    OPID_CX, OPID_CZ, OPID_H, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ, OPID_RY, OPID_S, OPID_S_ADJ,
-    OPID_X,
+    OPID_CX, OPID_CZ, OPID_H, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ, OPID_RX, OPID_RY, OPID_S,
+    OPID_S_ADJ, OPID_X,
 };
 
 /// A shot that reaches a call the MPS simulation method does not run yet
@@ -188,6 +190,39 @@ fn a_rotation_turns_by_its_angle_sign_included() {
         )
         .expect("the program runs");
         assert_eq!(records, vec![results(&[value]); 16], "ry by {angle}");
+    }
+}
+
+/// A rotation by an angle that is not finite has no unitary matrix:
+/// lowering passes it on, the engine refuses it, and the run fails naming
+/// its first shot, the engine's refusal as its error; the resumer's next
+/// run is a fresh resumer's. Each row is an angle: NaN, +∞ and −∞.
+#[test]
+fn a_rotation_by_an_angle_that_is_not_finite_is_the_engines_refusal() {
+    let shots = QirShotId::first(8);
+    for angle in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut resumer = MpsResumer::new(ExactReference::new(), 7);
+        let block = [gate(OPID_RX, 0, 0, angle), mz(0), ret()];
+        let error = run(&mut resumer, &program(1, &[&block]), &ids(&[2, 0]))
+            .expect_err("the engine refuses the rotation");
+        assert!(
+            matches!(
+                &error,
+                QirResumeError::Resumer {
+                    shot: QirShotId(2),
+                    error: MpsResumerError::Engine(refused),
+                } if refused.refusal().is_some()
+            ),
+            "rx by {angle}: {error:?}"
+        );
+        let next = run(&mut resumer, &coins(2), &shots).expect("the program runs");
+        let fresh = run(
+            &mut MpsResumer::new(ExactReference::new(), 7),
+            &coins(2),
+            &shots,
+        )
+        .expect("the program runs");
+        assert_eq!(next, fresh, "rx by {angle}");
     }
 }
 

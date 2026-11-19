@@ -24,6 +24,8 @@ mod reference_spy;
 mod shot_stream;
 
 use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::qir::{QirMachine, QirProgram, QirResumeError, QirResumer, QirShotId, expect_ready};
 use crate::{MeasurementResult, OutputRecord};
@@ -378,16 +380,23 @@ fn each_state_is_prepared_within_a_qubit_chain_of_the_max_bond_dimension() {
     }
 }
 
-/// No shots, no records.
+/// No shots, no records, even with the stop flag set: a run of no shots
+/// has no shot to stop, and leaves the flag set for its caller to clear.
 #[test]
 fn no_shots_give_no_records() {
-    let records = run(
-        &mut MpsResumer::new(ExactReference::new(), 7),
-        &coins(2),
-        &[],
-    )
-    .expect("no shot fails");
-    assert_eq!(records, Vec::<Vec<OutputRecord>>::new());
+    let stop_flag = Arc::new(AtomicBool::new(true));
+    let rows = [
+        ("no stop flag", MpsResumer::new(ExactReference::new(), 7)),
+        (
+            "a stop flag set",
+            MpsResumer::new(ExactReference::new(), 7).with_stop_flag(Arc::clone(&stop_flag)),
+        ),
+    ];
+    for (scene, mut resumer) in rows {
+        let records = run(&mut resumer, &coins(2), &[]).expect("no shot fails");
+        assert_eq!(records, Vec::<Vec<OutputRecord>>::new(), "{scene}");
+    }
+    assert!(stop_flag.load(Ordering::Relaxed), "the flag is left set");
 }
 
 /// A program of no qubits runs with no state: its shots record its
