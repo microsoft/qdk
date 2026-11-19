@@ -8,12 +8,25 @@ use crate::{MpsEngine, MpsShape, Pauli, PauliError, PauliSum, PauliTerm};
 /// `pauli` applied to |0⟩ by the reference, which reads its matrix as
 /// `M[out][in]`: the amplitudes of |0⟩ and |1⟩.
 fn on_zero(pauli: Pauli) -> [num_complex::Complex64; 2] {
+    applied(&[pauli])
+}
+
+/// `pauli` applied to |1⟩ (X|0⟩) by the reference: the amplitudes of |0⟩
+/// and |1⟩.
+fn on_one(pauli: Pauli) -> [num_complex::Complex64; 2] {
+    applied(&[Pauli::X, pauli])
+}
+
+/// The amplitudes of |0⟩ and |1⟩ after `paulis`, in order, on |0⟩.
+fn applied(paulis: &[Pauli]) -> [num_complex::Complex64; 2] {
     let engine = ExactReference::new();
     let capacity = MpsShape::qubit_chain(1, 1).expect("one site forms a chain");
     let mut state = engine.prepare(&capacity).expect("one site is held");
-    engine
-        .apply(&mut state, &[0], &pauli.matrix())
-        .expect("a Pauli matrix is unitary");
+    for pauli in paulis {
+        engine
+            .apply(&mut state, &[0], &pauli.matrix())
+            .expect("a Pauli matrix is unitary");
+    }
     [state.amplitude(0), state.amplitude(1)]
 }
 
@@ -30,8 +43,9 @@ fn the_x_matrix_flips_zero_to_one() {
 }
 
 #[test]
-fn the_z_matrix_keeps_zero() {
+fn the_z_matrix_keeps_zero_and_negates_one() {
     assert_eq!(on_zero(Pauli::Z), [c(1.0, 0.0), c(0.0, 0.0)]);
+    assert_eq!(on_one(Pauli::Z), [c(0.0, 0.0), c(-1.0, 0.0)]);
 }
 
 #[test]

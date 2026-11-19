@@ -20,10 +20,10 @@
 //!
 //! It holds all 2ⁿ amplitudes of a state, so it gives the exact answer of
 //! every operation, and it reports the exact chain: the bond at each cut is
-//! the Schmidt rank of the state there, found by an elimination that counts
-//! a pivot below 1e-10 as zero. It holds up to
-//! [`ExactReference::MAX_SITES`] sites, and depends on nothing but this
-//! crate, so it runs wherever the crate builds.
+//! the numerical Schmidt rank of the state there, or 1 when that rank is 0,
+//! found by an elimination that counts a pivot below 1e-10 as zero. It
+//! holds up to [`ExactReference::MAX_SITES`] sites, and depends on nothing
+//! but this crate, so it runs wherever the crate builds.
 //!
 //! Its arithmetic is its own, with no library beneath it, so its answers do
 //! not depend on a library's version:
@@ -94,11 +94,11 @@ impl ReferenceState {
     }
 
     /// The state with these amplitudes, basis state `i` with site `k` as
-    /// bit `k`: a state no sequence of calls on the reference reaches, such
-    /// as a truncated one, for tests. Other engines reach such states (a
-    /// truncated chain, a norm drifted by rounding), and the reference is
-    /// the oracle they are checked against, so its answers on them are its
-    /// contract.
+    /// bit `k`, for tests: a state a test need not reach by calls, or one
+    /// no sequence of calls on the reference reaches, such as a truncated
+    /// one. Other engines reach such states (a truncated chain, a norm
+    /// drifted by rounding), and the reference is the oracle they are
+    /// checked against, so its answers on them are its contract.
     #[cfg(test)]
     pub(crate) fn from_amplitudes(amplitudes: &[Complex64]) -> Self {
         let sites = amplitudes.len().trailing_zeros() as usize;
