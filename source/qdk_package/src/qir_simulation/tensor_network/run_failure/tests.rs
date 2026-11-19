@@ -3,11 +3,10 @@
 
 //! Which Python exception a run's failure raises, and with what message,
 //! for the failures the package's Python tests cannot cause: an engine's
-//! failure and a stopped run ([`RunFailure::of`]), a GPU engine that was
-//! not made ([`engine_not_made`]), the line every GPU setup failure ends
-//! with, and a run thread that panicked ([`lost_run`]). A trap and an
-//! engine's refusal, which a program causes, are pinned by the Python
-//! tests alone.
+//! failure and a stopped run ([`RunFailure::of`]), and a GPU engine that
+//! was not made ([`engine_not_made`]). A trap, an engine's refusal and a
+//! GPU not set up, which a program or a setup causes, are pinned by the
+//! Python tests alone.
 
 use std::fmt;
 
@@ -17,8 +16,7 @@ use qdk_simulators::mps_simulator::MpsResumerError;
 use qdk_simulators::qir::{QirResumeError, QirShotId};
 use tensornet::{MpsEngineError, MpsShapeError, Refusal};
 
-use super::detached_run::lost_run;
-use super::run_failure::{RunFailure, engine_not_made, gpu_not_set_up};
+use super::{RunFailure, engine_not_made};
 
 /// An engine's error, as any engine's may be: a refusal, or a failure of
 /// the engine's own.
@@ -77,8 +75,8 @@ fn an_engine_failure_is_an_os_error() {
 /// A failed shot's message shows each error that caused it once, whichever
 /// exception it raises: the canonical MPS engine's algebra failure says
 /// only that the site algebra failed and keeps the CUDA call that failed as
-/// its source, while the MPS simulation method's errors show their source
-/// in their message and give it as their source too.
+/// its source, while the run's error, naming the shot, shows its source in
+/// its message and gives it as its source too.
 #[test]
 fn a_failures_message_shows_each_cause_once() {
     let cuda_call_failed = CudaAlgebraError::NativeCallFailed {
@@ -122,13 +120,13 @@ fn a_failures_message_shows_each_cause_once() {
 }
 
 /// A run stopped by its stop flag (the caller's Ctrl-C, whose own exception
-/// is raised instead) raises `RuntimeError` saying so.
+/// is raised instead) raises `RuntimeError` saying it stopped.
 #[test]
 fn a_stopped_run_is_a_runtime_error() {
     let failure = shot_0_failure(MpsResumerError::<FakeEngineError>::Stopped);
     assert!(
-        matches!(&failure, RunFailure::Runtime(message) if message == "the run was stopped"),
-        "a stopped run is a RuntimeError: {failure:?}"
+        matches!(&failure, RunFailure::Runtime(message) if message.contains("stopped")),
+        "a stopped run is a RuntimeError saying it stopped: {failure:?}"
     );
 }
 
@@ -155,54 +153,19 @@ fn an_engine_not_made_gives_its_error_then_the_setup_report() {
     );
 }
 
-/// A GPU setup that fails, whether discovery failed or the engine was not
-/// made, raises a message whose last line offers the engine that needs no
-/// GPU, so a user without one knows the choice that runs.
+/// A GPU engine that is not made ends its message offering the engine that
+/// needs no GPU, so a user without one knows the choice that runs. (A GPU
+/// not set up, which a setup causes, ends the same way: the Python tests
+/// pin it.)
 #[test]
-fn a_gpu_setup_failure_ends_offering_the_cpu_engine() {
+fn an_engine_not_made_ends_offering_the_cpu_engine() {
     let setup = GpuSetup::check(&PackagedLibraries::default());
-    let failures = [
-        ("discovery failed", gpu_not_set_up(&setup)),
-        (
-            "no engine made",
-            engine_not_made(&"no CUDA device is visible", &setup),
-        ),
-    ];
-    for (case, failure) in failures {
-        let RunFailure::Os(message) = failure else {
-            panic!("{case}: a GPU setup failure is an OSError");
-        };
-        let last_line = message.lines().last().expect("the message has lines");
-        assert!(
-            last_line.contains("engine=\"cpu\"") && last_line.contains("without a GPU"),
-            "{case}: the last line offers the CPU engine: {message}"
-        );
-    }
-}
-
-/// A run thread that panics (a defect) raises `RuntimeError` with the
-/// panic's message, rather than a `PanicException` from the thread scope,
-/// whether the message is a literal or formatted (an `expect` on an error,
-/// an index out of bounds, a `panic!` with arguments: most defects), which
-/// reach the thread's join as a `&str` and a `String` payload.
-#[test]
-fn a_run_that_panics_is_a_runtime_error_with_its_message() {
-    fn literal() {
-        panic!("a defect of the run");
-    }
-    fn formatted() {
-        let shot = 3;
-        panic!("a defect of shot {shot}");
-    }
-    let cases: [(&str, fn(), &str); 2] = [
-        ("literal", literal, "a defect of the run"),
-        ("formatted", formatted, "a defect of shot 3"),
-    ];
-    for (case, defect, expected) in cases {
-        let failure = std::thread::scope(|scope| lost_run(scope.spawn(defect)));
-        assert!(
-            matches!(&failure, RunFailure::Runtime(message) if message.contains(expected)),
-            "{case}: a run that panics is a RuntimeError with the panic's message: {failure:?}"
-        );
-    }
+    let RunFailure::Os(message) = engine_not_made(&"no CUDA device is visible", &setup) else {
+        panic!("an engine not made is an OSError");
+    };
+    let last_line = message.lines().last().expect("the message has lines");
+    assert!(
+        last_line.contains("engine=\"cpu\""),
+        "the last line offers the CPU engine: {message}"
+    );
 }

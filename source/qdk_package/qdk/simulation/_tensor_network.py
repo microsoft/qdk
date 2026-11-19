@@ -87,8 +87,8 @@ class TensorNetworkReport:
     """The run's report: what a :func:`tensornetwork_qir` run cost, over its
     shots.
 
-    :param largest_bond: The largest bond a state held where a run of gates
-        ended: what the run's costliest gates paid for.
+    :param largest_bond: The largest bond a state held where a sequence of
+        gates ended: what the run's costliest gates paid for.
     :param discarded_weight: The most weight a shot's state lost to
         truncation: an estimate of the fidelity lost, 0 when the run was
         exact (to rounding).
@@ -284,13 +284,11 @@ def check_tensornetwork_setup() -> TensorNetworkSetup:
     say what to fix if it is not; ``engine="cpu"`` needs no setup. Never
     raises.
 
-    It loads cuTensorNet and the CUDA Runtime (each library's override,
+    It checks the libraries (each library's override,
     ``QDK_CUTENSORNET_LIBRARY`` or ``QDK_CUDART_LIBRARY``, alone when set; else
     the copy ``pip install "qdk[tensornetwork]"`` installed; else the
-    system's), checks their versions and the driver, reads how many CUDA
-    devices there are and CUDA device 0's compute capability and memory, and
-    runs one gate on CUDA device 0. It warns of another copy of a library
-    visible beside the one loaded.
+    system's), the driver, CUDA device 0 and a one-gate trial run, as the
+    report it prints lists them.
 
     ::
 

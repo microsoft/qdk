@@ -18,6 +18,9 @@
 //! thread: the engine is made and used there, and its states need not be
 //! `Send`.
 
+#[cfg(test)]
+mod tests;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
