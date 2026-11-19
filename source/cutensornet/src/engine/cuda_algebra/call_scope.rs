@@ -27,8 +27,10 @@
 
 use super::algebra_session::{AlgebraSession, NativeObject, Retired};
 use super::device_tensor::{DeviceTensor, native_extents};
-use super::error::{CudaAlgebraError, combine_execution_and_cleanup, first_failure};
 use super::resources::AlgebraResources;
+use crate::engine::cuda_algebra_error::{
+    CudaAlgebraError, combine_execution_and_cleanup, first_failure,
+};
 use crate::engine::device_session::DeviceSession;
 use crate::engine::native_calls::complex::{Complex64Abi, complex_bytes};
 use crate::engine::native_calls::tensor_calls::{SvdSetting, TensorModes};

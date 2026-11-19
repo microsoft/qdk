@@ -6,7 +6,8 @@
 //! release.
 
 use super::*;
-use crate::engine::cuda_algebra::{NETWORKS_KEPT, error::first_failure};
+use crate::engine::cuda_algebra::NETWORKS_KEPT;
+use crate::engine::cuda_algebra_error::first_failure;
 
 fn failed(operation: &'static str) -> CudaAlgebraError {
     CudaAlgebraError::NativeCallFailed {

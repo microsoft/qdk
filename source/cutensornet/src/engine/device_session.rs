@@ -20,7 +20,7 @@
 //! so the algebra and its tensors do too. It makes its native calls through
 //! `SessionCalls` (`native_calls/session_calls.rs`).
 
-use super::cuda_algebra::error::{
+use super::cuda_algebra_error::{
     CudaAlgebraError, combine_execution_and_cleanup, first_failure, report_failed_release,
 };
 use super::native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls};

@@ -7,7 +7,7 @@
 //! its extents as a descriptor takes them.
 
 use super::algebra_session::{AlgebraSession, NativeObject, Retired};
-use super::error::{CudaAlgebraError, report_failed_release};
+use crate::engine::cuda_algebra_error::{CudaAlgebraError, report_failed_release};
 use crate::engine::native_calls::OpaqueHandle;
 use std::{fmt, rc::Rc};
 
