@@ -194,15 +194,15 @@ pub trait Execute: ExecutorSetup {
     /// readouts are then a row of no slot per shot.
     ///
     /// For a sender whose program is too long to hold
-    /// ([`InstructionStream`]). By default, it runs the stream in pieces, each
-    /// one `execute` of one batch of at most the most instructions this
+    /// ([`InstructionStream`]). By default, it runs the stream in pieces,
+    /// each one `execute` of one batch of at most the most instructions this
     /// executor takes ([`Offer::max_instructions`](crate::Offer), or 1 if it
-    /// takes none, or a thousand or so when it sets none), pulling each piece
-    /// only once the one before it has answered, so every executor serves it.
-    /// It then holds one piece and its readouts, and the rows of the pieces
-    /// that ran, joined as they come into one buffer that becomes
-    /// `readouts`: at most about twice the stream's readouts, however small
-    /// its pieces. An executor that applies
+    /// takes none) and at most about a thousand, however many it takes,
+    /// pulling each piece only once the one before it has answered, so every
+    /// executor serves it. It then holds one piece and its readouts, and the
+    /// rows of the pieces that ran, joined as they come into one buffer that
+    /// becomes `readouts`: at most about twice the stream's readouts,
+    /// however small or large its pieces. An executor that applies
     /// instructions as they come, such as a simulator, or one that passes
     /// them on over a network, overrides it, to take the stream whole.
     ///
@@ -217,9 +217,14 @@ pub trait Execute: ExecutorSetup {
     /// iterator, and reports its own error once this call answers.
     ///
     /// Through the protocol's boundary, a
-    /// [`checked`](InstructionStream::checked) stream is checked a piece at
-    /// a time, the first before the executor is called, so that a stream
-    /// refused in its first piece never reaches it; and a panic in the
+    /// [`checked`](InstructionStream::checked) stream is checked in the
+    /// pieces the default cuts, each before any of it reaches the executor,
+    /// the first before the executor is called, so that a stream refused in
+    /// its first piece never reaches it, and a piece the default refuses
+    /// runs nothing. An executor that takes the stream whole gets it a
+    /// checked piece at a time too: at a later piece's fault, the stream
+    /// ends there, as a failure, and what it pulled of the pieces before
+    /// may have run. And a panic in the
     /// stream's iterator is the caller's, not the executor's: the stream
     /// ends there, and the panic is raised again once the executor
     /// answers, through the caller's call, as a panic in
@@ -447,6 +452,30 @@ impl ExecuteRefusal {
             | ExecuteRefusal::ReadoutSlotsMisstated { shot, .. }
             | ExecuteRefusal::ShotNotHeld(shot)
             | ExecuteRefusal::EarlierFailure(shot) => *shot,
+        }
+    }
+
+    /// This refusal of a stream's piece that follows `before` of the
+    /// stream's instructions, as the stream's error: an instruction's
+    /// position counted from the stream's first; a refusal as it is when
+    /// `before` is 0, nothing of the stream having run; else a failure
+    /// ([`Failure::Refused`]), since the pieces before it may have run.
+    /// The one rule for the refusals of a stream's pieces, both those its
+    /// receiver's default `execute_stream` gets from each `execute` and
+    /// those a boundary makes as it checks a checked stream.
+    pub(crate) fn of_a_stream_after(mut self, before: usize) -> ExecuteError {
+        if let ExecuteRefusal::Instruction { at, .. }
+        | ExecuteRefusal::TooManyReadoutSlots { at, .. } = &mut self
+        {
+            *at += before;
+        }
+        if before == 0 {
+            ExecuteError::Refused(self)
+        } else {
+            ExecuteError::Failed {
+                shot: self.shot(),
+                failure: Failure::Refused(self),
+            }
         }
     }
 }

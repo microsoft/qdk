@@ -15,8 +15,8 @@ use std::rc::Rc;
 
 use crate::tests::composition::runner::{SEED, failed, runner};
 use crate::tests::fake_parts::{
-    Bits, Later, Log, OutputsAsRowsCome, Profiler, Program, RandomGenerator, RowsGiven, SeesPieces,
-    Sending, Spread, Values, in_each_bracketing, sorted_values,
+    Bits, KeepsDefaults, Later, Log, OutputsAsRowsCome, Profiler, Program, RandomGenerator,
+    RowsGiven, SeesPieces, Sending, Spread, Values, in_each_bracketing, sorted_values,
 };
 use crate::{Adapter, Driver, Executor, Offer, ShotConditions, ShotSet};
 
@@ -173,13 +173,13 @@ fn sent_in_every_split(
             "an executor running streams itself",
         );
         same(
-            runner(program() >> Executor::new(Later(bits(&log, most)))).run(shots, SEED),
+            runner(program() >> Executor::new(KeepsDefaults(bits(&log, most)))).run(shots, SEED),
             "an executor cutting streams by the default",
         );
         in_each_bracketing!([d, a, e] from {
             let d = program();
             let a = Adapter::new(Profiler::new(&counted, &log));
-            let e = Executor::new(Later(bits(&log, most)));
+            let e = Executor::new(KeepsDefaults(bits(&log, most)));
         }, |chain, brackets| {
             let chain_named = format!("an adapter forwarding streams, {brackets}");
             same(runner(chain).run(shots, SEED), &chain_named);
@@ -193,9 +193,9 @@ fn sent_in_every_split(
             same(runner(chain).run(shots, SEED), &chain_named);
         });
         let mut profiler = Profiler::new(&counted, &log);
-        let mut later = Later(bits(&log, most));
+        let mut keeps_defaults = KeepsDefaults(bits(&log, most));
         same(
-            runner(program() >> Adapter::new(&mut profiler) >> Executor::new(&mut later))
+            runner(program() >> Adapter::new(&mut profiler) >> Executor::new(&mut keeps_defaults))
                 .run(shots, SEED),
             "parts behind `&mut`",
         );
@@ -206,14 +206,17 @@ fn sent_in_every_split(
 /// when pulled, to an executor that cuts it by the default and takes at
 /// most 5, 4, 12, 13, 0 instructions, or any count, directly or through an
 /// adapter that forwards streams, in each bracketing: each piece holds at
-/// most the executor's most, a
-/// short piece only at the end, and when each runs, the driver has made
-/// only the instructions of the pieces so far, so no part holds more than
-/// a piece of the stream. An executor taking 0 instructions a batch gets
-/// pieces of 1, rather than a stream that runs nothing. An empty stream
-/// runs no piece, and gets a row of no value per shot.
+/// most the executor's most, a short piece only at the end, and when each
+/// runs, the driver has made only the instructions of the pieces so far,
+/// so no part holds more than a piece of the stream. An executor taking 0
+/// instructions a batch gets pieces of 1, rather than a stream that runs
+/// nothing. A stream of 2500 instructions to an executor taking any count,
+/// or as many as a `u32` counts, gets pieces of at most 1024, so the
+/// default's memory stays flat however much the executor takes. An empty
+/// stream runs no piece, and gets a row of no value per shot.
 #[test]
-fn execute_stream_by_default_runs_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
+fn execute_stream_by_default_runs_pieces_within_the_receivers_most_each_pulled_as_it_runs() {
+    let past_a_piece = vec![("x", 0); 2500];
     let shots = ShotSet::ids(0..3);
     let stream = |program: &[(&str, u32)], produced: &Rc<Cell<usize>>| {
         Driver::new(Program::new(program).sending_as(Sending::stream_counted(produced)))
@@ -226,6 +229,8 @@ fn execute_stream_by_default_runs_pieces_of_the_receivers_most_each_pulled_as_it
         (&PROGRAM, Some(13), &[12]),
         (&PROGRAM, None, &[12]),
         (&PROGRAM, Some(0), &[1; 12]),
+        (&past_a_piece, Some(u32::MAX), &[1024, 1024, 452]),
+        (&past_a_piece, None, &[1024, 1024, 452]),
         (&[], Some(5), &[]),
     ] {
         let seen = |log: &Log, chain: &str| {
@@ -389,7 +394,7 @@ fn a_shots_rows_over_several_execute_eachs_are_its_row_sent_whole() {
         let case = format!("{pieces} calls cut at {cuts:?} (seed {seed})");
         assert_eq!(given_by(&given), expected, "{case}, rows as they are final");
         let (log, given) = (Log::default(), RowsGiven::default());
-        runner(program(&given) >> Executor::new(Later(bits(&log, None))))
+        runner(program(&given) >> Executor::new(KeepsDefaults(bits(&log, None))))
             .run(&shots, SEED)
             .expect("the run succeeds");
         assert_eq!(given_by(&given), expected, "{case}, by the default");

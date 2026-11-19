@@ -10,7 +10,8 @@
 //!   [`CoinGates`] or another set, such as [`ParityGates`], or sent as a
 //!   stream, whole or in pieces; and [`OutputsAsRowsCome`], which keeps
 //!   each row as it is given and gives its shot's output then.
-//! - Executors: [`Bits`], and executors that answer later ([`Later`]) or
+//! - Executors: [`Bits`], and executors that keep every default form
+//!   ([`KeepsDefaults`]), that answer later ([`Later`]) or
 //!   from a thread ([`FromThread`]), whose rows come one at a time from a
 //!   thread ([`RowsFromThread`]), or that log the pieces a stream is cut
 //!   into ([`SeesPieces`]).

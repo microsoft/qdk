@@ -338,11 +338,44 @@ impl Bits {
     }
 }
 
+/// An executor that keeps every default form: it forwards `execute`, and
+/// neither `execute_each` nor `execute_stream`, so that through it an
+/// executor that gives its rows as they are final gives them at the end,
+/// and a stream is cut into batches, by the defaults.
+pub(crate) struct KeepsDefaults<E>(pub(crate) E);
+
+impl<E: ExecutorSetup> ExecutorSetup for KeepsDefaults<E> {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn offers(&self) -> Offer {
+        self.0.offers()
+    }
+}
+
+impl<E: Execute> Execute for KeepsDefaults<E> {
+    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
+        self.0.ready(needs).await
+    }
+
+    async fn execute(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        self.0.execute(batches, seed, readouts).await
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        self.0.end_shots(shots);
+    }
+}
+
 /// An executor whose answer comes on a later poll: pending once, woken at
-/// once, as a device's that answers later. It forwards neither
-/// `execute_each` nor `execute_stream`: through it, an executor that gives
-/// its rows as they are final gives them at the end, and a stream is cut
-/// into batches, by the defaults.
+/// once, as a device's that answers later. It keeps the default forms, as
+/// [`KeepsDefaults`] does.
 pub(crate) struct Later<E>(pub(crate) E);
 
 impl<E: ExecutorSetup> ExecutorSetup for Later<E> {
@@ -378,7 +411,7 @@ impl<E: Execute> Execute for Later<E> {
 /// An executor whose answer a worker thread hands over, after `delay`, and
 /// at the first `execute` only once `gate` opens: the run's waker is woken
 /// from that thread. It forwards neither `execute_each` nor
-/// `execute_stream`, as [`Later`] does not.
+/// `execute_stream`, as [`KeepsDefaults`] does not.
 pub(crate) struct FromThread<E> {
     inner: E,
     delay: Duration,

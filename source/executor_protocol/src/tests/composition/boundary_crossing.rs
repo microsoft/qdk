@@ -31,11 +31,12 @@ use std::task::Poll;
 use smallvec::smallvec;
 
 use super::runner::{SEED, failed, runner};
+use crate::composition::runner::wait::wait;
 use crate::tests::allocations;
 use crate::tests::fake_parts::{
-    Bits, ForwardsParity, Later, Log, Misbehaving, Misbehaviour, NamesBelow, OutputsAsRowsCome,
-    ParityGates, Profiler, Program, Renamed, RowsGiven, SeesPieces, Sending, coin_gate, coin_gates,
-    in_each_bracketing, rows_logged,
+    Bits, ForwardsParity, KeepsDefaults, Log, Misbehaving, Misbehaviour, NamesBelow,
+    OutputsAsRowsCome, ParityGates, Profiler, Program, Renamed, RowsGiven, SeesPieces, Sending,
+    coin_gate, coin_gates, in_each_bracketing, rows_logged,
 };
 use crate::{
     Adapt, Adapter, AdapterSetup, Argument, Batch, BatchReadouts, CompositionFaults, Drive,
@@ -921,9 +922,19 @@ fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
     }
 }
 
-/// A driver streaming 3 reads of qubit 0 from a source that is not fused:
-/// after its first `None`, it gives one more read, then `None` again. Its
-/// output is the readout slots of the stream's readouts, for each shot.
+/// 3 `read`s, then, as a source that is not fused, `None`, one more `read`
+/// and `None` for good.
+fn resuming_after_its_end(read: &Instruction) -> impl Iterator<Item = Instruction> {
+    let mut calls = 0;
+    iter::from_fn(move || {
+        calls += 1;
+        matches!(calls, 1..=3 | 5).then(|| read.clone())
+    })
+}
+
+/// A driver streaming 3 reads of qubit 0 from a source that is not fused
+/// ([`resuming_after_its_end`]). Its output is the readout slots of the
+/// stream's readouts, for each shot.
 struct ResumesAfterItsEnd {
     read: Instruction,
     checked: bool,
@@ -952,11 +963,7 @@ impl Drive for ResumesAfterItsEnd {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<u32>, DriveError> {
-        let mut calls = 0;
-        let instructions = iter::from_fn(|| {
-            calls += 1;
-            matches!(calls, 1..=3 | 5).then(|| self.read.clone())
-        });
+        let instructions = resuming_after_its_end(&self.read);
         let stream = InstructionStream::new(shots, instructions).checked_if(self.checked);
         let mut readouts = BatchReadouts::new(0, 0);
         below.execute_stream(stream, seed, &mut readouts).await?;
@@ -968,9 +975,10 @@ impl Drive for ResumesAfterItsEnd {
 /// A stream from a source that gives more after its first `None`, checked
 /// or not, to bits taking at most 2 instructions per batch, which run
 /// streams themselves, cut them by the default, or pull them in chunks of
-/// 2 until one comes empty, so again after the first `None`: the stream
-/// ends at the first `None`, after a short piece, so its readouts hold its
-/// 3 reads.
+/// 2 until one comes empty, so again after the first `None`; and the same
+/// source handed straight to the default, with no boundary to end it: the
+/// stream ends at the first `None`, after a short piece, so its readouts
+/// hold its 3 reads.
 #[test]
 fn a_stream_ends_at_its_senders_first_none() {
     let capped = |log: &Log| {
@@ -989,7 +997,7 @@ fn a_stream_ends_at_its_senders_first_none() {
             .run(&ShotSet::ids(0..2), SEED)
             .expect("the run succeeds");
         assert_eq!(own, vec![3; 2], "checked: {checked}, by the bits' own");
-        let by_default = runner(driver() >> Executor::new(Later(capped(&log))))
+        let by_default = runner(driver() >> Executor::new(KeepsDefaults(capped(&log))))
             .run(&ShotSet::ids(0..2), SEED)
             .expect("the run succeeds");
         assert_eq!(by_default, vec![3; 2], "checked: {checked}, by the default");
@@ -1002,6 +1010,129 @@ fn a_stream_ends_at_its_senders_first_none() {
             vec![3; 2],
             "checked: {checked}, pulled in chunks of 2, again after the end"
         );
+    }
+    let (log, shots, read) = (Log::default(), ShotSet::ids(0..2), coin_gate("mz", 0));
+    let mut by_default = KeepsDefaults(capped(&log));
+    wait(by_default.ready(&Needs::qubits(1))).expect("the bits get ready");
+    let mut readouts = BatchReadouts::new(0, 0);
+    let stream = InstructionStream::new(&shots, resuming_after_its_end(&read));
+    wait(by_default.execute_stream(stream, Seed::new(SEED), &mut readouts))
+        .expect("the stream runs");
+    assert_eq!(
+        readouts.readout_slots(),
+        3,
+        "by the default, called with no boundary"
+    );
+}
+
+/// Bits that take a stream whole, with their own `execute_stream`, and
+/// note in `most_ahead` the most instructions its sender had made, as the
+/// counter `produced` says, beyond those they had pulled: what the parts
+/// between them held of the stream.
+struct SeesMostAhead {
+    bits: Bits,
+    produced: Rc<Cell<usize>>,
+    most_ahead: Rc<Cell<usize>>,
+}
+
+impl ExecutorSetup for SeesMostAhead {
+    fn accepts(&self) -> &InstructionSet {
+        self.bits.accepts()
+    }
+
+    fn offers(&self) -> Offer {
+        self.bits.offers()
+    }
+}
+
+impl Execute for SeesMostAhead {
+    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
+        self.bits.ready(needs).await
+    }
+
+    async fn execute(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        self.bits.execute(batches, seed, readouts).await
+    }
+
+    async fn execute_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        let checked = stream.is_checked();
+        let (produced, most_ahead) = (&self.produced, &self.most_ahead);
+        let mut pulled = 0;
+        let instructions = stream.instructions.inspect(|_| {
+            pulled += 1;
+            most_ahead.set(most_ahead.get().max(produced.get() - pulled));
+        });
+        let stream = InstructionStream::new(stream.shots, instructions).checked_if(checked);
+        self.bits.execute_stream(stream, seed, readouts).await
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        self.bits.end_shots(shots);
+    }
+}
+
+/// A checked stream of 3000 instructions, each made only when pulled, to
+/// bits that take it whole and offer to take at most 5, about a thousand,
+/// or any count of instructions at once, directly or through an adapter
+/// that forwards streams, in each bracketing: the boundaries check it in
+/// the pieces the default would cut, so the sender is never more than one
+/// such piece ahead of what the bits pulled, and memory stays flat
+/// however much the bits take at once. The default's pieces are of at
+/// most 1024 instructions, which the bench states too.
+#[test]
+fn a_checked_stream_crosses_a_boundary_a_piece_at_a_time_however_much_its_receiver_takes() {
+    let program = vec![("x", 0); 3000];
+    let shots = ShotSet::ids(0..2);
+    for most in [Some(5), Some(1024), Some(u32::MAX), None] {
+        let piece = most.map_or(1024, |most| most.min(1024)) as usize;
+        let parts = |log: &Log| {
+            let (produced, most_ahead) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+            let sending = Sending::stream_counted(&produced);
+            let offer = Offer::unlimited().max_qubits(64).without_readout_parity();
+            let bits = Bits::new(log).offering(match most {
+                Some(most) => offer.max_instructions(most),
+                None => offer,
+            });
+            let sees = SeesMostAhead {
+                bits,
+                produced,
+                most_ahead: Rc::clone(&most_ahead),
+            };
+            let program = Program::new(&program)
+                .with_checked_batches()
+                .sending_as(sending);
+            (Driver::new(program), Executor::new(sees), most_ahead)
+        };
+        let ahead = |most_ahead: &Cell<usize>, chain: &str| {
+            assert!(
+                (1..piece).contains(&most_ahead.get()),
+                "at most {most:?}, {chain}: {} ahead, for pieces of {piece}",
+                most_ahead.get()
+            );
+        };
+        let log = Log::default();
+        let (d, e, most_ahead) = parts(&log);
+        runner(d >> e).run(&shots, SEED).expect("the run succeeds");
+        ahead(&most_ahead, "no adapter");
+        let counted = Rc::new(Cell::new(0));
+        in_each_bracketing!([d, a, e] from {
+            let log = Log::default();
+            let (d, e, most_ahead) = parts(&log);
+            let a = Adapter::new(Profiler::new(&counted, &log));
+        }, |chain, brackets| {
+            runner(chain).run(&shots, SEED).expect("the run succeeds");
+            ahead(&most_ahead, &format!("an adapter forwarding streams, {brackets}"));
+        });
     }
 }
 

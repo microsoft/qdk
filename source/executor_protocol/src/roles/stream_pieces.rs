@@ -6,25 +6,29 @@
 //! `execute` or one `adapt` of one batch, holding one piece at a time.
 
 use crate::{
-    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, Instruction, InstructionSet,
+    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Instruction, InstructionSet,
     InstructionStream, ReadoutFailure, ReadoutValue, ShotConditions, ShotSet,
 };
 
-/// The most instructions of a piece when the receiver's offer sets no most
+/// The most instructions of any piece, whatever the receiver's most
 /// ([`Offer::max_instructions`](crate::Offer::max_instructions)): enough
 /// that the cost of a call per piece is spread thin (the bench's `stream`
 /// section times it, and is flat from about 100 per piece up), few enough
-/// that a piece stays small beside a shot's state. The bench compares its
-/// pieces with batches of the same size, stated there again.
+/// that a piece stays small beside a shot's state, so that a stream held a
+/// piece at a time takes flat memory even to a receiver taking millions of
+/// instructions a batch. The bench compares its pieces with batches of the
+/// same size, stated there again.
 const PIECE: usize = 1024;
 
 /// The most instructions of a piece for a receiver whose most is `most`:
-/// `most`, or 1 when it is 0, or [`PIECE`] when it sets none. A receiver
-/// that takes no instruction a batch thus gets pieces of 1, which its
-/// `execute` may refuse, rather than a stream that runs nothing and
-/// answers `Ok`.
+/// `most`, or 1 when it is 0, and at most [`PIECE`], which it is when the
+/// receiver sets none. A receiver that takes no instruction a batch thus
+/// gets pieces of 1, which its `execute` may refuse, rather than a stream
+/// that runs nothing and answers `Ok`. The pieces a boundary checks a
+/// checked stream in are of the same size, so that each piece the default
+/// cuts is one piece checked whole.
 pub(crate) fn most_per_piece(most: Option<u32>) -> usize {
-    most.map_or(PIECE, |most| most.max(1) as usize)
+    most.map_or(PIECE, |most| (most.max(1) as usize).min(PIECE))
 }
 
 /// A stream's instructions on `shots`, run in pieces of at most `most`, in
@@ -168,12 +172,13 @@ impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
     }
 
     /// Takes how the piece pulled last ran: its readouts joined to those
-    /// before, or its error, which ends the stream, returned with its
-    /// positions in the stream: a refusal of the first piece as it is,
-    /// since nothing of the stream ran; a refusal of a later one as
-    /// [`Failure::Refused`], since the pieces before it ran.
+    /// before, or its error, which ends the stream, a refusal made the
+    /// stream's ([`ExecuteRefusal::of_a_stream_after`]).
     fn ran(&mut self, answer: Result<(), ExecuteError>) -> Result<(), ExecuteError> {
-        answer.map_err(|error| in_the_stream(error, self.sent))?;
+        answer.map_err(|error| match error {
+            ExecuteError::Refused(refusal) => refusal.of_a_stream_after(self.sent),
+            failed @ ExecuteError::Failed { .. } => failed,
+        })?;
         self.sent += self.piece.len();
         self.joined.append(&self.piece_readouts);
         Ok(())
@@ -255,28 +260,6 @@ impl JoinedRows {
         }
         self.values.truncate(shots * held);
         BatchReadouts::from_rows(shots, self.slots, self.values, self.conditions)
-    }
-}
-
-/// The error of a piece after `sent` instructions of its stream ran: an
-/// instruction's position counted from the stream's first, and a refusal
-/// made a failure once any piece ran.
-fn in_the_stream(error: ExecuteError, sent: usize) -> ExecuteError {
-    let ExecuteError::Refused(mut refusal) = error else {
-        return error;
-    };
-    if let ExecuteRefusal::Instruction { at, .. } | ExecuteRefusal::TooManyReadoutSlots { at, .. } =
-        &mut refusal
-    {
-        *at += sent;
-    }
-    if sent == 0 {
-        ExecuteError::Refused(refusal)
-    } else {
-        ExecuteError::Failed {
-            shot: refusal.shot(),
-            failure: Failure::Refused(refusal),
-        }
     }
 }
 

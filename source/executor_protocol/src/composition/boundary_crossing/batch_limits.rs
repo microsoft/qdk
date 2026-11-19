@@ -138,20 +138,3 @@ pub(crate) enum BatchFault {
     TooManyReadoutSlots { at: usize },
     ReadoutSlotsMisstated { stated: u32, counted: u32 },
 }
-
-impl BatchFault {
-    /// This fault, of a piece of a stream after `before` instructions, at
-    /// its position in the stream.
-    pub(crate) fn after(self, before: usize) -> Self {
-        match self {
-            Self::Instruction { at, fault } => Self::Instruction {
-                at: at + before,
-                fault,
-            },
-            Self::TooManyReadoutSlots { at } => Self::TooManyReadoutSlots { at: at + before },
-            fault @ (Self::TooManyInstructions { .. } | Self::ReadoutSlotsMisstated { .. }) => {
-                fault
-            }
-        }
-    }
-}

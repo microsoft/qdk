@@ -2,11 +2,12 @@
 // Licensed under the MIT License.
 
 //! A checked stream's instructions as they cross a boundary
-//! ([`CheckedPieces`]): checked a piece at a time, each piece whole before
-//! the receiver gets any of its instructions, the first before the
-//! receiver is called, so that the receiver runs only instructions it
-//! accepts, as it does for a checked batch, and a refused stream never
-//! reaches it.
+//! ([`CheckedPieces`]): checked a piece at a time, in the pieces the
+//! receiver's default `execute_stream` cuts, each piece whole before the
+//! receiver gets any of its instructions, the first before the receiver
+//! is called, so that the receiver runs only instructions it accepts, as
+//! it does for a checked batch, a refused stream never reaches it, and the
+//! boundary holds one piece however much the receiver takes at once.
 
 use std::cell::Cell;
 
@@ -19,10 +20,11 @@ use crate::Instruction;
 /// which a stream has none of. The first piece is checked when it is made,
 /// so that a fault there refuses the stream before the receiver is called.
 /// At a later piece's fault, the stream ends there: none of the faulty
-/// piece reaches the receiver, and the fault, with its position in the
-/// stream, is left in `later_fault` for the boundary.
+/// piece reaches the receiver, and the fault, with the instructions before
+/// its piece, is left in `later_fault` for the boundary.
 ///
-/// It holds one piece: the instructions checked and not yet pulled.
+/// It holds one piece: the instructions checked and not yet pulled, at
+/// most `most`, whatever the receiver pulls at once.
 pub(crate) struct CheckedPieces<'a, I> {
     instructions: I,
     batch_limits: &'a BatchLimits,
@@ -37,8 +39,8 @@ pub(crate) struct CheckedPieces<'a, I> {
     /// Whether a piece was refused, which ends the stream.
     refused: bool,
     /// The fault of a piece after the first, once found, its position
-    /// counted from the stream's first instruction.
-    later_fault: &'a Cell<Option<BatchFault>>,
+    /// counted in its piece, and the instructions before that piece.
+    later_fault: &'a Cell<Option<(BatchFault, usize)>>,
 }
 
 impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
@@ -49,7 +51,7 @@ impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
         instructions: I,
         batch_limits: &'a BatchLimits,
         most: usize,
-        later_fault: &'a Cell<Option<BatchFault>>,
+        later_fault: &'a Cell<Option<(BatchFault, usize)>>,
     ) -> Result<Self, BatchFault> {
         let mut pieces = Self {
             instructions,
@@ -67,7 +69,7 @@ impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
 
     /// Pulls and checks the next piece, once the one before it was pulled
     /// whole; on a fault, the stream ends, and the fault is returned, its
-    /// position counted from the stream's first instruction.
+    /// position counted in the piece.
     fn check_next_piece(&mut self) -> Result<(), BatchFault> {
         // The boundary fuses `instructions`, so a pull after the stream's
         // end makes an empty piece.
@@ -88,7 +90,7 @@ impl<'a, I: Iterator<Item = Instruction>> CheckedPieces<'a, I> {
             Err(fault) => {
                 self.piece.clear();
                 self.refused = true;
-                Err(fault.after(self.before))
+                Err(fault)
             }
         }
     }
@@ -103,7 +105,7 @@ impl<I: Iterator<Item = Instruction>> Iterator for CheckedPieces<'_, I> {
                 return None;
             }
             if let Err(fault) = self.check_next_piece() {
-                self.later_fault.set(Some(fault));
+                self.later_fault.set(Some((fault, self.before)));
             }
         }
         let instruction = self.piece.pop()?;

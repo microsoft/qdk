@@ -22,7 +22,8 @@
 //! failure of the receiver's panic (where a panic unwinds: on wasm32, it
 //! aborts). An `execute_each` makes the same checks before the receiver
 //! gives any row, and an `execute_stream` checks a checked stream a piece
-//! at a time, in `checked_pieces`: the first before the receiver is
+//! at a time, in `checked_pieces`, in the pieces the receiver's default
+//! cuts: the first before the receiver is
 //! called, the others as the receiver pulls them; a stream's readouts are
 //! shaped by its receiver (by default, as `execute_stream` cuts it). A
 //! panic in the caller's `each`, or in its stream's instructions, is
@@ -174,9 +175,11 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// caller's call. The stream ends at the caller's first `None`: the
     /// receiver gets nothing after it, however often it pulls. A
     /// [`checked`](InstructionStream::checked) stream is checked a piece
-    /// at a time, each piece of the most instructions the receiver takes
-    /// (as its `execute_stream` cuts them by default) before any of it
-    /// reaches the receiver. A fault in the first piece, checked before
+    /// at a time, each piece of at most the most instructions the receiver
+    /// takes and at most about a thousand (the pieces its `execute_stream`
+    /// cuts by default), before any of it reaches the receiver, so the
+    /// boundary holds one such piece, however much the receiver takes at
+    /// once. A fault in the first piece, checked before
     /// the receiver is called, refuses the stream, named as batch 0,
     /// without calling it. At a later piece's fault, the stream ends
     /// there, and the fault is the answer, as a failure, whatever the
@@ -217,7 +220,7 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
                 }
                 Err(fault) => {
                     callers.raise_panic();
-                    return Err(ExecuteError::Refused(refusal(0, shots, fault)));
+                    return Err(refusal(0, shots, fault).of_a_stream_after(0));
                 }
             }
         } else {
@@ -225,12 +228,8 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
             catch_panic(|| self.inner.execute_stream(stream, seed, readouts)).await
         };
         callers.raise_panic();
-        if let Some(fault) = later_fault.into_inner() {
-            let refusal = refusal(0, shots, fault);
-            return Err(ExecuteError::Failed {
-                shot: refusal.shot(),
-                failure: Failure::Refused(refusal),
-            });
+        if let Some((fault, before)) = later_fault.into_inner() {
+            return Err(refusal(0, shots, fault).of_a_stream_after(before));
         }
         match ran {
             Ok(ran) => ran,

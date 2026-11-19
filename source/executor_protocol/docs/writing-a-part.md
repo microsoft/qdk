@@ -3,9 +3,9 @@
 For those who write a part, a driver, an adapter or an executor: what each
 role's methods do at each phase of a chain's life, an executor in full,
 the rules a part keeps that the protocol does not check, the
-[streaming forms](#streaming), their defaults and the panics of `each`
-and of a stream, and how a part draws from the run's seed, or says it
-cannot replay a shot. What crosses a boundary is in
+[streaming forms](#streaming) and their defaults, which panics are whose,
+and how a part draws from the run's seed, or says it cannot replay a
+shot. What crosses a boundary is in
 [Batches and readouts](batches-and-readouts.md); what `>>` checks of a
 part, in [Instruction sets and their fit](instruction-sets.md) and
 [Needs, offers and the admission](admission.md). The terms are those of
@@ -159,8 +159,8 @@ The protocol does not check these; the rustdoc of each role, and of
   the shots' states after it as after an `execute`, and pulls the
   stream's instructions only as it runs them, so that its sender holds no
   more of the program than it would by the default;
-- a part that draws takes its random streams from the run's seed, one
-  per shot if it is replayable, as [Seeds](#seeds) says;
+- a part that draws seeds its random-number generators from the run's
+  seed, one per shot if it is replayable, as [Seeds](#seeds) says;
 - a `drive`, `adapt` or `execute` does its work when its future is first
   polled, not when it is called;
 - a part takes calls again after it failed or panicked, since the next run
@@ -226,29 +226,33 @@ cut it itself: it passes an iterator of its instructions, as an
 to `execute_stream`, and gets one row per shot of every readout of the
 stream, as one batch would:
 
-| Method                                               | By default                                                                                                                                                                                                                                                                                     | A part overrides it when                                                                                                                                                                 |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`Execute::execute_stream`](../src/roles/execute.rs) | `execute` of one piece at a time, each one batch of at most the executor's most instructions per batch (1 if it takes none, about a thousand if it sets none), pulled from the iterator only once the piece before it answered; each piece's readouts are joined to those before as it answers | it applies instructions as they come, such as a simulator, or passes the stream on whole, such as a link to a remote executor                                                            |
-| [`Adapt::adapt_stream`](../src/roles/adapt.rs)       | `adapt` of one piece at a time, each of at most the most instructions per batch it offers above, as for `execute_stream`                                                                                                                                                                       | its instructions below follow from those it gets one by one, such as a code that lowers each logical instruction: it passes its own stream below, so that an executor's own form gets it |
+| Method                                               | By default                                                                                                                                                                                                                                                                                | A part overrides it when                                                                                                                                                                 |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`Execute::execute_stream`](../src/roles/execute.rs) | `execute` of one piece at a time, each one batch of at most the executor's most instructions per batch (1 if it takes none) and at most about a thousand, pulled from the iterator only once the piece before it answered; each piece's readouts are joined to those before as it answers | it applies instructions as they come, such as a simulator, or passes the stream on whole, such as a link to a remote executor                                                            |
+| [`Adapt::adapt_stream`](../src/roles/adapt.rs)       | `adapt` of one piece at a time, each of at most the most instructions per batch it offers above, as for `execute_stream`                                                                                                                                                                  | its instructions below follow from those it gets one by one, such as a code that lowers each logical instruction: it passes its own stream below, so that an executor's own form gets it |
 
 So by default a part holds one piece of the stream, never the whole
 program, and the stream's readouts, joined as each piece answers; the
-rustdoc of each method gives the bound. The default's
-pieces hold at most the receiver's most instructions per batch, or 1 for
-a receiver taking none, or about a thousand for one that sets none, so
-no boundary checks their count; each
-boundary checks each piece of a [checked](batches-and-readouts.md)
-stream that its receiver pulls, before any of the piece reaches the
-receiver, the first before the receiver is called. A refusal ends the
-stream: of its first piece, as a refusal, nothing having run; of a later
-piece, as a failure, the pieces before it having run. A panic in the
-stream's iterator is the sender's, as one in `each` is.
+rustdoc of each method gives the bound. The default's pieces hold at
+most the receiver's most instructions per batch, or 1 for a receiver
+taking none, and at most about a thousand however many it takes, so no
+boundary checks their count. Each boundary checks a
+[checked](batches-and-readouts.md) stream in those pieces, each before
+any of it reaches the receiver, the first before the receiver is called,
+so it holds one piece however much its receiver takes at once. A refusal
+ends the stream: of its first piece, as a refusal, nothing having run;
+of a later piece, as a failure, the pieces before it having run, and a
+piece refused by the boundary running nothing if the receiver cuts the
+stream by the default. A receiver that takes the stream whole gets it a
+checked piece at a time too, and may have run what it pulled before the
+refused piece. A panic in the stream's iterator is the sender's, as one
+in `each` is.
 
 ## Seeds
 
 Every part passes the runner's [`Seed`](../src/seed.rs) on, unchanged, to
-each `execute` it makes, and a part that draws takes its random streams
-from it.
+each `execute` it makes, and a part that draws seeds its random-number
+generators from it.
 A replayable part draws each shot from a stream of its own:
 `seed.shot(id)` for the executor, and `seed.derive(key).shot(id)` for
 another part, such as a noise model, with a key no other part uses, such

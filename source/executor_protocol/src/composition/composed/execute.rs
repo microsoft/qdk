@@ -3,9 +3,8 @@
 
 //! Adapter `>>` executor: a [`Composed`] in the executor's role.
 
-use super::{Composed, KEPT, kept, limits_below};
+use super::{Composed, KEPT, limits_below};
 use crate::composition::admission::by_part::ByPart;
-use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::part_panics::{await_part, end_both};
 use crate::{
     Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup, FinalRow,
@@ -68,18 +67,8 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        let (part, offer, batch_limits) = kept(
-            self.below_part.as_ref(),
-            self.below_offer.as_ref(),
-            self.batch_limits.as_ref(),
-        );
-        await_part(self.upper.adapt(
-            batches,
-            seed,
-            &mut BoundaryCrossing::new(&mut self.lower, part, offer, batch_limits),
-            readouts,
-        ))
-        .await
+        let (upper, lower, boundary) = self.split_at_boundary();
+        await_part(upper.adapt(batches, seed, &mut boundary.crossing_to(lower), readouts)).await
     }
 
     /// The adapter's rows, as it gives them over the executor, through
@@ -91,15 +80,11 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         readouts: &mut [BatchReadouts],
         each: &mut impl FnMut(FinalRow<'_>),
     ) -> Result<(), ExecuteError> {
-        let (part, offer, batch_limits) = kept(
-            self.below_part.as_ref(),
-            self.below_offer.as_ref(),
-            self.batch_limits.as_ref(),
-        );
-        await_part(self.upper.adapt_each(
+        let (upper, lower, boundary) = self.split_at_boundary();
+        await_part(upper.adapt_each(
             batches,
             seed,
-            &mut BoundaryCrossing::new(&mut self.lower, part, offer, batch_limits),
+            &mut boundary.crossing_to(lower),
             readouts,
             each,
         ))
@@ -114,18 +99,9 @@ impl<U: Adapt, L: Execute> Execute for Composed<U, L> {
         seed: Seed,
         readouts: &mut BatchReadouts,
     ) -> Result<(), ExecuteError> {
-        let (part, offer, batch_limits) = kept(
-            self.below_part.as_ref(),
-            self.below_offer.as_ref(),
-            self.batch_limits.as_ref(),
-        );
-        await_part(self.upper.adapt_stream(
-            stream,
-            seed,
-            &mut BoundaryCrossing::new(&mut self.lower, part, offer, batch_limits),
-            readouts,
-        ))
-        .await
+        let (upper, lower, boundary) = self.split_at_boundary();
+        await_part(upper.adapt_stream(stream, seed, &mut boundary.crossing_to(lower), readouts))
+            .await
     }
 
     /// The upper part, then the lower one, ended even if the upper part

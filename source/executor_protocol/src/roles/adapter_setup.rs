@@ -86,7 +86,10 @@ pub trait AdapterSetup {
     /// answers.
     ///
     /// The `>>` that makes a runner reads it once, and the admission and
-    /// every check of a run use that answer.
+    /// every check of a run use that answer. It answers the same each
+    /// time: the default [`adapt_stream`](crate::Adapt::adapt_stream)
+    /// reads it again, to cut a stream into pieces of at most its most
+    /// instructions.
     fn offers_above(&self, below: Offer) -> Offer {
         below
     }

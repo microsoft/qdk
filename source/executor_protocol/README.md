@@ -197,9 +197,9 @@ them as defined here.
   instructions to run, in order, on each shot of a shot set, as a
   sender makes them, which the receiver pulls as it runs them, so that
   neither holds the whole program.
-- **Sender** and **receiver**: the two sides of an `execute`: the part
-  above, which sends the batches, and the part below, which runs them and
-  fills their readouts. The protocol stands between them on each call
+- **Sender** and **receiver**: the two sides of an `execute` or an
+  `execute_stream`: the part above, which sends the batches or the stream,
+  and the part below, which runs them and fills their readouts. The protocol stands between them on each call
   across the boundary: it checks the batches and shapes their readouts, so
   that neither side has to.
 - **Checked batch**: a batch its sender marked [`checked`](src/batch.rs),
@@ -303,13 +303,14 @@ bypassed:
   shot set's instructions, pulled from the sender's iterator as they
   run, gets the readouts of the same instructions sent whole. By
   default, the protocol cuts it into pieces of at most the receiver's
-  most instructions per batch, or 1 for a receiver taking none, or about
-  a thousand for one that sets none, and holds one piece of it at a
-  time.
+  most instructions per batch, or 1 for a receiver taking none, and at
+  most about a thousand however many it takes, and holds one piece of it
+  at a time.
 
-Each boundary checks each piece of a checked stream that its receiver
-pulls, before any of the piece reaches it, as it checks a checked
-batch's instructions. [Writing a part](docs/writing-a-part.md#streaming)
+Each boundary checks a checked stream in those pieces, each before any
+of it reaches the receiver, as it checks a checked batch's instructions,
+so a boundary holds one piece of it however much its receiver takes at
+once. [Writing a part](docs/writing-a-part.md#streaming)
 gives each form's default, when a part overrides it, and what holds
 after an error or a panic.
 
@@ -383,9 +384,9 @@ write a part or compose a chain; the rustdoc of each item gives its
 mechanics and edge cases.
 
 - [Writing a part](docs/writing-a-part.md): each role's methods, phase by
-  phase, an executor in full, the rules a part keeps, the streaming forms,
-  their defaults and the panics of `each` and of a stream, and how a part
-  draws from the run's seed or says it cannot replay a shot.
+  phase, an executor in full, the rules a part keeps, the streaming forms
+  and their defaults, which panics are whose, and how a part draws from
+  the run's seed or says it cannot replay a shot.
 - [Batches and readouts](docs/batches-and-readouts.md): what a batch
   holds, and how its readouts, and a stream's, are shaped, filled, given
   and kept.

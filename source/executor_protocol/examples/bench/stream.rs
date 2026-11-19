@@ -4,8 +4,9 @@
 //! A program streamed in: one driver sends the whole program as one
 //! [`InstructionStream`](executor_protocol::InstructionStream), which the
 //! protocol cuts into pieces of the most instructions the executor takes,
-//! 10 to 10 000 or none set, against the same instructions in batches of
-//! that size that the driver cuts itself: the stream's cost over them is
+//! 10 to 10 000 or none set, and at most its own piece size, against the
+//! same instructions in batches of that size that the driver cuts itself:
+//! the stream's cost over them is
 //! the protocol's cutting. Both make each instruction as it is pulled, a
 //! copy of the program's, which the batches of `chains` send from the
 //! program as it is held: the difference is the cost of making owned
@@ -28,18 +29,18 @@ use crate::workload::QUBITS;
 /// the protocol picks the piece size itself.
 const MOSTS: [Option<u32>; 5] = [Some(10), Some(100), Some(1_000), Some(10_000), None];
 
-/// The batch size the batches are compared at when the executor sets no
-/// most: the protocol's own piece size then, `PIECE` in
-/// `src/roles/stream_pieces.rs`, so that the stream and the batches are
-/// of one size.
-const WHEN_NONE: usize = 1_024;
+/// The protocol's own piece size, `PIECE` in `src/roles/stream_pieces.rs`:
+/// the most instructions of a piece whatever the executor's most, so the
+/// batches are compared at the smaller of the two, the stream and the
+/// batches being of one size.
+const PIECE: usize = 1_024;
 
 /// Per piece size, the program in batches as held, cut by the driver, and
 /// as a stream, in ns per instruction, and the stream's time over the
 /// driver's cutting.
 pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
     println!(
-        "\nstream: one program as one stream, cut into pieces of the executor's most, against batches of that size, ns/instr"
+        "\nstream: one program as one stream, cut into pieces of the executor's most, at most {PIECE}, against batches of that size, ns/instr"
     );
     println!(
         "  ≫P = Driver ≫ Executor(profiler); ≫F≫P with an adapter that forwards; held: batches of the program as held;"
@@ -49,11 +50,11 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
     );
     let expected = Profile::of(program, checked);
     println!(
-        "  {:>7} {:>11} {:>11} {:>12} {:>14} {:>7}",
-        "piece", "held ≫F≫P", "cut ≫F≫P", "stream ≫P", "stream ≫F≫P", "ratio"
+        "  {:>6} {:>6} {:>11} {:>11} {:>12} {:>14} {:>7}",
+        "most", "piece", "held ≫F≫P", "cut ≫F≫P", "stream ≫P", "stream ≫F≫P", "ratio"
     );
     for most in MOSTS {
-        let batch = most.map_or(WHEN_NONE, |most| most as usize);
+        let batch = most.map_or(PIECE, |most| (most as usize).min(PIECE));
         let slots = slots_per_batch(&MixGates::set(), program, batch);
         let in_batches = (batch, slots.as_slice());
         let time = |sending| {
@@ -64,8 +65,9 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
         let cut = time(Sending::CutThroughForward);
         let stream = time(Sending::StreamThroughForward);
         println!(
-            "  {:>7} {:>11.2} {:>11.2} {:>12.2} {:>14.2} {:>7.2}",
-            most.map_or_else(|| "none*".to_owned(), |most| most.to_string()),
+            "  {:>6} {:>6} {:>11.2} {:>11.2} {:>12.2} {:>14.2} {:>7.2}",
+            most.map_or_else(|| "none".to_owned(), |most| most.to_string()),
+            batch,
             per(time(Sending::HeldThroughForward), program.len()),
             per(cut, program.len()),
             per(time(Sending::Stream), program.len()),
@@ -73,9 +75,6 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
             stream / cut
         );
     }
-    println!(
-        "  * the executor sets no most: the protocol's own pieces of {WHEN_NONE}, batches of {WHEN_NONE}"
-    );
 }
 
 /// How the program goes below.

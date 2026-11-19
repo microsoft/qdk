@@ -3,9 +3,8 @@
 
 //! Driver `>>` adapter: a [`Composed`] in the driver's role.
 
-use super::{ChainBelow, Composed, KEPT, kept, limits_below};
+use super::{ChainBelow, Composed, KEPT, limits_below};
 use crate::composition::admission::by_part::ByPart;
-use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::part_panics::{await_part, end_both};
 use crate::roles::EndedRun;
 use crate::{
@@ -75,21 +74,12 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<U::Output>, DriveError> {
-        let (part, offer, batch_limits) = kept(
-            self.below_part.as_ref(),
-            self.below_offer.as_ref(),
-            self.batch_limits.as_ref(),
-        );
+        let (upper, lower, boundary) = self.split_at_boundary();
         let mut rest = ChainBelow {
-            adapter: &mut self.lower,
+            adapter: lower,
             below,
         };
-        await_part(self.upper.drive(
-            shots,
-            seed,
-            &mut BoundaryCrossing::new(&mut rest, part, offer, batch_limits),
-        ))
-        .await
+        await_part(upper.drive(shots, seed, &mut boundary.crossing_to(&mut rest))).await
     }
 
     /// The driver's outputs as it gives them, over the adapter, through
@@ -101,22 +91,12 @@ impl<U: Drive, L: Adapt> Drive for Composed<U, L> {
         below: &mut impl Execute,
         each: &mut impl FnMut(ShotId, U::Output),
     ) -> Result<(), DriveError> {
-        let (part, offer, batch_limits) = kept(
-            self.below_part.as_ref(),
-            self.below_offer.as_ref(),
-            self.batch_limits.as_ref(),
-        );
+        let (upper, lower, boundary) = self.split_at_boundary();
         let mut rest = ChainBelow {
-            adapter: &mut self.lower,
+            adapter: lower,
             below,
         };
-        await_part(self.upper.drive_each(
-            shots,
-            seed,
-            &mut BoundaryCrossing::new(&mut rest, part, offer, batch_limits),
-            each,
-        ))
-        .await
+        await_part(upper.drive_each(shots, seed, &mut boundary.crossing_to(&mut rest), each)).await
     }
 
     /// The driver's adapters, then this one, each ended even if one

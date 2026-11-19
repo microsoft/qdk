@@ -47,7 +47,7 @@ mod adapt;
 mod drive;
 mod execute;
 
-use super::boundary_crossing::BatchLimits;
+use super::boundary_crossing::{BatchLimits, BoundaryCrossing};
 use crate::part_panics::end_both;
 use crate::{
     Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup, FinalRow,
@@ -96,6 +96,40 @@ impl<U, L> Composed<U, L> {
             below_offer: None,
             batch_limits: None,
         }
+    }
+
+    /// Its halves, and what it keeps for the boundary between them: what
+    /// each of its run-time calls but `ready` and the ends starts from.
+    fn split_at_boundary(&mut self) -> (&mut U, &mut L, KeptBoundary<'_>) {
+        (
+            &mut self.upper,
+            &mut self.lower,
+            KeptBoundary {
+                part: self.below_part.as_ref().expect(KEPT),
+                offer: self.below_offer.as_ref().expect(KEPT),
+                batch_limits: self.batch_limits.as_ref().expect(KEPT),
+            },
+        )
+    }
+}
+
+/// What a `Composed` keeps for the boundary between its halves: the lower
+/// half's top part, the offer and the batch limits.
+#[derive(Clone, Copy)]
+struct KeptBoundary<'a> {
+    part: &'a PartId,
+    offer: &'a Offer,
+    batch_limits: &'a BatchLimits,
+}
+
+impl<'a> KeptBoundary<'a> {
+    /// The boundary to `receiver`, the lower half or the lower half with
+    /// the chain below it, crossed as these values say.
+    fn crossing_to<'b, E: Execute>(self, receiver: &'b mut E) -> BoundaryCrossing<'b, E>
+    where
+        'a: 'b,
+    {
+        BoundaryCrossing::new(receiver, self.part, self.offer, self.batch_limits)
     }
 }
 
@@ -182,20 +216,6 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
             || self.below.end_shots(shots),
         );
     }
-}
-
-/// The lower half's top part, the offer and the batch limits a `Composed`
-/// keeps for its boundary.
-fn kept<'a>(
-    part: Option<&'a PartId>,
-    offer: Option<&'a Offer>,
-    batch_limits: Option<&'a BatchLimits>,
-) -> (&'a PartId, &'a Offer, &'a BatchLimits) {
-    (
-        part.expect(KEPT),
-        offer.expect(KEPT),
-        batch_limits.expect(KEPT),
-    )
 }
 
 /// The limits of the batches sent across a boundary to a receiver of
