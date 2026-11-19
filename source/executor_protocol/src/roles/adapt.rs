@@ -8,7 +8,7 @@ use std::slice;
 
 use super::execute::give_every_row;
 use super::stream_pieces::{StreamPieces, most_per_piece};
-use crate::composition::part_panics::await_part;
+use crate::part_panics::await_part;
 use crate::{
     AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, FinalRow, Instruction,
     InstructionStream, Needs, NotReady, Seed, ShotSet,

@@ -13,7 +13,7 @@ use std::fmt;
 use std::slice;
 
 use super::stream_pieces::{StreamPieces, most_per_piece};
-use crate::composition::part_panics::await_part;
+use crate::part_panics::await_part;
 use crate::{
     Batch, BatchReadouts, ExecutorSetup, Failure, Instruction, InstructionFault, InstructionStream,
     Needs, NotReady, Seed, ShotId, ShotSet,

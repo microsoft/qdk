@@ -12,6 +12,7 @@ mod composition;
 mod instruction_set;
 mod needs;
 mod offer;
+mod part_panics;
 mod roles;
 mod seed;
 

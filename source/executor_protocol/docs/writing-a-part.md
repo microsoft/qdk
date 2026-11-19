@@ -37,7 +37,7 @@ The executor of
 [`examples/compose_and_run.rs`](../examples/compose_and_run.rs), `Bits`,
 implements [`ExecutorSetup`](../src/roles/executor_setup.rs) and
 [`Execute`](../src/roles/execute.rs). `CoinGates` is the
-example's instruction set, and `Stream` a shot's random stream, both in
+example's instruction set, and `RandomGenerator` the random-number generator each shot draws from, both in
 the file; `without_readout_parity` says it cannot resolve an argument that
 is the parity of the shot's earlier readouts, which the coin never sends;
 and only the example's test reads its counts of checked and unchecked
@@ -79,17 +79,17 @@ impl Execute for Bits {
             }
             for (position, id) in batch.shots.iter().enumerate() {
                 let qubits = self.qubits;
-                let (bits, stream) = self
+                let (bits, random) = self
                     .shots
                     .entry(id)
-                    .or_insert_with(|| (vec![false; qubits], Stream(seed.shot(id))));
+                    .or_insert_with(|| (vec![false; qubits], RandomGenerator(seed.shot(id))));
                 let mut row = batch_readouts.row_mut(position).iter_mut();
                 for instruction in batch.instructions {
                     // Below the shot's qubits, as the parts above send them;
                     // a checked batch's checks refuse any other.
                     let qubit = instruction.blocks[0] as usize;
                     match instruction.opcode {
-                        CoinGates::H => bits[qubit] = stream.chance(0.5),
+                        CoinGates::H => bits[qubit] = random.chance(0.5),
                         CoinGates::X => bits[qubit] = !bits[qubit],
                         CoinGates::MZ => {
                             *row.next().expect("a readout slot per `mz`") = bits[qubit].into();

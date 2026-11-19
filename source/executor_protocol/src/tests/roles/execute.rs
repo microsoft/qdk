@@ -15,8 +15,8 @@ use std::rc::Rc;
 
 use crate::tests::composition::runner::{SEED, failed, runner};
 use crate::tests::fake_parts::{
-    Bits, Later, Log, OutputsAsRowsCome, Profiler, Program, RowsGiven, SeesPieces, Sending, Spread,
-    Stream, Values, in_each_bracketing, sorted_values,
+    Bits, Later, Log, OutputsAsRowsCome, Profiler, Program, RandomGenerator, RowsGiven, SeesPieces,
+    Sending, Spread, Values, in_each_bracketing, sorted_values,
 };
 use crate::{Adapter, Driver, Executor, Offer, ShotConditions, ShotSet};
 
@@ -55,7 +55,7 @@ fn bits(log: &Log, most: Option<u32>) -> Bits {
 /// `pieces - 1` distinct cuts of [`PROGRAM`], each before a position in
 /// `1..12`, drawn from `seed`, in order.
 fn seeded_cuts(seed: u64, pieces: usize) -> Vec<usize> {
-    let mut random = Stream(seed);
+    let mut random = RandomGenerator(seed);
     let mut cuts = BTreeSet::new();
     let positions = u64::try_from(PROGRAM.len() - 1).expect("a short program");
     while cuts.len() + 1 < pieces {

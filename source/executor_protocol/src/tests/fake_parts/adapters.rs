@@ -11,7 +11,9 @@ use std::rc::Rc;
 use std::slice;
 use std::task::Poll;
 
-use super::{CoinGates, Log, Stream, bound, coin_gate, coin_gates, forward, forward_each, mapped};
+use super::{
+    CoinGates, Log, RandomGenerator, bound, coin_gate, coin_gates, forward, forward_each, mapped,
+};
 use crate::{
     Adapt, AdapterSetup, Batch, BatchReadouts, BlockType, Execute, ExecuteError, Failure, FinalRow,
     Instruction, InstructionSet, InstructionStream, Needs, NotReady, Offer, OpcodeMap, Readouts,
@@ -24,7 +26,7 @@ use crate::{
 pub(crate) struct BitFlip {
     probability: f64,
     below: Option<OpcodeMap>,
-    streams: BTreeMap<ShotId, Stream>,
+    generators: BTreeMap<ShotId, RandomGenerator>,
     log: Log,
 }
 
@@ -33,7 +35,7 @@ impl BitFlip {
         Self {
             probability,
             below: None,
-            streams: BTreeMap::new(),
+            generators: BTreeMap::new(),
             log: log.clone(),
         }
     }
@@ -66,14 +68,14 @@ impl Adapt for BitFlip {
         let mut sent: Vec<(ShotSet, Vec<Instruction>, u32, bool)> = Vec::new();
         for batch in batches {
             for (j, id) in batch.shots.iter().enumerate() {
-                let stream = self
-                    .streams
+                let random = self
+                    .generators
                     .entry(id)
-                    .or_insert_with(|| Stream(own.shot(id)));
+                    .or_insert_with(|| RandomGenerator(own.shot(id)));
                 let mut instructions = Vec::with_capacity(batch.instructions.len() + 1);
                 for instruction in batch.instructions {
                     let flips =
-                        instruction.opcode == CoinGates::X && stream.chance(self.probability);
+                        instruction.opcode == CoinGates::X && random.chance(self.probability);
                     let mut mapped = instruction.clone();
                     mapped.opcode = map.map(instruction.opcode);
                     instructions.push(mapped.clone());
@@ -111,10 +113,12 @@ impl Adapt for BitFlip {
 
     fn end_shots(&mut self, shots: &ShotSet) {
         for id in shots.iter() {
-            self.streams.remove(&id);
+            self.generators.remove(&id);
         }
-        self.log
-            .push(format!("BitFlip end_shots, holding {}", self.streams.len()));
+        self.log.push(format!(
+            "BitFlip end_shots, holding {}",
+            self.generators.len()
+        ));
     }
 }
 

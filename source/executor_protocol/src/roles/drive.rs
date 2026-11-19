@@ -7,7 +7,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::composition::part_panics::await_part;
+use crate::part_panics::await_part;
 use crate::{DriverSetup, Execute, ExecuteError, Failure, NotReady, Seed, ShotId, ShotSet};
 
 /// Calls the part below with batches of the instructions it sends, each

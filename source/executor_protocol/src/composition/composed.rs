@@ -48,7 +48,7 @@ mod drive;
 mod execute;
 
 use super::boundary_crossing::BatchLimits;
-use super::part_panics::end_both;
+use crate::part_panics::end_both;
 use crate::{
     Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup, FinalRow,
     Instruction, InstructionSet, InstructionStream, Needs, NotReady, Offer, PartId, Seed, ShotSet,

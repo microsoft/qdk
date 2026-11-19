@@ -33,7 +33,7 @@ mod run_limits;
 pub(crate) mod wait;
 
 use super::boundary_crossing::{BatchLimits, BoundaryCrossing};
-use super::part_panics::{CallersCallback, await_part, catch_panic, end_both};
+use crate::part_panics::{CallersCallback, await_part, catch_panic, end_both};
 use crate::roles::EndedRun;
 use crate::{Drive, DriveError, Execute, Failure, Needs, Offer, PartId, Seed, ShotId, ShotSet};
 use delivery::{AsTheDriverGives, AtTheEnd, Delivery};

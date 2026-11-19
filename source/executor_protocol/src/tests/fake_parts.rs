@@ -106,11 +106,12 @@ impl Log {
     }
 }
 
-/// A shot's random stream: `SplitMix64`, seeded from the shot's seed, or
-/// from a test's own seed for what it draws.
-pub(crate) struct Stream(pub(crate) u64);
+/// A random-number generator, `SplitMix64`, seeded with a shot's stream
+/// ([`Seed::shot`](crate::Seed::shot)), or with a test's own seed for what
+/// it draws.
+pub(crate) struct RandomGenerator(pub(crate) u64);
 
-impl Stream {
+impl RandomGenerator {
     pub(crate) fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;

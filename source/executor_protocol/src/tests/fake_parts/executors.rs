@@ -13,7 +13,7 @@ use std::task::{Poll, Waker};
 use std::thread;
 use std::time::Duration;
 
-use super::{CoinGates, Log, Stream, YieldNow};
+use super::{CoinGates, Log, RandomGenerator, YieldNow};
 use crate::{
     Batch, BatchReadouts, BlockType, Execute, ExecuteError, ExecutorSetup, Failure, FinalRow,
     Instruction, InstructionSet, InstructionStream, Needs, NotReady, Offer, Opcode, ReadoutFailure,
@@ -30,7 +30,7 @@ pub(crate) struct Bits {
     opcodes: [Option<Opcode>; 3],
     offer: Offer,
     qubits: usize,
-    shots: BTreeMap<ShotId, (Vec<bool>, Stream)>,
+    shots: BTreeMap<ShotId, (Vec<bool>, RandomGenerator)>,
     busy: Option<&'static str>,
     /// Whether a shot loses every value it reads, and is found suspect.
     loses: fn(ShotId) -> bool,
@@ -224,16 +224,16 @@ impl Bits {
         for (index, (batch, batch_readouts)) in batches.iter().zip(readouts).enumerate() {
             for (position, id) in batch.shots.iter().enumerate() {
                 let (qubits, lost) = (self.qubits, loses(id));
-                let (bits, stream) = self
+                let (bits, random) = self
                     .shots
                     .entry(id)
-                    .or_insert_with(|| (vec![false; qubits], Stream(seed.shot(id))));
+                    .or_insert_with(|| (vec![false; qubits], RandomGenerator(seed.shot(id))));
                 let mut row = batch_readouts.row_mut(position).iter_mut();
                 for instruction in batch.instructions {
                     let q = instruction.blocks[0] as usize;
                     let opcode = Some(instruction.opcode);
                     if opcode == h {
-                        bits[q] = stream.chance(0.5);
+                        bits[q] = random.chance(0.5);
                     } else if opcode == x {
                         bits[q] = !bits[q];
                     } else if opcode == mz {

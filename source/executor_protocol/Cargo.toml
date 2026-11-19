@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 # Pins the fields of the crate's hand-written futures without `unsafe`;
 # already in the workspace's builds, wasm32 included, through
-# futures-util. Why it is needed: the header of `src/composition/part_panics.rs`.
+# futures-util. Why it is needed: the header of `src/part_panics.rs`.
 pin-project-lite = { workspace = true }
 # `union` lays a small vector's inline items over its heap pointer with no
 # tag word, which keeps an instruction at 128 bytes rather than 144 on a

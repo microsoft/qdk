@@ -213,7 +213,7 @@ impl Drive for CoinCopy {
                 Batch::new(shots, sequence, *slots).checked_if(self.checked)
             })
             .collect();
-        // The same seed: each part keeps a shot's stream from its first
+        // The same seed: each part keeps a shot's generator from its first
         // batch until the shot ends. The first side's readouts reuse the
         // coin's memory, its values copied into the outputs.
         let readouts = kept.readouts_for(&batches);
@@ -246,7 +246,7 @@ struct BitFlip {
     probability: f64,
     /// The receiver's opcodes, from `bind`.
     below: Option<OpcodeMap>,
-    streams: BTreeMap<ShotId, Stream>,
+    generators: BTreeMap<ShotId, RandomGenerator>,
     /// The readouts of the shots sent below one each, kept to reuse their
     /// memory from one `adapt` to the next.
     one_each: Readouts,
@@ -258,7 +258,7 @@ impl BitFlip {
             set: CoinGates::set(),
             probability,
             below: None,
-            streams: BTreeMap::new(),
+            generators: BTreeMap::new(),
             one_each: Readouts::new(),
         }
     }
@@ -292,16 +292,16 @@ impl Adapt for BitFlip {
         let mut sent: Vec<(ShotSet, Vec<Instruction>, u32, bool)> = Vec::new();
         for batch in batches {
             for (j, id) in batch.shots.iter().enumerate() {
-                let stream = self
-                    .streams
+                let random = self
+                    .generators
                     .entry(id)
-                    .or_insert_with(|| Stream(own.shot(id)));
+                    .or_insert_with(|| RandomGenerator(own.shot(id)));
                 let mut instructions = Vec::with_capacity(batch.instructions.len() + 1);
                 for instruction in batch.instructions {
                     // It came in this adapter's opcodes: the sender's
                     // `bind` mapped it.
                     let flips =
-                        instruction.opcode == CoinGates::X && stream.chance(self.probability);
+                        instruction.opcode == CoinGates::X && random.chance(self.probability);
                     let mut mapped = instruction.clone();
                     mapped.opcode = map.map(instruction.opcode);
                     if flips {
@@ -346,7 +346,7 @@ impl Adapt for BitFlip {
 
     fn end_shots(&mut self, shots: &ShotSet) {
         for id in shots.iter() {
-            self.streams.remove(&id);
+            self.generators.remove(&id);
         }
     }
 }
@@ -363,8 +363,8 @@ struct Bits {
     set: InstructionSet,
     /// The qubits each shot needs, from `ready`.
     qubits: usize,
-    /// Each running shot's bits and stream, until it ends.
-    shots: BTreeMap<ShotId, (Vec<bool>, Stream)>,
+    /// Each running shot's bits and random-number generator, until it ends.
+    shots: BTreeMap<ShotId, (Vec<bool>, RandomGenerator)>,
     /// The batches it received [`checked`](Batch::checked).
     checked_batches: usize,
     /// The batches it received unchecked.
@@ -418,17 +418,17 @@ impl Execute for Bits {
             }
             for (position, id) in batch.shots.iter().enumerate() {
                 let qubits = self.qubits;
-                let (bits, stream) = self
+                let (bits, random) = self
                     .shots
                     .entry(id)
-                    .or_insert_with(|| (vec![false; qubits], Stream(seed.shot(id))));
+                    .or_insert_with(|| (vec![false; qubits], RandomGenerator(seed.shot(id))));
                 let mut row = batch_readouts.row_mut(position).iter_mut();
                 for instruction in batch.instructions {
                     // Below the shot's qubits, as the parts above send them;
                     // a checked batch's checks refuse any other.
                     let qubit = instruction.blocks[0] as usize;
                     match instruction.opcode {
-                        CoinGates::H => bits[qubit] = stream.chance(0.5),
+                        CoinGates::H => bits[qubit] = random.chance(0.5),
                         CoinGates::X => bits[qubit] = !bits[qubit],
                         CoinGates::MZ => {
                             *row.next().expect("a readout slot per `mz`") = bits[qubit].into();
@@ -448,11 +448,11 @@ impl Execute for Bits {
     }
 }
 
-/// A shot's random stream, `SplitMix64`, seeded from the shot's seed: a
-/// few lines, so that the example needs no crate beyond the protocol.
-struct Stream(u64);
+/// A random-number generator, `SplitMix64`, seeded with a shot's stream:
+/// a few lines, so that the example needs no crate beyond the protocol.
+struct RandomGenerator(u64);
 
-impl Stream {
+impl RandomGenerator {
     /// `true` with probability `probability`.
     fn chance(&mut self, probability: f64) -> bool {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);

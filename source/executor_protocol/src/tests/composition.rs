@@ -6,13 +6,12 @@
 //! brackets go, the fit and the admission reported together, and what each
 //! part gets ready for and is told on every run, as composition read it.
 //! The admission of a chain is in `composition/admission.rs`, running its
-//! shots in `composition/runner.rs`, the calls across its boundaries in
-//! `composition/boundary_crossing.rs`, and its parts' panics in
-//! `composition/part_panics.rs`.
+//! shots in `composition/runner.rs`, and the calls across its boundaries in
+//! `composition/boundary_crossing.rs`; its parts' panics are in
+//! `part_panics.rs`, beside this file.
 
 mod admission;
 mod boundary_crossing;
-mod part_panics;
 pub(super) mod runner;
 
 use std::cell::Cell;

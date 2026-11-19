@@ -3,10 +3,10 @@
 
 //! What a run returns when it gives no outputs: the failures that end it,
 //! a part's error or refusal at the shot it names, and what the messages
-//! of a run's errors say. A part's panics are in `part_panics.rs`; that a
-//! failed run's shots are ended top to bottom is in `runner.rs`, beside
-//! the successful run's; the runner's own refusals are in
-//! `run_limits.rs`.
+//! of a run's errors say. A part's panics are in the tests' top-level
+//! `part_panics.rs`; that a failed run's shots are ended top to bottom is
+//! in `runner.rs`, beside the successful run's; the runner's own refusals
+//! are in `run_limits.rs`.
 
 use crate::tests::fake_parts::{
     Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Trap, coin_gates,

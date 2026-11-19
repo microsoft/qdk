@@ -64,10 +64,10 @@ pub(crate) const SEED: u64 = 1;
 /// `n` draws of `mix`, from a fixed seed.
 pub(crate) fn draws(n: usize, mix: Mix) -> Vec<Draw> {
     let total: u64 = (0..MIX.len()).map(|place| mix.weight(place)).sum();
-    let mut stream = Stream(SEED);
+    let mut random = RandomGenerator(SEED);
     (0..n)
         .map(|_| {
-            let mut pick = stream.next() % total;
+            let mut pick = random.next() % total;
             let gate = (0..MIX.len())
                 .position(|place| {
                     let weight = mix.weight(place);
@@ -80,17 +80,17 @@ pub(crate) fn draws(n: usize, mix: Mix) -> Vec<Draw> {
             for k in 0..MIX[gate].1 {
                 // A block once per instruction: the protocol refuses a repeat.
                 qubits[k] = loop {
-                    let qubit = stream.below(QUBITS);
+                    let qubit = random.below(QUBITS);
                     if !qubits[..k].contains(&qubit) {
                         break qubit;
                     }
                 };
             }
-            let theta = f64::from(stream.below(1 << 30)) / f64::from(1u32 << 30);
+            let theta = f64::from(random.below(1 << 30)) / f64::from(1u32 << 30);
             // Drawn for an `x_if` alone, so that the common mix's draws
             // stay those of the bench before the parity-heavy mix.
             let back = (MIX[gate].0 == MixGates::X_IF).then(|| {
-                let first = 1 + stream.below(LOOKBACK - 1);
+                let first = 1 + random.below(LOOKBACK - 1);
                 [first, first + 1]
             });
             Draw {
@@ -139,10 +139,11 @@ pub(crate) struct Draw {
 /// How far back a parity's readouts are drawn from: a round's syndromes.
 pub(crate) const LOOKBACK: u32 = 16;
 
-/// `SplitMix64`: the mix's draws, without a crate beyond the protocol.
-pub(crate) struct Stream(u64);
+/// A random-number generator, `SplitMix64`: the mix's draws, without a
+/// crate beyond the protocol.
+pub(crate) struct RandomGenerator(u64);
 
-impl Stream {
+impl RandomGenerator {
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;

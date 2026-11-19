@@ -16,6 +16,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 use std::task::{Context, Waker};
 
+use crate::tests::composition::runner::{SEED, failed, runner};
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, EndsBelow, Impatient, Later, Log, Misbehaving, Misbehaviour,
     OutputsAsRowsCome, Panics, PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Renamed,
@@ -25,8 +26,6 @@ use crate::{
     Adapter, Drive, DriveError, Driver, Execute, Executor, Failure, PartId, RunError, Runner,
     ShotId, ShotSet,
 };
-
-use super::runner::{SEED, failed, runner};
 
 /// The panic `runner`'s run of shots 0 to 7 raises, which it must.
 fn raised<D: Drive, E: Execute>(runner: &mut Runner<D, E>) -> Box<dyn Any + Send> {
