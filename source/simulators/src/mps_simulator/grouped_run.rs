@@ -54,8 +54,8 @@ use tensornet::{MpsEngine, MpsShape};
 use super::MpsResumer;
 use super::lowering::{SiteGate, SiteStep, lower};
 use super::mps_resumer_error::MpsResumerError;
+use super::mps_run_report::MpsRunReport;
 use super::qubit_order::QubitOrder;
-use super::run_report::MpsRunReport;
 use super::shot_stream::{SplitMix64, shot_stream};
 
 /// One run of an [`MpsResumer`]: what every group of the run shares, the
@@ -509,10 +509,11 @@ fn capacity_of<E>(
 /// The value of the shots that go on as the group, given each shot's draw
 /// (One when true): the value they all drew, or, where they differ, the
 /// value of the fewer. So a group that splits keeps at most half its
-/// shots, and a run holds few states at once. A tie goes to Zero, as the
-/// docs promise: no record and no bound depends on it, but which group runs
-/// first does, and with it which groups still run after a failure, and
-/// which shots a failure settling the fork fails (see `split`).
+/// shots, and a run holds few states at once. A tie goes to Zero, a fixed
+/// choice so that a run is deterministic (the docs promise it): no record
+/// and no bound depends on it, but which group runs first does, and with
+/// it which groups still run after a failure, and which shots a failure
+/// settling the fork fails (see `split`).
 fn value_going_on(draws: &[bool]) -> bool {
     let ones = draws.iter().filter(|&&one| one).count();
     if ones == 0 || ones == draws.len() {

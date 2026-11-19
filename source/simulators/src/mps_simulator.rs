@@ -18,7 +18,7 @@
 //! engine holds, and this module's submodules, in `mps_simulator/`, map qubits
 //! to sites (`qubit_order.rs`), turn calls into steps on sites (`lowering.rs`),
 //! run the shots in groups (`grouped_run.rs`), give each shot its stream
-//! (`shot_stream.rs`), and report and fail a run (`run_report.rs`,
+//! (`shot_stream.rs`), and report and fail a run (`mps_run_report.rs`,
 //! `mps_resumer_error.rs`).
 //!
 //! Shots that drew the same values share one state, forked where their draws
@@ -43,12 +43,12 @@ use tensornet::MpsEngine;
 mod grouped_run;
 pub(crate) mod lowering;
 mod mps_resumer_error;
+mod mps_run_report;
 pub(crate) mod qubit_order;
-mod run_report;
 pub(crate) mod shot_stream;
 
 pub use mps_resumer_error::MpsResumerError;
-pub use run_report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
+pub use mps_run_report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
 
 use grouped_run::GroupedRun;
 

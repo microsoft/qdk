@@ -457,7 +457,7 @@ fn no_group_runs_on_for_shots_after_the_first_failure() {
     let passing: Vec<_> = all.iter().filter(|shot| !failing.contains(shot)).collect();
     assert!(
         failing.len() >= 2 && passing.len() >= 3,
-        "two of 16 coins read 1, and three read 0"
+        "at least two of 16 coins read 1, and three read 0"
     );
     let scene_run = FailingRun {
         scene: "the groups that wait".to_string(),
