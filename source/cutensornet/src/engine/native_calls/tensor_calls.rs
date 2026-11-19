@@ -43,11 +43,16 @@ use crate::engine::CudaAlgebraError;
 /// so it needs a new sizing and preparation. Its optimizer infos are
 /// destroyed before it.
 pub(crate) trait TensorCalls: MemoryCalls {
+    /// A new descriptor of `tensor`'s extents and mode labels
+    /// (`cutensornetCreateTensorDescriptor`), which a split or a QR names
+    /// its operands by.
     fn create_tensor_descriptor(
         &self,
         handle: OpaqueHandle,
         tensor: TensorModes<'_>,
     ) -> Result<OpaqueHandle, CudaAlgebraError>;
+    /// Releases `descriptor` (`cutensornetDestroyTensorDescriptor`), once,
+    /// after the calls that use it.
     fn destroy_tensor_descriptor(&self, descriptor: OpaqueHandle) -> Result<(), CudaAlgebraError>;
 
     /// A new SVD configuration, with cuTensorNet's defaults: no truncation
@@ -61,6 +66,8 @@ pub(crate) trait TensorCalls: MemoryCalls {
         config: OpaqueHandle,
         setting: SvdSetting,
     ) -> Result<(), CudaAlgebraError>;
+    /// Releases `config` (`cutensornetDestroyTensorSVDConfig`), once, after
+    /// the splits that use it.
     fn destroy_svd_config(&self, config: OpaqueHandle) -> Result<(), CudaAlgebraError>;
 
     /// A new SVD report, which each gate split given it overwrites.
@@ -72,6 +79,8 @@ pub(crate) trait TensorCalls: MemoryCalls {
         handle: OpaqueHandle,
         info: OpaqueHandle,
     ) -> Result<SvdTruncation, CudaAlgebraError>;
+    /// Releases `info` (`cutensornetDestroyTensorSVDInfo`), once, after its
+    /// report is read.
     fn destroy_svd_info(&self, info: OpaqueHandle) -> Result<(), CudaAlgebraError>;
 
     /// Sizes `workspace` for one gate split of these descriptors under
@@ -148,12 +157,19 @@ pub(crate) trait TensorCalls: MemoryCalls {
         inputs: [TensorModes<'_>; 2],
         output_modes: &[i32],
     ) -> Result<ContractionNetwork, CudaAlgebraError>;
+    /// Releases `network` (`cutensornetDestroyNetwork`), once, after its
+    /// optimizer infos and the contractions that use it.
     fn destroy_contraction_network(&self, network: OpaqueHandle) -> Result<(), CudaAlgebraError>;
+    /// A new optimizer info of `network`
+    /// (`cutensornetCreateContractionOptimizerInfo`), which a path search
+    /// writes its path into.
     fn create_optimizer_info(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
     ) -> Result<OpaqueHandle, CudaAlgebraError>;
+    /// Releases `info` (`cutensornetDestroyContractionOptimizerInfo`), once,
+    /// before its network.
     fn destroy_optimizer_info(&self, info: OpaqueHandle) -> Result<(), CudaAlgebraError>;
     /// Finds a contraction path for `network`, into `info` and the network,
     /// passing `workspace_limit` bytes as the optimizer's memory

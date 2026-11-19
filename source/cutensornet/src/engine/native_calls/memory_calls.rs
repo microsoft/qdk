@@ -36,7 +36,11 @@ use crate::engine::CudaAlgebraError;
 pub(crate) trait MemoryCalls {
     /// The device's free and total memory, in bytes (`cudaMemGetInfo`).
     fn memory_info(&self) -> Result<(usize, usize), CudaAlgebraError>;
+    /// A new device buffer of `bytes` (`cudaMalloc`): a tensor, a call's
+    /// intermediate or a device slot's memory.
     fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, CudaAlgebraError>;
+    /// Frees `allocation` (`cudaFree`), once, after the work and copies that
+    /// use it, and after no workspace descriptor holds it.
     fn free(&self, allocation: OpaqueHandle) -> Result<(), CudaAlgebraError>;
     /// Copies `source` to the device; the host slice may be reused when it
     /// returns, but the copy may not have reached the device yet. An empty
@@ -65,7 +69,11 @@ pub(crate) trait MemoryCalls {
         destination: &mut [Complex64Abi],
         source: OpaqueHandle,
     ) -> Result<(), CudaAlgebraError>;
+    /// A new workspace descriptor of `handle`, its four slots empty
+    /// (`cutensornetCreateWorkspaceDescriptor`).
     fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError>;
+    /// Releases `workspace` (`cutensornetDestroyWorkspaceDescriptor`), once,
+    /// before the memory lent to it is freed.
     fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), CudaAlgebraError>;
     /// The bytes cuTensorNet recommends for `slot` of `workspace`, for the
     /// call the workspace was last sized for (a tensor call's

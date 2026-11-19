@@ -30,7 +30,8 @@
 //!   qr_move ─────────────► qr_move.rs         a gate, a TensorQR, a
 //!                                             contraction
 //! settings                 policy.rs
-//! failures                 CudaAlgebraError (error.rs)
+//! failures                 CudaAlgebraError
+//!                            (../cuda_algebra_error.rs)
 //! ```
 //!
 //! Every call binds the algebra's device first, and returns with the
@@ -57,7 +58,6 @@ mod algebra_session;
 mod call_scope;
 mod contraction;
 mod device_tensor;
-pub(crate) mod error;
 mod gate_split;
 mod policy;
 mod qr_move;
@@ -68,6 +68,7 @@ pub use device_tensor::DeviceTensor;
 #[cfg(test)]
 pub(crate) use policy::{DISCARDED_WEIGHT_TOLERANCE, NETWORKS_KEPT};
 
+use crate::engine::cuda_algebra_error::{CudaAlgebraError, first_failure, report_failed_release};
 use crate::engine::device_session::DeviceSession;
 use crate::engine::native_calls::complex::{Complex64Abi, complex_bytes};
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle};
@@ -76,7 +77,6 @@ use call_scope::CallScope;
 use canonical_mps::site_algebra::{
     GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
 };
-use error::{CudaAlgebraError, first_failure, report_failed_release};
 use num_complex::Complex64;
 use resources::AlgebraResources;
 use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};

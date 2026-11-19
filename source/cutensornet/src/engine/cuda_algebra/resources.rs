@@ -7,8 +7,8 @@
 //! released.
 
 use super::contraction::PreparedContractionNetworks;
-use super::error::{CudaAlgebraError, first_failure};
 use super::scratch::Scratch;
+use crate::engine::cuda_algebra_error::{CudaAlgebraError, first_failure};
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle};
 
 /// What an algebra keeps across its calls.

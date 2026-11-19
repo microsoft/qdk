@@ -1,26 +1,64 @@
 # cuTensorNet for the QDK: the MPS engine, and the discovery and loading of its libraries
 
-The `qdk_cutensornet` crate lets a QDK simulator written against
-`tensornet`'s `MpsEngine` trait run its matrix product states (MPS) on an
-NVIDIA GPU, with NVIDIA's cuTensorNet library. It has two parts:
+The `qdk_cutensornet` crate was designed to solve the problem of running
+a QDK simulator's matrix product states (MPS) on an NVIDIA GPU, with
+NVIDIA's cuTensorNet library, without making NVIDIA software part of the
+QDK. The problem includes:
+
+- an MPS engine's rules (where the orthogonality centre moves, how gates
+  are fused and applied, what a truncation keeps track of) are the same on
+  the CPU and on a GPU; written once per backend, they drift apart;
+- the instances a GPU is wanted for lie beyond the CPU's reach, such as
+  chemistry at a large bond extent, so their site tensors should stay in
+  the GPU's memory and be factored there;
+- most QDK users have neither cuTensorNet nor the CUDA Runtime it runs on
+  (NVIDIA's library for driving a GPU), so the QDK must build, load and
+  simulate on the CPU without them;
+- and when a GPU run is asked for, its caller needs to know what is
+  missing, to tell the user or to run on the CPU instead.
+
+The crate solves these with `canonical_mps`'s engine on a cuTensorNet
+algebra, and with libraries opened at run time and checked. The engine's
+rules are written once, in `canonical_mps`; this crate writes only the
+five tensor operations of its `SiteAlgebra` trait, run by cuTensorNet on
+one GPU, with the sites in the GPU's memory. cuTensorNet and the CUDA
+Runtime are never linked: when a GPU run is asked for, discovery opens
+them, looks up the functions the algebra calls, and checks their
+versions; it returns the loaded libraries, on which an engine opens, or
+every fault it found.
+
+Today the crate holds:
 
 - **[The MPS engine](#the-mps-engine):**
-  [`CudaMpsEngine`](src/engine.rs) is `canonical_mps`'s canonical-form MPS
-  engine on [`CudaAlgebra`](src/engine/cuda_algebra.rs), its site tensors'
-  operations run by cuTensorNet on one CUDA device.
+  [`CudaMpsEngine`](src/engine.rs), `canonical_mps`'s canonical-form MPS
+  engine on [`CudaAlgebra`](src/engine/cuda_algebra.rs), its
+  `SiteAlgebra` on cuTensorNet's tensor API.
+- **What passes between the engine and the algebra:**
+  [`DeviceTensor`](src/engine/cuda_algebra/device_tensor.rs), one site in
+  the GPU's memory, which only the algebra that made it accepts.
+- **Failures:** [`CudaAlgebraError`](src/engine/cuda_algebra_error.rs),
+  why a call of the algebra failed, which the engine wraps as
+  `CanonicalMpsError::Algebra`.
 - **[The discovery and loading of the libraries](#the-discovery-and-loading-of-the-libraries):**
-  cuTensorNet and the CUDA Runtime are opened at run time, never linked, so
-  the QDK builds, loads and simulates on the CPU without NVIDIA software;
-  what is missing is reported, so the caller can tell the user or run on
-  the CPU.
+  [`discover`](src/discovery.rs), which opens and checks the libraries,
+  and [`Availability`](src/discovery.rs), which keeps them loaded.
+- **Reports and faults:** [`AvailabilityReport`](src/discovery/report.rs),
+  with a [`LibraryReport`](src/libraries/report.rs) per library and the
+  [`Version`](src/libraries/report.rs)s it reports; and
+  [`AvailabilityError`](src/discovery/error.rs), with the
+  [`LibraryFault`](src/libraries/report.rs)s it lists.
+
+A simulator calls `discover()`, then
+`CudaMpsEngine::try_from(&availability)` (Linux x86-64), at the engine's
+default cutoff (`.with_cutoff(c)` sets another), as the example on
+[`CudaMpsEngine`](src/engine.rs) does, and uses the engine as any
+`tensornet::MpsEngine`; on an error, it tells the user what is missing,
+or runs on `canonical_mps`'s `CpuMpsEngine`.
 
 ## The MPS engine
 
-**The problem.** An MPS engine's rules (where the orthogonality centre
-moves, how gates are fused and applied, what a truncation keeps track of)
-are the same on the CPU and on a GPU; written once per backend, they drift
-apart. What differs is where the site tensors live and which library
-factors them.
+**The problem.** Of an MPS engine, only where the site tensors live and
+which library factors them differ between the CPU and a GPU.
 
 **How it is solved.** `canonical_mps` writes the engine once, over the
 five tensor operations of its `SiteAlgebra` trait, and this crate writes
@@ -32,11 +70,17 @@ and the trait's rustdoc; this section says how this algebra meets the
 contract, and why; [`docs/engine.md`](docs/engine.md) gives the native
 calls of each phase and the numerics, and each file's header the details.
 
-**Why this approach.** The engine's rules run alike on the CPU and the
-GPU, and a fix to them reaches both; the GPU code is the operations alone,
-checked by `canonical_mps`'s conformance kit; and the GPU engine reads as
-`canonical_mps`'s `CpuMpsEngine` does, up to rounding, so the two are
-compared read by read.
+**Why this approach.**
+
+- **One set of rules.** The engine's rules run alike on the CPU and the
+  GPU, and a fix to them reaches both.
+- **Small GPU code, checked once.** The GPU code is the operations alone,
+  checked by `canonical_mps`'s conformance kit.
+- **Compared read by read.** The GPU engine reads as `canonical_mps`'s
+  `CpuMpsEngine` does, up to rounding.
+- **Reach.** The GPU engine is for the instances beyond the CPU's reach:
+  its sites live in the GPU's memory, where cuTensorNet factors them, and
+  only an upload or a read copies one between the host and the GPU.
 
 Here the engine's `MpsEngine` methods call the _`SiteAlgebra` methods_
 (`upload`, `read`, `duplicate`, `gate_split`, `qr_move`), which this
@@ -44,15 +88,10 @@ algebra turns into cuTensorNet's tensor calls.
 
 ```mermaid
 flowchart LR
-  S["an MPS simulation method"] -->|"MpsEngine methods"| E["CanonicalMpsEngine<br/>(canonical_mps)"]
+  S["MPS simulation method"] -->|"MpsEngine methods"| E["CanonicalMpsEngine<br/>(canonical_mps)"]
   E -->|"SiteAlgebra methods"| A["<b>CudaAlgebra</b>"]
   A -->|"tensor API"| N["cuTensorNet:<br/>GateSplit, TensorQR,<br/>contraction networks"]
 ```
-
-Open an engine on a discovery's `Availability` (Linux x86-64), as the
-example on [`CudaMpsEngine`](src/engine.rs) does:
-`CudaMpsEngine::try_from(&availability)`, at the engine's default cutoff;
-`.with_cutoff(c)` sets another.
 
 ### The algebra's terms
 
@@ -177,9 +216,8 @@ debug builds.
 and checks the libraries a GPU run needs; each library's module in
 [`src/libraries/`](src/libraries) says what the crate needs of it.
 
-**The problem.** cuTensorNet runs on the CUDA Runtime, NVIDIA's library for
-driving a GPU. Both are shared libraries (`libcutensornet.so.2`,
-`libcudart.so.12`) that most QDK users do not have; linking them would make
+**The problem.** cuTensorNet and the CUDA Runtime are shared libraries
+(`libcutensornet.so.2`, `libcudart.so.12`), and linking them would make
 every QDK build, and every process that loads the QDK, fail without them.
 
 **How it is solved.** Nothing is linked. When a GPU run is asked for,
