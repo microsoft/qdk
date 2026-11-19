@@ -23,8 +23,8 @@
 //! ```
 //!
 //! `open` checks a library from this machine's files: the paths to try (its
-//! override variable's, or its default paths), the file loaded and its
-//! functions looked up (`loader`), and its versions probed.
+//! override variable's, or its default paths), the file loaded (`loader`),
+//! its functions looked up (`function_table`), and its versions probed.
 //!
 //! To bind another library:
 //!
@@ -56,11 +56,15 @@
 pub(crate) mod cuda_runtime;
 pub(crate) mod cutensornet;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod function_table;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod loader;
 pub(crate) mod report;
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use loader::{FunctionTable, OpenLibraryFile, SymbolResolver, load_library};
+use function_table::{FunctionTable, SymbolResolver};
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use loader::{OpenLibraryFile, load_library};
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 use report::LibraryFault;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
@@ -70,10 +74,11 @@ use std::{ffi::OsString, io::ErrorKind, path::PathBuf};
 
 /// The loaded libraries, each with its function table.
 ///
-/// The libraries are closed only when this is dropped, cuTensorNet first,
-/// as it runs on the CUDA Runtime; so no function pointer of the tables
-/// outlives its library. It holds no device, stream, handle or state:
-/// whoever calls a function that creates one owns it.
+/// The libraries stay loaded while this lives, so no function pointer of
+/// the tables outlives its library. Its fields drop in declaration order,
+/// cuTensorNet first, though the system loader keeps the CUDA Runtime
+/// loaded while cuTensorNet needs it. It holds no device, stream, handle
+/// or state: whoever calls a function that creates one owns it.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 #[expect(
     dead_code,

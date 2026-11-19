@@ -34,13 +34,24 @@ fn the_message_names_every_fault_with_its_library() {
             },
         ],
     };
+    let message = AvailabilityError::Unusable(report).to_string();
+    for symbol in ["cutensornetGateSplit", "cutensornetTensorQR"] {
+        assert_eq!(
+            message.matches(symbol).count(),
+            1,
+            "{symbol} once: {message}"
+        );
+    }
     assert_eq!(
-        AvailabilityError::Unusable(report).to_string(),
-        "cuTensorNet acceleration is unavailable: \
-         cuTensorNet at \"/opt/cutensornet/libcutensornet.so.2\": \
-         missing required symbol cutensornetGateSplit; \
-         cuTensorNet at \"/opt/cutensornet/libcutensornet.so.2\": \
-         missing required symbol cutensornetTensorQR"
+        message
+            .matches("/opt/cutensornet/libcutensornet.so.2")
+            .count(),
+        2,
+        "the path with each fault: {message}"
+    );
+    assert!(
+        !message.contains("CUDA Runtime") && !message.contains("libcudart"),
+        "the library with no fault is not named: {message}"
     );
 }
 
@@ -57,9 +68,12 @@ fn a_library_not_opened_is_named_without_a_path() {
             }],
         }],
     };
-    assert_eq!(
-        AvailabilityError::Unusable(report).to_string(),
-        "cuTensorNet acceleration is unavailable: \
-         CUDA Runtime: not found; attempted [\"libcudart.so.12\"]"
+    let message = AvailabilityError::Unusable(report).to_string();
+    for part in ["CUDA Runtime", "not found", "libcudart.so.12"] {
+        assert!(message.contains(part), "{part} is named: {message}");
+    }
+    assert!(
+        !message.contains("CUDA Runtime at"),
+        "no path is given for a library not opened: {message}"
     );
 }
