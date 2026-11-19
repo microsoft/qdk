@@ -7,10 +7,9 @@
 //! `NativeLibrary`: where it is looked for, the functions looked up in it
 //! (`CudaFunctions`), and its versions: `CUDA Runtime`, which must be 12.9,
 //! and `CUDA driver`, reported only. CUDA encodes a version as
-//! `1000·major + 10·minor` (`12090` is 12.9). One file per family of the
-//! table's functions declares their function-pointer types, mirroring
-//! cuTensorNet's (for instance `memory`: free memory, allocation, release
-//! and copies).
+//! `1000·major + 10·minor` (`12090` is 12.9). Its `LibrarySetupGuide` says
+//! what the setup check shows of it and advises. This module also declares
+//! the function-pointer types of the table's rows.
 //!
 //! `cudart_12`, in `generated/`, declares the CUDA Runtime 12's API, the
 //! functions, types and constants of its header: a function pointer is only
@@ -51,7 +50,9 @@ mod generated {
 pub(crate) use generated::cudart_12;
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use super::{NativeLibrary, ProbedVersions, setup_guide::or_unread};
+use super::{
+    NativeLibrary, ProbedVersions, setup_guide::LibrarySetupGuide, setup_guide::or_unread,
+};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::{
     LibraryFault, LibraryReport,
@@ -110,12 +111,6 @@ impl NativeLibrary for CudaRuntime {
         "/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12",
         Self::FILE_NAME,
     ];
-    const INSTALL: &'static str = "the CUDA Runtime 12.9";
-    const VERSION_PROBE_ADVICE: Option<&'static str> = Some(concat!(
-        "CUDA could not report its version, usually because the NVIDIA driver is too old: check \
-         `nvidia-smi`, and install ",
-        cuda_12_driver!()
-    ));
     type Functions = CudaFunctions;
 
     /// Reads the CUDA Runtime's version, which must be 12.9, and the
@@ -149,6 +144,16 @@ impl NativeLibrary for CudaRuntime {
         }
         probed
     }
+}
+
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+impl LibrarySetupGuide for CudaRuntime {
+    const INSTALL: &'static str = "the CUDA Runtime 12.9";
+    const VERSION_PROBE_ADVICE: Option<&'static str> = Some(concat!(
+        "CUDA could not report its version, usually because the NVIDIA driver is too old: check \
+         `nvidia-smi`, and install ",
+        cuda_12_driver!()
+    ));
 
     /// Its path and version, and the CUDA the driver supports, or that
     /// there is no driver.

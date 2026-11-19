@@ -4,10 +4,12 @@
 //! The native libraries the crate uses, and what it needs of each.
 //!
 //! Each library has its own module, which holds everything the crate assumes
-//! of it, as its implementation of `NativeLibrary`, so a reader finds a
-//! library's settings in one place, with what the setup check tells a user
-//! about it (its `SetupGuide`, in `setup_guide`). This module holds what the
-//! libraries share: the way from one library to the set a GPU run needs.
+//! of it: its implementation of `NativeLibrary`, what discovery needs of it,
+//! and of `LibrarySetupGuide` (in `setup_guide`), what the setup check tells
+//! a user about it. Discovery's steps, and the setup check's library steps,
+//! name no library, so binding another library is adding its module and
+//! listing it in `LoadedLibraries` (the steps below). This module holds what
+//! the libraries share: the way from one library to the set a GPU run needs.
 //!
 //! ```text
 //! NativeLibrary     one library, as the crate needs it (one module per
@@ -47,8 +49,8 @@
 //!    override variable, file name and default paths, its table of
 //!    functions (`function_table!`, each field named for its symbol), how
 //!    its versions are read and which are accepted, asserted at compile time
-//!    to be the version its header declares, where the header declares one,
-//!    and what the setup check shows of it and advises;
+//!    to be the version its header declares, where the header declares one;
+//!    and `LibrarySetupGuide`: what the setup check shows of it and advises;
 //! 3. add its field to `LoadedLibraries`, open it in `LoadedLibraries::open`
 //!    after the libraries it runs on, so that each of those is listed before
 //!    it in the report, and add its guide to `LoadedLibraries::SETUP_GUIDES`
@@ -58,9 +60,9 @@
 //!    case list of `function_table`'s tests; add its variable, paths and
 //!    versions to the README.
 //!
-//! Discovery, `PackagedLibraries` and the public report, a list with one
-//! entry per library, do not change: adding a library changes no public
-//! type.
+//! Discovery, `PackagedLibraries` (in `packaged_libraries`) and the public
+//! report, a list with one entry per library, do not change: adding a
+//! library changes no public type.
 //!
 //! Only the audited versions are accepted: the bindings were checked against
 //! them, and a newer library is not assumed compatible, so any other version
@@ -72,6 +74,7 @@ pub(crate) mod cutensornet;
 pub(crate) mod function_table;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod loader;
+pub(crate) mod packaged_libraries;
 pub(crate) mod report;
 pub(crate) mod setup_guide;
 
@@ -79,6 +82,7 @@ pub(crate) mod setup_guide;
 use function_table::{FunctionTable, SymbolResolver};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use loader::{OpenLibraryFile, load_library};
+pub use packaged_libraries::PackagedLibraries;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 use report::LibraryFault;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
@@ -87,6 +91,7 @@ use report::{LibraryReport, Version};
 use setup_guide::SetupGuide;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use std::path::Path;
+#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 use std::path::PathBuf;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 use std::{ffi::OsString, io::ErrorKind};
@@ -129,29 +134,6 @@ impl LoadedLibraries {
     ];
 }
 
-/// The library files a package manager installed, for
-/// [`discover_with`](crate::discover_with), and the command that installs
-/// them.
-///
-/// A package manager may install the libraries where no default path
-/// reaches: NVIDIA's Python wheels (`cutensornet-cu12`,
-/// `nvidia-cuda-runtime-cu12`) put them inside a Python environment, which
-/// only a caller that reads the environment can find. The first file of a
-/// library's file name (`libcutensornet.so.2`, `libcudart.so.12`) is tried
-/// for that library, before the default paths; a later file of that name,
-/// or a file of another name, is not tried. `Default` is no file and no
-/// command, which is what [`discover`](crate::discover) uses.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PackagedLibraries {
-    /// The absolute paths of the library files installed; order matters
-    /// only between files of one name.
-    pub files: Vec<PathBuf>,
-    /// The command that installs the libraries with the caller's package
-    /// manager, which the setup check's advice gives as an example; `None`
-    /// gives no command.
-    pub install_command: Option<String>,
-}
-
 /// One native library: where it is looked for, the table of its functions,
 /// and its versions.
 ///
@@ -170,13 +152,6 @@ pub(crate) trait NativeLibrary {
     /// The paths tried, in order, when the variable is not set, after its
     /// packaged file, if any.
     const DEFAULTS: &'static [&'static str];
-    /// What the setup check advises installing, for instance
-    /// `cuTensorNet 2.13`: the library at its audited version.
-    const INSTALL: &'static str;
-    /// What the setup check advises when a call that reads one of its
-    /// versions fails; `None` when no such call can fail, and the check
-    /// advises the install.
-    const VERSION_PROBE_ADVICE: Option<&'static str> = None;
     /// The table of the functions looked up in it.
     type Functions: FunctionTable;
 
@@ -198,18 +173,6 @@ pub(crate) trait NativeLibrary {
     /// lacks them. A version whose functions are missing is not read; the
     /// table reports them.
     fn probe_versions<R: SymbolResolver>(resolver: &R) -> ProbedVersions;
-
-    /// What the setup check shows of the library once loaded (its report
-    /// has a path), whether or not discovery succeeded, one line per item:
-    /// where it was loaded from, and its versions, each version `unread`
-    /// when the report lacks it.
-    fn describe(report: &LibraryReport) -> Vec<String>;
-
-    /// A problem of the host that the usable library's report reveals, in
-    /// words for the user with its fix: none by default.
-    fn host_problem(_report: &LibraryReport) -> Option<String> {
-        None
-    }
 }
 
 /// An open library with the table of its functions.

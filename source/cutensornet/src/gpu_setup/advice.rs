@@ -5,10 +5,10 @@
 //! words for the user.
 //!
 //! The advice about one library comes from its `SetupGuide`, which its
-//! module declares; this file adds the advice that holds for every library
-//! (for each kind of fault, whether to set an override or install the
-//! libraries, and what to install), that of the warning of another copy,
-//! and that of the steps after discovery.
+//! module declares as its `LibrarySetupGuide`; this file adds the advice
+//! that holds for every library (for each kind of fault, whether to set an
+//! override or install the libraries, and what to install), that of the
+//! warning of another copy, and that of the steps after discovery.
 
 use super::devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
 use super::with_sources;

@@ -9,9 +9,10 @@
 //! 2.13.0, and `cuTensorNet's CUDA Runtime`, the CUDA Runtime it was built
 //! against, which must be 12.9. cuTensorNet encodes its version as
 //! `10000·major + 100·minor + patch` (`21300` is 2.13.0), and a CUDA Runtime
-//! version as CUDA does, `1000·major + 10·minor` (`12090` is 12.9). One file
-//! per family of the table's functions declares their function-pointer
-//! types (for instance `decomposition`: SVD, gate split, QR).
+//! version as CUDA does, `1000·major + 10·minor` (`12090` is 12.9). Its
+//! `LibrarySetupGuide` says what the setup check shows of it and advises.
+//! The families' files (`context`, `tensor`, `workspace`) declare the
+//! function-pointer types of the table's rows.
 //!
 //! `v2_13`, in `generated/`, declares cuTensorNet 2.13's API, the functions,
 //! types and constants of its header: a function pointer is only as right as
@@ -59,7 +60,10 @@ pub(crate) use generated::v2_13;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use super::function_table::{FunctionTable, SymbolResolver};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use super::{NativeLibrary, ProbedVersions, cuda_runtime, setup_guide::or_unread};
+use super::{
+    NativeLibrary, ProbedVersions, cuda_runtime, setup_guide::LibrarySetupGuide,
+    setup_guide::or_unread,
+};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::LibraryReport;
 
@@ -91,7 +95,6 @@ impl NativeLibrary for CuTensorNet {
         "/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2",
         Self::FILE_NAME,
     ];
-    const INSTALL: &'static str = "cuTensorNet 2.13";
     type Functions = CuTensorNetFunctions;
 
     /// Reads cuTensorNet's version, which must be 2.13.0, and the CUDA
@@ -119,6 +122,11 @@ impl NativeLibrary for CuTensorNet {
         }
         probed
     }
+}
+
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+impl LibrarySetupGuide for CuTensorNet {
+    const INSTALL: &'static str = "cuTensorNet 2.13";
 
     /// Its path and version, and the CUDA Runtime it was built for.
     #[expect(

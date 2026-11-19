@@ -30,8 +30,9 @@ flowchart TD
   [`cuda_runtime.rs`](../src/libraries/cuda_runtime.rs)): its name, override
   variable, file name (which picks its file among the packaged ones) and
   default paths, its [`FunctionTable`](../src/libraries/function_table.rs), how its
-  versions are read and which are accepted, and what the GPU setup check
-  says of it. cuTensorNet's table
+  versions are read and which are accepted. Beside it, the module
+  implements [`LibrarySetupGuide`](../src/libraries/setup_guide.rs): what
+  the GPU setup check shows of the library and advises. cuTensorNet's table
   holds the functions the CUDA algebra calls: its handle's and its
   workspaces', and those of its tensor API (tensor descriptors, SVD
   settings and reports, `GateSplit`, `TensorQR` and contraction networks);
