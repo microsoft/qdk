@@ -343,21 +343,31 @@ def test_another_seed_gives_other_rows(engine):
 
 
 def test_a_run_that_lost_weight_warns(engine):
-    """A Bell pair at max bond dimension 1: the bond the `cx` makes is cut
-    to 1, losing about half the state's weight, so the run warns with
-    `RuntimeWarning`, pointing at the caller's line, whose message gives
-    the loss the report gives, the tolerance (1e-3) and the max bond
-    dimension to raise."""
+    """An uneven pair at max bond dimension 1: the bond the `cx` makes,
+    with Schmidt weights 3/4 and 1/4, is cut to 1, losing a quarter of the
+    state's weight, so the run warns: a `RuntimeWarning` pointing at the
+    caller's line, whose message gives the loss the report gives (not the
+    weight kept), the tolerance (1e-3) and the max bond dimension to
+    raise."""
+    uneven_pair = qasm("""
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[2] q;
+        bit[2] c;
+        ry(pi / 3) q[0];
+        cx q[0], q[1];
+        c = measure q;
+        """)
     with pytest.warns(RuntimeWarning, match=r"max bond dimension 1\b") as warned:
         results = tensornetwork_qir(
-            BELL,
+            uneven_pair,
             [Sample(2)],
             engine=engine,
             seed=7,
             options=MpsOptions(max_bond_dimension=1),
         )
     assert warned[0].filename == __file__
-    assert results.report.discarded_weight > 1e-3
+    assert results.report.discarded_weight == pytest.approx(0.25, rel=1e-3)
     numbers = [
         float(number)
         for number in re.findall(r"\d+(?:\.\d+)?(?:e-?\d+)?", str(warned[0].message))
