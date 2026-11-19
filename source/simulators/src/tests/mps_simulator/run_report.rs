@@ -93,12 +93,12 @@ fn the_bond_is_read_once_per_run_of_gates() {
     assert_eq!(resumer.engine().shapes(), 2);
 }
 
-/// A split adds no read: the part that waits holds a state whose bond was
+/// A split adds no read: the group that waits holds a state whose bond was
 /// read before the draw, with no gate since. Eight shots of a Bell
 /// pair, both qubits read, then an H gate, split at the first measurement:
-/// the bond is read once before it, then once per part after the H.
+/// the bond is read once before it, then once per group after the H.
 #[test]
-fn a_split_reads_the_bond_of_neither_part_again_before_a_gate() {
+fn a_split_reads_the_bond_of_neither_group_again_before_a_gate() {
     let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
     let program = program(
         2,

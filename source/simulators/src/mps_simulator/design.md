@@ -29,7 +29,7 @@ the same names.
   header). No caller sees sites.
 - **stop** (`check_stop_flag`, called by `run_group`): a stop flag
   (`MpsResumer::with_stop_flag`) is read before a group runs its steps
-  (when it first runs, when a part split off by a draw runs on, and once
+  (when it first runs, when a group split off by a draw runs on, and once
   each batch is lowered), and after each resume that gives a batch or a
   trap (before the batch is lowered, or the trap reported); read set, it
   fails the run; a context that ended keeps its records.
@@ -55,13 +55,13 @@ the same names.
   it is in, so its records are those it gets alone (to what precision:
   `MpsResumer`'s doc, in [`mps_simulator.rs`](../mps_simulator.rs)).
 - **split** (`split`, with `value_going_on`): when the shots drew both
-  values, the part with fewer shots goes on (on a tie, the part that drew
-  Zero), and the other waits on a stack, with a copy of the context and a
-  fork of the state, made after the probability is read. As the larger
-  part waits, each waiting part has at least as many shots as all the
-  groups above it, so a run of N shots holds at most ⌊log₂ N⌋ + 1 states
-  at once.
-- **settle** (`settle`): each part's state is projected on its value, then
+  values, the group splits into two groups, one per value: the smaller
+  goes on (on a tie, the one that drew Zero), and the other waits on a
+  stack, with a copy of the context and a fork of the state, made after
+  the probability is read. As the larger group waits, each waiting group
+  has at least as many shots as all the groups above it, so a run of N
+  shots holds at most ⌊log₂ N⌋ + 1 states at once.
+- **settle** (`settle`): each group's state is projected on its value, then
   a reset that drew One applies X. The engine has no measurement and no
   reset, only probabilities, projections and matrices.
 - **end** (`end`): the context ended; the state's retained weight is read,
@@ -78,7 +78,7 @@ the group is dropped with it:
 
 - a failed fork fails the whole group, before its shots split;
 - a failure settling the fork (the projection, and a reset's X) fails only
-  the part that was to wait, and drops the fork.
+  the group that was to wait, and drops the fork.
 
 Before any group runs, start fails the run's first shot when the qubits
 and χ make no chain. The run names the first failing shot in the order of

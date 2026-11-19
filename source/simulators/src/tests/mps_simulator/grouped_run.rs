@@ -8,7 +8,7 @@
 //! once; an engine failure fails the shot with the engine's error, and the
 //! state it failed on is not used again (a failed fork fails the whole
 //! group, a failed settle of the fork only the shots that wait); a run
-//! names its first failing shot in the order of its shots, whichever part
+//! names its first failing shot in the order of its shots, whichever group
 //! of a split goes on, and drops the groups whose shots all come after it;
 //! a run after a failed one is independent of it; and a stop flag ends a
 //! run before the next batch.
@@ -160,7 +160,7 @@ fn shots_whose_draws_differ_fork_the_state_once_where_they_differ() {
 /// A run of N shots holds at most ⌊log₂ N⌋ + 1 states at once, however its
 /// draws split them: here twelve biased coins (P(One) 0.15) on 16 shots,
 /// each coin splitting off a few shots, which a run that went on with the
-/// larger part would hold all at once.
+/// larger group would hold all at once.
 #[test]
 fn a_run_holds_at_most_log2_of_its_shots_plus_one_states() {
     let angle = 2.0 * 0.15_f64.sqrt().asin();
@@ -313,7 +313,7 @@ impl FailingRun {
 }
 
 /// A failed run names its first failing shot in the order of its shots,
-/// whichever part of a split goes on and whichever failure the run meets
+/// whichever group of a split goes on and whichever failure the run meets
 /// first. Each row is a scene, the shot it names, and how that shot fails.
 #[test]
 fn a_failed_run_names_its_first_failing_shot_in_shot_order() {
@@ -467,14 +467,14 @@ fn no_group_runs_on_for_shots_after_the_first_failure() {
     };
     rows.push((scene_run, failing[0], Failure::Trap, 1));
 
-    // The part going on from a split whose waiting copy failed: a coin,
+    // The group going on from a split whose waiting copy failed: a coin,
     // then three X gates on a second qubit, on an engine whose projections
     // on One fail. The two shots that read 1 first, which wait and whose
     // copy fails, then the shot that reads 0, which goes on and applies
     // none of the gates.
     let [zero, one, other_one] = a_zero_then_two_ones();
     let scene_run = FailingRun {
-        scene: "the part going on from a failed waiting copy".to_string(),
+        scene: "the group going on from a failed waiting copy".to_string(),
         engine: ReferenceSpy::failing_projections_on_one,
         seed: 5,
         program: program(
@@ -492,7 +492,7 @@ fn no_group_runs_on_for_shots_after_the_first_failure() {
     };
     rows.push((scene_run, one, Failure::Engine, 1));
 
-    // The part going on from any split, not only from one whose waiting
+    // The group going on from any split, not only from one whose waiting
     // copy failed: a first coin, whose shots that read 1 trap, then for the
     // others a second coin and three X gates on a third qubit. The shots:
     // A and C read 0 then 0, B reads 1, D reads 0 then 1. On the first coin
@@ -504,7 +504,7 @@ fn no_group_runs_on_for_shots_after_the_first_failure() {
     let b = reading_on_two_coins(1, None)[0];
     let d = reading_on_two_coins(0, Some(1))[0];
     let scene_run = FailingRun {
-        scene: "the part going on from any split".to_string(),
+        scene: "the group going on from any split".to_string(),
         engine: ReferenceSpy::new,
         seed: 5,
         program: program(
@@ -597,7 +597,7 @@ fn a_failure_of_any_call_a_lone_shot_makes_fails_it_with_the_engines_error() {
 /// A state an engine call failed on is not used again, as the engine
 /// leaves it unspecified. Each row is a call that fails: one of the calls
 /// given a state that a Bell pair's shot makes alone; or the fork of a
-/// coin's state, which the part that would go on does not settle.
+/// coin's state, which the group that would go on does not settle.
 #[test]
 fn a_state_an_engine_call_failed_on_is_not_used_again() {
     let mut rows: Vec<(String, ReferenceSpy, QirProgram, Vec<QirShotId>)> = Vec::new();
@@ -620,9 +620,9 @@ fn a_state_an_engine_call_failed_on_is_not_used_again() {
 
 /// When the fork of a group's state fails, the whole group fails, before
 /// its shots split: the engine leaves the state it failed on unspecified, so
-/// no part may go on with it. On a coin, the shot that reads 0 would go on,
+/// no group may go on with it. On a coin, the shot that reads 0 would go on,
 /// the fewer, and the two that read 1 would wait; the run names the first
-/// shot, which ends alone, whichever part it would be in: the shot that
+/// shot, which ends alone, whichever group it would be in: the shot that
 /// reads 0 first, then a shot that reads 1 first.
 #[test]
 fn a_failed_fork_fails_the_shots_going_on_too() {
@@ -644,14 +644,14 @@ fn a_failed_fork_fails_the_shots_going_on_too() {
     }
 }
 
-/// When the copy for the part of a split that waits fails, only the shots
+/// When the copy for the group of a split that waits fails, only the shots
 /// that wait fail, as the group's own state was not touched: on a coin,
 /// the shot that reads 0 goes on, the fewer, and ends, and the run names
 /// the first of the two that wait, not the shot before them. Each row is
 /// how the copy fails, and the gates the run applies: as it is projected
-/// on One, while the part going on applies an X on a second qubit; or, a
+/// on One, while the group going on applies an X on a second qubit; or, a
 /// coin read and reset, as the X that returns it to |0⟩ fails, which the
-/// part going on, at 0, does not need.
+/// group going on, at 0, does not need.
 #[test]
 fn a_failed_waiting_copy_fails_only_the_shots_that_wait() {
     let shots = a_zero_then_two_ones();
@@ -715,11 +715,11 @@ fn a_set_stop_flag_fails_the_run_before_any_gate() {
 }
 
 /// A flag set during a batch lets the group under way run the rest of it,
-/// and stops each part split off by a draw before it runs on: set at the
+/// and stops each group split off by a draw before it runs on: set at the
 /// first gate of eight coins on 16 shots, a program of one batch whose
 /// draws split the shots into many groups, the run applies the eight gates
-/// of the group under way, none of the parts split off, and names shot 0,
-/// which was in a part that split off and had not ended.
+/// of the group under way, none of the groups split off, and names shot 0,
+/// which was in a group that split off and had not ended.
 #[test]
 fn a_stop_flag_set_during_a_run_stops_it_once_the_batch_under_way_ends() {
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -739,14 +739,14 @@ fn a_stop_flag_set_during_a_run_stops_it_once_the_batch_under_way_ends() {
     assert_eq!(
         resumer.engine().applies(),
         8,
-        "the gates of the group under way, none of the parts split off"
+        "the gates of the group under way, none of the groups split off"
     );
 }
 
 /// A stopped run names the first shot that had not ended, not the first of
 /// the run: of three shots, the first reads 0 on its coin and the others
 /// read 1. The first has no more gates, and ends before the others go on,
-/// as the part with fewer shots goes on first; the others' next batch
+/// as the smaller group goes on first; the others' next batch
 /// flips and reads a second qubit, and the flag, set at the flip, stops the
 /// run before the batch after, naming the second shot.
 #[test]
