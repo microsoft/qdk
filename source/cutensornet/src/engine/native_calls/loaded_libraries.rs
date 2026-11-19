@@ -12,11 +12,11 @@
 //!
 //! This module holds every call the engine makes to cuTensorNet and the
 //! CUDA Runtime, so it is where their foreign-function obligations are
-//! kept (the setup check's one call of its own, `cudaDeviceGetAttribute`,
-//! keeps its obligation where it is made, in
-//! `gpu_setup/devices/device_calls/`): each `unsafe` call says what makes
-//! it sound (the handles live, the buffers large enough and kept alive,
-//! the values in the audited representation). It owns nothing:
+//! kept: each `unsafe` call says what makes it sound (the handles live, the
+//! buffers large enough and kept alive, the values in the audited
+//! representation). The setup check's one call of its own,
+//! `cudaDeviceGetAttribute`, keeps its obligation where it is made
+//! (`gpu_setup/devices/device_calls/loaded_libraries.rs`). It owns nothing:
 //! `DeviceSession` and `CudaAlgebra` create the streams, handles, objects
 //! and buffers, and release them.
 //! Discovery has checked the versions, so this code assumes cuTensorNet
