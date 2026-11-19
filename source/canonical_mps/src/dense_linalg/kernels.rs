@@ -10,7 +10,7 @@
 //! matrix to the fast route. A library brings only what it computes faster
 //! or better than code written here: the product, the thin QR, the
 //! column-pivoted QR and the application of its `Q`, and the fast route's
-//! SVD.
+//! SVD (`kernels/t4a_faer.rs`'s header gives how much faster).
 //!
 //! [`DefaultKernels`] is the implementation the public API computes with.
 
