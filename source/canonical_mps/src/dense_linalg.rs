@@ -23,7 +23,7 @@
 //! The module is private: only [`SvdError`] is public, at the crate's root,
 //! because it is `CpuAlgebra`'s error and the source of an engine error.
 //! The `conformance` feature makes the module public, for another crate's
-//! test doubles that compute as a backend library would (a fake of a GPU
+//! test fakes that compute as a backend library would (a fake of a GPU
 //! library's SVD and QR).
 //!
 //! Each computes on the calling thread. `docs/dense_linalg.md` gives the

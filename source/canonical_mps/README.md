@@ -18,8 +18,8 @@ includes:
   them, without writing those checks again;
 - a simulator needs an engine where no GPU is present, on every platform
   the QDK ships to;
-- and a shot's cost should stay low, since it applies many gates, and a
-  state's observables hold hundreds of Pauli strings.
+- and a shot's cost should stay low, since it applies many gates, and the
+  observables it reads hold hundreds of Pauli strings.
 
 The crate solves these with an engine that holds the rules, written once
 over a contract of tensor operations that a backend implements. A
@@ -31,11 +31,11 @@ contract's conformance kit, and the engine's conformance circuits, on it.
 The crate's own backend is the CPU algebra: its tensors are vectors in the
 host's memory, and its products, QR and SVD are the crate's
 [dense linear algebra](#the-dense-linear-algebra)'s, on the calling
-thread. A backend on a GPU library goes in a crate of its own, for the
-chemistry instances that are slow on the CPU, such as benzene, or N₂ at a
-large bond dimension, on an NVIDIA A100 GPU. The engine keeps the cost low
-by deferring and sharing work: it fuses gates into one application, and
-reads an observable's sites once for all its terms.
+thread. A backend on a GPU library goes in a crate of its own, which runs
+it on an NVIDIA GPU, for the chemistry instances that are slow on the CPU,
+such as benzene, or N₂ at a large bond dimension. The engine keeps the
+cost low by deferring and sharing work: it fuses gates into one
+application, and reads an observable's sites once for all its terms.
 
 Today the crate holds:
 
@@ -51,10 +51,10 @@ Today the crate holds:
   [`CanonicalMpsStatistics`](src/engine/statistics.rs), what a state's
   history cost.
 - **Refusals and failures:**
-  [`CanonicalMpsError`](src/engine/error.rs): a call the contract refuses
-  (one whose arguments break its rules, or a projection or condition on a
-  value of probability zero), the backend's own failure, or the engine's
-  (a sample too large for memory, a truncation that would leave too
+  [`CanonicalMpsError`](src/engine/error.rs): a call `MpsEngine`'s contract
+  refuses (one whose arguments break its rules, or a projection or condition
+  on a value of probability zero), the backend's own failure, or the
+  engine's (a sample too large for memory, a truncation that would leave too
   little weight, a failed factorisation of a gate window's operator).
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/site_algebra.rs), the tensor operations a backend
@@ -75,9 +75,9 @@ Today the crate holds:
   host CPU, which passes the kit and on which the engine's tests run.
 - **[The dense linear algebra](#the-dense-linear-algebra):** the
   products, QR and checked SVD of the CPU algebra and of the engine's
-  computations on the host, private but for its error,
-  [`SvdError`](src/dense_linalg/svd.rs), and public under the
-  `conformance` feature, for a backend's tests.
+  computations on the host; private, but for its error,
+  [`SvdError`](src/dense_linalg/svd.rs); the `conformance` feature makes
+  it public for a backend's test fakes.
 
 A simulator uses the engine: it starts with `CpuMpsEngine`, as in
 [On the host CPU](#on-the-host-cpu), or names `CanonicalMpsEngine` on
@@ -347,7 +347,7 @@ A backend's tests check it against the contract with two parts, public
 under the crate's `conformance` feature, which a backend enables in its
 dev-dependencies (the feature also makes
 [`dense_linalg`](src/dense_linalg.rs) public, for a backend's test
-stand-ins):
+fakes):
 
 - **The kit,**
   [`site_algebra::conformance::check`](src/site_algebra/conformance.rs), calls each
@@ -425,13 +425,12 @@ The engine reports it as `CanonicalMpsError::Algebra`.
 The CPU algebra's products, QR decompositions and SVD, and the
 engine's computations on the host (an MPO's operator, the expectation's
 contractions), come from the crate's module
-[`dense_linalg`](src/dense_linalg.rs), private, and public under the
-`conformance` feature for a backend's tests: dense complex matrices with a thin
+[`dense_linalg`](src/dense_linalg.rs): dense complex matrices with a thin
 QR and a checked SVD, which either answers factors checked against the
 matrix or reports a failure (`SvdError`, exported at the crate's root).
 [`docs/dense_linalg.md`](docs/dense_linalg.md) gives the SVD's guarantees
-and steps, and t4a-faer, the library that computes its products, QR
-decompositions and fast route, with why.
+and steps, and t4a-faer, the library that computes the module's products
+and QR decompositions and the SVD's fast route, with why.
 
 ## Examples
 
