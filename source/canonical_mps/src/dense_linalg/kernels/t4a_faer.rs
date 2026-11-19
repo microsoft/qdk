@@ -4,8 +4,8 @@
 //! [`T4aFaer`]: the [`Kernels`] on t4a-faer, a fork of faer pinned to one
 //! version, sequential (the crate builds it without rayon).
 //!
-//! These steps set the module's speed, which is why they come from
-//! t4a-faer: with it, the SVD alone is 1.6 to 2.1 times as fast as with
+//! The [`Kernels`]' steps set the module's speed, which is why they come
+//! from t4a-faer: with it, the SVD alone is 1.6 to 2.1 times as fast as with
 //! nalgebra 0.35, the dense algebra the QDK's simulators already use, and
 //! an MPS simulation 1.6 to 1.8 times as fast end to end (H₂'s phase
 //! estimation shots at a bond of 64, on one core: 82 s against 129 s), with

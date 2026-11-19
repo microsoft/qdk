@@ -18,7 +18,7 @@ parts:
   behind the module-private trait `Kernels`.
 
 The `conformance` feature makes the module public, so that another crate's
-test doubles can compute as a backend library would.
+test fakes can compute as a backend library would.
 
 **The problem.** The matrices met when simulating MPS are rank-deficient most of
 the time, with repeated singular values, and general SVDs have returned factors
@@ -29,14 +29,14 @@ that acts on such values truncates the wrong state, silently.
 **The approach.** The SVD's rules are the module's own, written once: a trim
 that reduces the matrix to full rank, leaving out only rounding; one-sided
 Jacobi rotations, which converge on a matrix of full rank within a cap of
-sweeps, or report the failure; and checks, to the bounds of LAPACK's SVD
-tests, on every answer. A linear algebra library brings only the steps it
-computes faster (the products and the QR decompositions, and a fast route
-for large full-rank matrices), behind one module-private trait, so that
-replacing the library changes that trait's implementation and none of the
-SVD's rules. The SVD checks every answer it gives, the fast route's
-included; the product and the thin QR (scaled as the SVD's input is) are
-the library's, to rounding, and not checked.
+sweeps, or report the failure; and checks, to the bounds of LAPACK's SVD tests,
+on every answer. A linear algebra library brings the steps that set the module's
+speed (the products and the QR decompositions, and a fast route for large
+full-rank matrices), behind one module-private trait, so that replacing the
+library changes that trait's implementation and none of the SVD's rules. The SVD
+checks every answer it gives, the fast route's included; the product and the
+thin QR (scaled as the SVD's input is) are the library's, to rounding, and not
+checked.
 
 ## The checked SVD
 
