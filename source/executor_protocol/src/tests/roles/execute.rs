@@ -43,6 +43,13 @@ const PROGRAM: [(&str, u32); 12] = [
 /// failure, so that a failing split is replayed.
 const CUTS_SEED: u64 = 1119;
 
+/// [`PROGRAM`] with each read made a flip: a program that reads nothing,
+/// so that the conditions its shots get come from pieces that read
+/// nothing.
+fn reading_nothing() -> [(&'static str, u32); 12] {
+    PROGRAM.map(|(mnemonic, qubit)| (if mnemonic == "mz" { "x" } else { mnemonic }, qubit))
+}
+
 /// Bits taking at most `most` instructions per batch, if some.
 fn bits(log: &Log, most: Option<u32>) -> Bits {
     let offer = Offer::unlimited().max_qubits(64).without_readout_parity();
@@ -65,25 +72,66 @@ fn seeded_cuts(seed: u64, pieces: usize) -> Vec<usize> {
     cuts.into_iter().collect()
 }
 
-/// The records of [`PROGRAM`] sent whole, in one `execute`, on `shots`.
-fn sent_whole(shots: &ShotSet) -> Vec<(Values, ShotConditions)> {
+/// The executor of a case, made of plain bits: themselves, or bits losing
+/// some shots.
+type MakesBits = fn(Bits) -> Bits;
+
+/// The records of `program` sent whole, in one `execute`, on `shots`, to
+/// the bits `executor` makes of plain bits.
+fn sent_whole(
+    program: &[(&str, u32)],
+    executor: MakesBits,
+    shots: &ShotSet,
+) -> Vec<(Values, ShotConditions)> {
     let log = Log::default();
-    runner(Driver::new(Program::new(&PROGRAM)) >> Executor::new(bits(&log, None)))
+    runner(Driver::new(Program::new(program)) >> Executor::new(executor(bits(&log, None))))
         .run(shots, SEED)
         .expect("the run succeeds")
 }
 
-/// A driver sending [`PROGRAM`] whole, then in 2 to 5 `execute`s cut at
-/// seeded points, then as one stream, to receivers taking at most 1, 2,
-/// 5, 12 instructions, or any count, and executors that run the stream
-/// themselves or cut it by the default, directly, through an adapter that
-/// forwards streams or one that cuts them by its default, in each
-/// bracketing, and behind `&mut`: each shot's readouts are those of the
-/// program sent whole, since its state is kept between calls.
+/// A driver sending [`PROGRAM`], or the same program reading nothing,
+/// whole, then in 2 to 5 `execute`s cut at seeded points, then as one
+/// stream, to receivers taking at most 1, 2, 5, 12 instructions, or any
+/// count, and executors that run the stream themselves or cut it by the
+/// default, losing no shot or the odd shots, directly, through an adapter
+/// that forwards streams or one that cuts them by its default, in each
+/// bracketing, and behind `&mut`: each shot's readouts and conditions are
+/// those of the program sent whole, since its state is kept between
+/// calls, and a condition is kept from every piece, even one that reads
+/// nothing.
 #[test]
 fn a_shots_readouts_are_the_same_however_its_instructions_are_split_over_calls() {
     let shots = ShotSet::ids(0..5);
-    let whole = sent_whole(&shots);
+    let reading_nothing = reading_nothing();
+    let plain: MakesBits = |bits| bits;
+    let programs = [
+        ("reads through it", &PROGRAM, plain),
+        (
+            "reads through it, odd shots lost",
+            &PROGRAM,
+            Bits::losing_odd_shots,
+        ),
+        (
+            "reads nothing, odd shots lost",
+            &reading_nothing,
+            Bits::losing_odd_shots,
+        ),
+    ];
+    for (program_named, program, executor) in programs {
+        sent_in_every_split(&shots, program_named, program, executor);
+    }
+}
+
+/// The body of the test above, for `program`, as `program_named` says,
+/// to the bits `executor` makes.
+fn sent_in_every_split(
+    shots: &ShotSet,
+    program_named: &str,
+    program: &[(&str, u32)],
+    executor: MakesBits,
+) {
+    let whole = sent_whole(program, executor, shots);
+    let bits = |log: &Log, most| executor(bits(log, most));
     let mut sendings: Vec<(String, Sending, Option<u32>)> = (2..=5)
         .map(|pieces| {
             let seed = CUTS_SEED + pieces as u64;
@@ -97,18 +145,21 @@ fn a_shots_readouts_are_the_same_however_its_instructions_are_split_over_calls()
         sendings.push((sent, Sending::stream(), most));
     }
     for (sent, sending, most) in sendings {
-        let program = || Driver::new(Program::new(&PROGRAM).sending_as(sending.clone()));
+        let program = || Driver::new(Program::new(program).sending_as(sending.clone()));
         let same = |run: Result<Vec<(Values, ShotConditions)>, _>, chain: &str| {
             let records: Vec<_> = run.expect("the run succeeds");
-            assert_eq!(records, whole, "{sent}, {chain}");
+            assert_eq!(
+                records, whole,
+                "a program that {program_named}, {sent}, {chain}"
+            );
         };
         let (log, counted) = (Log::default(), Rc::new(Cell::new(0)));
         same(
-            runner(program() >> Executor::new(bits(&log, most))).run(&shots, SEED),
+            runner(program() >> Executor::new(bits(&log, most))).run(shots, SEED),
             "an executor running streams itself",
         );
         same(
-            runner(program() >> Executor::new(Later(bits(&log, most)))).run(&shots, SEED),
+            runner(program() >> Executor::new(Later(bits(&log, most)))).run(shots, SEED),
             "an executor cutting streams by the default",
         );
         in_each_bracketing!([d, a, e] from {
@@ -117,7 +168,7 @@ fn a_shots_readouts_are_the_same_however_its_instructions_are_split_over_calls()
             let e = Executor::new(Later(bits(&log, most)));
         }, |chain, brackets| {
             let chain_named = format!("an adapter forwarding streams, {brackets}");
-            same(runner(chain).run(&shots, SEED), &chain_named);
+            same(runner(chain).run(shots, SEED), &chain_named);
         });
         in_each_bracketing!([d, a, e] from {
             let d = program();
@@ -125,13 +176,13 @@ fn a_shots_readouts_are_the_same_however_its_instructions_are_split_over_calls()
             let e = Executor::new(bits(&log, most));
         }, |chain, brackets| {
             let chain_named = format!("an adapter cutting streams by the default, {brackets}");
-            same(runner(chain).run(&shots, SEED), &chain_named);
+            same(runner(chain).run(shots, SEED), &chain_named);
         });
         let mut profiler = Profiler::new(&counted, &log);
         let mut later = Later(bits(&log, most));
         same(
             runner(program() >> Adapter::new(&mut profiler) >> Executor::new(&mut later))
-                .run(&shots, SEED),
+                .run(shots, SEED),
             "parts behind `&mut`",
         );
     }
@@ -144,16 +195,18 @@ fn a_shots_readouts_are_the_same_however_its_instructions_are_split_over_calls()
 /// in each bracketing: each piece holds at most the receiver's most, a
 /// short piece only at the end, and when each runs, the driver has made
 /// only the instructions of the pieces so far, so no part holds more than
-/// a piece of the stream.
+/// a piece of the stream. An empty stream runs no piece, and gets a row of
+/// no value per shot.
 #[test]
 fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
     let shots = ShotSet::ids(0..3);
-    for (most, pieces) in [
-        (Some(5), &[5, 5, 2][..]),
-        (Some(4), &[4, 4, 4]),
-        (Some(12), &[12]),
-        (Some(13), &[12]),
-        (None, &[12]),
+    for (program, most, pieces) in [
+        (&PROGRAM[..], Some(5), &[5, 5, 2][..]),
+        (&PROGRAM, Some(4), &[4, 4, 4]),
+        (&PROGRAM, Some(12), &[12]),
+        (&PROGRAM, Some(13), &[12]),
+        (&PROGRAM, None, &[12]),
+        (&[], Some(5), &[]),
     ] {
         let expected: Vec<String> = pieces
             .iter()
@@ -171,15 +224,19 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
             assert_eq!(seen, expected, "at most {most:?}, {chain}");
         };
         let stream = |produced: &Rc<Cell<usize>>| {
-            Driver::new(Program::new(&PROGRAM).sending_as(Sending::stream_counted(produced)))
+            Driver::new(Program::new(program).sending_as(Sending::stream_counted(produced)))
         };
         let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
-        runner(
+        let records = runner(
             stream(&produced) >> Executor::new(SeesPieces::new(bits(&log, most), &produced, &log)),
         )
         .run(&shots, SEED)
         .expect("the run succeeds");
         seen(&log, "no adapter");
+        if program.is_empty() {
+            let no_value = (Values::default(), ShotConditions::NONE);
+            assert_eq!(records, vec![no_value; 3], "an empty stream's rows");
+        }
         let counted = Rc::new(Cell::new(0));
         in_each_bracketing!([d, a, e] from {
             let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
@@ -202,22 +259,36 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
     }
 }
 
-/// A driver sending one stream to bits that run streams themselves,
-/// directly, through one or two adapters that forward streams, in each
-/// bracketing, and behind `&mut`: the bits' own `execute_stream` gets the
-/// stream, once, never cut into `execute`s, and so does each adapter's own
-/// `adapt_stream`, so a part that takes streams whole is never bypassed.
+/// A driver sending one stream, of [`PROGRAM`] or empty, to bits that run
+/// streams themselves, directly, through one or two adapters that forward
+/// streams, in each bracketing, and behind `&mut`: the bits' own
+/// `execute_stream` gets the stream, once, never cut into `execute`s, and
+/// so does each adapter's own `adapt_stream`, so a part that takes streams
+/// whole is never bypassed, not even by an empty stream.
 #[test]
 fn an_executors_own_execute_stream_is_reached_through_every_part_that_forwards_it() {
+    for program in [&PROGRAM[..], &[]] {
+        reached_through_every_part(program);
+    }
+}
+
+/// The body of the test above, for a stream of `program`.
+fn reached_through_every_part(program: &[(&str, u32)]) {
     let shots = ShotSet::ids(0..3);
-    let stream = || Driver::new(Program::new(&PROGRAM).sending_as(Sending::stream()));
+    let stream = || Driver::new(Program::new(program).sending_as(Sending::stream()));
+    let instructions = program.len();
     let reached = |log: &Log, adapters: usize, chain: &str| {
         let calls = (
             log.count("Profiler adapt_stream"),
             log.count("Bits execute_stream"),
             log.count("Bits execute"),
         );
-        assert_eq!(calls, (adapters, 1, 0), "{chain}: {:?}", log.entries());
+        assert_eq!(
+            calls,
+            (adapters, 1, 0),
+            "a stream of {instructions}, {chain}: {:?}",
+            log.entries()
+        );
     };
     let log = Log::default();
     runner(stream() >> Executor::new(Bits::new(&log)))
@@ -260,7 +331,7 @@ fn an_executors_own_execute_stream_is_reached_through_every_part_that_forwards_i
 #[test]
 fn execute_each_gives_a_shot_whose_instructions_span_calls_each_calls_row() {
     let shots = ShotSet::ids(0..4);
-    let whole = sent_whole(&shots);
+    let whole = sent_whole(&PROGRAM, |bits| bits, &shots);
     for pieces in 2..=5 {
         let seed = CUTS_SEED + pieces as u64;
         let cuts = seeded_cuts(seed, pieces);

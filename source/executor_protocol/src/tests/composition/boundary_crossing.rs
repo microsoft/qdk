@@ -594,17 +594,18 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     }
 }
 
-/// A driver sending one checked stream of 6 instructions on qubit 0,
-/// needing 1 qubit, with a flip of qubit 3 beyond its needs at `beyond`;
-/// it keeps the error of its `execute_stream`, rather than failing, so
-/// that a test reads it whole.
+/// A driver sending one stream of 6 instructions on qubit 0, checked if
+/// `checked`, needing 1 qubit, with a flip of qubit 3 beyond its needs at
+/// `beyond`; it keeps the error of its `execute_stream`, rather than
+/// failing, so that a test reads it whole.
 struct StreamsBeyondItsNeeds {
     instructions: Vec<Instruction>,
+    checked: bool,
     error: Rc<RefCell<Option<ExecuteError>>>,
 }
 
 impl StreamsBeyondItsNeeds {
-    fn new(beyond: usize, error: &Rc<RefCell<Option<ExecuteError>>>) -> Self {
+    fn new(beyond: usize, checked: bool, error: &Rc<RefCell<Option<ExecuteError>>>) -> Self {
         let instructions = (0..6)
             .map(|at| match at {
                 at if at == beyond => coin_gate("x", 3),
@@ -614,6 +615,7 @@ impl StreamsBeyondItsNeeds {
             .collect();
         Self {
             instructions,
+            checked,
             error: Rc::clone(error),
         }
     }
@@ -644,7 +646,8 @@ impl Drive for StreamsBeyondItsNeeds {
         seed: Seed,
         below: &mut impl Execute,
     ) -> Result<Vec<()>, DriveError> {
-        let stream = InstructionStream::new(shots, self.instructions.iter().cloned()).checked();
+        let stream = InstructionStream::new(shots, self.instructions.iter().cloned())
+            .checked_if(self.checked);
         let mut readouts = BatchReadouts::new(0, 0);
         let answer = below.execute_stream(stream, seed, &mut readouts).await;
         *self.error.borrow_mut() = answer.err();
@@ -653,20 +656,25 @@ impl Drive for StreamsBeyondItsNeeds {
     }
 }
 
-/// A checked stream on shots 4 and 2, with a flip beyond its needs at
-/// position 0 or 4, to bits taking at most 2 instructions per batch, which
-/// run streams themselves or cut them by the default: the boundary checks
-/// the stream a piece of 2 at a time, before any of the piece reaches the
-/// bits. A fault in the first piece refuses the stream, naming batch 0,
-/// before anything runs; a fault in a later piece fails it, as refused at
-/// its position in the stream, after the pieces before it ran, since their
-/// shots' states have changed.
+/// A stream on shots 4 and 2, with a flip beyond its needs, to bits
+/// taking at most 2 instructions per batch, which run streams themselves
+/// or cut them by the default, and refuse such a flip themselves when it
+/// reaches them. A refusal ends the stream where it is found, naming batch
+/// 0 and the flip by its position in the stream: in the first piece, as a
+/// refusal, nothing having run; in a later piece, as a failure, the
+/// pieces before it having run, since their shots' states have changed.
+/// A checked stream is refused by the boundary, a piece of 2 at a time,
+/// each before any of it reaches the bits, the first before the bits are
+/// called, even those that run streams themselves; an unchecked one by
+/// the bits, at the piece the default sends them.
 #[test]
-fn a_checked_stream_is_refused_at_its_first_faulty_piece() {
+fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
     let shots = ShotSet::ids([4, 2]);
     let capped = |log: &Log| {
         let offer = Offer::unlimited().max_qubits(64).without_readout_parity();
-        Bits::new(log).offering(offer.max_instructions(2))
+        Bits::new(log)
+            .offering(offer.max_instructions(2))
+            .checking_blocks()
     };
     let beyond = |at| ExecuteRefusal::Instruction {
         shot: ShotId::new(4),
@@ -678,7 +686,9 @@ fn a_checked_stream_is_refused_at_its_first_faulty_piece() {
             needs: 1,
         },
     };
-    for (beyond_at, pieces_ran) in [(0, 0), (4, 2)] {
+    for (checked, beyond_at, pieces_ran) in
+        [(true, 0, 0), (true, 4, 2), (false, 1, 0), (false, 3, 1)]
+    {
         let refusal = beyond(beyond_at);
         let expected = |error: Option<&ExecuteError>| match error {
             Some(ExecuteError::Refused(refused)) => pieces_ran == 0 && *refused == refusal,
@@ -688,10 +698,10 @@ fn a_checked_stream_is_refused_at_its_first_faulty_piece() {
             }) => pieces_ran > 0 && *shot == ShotId::new(4) && *refused == refusal,
             _ => false,
         };
-        let case = format!("a flip beyond the needs at {beyond_at}");
+        let case = format!("a flip beyond the needs at {beyond_at}, checked: {checked}");
         let (error, log, produced) = (Rc::default(), Log::default(), Rc::new(Cell::new(0)));
         runner(
-            Driver::new(StreamsBeyondItsNeeds::new(beyond_at, &error))
+            Driver::new(StreamsBeyondItsNeeds::new(beyond_at, checked, &error))
                 >> Executor::new(SeesPieces::new(capped(&log), &produced, &log)),
         )
         .run(&shots, SEED)
@@ -707,9 +717,13 @@ fn a_checked_stream_is_refused_at_its_first_faulty_piece() {
             "{case}: the pieces before it ran, {:?}",
             log.entries()
         );
+        if !checked {
+            // The bits' own `execute_stream` does not check its blocks.
+            continue;
+        }
         let (error, log) = (Rc::default(), Log::default());
         runner(
-            Driver::new(StreamsBeyondItsNeeds::new(beyond_at, &error))
+            Driver::new(StreamsBeyondItsNeeds::new(beyond_at, checked, &error))
                 >> Executor::new(capped(&log)),
         )
         .run(&shots, SEED)
@@ -718,6 +732,12 @@ fn a_checked_stream_is_refused_at_its_first_faulty_piece() {
         assert!(
             expected(error.as_ref()),
             "{case}, by the bits' own: {error:?}"
+        );
+        assert_eq!(
+            log.count("Bits execute_stream"),
+            usize::from(pieces_ran > 0),
+            "{case}: the bits' own are called only past the first piece, {:?}",
+            log.entries()
         );
     }
 }

@@ -16,11 +16,11 @@ use crate::{Instruction, ShotSet};
 /// evolution of millions of instructions per shot, or a program
 /// interpreted as it runs: it hands the iterator to
 /// [`Execute::execute_stream`](crate::Execute::execute_stream), and the
-/// receiver pulls instructions as it runs them, in pieces of the most it
-/// takes, so neither side holds the whole program. Its instructions are in
-/// the receiver's opcodes, as a batch's are, and it states no readout
-/// slots: the sender could not count them without holding the program, so
-/// the receiver counts them as it runs.
+/// receiver pulls instructions as it runs them, by default in pieces of
+/// the most it takes, so neither side holds the whole program. Its
+/// instructions are in the receiver's opcodes, as a batch's are, and it
+/// states no readout slots: the sender could not count them without
+/// holding the program, so the receiver counts them as it runs.
 ///
 /// [`new`](Self::new) makes a stream, unchecked; its fields are public,
 /// and its checks are read by [`is_checked`](Self::is_checked).
@@ -53,9 +53,10 @@ impl<'a, I: Iterator<Item = Instruction>> InstructionStream<'a, I> {
     /// This stream, checked: each boundary that receives it checks it as
     /// [`Batch::checked`](crate::Batch::checked) checks a batch, a piece at
     /// a time, each piece before any of its instructions reaches the
-    /// receiver, so a refused piece runs nothing; the pieces before it have
-    /// run. A refusal names the stream as batch 0, and an instruction by
-    /// its position in the stream.
+    /// receiver, and the first before the receiver is called, so a refused
+    /// piece runs nothing; the pieces before it may have run. A refusal
+    /// names the stream as batch 0, and an instruction by its position in
+    /// the stream.
     #[must_use]
     pub fn checked(self) -> Self {
         self.checked_if(true)

@@ -22,7 +22,8 @@
 //! failure of the receiver's panic (where a panic unwinds: on wasm32, it
 //! aborts). An `execute_each` makes the same checks before the receiver
 //! gives any row, and an `execute_stream` checks a checked stream a piece
-//! at a time, in `checked_pieces`, as the receiver pulls it; a panic in
+//! at a time, in `checked_pieces`: the first before the receiver is
+//! called, the others as the receiver pulls them; a panic in
 //! the caller's `each`, or in its stream's instructions, is raised again
 //! on the caller's side, so that it names the caller, not the receiver.
 //! The limits it checks batches against are in `batch_limits`.
@@ -43,7 +44,7 @@ use crate::{
     ShotSet,
 };
 use batch_limits::BatchFault;
-use checked_pieces::{CheckedPieces, StreamFault};
+use checked_pieces::CheckedPieces;
 
 /// A call across a boundary to `inner`, its receiver, with each batch
 /// checked against `batch_limits`, which hold the receiver's set as the
@@ -122,35 +123,16 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// with `readouts` unspecified; else shapes `readouts[i]` from
     /// `batches[i]`. Then runs them on the receiver, and makes a failure of
     /// its panic (where a panic unwinds). An empty `execute` returns `Ok`
-    /// at once, and does not reach the receiver. Its checks are copied in
-    /// `check_and_shape`: a change to one copy is made to both.
+    /// at once, and does not reach the receiver.
     async fn execute(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        assert_eq!(
-            readouts.len(),
-            batches.len(),
-            "an `execute` takes one `BatchReadouts` per batch, as `Readouts::readouts_for` gives"
-        );
-        let Some(first) = batches.first() else {
+        let Some(first) = self.check_and_shape(batches, readouts)? else {
             return Ok(());
         };
-        for (index, (batch, batch_readouts)) in batches.iter().zip(readouts.iter_mut()).enumerate()
-        {
-            let refused = |fault| ExecuteError::Refused(refusal(index, batch.shots, fault));
-            self.batch_limits
-                .check_count(batch.instructions)
-                .map_err(refused)?;
-            if batch.is_checked() {
-                self.batch_limits
-                    .check(batch.instructions, batch.readout_slots())
-                    .map_err(refused)?;
-            }
-            batch_readouts.shape(batch.shots.len(), batch.readout_slots());
-        }
         match catch_panic(|| self.inner.execute(batches, seed, readouts)).await {
             Ok(ran) => ran,
             Err(message) => Err(self.panic_failure(first.shots, message)),
@@ -191,11 +173,12 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// [`checked`](InstructionStream::checked) stream is checked a piece
     /// at a time, each piece of the most instructions the receiver takes
     /// (as its `execute_stream` cuts them by default) before any of it
-    /// reaches the receiver; at a fault, the stream ends there, and the
-    /// fault is the answer, whatever the receiver answers to the stream's
-    /// end: refused, named as batch 0, when it is in the first piece, or
-    /// else a failure. Makes a failure of the receiver's panic, named by
-    /// the stream's first shot.
+    /// reaches the receiver. A fault in the first piece, checked before
+    /// the receiver is called, refuses the stream, named as batch 0,
+    /// without calling it. At a later piece's fault, the stream ends
+    /// there, and the fault is the answer, as a failure, whatever the
+    /// receiver answers to the stream's end. Makes a failure of the
+    /// receiver's panic, named by the stream's first shot.
     async fn execute_stream(
         &mut self,
         stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
@@ -214,26 +197,29 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
             callers.call(|instructions| next = instructions.next());
             next
         });
-        let fault = Cell::new(None);
+        let later_fault = Cell::new(None);
         let ran = if checked {
             let most = most_per_piece(self.offer.max_instructions);
-            let pieces = CheckedPieces::new(pulled, self.batch_limits, most, &fault);
-            let stream = InstructionStream::new(shots, pieces).checked();
-            catch_panic(|| self.inner.execute_stream(stream, seed, readouts)).await
+            match CheckedPieces::first_checked(pulled, self.batch_limits, most, &later_fault) {
+                Ok(pieces) => {
+                    let stream = InstructionStream::new(shots, pieces).checked();
+                    catch_panic(|| self.inner.execute_stream(stream, seed, readouts)).await
+                }
+                Err(fault) => {
+                    callers.raise_panic();
+                    return Err(ExecuteError::Refused(refusal(0, shots, fault)));
+                }
+            }
         } else {
             let stream = InstructionStream::new(shots, pulled);
             catch_panic(|| self.inner.execute_stream(stream, seed, readouts)).await
         };
         callers.raise_panic();
-        if let Some(StreamFault { fault, after_any }) = fault.into_inner() {
+        if let Some(fault) = later_fault.into_inner() {
             let refusal = refusal(0, shots, fault);
-            return Err(if after_any {
-                ExecuteError::Failed {
-                    shot: refusal.shot(),
-                    failure: Failure::Refused(refusal),
-                }
-            } else {
-                ExecuteError::Refused(refusal)
+            return Err(ExecuteError::Failed {
+                shot: refusal.shot(),
+                failure: Failure::Refused(refusal),
             });
         }
         match ran {
@@ -248,13 +234,8 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
 }
 
 impl<E: Execute> BoundaryCrossing<'_, E> {
-    /// The checks and shaping of `execute_each`, before the receiver
-    /// runs: the first batch, or `None` for an empty `execute`.
-    ///
-    /// They are `execute`'s, which keeps its own copy: each form of
-    /// `execute` that called a shared helper measured about 1 ns slower
-    /// per boundary and call, on batches of one instruction (the bench's
-    /// `chains` section). A change to one copy is made to both.
+    /// The checks and shaping of `execute` and `execute_each`, before the
+    /// receiver runs: the first batch, or `None` for an empty `execute`.
     #[inline]
     fn check_and_shape<'b>(
         &self,

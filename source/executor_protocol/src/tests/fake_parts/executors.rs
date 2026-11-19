@@ -15,9 +15,9 @@ use std::time::Duration;
 
 use super::{CoinGates, Log, RandomGenerator, YieldNow};
 use crate::{
-    Batch, BatchReadouts, BlockType, Execute, ExecuteError, ExecutorSetup, Failure, FinalRow,
-    Instruction, InstructionSet, InstructionStream, Needs, NotReady, Offer, Opcode, ReadoutFailure,
-    ReadoutValue, Seed, ShotConditions, ShotId, ShotSet,
+    Batch, BatchReadouts, BlockType, Execute, ExecuteError, ExecuteRefusal, ExecutorSetup, Failure,
+    FinalRow, Instruction, InstructionFault, InstructionSet, InstructionStream, Needs, NotReady,
+    Offer, Opcode, ReadoutFailure, ReadoutValue, Seed, ShotConditions, ShotId, ShotSet,
 };
 
 /// A toy executor on classical bits: `h` tosses a bit from the shot's
@@ -36,6 +36,9 @@ pub(crate) struct Bits {
     loses: fn(ShotId) -> bool,
     /// Whether each `execute` fails once it has run its shots.
     fails: bool,
+    /// Whether an `execute` refuses, itself, a batch with a block beyond
+    /// the shots' needs.
+    checks_blocks: bool,
     /// The set `accepts` answers once ready, if it changes then.
     set_once_ready: Option<InstructionSet>,
     log: Log,
@@ -58,6 +61,7 @@ impl Bits {
             busy: None,
             loses: |_| false,
             fails: false,
+            checks_blocks: false,
             set_once_ready: None,
             log: log.clone(),
         }
@@ -106,6 +110,51 @@ impl Bits {
         self
     }
 
+    /// These bits, refusing, themselves, an `execute` holding an
+    /// instruction on a block beyond the shots' needs, before they run or
+    /// log anything, naming the batch and the instruction's position in
+    /// it, as a device that checks what it is sent: what an unchecked
+    /// batch, which no boundary checks, gets from them.
+    pub(crate) fn checking_blocks(mut self) -> Self {
+        self.checks_blocks = true;
+        self
+    }
+
+    /// The refusal of `batches` if these bits [check their
+    /// blocks](Self::checking_blocks) and an instruction is on a block
+    /// beyond the shots' needs: the first such.
+    fn block_refusal(&self, batches: &[Batch<'_>]) -> Option<ExecuteError> {
+        if !self.checks_blocks {
+            return None;
+        }
+        let needs = u32::try_from(self.qubits).expect("the needs fit a `u32`");
+        batches.iter().enumerate().find_map(|(index, batch)| {
+            let at = batch
+                .instructions
+                .iter()
+                .position(|instruction| instruction.blocks[0] >= needs)?;
+            let instruction = &batch.instructions[at];
+            Some(ExecuteError::Refused(ExecuteRefusal::Instruction {
+                shot: batch
+                    .shots
+                    .iter()
+                    .next()
+                    .expect("a shot set is never empty"),
+                batch: index,
+                at,
+                fault: InstructionFault::BlockBeyondNeeds {
+                    mnemonic: self
+                        .set
+                        .mnemonic(instruction.opcode)
+                        .expect("an opcode of the bits' set")
+                        .to_owned(),
+                    block: instruction.blocks[0],
+                    needs,
+                },
+            }))
+        })
+    }
+
     /// The answer of an `execute` on `shots` that has run.
     fn answer(&self, shots: &ShotSet) -> Result<(), ExecuteError> {
         if !self.fails {
@@ -148,6 +197,9 @@ impl Execute for Bits {
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
+        if let Some(refused) = self.block_refusal(batches) {
+            return Err(refused);
+        }
         self.log.push("Bits execute");
         self.run(batches, seed, readouts, |_, _, _| {});
         self.answer(batches[0].shots)

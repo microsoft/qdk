@@ -189,7 +189,9 @@ pub trait Execute: ExecutorSetup {
     /// stream's instructions. They are the readouts the same instructions
     /// would get sent as one batch, and the shots' states are kept after it
     /// as after an `execute`, so a sender may send a shot's program over any
-    /// number of streams and `execute`s.
+    /// number of streams and `execute`s. A stream may be empty, and still
+    /// reaches the executor, unlike an `execute` of no batches: its
+    /// readouts are then a row of no slot per shot.
     ///
     /// For a sender whose program is too long to hold
     /// ([`InstructionStream`]). By default, it runs the stream in pieces,
@@ -216,9 +218,11 @@ pub trait Execute: ExecutorSetup {
     ///
     /// Through the protocol's boundary, a
     /// [`checked`](InstructionStream::checked) stream is checked a piece at
-    /// a time, and a panic in the stream's iterator is the caller's, not
-    /// the executor's: the stream ends there, and the panic is raised again
-    /// once the executor answers, through the caller's call, as a panic in
+    /// a time, the first before the executor is called, so that a stream
+    /// refused in its first piece never reaches it; and a panic in the
+    /// stream's iterator is the caller's, not the executor's: the stream
+    /// ends there, and the panic is raised again once the executor
+    /// answers, through the caller's call, as a panic in
     /// [`execute_each`](Self::execute_each)'s `each` is.
     fn execute_stream(
         &mut self,

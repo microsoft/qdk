@@ -237,10 +237,11 @@ stream ends; the rustdoc of each method gives the bound. The default's
 pieces hold at most the receiver's most instructions per batch, so no
 boundary checks their count; each boundary checks a
 [checked](batches-and-readouts.md) stream in full, a piece at a time,
-before any of the piece reaches the receiver. A refusal ends the stream:
-of its first piece, as a refusal, nothing having run; of a later piece,
-as a failure, the pieces before it having run. A panic in the stream's
-iterator is the sender's, as one in `each` is.
+before any of the piece reaches the receiver, the first before the
+receiver is called. A refusal ends the stream: of its first piece, as a
+refusal, nothing having run; of a later piece, as a failure, the pieces
+before it having run. A panic in the stream's iterator is the sender's,
+as one in `each` is.
 
 ## Seeds
 
