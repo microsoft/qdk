@@ -8,9 +8,9 @@
 //! for, the problem it solves and how, and give its rules.
 //!
 //! The conformance kit, `executor_protocol_conformance`, checks a part (a
-//! driver, an executor or an adapter) against most of the rules the
-//! protocol does not check as it runs (the kit's `docs/limits.md` lists the
-//! others). Anyone writing a part runs it in the part's tests.
+//! driver, an executor or an adapter), in the part's tests, against rules
+//! the protocol does not check as it runs; `docs/writing-a-part.md` says
+//! which. Anyone writing a part runs it.
 
 mod batch;
 mod composition;

@@ -183,13 +183,9 @@ checks most of these rules in an implementer's tests (the kit's
 [limits](../../executor_protocol_conformance/docs/limits.md) lists those it
 does not), by a function per rule and role (and two rules every check of
 an executor or an adapter reports), and reports each place where a part
-breaks one. Anyone writing a part runs it. Its checks, by role:
-
-| Role     | Checks                                                                                                                                                                                                                                                                        |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| executor | [`executor`](../../executor_protocol_conformance/src/executor.rs): its readouts and their shape, each shot's records and state, its ends of shots it does not hold (a panic), its work only once polled, its `accepts` and `offers` as composed, and a run after a failed one |
-| adapter  | [`adapter`](../../executor_protocol_conformance/src/adapter.rs): an executor's rules except keeping its `accepts` and `offers`, and as a caller of the part below, the shots, seed, readout slots and checked batches it sends, and the conditions it passes up               |
-| driver   | [`driver`](../../executor_protocol_conformance/src/driver.rs): one output per shot in order, the shots, seed and readout slots it sends, and each `execute`'s conditions merged into its outputs                                                                              |
+breaks one. Anyone writing a part runs it.
+[The checks](../../executor_protocol_conformance/README.md#the-checks), in
+the kit's README, lists what each role's checks cover.
 
 ## Seeds
 

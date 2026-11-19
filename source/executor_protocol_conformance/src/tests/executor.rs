@@ -107,19 +107,17 @@ fn every_check(make: fn() -> FakeExecutor) -> [(&'static str, Result<(), Nonconf
 /// A drawn trial's runs end such shots as well.
 #[test]
 fn an_end_of_shots_not_held_that_panics_is_reported_by_every_check() {
-    for (part, make, first_found) in [
+    for (part, make, panic) in [
         (
             "panicking on a shot not held",
             (|| FakeExecutor::breaking(Breaks::PanicsEndingShotsItDoesNotHold))
                 as fn() -> FakeExecutor,
-            "panicked ending shots 0, 1, 2, 3, 57, among which shots 0, 1, 2, 3, 57 it did \
-             not hold, or no longer held: shot 0 is not held",
+            "shot 0 is not held",
         ),
         (
             "panicking on an id beyond its table",
             || FakeExecutor::breaking(Breaks::PanicsEndingShotsBeyondItsTable),
-            "panicked ending shots 0, 1, 2, 3, 57, among which shots 0, 1, 2, 3, 57 it did \
-             not hold, or no longer held: shot 57 is beyond its table",
+            "shot 57 is beyond its table",
         ),
     ] {
         for (check, result) in every_check(make) {
@@ -146,13 +144,17 @@ fn an_end_of_shots_not_held_that_panics_is_reported_by_every_check() {
                 );
             }
         }
-        assert_eq!(
-            faults_found(
-                Rule::IgnoresEndsOfShotsItDoesNotHold,
-                writes_every_readout(make, needs(), &script(), trials())
-            )[0],
-            (Place::EndShots { after: Some(1) }, first_found.to_owned()),
-            "{part}"
+        let (place, found) = faults_found(
+            Rule::IgnoresEndsOfShotsItDoesNotHold,
+            writes_every_readout(make, needs(), &script(), trials()),
+        )
+        .swap_remove(0);
+        assert_eq!(place, Place::EndShots { after: Some(1) }, "{part}: {found}");
+        let (unheld, _) = unheld_and_panicked_on(&found);
+        assert_eq!(unheld, ["0", "1", "2", "3", "57"], "{part}: {found}");
+        assert!(
+            found.contains(panic),
+            "{part}: the fault names the part's panic: {found}"
         );
         let drawn = Trials::drawn_only(Trials::DEFAULT_SEED, 1);
         assert!(
@@ -284,11 +286,16 @@ fn a_run_goes_without_the_shot_never_sent_only_where_it_cannot_hold_one() {
         take_unexercised();
         let result = writes_every_readout(make, needs(), &script, trials);
         assert!(judged(&result), "{row}: {result:?}");
-        let noted: Vec<String> = noted
-            .into_iter()
-            .map(|(without, runs)| note_of_runs_without_unsent(without, runs))
-            .collect();
-        assert_eq!(take_unexercised(), noted, "{row}");
+        let notes = take_unexercised();
+        match noted {
+            Some((without, runs)) => {
+                let [note] = &notes[..] else {
+                    panic!("{row}: one note, got {notes:?}");
+                };
+                assert_note_of_runs_without_unsent(note, without, runs);
+            }
+            None => assert!(notes.is_empty(), "{row}: {notes:?}"),
+        }
     }
     let results = every_check(four_shots);
     let noted = take_unexercised();
@@ -311,16 +318,21 @@ type WithoutUnsentRow = (
     Option<(usize, usize)>,
 );
 
-/// The note trial 0 writes on [`FakeExecutor`] when `without` of its `runs`
-/// held only the shots the check was given.
-fn note_of_runs_without_unsent(without: usize, runs: usize) -> String {
-    format!(
-        "executor_protocol_conformance::tests::fake_executor::FakeExecutor: {without} of the {runs} runs of \
-         trial 0 held only the shots the check was given, none the kit never sends \
-         (IgnoresEndsOfShotsItDoesNotHold): the chain refused a run of one shot more, or shot \
-         4294967295 is among those given. To give each run a shot the kit never sends, give \
-         fewer shots than the chain's `max_shots`, with ids below 4294967295."
-    )
+/// Checks that `note`, written by trial 0 on [`FakeExecutor`] when
+/// `without` of its `runs` held only the shots the check was given, names
+/// the part, the rule its runs did not exercise, both counts, and what to
+/// change: the chain's `max_shots`, and ids below `u32::MAX`.
+fn assert_note_of_runs_without_unsent(note: &str, without: usize, runs: usize) {
+    let names = [
+        "tests::fake_executor::FakeExecutor".to_owned(),
+        format!("{:?}", Rule::IgnoresEndsOfShotsItDoesNotHold),
+        format!("{without} of the {runs} runs"),
+        "`max_shots`".to_owned(),
+        u32::MAX.to_string(),
+    ];
+    for name in names {
+        assert!(note.contains(&name), "the note names {name}: {note}");
+    }
 }
 
 /// An executor that leaves a slot unwritten, so that the parts above read
@@ -743,10 +755,15 @@ fn work_done_before_the_future_is_polled_is_reported() {
     for (breaks, first_fault) in [
         (
             Breaks::WorksWhenCalled,
-            Some(
-                "execute 0, batch 0, row 0 (shot 0): reads [10] after a call dropped \
-                 unpolled, [01] without",
-            ),
+            Some((
+                Place::Row {
+                    execute: 0,
+                    batch: 0,
+                    row: 0,
+                    shot: ShotId::new(0),
+                },
+                ["[10]", "[01]"],
+            )),
         ),
         (Breaks::WorksWhenCalledAndReuses, None),
     ] {
@@ -755,9 +772,15 @@ fn work_done_before_the_future_is_polled_is_reported() {
             Rule::DoesNothingUntilPolled,
             does_nothing_until_polled(make, needs(), &script(), trials()),
         );
-        let first = faults.first().expect("a fault");
-        if let Some(expected) = first_fault {
-            assert_eq!(format!("{}: {}", first.0, first.1), expected, "{breaks:?}");
+        let (place, found) = faults.first().expect("a fault");
+        if let Some((expected, readings)) = first_fault {
+            assert_eq!(*place, expected, "{breaks:?}: {found}");
+            for reading in readings {
+                assert!(
+                    found.contains(reading),
+                    "{breaks:?}: the fault names both readings: {found}"
+                );
+            }
         }
     }
 }

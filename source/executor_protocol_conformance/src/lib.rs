@@ -12,11 +12,10 @@
 //! chain, between the kit's own driver and executor, and reports every
 //! place where the part breaks the rule, in a [`Nonconformance`].
 //!
-//! - [`executor`]: the rules an executor keeps.
-//! - [`adapter`]: the rules an adapter keeps, an executor's included except
-//!   keeping its `accepts` and `offers`, checked on the adapter over the
-//!   kit's executor.
-//! - [`driver`]: the rules a driver keeps.
+//! The checks are functions, one per rule or per two rules read in the same
+//! runs, in a module per role: [`executor`], [`adapter`] (checked over the
+//! kit's executor) and [`driver`]; the crate's `README.md` says what each
+//! role's checks cover.
 //!
 //! The checks share these types: a [`Script`], what the kit's driver sends
 //! an executor or an adapter; the [`Trials`] a check runs, each a

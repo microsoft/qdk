@@ -1,47 +1,78 @@
 # The executor protocol's conformance kit
 
-Checks, run in an implementer's tests, of the rules a part of the
-[executor protocol](../executor_protocol/README.md) keeps that the protocol
-states but does not check as it runs. They serve whoever writes an
-executor, an adapter or a driver: a simulator, a device's runtime, a noise
-model, a program's runner.
-
-**The problem.** The protocol checks at its boundaries only what it can
-check cheaply as shots run: the instructions of a checked batch, the
-readout slots it states. The other rules a part keeps
-([the rules a part keeps](../executor_protocol/docs/writing-a-part.md#the-rules-a-part-keeps))
+The conformance kit, the QDK crate `executor_protocol_conformance`, was
+designed to solve the problem of checking that a part of the
+[executor protocol](../executor_protocol/README.md) (an executor, an
+adapter or a driver, such as a simulator, a device's runtime, a noise
+model or a program's runner) keeps the rules the protocol states but does
+not check as shots run. The protocol checks at its boundaries only what it
+can check cheaply, such as the instructions of a checked batch and the
+readout slots it states; the other
+[rules a part keeps](../executor_protocol/docs/writing-a-part.md#the-rules-a-part-keeps)
 are the part's to keep: an executor writes every readout value, a
 replayable part's records for a shot depend only on the seed and the
-shot's id, an adapter passes up the conditions read below. A part that
-breaks one gives wrong results to the parts above it, with no error,
-often only on some shots or some batches of them.
+shot's id, an adapter passes up the conditions read below. Without a
+shared check, the problem includes:
 
-**How the kit solves it.** A function per rule and role (and two rules
-every check of an executor or an adapter reports,
-[docs/checks.md](docs/checks.md#the-rules-every-check-of-an-executor-or-an-adapter-reports))
-runs the part in a real chain, between the kit's own driver and
-executor: a driver that sends a script of batches above an executor or an
-adapter, an executor that answers below an adapter or a driver, each
-logging what passes. It runs the part as often as the rule needs (alone
-and among other shots, in several orders, after a failed run), compares
-what it sees, and returns `Ok(())` or a
-[`Nonconformance`](src/nonconformance.rs) naming each place where the
-part broke the rule. It does so in several trials: trial 0 on fixed
-patterns, then trials whose patterns (such as the shots' ids, order,
-batches and groups, where a run fails, and the conditions raised below)
-are drawn from a seed.
+- wrong results with no error: a part that breaks a rule gives the parts
+  above it values they read as the shot's;
+- faults that show only on some shots, some batches of them or some
+  orders, so that tests on a few fixed runs pass;
+- the same checks written by every implementer, each in its own way, and
+  the rules that are hard to check by hand left unchecked, such as a
+  part's runs after a failed one, or its work before its future is polled.
 
-**Why this approach.** The rules are stated once, in the protocol, and
-checked once, here, for every implementer: an implementer writes no check
-of its own, only a few lines per rule in its tests. The kit sees the part
-through its role's trait alone, so it checks any implementation, and a
-new rule is a new function and a new [`Rule`](src/rule.rs)
-([adding a rule](docs/checks.md#adding-a-rule)). The kit's driver and
-executor run under the real `>>`, so the part is checked as it runs in a
-chain. A part built by iterating against fixed runs may pass them all
-and break the rule elsewhere; patterns drawn from a seed cannot be
-fitted so, and a report names its seed and trial, so the failure replays
-exactly.
+The kit solves these with a check per rule and role, run in the
+implementer's tests. Each check runs the part in a real chain, between
+the kit's own driver and executor, which log what passes: a driver that
+sends a script of batches above an executor or an adapter, and an
+executor that answers below an adapter or a driver. It runs the part as
+often as the rule needs (alone and among other shots, in several orders,
+after a failed run), compares what it sees, and returns `Ok(())` or a
+report naming each place where the part broke the rule. Trial 0 runs
+fixed patterns; each later trial draws its patterns (such as the shots'
+ids, order, batches and groups, where a run fails, and the conditions
+raised below) from a seed, which the report names.
+
+Today the kit holds:
+
+- **The checks:** a function per rule, or per two rules read in the same
+  runs, in a module per role: [`executor`](src/executor.rs),
+  [`adapter`](src/adapter.rs) and [`driver`](src/driver.rs). Every check
+  of an executor or an adapter also reports
+  [two rules](docs/checks.md#the-rules-every-check-of-an-executor-or-an-adapter-reports)
+  any of its runs can show broken.
+- **What a check runs:** a [`Script`](src/script.rs), the `execute`s the
+  kit's driver sends an executor or an adapter; and the
+  [`Trials`](src/trials.rs) it runs, each a
+  [`Trial`](src/trials/trial.rs) named by its seed and index.
+- **What a check reports:** a [`Nonconformance`](src/nonconformance.rs):
+  either each [`Rule`](src/rule.rs) the part broke, as a
+  [`BrokenRule`](src/nonconformance/broken_rule.rs) holding each
+  [`Fault`](src/nonconformance/fault.rs), what the check found at a
+  [`Place`](src/nonconformance/place.rs); or why the check could not
+  judge the part, and what to change. Each names the trial that found it.
+
+Users write a test per part and rule: they take the kit as a
+dev-dependency and call the rule's check with a closure that makes their
+part, what to run and the trials, as [An example](#an-example) shows.
+[docs/checks.md](docs/checks.md) lists every check with what it takes.
+
+**Why this approach.**
+
+- **One check per rule, for every implementer.** The rules are stated
+  once, in the protocol, and checked once, here: an implementer writes no
+  check of its own, only a few lines per rule in its tests, and a new rule
+  is a new function and a new `Rule`
+  ([adding a rule](docs/checks.md#adding-a-rule)).
+- **Any implementation, as it runs in a chain.** The kit sees the part
+  through its role's traits alone, so it checks any implementation; and
+  its driver and executor join the part with the protocol's own `>>`, so
+  the part runs as it does in a chain.
+- **Drawn patterns, replayed exactly.** A part built by iterating against
+  fixed runs may pass them all and break the rule elsewhere; patterns
+  drawn from a seed cannot be fitted so, and a report names its seed and
+  trial, so the failure replays exactly.
 
 ## Terms
 
@@ -58,18 +89,18 @@ arguments.
 - **[`Script`](src/script.rs):** the `execute`s the kit's driver sends an
   executor or an adapter, in order, each a list of batches: their shots,
   and their instructions, written in the instruction set the part accepts.
-- **[`Trials`](src/trials.rs):** the trials a check runs. Trial 0 runs
-  the script or shots as given, on fixed patterns; each later trial runs
-  the same instructions on patterns drawn from the seed and the trial's
-  index. `Trials::default()` runs trial 0 and a fixed number of trials
-  drawn from a fixed seed, so a check gives the same result each time; a
-  [`Trial`](src/trials/trial.rs) is one of them, as a report names it.
-- **[`Nonconformance`](src/nonconformance.rs):** why a check does not pass.
-  `Broken` names the part, each [`Rule`](src/rule.rs) it broke,
-  and each [`Place`](src/nonconformance/place.rs) where it broke it, such as a
-  batch, a row, a readout slot, a batch it sent below, an output or a run.
-  `CannotJudge` says why the check could not judge the part with what it was
-  given, and what to change. Each names the trial that found it.
+- **[`Trials`](src/trials.rs):** trial 0 runs the script or shots as
+  given; each later trial runs the same instructions on patterns drawn
+  from the seed and the trial's index. `Trials::default()` runs trial 0
+  and a fixed number of trials drawn from a fixed seed, so a check gives
+  the same result each time.
+- **[`Nonconformance`](src/nonconformance.rs):** its `Broken` case names
+  the part and lists each [`BrokenRule`](src/nonconformance/broken_rule.rs)
+  with its [`Fault`](src/nonconformance/fault.rs)s; a fault's
+  [`Place`](src/nonconformance/place.rs) is, for instance, a batch, a row,
+  a readout slot, a batch the part sent below, an output or a run. Its
+  `CannotJudge` case says why the check could not judge the part with what
+  it was given (too few shots, nothing read) and what to change.
 
 ## An example
 
@@ -114,9 +145,11 @@ if let Err(report) =
 for more (see [Running more trials](docs/trials.md#running-more-trials)).
 
 A part that breaks the rule fails the test with a report naming the part,
-the rule, each place and the trial. This one is `FakeExecutor` made to leave
-one readout slot of shot 1 unwritten in each `execute`, as the kit's
-[test of reports](src/tests/nonconformance.rs) pins it:
+the rule, each place and the trial. For example, for `FakeExecutor` made
+to leave one readout slot of shot 1 unwritten in each `execute`, the
+report reads as follows (the kit's [test of reports](src/tests/nonconformance.rs)
+checks that it names the part, the rule, each place and the trial; its
+wording may change):
 
 ```text
 `executor_protocol_conformance::tests::fake_executor::FakeExecutor` breaks 1 rule, in trial 0, on the fixed patterns:
@@ -127,21 +160,24 @@ one readout slot of shot 1 unwritten in each `execute`, as the kit's
 
 ## The checks
 
-A check is a function per rule, or two rules it reads in the same runs,
-in its role's file, whose documentation
+A check is a function per rule, or per two rules it reads in the same
+runs, in its role's file, whose documentation
 says why the rule matters to the parts around the part, how the check
 runs it, an example of a fault with the report it gives, and what the
-check does not see:
+check does not see. By role, the checks cover:
 
-- [`src/executor.rs`](src/executor.rs): an executor's rules, such as
-  writing every readout value and keeping each shot's state from one
-  `execute` to the next.
-- [`src/adapter.rs`](src/adapter.rs): an adapter's, an executor's rules
+- [`src/executor.rs`](src/executor.rs): an executor's rules: its
+  readouts and their shape, each shot's records and state, its ends of
+  shots it does not hold, its work only once polled, its `accepts` and
+  `offers` unchanged once composed, and a run after a failed one.
+- [`src/adapter.rs`](src/adapter.rs): an adapter's: an executor's rules
   except keeping its `accepts` and `offers`, and, as a caller of the part
   below, the shots, seed, readout slots and checked batches it sends and
   the conditions it passes up.
-- [`src/driver.rs`](src/driver.rs): a driver's, such as one output per
-  shot in the order of the run's shots, checked over the kit's executor.
+- [`src/driver.rs`](src/driver.rs): a driver's, checked over the kit's
+  executor: one output per shot in the order of the run's shots, the
+  shots, seed and readout slots it sends, and each `execute`'s conditions
+  merged into its outputs.
 
 The guides in [`docs/`](docs):
 

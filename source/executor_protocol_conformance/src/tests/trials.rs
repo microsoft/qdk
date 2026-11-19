@@ -322,13 +322,13 @@ fn the_environments_trials_are_read_as_the_variables_write_them() {
 /// script, or groups and cuts of the shots it is given.
 #[test]
 fn a_drawn_trials_report_replays_to_the_same_report() {
-    let rows: [(FittedRun, &str); 2] = [
+    let rows: [(FittedRun, Rule); 2] = [
         (
             Box::new(|trials| {
                 let make = || FakeExecutor::breaking(Breaks::LeavesASlotUnwritten);
                 writes_every_readout(make, needs(), &script(), trials)
             }),
-            "it writes every readout value of each batch it answers",
+            Rule::WritesEveryReadout,
         ),
         (
             Box::new(|trials| {
@@ -342,7 +342,7 @@ fn a_drawn_trials_report_replays_to_the_same_report() {
                     trials,
                 )
             }),
-            "an `execute` changes no shot outside its batches",
+            Rule::ChangesNoShotOutsideItsBatches,
         ),
     ];
     for (run, rule) in rows {
@@ -355,16 +355,19 @@ fn a_drawn_trials_report_replays_to_the_same_report() {
         };
         assert_ne!(index, 0, "only drawn trials ran");
         let report = found.to_string();
-        assert!(
-            report.contains(&format!("in trial {index} of seed 0x7:\n- {rule}"))
-                && report.ends_with(&format!(
-                    "Replay it with `Trials::replaying(Trial {{ seed: 0x7, index: {index} }})`, \
-                     or rerun the trials up to it with EXECUTOR_PROTOCOL_CONFORMANCE_SEED=0x7 \
-                     and EXECUTOR_PROTOCOL_CONFORMANCE_TRIALS={index} for checks given \
-                     `Trials::from_env()`."
-                )),
-            "the report names its trial and how to replay it: {report}"
-        );
+        let names = [
+            format!("{trial}"),
+            rule.to_string(),
+            format!("Trials::replaying(Trial {{ seed: 0x7, index: {index} }})"),
+            format!("{}=0x7", Trials::SEED_VARIABLE),
+            format!("{}={index}", Trials::COUNT_VARIABLE),
+        ];
+        for name in names {
+            assert!(
+                report.contains(&name),
+                "the report names its trial, its rule and how to replay it ({name}): {report}"
+            );
+        }
         let replayed = run(Trials::replaying(*trial)).expect_err("the replayed trial finds it");
         assert_eq!(replayed.to_string(), report);
     }

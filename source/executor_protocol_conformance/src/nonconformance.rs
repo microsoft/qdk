@@ -96,9 +96,9 @@ fn replay(f: &mut fmt::Formatter<'_>, trial: Trial) -> fmt::Result {
 
 impl std::error::Error for Nonconformance {}
 
-/// Why a check cannot use a run that failed: for a run refused because a
-/// part was not ready, as a busy device is not, that the check can run
-/// again once the part is ready.
+/// Why a check cannot use a run that failed. A run refused because a part
+/// was not ready (a busy device, say) says the check can run again once
+/// the part is ready.
 pub(crate) fn failed_run(failure: &RunError) -> String {
     match failure {
         RunError::Refused(RunRefusal::PartNotReady { .. }) => format!(

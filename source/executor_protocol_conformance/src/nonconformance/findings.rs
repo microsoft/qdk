@@ -138,7 +138,7 @@ impl Findings {
 
     /// The check's result once a run it needs failed, or could not be
     /// built, for `why`: the rules found broken so far, if any, as
-    /// [`Findings::finish`] orders them; else the first reason noted not to
+    /// [`Findings::finish`] reports them; else the first reason noted not to
     /// judge the part, an earlier one or else `why`, as
     /// [`Findings::cannot_judge`] keeps it.
     pub(crate) fn failed(&mut self, why: impl Into<String>) -> Nonconformance {
