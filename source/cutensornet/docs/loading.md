@@ -107,7 +107,7 @@ _Bindings_ are the Rust declarations of the C functions, types and
 constants. One that does not match the library's ABI (the sizes and layouts
 of its types, and its calling convention) is undefined behaviour when
 called, not a compile error, so the bindings are generated, never written by
-hand, and checked when the crate compiles:
+hand, and the crate is checked against them:
 
 - **Generated from pinned inputs**, so anyone can reproduce them:
   [`scripts/generate_bindings.py`](../scripts/generate_bindings.py) runs bindgen
@@ -123,16 +123,16 @@ hand, and checked when the crate compiles:
   [`.gitattributes`](../.gitattributes) marks it as generated, so GitHub hides
   it in a pull request's diff. cuTensorNet's bindings import the CUDA
   Runtime's stream type, so a stream passes from one to the other unchanged.
-- **Checked when the crate compiles:** each row of a library's function
-  table is checked against its symbol's declaration, so each field has its
-  symbol's type, and each accepted version against the one its header
-  declares. The tests check that each field is named for its symbol and
-  that no symbol is held twice, which catches two functions of one
-  signature swapped or repeated.
+- **Checked when the crate compiles, and by its tests:** each row of a
+  library's function table is checked against its symbol's declaration, so
+  each field has its symbol's type, and each accepted version against the
+  one its header declares. The tests check that each field is named for its
+  symbol and that no symbol is held twice, which catches two functions of
+  one signature swapped or repeated.
 
-To bind another function of a bound release, add its row, with a field
-named for its symbol and its function-pointer type, to its library's module:
-the bindings already declare it. To bind another library, follow the top of
+To bind another function of a bound release, add its row (its field, named
+for its symbol, and its function-pointer type) to its library's module: the
+bindings already declare it. To bind another library, follow the top of
 [`src/libraries.rs`](../src/libraries.rs); to bind a new release, the top of
 [`scripts/generate_bindings.py`](../scripts/generate_bindings.py), which says
 how to run it and audit the release.
