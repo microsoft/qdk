@@ -357,7 +357,7 @@ fn every_boundary_answers_the_offer_read_at_composition() {
 /// A part that stands for a chain in another process reads what the chain
 /// accepts before the chain is composed with a driver: the set of its top
 /// part, an adapter's when it has one, not those of the parts below, in
-/// each bracketing, whether or not the parts below fit it.
+/// each bracketing, even where the parts below do not fit it.
 #[test]
 fn an_executor_accepts_the_instructions_of_its_top_part() {
     let log = Log::default();
@@ -375,7 +375,10 @@ fn an_executor_accepts_the_instructions_of_its_top_part() {
             let b = Adapter::new(Profiler::new(&counted, &log));
             let e = Executor::new(Bits::accepting(no_x(), &log));
         },
-        |chain, brackets| assert_eq!(chain.accepts().name(), "NoMz", "{brackets}"),
+        |chain, brackets| {
+            assert!(chain.check().is_err(), "the parts do not fit, {brackets}");
+            assert_eq!(chain.accepts().name(), "NoMz", "{brackets}");
+        },
     );
 }
 

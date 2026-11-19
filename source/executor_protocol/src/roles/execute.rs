@@ -281,9 +281,9 @@ pub enum ExecuteRefusal {
     /// busy or calibrating, or one reached over a link that is down, and
     /// why; `shot` is the first of its first batch. Unlike the other
     /// refusals, the same `execute` sent again later may run
-    /// ([`RetryClass::Later`]). Where a part's [`ready`](Execute::ready)
-    /// refuses a run before anything of it runs, this refuses one
-    /// `execute` of a run under way.
+    /// ([`RetryClass::Later`], which says on what that relies). Where a
+    /// part's [`ready`](Execute::ready) refuses a run before anything of it
+    /// runs, this refuses one `execute` of a run under way.
     NotReady {
         /// The first shot of the first batch.
         shot: ShotId,

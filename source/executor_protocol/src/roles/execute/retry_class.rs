@@ -6,7 +6,9 @@
 /// Whether the part above may send a refused `execute` again, as
 /// [`ExecuteRefusal::retry_class`](crate::ExecuteRefusal::retry_class)
 /// gives it, so that a part that retries, such as one above a device that
-/// may be busy, asks the refusal rather than matching its variants.
+/// may be busy, asks the refusal rather than matching its variants. The
+/// runner sends nothing again: a refusal that reaches it fails the run,
+/// whatever its class.
 ///
 /// A failure ([`ExecuteError::Failed`](crate::ExecuteError::Failed)) has no
 /// class: work started, so sending the same `execute` again could run a
@@ -22,5 +24,10 @@ pub enum RetryClass {
     Never,
     /// The receiver could not take it now: the same `execute`, sent again
     /// later, may run, and the shots' states are as before the refusal.
+    /// The protocol does not check this; it holds where every adapter
+    /// below keeps the rule [`Adapt::adapt`](crate::Adapt::adapt) states:
+    /// one that has had a call below run for an `execute` does not answer
+    /// that `execute` with a refusal of this class, since sending it again
+    /// would run that call's work twice.
     Later,
 }

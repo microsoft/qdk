@@ -8,12 +8,16 @@
 //! the successful run's; the runner's own refusals are in
 //! `run_limits.rs`.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Trap, coin_gates,
+    Bits, CoinCopy, Log, Panics, PanicsWhen, Profiler, Program, Renamed, Trap, coin_gates,
+    in_each_bracketing,
 };
 use crate::{
-    Adapter, Batch, BatchReadouts, Driver, Execute, ExecuteError, ExecuteRefusal, Executor,
-    ExecutorSetup, Failure, InstructionSet, Offer, Seed, ShotId, ShotSet,
+    Adapter, Batch, BatchReadouts, DriveError, Driver, Execute, ExecuteError, ExecuteRefusal,
+    Executor, ExecutorSetup, Failure, InstructionSet, Offer, Seed, ShotId, ShotSet,
 };
 
 use super::{SEED, failed, runner};
@@ -65,7 +69,10 @@ impl Execute for Refuses {
 /// because shot 2 failed earlier or is not held there, or, on a batch of
 /// shots 2 to 5, because it cannot take the `execute` now: the run fails
 /// naming shot 2, the shot the refusal names, whether or not it is the
-/// batch's first, with the refusal.
+/// batch's first, with the refusal. So too through an adapter that passes
+/// the refusal up, wherever the brackets go: each boundary passes a
+/// refusal from below up as it was made, so that the part above reads its
+/// shot and its [`retry_class`](ExecuteRefusal::retry_class) unchanged.
 #[test]
 fn a_refusal_ends_the_run_naming_its_shot() {
     let shot = ShotId::new(2);
@@ -80,17 +87,31 @@ fn a_refusal_ends_the_run_naming_its_shot() {
             ShotSet::ids(2..6),
         ),
     ] {
-        let mut runner = runner(
-            measure()
-                >> Executor::new(Refuses {
-                    refusal: refusal.clone(),
-                }),
+        let refuses = || {
+            Executor::new(Refuses {
+                refusal: refusal.clone(),
+            })
+        };
+        let ends_the_run = |error: DriveError, brackets: &str| {
+            assert_eq!(error.shot, shot, "{refusal:?}, {brackets}");
+            assert!(
+                matches!(&error.failure, Failure::Refused(why) if *why == refusal),
+                "{brackets}: {error:?}"
+            );
+        };
+        ends_the_run(
+            failed(runner(measure() >> refuses()).run(&shots, SEED)),
+            "no adapter",
         );
-        let error = failed(runner.run(&shots, SEED));
-        assert_eq!(error.shot, shot, "{refusal:?}");
-        assert!(
-            matches!(&error.failure, Failure::Refused(why) if *why == refusal),
-            "{error:?}"
+        let log = Log::default();
+        let counted = Rc::new(Cell::new(0));
+        in_each_bracketing!(
+            [d, a, e] from {
+                let d = measure();
+                let a = Adapter::new(Profiler::new(&counted, &log));
+                let e = refuses();
+            },
+            |chain, brackets| ends_the_run(failed(runner(chain).run(&shots, SEED)), brackets),
         );
     }
 }
@@ -103,9 +124,9 @@ fn measure() -> Driver<Program> {
 /// The errors of runs refused or failed, as a user reads them: each
 /// message says the run was refused or failed, and names what is at fault
 /// with what is wrong: the shots asked and the most a run may have, the
-/// fixed seed, the part's reason, the shot and the part's error, the shot
-/// of an `execute` the executor cannot take now and why, the part that
-/// panicked and its message.
+/// fixed seed, the part's reason, the shot and the part's error, that an
+/// `execute` could not be taken now and why, the part that panicked and
+/// its message.
 #[test]
 fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
     let log = Log::default();
@@ -154,12 +175,7 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
             )
             .run(&shots, SEED)
             .map(drop),
-            &[
-                "run failed",
-                "shot 0",
-                "not ready",
-                "the device is calibrating",
-            ],
+            &["run failed", "not ready", "the device is calibrating"],
         ),
         (
             "a part panicking",

@@ -59,6 +59,18 @@ pub trait Adapt: AdapterSetup {
     /// adapter keeps, which the protocol does not check; a conformance kit,
     /// planned, will check it in the implementer's tests.
     ///
+    /// Once a call below has run for this `adapt`, answering `Ok` or
+    /// failing, it does not answer with a refusal whose
+    /// [`retry_class`](crate::ExecuteRefusal::retry_class) is
+    /// [`Later`](crate::RetryClass::Later), today
+    /// [`ExecuteRefusal::NotReady`](crate::ExecuteRefusal::NotReady): not a
+    /// later call's, passed up as is (as `?` does), nor its own. It turns
+    /// it into a failure, [`ExecuteError::Failed`] with
+    /// [`Failure::Refused`](crate::Failure::Refused), because a part above
+    /// that retries a `Later` refusal would send the whole `execute` again,
+    /// and the calls that ran would run twice on the same shots. It is a
+    /// rule the adapter keeps, which the protocol does not check.
+    ///
     /// An `adapt` does its work, calling `below` included, when its future
     /// is first polled, not when it is called, as Rust's futures do by
     /// convention (an `async fn adapt`'s does), and as

@@ -94,7 +94,9 @@ Today the protocol holds:
 - **Refusals and failures:** a refusal says that nothing ran, so the call
   may be corrected and sent again
   ([`ExecuteRefusal`](src/roles/execute.rs),
-  [`RunRefusal`](src/composition/runner/run_error.rs)); a
+  [`RunRefusal`](src/composition/runner/run_error.rs)), and whether the
+  same call may be sent again unchanged
+  ([`RetryClass`](src/roles/execute/retry_class.rs)); a
   [`Failure`](src/roles/failure.rs) names the
   shot whose work broke. They pass up the chain as
   [`ExecuteError`](src/roles/execute.rs),
@@ -117,6 +119,9 @@ Today the protocol holds:
   parts that draw on the protocol's seeds, a run gives the same outputs
   each time; and where the chain's shots replay, a shot run again alone,
   as a debugger does, gives back its readouts.
+- **What a remote executor uses:** a part that stands for a chain in
+  another process is an executor like any other, and uses what
+  [Remote executors](#remote-executors) lists.
 
 Users write the parts: any type that implements a role, written new or
 wrapping an existing interpreter, noise model or simulator.
@@ -316,6 +321,21 @@ fn main() {
 
 Run it with `cargo run -p executor_protocol --example compose_and_run`.
 
+## Remote executors
+
+The protocol runs in one process: a part that stands for a chain in
+another process, or that reaches a device over a network, is an executor
+like any other. The far side reads its chain's instructions and offer
+([`Executor::accepts` and `offers`](src/composition/executor.rs)) and
+sends them, so that the part gives them to the chain it joins. The part
+carries each `execute`'s `Seed` as bits
+([`Seed::to_bits` and `from_bits`](src/seed.rs)), and asks a refusal
+whether the same `execute` may be sent again
+([`ExecuteRefusal::retry_class`](src/roles/execute.rs)), as it may be
+when the receiver cannot take it now (`ExecuteRefusal::NotReady`) and the
+adapters below keep the rule that
+[Writing a part](docs/writing-a-part.md#the-rules-a-part-keeps) states.
+
 ## Further reading
 
 The pages of [`docs/`](docs) give the protocol's rules, for those who
@@ -335,19 +355,6 @@ mechanics and edge cases.
 - [Composing and running a chain](docs/composing-and-running.md): the
   joins of `>>`, a run's steps, seeds, where and when each check runs, and
   failures and panics.
-
-## Remote executors
-
-A part that stands for a composed executor in another process, or that
-reaches a device over a network, is an executor like any other, since a
-boundary joins two parts in one process. Such a part reads what the
-executor it stands for accepts and offers
-([`Executor::accepts` and `offers`](src/composition/executor.rs)),
-carries an `execute`'s `Seed` as bits
-([`Seed::to_bits` and `from_bits`](src/seed.rs)), and asks a refusal
-whether the same `execute` may be sent again later
-([`ExecuteRefusal::retry_class`](src/roles/execute.rs)), as it may be
-when the receiver is not ready for it now (`ExecuteRefusal::NotReady`).
 
 ## Planned extensions
 
