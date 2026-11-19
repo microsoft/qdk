@@ -60,10 +60,11 @@
 //! It records the buffers lent to workspaces as device scratch, so a test
 //! can see how many are allocated. A workspace asks for [`WORKSPACE_BYTES`]
 //! of device scratch and nothing in its other slots, unless told other
-//! sizes. A call can be made to fail with [`FakeLibraries::fail`], to test
-//! cleanup; and the device count, the free memory and the truncation a
-//! gate split reports can be set, to test what the callers do with what
-//! the library answers.
+//! sizes. A misuse is refused with the status of the rule it breaks
+//! ([`FakeRule`]). A call can be made to fail with [`FakeLibraries::fail`],
+//! to test cleanup; and the device count, the free memory and the
+//! truncation a gate split reports can be set, to test what the callers do
+//! with what the library answers.
 
 mod dense_tensor;
 mod memory_calls;
@@ -179,6 +180,66 @@ fn failed(operation: &'static str, message: &str) -> CudaAlgebraError {
         operation,
         status: 1,
         message: message.to_string(),
+    }
+}
+
+/// The rules of cuTensorNet and CUDA the fake refuses a misuse of, each
+/// with its own status, as a library's status names its error, so that a
+/// test checks which rule refused a call by its status, not by its
+/// message's wording. Other failures (a call made to fail, a missing
+/// object) have status 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FakeRule {
+    /// A tensor call ran with a workspace slot that asks for memory unlent.
+    NoMemoryLent = 101,
+    /// A tensor call ran with a slot lent less than it asks for.
+    LessMemoryLent,
+    /// A tensor call ran with a workspace sized for another call.
+    WorkspaceNotSizedForTheCall,
+    /// A gate split's inputs (A, B, the gate) do not each share a label
+    /// with the other two.
+    GateSplitNotPairwiseConnected,
+    /// A gate split's input has a label outside the split's topology.
+    LabelOutsideGateSplitTopology,
+    /// A gate split's shared extent exceeds its matrix's smaller side.
+    SharedExtentExceedsSmallerSide,
+    /// A QR's shared extent is not its matrix's smaller side.
+    SharedExtentNotSmallerSide,
+    /// A contraction ran on a network not prepared along its path.
+    NetworkNotPrepared,
+}
+
+impl FakeRule {
+    /// The status the fake returns when this rule refuses a call.
+    pub(crate) fn status(self) -> u32 {
+        self as u32
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            Self::NoMemoryLent => "no memory lent to a slot that asks for it",
+            Self::LessMemoryLent => "less memory lent than a slot asks for",
+            Self::WorkspaceNotSizedForTheCall => "the workspace is not sized for this call",
+            Self::GateSplitNotPairwiseConnected => "A, B and the gate are not pairwise connected",
+            Self::LabelOutsideGateSplitTopology => {
+                "an input label is outside a gate split's topology"
+            }
+            Self::SharedExtentExceedsSmallerSide => {
+                "the shared extent exceeds the split's smaller side"
+            }
+            Self::SharedExtentNotSmallerSide => "the shared extent is not the smaller side",
+            Self::NetworkNotPrepared => "the network is not prepared",
+        }
+    }
+}
+
+/// `operation` refused by `rule`, with the rule's status.
+fn refused(operation: &'static str, rule: FakeRule) -> CudaAlgebraError {
+    CudaAlgebraError::NativeCallFailed {
+        component: "fake libraries",
+        operation,
+        status: rule.status(),
+        message: rule.message().to_string(),
     }
 }
 
@@ -354,13 +415,10 @@ impl Inner {
                 continue;
             }
             let Some((memory, bytes)) = lent[slot_index(slot)] else {
-                return Err(failed(
-                    operation,
-                    "no memory lent to a slot that asks for it",
-                ));
+                return Err(refused(operation, FakeRule::NoMemoryLent));
             };
             if bytes < asked {
-                return Err(failed(operation, "less memory lent than a slot asks for"));
+                return Err(refused(operation, FakeRule::LessMemoryLent));
             }
             if is_device(slot) {
                 self.buffer(memory, operation)?;

@@ -198,18 +198,45 @@ fn the_cuda_algebra_conforms() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// An algebra whose opening fails after its device session is open (the
-/// workspace descriptor, the gate's buffer) releases what it had made.
+/// An algebra whose opening fails once the device is selected, at any of
+/// the objects it makes (the stream, the cuTensorNet handle, the workspace
+/// descriptor, the gate's buffer), reports that failure and releases what
+/// it had made.
 #[test]
 fn a_failed_opening_releases_what_it_made() {
-    for operation in ["create_workspace", "allocate"] {
+    for operation in [
+        "create_stream",
+        "create_handle",
+        "create_workspace",
+        "allocate",
+    ] {
         let libraries = Arc::new(FakeLibraries::new());
         libraries.fail(operation, 1);
         let native_calls: Arc<dyn NativeCalls> = libraries.clone();
         let opened = CudaAlgebra::with_native_calls(native_calls);
-        assert!(opened.is_err(), "{operation}: {opened:?}");
+        let failed = match &opened {
+            Err(CudaAlgebraError::NativeCallFailed { operation, .. }) => Some(*operation),
+            _ => None,
+        };
+        assert_eq!(failed, Some(operation), "{opened:?}");
         assert_eq!(libraries.live_objects(), 0, "{operation}");
     }
+}
+
+/// A host whose CUDA Runtime finds no device has no device 0: opening an
+/// algebra there is `NoDevice`, refused before any device is selected or
+/// any object made.
+#[test]
+fn a_host_without_a_cuda_device_is_refused() {
+    let libraries = Arc::new(FakeLibraries::new());
+    libraries.set_device_count(0);
+    let native_calls: Arc<dyn NativeCalls> = libraries.clone();
+    let opened = CudaAlgebra::with_native_calls(native_calls);
+    assert!(
+        matches!(opened, Err(CudaAlgebraError::NoDevice)),
+        "{opened:?}"
+    );
+    assert_eq!(libraries.events(), ["device_count"], "no device selected");
 }
 
 /// A call that would read past a tensor's elements is a defect of its
@@ -258,6 +285,26 @@ fn a_call_reading_past_a_tensors_elements_is_refused() {
             algebra.qr_move(&moved.call(left, right)).map(drop)
         });
     }
+}
+
+/// `SiteAlgebra`'s contract never asks for an empty tensor (an upload holds
+/// at least one element, a duplicate at least 1): a caller that breaks it,
+/// uploading nothing or duplicating no element, gets an invalid call,
+/// refused before any native object is made.
+#[test]
+fn a_call_for_an_empty_tensor_is_refused() {
+    let (algebra, libraries) = algebra();
+    let tensor = upload(&algebra, &random(2, 7));
+    let before = libraries.live_objects();
+    let uploaded = algebra.upload(&[]).map(drop);
+    let duplicated = algebra.duplicate(&tensor, 0).map(drop);
+    for (method, refused) in [("upload", uploaded), ("duplicate", duplicated)] {
+        assert!(
+            matches!(refused, Err(CudaAlgebraError::InvalidNativeCall { .. })),
+            "{method}: {refused:?}"
+        );
+    }
+    assert_eq!(libraries.live_objects(), before, "nothing made");
 }
 
 /// A tensor is freed through the session of the algebra that made it,
@@ -373,9 +420,10 @@ fn every_methods_outputs_are_ready_when_it_returns() {
 }
 
 /// Dropping an algebra and its tensors releases every native object: the
-/// device session, the workspace and its scratch, the gate's and the
-/// singular values' buffers (and the smaller one a growth replaced), the
-/// prepared contractions and the tensors.
+/// workspace and its scratch, the gate's and the singular values' buffers
+/// (and the smaller one a growth replaced), the prepared contractions, the
+/// tensors, and last the cuTensorNet handle, then the stream its work runs
+/// on (an order the fake libraries do not enforce, so checked here).
 #[test]
 fn dropping_the_algebra_and_its_tensors_releases_every_native_object() {
     let (algebra, libraries) = algebra();
@@ -410,6 +458,12 @@ fn dropping_the_algebra_and_its_tensors_releases_every_native_object() {
     drop(algebra);
     drop((left, right, outcome, moved));
     assert_eq!(libraries.live_objects(), 0);
+    let events = libraries.events();
+    assert_eq!(
+        events[events.len() - 2..],
+        ["destroy_handle", "destroy_stream"],
+        "the handle's work runs on the stream: the handle goes first"
+    );
 }
 
 /// A tensor may outlive its algebra, as a state may outlive its engine: it
@@ -430,12 +484,18 @@ fn a_tensor_outliving_its_algebra_frees_its_buffer_when_dropped() {
 }
 
 /// CUDA's current device is per thread, and the engine may call the
-/// algebra on a thread that last used another device: every method, and
-/// the drop of a tensor and of the algebra, selects the algebra's device
-/// before any other native call.
+/// algebra on a thread that last used another device: the opening, every
+/// method, and the drop of a tensor and of the algebra, select the
+/// algebra's device before any other native call (the opening, once it
+/// has counted the devices).
 #[test]
 fn every_call_selects_the_algebras_device_first() {
     let (algebra, libraries) = algebra();
+    assert_eq!(
+        libraries.events()[..2],
+        ["device_count", "set_device"],
+        "the opening"
+    );
     let (a, b) = random_pair(1, 1, 1, 12);
     let (left, right) = (upload(&algebra, &a), upload(&algebra, &b));
     let split = one_qubit_split(&a, &b);

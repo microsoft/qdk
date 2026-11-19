@@ -1,23 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Tests of the size of a device buffer of complex numbers: an empty one is
-//! the algebra's fault, and one too large to size is a resource limit.
+//! Tests of the size of a device buffer of complex numbers: one too large
+//! to size is a resource limit. No public input reaches it (no slice to
+//! upload holds that many values, and a longer duplicate is refused first,
+//! for reading past its tensor's elements), so it is pinned here. That an
+//! empty buffer is an invalid call is pinned where users meet it, through
+//! the algebra (`tests/engine/cuda_algebra.rs`).
 
 use crate::engine::CudaAlgebraError;
 use crate::engine::native_calls::complex_bytes;
-
-/// No tensor the algebra allocates or copies is empty, so asking for an
-/// empty buffer, or an empty copy (the loaded libraries size each copy
-/// with `complex_bytes` before calling CUDA), is an invalid call, refused
-/// before any native call.
-#[test]
-fn an_empty_buffer_is_an_invalid_call() {
-    assert!(matches!(
-        complex_bytes(0, "complex tensor"),
-        Err(CudaAlgebraError::InvalidNativeCall { .. })
-    ));
-}
 
 /// A buffer whose size in bytes does not fit a `usize` overflows, named by
 /// what it was for.

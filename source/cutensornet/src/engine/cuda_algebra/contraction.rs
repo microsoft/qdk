@@ -14,12 +14,12 @@
 //! again.
 
 use super::call_scope::CallScope;
-use super::device_tensor::native_extents;
+use super::call_scope::native_extents;
 use super::policy;
 use crate::engine::cuda_algebra_error::{
     CudaAlgebraError, combine_execution_and_cleanup, first_failure,
 };
-use crate::engine::native_calls::tensor_calls::{ContractionNetwork, TensorModes};
+use crate::engine::native_calls::tensor_calls::{NativeContractionNetwork, TensorModes};
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle};
 use std::collections::BTreeMap;
 
@@ -48,7 +48,7 @@ struct NetworkShape {
 /// destroyed before the network.
 #[derive(Clone, Copy)]
 struct PreparedContractionNetwork {
-    network: ContractionNetwork,
+    network: NativeContractionNetwork,
     info: OpaqueHandle,
 }
 

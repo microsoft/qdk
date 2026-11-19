@@ -23,9 +23,10 @@
 use crate::engine::{
     CudaAlgebraError,
     native_calls::{
-        Complex64Abi, ContractionNetwork, GateSplitDescriptors, GateSplitOperands, MemoryCalls,
-        NativeCalls, OpaqueHandle, SessionCalls, Stream, SvdSetting, TensorCalls, TensorModes,
-        TensorOperand, WorkspaceSlot, fake_libraries::FakeLibraries,
+        Complex64Abi, GateSplitDescriptors, GateSplitOperands, MemoryCalls, NativeCalls,
+        NativeContractionNetwork, OpaqueHandle, SessionCalls, Stream, SvdSetting, TensorCalls,
+        TensorModes, TensorOperand, WorkspaceSlot,
+        fake_libraries::{FakeLibraries, FakeRule},
     },
 };
 use num_complex::Complex64;
@@ -66,7 +67,7 @@ fn a_workspace_slot_is_lent_what_it_asks_on<C: TestedCalls>(new: &dyn Fn() -> De
             .run_on(device.stream)
             .expect_err("one slot is lent nothing");
         assert!(
-            refused_for::<C>(&refused, "no memory lent"),
+            refused_for::<C>(&refused, FakeRule::NoMemoryLent),
             "{slot:?}: {refused}"
         );
         device.lend_bytes(slot, asked - 1);
@@ -74,7 +75,7 @@ fn a_workspace_slot_is_lent_what_it_asks_on<C: TestedCalls>(new: &dyn Fn() -> De
             .run_on(device.stream)
             .expect_err("one slot is one byte short");
         assert!(
-            refused_for::<C>(&refused, "less memory lent"),
+            refused_for::<C>(&refused, FakeRule::LessMemoryLent),
             "{slot:?}: {refused}"
         );
         device.lend(slot);
@@ -328,7 +329,7 @@ fn a_gate_split_needs_a_shared_extent_within_the_smaller_side<C: TestedCalls>(
         .split()
         .expect_err("the shared extent of 3 exceeds θ's 2×2");
     assert!(
-        refused_for::<C>(&error, "exceeds the split's smaller side"),
+        refused_for::<C>(&error, FakeRule::SharedExtentExceedsSmallerSide),
         "{error}"
     );
 }
@@ -342,7 +343,7 @@ fn a_qr_needs_the_shared_extent_to_be_the_smaller_side<C: TestedCalls>(
         let refused = qr_on(new(), extent, |device| device.stream)
             .expect_err("Q and R do not share the smaller side");
         assert!(
-            refused_for::<C>(&refused, "not the smaller side"),
+            refused_for::<C>(&refused, FakeRule::SharedExtentNotSmallerSide),
             "{extent}: {refused}"
         );
     }
@@ -369,7 +370,7 @@ fn a_gate_split_refuses_its_shared_mode_on_an_input<C: TestedCalls>(new: &dyn Fn
         .split()
         .expect_err("A's and B's bond is labelled as U's and V's shared mode");
     assert!(
-        refused_for::<C>(&refused, "outside a gate split's topology"),
+        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
     with_bond(BOND)
@@ -400,7 +401,7 @@ fn a_gate_split_refuses_a_label_outside_its_topology<C: TestedCalls>(new: &dyn F
         .split()
         .expect_err("the gate's extra label is in no other tensor");
     assert!(
-        refused_for::<C>(&refused, "outside a gate split's topology"),
+        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
 }
@@ -412,7 +413,7 @@ fn a_gate_split_refuses_a_label_outside_its_topology<C: TestedCalls>(new: &dyn F
 fn a_gate_split_needs_a_b_and_the_gate_pairwise_connected<C: TestedCalls>(
     new: &dyn Fn() -> Device<C>,
 ) {
-    let not_connected = "not pairwise connected";
+    let not_connected = FakeRule::GateSplitNotPairwiseConnected;
     split_with_labels(new, &[P, BOND], &[BOND, Q], &GATE, &[P_OUT, S], &[S, Q_OUT])
         .expect("each pair shares a label");
     let refused = split_with_labels(new, &[P], &[Q], &GATE, &[P_OUT, S], &[S, Q_OUT])
@@ -457,7 +458,7 @@ fn a_gate_split_refuses_a_label_on_all_three_inputs<C: TestedCalls>(new: &dyn Fn
     )
     .expect_err("a label is on all three inputs");
     assert!(
-        refused_for::<C>(&refused, "outside a gate split's topology"),
+        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
 }
@@ -474,7 +475,7 @@ fn a_gate_split_refuses_a_contracted_label_kept_in_an_output<C: TestedCalls>(
     let refused = split_with_labels(new, &a, &b, &GATE, &[P_OUT, BOND, S], &[S, Q_OUT])
         .expect_err("A's and B's bond is also kept in U");
     assert!(
-        refused_for::<C>(&refused, "outside a gate split's topology"),
+        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
 }
@@ -497,7 +498,7 @@ fn a_gate_split_refuses_its_shared_mode_on_a_single_input<C: TestedCalls>(
     let refused = split_with_labels(new, &[P, BOND, S], &b, &GATE, &[P_OUT, S], &[S, Q_OUT])
         .expect_err("A's outer bond is labelled as U's and V's shared mode");
     assert!(
-        refused_for::<C>(&refused, "outside a gate split's topology"),
+        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
 }
@@ -511,7 +512,7 @@ fn a_gate_split_keeps_a_label_of_a_alone_in_u<C: TestedCalls>(new: &dyn Fn() -> 
     let refused = split_with_labels(new, &a, &b, &GATE, &[P_OUT, S], &[S, Q_OUT, OUTER])
         .expect_err("A's outer bond is in V");
     assert!(
-        refused_for::<C>(&refused, "outside a gate split's topology"),
+        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
 }
@@ -525,7 +526,7 @@ fn a_gate_split_keeps_a_label_of_b_alone_in_v<C: TestedCalls>(new: &dyn Fn() -> 
     let refused = split_with_labels(new, &a, &b, &GATE, &[OUTER, P_OUT, S], &[S, Q_OUT])
         .expect_err("B's outer bond is in U");
     assert!(
-        refused_for::<C>(&refused, "outside a gate split's topology"),
+        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
 }
@@ -763,7 +764,10 @@ fn a_contraction_needs_a_network_prepared_for_its_path<C: TestedCalls>(
     let refused = contraction
         .contract()
         .expect_err("the network is not prepared");
-    assert!(refused_for::<C>(&refused, "not prepared"), "{refused}");
+    assert!(
+        refused_for::<C>(&refused, FakeRule::NetworkNotPrepared),
+        "{refused}"
+    );
     contraction
         .prepare()
         .expect("the workspace is sized for the path");
@@ -780,7 +784,10 @@ fn a_contraction_needs_a_network_prepared_for_its_path<C: TestedCalls>(
     let refused = contraction
         .contract()
         .expect_err("the network is not prepared for its new path");
-    assert!(refused_for::<C>(&refused, "not prepared"), "{refused}");
+    assert!(
+        refused_for::<C>(&refused, FakeRule::NetworkNotPrepared),
+        "{refused}"
+    );
     contraction
         .prepare()
         .expect("the workspace is sized for the path");
@@ -1084,7 +1091,7 @@ fn a_new_path_search_needs_the_workspace_sized_again() {
         .prepare()
         .expect_err("the workspace is sized for the earlier search's path");
     assert!(
-        refused_for::<FakeLibraries>(&refused, "not sized for this call"),
+        refused_for::<FakeLibraries>(&refused, FakeRule::WorkspaceNotSizedForTheCall),
         "{refused}"
     );
     device
@@ -1126,7 +1133,7 @@ fn a_new_path_search_needs_every_workspace_sized_again() {
             .prepare_contraction(handle, network, workspace)
             .expect_err("the workspace is sized for the earlier search's path");
         assert!(
-            refused_for::<FakeLibraries>(&refused, "not sized for this call"),
+            refused_for::<FakeLibraries>(&refused, FakeRule::WorkspaceNotSizedForTheCall),
             "{refused}"
         );
     }
@@ -1225,7 +1232,7 @@ fn a_gate_split_needs_a_workspace_sized_for_its_descriptors() {
         .run(split.config, device.stream)
         .expect_err("the workspace is sized for another U descriptor");
     assert!(
-        refused_for::<FakeLibraries>(&refused, "not sized for this call"),
+        refused_for::<FakeLibraries>(&refused, FakeRule::WorkspaceNotSizedForTheCall),
         "{refused}"
     );
     split.size_workspace(split.config);
@@ -1250,7 +1257,7 @@ fn a_qr_needs_a_workspace_sized_for_it() {
         .run_on(device.stream)
         .expect_err("the workspace is sized for a contraction");
     assert!(
-        refused_for::<FakeLibraries>(&refused, "not sized for this call"),
+        refused_for::<FakeLibraries>(&refused, FakeRule::WorkspaceNotSizedForTheCall),
         "{refused}"
     );
     qr.size().expect("the descriptors are live");
@@ -1273,7 +1280,7 @@ fn a_contraction_needs_a_workspace_sized_for_its_path() {
         .contract()
         .expect_err("the workspace is sized for another network");
     assert!(
-        refused_for::<FakeLibraries>(&refused, "not sized for this call"),
+        refused_for::<FakeLibraries>(&refused, FakeRule::WorkspaceNotSizedForTheCall),
         "{refused}"
     );
     device
@@ -1789,9 +1796,10 @@ mod on_the_gpu {
 /// The native calls a table runs on: the fake libraries in every host test,
 /// the loaded libraries in the GPU tests (`on_the_gpu`).
 trait TestedCalls: NativeCalls {
-    /// Whether a refusal names the rule it enforces, as the fake's do, so
-    /// that a case checks it was refused for that rule; cuTensorNet's
-    /// statuses name none.
+    /// Whether a refusal's status names the rule it enforces, as the
+    /// fake's do ([`FakeRule`]), so that a case checks it was refused by
+    /// that rule; cuTensorNet's statuses name a class of error, not the
+    /// rule.
     const NAMES_ITS_RULE: bool;
 }
 
@@ -1799,10 +1807,14 @@ impl TestedCalls for FakeLibraries {
     const NAMES_ITS_RULE: bool = true;
 }
 
-/// Whether `refused` is a refusal for `reason`, on calls that name their
+/// Whether `refused` is a refusal by `rule`, on calls that name their
 /// rule; any refusal, on calls that do not.
-fn refused_for<C: TestedCalls>(refused: &CudaAlgebraError, reason: &str) -> bool {
-    !C::NAMES_ITS_RULE || refused.to_string().contains(reason)
+fn refused_for<C: TestedCalls>(refused: &CudaAlgebraError, rule: FakeRule) -> bool {
+    !C::NAMES_ITS_RULE
+        || matches!(
+            refused,
+            CudaAlgebraError::NativeCallFailed { status, .. } if *status == rule.status()
+        )
 }
 
 /// What every tensor call needs: a handle, a stream and a workspace, made
@@ -1998,7 +2010,7 @@ impl<C: TestedCalls> Device<C> {
         &self,
         inputs: [TensorModes<'_>; 2],
         output_modes: &[i32],
-    ) -> Result<ContractionNetwork, CudaAlgebraError> {
+    ) -> Result<NativeContractionNetwork, CudaAlgebraError> {
         let network = self
             .calls
             .create_contraction_network(self.handle, inputs, output_modes)?;
@@ -2118,7 +2130,7 @@ impl<C: TestedCalls> Device<C> {
 /// A contraction of two tensors: its device, network and buffers.
 struct Contraction<C: TestedCalls = FakeLibraries> {
     device: Device<C>,
-    network: ContractionNetwork,
+    network: NativeContractionNetwork,
     info: OpaqueHandle,
     inputs: [OpaqueHandle; 2],
     output: OpaqueHandle,

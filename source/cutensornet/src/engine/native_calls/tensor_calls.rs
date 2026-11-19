@@ -3,7 +3,7 @@
 
 //! [`TensorCalls`]: cuTensorNet's tensor API, which factors and contracts
 //! one or two tensors at a time for a caller that holds an MPS in its own
-//! device buffers.
+//! device buffers; with the argument and result types of its methods.
 //!
 //! An engine that keeps its MPS canonical, site by site, needs the
 //! library's small steps: split a two-site gate's result by a truncated SVD
@@ -156,7 +156,7 @@ pub(crate) trait TensorCalls: MemoryCalls {
         handle: OpaqueHandle,
         inputs: [TensorModes<'_>; 2],
         output_modes: &[i32],
-    ) -> Result<ContractionNetwork, CudaAlgebraError>;
+    ) -> Result<NativeContractionNetwork, CudaAlgebraError>;
     /// Releases `network` (`cutensornetDestroyNetwork`), once, after its
     /// optimizer infos and the contractions that use it.
     fn destroy_contraction_network(&self, network: OpaqueHandle) -> Result<(), CudaAlgebraError>;
@@ -219,7 +219,7 @@ pub(crate) trait TensorCalls: MemoryCalls {
     fn contract(
         &self,
         handle: OpaqueHandle,
-        network: ContractionNetwork,
+        network: NativeContractionNetwork,
         inputs: [OpaqueHandle; 2],
         output: OpaqueHandle,
         workspace: OpaqueHandle,
@@ -236,10 +236,11 @@ pub(crate) struct TensorModes<'a> {
     pub(crate) modes: &'a [i32],
 }
 
-/// A contraction network and the ids cuTensorNet gave its two inputs, by
-/// which [`TensorCalls::contract`] hands it their buffers.
+/// cuTensorNet's descriptor of a contraction network, and the ids it gave
+/// the network's two inputs, by which [`TensorCalls::contract`] hands it
+/// their buffers: the library's handle to a network, not the network.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ContractionNetwork {
+pub(crate) struct NativeContractionNetwork {
     pub(crate) descriptor: OpaqueHandle,
     pub(crate) input_ids: [i64; 2],
 }

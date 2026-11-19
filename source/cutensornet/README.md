@@ -18,14 +18,15 @@ QDK. The problem includes:
   missing, to tell the user or to run on the CPU instead.
 
 The crate solves these with `canonical_mps`'s engine on a cuTensorNet
-algebra, and with libraries opened at run time and checked. The engine's
-rules are written once, in `canonical_mps`; this crate writes only the
-five tensor operations of its `SiteAlgebra` trait, run by cuTensorNet on
-one GPU, with the sites in the GPU's memory. cuTensorNet and the CUDA
-Runtime are never linked: when a GPU run is asked for, discovery opens
-them, looks up the functions the algebra calls, and checks their
-versions; it returns the loaded libraries, on which an engine opens, or
-every fault it found.
+algebra, and with libraries opened at run time. The engine's rules are
+written once, in `canonical_mps`; this crate writes only the five tensor
+operations of its `SiteAlgebra` trait, run by cuTensorNet on one GPU,
+with the sites in the GPU's memory. cuTensorNet and the CUDA Runtime are
+never linked: they are opened at run time and checked
+([discovery](#the-discovery-and-loading-of-the-libraries)), which returns
+the loaded libraries, on which an engine opens, or why they cannot be
+used: every fault it found, or, off Linux x86-64, that the platform is
+unsupported.
 
 Today the crate holds:
 
@@ -48,12 +49,19 @@ Today the crate holds:
   [`AvailabilityError`](src/discovery/error.rs), with the
   [`LibraryFault`](src/libraries/report.rs)s it lists.
 
-A simulator calls `discover()`, then
+The extension point is an MPS simulation method: written once against
+`tensornet::MpsEngine`, it runs on this engine as on `canonical_mps`'s
+`CpuMpsEngine`, and gets the GPU for free. A simulator calls
+`discover()`, then makes the engine with
 `CudaMpsEngine::try_from(&availability)` (Linux x86-64), at the engine's
 default cutoff (`.with_cutoff(c)` sets another), as the example on
-[`CudaMpsEngine`](src/engine.rs) does, and uses the engine as any
-`tensornet::MpsEngine`; on an error, it tells the user what is missing,
-or runs on `canonical_mps`'s `CpuMpsEngine`.
+[`CudaMpsEngine`](src/engine.rs) does; or, to hold the algebra itself,
+with `CudaMpsEngine::new(CudaAlgebra::new(&availability)?)`. It opens the
+engine in each run's first step, on the thread that runs it, and drops it
+at the run's end: the engine holds device 0's stream and cuTensorNet
+handle, and the memory it lent cuTensorNet, grown to the run's largest
+call, until it is dropped. On an error, the simulator tells the user what
+is missing, or runs on `CpuMpsEngine`.
 
 ## The MPS engine
 
@@ -131,6 +139,24 @@ synchronous calls and cuTensorNet's asynchronous ones:
 The settings the algebra fixes, with how each was chosen, are in
 [`policy.rs`](src/engine/cuda_algebra/policy.rs);
 [`cuda_algebra.rs`](src/engine/cuda_algebra.rs) maps its files.
+
+### When each guarantee holds
+
+The guarantees the sections below state, grouped by when they hold:
+
+- **At discovery** (`discover`): no device selected and no GPU work;
+  every fault found at once; the audited versions only.
+- **At the opening** (`CudaAlgebra::new`, `CudaMpsEngine::try_from`):
+  `CudaAlgebraError::NoDevice` on a host without device 0, before any
+  device is selected; a failed opening releases what it had made.
+- **At each method:** another engine's tensor refused before the bind; a
+  tensor shorter than the call reads, or an empty one, refused before any
+  native object; the inputs left unchanged; a return with the device
+  idle; on a failure, the outputs freed once the device is waited for, or
+  the algebra poisoned when that wait fails.
+- **At a drop:** every release attempted, a failed one leaked, never
+  retried, and written to stderr in debug builds; nothing freed when the
+  device cannot be selected, so nothing is freed on another device.
 
 ### The algebra's phases
 

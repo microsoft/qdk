@@ -63,17 +63,17 @@
 //! the outputs (`FakeLibraries::misreport_truncation`).
 
 use super::{
-    FakeLibraries, Inner, Object,
+    FakeLibraries, FakeRule, Inner, Object,
     dense_tensor::{DenseTensor, contract},
-    failed, id, to_usize,
+    failed, id, refused, to_usize,
 };
 use crate::engine::CudaAlgebraError;
 use crate::engine::native_calls::{
     OpaqueHandle, Stream,
     memory_calls::WorkspaceSlot,
     tensor_calls::{
-        ContractionNetwork, GateSplitDescriptors, GateSplitOperands, SvdSetting, SvdTruncation,
-        TensorCalls, TensorModes, TensorOperand,
+        GateSplitDescriptors, GateSplitOperands, NativeContractionNetwork, SvdSetting,
+        SvdTruncation, TensorCalls, TensorModes, TensorOperand,
     },
 };
 use canonical_mps::dense_linalg::{MatrixRef, Qr, Svd};
@@ -259,10 +259,7 @@ impl TensorCalls for FakeLibraries {
         sides.check_gate_split_labels(&inputs, OPERATION)?;
         let (theta, rows, cols) = sides.matrix(&inputs, OPERATION)?;
         if to_usize(sides.shared_extent)? > rows.min(cols) {
-            return Err(failed(
-                OPERATION,
-                "the shared extent exceeds the split's smaller side",
-            ));
+            return Err(refused(OPERATION, FakeRule::SharedExtentExceedsSmallerSide));
         }
         let Split {
             left,
@@ -357,10 +354,7 @@ impl TensorCalls for FakeLibraries {
         }
         let (matrix, rows, cols) = sides.matrix(&[&tensor], OPERATION)?;
         if to_usize(sides.shared_extent)? != rows.min(cols) {
-            return Err(failed(
-                OPERATION,
-                "the shared extent is not the smaller side",
-            ));
+            return Err(refused(OPERATION, FakeRule::SharedExtentNotSmallerSide));
         }
         let Qr {
             q: q_factor,
@@ -386,7 +380,7 @@ impl TensorCalls for FakeLibraries {
         handle: OpaqueHandle,
         inputs: [TensorModes<'_>; 2],
         output_modes: &[i32],
-    ) -> Result<ContractionNetwork, CudaAlgebraError> {
+    ) -> Result<NativeContractionNetwork, CudaAlgebraError> {
         const OPERATION: &str = "create_contraction_network";
         let mut inner = self.call(OPERATION)?;
         let inputs = [
@@ -426,7 +420,7 @@ impl TensorCalls for FakeLibraries {
                 prepared: None,
             },
         )?;
-        Ok(ContractionNetwork {
+        Ok(NativeContractionNetwork {
             descriptor,
             input_ids: [0, 1],
         })
@@ -559,7 +553,7 @@ impl TensorCalls for FakeLibraries {
     fn contract(
         &self,
         handle: OpaqueHandle,
-        network: ContractionNetwork,
+        network: NativeContractionNetwork,
         inputs: [OpaqueHandle; 2],
         output: OpaqueHandle,
         workspace: OpaqueHandle,
@@ -571,7 +565,7 @@ impl TensorCalls for FakeLibraries {
         let network = network.descriptor;
         let (path, prepared) = inner.network(handle, network, OPERATION)?;
         let (Some(info), Some(prepared_scratch)) = (path, prepared) else {
-            return Err(failed(OPERATION, "the network is not prepared"));
+            return Err(refused(OPERATION, FakeRule::NetworkNotPrepared));
         };
         inner.sized_for(
             handle,
@@ -773,10 +767,7 @@ impl Sides {
                 .any(|mode| inputs[second].modes.contains(mode))
         };
         if ![[0, 1], [0, 2], [1, 2]].into_iter().all(connected) {
-            return Err(failed(
-                operation,
-                "A, B and the gate are not pairwise connected",
-            ));
+            return Err(refused(operation, FakeRule::GateSplitNotPairwiseConnected));
         }
         let on_left = |mode: &i32| self.left.0.contains(mode);
         let on_right = |mode: &i32| self.right.0.contains(mode);
@@ -794,10 +785,7 @@ impl Sides {
                     _ => false,
                 };
                 if !fits {
-                    return Err(failed(
-                        operation,
-                        "an input label is outside a gate split's topology",
-                    ));
+                    return Err(refused(operation, FakeRule::LabelOutsideGateSplitTopology));
                 }
             }
         }
@@ -1049,10 +1037,9 @@ impl Inner {
         self.owned(handle, workspace, operation)?;
         match self.objects.get(&id(workspace)) {
             Some(Object::Workspace { sized_for, .. }) if *sized_for == Some(call) => Ok(()),
-            Some(Object::Workspace { .. }) => Err(failed(
-                operation,
-                "the workspace is not sized for this call",
-            )),
+            Some(Object::Workspace { .. }) => {
+                Err(refused(operation, FakeRule::WorkspaceNotSizedForTheCall))
+            }
             _ => Err(failed(operation, "no such workspace")),
         }
     }
