@@ -6,12 +6,20 @@ product states (MPS), which hold many more qubits than a state vector when a
 program entangles them little, as chemistry programs such as H₂'s phase
 estimation do.
 
-**The problem.** `qir`'s machine runs a program's classical part and hands
-each shot's quantum calls, on qubits, to a [`QirResumer`](../qir/resumer.rs);
-an MPS engine ([`MpsEngine`](../../../tensornet/src/engine.rs)) holds states
-and takes matrices on sites, with no gate names, no measurements and no
-shots. A program's shots also branch on their measurements, so they share
-a state only as long as they drew the same values.
+**The problem.** The MPS simulation method was designed to solve the
+problem of running the QDK's QIR programs on an MPS engine. `qir`'s machine
+runs a program's classical part and hands each shot's quantum calls, on
+qubits, to a [`QirResumer`](../qir/resumer.rs); an MPS engine
+([`MpsEngine`](../../../tensornet/src/engine.rs)) knows only sites,
+matrices and probabilities. The problem includes:
+
+- placing the program's qubits on the engine's chain of sites;
+- turning each call on those qubits, a gate by its name or a measurement,
+  into matrices and draws on sites;
+- running the shots, which branch on what they draw, without a state for
+  each shot;
+- and, with the shots sharing states, giving each shot the records it
+  would get alone, whatever shots run beside it.
 
 **How it is solved.** [`MpsResumer`](../mps_simulator.rs) implements
 `QirResumer` once over `MpsEngine`. It places the program's qubits on the
@@ -23,6 +31,21 @@ exact copy, such as `tensornet`'s exact reference, and otherwise to
 rounding (what may then differ is in
 [`MpsResumer`'s doc](../mps_simulator.rs)).
 
+Today the module holds:
+
+- **the runner:** [`MpsResumer`](../mps_simulator.rs), which runs a
+  program's shots on an engine, with a max bond dimension (by default
+  [`DEFAULT_MAX_BOND_DIMENSION`](../mps_simulator.rs)), a seed and a stop
+  flag;
+- **its report:** [`MpsRunReport`](run_report.rs), what the last run cost,
+  and its [`TruncationWarning`](run_report.rs) when a shot lost more than
+  [`TRUNCATION_TOLERANCE`](run_report.rs) of its weight, for the user to
+  raise χ;
+- **its failures:** [`MpsResumerError`](error.rs), why the resumer failed a
+  shot, apart from a trap of its program.
+
+Each file's header gives the rules of its part.
+
 **Why this approach.**
 
 - **Decoupling.** The machine knows nothing of matrix product states, and
@@ -30,9 +53,10 @@ rounding (what may then differ is in
   one onto the other.
 - **One implementation.** The resumer is written once, and runs on any
   `MpsEngine`: a new engine needs no change here.
-- **Paying only for distinct histories.** A run costs what its distinct
-  histories cost: one state for a program with no random draw, one per
-  shot at most.
+- **One state per group.** The shots that drew the same values share one
+  state, forked only where their draws differ: a program whose draws never
+  differ runs every shot on one state, and a run never makes more states
+  than it has shots.
 - **Reproducible shots.** A shot's records depend only on the program, the
   seed, its id and the settings, not on the shots run beside it (beyond
   rounding, on some engines, as above).
@@ -65,18 +89,22 @@ The two traits speak different terms, `qir`'s of qubits, calls and shots,
 - **fork**: a copy of a state, which reads what the state reads (to
   rounding, as `MpsEngine::fork` promises), made where a group's shots
   drew both values.
+- **part**: the shots of a group that drew one value, where the group's
+  shots drew both; each part runs on as a group of its own, one of them on
+  a fork.
 
 ## The model
 
-The machine hands over each batch of calls in the program's terms and
-wants each measurement's value back; the engine is called on sites and
+The machine (`QirMachine`, which runs the program's classical part) hands
+over each batch of calls in the program's terms and wants each
+measurement's value back; the engine is called on sites and
 answers with probabilities. The resumer bridges the two:
 
 ```mermaid
 flowchart LR
-  M["QirMachine<br/>(the program's classical part)"] -->|"a batch of calls on qubits"| R["MpsResumer"]
+  M["QirMachine"] -->|"a batch of calls on qubits"| R["MpsResumer"]
   R -->|"the values drawn"| M
-  R -->|"matrices and projections on sites"| E["an MpsEngine"]
+  R -->|"matrices and projections on sites"| E["MpsEngine"]
   E -->|"probabilities, bonds, retained weight"| R
 ```
 
@@ -143,19 +171,9 @@ assert!(
 assert!(records.iter().all(|shot| shot[0] == shot[1]));
 ```
 
-## Which type for what
+## Planned extensions
 
-| Type                                                                         | A caller uses it to                                                                   |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [`MpsResumer`, `DEFAULT_MAX_BOND_DIMENSION`](../mps_simulator.rs)            | run a program's shots on an engine, with a max bond dimension, a seed and a stop flag |
-| [`MpsRunReport`, `TruncationWarning`, `TRUNCATION_TOLERANCE`](run_report.rs) | learn what the last run cost, and whether its truncations lost enough to raise χ      |
-| [`MpsResumerError`](error.rs)                                                | learn why the resumer failed a shot, apart from a trap of its program                 |
-
-Each file's header gives the rules of its part.
-
-## Planned
-
-Each item names a case that needs it; [the design notes](design.md#planned)
+Each item names a case that needs it; [the design notes](design.md#planned-extensions)
 give each in detail.
 
 - **Noise and loss** on matrix product states, the calls refused today in
@@ -169,7 +187,7 @@ give each in detail.
 - **The measurements that end a batch, drawn from one state**, without a
   fork per distinct value. Its case: a variational ansatz's final readout.
 - **Groups run in parallel** on CPU threads. Its case: a polyene chain,
-  whose 1,000 shots split into many histories.
+  whose 1,000 shots split into many groups.
 - **A result per shot**, so one failed shot does not lose the others. Its
   case: a long GPU run that one transient out-of-memory error ends.
 - **A resumer conformance kit**: the tests that hold for any `QirResumer`,
