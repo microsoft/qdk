@@ -21,7 +21,12 @@ use crate::tests::fake_parts::{
     Bits, KeepsDefaults, Later, Log, OutputsAsRowsCome, Profiler, Program, RandomGenerator,
     RowsGiven, SeesPieces, Sending, Spread, Values, in_each_bracketing, sorted_values,
 };
-use crate::{Adapter, Driver, Executor, Offer, ShotConditions, ShotSet};
+use crate::{
+    Adapter, Driver, Executor, MAX_INSTRUCTIONS_PER_PIECE, Offer, ShotConditions, ShotSet,
+};
+
+/// The most instructions of any piece the default cuts, as a count.
+const PIECE: usize = MAX_INSTRUCTIONS_PER_PIECE as usize;
 
 /// A program of 12 instructions on 3 qubits that tosses, flips and reads
 /// them in turn, its reads spread through it, so that each cut falls
@@ -213,13 +218,14 @@ fn sent_in_every_split(
 /// runs, the driver has made only the instructions of the pieces so far,
 /// so no part holds more than a piece of the stream. An executor taking 0
 /// instructions a batch gets pieces of 1, rather than a stream that runs
-/// nothing. A stream of 2500 instructions to an executor taking any count,
-/// or as many as a `u32` counts, gets pieces of at most 1024, so the
-/// default's memory stays flat however much the executor takes. An empty
+/// nothing. A stream of more than two pieces' worth of instructions to an
+/// executor taking any count, or as many as a `u32` counts, gets pieces of
+/// at most [`MAX_INSTRUCTIONS_PER_PIECE`], so the default's memory stays
+/// flat however much the executor takes. An empty
 /// stream runs no piece, and gets a row of no value per shot.
 #[test]
 fn execute_stream_by_default_runs_pieces_within_the_receivers_most_each_pulled_as_it_runs() {
-    let past_a_piece = vec![("x", 0); 2500];
+    let past_a_piece = vec![("x", 0); 2 * PIECE + 452];
     let shots = ShotSet::ids(0..3);
     let stream = |program: &[(&str, u32)], produced: &Rc<Cell<usize>>| {
         Driver::new(Program::new(program).sending_as(Sending::stream_counted(produced)))
@@ -232,8 +238,8 @@ fn execute_stream_by_default_runs_pieces_within_the_receivers_most_each_pulled_a
         (&PROGRAM, Some(13), &[12]),
         (&PROGRAM, None, &[12]),
         (&PROGRAM, Some(0), &[1; 12]),
-        (&past_a_piece, Some(u32::MAX), &[1024, 1024, 452]),
-        (&past_a_piece, None, &[1024, 1024, 452]),
+        (&past_a_piece, Some(u32::MAX), &[PIECE, PIECE, 452]),
+        (&past_a_piece, None, &[PIECE, PIECE, 452]),
         (&[], Some(5), &[]),
     ] {
         let seen = |log: &Log, chain: &str| {
@@ -275,9 +281,9 @@ fn execute_stream_by_default_runs_pieces_within_the_receivers_most_each_pulled_a
 /// so a cancelled run of a long stream stops within a piece.
 #[test]
 fn execute_stream_by_default_pulls_no_more_than_a_piece_before_its_run_is_dropped() {
-    let past_a_piece = vec![("x", 0); 2500];
+    let past_a_piece = vec![("x", 0); 2 * PIECE + 452];
     let shots = ShotSet::ids(0..3);
-    for (program, most, piece) in [(&PROGRAM[..], Some(5), 5), (&past_a_piece, None, 1024)] {
+    for (program, most, piece) in [(&PROGRAM[..], Some(5), 5), (&past_a_piece, None, PIECE)] {
         let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
         let mut runner = runner(
             Driver::new(Program::new(program).sending_as(Sending::stream_counted(&produced)))

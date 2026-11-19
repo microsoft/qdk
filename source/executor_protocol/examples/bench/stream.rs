@@ -15,7 +15,9 @@
 
 use std::hint::black_box;
 
-use executor_protocol::{Adapter, Driver, Execute, Executor, Instruction, Offer};
+use executor_protocol::{
+    Adapter, Driver, Execute, Executor, Instruction, MAX_INSTRUCTIONS_PER_PIECE, Offer,
+};
 
 use crate::Size;
 use crate::parts::{
@@ -29,11 +31,10 @@ use crate::workload::QUBITS;
 /// the protocol picks the piece size itself.
 const MOSTS: [Option<u32>; 5] = [Some(10), Some(100), Some(1_000), Some(10_000), None];
 
-/// The protocol's own piece size, `PIECE` in `src/roles/stream_pieces.rs`:
-/// the most instructions of a piece whatever the executor's most, so the
-/// batches are compared at the smaller of the two, the stream and the
-/// batches being of one size.
-const PIECE: usize = 1_024;
+/// The protocol's own piece size: the most instructions of a piece
+/// whatever the executor's most, so the batches are compared at the smaller
+/// of the two, the stream and the batches being of one size.
+const PIECE: usize = MAX_INSTRUCTIONS_PER_PIECE as usize;
 
 /// Per piece size, the program in batches as held, cut by the driver, and
 /// as a stream, in ns per instruction, and the stream's time over the

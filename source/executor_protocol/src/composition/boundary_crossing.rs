@@ -176,11 +176,12 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// receiver gets nothing after it, however often it pulls. A
     /// [`checked`](InstructionStream::checked) stream is checked a piece
     /// at a time, each piece of at most the most instructions the receiver
-    /// takes and at most about a thousand (the pieces its `execute_stream`
-    /// cuts by default), before any of it reaches the receiver, so the
-    /// boundary holds one such piece, however much the receiver takes at
-    /// once. A fault in the first piece, checked before
-    /// the receiver is called, refuses the stream, named as batch 0,
+    /// takes and at most
+    /// [`MAX_INSTRUCTIONS_PER_PIECE`](crate::MAX_INSTRUCTIONS_PER_PIECE)
+    /// (the pieces its `execute_stream` cuts by default), before any of it
+    /// reaches the receiver, so the boundary holds one such piece, however
+    /// much the receiver takes at once. A fault in the first piece, checked
+    /// before the receiver is called, refuses the stream, named as batch 0,
     /// without calling it. At a later piece's fault, the stream ends
     /// there, and the fault is the answer, as a failure, whatever the
     /// receiver answers to the stream's end, or if it panics. Once the

@@ -111,8 +111,10 @@ pub trait Adapt: AdapterSetup {
     /// By default, it runs the stream in pieces, each one `adapt` of one
     /// batch of at most the most instructions it offers above (its
     /// [`offers_above`](AdapterSetup::offers_above) `below`'s offer, or 1 if
-    /// that is 0) and at most about a thousand, so every adapter
-    /// serves it, holding what the default `execute_stream` holds. An
+    /// that is 0) and at most
+    /// [`MAX_INSTRUCTIONS_PER_PIECE`](crate::MAX_INSTRUCTIONS_PER_PIECE),
+    /// so every adapter serves it, holding what the default
+    /// `execute_stream` holds. An
     /// adapter whose instructions below follow from those it receives one
     /// by one, such as a code that lowers each logical instruction,
     /// overrides it, to stream its own instructions below with

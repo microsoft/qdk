@@ -3,7 +3,9 @@
 
 //! A stream of instructions, the streamed counterpart of a batch:
 //! [`InstructionStream`], what
-//! [`Execute::execute_stream`](crate::Execute::execute_stream) runs.
+//! [`Execute::execute_stream`](crate::Execute::execute_stream) runs, and
+//! the most instructions of any piece it is cut into or checked in
+//! ([`MAX_INSTRUCTIONS_PER_PIECE`]).
 
 use crate::{Instruction, ShotSet};
 
@@ -17,8 +19,8 @@ use crate::{Instruction, ShotSet};
 /// interpreted as it runs: it hands the iterator to
 /// [`Execute::execute_stream`](crate::Execute::execute_stream), and the
 /// receiver pulls instructions as it runs them, by default in pieces of
-/// at most the most it takes and at most about a thousand, as
-/// `execute_stream` says, so neither side holds the whole program. Its
+/// at most the most it takes and at most [`MAX_INSTRUCTIONS_PER_PIECE`],
+/// as `execute_stream` says, so neither side holds the whole program. Its
 /// instructions are in the receiver's opcodes, as a batch's are, and it
 /// states no readout slots: the sender could not count them without
 /// holding the program, so the receiver counts them as it runs.
@@ -88,3 +90,22 @@ impl<'a, I: Iterator<Item = Instruction>> InstructionStream<'a, I> {
         self.checked
     }
 }
+
+/// The most instructions of any piece of a stream: of each piece the
+/// default [`execute_stream`](crate::Execute::execute_stream) and
+/// [`adapt_stream`](crate::Adapt::adapt_stream) cut, whatever the
+/// receiver's most
+/// ([`Offer::max_instructions`](crate::Offer::max_instructions)), and of
+/// each piece a boundary checks a
+/// [`checked`](InstructionStream::checked) stream in.
+///
+/// Enough that the cost of a call per piece is spread thin (the crate's
+/// bench, `stream` section, times it: flat from about 100 per piece up),
+/// few enough that a piece stays small beside a shot's state, so that a
+/// stream held a piece at a time takes flat memory even to a receiver
+/// that takes millions of instructions a batch. A sender that sends a
+/// short program as one batch and a long one as a stream may take it as
+/// the length between them, so that a batch it sends whole holds no more
+/// than a piece of a stream would. Its value may change; a part that
+/// needs a bound of its own states it as its most.
+pub const MAX_INSTRUCTIONS_PER_PIECE: u32 = 1024;

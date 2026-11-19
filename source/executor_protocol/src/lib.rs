@@ -25,8 +25,8 @@ mod seed;
 mod tests;
 
 pub use batch::{
-    Batch, BatchReadouts, InstructionStream, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts,
-    ShotConditions, ShotId, ShotSet, ShotSetFault,
+    Batch, BatchReadouts, InstructionStream, MAX_INSTRUCTIONS_PER_PIECE, ReadoutFailure,
+    ReadoutSlot, ReadoutValue, Readouts, ShotConditions, ShotId, ShotSet, ShotSetFault,
 };
 pub use composition::{
     Adapter, AdmissionFaults, Compose, Composed, CompositionFaults, Driver, Executor, PartId,

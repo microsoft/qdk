@@ -5,7 +5,8 @@
 //! instructions on a [`ShotSet`] of [`ShotId`]s, checked before they run
 //! when their sender asks, and for each its [`BatchReadouts`]; and a
 //! stream of instructions, the streamed counterpart of a batch, an
-//! [`InstructionStream`].
+//! [`InstructionStream`], cut into pieces of at most
+//! [`MAX_INSTRUCTIONS_PER_PIECE`].
 
 mod batch_readouts;
 mod instruction_stream;
@@ -14,7 +15,7 @@ mod shot_set;
 pub use batch_readouts::{
     BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
 };
-pub use instruction_stream::InstructionStream;
+pub use instruction_stream::{InstructionStream, MAX_INSTRUCTIONS_PER_PIECE};
 pub use shot_set::{ShotId, ShotSet, ShotSetFault};
 
 use crate::Instruction;

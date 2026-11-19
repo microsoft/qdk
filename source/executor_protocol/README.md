@@ -304,8 +304,8 @@ bypassed:
   run, gets the readouts of the same instructions sent whole. By
   default, the protocol cuts it into pieces of at most the receiver's
   most instructions per batch, or 1 for a receiver taking none, and at
-  most about a thousand however many it takes, and holds one piece of it
-  at a time.
+  most [`MAX_INSTRUCTIONS_PER_PIECE`](src/batch/instruction_stream.rs)
+  however many it takes, and holds one piece of it at a time.
 
 Each boundary checks a checked stream in those pieces, each before any
 of it reaches the receiver, as it checks a checked batch's instructions,

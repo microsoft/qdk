@@ -197,14 +197,16 @@ pub trait Execute: ExecutorSetup {
     /// ([`InstructionStream`]). By default, it runs the stream in pieces,
     /// each one `execute` of one batch of at most the most instructions this
     /// executor takes ([`Offer::max_instructions`](crate::Offer), or 1 if it
-    /// takes none) and at most about a thousand, however many it takes,
-    /// pulling each piece only once the one before it has answered, so every
-    /// executor serves it. It then holds one piece and its readouts, and the
-    /// rows of the pieces that ran, joined as they come into one buffer that
-    /// becomes `readouts`: at most about twice the stream's readouts,
-    /// however small or large its pieces. An executor that applies
-    /// instructions as they come, such as a simulator, or one that passes
-    /// them on over a network, overrides it, to take the stream in one call.
+    /// takes none) and at most
+    /// [`MAX_INSTRUCTIONS_PER_PIECE`](crate::MAX_INSTRUCTIONS_PER_PIECE),
+    /// however many it takes, pulling each piece only once the one before
+    /// it has answered, so every executor serves it. It then holds one
+    /// piece and its readouts, and the rows of the pieces that ran, joined
+    /// as they come into one buffer that becomes `readouts`: at most about
+    /// twice the stream's readouts, however small or large its pieces. An
+    /// executor that applies instructions as they come, such as a
+    /// simulator, or one that passes them on over a network, overrides it,
+    /// to take the stream in one call.
     ///
     /// Two rules hold for an executor that overrides it, which the default
     /// keeps:

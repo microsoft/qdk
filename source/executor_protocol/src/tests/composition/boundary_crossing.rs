@@ -43,8 +43,8 @@ use crate::{
     Adapt, Adapter, AdapterSetup, Argument, Batch, BatchReadouts, CompositionFaults, Drive,
     DriveError, Driver, DriverSetup, Execute, ExecuteError, ExecuteRefusal, Executor,
     ExecutorSetup, Failure, FinalRow, Instruction, InstructionFault, InstructionSet,
-    InstructionStream, Needs, NotReady, Offer, OpcodeMap, PartId, ReadoutValue, Readouts, Runner,
-    Seed, ShotConditions, ShotId, ShotSet,
+    InstructionStream, MAX_INSTRUCTIONS_PER_PIECE, Needs, NotReady, Offer, OpcodeMap, PartId,
+    ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -1083,19 +1083,20 @@ impl Execute for SeesMostAhead {
 }
 
 /// A checked stream of 3000 instructions, each made only when pulled, to
-/// bits that take it in one call and offer to take at most 5, about a thousand,
-/// or any count of instructions at once, directly or through an adapter
-/// that forwards streams, in each bracketing: the boundaries check it in
+/// bits that take it in one call and offer to take at most 5,
+/// [`MAX_INSTRUCTIONS_PER_PIECE`], or any count of instructions at once,
+/// directly or through an adapter that forwards streams, in each
+/// bracketing: the boundaries check it in
 /// the pieces the default would cut, so the sender is never more than one
 /// such piece ahead of what the bits pulled, and memory stays flat
-/// however much the bits take at once. The default's pieces are of at
-/// most 1024 instructions, which the bench states too.
+/// however much the bits take at once.
 #[test]
 fn a_checked_stream_crosses_a_boundary_a_piece_at_a_time_however_much_its_receiver_takes() {
     let program = vec![("x", 0); 3000];
     let shots = ShotSet::ids(0..2);
-    for most in [Some(5), Some(1024), Some(u32::MAX), None] {
-        let piece = most.map_or(1024, |most| most.min(1024)) as usize;
+    let max = MAX_INSTRUCTIONS_PER_PIECE;
+    for most in [Some(5), Some(max), Some(u32::MAX), None] {
+        let piece = most.map_or(max, |most| most.min(max)) as usize;
         let parts = |log: &Log| {
             let (produced, most_ahead) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
             let sending = Sending::stream_counted(&produced);

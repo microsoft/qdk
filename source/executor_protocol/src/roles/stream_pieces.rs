@@ -7,28 +7,21 @@
 
 use crate::{
     Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Instruction, InstructionSet,
-    InstructionStream, ReadoutFailure, ReadoutValue, ShotConditions, ShotSet,
+    InstructionStream, MAX_INSTRUCTIONS_PER_PIECE, ReadoutFailure, ReadoutValue, ShotConditions,
+    ShotSet,
 };
 
-/// The most instructions of any piece, whatever the receiver's most
-/// ([`Offer::max_instructions`](crate::Offer::max_instructions)): enough
-/// that the cost of a call per piece is spread thin (the bench's `stream`
-/// section times it, and is flat from about 100 per piece up), few enough
-/// that a piece stays small beside a shot's state, so that a stream held a
-/// piece at a time takes flat memory even to a receiver taking millions of
-/// instructions a batch. The bench compares its pieces with batches of the
-/// same size, stated there again.
-const PIECE: usize = 1024;
-
 /// The most instructions of a piece for a receiver whose most is `most`:
-/// `most`, or 1 when it is 0, and at most [`PIECE`], which it is when the
-/// receiver sets none. A receiver that takes no instruction a batch thus
-/// gets pieces of 1, which its `execute` may refuse, rather than a stream
-/// that runs nothing and answers `Ok`. The pieces a boundary checks a
-/// checked stream in are of the same size, so that each piece the default
-/// cuts is one piece checked whole.
+/// `most`, or 1 when it is 0, and at most [`MAX_INSTRUCTIONS_PER_PIECE`],
+/// which it is when the receiver sets none. A receiver that takes no
+/// instruction a batch thus gets pieces of 1, which its `execute` may
+/// refuse, rather than a stream that runs nothing and answers `Ok`. The
+/// pieces a boundary checks a checked stream in are of the same size, so
+/// that each piece the default cuts is one piece checked whole.
 pub(crate) fn most_per_piece(most: Option<u32>) -> usize {
-    most.map_or(PIECE, |most| (most.max(1) as usize).min(PIECE))
+    most.map_or(MAX_INSTRUCTIONS_PER_PIECE, |most| {
+        most.clamp(1, MAX_INSTRUCTIONS_PER_PIECE)
+    }) as usize
 }
 
 /// A stream's instructions on `shots`, run in pieces of at most `most`, in
