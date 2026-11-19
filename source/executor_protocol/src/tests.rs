@@ -15,7 +15,6 @@ mod composition;
 mod fake_parts;
 mod instruction_set;
 mod needs;
-mod part_panics;
 mod roles;
 mod seed;
 

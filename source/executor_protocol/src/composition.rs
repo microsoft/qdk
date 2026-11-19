@@ -20,10 +20,9 @@
 //! its boundaries, checks every batch's count of instructions, and each
 //! batch its sender marked [`checked`](crate::Batch::checked), so a part
 //! writes only its own logic. A part has a place only in a chain, so what
-//! names it there ([`PartId`]) and the call across each boundary
-//! (`boundary_crossing`) belong to composition too. The catching of a
-//! part's panics is the crate's `part_panics`: the roles' provided methods
-//! await a part's calls through it too.
+//! names it there ([`PartId`]), the call across each boundary
+//! (`boundary_crossing`) and the catching of a part's panics
+//! (`part_panics`) belong to composition too.
 //!
 //! The joins `>>` allows, and the role each gives, are in the crate's
 //! `docs/composing-and-running.md` ("Joining parts with `>>`").
@@ -36,6 +35,7 @@ mod composition_faults;
 mod driver;
 mod executor;
 mod part_id;
+mod part_panics;
 pub(crate) mod runner;
 
 use crate::{FitFaults, InstructionSet, OpcodeMap};

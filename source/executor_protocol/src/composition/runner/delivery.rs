@@ -5,7 +5,8 @@
 //! ([`AtTheEnd`]), or for each output as the driver gives it
 //! ([`AsTheDriverGives`]).
 
-use crate::part_panics::{CallersCallback, await_part};
+use crate::composition::part_panics::CallersCallback;
+use crate::roles::await_part;
 use crate::{Drive, DriveError, Execute, Seed, ShotId, ShotSet};
 
 /// How a run calls its driver, and what it returns when the driver

@@ -6,9 +6,9 @@
 
 use std::slice;
 
+use super::await_part::await_part;
 use super::execute::give_every_row;
 use super::stream_pieces::{StreamPieces, most_per_piece};
-use crate::part_panics::await_part;
 use crate::{
     AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, FinalRow, Instruction,
     InstructionStream, Needs, NotReady, Seed, ShotSet,

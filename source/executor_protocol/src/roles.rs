@@ -27,6 +27,7 @@
 
 mod adapt;
 mod adapter_setup;
+mod await_part;
 mod drive;
 mod driver_setup;
 mod execute;
@@ -37,6 +38,7 @@ mod stream_pieces;
 
 pub use adapt::Adapt;
 pub use adapter_setup::AdapterSetup;
+pub(crate) use await_part::{AwaitPart, await_part};
 pub(crate) use drive::EndedRun;
 pub use drive::{Drive, DriveError};
 pub use driver_setup::DriverSetup;

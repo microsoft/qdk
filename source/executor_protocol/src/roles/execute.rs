@@ -12,8 +12,8 @@ use std::error::Error;
 use std::fmt;
 use std::slice;
 
+use super::await_part::await_part;
 use super::stream_pieces::{StreamPieces, most_per_piece};
-use crate::part_panics::await_part;
 use crate::{
     Batch, BatchReadouts, ExecutorSetup, Failure, Instruction, InstructionFault, InstructionStream,
     Needs, NotReady, Seed, ShotId, ShotSet,

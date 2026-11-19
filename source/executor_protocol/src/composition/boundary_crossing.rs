@@ -39,7 +39,7 @@ pub(crate) use batch_limits::BatchLimits;
 use std::cell::Cell;
 use std::iter;
 
-use crate::part_panics::{CallersCallback, catch_panic};
+use super::part_panics::{CallersCallback, catch_panic};
 use crate::roles::most_per_piece;
 use crate::{
     Batch, BatchReadouts, Execute, ExecuteError, ExecuteRefusal, ExecutorSetup, Failure, FinalRow,

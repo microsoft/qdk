@@ -7,5 +7,6 @@
 //! that forward it.
 
 mod adapt;
+mod await_part;
 mod drive;
 pub(super) mod execute;

@@ -5,7 +5,8 @@
 
 use super::{ChainBelow, Composed, KEPT, limits_below};
 use crate::composition::admission::by_part::ByPart;
-use crate::part_panics::{await_part, end_both};
+use crate::composition::part_panics::end_both;
+use crate::roles::await_part;
 use crate::{
     Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, FinalRow, Instruction,
     InstructionSet, InstructionStream, Needs, NotReady, Offer, OpcodeMap, Seed, ShotSet,
