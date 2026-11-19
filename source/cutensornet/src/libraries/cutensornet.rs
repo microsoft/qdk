@@ -3,14 +3,14 @@
 
 //! cuTensorNet, NVIDIA's tensor-network library.
 //!
-//! Everything the crate assumes of cuTensorNet is in this module, as its
-//! `NativeLibrary`: where it is looked for, the functions looked up in it
-//! (`CuTensorNetFunctions`), and its versions: `cuTensorNet`, which must be
+//! Everything the crate assumes of cuTensorNet is in this module: as its
+//! `NativeLibrary`, where it is looked for, the functions looked up in it
+//! (`CuTensorNetFunctions`), and its versions (`cuTensorNet`, which must be
 //! 2.13.0, and `cuTensorNet's CUDA Runtime`, the CUDA Runtime it was built
-//! against, which must be 12.9. cuTensorNet encodes its version as
+//! against, which must be 12.9); as its `LibrarySetupGuide`, what the setup
+//! check shows of it and advises. cuTensorNet encodes its version as
 //! `10000·major + 100·minor + patch` (`21300` is 2.13.0), and a CUDA Runtime
-//! version as CUDA does, `1000·major + 10·minor` (`12090` is 12.9). Its
-//! `LibrarySetupGuide` says what the setup check shows of it and advises.
+//! version as CUDA does, `1000·major + 10·minor` (`12090` is 12.9).
 //! The families' files (`context`, `tensor`, `workspace`) declare the
 //! function-pointer types of the table's rows.
 //!
