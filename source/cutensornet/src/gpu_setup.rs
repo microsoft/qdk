@@ -59,7 +59,8 @@ use std::fmt;
 /// library the check did not find can be found then. The system loader
 /// returns a library still loaded in the process (another user holds it,
 /// or it cannot be unloaded), so a library replaced at the same path, or a
-/// driver updated since, is found by a GPU run in a new process.
+/// driver updated since, is found by a GPU run in a new process: the advice
+/// to install a library says to restart the process.
 #[derive(Debug)]
 pub struct GpuSetup {
     /// What the steps found once the libraries loaded, or why discovery

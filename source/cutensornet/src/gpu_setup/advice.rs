@@ -8,7 +8,10 @@
 //! module declares as its `LibrarySetupGuide`; this file adds the advice
 //! that holds for every library (for each kind of fault, whether to set an
 //! override or install the libraries, and what to install), that of the
-//! warning of another copy, and that of the steps after discovery.
+//! warning of another copy, and that of the steps after discovery. An
+//! install is followed by a restart of the process: a library already
+//! loaded in the process stays loaded, so a copy installed since is loaded
+//! by a new process only.
 
 use super::devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
 use super::with_sources;
@@ -68,7 +71,7 @@ fn fault_advice(
         }
         LibraryFault::NotFound { .. } => match guide {
             Some(guide) => format!(
-                "{}, or set {} to the absolute path of {library}'s file",
+                "{}; or set {} to the absolute path of {library}'s file",
                 install(),
                 guide.variable
             ),
@@ -94,10 +97,11 @@ fn fault_advice(
                 Some(_) => "which brings their dependencies",
                 None => "with their dependencies",
             };
+            let install = format!("{}, {dependencies}", install_libraries(install_command));
             format!(
                 "{library} was found but did not load, often because a library it needs is \
-                 missing: {}, {dependencies}",
-                install()
+                 missing: {}",
+                then_restart(&install)
             )
         }
         LibraryFault::MissingRequiredSymbol { .. } | LibraryFault::UnsupportedVersion { .. } => {
@@ -112,10 +116,24 @@ fn fault_advice(
     }
 }
 
+/// What to install, then the restart that loads it.
+fn install_advice(install_command: Option<&str>) -> String {
+    then_restart(&install_libraries(install_command))
+}
+
+/// `install`, then the restart of the process that loads what it installs
+/// (this file's header says why).
+fn then_restart(install: &str) -> String {
+    format!(
+        "{install}, then restart the process (in a notebook, the kernel), because a library \
+         already loaded in the process stays loaded"
+    )
+}
+
 /// What to install: each library at its audited version, in the order the
 /// check lists them, then, when the packager gave one, `install_command`
 /// as an example.
-fn install_advice(install_command: Option<&str>) -> String {
+fn install_libraries(install_command: Option<&str>) -> String {
     let libraries: Vec<&str> = setup_guides().iter().map(|guide| guide.install).collect();
     let libraries = libraries.join(" and ");
     match install_command {

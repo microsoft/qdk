@@ -24,6 +24,12 @@ use canonical_mps::CanonicalMpsError;
 #[cfg(unix)]
 const INSTALL: &str = "install cuTensorNet 2.13 and the CUDA Runtime 12.9";
 
+/// What follows every install advised: the restart that loads what it
+/// installs.
+#[cfg(unix)]
+const RESTART: &str = ", then restart the process (in a notebook, the kernel), because a \
+                       library already loaded in the process stays loaded";
+
 /// The command a Python packager gives for its install.
 #[cfg(unix)]
 const PIP_INSTALL: &str = "pip install \"qdk[tensornetwork]\"";
@@ -338,7 +344,7 @@ fn a_library_that_fails_to_load_is_advised_its_dependencies() {
                 }],
             ))
         });
-        assert!(advice.ends_with(ending), "{advice}");
+        assert!(advice.ends_with(&format!("{ending}{RESTART}")), "{advice}");
     }
 }
 
@@ -459,6 +465,74 @@ fn the_first_fault_of_a_library_is_advised() {
         advice.starts_with("only the audited versions are supported") && advice.contains(INSTALL),
         "{advice}"
     );
+}
+
+/// A user who installs or upgrades a library is told to restart the
+/// process (in a notebook, the kernel), since a library already loaded in
+/// it stays loaded and a rerun would refuse the old copy again; the advice
+/// that installs nothing (an override, a directory to search) does not.
+/// Each row is a fault of cuTensorNet, and whether its advice installs.
+#[cfg(unix)]
+#[test]
+fn the_advice_to_install_says_to_restart_the_process() {
+    let path = || PathBuf::from("/usr/lib/libcutensornet.so.2");
+    let rows = [
+        (
+            LibraryFault::NotFound {
+                attempted: vec![path()],
+            },
+            true,
+        ),
+        (
+            LibraryFault::LoadFailed {
+                path: path(),
+                message: "libcutensor.so.2: cannot open shared object file".to_string(),
+            },
+            true,
+        ),
+        (
+            LibraryFault::UnsupportedVersion {
+                component: "cuTensorNet",
+                found: 21_400,
+                supported: 21_300,
+            },
+            true,
+        ),
+        (
+            LibraryFault::MissingRequiredSymbol {
+                symbol: "cutensornetCreate",
+            },
+            true,
+        ),
+        (
+            LibraryFault::VersionProbeFailed {
+                component: "cuTensorNet",
+                status: 1,
+                message: "not initialized".to_string(),
+            },
+            true,
+        ),
+        (
+            LibraryFault::InvalidOverride {
+                variable: "QDK_CUTENSORNET_LIBRARY",
+                path: PathBuf::from("libcutensornet.so.2"),
+                reason: "path must be absolute",
+            },
+            false,
+        ),
+        (
+            LibraryFault::InaccessiblePath {
+                path: path(),
+                message: "Permission denied (os error 13)".to_string(),
+            },
+            false,
+        ),
+    ];
+    for (fault, installs) in rows {
+        let advice = advice(&failed(unusable("cuTensorNet", vec![fault.clone()])));
+        assert_eq!(advice.contains(INSTALL), installs, "{fault:?}: {advice}");
+        assert_eq!(advice.contains(RESTART), installs, "{fault:?}: {advice}");
+    }
 }
 
 /// A library that gives no advice for a failed version probe, as
@@ -970,7 +1044,7 @@ fn without_a_packager_the_advice_names_no_command() {
         }],
     )));
     assert!(
-        advice.starts_with(&format!("{INSTALL}, or set ")) && !advice.contains('`'),
+        advice.starts_with(&format!("{INSTALL}{RESTART}; or set ")) && !advice.contains('`'),
         "{advice}"
     );
 }
