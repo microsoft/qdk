@@ -109,7 +109,9 @@ fn cases<A: SiteAlgebra>() -> [Case<A>; 15] {
 /// One case an algebra failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
-    /// The case that failed.
+    /// The name of the case that failed, for instance `split isometry`:
+    /// the operation and the rule of the contract it broke, so a backend's
+    /// author knows which method to fix.
     pub case: &'static str,
     /// What differed from the contract, and on which pair and setting.
     pub message: String,

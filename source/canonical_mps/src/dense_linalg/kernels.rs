@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! [`Kernels`]: the steps of the module's computations that a linear
-//! algebra library provides, so that the library is one file.
+//! algebra library provides, so that replacing the library changes this
+//! trait's implementation and none of the SVD's rules.
 //!
 //! The SVD's rules are the module's own and computed once, on top of these
 //! steps: the checks, the trim's choice of rows, the scaling (the thin
