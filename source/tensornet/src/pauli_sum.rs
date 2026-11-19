@@ -2,7 +2,9 @@
 // Licensed under the MIT License.
 
 //! [`PauliSum`]: the observable an [`MpsEngine`](crate::MpsEngine) takes an
-//! expectation of, `O = c_I·I + Σₖ cₖ·Pₖ`, on sites.
+//! expectation of, `O = c_I·I + Σₖ cₖ·Pₖ`, on sites; with its parts, the
+//! terms ([`PauliTerm`]) and their factors ([`Pauli`]), and [`PauliError`],
+//! why a term or a sum was not built.
 //!
 //! The crate owns this type because the engine sits below every simulator:
 //! it cannot borrow a simulator's observable without depending on it. A
@@ -45,7 +47,7 @@ impl Pauli {
 pub enum PauliError {
     /// A term with no factor. An identity term is the sum's identity
     /// coefficient instead, so that no engine needs an identity operator.
-    #[error("a Pauli term needs at least one non-identity factor")]
+    #[error("the Pauli term has no factor")]
     NoFactors,
     /// A site named twice in one term; the product would not be a Pauli
     /// string on distinct sites.

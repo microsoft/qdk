@@ -14,6 +14,7 @@
 //! independent of it, a singular value decomposition, on random circuits.
 
 use crate::reference::{ExactReference, ReferenceError, ReferenceState};
+use crate::sampling::TooManyValues;
 use crate::sampling::splitmix64::SplitMix64;
 use crate::tests::{c, cx, hadamard};
 use crate::{MpsEngine, MpsEngineError, MpsShape, Pauli, PauliSum, PauliTerm, Refusal};
@@ -554,13 +555,20 @@ fn samples_follow_the_probabilities() {
     assert!((400..=600).contains(&ones), "{ones} of 1000");
 }
 
+/// `sample` asks that every bit of a seed select the values: seeds that
+/// differ in their lowest bit, or in their highest, give other values. An
+/// engine that keeps only some bits of the seed (its low 32, or all but
+/// the lowest) fails one of the pairs.
 #[test]
-fn another_seed_gives_other_samples() {
+fn seeds_that_differ_in_one_bit_give_other_samples() {
     let state = bell(2);
-    assert_ne!(
-        ENGINE.sample(&state, &[0], 64, 7),
-        ENGINE.sample(&state, &[0], 64, 8)
-    );
+    for (seed, other) in [(7, 8), (0, 1), (0, 1 << 63)] {
+        assert_ne!(
+            ENGINE.sample(&state, &[0], 64, seed),
+            ENGINE.sample(&state, &[0], 64, other),
+            "seeds {seed} and {other}"
+        );
+    }
 }
 
 /// More values than a `usize` counts is a failure, not a refusal and not
@@ -572,10 +580,10 @@ fn a_sample_of_more_values_than_memory_holds_fails() {
         .expect_err("no memory holds the values");
     assert_eq!(
         error,
-        ReferenceError::TooManyValues {
+        ReferenceError::TooManyValues(TooManyValues {
             shots: usize::MAX,
             sites: 2
-        }
+        })
     );
     assert_eq!(error.refusal(), None);
 }

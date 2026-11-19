@@ -1,7 +1,12 @@
 # The MPS engine contract
 
 `tensornet` is the contract between a simulation method that runs matrix
-product states (MPS) and the library that holds them.
+product states (MPS) and the library that holds them: the method asks an
+engine (`MpsEngine`) for a state within a capacity (`MpsShape`), applies
+unitaries to its sites, reads probabilities, projects, forks and samples it
+from a seed, and reads expectations of Pauli sums; the engine answers in
+tensor terms, and refuses a call that breaks the contract the same way on
+every engine (`Refusal`).
 
 ## The problem
 
@@ -28,39 +33,40 @@ whose arguments break the contract is made once, by the functions of
 `ExactReference`, gives the answer every engine with enough bond must give,
 so that an engine's answers can be checked against it.
 
-The evidence is the crate's tests, in [`src/tests/`](src/tests/): the
-reference's chain has the Schmidt ranks a singular value decomposition
-gives on random circuits, and the checks of each method refuse each fault
-and accept its edges.
-
 ## The model
 
-- [`MpsShape`](src/shape.rs) is the shape of a chain, by the extents of its
-  sites alone: the capacity a caller asks for, and the chain an engine
-  holds. `MpsShape::qubit_chain(n, χ)` is the capacity of `n` qubits with
-  max bond dimension χ: bonds at most χ. `MpsShape::largest_bond` is the
-  largest bond a chain holds.
-- [`MpsEngine`](src/engine.rs) is what a library that holds matrix product
-  states does: prepare a state within a capacity, apply a unitary to one or
-  two sites, read the probability of a one at a site (also given earlier
-  values), project, fork, sample sites for many shots from one seed, take
-  the expectation of a Pauli sum, and report the chain it holds and the
-  weight its truncations kept. It has no instructions, shots or random
-  generators: the method that calls it draws its own values.
-- [`Refusal`](src/refusal.rs) is why an engine refused a call whose
-  arguments break the contract, the same on every engine; each engine's
-  error exposes it through `MpsEngineError::refusal`. The functions of
-  [`checks`](src/engine/checks.rs), one per method, make the refusals of the
-  arguments.
-- [`PauliSum`](src/pauli.rs) is the observable an engine reads, on sites.
-- [`sampling`](src/engine/sampling.rs) is what every engine's `sample`
-  shares: `sample_by_conditionals` draws the values from the engine's
-  conditional probabilities, so an engine that draws them itself writes only
-  its probability call.
-- [`ExactReference`](src/engine/reference.rs) is a dense state vector of at
+Today the crate holds:
+
+- **The engine.** [`MpsEngine`](src/engine.rs) is what a library that holds
+  matrix product states does for a simulation method, method by method in
+  [The engine](#the-engine). It speaks in tensor terms (sites, matrices,
+  probabilities and seeds); the method keeps its instructions, its shots
+  and its generator. Beside it, the functions of
+  [`checks`](src/engine/checks.rs), one per method, make the refusals of
+  the arguments; [`sampling`](src/engine/sampling.rs) is what every
+  engine's `sample` shares: `sample_by_conditionals` draws the values from
+  the engine's conditional probabilities, so an engine that draws them
+  itself writes only its probability call, and `TooManyValues` is its
+  failure when the values do not fit in memory; and
+  [`ExactReference`](src/engine/reference.rs) is a dense state vector of at
   most 20 sites that never truncates: the exact answer every engine with
   enough bond must give, within the limits its rustdoc states. It is for
   tests, not for simulation (feature `conformance`).
+- **The refusals.** [`Refusal`](src/refusal.rs) is why an engine refused a
+  call whose arguments break the contract, the same on every engine; each
+  engine's error exposes it through the `refusal` method of
+  [`MpsEngineError`](src/engine/mps_engine_error.rs), the bound of an
+  engine's error, which tells a refusal from the engine's own failure.
+- **The chain's shape.** [`MpsShape`](src/shape.rs) is the shape of a
+  chain, by the extents of its sites alone: the capacity a caller asks for,
+  and the chain an engine holds. `MpsShape::qubit_chain(n, χ)` is the
+  capacity of `n` qubits with max bond dimension χ: bonds at most χ.
+  `MpsShape::largest_bond` is the largest bond a chain holds.
+  `MpsShapeError` says why a shape was not built.
+- **The observables.** [`PauliSum`](src/pauli_sum.rs) is the observable an
+  engine reads, on sites: an identity coefficient and `PauliTerm`s, each a
+  coefficient times `Pauli` factors on distinct sites. `PauliError` says
+  why a term or a sum was not built.
 
 A Bell pair on the reference, read three ways (the crate's doctest in
 [`src/lib.rs`](src/lib.rs), which every `cargo test` runs: the crate's
@@ -146,12 +152,34 @@ is for:
 - [`retained_weight`](src/engine.rs): the weight the truncations kept, what
   the approximation cost, and what it bounds.
 
-A call whose arguments break the contract is refused, the same way on every
-engine ([`src/refusal.rs`](src/refusal.rs),
-[`src/engine/checks.rs`](src/engine/checks.rs)); any other error is the
-engine's own failure. The module doc of
+Before a call changes the state, its arguments are checked: a call whose
+arguments break the contract is refused, the same way on every engine
+([`src/refusal.rs`](src/refusal.rs),
+[`src/engine/checks.rs`](src/engine/checks.rs)), and the refusal leaves the
+state unchanged. After, an engine may fail on its own: the state is then
+unspecified, and the caller drops it. The module doc of
 [`src/engine.rs`](src/engine.rs) says how the method draws values, and the
 three ways' promises.
+
+### Writing an engine
+
+A new library joins as a new engine, and gets the rest of the contract for
+free:
+
+- implement [`MpsEngine`](src/engine.rs), with its `State` and an `Error`
+  that implements [`MpsEngineError`](src/engine/mps_engine_error.rs) and is
+  built from a `Refusal`;
+- start each method with its function of
+  [`checks`](src/engine/checks.rs), so that the engine refuses what every
+  engine refuses;
+- keep the trait's default `conditional_probability_of_one`, which forks
+  the state and projects the fork, or override it where the library can
+  contract with projected sites; and build `sample` on
+  [`sample_by_conditionals`](src/engine/sampling.rs), which keeps its
+  promises of reproducibility, layout and memory;
+- test the engine against [`ExactReference`](src/engine/reference.rs)
+  (feature `conformance`), the exact answer every engine with enough bond
+  must give.
 
 ## Planned
 
@@ -166,6 +194,14 @@ three ways' promises.
   entanglement entropy they give). A debugger that shows a state would
   need them.
 
+## Tests
+
+The crate's tests are in [`src/tests/`](src/tests/), one file per module:
+the checks of each method refuse each fault and accept its edges, the
+shared sampler draws the published `SplitMix64` stream, and the reference's
+chain has the Schmidt ranks a singular value decomposition gives on random
+circuits.
+
 ## Files
 
 | File                                | Defines                                                                                                                                   |
@@ -173,11 +209,12 @@ three ways' promises.
 | `src/lib.rs`                        | the crate's public surface and its role                                                                                                   |
 | `src/engine.rs`                     | `MpsEngine`, what an engine does                                                                                                          |
 | `src/engine/checks.rs`              | the argument checks of every method, which make every refusal but `ZeroProbabilityOutcome`                                                |
+| `src/engine/mps_engine_error.rs`    | `MpsEngineError`, how an engine's error exposes a refusal                                                                                 |
 | `src/engine/reference.rs`           | `ExactReference`, the exact engine, with `ReferenceState` and `ReferenceError` (feature `conformance`)                                    |
 | `src/engine/sampling.rs`            | `sample_by_conditionals` and `TooManyValues`: the sampling every engine shares                                                            |
 | `src/engine/sampling/splitmix64.rs` | `SplitMix64`, the generator the shared sampler draws its uniforms from (internal)                                                         |
 | `src/shape.rs`                      | `MpsShape`, the shape of a chain, and `MpsShapeError`                                                                                     |
-| `src/pauli.rs`                      | `Pauli`, `PauliTerm`, `PauliSum` and `PauliError`: the observables of `expectation`                                                       |
-| `src/refusal.rs`                    | `Refusal`, why a call was refused, and `MpsEngineError`, how an engine's error exposes it                                                 |
+| `src/pauli_sum.rs`                  | `PauliSum`, `PauliTerm`, `Pauli` and `PauliError`: the observables of `expectation`                                                       |
+| `src/refusal.rs`                    | `Refusal`, why a call was refused                                                                                                         |
 | `src/tests/`                        | the crate's tests, one file per module, in the same folders                                                                               |
 | `design.md`                         | why a chain is described by its extents, refusals versus failures, what libraries offer, the reference's arithmetic, and what is left out |

@@ -4,8 +4,6 @@
 //! The shared sampler, through its public function, on conditional
 //! probabilities a test chooses.
 
-mod splitmix64;
-
 use crate::sampling::splitmix64::SplitMix64;
 use crate::sampling::{TooManyValues, sample_by_conditionals};
 use std::collections::BTreeSet;
@@ -25,7 +23,8 @@ impl From<TooManyValues> for Error {
 }
 
 /// The seed whose first uniform is 0, and the seed whose first uniform is
-/// 1 − 2⁻⁵³, the largest (the generator's tests pin both).
+/// 1 − 2⁻⁵³, the largest, in the published `SplitMix64` stream
+/// (`a_value_of_probability_zero_is_never_drawn` checks both).
 const SEED_OF_A_ZERO_UNIFORM: u64 = 0x61c8_8646_80b5_83eb;
 const SEED_OF_THE_LARGEST_UNIFORM: u64 = 0x3162_8af6_7b21_31ab;
 
@@ -51,6 +50,32 @@ fn each_value_draws_the_next_uniform_of_the_seed() {
         let mut stream = SplitMix64::new(seed);
         let expected: Vec<bool> = (0..64).map(|_| stream.next_uniform() < 0.5).collect();
         assert_eq!(values, expected, "seed {seed}");
+    }
+}
+
+/// The uniforms are those of the published `SplitMix64` algorithm (Steele,
+/// Lea and Flood, 2014), so a seed's values do not change with this
+/// crate's version: seed 1234567's first five values, a test vector its
+/// implementations share, each taken as its top 53 bits times 2⁻⁵³. A value
+/// is Zero when P(One) is its uniform, and One when P(One) is the next
+/// multiple of 2⁻⁵³.
+#[test]
+fn the_uniforms_are_the_published_splitmix64_stream() {
+    const PUBLISHED: [u64; 5] = [
+        6_457_827_717_110_365_317,
+        3_203_168_211_198_807_973,
+        9_817_491_932_198_370_423,
+        4_593_380_528_125_082_431,
+        16_408_922_859_458_223_821,
+    ];
+    #[expect(clippy::cast_precision_loss, reason = "53 bits fit an f64")]
+    let uniform = |value: u64, above: u64| ((value >> 11) + above) as f64 / 2f64.powi(53);
+    for (above, expected) in [(0, false), (1, true)] {
+        let values = sample_by_conditionals(&[0, 1, 2, 3, 4], 1, 1_234_567, |site, _| {
+            Ok::<_, Error>(uniform(PUBLISHED[site], above))
+        })
+        .expect("five values fit");
+        assert_eq!(values, [expected; 5], "P(One) = uniform + {above}·2⁻⁵³");
     }
 }
 
@@ -100,15 +125,21 @@ fn a_probability_is_asked_once_per_distinct_prefix() {
 
 /// A value of probability exactly zero is never drawn, even at the
 /// extreme uniforms: Zero where P(One) is 0 and the uniform is 0, One
-/// where P(One) is 1 and the uniform is the largest.
+/// where P(One) is 1 and the uniform is the largest. The uniforms are
+/// those extremes: P(One) 2⁻⁵³ draws One from the first, and P(One)
+/// 1 − 2⁻⁵³ draws Zero from the second.
 #[test]
 fn a_value_of_probability_zero_is_never_drawn() {
-    let zero = sample_by_conditionals(&[0], 1, SEED_OF_A_ZERO_UNIFORM, |_, _| Ok::<_, Error>(0.0));
-    assert_eq!(zero, Ok(vec![false]));
-    let one = sample_by_conditionals(&[0], 1, SEED_OF_THE_LARGEST_UNIFORM, |_, _| {
-        Ok::<_, Error>(1.0)
-    });
-    assert_eq!(one, Ok(vec![true]));
+    let largest = 1.0 - f64::EPSILON / 2.0;
+    for (seed, p1, expected) in [
+        (SEED_OF_A_ZERO_UNIFORM, 0.0, false),
+        (SEED_OF_A_ZERO_UNIFORM, 2f64.powi(-53), true),
+        (SEED_OF_THE_LARGEST_UNIFORM, 1.0, true),
+        (SEED_OF_THE_LARGEST_UNIFORM, largest, false),
+    ] {
+        let values = sample_by_conditionals(&[0], 1, seed, |_, _| Ok::<_, Error>(p1));
+        assert_eq!(values, Ok(vec![expected]), "seed {seed:#x}, P(One) {p1}");
+    }
 }
 
 /// No sites, or no shots, give no values at once, asking nothing, however

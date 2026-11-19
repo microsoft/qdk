@@ -217,7 +217,7 @@ impl MpsShape {
 pub enum MpsShapeError {
     /// A chain with no sites. A matrix product state factorizes something,
     /// and there is nothing to factorize here.
-    #[error("a matrix product state needs at least one site")]
+    #[error("the chain has no site")]
     Empty,
 
     /// A site with the wrong number of axes. The ends of a chain carry one
