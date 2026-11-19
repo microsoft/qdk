@@ -69,11 +69,13 @@ use num_complex::Complex64;
 /// unchanged: the method's [`checks`] function makes the refusal, before
 /// the method changes anything. The one refusal that reads the state,
 /// [`Refusal::ZeroProbabilityOutcome`], is the projection's and the
-/// conditional probability's own, made after their checks. Any other error
-/// is the engine's own failure ([`MpsEngineError::refusal`] tells them
-/// apart). After a failure the state is unspecified, and the caller must
-/// drop it: no use case continues after a device error (the method fails
-/// the shot), so no engine must undo what the failed call began.
+/// conditional probability's own, made after their checks, and `sample`
+/// passes it on in an engine that draws from its conditional
+/// probabilities. Any other error is the engine's own failure
+/// ([`MpsEngineError::refusal`] tells them apart). After a failure the
+/// state is unspecified, and the caller must drop it: no use case
+/// continues after a device error (the method fails the shot), so no
+/// engine must undo what the failed call began.
 ///
 /// `tensornet::reference::ExactReference` (feature `conformance`) gives the
 /// exact answer every engine with enough bond must give.
@@ -201,8 +203,8 @@ pub trait MpsEngine {
             self.project(&mut fork, at, one)?;
         }
         let probability = self.probability_of_one(&fork, site)?;
-        // An empty `given` projects nothing, so no projection has refused a
-        // state whose norm is zero or NaN, where `given` has probability NaN.
+        // An answer of NaN is refused: an empty `given` projects nothing,
+        // so no projection has refused a state whose norm is zero or NaN.
         if probability.is_nan() {
             return Err(Refusal::ZeroProbabilityOutcome.into());
         }
@@ -268,16 +270,14 @@ pub trait MpsEngine {
     /// The values are reproducible as a whole: the same seed and the same
     /// number of shots give the same values on the same engine, so a shot's
     /// values are reproduced only by drawing again with that seed and that
-    /// number of shots, not alone. Another seed gives other values (with
+    /// number of shots, not alone. Any `u64` is a seed, and every bit of it
+    /// selects the values: another seed, even one that differs from it in
+    /// one bit only (the lowest or the highest), gives other values (with
     /// overwhelming probability, when enough of the values are random).
     /// Engines need not agree with one another value for value, only in
     /// distribution. An empty list of sites, or zero shots, is no fault in
     /// itself and gives no values; the sites are checked all the same.
     ///
-    /// Any `u64` is a seed, and every bit of it selects the values: seeds
-    /// that differ in one bit, the lowest or the highest, give other values
-    /// (with overwhelming probability, when enough of the values are
-    /// random).
     /// An engine that draws the values itself from its conditional
     /// probabilities may use the shared
     /// [`sample_by_conditionals`](crate::sampling::sample_by_conditionals).
@@ -285,10 +285,10 @@ pub trait MpsEngine {
     /// # Errors
     ///
     /// Refused ([`checks::sample`]) with [`Refusal::SiteOutOfRange`] or
-    /// [`Refusal::RepeatedSite`], with any number of shots, zero included;
-    /// and, by an engine that draws from its conditional probabilities,
-    /// with [`Refusal::ZeroProbabilityOutcome`] when one of them refuses
-    /// (a state whose norm is zero or NaN). Fails as every method may, for
+    /// [`Refusal::RepeatedSite`], with any number of shots, zero included.
+    /// An engine that draws from its conditional probabilities also passes
+    /// on their refusal, [`Refusal::ZeroProbabilityOutcome`], for example
+    /// on a state whose norm is zero or NaN. Fails as every method may, for
     /// example when the values do not fit in memory.
     fn sample(
         &self,

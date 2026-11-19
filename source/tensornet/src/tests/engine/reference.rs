@@ -727,6 +727,17 @@ fn a_rounding_error_does_not_raise_the_rank() {
     assert_eq!(rank_of_product_state_off_by(1e-12), Some(1));
 }
 
+/// A state whose amplitudes are all zero has rank 0 at its cut, and the
+/// chain still has a bond of 1, the least a bond can be.
+#[test]
+fn the_zero_state_has_a_bond_of_one() {
+    let state = ReferenceState::from_amplitudes(&[c(0.0, 0.0); 4]);
+    let shape = ENGINE
+        .shape(&state)
+        .expect("the reference reports its chain");
+    assert_eq!(shape.bond_dim(0), Some(1));
+}
+
 /// A pivot of 0.9e-10, just below the threshold of 1e-10, counts as zero.
 #[test]
 fn a_pivot_just_below_the_rank_threshold_does_not_raise_the_rank() {
