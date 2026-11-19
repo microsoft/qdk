@@ -23,7 +23,7 @@ use crate::tests::fake_parts::{
     RowsFromThread, RowsGiven, Sending, in_each_bracketing,
 };
 use crate::{
-    Adapter, Drive, DriveError, Driver, Execute, Executor, Failure, Needs, PartId, RunError,
+    Adapter, Drive, DriveError, Driver, Execute, Executor, Failure, Needs, Offer, PartId, RunError,
     Runner, ShotId, ShotSet,
 };
 
@@ -863,8 +863,9 @@ fn a_panic_in_a_parts_each_names_that_part() {
 /// stream is cut into pieces by the default, wherever the brackets go:
 /// the run fails naming the driver, whose code panicked, not the part that
 /// pulled the instruction, and the bits still end every shot. So it does
-/// when the stream is checked, even when the panic ends a first piece that
-/// is refused: the refusal does not hide the sender's panic.
+/// when the stream is checked, even when the panic ends a piece that is
+/// refused, the first or a later one (bits taking 2 instructions a batch,
+/// the first piece clean): the refusal does not hide the sender's panic.
 #[test]
 fn a_panic_in_a_senders_stream_names_the_sender() {
     let driver = PartId::new(0, type_name::<Program>());
@@ -885,16 +886,37 @@ fn a_panic_in_a_senders_stream_names_the_sender() {
         );
     };
     let refused_first_piece = [("x", 0), ("x", 5), ("mz", 0)];
-    for (case, text, checked, panics_at) in [
-        ("unchecked", &[("x", 0), ("mz", 0)][..], false, 1),
-        ("checked", &[("x", 0), ("mz", 0)], true, 1),
+    let refused_second_piece = [("x", 0), ("x", 0), ("x", 5), ("mz", 0)];
+    for (case, text, checked, panics_at, most) in [
+        ("unchecked", &[("x", 0), ("mz", 0)][..], false, 1, None),
+        ("checked", &[("x", 0), ("mz", 0)], true, 1, None),
         (
             "checked, its first piece refused",
             &refused_first_piece,
             true,
             2,
+            None,
+        ),
+        (
+            "checked, its second piece refused",
+            &refused_second_piece,
+            true,
+            3,
+            Some(2),
         ),
     ] {
+        let bits = |log: &Log| {
+            let bits = Bits::new(log);
+            match most {
+                Some(most) => bits.offering(
+                    Offer::unlimited()
+                        .max_qubits(64)
+                        .without_readout_parity()
+                        .max_instructions(most),
+                ),
+                None => bits,
+            }
+        };
         let program = || {
             let program =
                 Program::new(text)
@@ -913,7 +935,7 @@ fn a_panic_in_a_senders_stream_names_the_sender() {
             let log = Log::default();
             let d = Driver::new(program());
             let a = Adapter::new(Profiler::new(&counted, &log));
-            let e = Executor::new(Bits::new(&log));
+            let e = Executor::new(bits(&log));
         }, |chain, brackets| {
             let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
             names_the_driver(&error, &log, &format!("{case}, bits, {brackets}"));
@@ -922,7 +944,7 @@ fn a_panic_in_a_senders_stream_names_the_sender() {
             let log = Log::default();
             let d = Driver::new(program());
             let a = Adapter::new(Profiler::new(&counted, &log));
-            let e = Executor::new(Renamed::new(Bits::new(&log), type_name::<Bits>()));
+            let e = Executor::new(Renamed::new(bits(&log), type_name::<Bits>()));
         }, |chain, brackets| {
             let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
             names_the_driver(&error, &log, &format!("{case}, bits by the default, {brackets}"));

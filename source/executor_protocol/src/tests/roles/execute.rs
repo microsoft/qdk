@@ -7,7 +7,7 @@
 //! `execute_stream`; a stream run in pieces of at most the receiver's
 //! most, each pulled only once the one before it answered; an executor's
 //! own `execute_stream` reached through the parts that forward it; and
-//! the row `execute_each` gives a shot whose instructions span calls.
+//! a shot's rows over several `execute_each`s.
 
 use std::cell::Cell;
 use std::collections::BTreeSet;
@@ -15,8 +15,8 @@ use std::rc::Rc;
 
 use crate::tests::composition::runner::{SEED, failed, runner};
 use crate::tests::fake_parts::{
-    Bits, Later, Log, Offering, OutputsAsRowsCome, Profiler, Program, RandomGenerator, RowsGiven,
-    SeesPieces, Sending, Spread, Values, in_each_bracketing, sorted_values,
+    Bits, Later, Log, OutputsAsRowsCome, Profiler, Program, RandomGenerator, RowsGiven, SeesPieces,
+    Sending, Spread, Values, in_each_bracketing, sorted_values,
 };
 use crate::{Adapter, Driver, Executor, Offer, ShotConditions, ShotSet};
 
@@ -24,7 +24,7 @@ use crate::{Adapter, Driver, Executor, Offer, ShotConditions, ShotSet};
 /// them in turn, its reads spread through it, so that each cut falls
 /// between a shot's draws and reads: what the tests of split programs
 /// send.
-const PROGRAM: [(&str, u32); 12] = [
+pub(crate) const PROGRAM: [(&str, u32); 12] = [
     ("h", 0),
     ("mz", 0),
     ("x", 1),
@@ -51,7 +51,7 @@ fn reading_nothing() -> [(&'static str, u32); 12] {
 }
 
 /// Bits taking at most `most` instructions per batch, if some.
-fn bits(log: &Log, most: Option<u32>) -> Bits {
+pub(crate) fn bits(log: &Log, most: Option<u32>) -> Bits {
     let offer = Offer::unlimited().max_qubits(64).without_readout_parity();
     Bits::new(log).offering(match most {
         Some(most) => offer.max_instructions(most),
@@ -190,15 +190,16 @@ fn sent_in_every_split(
 
 /// A driver sending [`PROGRAM`] as one stream, each instruction made only
 /// when pulled, to an executor that cuts it by the default and takes at
-/// most 5, 4, 12, 13 instructions, or any count, directly or through an
+/// most 5, 4, 12, 13, 0 instructions, or any count, directly or through an
 /// adapter that forwards streams, or one that cuts them by its default,
 /// in each bracketing: each piece holds at most the receiver's most, a
 /// short piece only at the end, and when each runs, the driver has made
 /// only the instructions of the pieces so far, so no part holds more than
-/// a piece of the stream. An empty stream runs no piece, and gets a row of
-/// no value per shot. An adapter that cuts a stream by its default is its
-/// receiver: through one taking at most 3 instructions over bits taking 5,
-/// the pieces hold 3.
+/// a piece of the stream. An executor taking 0 instructions a batch gets
+/// pieces of 1, rather than a stream that runs nothing (not through an
+/// adapter cutting by its default, whose pieces of 1 the boundary below it
+/// refuses). An empty stream runs no piece, and gets a row of no value per
+/// shot.
 #[test]
 fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
     let shots = ShotSet::ids(0..3);
@@ -212,6 +213,7 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
         (&PROGRAM, Some(12), &[12]),
         (&PROGRAM, Some(13), &[12]),
         (&PROGRAM, None, &[12]),
+        (&PROGRAM, Some(0), &[1; 12]),
         (&[], Some(5), &[]),
     ] {
         let seen = |log: &Log, chain: &str| {
@@ -242,6 +244,11 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
             runner(chain).run(&shots, SEED).expect("the run succeeds");
             seen(&log, &format!("an adapter forwarding streams, {brackets}"));
         });
+        if most == Some(0) {
+            // An adapter cutting by its default, offering 0 above as the
+            // bits do, sends pieces of 1 below, which the boundary refuses.
+            continue;
+        }
         in_each_bracketing!([d, a, e] from {
             let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
             let d = stream(program, &produced);
@@ -252,23 +259,10 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
             seen(&log, &format!("an adapter cutting streams by the default, {brackets}"));
         });
     }
-    in_each_bracketing!([d, a, e] from {
-        let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
-        let d = stream(&PROGRAM, &produced);
-        let a = Adapter::new(Offering::buffering(3, &log));
-        let e = Executor::new(SeesPieces::new(bits(&log, Some(5)), &produced, &log));
-    }, |chain, brackets| {
-        runner(chain).run(&shots, SEED).expect("the run succeeds");
-        assert_eq!(
-            pieces_run(&log),
-            pieces_made(&[3, 3, 3, 3]),
-            "an adapter taking at most 3 over bits taking 5, {brackets}"
-        );
-    });
 }
 
 /// The pieces a [`SeesPieces`] logged running, in order.
-fn pieces_run(log: &Log) -> Vec<String> {
+pub(crate) fn pieces_run(log: &Log) -> Vec<String> {
     log.entries()
         .into_iter()
         .filter(|entry| entry.starts_with("execute of"))
@@ -277,7 +271,7 @@ fn pieces_run(log: &Log) -> Vec<String> {
 
 /// What a [`SeesPieces`] logs running `pieces` of a stream in order, each
 /// made only when pulled.
-fn pieces_made(pieces: &[usize]) -> Vec<String> {
+pub(crate) fn pieces_made(pieces: &[usize]) -> Vec<String> {
     pieces
         .iter()
         .scan(0, |produced, &piece| {
@@ -357,7 +351,7 @@ fn reached_through_every_part(program: &[(&str, u32)]) {
 /// that call's instructions alone, so a shot's rows, in the order of the
 /// calls, are its row of the program sent whole.
 #[test]
-fn execute_each_gives_a_shot_whose_instructions_span_calls_each_calls_row() {
+fn a_shots_rows_over_several_execute_eachs_are_its_row_sent_whole() {
     let shots = ShotSet::ids(0..4);
     let whole = sent_whole(&PROGRAM, |bits| bits, &shots);
     for pieces in 2..=5 {

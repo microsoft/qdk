@@ -108,15 +108,14 @@ pub trait Adapt: AdapterSetup {
     /// Answers `stream` as
     /// [`Execute::execute_stream`](crate::Execute::execute_stream) says,
     /// with the same rules, calling `below` as [`adapt`](Self::adapt) does.
-    /// By default, it runs the stream in pieces, each one `adapt` of one
-    /// batch of at most the most instructions it offers above (its
-    /// [`offers_above`](AdapterSetup::offers_above) `below`'s offer), so
-    /// every adapter serves it, holding what the default `execute_stream`
-    /// holds. An adapter whose instructions below follow from those it
-    /// receives one by one, such as a code that lowers each logical
-    /// instruction, overrides it, to stream its own instructions below
-    /// with `below.execute_stream`, so that a stream reaches the executor
-    /// as one.
+    /// By default, it runs the stream in pieces, each one `adapt` of one batch
+    /// of at most the most instructions it offers above (its
+    /// [`offers_above`](AdapterSetup::offers_above) `below`'s offer, or 1 if
+    /// that is 0), so every adapter serves it, holding what the default
+    /// `execute_stream` holds. An adapter whose instructions below follow from
+    /// those it receives one by one, such as a code that lowers each logical
+    /// instruction, overrides it, to stream its own instructions below with
+    /// `below.execute_stream`, so that a stream reaches the executor as one.
     fn adapt_stream(
         &mut self,
         stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
@@ -125,33 +124,24 @@ pub trait Adapt: AdapterSetup {
         readouts: &mut BatchReadouts,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         async move {
-            let checked = stream.is_checked();
-            let InstructionStream {
-                shots,
-                instructions,
-                ..
-            } = stream;
-            let mut pieces = StreamPieces::new(
-                instructions,
-                most_per_piece(self.offers_above(below.offers()).max_instructions),
-            );
-            while pieces.pull() {
-                let answer = match pieces.batch(self.accepts(), shots, checked) {
-                    Ok((batch, piece_readouts)) => {
-                        await_part(self.adapt(
-                            slice::from_ref(&batch),
-                            seed,
-                            below,
-                            slice::from_mut(piece_readouts),
-                        ))
-                        .await
-                    }
-                    Err(refused) => Err(refused),
-                };
-                pieces.ran(answer)?;
-            }
-            pieces.join_into(shots, readouts);
-            Ok(())
+            let most = most_per_piece(self.offers_above(below.offers()).max_instructions);
+            StreamPieces::run(
+                stream,
+                most,
+                self,
+                Self::accepts,
+                async |adapter, batch, piece_readouts| {
+                    await_part(adapter.adapt(
+                        slice::from_ref(batch),
+                        seed,
+                        below,
+                        slice::from_mut(piece_readouts),
+                    ))
+                    .await
+                },
+                readouts,
+            )
+            .await
         }
     }
 

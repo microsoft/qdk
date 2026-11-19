@@ -226,21 +226,21 @@ cut it itself: it passes an iterator of its instructions, as an
 to `execute_stream`, and gets one row per shot of every readout of the
 stream, as one batch would:
 
-| Method                                               | By default                                                                                                                                                                                                          | A part overrides it when                                                                                                                                                                 |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`Execute::execute_stream`](../src/roles/execute.rs) | `execute` of one piece at a time, each one batch of at most the executor's most instructions per batch, pulled from the iterator only once the piece before it answered; the pieces' readouts are joined at the end | it applies instructions as they come, such as a simulator, or passes the stream on whole, such as a link to a remote executor                                                            |
-| [`Adapt::adapt_stream`](../src/roles/adapt.rs)       | `adapt` of one piece at a time, each of at most the most instructions per batch it offers above, as for `execute_stream`                                                                                            | its instructions below follow from those it gets one by one, such as a code that lowers each logical instruction: it passes its own stream below, so that an executor's own form gets it |
+| Method                                               | By default                                                                                                                                                                                                                               | A part overrides it when                                                                                                                                                                 |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`Execute::execute_stream`](../src/roles/execute.rs) | `execute` of one piece at a time, each one batch of at most the executor's most instructions per batch (1 if it takes none), pulled from the iterator only once the piece before it answered; the pieces' readouts are joined at the end | it applies instructions as they come, such as a simulator, or passes the stream on whole, such as a link to a remote executor                                                            |
+| [`Adapt::adapt_stream`](../src/roles/adapt.rs)       | `adapt` of one piece at a time, each of at most the most instructions per batch it offers above, as for `execute_stream`                                                                                                                 | its instructions below follow from those it gets one by one, such as a code that lowers each logical instruction: it passes its own stream below, so that an executor's own form gets it |
 
 So by default a part holds one piece of the stream, never the whole
 program, and the readouts of the pieces that read anything until the
 stream ends; the rustdoc of each method gives the bound. The default's
-pieces hold at most the receiver's most instructions per batch, so no
-boundary checks their count; each boundary checks a
-[checked](batches-and-readouts.md) stream in full, a piece at a time,
-before any of the piece reaches the receiver, the first before the
-receiver is called. A refusal ends the stream: of its first piece, as a
-refusal, nothing having run; of a later piece, as a failure, the pieces
-before it having run. A panic in the stream's iterator is the sender's,
+pieces hold at most the receiver's most instructions per batch, or 1 for
+a receiver taking none, so no boundary checks their count; each
+boundary checks each piece of a [checked](batches-and-readouts.md)
+stream that its receiver pulls, before any of the piece reaches the
+receiver, the first before the receiver is called. A refusal ends the
+stream: of its first piece, as a refusal, nothing having run; of a later
+piece, as a failure, the pieces before it having run. A panic in the stream's iterator is the sender's,
 as one in `each` is.
 
 ## Seeds

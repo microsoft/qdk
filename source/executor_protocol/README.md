@@ -92,7 +92,11 @@ Today the protocol holds:
   [`ReadoutValue`](src/batch/batch_readouts/readout_value.rs)s, with the
   [`ShotConditions`](src/batch/batch_readouts/shot_conditions.rs) raised on it.
   [`Readouts`](src/batch/batch_readouts/readouts.rs) keeps them from one call to
-  the next.
+  the next. With `execute_stream`, the instructions are an
+  [`InstructionStream`](src/batch/instruction_stream.rs), pulled as they
+  run; with the `_each` forms, each
+  [`FinalRow`](src/roles/execute/final_row.rs) goes back as soon as it is
+  final.
 - **Refusals and failures:** a refusal says that nothing ran, so the call
   may be corrected and sent again
   ([`ExecuteRefusal`](src/roles/execute.rs),
@@ -295,13 +299,14 @@ bypassed:
   shot set's instructions, pulled from the sender's iterator as they
   run, gets the readouts of the same instructions sent whole. By
   default, the protocol cuts it into pieces of at most the receiver's
-  most instructions per batch, and holds one piece of it at a time.
+  most instructions per batch, or 1 for a receiver taking none, and
+  holds one piece of it at a time.
 
-Each boundary checks a checked stream as it checks a checked batch, a
-piece at a time, and the default's pieces never exceed the receiver's
-most. [Writing a part](docs/writing-a-part.md#streaming) gives each
-form's default, when a part overrides it, and what holds after an error
-or a panic.
+Each boundary checks each piece of a checked stream that its receiver
+pulls, before any of the piece reaches it, as it checks a checked
+batch's instructions. [Writing a part](docs/writing-a-part.md#streaming)
+gives each form's default, when a part overrides it, and what holds
+after an error or a panic.
 
 ## An example
 

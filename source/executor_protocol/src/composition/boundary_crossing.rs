@@ -4,9 +4,9 @@
 //! One call across a boundary ([`BoundaryCrossing`]): the receiver as its
 //! sender calls it, with the protocol's checks on what crosses.
 //!
-//! So that no part checks what it is sent, nor shapes the readouts it
-//! fills: each call across a boundary of a chain goes through a boundary
-//! crossing, built anew for it, both inside a
+//! So that no part checks what it is sent, nor shapes the readouts of a
+//! batch it fills: each call across a boundary of a chain goes through a
+//! boundary crossing, built anew for it, both inside a
 //! [`Composed`](crate::Composed) and where the runner's driver meets its
 //! executor; the limits it applies were read by the `>>` that made the
 //! runner. It takes the batches in order, and
@@ -23,9 +23,11 @@
 //! aborts). An `execute_each` makes the same checks before the receiver
 //! gives any row, and an `execute_stream` checks a checked stream a piece
 //! at a time, in `checked_pieces`: the first before the receiver is
-//! called, the others as the receiver pulls them; a panic in
-//! the caller's `each`, or in its stream's instructions, is raised again
-//! on the caller's side, so that it names the caller, not the receiver.
+//! called, the others as the receiver pulls them; a stream's readouts are
+//! shaped by its receiver (by default, as `execute_stream` cuts it). A
+//! panic in the caller's `each`, or in its stream's instructions, is
+//! raised again on the caller's side, so that it names the caller, not
+//! the receiver.
 //! The limits it checks batches against are in `batch_limits`.
 
 mod batch_limits;

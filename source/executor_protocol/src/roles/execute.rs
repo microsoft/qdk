@@ -194,12 +194,12 @@ pub trait Execute: ExecutorSetup {
     /// readouts are then a row of no slot per shot.
     ///
     /// For a sender whose program is too long to hold
-    /// ([`InstructionStream`]). By default, it runs the stream in pieces,
-    /// each one `execute` of one batch of at most the most instructions
-    /// this executor takes ([`Offer::max_instructions`](crate::Offer), or
-    /// a thousand or so when it sets none), pulling each piece only once
-    /// the one before it has answered, so every executor serves it. It then
-    /// holds one piece, and, until the stream ends, the readouts of the
+    /// ([`InstructionStream`]). By default, it runs the stream in pieces, each
+    /// one `execute` of one batch of at most the most instructions this
+    /// executor takes ([`Offer::max_instructions`](crate::Offer), or 1 if it
+    /// takes none, or a thousand or so when it sets none), pulling each piece
+    /// only once the one before it has answered, so every executor serves it.
+    /// It then holds one piece, and, until the stream ends, the readouts of the
     /// pieces that read anything, joined into `readouts` at the end: about
     /// twice the stream's readouts, and little more than a piece for a
     /// stream that reads only at its end. An executor that applies
@@ -231,30 +231,23 @@ pub trait Execute: ExecutorSetup {
         readouts: &mut BatchReadouts,
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         async move {
-            let checked = stream.is_checked();
-            let InstructionStream {
-                shots,
-                instructions,
-                ..
-            } = stream;
-            let mut pieces =
-                StreamPieces::new(instructions, most_per_piece(self.offers().max_instructions));
-            while pieces.pull() {
-                let answer = match pieces.batch(self.accepts(), shots, checked) {
-                    Ok((batch, piece_readouts)) => {
-                        await_part(self.execute(
-                            slice::from_ref(&batch),
-                            seed,
-                            slice::from_mut(piece_readouts),
-                        ))
-                        .await
-                    }
-                    Err(refused) => Err(refused),
-                };
-                pieces.ran(answer)?;
-            }
-            pieces.join_into(shots, readouts);
-            Ok(())
+            let most = most_per_piece(self.offers().max_instructions);
+            StreamPieces::run(
+                stream,
+                most,
+                self,
+                Self::accepts,
+                async |executor, batch, piece_readouts| {
+                    await_part(executor.execute(
+                        slice::from_ref(batch),
+                        seed,
+                        slice::from_mut(piece_readouts),
+                    ))
+                    .await
+                },
+                readouts,
+            )
+            .await
         }
     }
 

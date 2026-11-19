@@ -1,16 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A stream run in pieces ([`StreamPieces`]): what the default
-//! `execute_stream` and `adapt_stream` loop over, each piece one `execute`
-//! or one `adapt` of one batch, holding one piece at a time.
+//! A stream run in pieces ([`StreamPieces`]): how the default
+//! `execute_stream` and `adapt_stream` run a stream, each piece one
+//! `execute` or one `adapt` of one batch, holding one piece at a time.
 
-use std::iter::Fuse;
 use std::mem;
 
 use crate::{
     Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, Instruction, InstructionSet,
-    ShotConditions, ShotId, ShotSet,
+    InstructionStream, ShotConditions, ShotId, ShotSet,
 };
 
 /// The most instructions of a piece when the receiver's offer sets no most
@@ -21,14 +20,17 @@ use crate::{
 const PIECE: usize = 1024;
 
 /// The most instructions of a piece for a receiver whose most is `most`:
-/// `most`, or [`PIECE`] when it sets none.
+/// `most`, or 1 when it is 0, or [`PIECE`] when it sets none. A receiver
+/// that takes no instruction a batch thus gets pieces of 1, which its
+/// `execute` may refuse, rather than a stream that runs nothing and
+/// answers `Ok`.
 pub(crate) fn most_per_piece(most: Option<u32>) -> usize {
     most.map_or(PIECE, |most| most.max(1) as usize)
 }
 
 /// A stream's instructions on `shots`, run in pieces of at most `most`, in
-/// order: the caller [`pull`](Self::pull)s a piece, runs its
-/// [`batch`](Self::batch) (one `execute` or one `adapt`), tells it how the
+/// order ([`run`](Self::run)): it [`pull`](Self::pull)s a piece, runs its
+/// [`batch`](Self::batch) (one `execute` or one `adapt`), takes how the
 /// piece [`ran`](Self::ran), and once no piece is left,
 /// [`join_into`](Self::join_into) fills the stream's readouts: each shot's
 /// row is its rows in the pieces, in order, and its conditions their union.
@@ -39,7 +41,7 @@ pub(crate) fn most_per_piece(most: Option<u32>) -> usize {
 /// pieces that read nothing, the union of their conditions per shot. An
 /// empty stream runs nothing.
 pub(crate) struct StreamPieces<I: Iterator<Item = Instruction>> {
-    instructions: Fuse<I>,
+    instructions: I,
     most: usize,
     /// The piece pulled last.
     piece: Vec<Instruction>,
@@ -59,10 +61,46 @@ pub(crate) struct StreamPieces<I: Iterator<Item = Instruction>> {
 }
 
 impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
+    /// Runs `stream` in pieces of at most `most` on `part`, which accepts
+    /// [`accepts`](crate::ExecutorSetup::accepts)`(part)`, each piece by
+    /// `run_piece` (one `execute` or one `adapt` of its batch), and fills
+    /// `readouts` with the stream's, as the default `execute_stream` says.
+    /// A piece's error ends the stream, returned with its positions in the
+    /// stream ([`ran`](Self::ran)).
+    pub(crate) async fn run<P: ?Sized>(
+        stream: InstructionStream<'_, I>,
+        most: usize,
+        part: &mut P,
+        accepts: fn(&P) -> &InstructionSet,
+        mut run_piece: impl AsyncFnMut(
+            &mut P,
+            &Batch<'_>,
+            &mut BatchReadouts,
+        ) -> Result<(), ExecuteError>,
+        readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        let checked = stream.is_checked();
+        let InstructionStream {
+            shots,
+            instructions,
+            ..
+        } = stream;
+        let mut pieces = Self::new(instructions, most);
+        while pieces.pull() {
+            let answer = match pieces.batch(accepts(part), shots, checked) {
+                Ok((batch, piece_readouts)) => run_piece(part, &batch, piece_readouts).await,
+                Err(refused) => Err(refused),
+            };
+            pieces.ran(answer)?;
+        }
+        pieces.join_into(shots, readouts);
+        Ok(())
+    }
+
     /// `instructions`, to be run in pieces of at most `most`.
-    pub(crate) fn new(instructions: I, most: usize) -> Self {
+    fn new(instructions: I, most: usize) -> Self {
         Self {
-            instructions: instructions.fuse(),
+            instructions,
             most,
             piece: Vec::new(),
             ended: false,
@@ -75,13 +113,15 @@ impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
     }
 
     /// Pulls the next piece: `false` once the stream has ended.
-    pub(crate) fn pull(&mut self) -> bool {
+    fn pull(&mut self) -> bool {
         if self.ended {
             return false;
         }
         self.piece.clear();
         self.piece
             .extend(self.instructions.by_ref().take(self.most));
+        // A short piece is the last: the source is not asked again once it
+        // has ended, fused or not.
         self.ended = self.piece.len() < self.most;
         !self.piece.is_empty()
     }
@@ -95,7 +135,7 @@ impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
     /// boundary the stream crossed. Refused, as a checked batch is, when
     /// the stream's slots would no longer fit a `u32`, so that its readouts
     /// can hold them.
-    pub(crate) fn batch<'a>(
+    fn batch<'a>(
         &'a mut self,
         set: &InstructionSet,
         shots: &'a ShotSet,
@@ -140,7 +180,7 @@ impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
     /// stream: a refusal of the first piece as it is, since nothing of the
     /// stream ran; a refusal of a later one as [`Failure::Refused`], since
     /// the pieces before it ran.
-    pub(crate) fn ran(&mut self, answer: Result<(), ExecuteError>) -> Result<(), ExecuteError> {
+    fn ran(&mut self, answer: Result<(), ExecuteError>) -> Result<(), ExecuteError> {
         answer.map_err(|error| in_the_stream(error, self.sent))?;
         self.sent += self.piece.len();
         if self.piece_readouts.readout_slots() > 0 {
@@ -157,7 +197,7 @@ impl<I: Iterator<Item = Instruction>> StreamPieces<I> {
 
     /// Fills `readouts` with the readouts of every piece that ran, joined,
     /// for `shots`.
-    pub(crate) fn join_into(self, shots: &ShotSet, readouts: &mut BatchReadouts) {
+    fn join_into(self, shots: &ShotSet, readouts: &mut BatchReadouts) {
         readouts.shape(shots.len(), self.read_slots);
         readouts.concat_from(&self.read);
         for (position, &raised) in self.unread_conditions.iter().enumerate() {
