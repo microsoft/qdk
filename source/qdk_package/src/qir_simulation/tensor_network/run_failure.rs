@@ -22,6 +22,9 @@
 //! An interrupt (Ctrl-C) raises its own exception, `KeyboardInterrupt`,
 //! which `detached_run.rs` raises.
 
+#[cfg(test)]
+mod tests;
+
 use std::{error::Error, fmt::Display};
 
 use pyo3::{
@@ -97,8 +100,8 @@ impl RunFailure {
 /// then does not hide its cause: the canonical MPS engine's algebra failure
 /// says only that the site algebra failed, and its cause (on the GPU, for
 /// instance, the CUDA call that failed and its status) is its source. A
-/// cause already shown is not repeated: the run's and the MPS simulation
-/// method's errors show their source in their message too.
+/// cause already shown is not repeated: the run's error, which names the
+/// failing shot, shows its source in its message too.
 fn with_causes(error: &dyn Error) -> String {
     let mut message = error.to_string();
     let mut source = error.source();

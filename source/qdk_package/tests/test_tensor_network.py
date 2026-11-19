@@ -28,6 +28,8 @@ from qdk import Result
 from qdk.simulation import (
     MpsOptions,
     Sample,
+    TensorNetworkReport,
+    TensorNetworkResults,
     TensorNetworkSetup,
     check_tensornetwork_setup,
     tensornetwork_qir,
@@ -193,23 +195,19 @@ def test_queries_other_than_one_sample_are_refused(queries):
 @pytest.mark.parametrize(
     "arguments, message",
     [
-        pytest.param(
-            {"options": {"max_bond_dimension": 4}}, "MpsOptions", id="options"
-        ),
-        pytest.param({"queries": ["Expectation"]}, "use Sample", id="a query"),
-        pytest.param(
-            {"queries": Sample(1)},
-            "queries must be an iterable holding one Sample",
-            id="a bare Sample",
-        ),
+        pytest.param({"options": {"max_bond_dimension": 4}}, "options", id="options"),
+        pytest.param({"queries": ["Expectation"]}, "'Expectation'", id="a query"),
+        pytest.param({"queries": Sample(1)}, "queries", id="a bare Sample"),
         pytest.param({"engine": 0}, "str", id="engine"),
         pytest.param({"input": None}, "bytes", id="input"),
     ],
 )
 def test_an_argument_of_another_type_raises_type_error(arguments, message):
-    """An argument whose type the entry does not take raises `TypeError`,
-    the entry's own message saying what to pass where the entry checks the
-    argument (``options``, ``queries`` and each query)."""
+    """An argument whose type the entry does not take raises `TypeError`
+    whose message names the argument or the query at fault where the entry
+    checks it (``options``, ``queries`` and each query). The ``engine`` and
+    ``input`` rows match the type expected: their messages are pyo3's and
+    the QIR parser's."""
     arguments = {"input": BELL, "queries": [Sample(1)], **arguments}
     with pytest.raises(TypeError, match=message):
         run(arguments.pop("input"), **arguments)
@@ -231,8 +229,9 @@ def test_a_type_error_of_the_callers_queries_reaches_the_caller():
 def test_an_unknown_engine_is_refused():
     """An engine name other than ``"gpu"`` and ``"cpu"``, here the library's
     name, is a `ValueError` naming the engine."""
-    with pytest.raises(ValueError, match="Invalid engine: 'cutensornet'"):
+    with pytest.raises(ValueError, match="engine") as raised:
         run(BELL, [Sample(1)], engine="cutensornet")
+    assert "'cutensornet'" in str(raised.value)
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +346,7 @@ def test_a_run_that_lost_weight_warns(engine):
     to 1, losing about half the state's weight, so the run warns with
     `RuntimeWarning`, pointing at the caller's line, and its report gives
     the loss."""
-    with pytest.warns(RuntimeWarning, match="lost up to") as warned:
+    with pytest.warns(RuntimeWarning, match=r"max bond dimension 1\b") as warned:
         results = tensornetwork_qir(
             BELL,
             [Sample(2)],
@@ -377,6 +376,24 @@ def test_results_survive_pickling_and_copying(duplicate):
     assert saved.report == results.report
 
 
+def test_results_with_equal_rows_are_equal_whatever_their_reports():
+    """Results compare as the tuple of their rows: a user comparing two
+    runs' rows (an exact run and a truncated one that sampled the same, say)
+    finds them equal though their reports differ."""
+    rows = [[Result.Zero], [Result.One]]
+    exact = TensorNetworkResults(
+        [rows],
+        TensorNetworkReport(largest_bond=2, discarded_weight=0.0, max_bond_dimension=2),
+    )
+    truncated = TensorNetworkResults(
+        [rows],
+        TensorNetworkReport(
+            largest_bond=1, discarded_weight=0.25, max_bond_dimension=1
+        ),
+    )
+    assert exact == truncated
+
+
 def test_an_exact_run_does_not_warn(engine):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -401,7 +418,7 @@ def test_a_trap_raises_runtime_error_naming_the_shot(engine):
         qubits=1,
         results=1,
     )
-    with pytest.raises(RuntimeError, match="shot 0 trapped"):
+    with pytest.raises(RuntimeError, match=r"shot 0\b"):
         run(qir, [Sample(3)], engine=engine)
 
 
@@ -415,17 +432,17 @@ _MEASURE_AND_RECORD = """
     [
         pytest.param(
             "call void @__quantum__qis__cnot__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))",
-            "twice",
+            r"`cx`.*qubit 0",
             id="a gate on one qubit twice",
         ),
         pytest.param(
             "call void @__quantum__rt__readout_noise(double 0.1, double 0.1, %Result* inttoptr (i64 0 to %Result*))",
-            "not run on matrix product states",
+            "readout_noise",
             id="readout noise",
         ),
         pytest.param(
             "call void @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))",
-            "not run on matrix product states",
+            "peek_loss",
             id="a loss check",
         ),
         pytest.param(
@@ -436,10 +453,11 @@ _MEASURE_AND_RECORD = """
     ],
 )
 def test_a_call_the_method_cannot_run_raises_value_error(engine, call, message):
-    """A call the MPS simulation method does not run: a `cx` on one qubit
-    twice, which no two-qubit matrix applies; readout noise; a loss check;
-    a rotation by an angle that is not finite, whose matrix the engine
-    refuses."""
+    """A call the MPS simulation method does not run, named by its message:
+    a `cx` on one qubit twice, which no two-qubit matrix applies; readout
+    noise; a loss check. And a rotation by an angle that is not finite,
+    whose matrix the engine refuses: its message gives the refusal, not the
+    call, which the engine's refusal does not carry."""
     qir = adaptive_qir(f"  {call}{_MEASURE_AND_RECORD}", qubits=1, results=1)
     with pytest.raises(ValueError, match=message):
         run(qir, [Sample(1)], engine=engine)
@@ -477,7 +495,7 @@ def test_a_max_bond_dimension_too_large_for_the_qubits_raises_value_error(engine
         results=1,
     )
     options = MpsOptions(max_bond_dimension=2**32 - 1)
-    with pytest.raises(ValueError, match="make no chain"):
+    with pytest.raises(ValueError, match=r"70 qubits.*4294967295"):
         run(qir, [Sample(1)], engine=engine, options=options)
 
 
@@ -502,7 +520,7 @@ def test_a_setup_problem_raises_os_error_with_the_setup_checks_report(
     message = str(raised.value)
     setup = check_tensornetwork_setup()
     assert message.startswith(setup.report + "\n")
-    assert "to fix:" in setup.report
+    assert setup.advice is not None and setup.advice in setup.report
     assert 'engine="cpu"' in message.splitlines()[-1]
 
 
@@ -551,6 +569,51 @@ def test_the_setup_check_gives_the_native_warnings(monkeypatch):
     assert setup.ready and setup.warnings == (warning,)
 
 
+def _spy_check(received):
+    """A native setup check that records the library files and the install
+    command it is given."""
+
+    def check(packaged, install_command):
+        received.append((packaged, install_command))
+        return True, "ready", None, []
+
+    return "_check_tensornetwork_setup", check, check_tensornetwork_setup
+
+
+def _spy_sample(received):
+    """A native run that records the library files and the install command
+    it is given, which its setup report gives when the GPU is not set up."""
+
+    def sample(program, shots, seed, max_bond, packaged, install_command, engine):
+        received.append((packaged, install_command))
+        report = {
+            "largest_bond": 1,
+            "discarded_weight": 0.0,
+            "max_bond_dimension": max_bond,
+            "truncation_warning": None,
+        }
+        return [], report
+
+    return "_tensor_network_sample", sample, lambda: tensornetwork_qir(BELL, [Sample(1)])
+
+
+ENTRIES = [
+    pytest.param(_spy_check, id="check_tensornetwork_setup"),
+    pytest.param(_spy_sample, id="tensornetwork_qir"),
+]
+
+
+def received_by_native(monkeypatch, spy):
+    """What the entry `spy` stands for hands the native side, once called:
+    the library files the wheels installed and the install command."""
+    received = []
+    native, fake, call = spy(received)
+    monkeypatch.setattr(_native, native, fake)
+    call()
+    (arguments,) = received
+    return arguments
+
+
 @pytest.fixture
 def cutensornet_wheel(tmp_path):
     """An installed distribution whose files are under `tmp_path`, where
@@ -581,14 +644,19 @@ def only_cutensornet_installed(monkeypatch, cutensornet_wheel):
     return library
 
 
-def test_only_the_installed_wheels_file_is_found(only_cutensornet_installed):
-    """The file cuTensorNet's wheel installed is found through the
-    installed distribution; the CUDA Runtime, whose wheel is not installed,
-    adds no file."""
-    assert _tensor_network._packaged_libraries() == [only_cutensornet_installed]
+@pytest.mark.parametrize("spy", ENTRIES)
+def test_only_the_installed_wheels_file_is_found(
+    monkeypatch, only_cutensornet_installed, spy
+):
+    """The setup check and a run each find the file cuTensorNet's wheel
+    installed through the installed distribution; the CUDA Runtime, whose
+    wheel is not installed, adds no file."""
+    packaged, _ = received_by_native(monkeypatch, spy)
+    assert packaged == [only_cutensornet_installed]
 
 
-def test_a_file_the_wheel_lacks_adds_no_file(monkeypatch, cutensornet_wheel):
+@pytest.mark.parametrize("spy", ENTRIES)
+def test_a_file_the_wheel_lacks_adds_no_file(monkeypatch, cutensornet_wheel, spy):
     """Each library is looked for in its own wheel: a wheel installed
     without the file (here, every wheel holds only `libcutensornet.so.2`)
     adds no `libcudart.so.12`."""
@@ -596,52 +664,17 @@ def test_a_file_the_wheel_lacks_adds_no_file(monkeypatch, cutensornet_wheel):
     monkeypatch.setattr(
         _tensor_network.metadata, "distribution", lambda name: installed
     )
-    assert _tensor_network._packaged_libraries() == [library]
+    packaged, _ = received_by_native(monkeypatch, spy)
+    assert packaged == [library]
 
 
-def _spy_check(received):
-    """A native setup check that records the install command it is given."""
-
-    def check(packaged, install_command):
-        received.append(install_command)
-        return True, "ready", None, []
-
-    return "_check_tensornetwork_setup", check, check_tensornetwork_setup
-
-
-def _spy_sample(received):
-    """A native run that records the install command it is given, which its
-    setup report gives when the GPU is not set up."""
-
-    def sample(program, shots, seed, max_bond, packaged, install_command, engine):
-        received.append(install_command)
-        report = {
-            "largest_bond": 1,
-            "discarded_weight": 0.0,
-            "max_bond_dimension": max_bond,
-            "truncation_warning": None,
-        }
-        return [], report
-
-    return "_tensor_network_sample", sample, lambda: tensornetwork_qir(BELL, [Sample(1)])
-
-
-@pytest.mark.parametrize(
-    "spy",
-    [
-        pytest.param(_spy_check, id="check_tensornetwork_setup"),
-        pytest.param(_spy_sample, id="tensornetwork_qir"),
-    ],
-)
+@pytest.mark.parametrize("spy", ENTRIES)
 def test_each_entry_passes_the_install_command(monkeypatch, spy):
     """The setup check and a run each hand the native side the command that
     installs the libraries, which the setup check's advice gives when a
     library is missing (a run's `OSError` holds that advice)."""
-    received = []
-    native, fake, call = spy(received)
-    monkeypatch.setattr(_native, native, fake)
-    call()
-    assert received == ['pip install "qdk[tensornetwork]"']
+    _, install_command = received_by_native(monkeypatch, spy)
+    assert install_command == 'pip install "qdk[tensornetwork]"'
 
 
 # ---------------------------------------------------------------------------
