@@ -11,16 +11,6 @@
 //! does not run, a call it cannot run, a capacity that is no chain, or the
 //! engine; or the run was stopped (no shot failed: the shot named is the
 //! first that had not ended).
-//!
-//! Its message says what failed and names the item; an error it wraps (the
-//! engine's, or why the shape is no chain) is its [`source`], not repeated
-//! in its message (Rust's convention for a wrapped error), so a caller
-//! that shows this error's chain shows each cause once. The run's error
-//! around it does not follow that convention: `QirResumeError` repeats
-//! this error in its message and also gives it as its source, so a caller
-//! that walks a run's chain skips a cause its message already holds.
-//!
-//! [`source`]: std::error::Error::source
 
 use std::fmt;
 
@@ -30,10 +20,19 @@ use crate::qir::QirInstruction;
 use tensornet::MpsShapeError;
 
 /// Why an [`MpsResumer`] failed a shot. Variants are added as the MPS
-/// simulation method needs them, hence `#[non_exhaustive]`. The engine's
-/// error, and why a shape is no chain, are its `source()`, not in its
-/// message: a caller that prints the message alone walks `source()` for
-/// them.
+/// simulation method needs them, hence `#[non_exhaustive]`.
+///
+/// Its message says what failed and names the item; an error it wraps (the
+/// engine's, or why the shape is no chain) is its [`source`], not repeated
+/// in its message (Rust's convention for a wrapped error): a caller that
+/// prints the message alone walks `source()` for it, and one that shows
+/// this error's chain shows each cause once. The run's error around it does
+/// not follow that convention: `QirResumeError` repeats this error in its
+/// message and also gives it as its source, so a caller that walks a run's
+/// chain shows each cause once only if it skips a cause its message already
+/// holds.
+///
+/// [`source`]: std::error::Error::source
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum MpsResumerError<E> {

@@ -124,7 +124,7 @@ sequenceDiagram
   end
   M->>E: probability_of_one(state, s), or conditional_probability_of_one(state, s, given)
   Note over M: draws the value v with its own generator
-  M->>E: fork(state), when a group of shots splits (planned), each copy projected next
+  M->>E: fork(state), when a group of shots splits, each copy projected next
   M->>E: project(state, s, v), which returns p_v
   M->>E: sample(state, sites, N, seed)
   M->>E: expectation(state, O)
@@ -147,7 +147,7 @@ is for:
 - [`project`](src/engine.rs): keeps a drawn value, and returns its
   probability.
 - [`fork`](src/engine.rs): an independent copy, for the default
-  `conditional_probability_of_one`, and for shots that split (planned).
+  `conditional_probability_of_one`, and for shots that split.
 - [`sample`](src/engine.rs): the values of many shots, from one seed.
 - [`expectation`](src/engine.rs): the expectation of a Pauli sum.
 - [`shape`](src/engine.rs): the chain the engine holds now, what the run
