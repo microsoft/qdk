@@ -6,51 +6,58 @@
 use crate::{AvailabilityError, AvailabilityReport, LibraryFault, LibraryReport};
 use std::path::PathBuf;
 
-/// A user whose cuTensorNet lacks two functions reads both, each after the
+/// A user whose CUDA Runtime lacks two functions reads both, each after the
 /// library and the path it was opened from; a library with no fault is not
-/// named.
+/// named. The faults are on the CUDA Runtime, whose name the message's lead
+/// ("cuTensorNet acceleration…") does not hold, so each fault must name it.
 #[test]
 fn the_message_names_every_fault_with_its_library() {
+    let cuda_path = "/opt/cuda/libcudart.so.12";
     let report = AvailabilityReport {
         libraries: vec![
             LibraryReport {
                 library: "CUDA Runtime",
-                path: Some(PathBuf::from("/opt/cuda/libcudart.so.12")),
+                path: Some(PathBuf::from(cuda_path)),
                 versions: Vec::new(),
-                faults: Vec::new(),
+                faults: vec![
+                    LibraryFault::MissingRequiredSymbol {
+                        symbol: "cudaMallocAsync",
+                    },
+                    LibraryFault::MissingRequiredSymbol {
+                        symbol: "cudaStreamCreate",
+                    },
+                ],
             },
             LibraryReport {
                 library: "cuTensorNet",
                 path: Some(PathBuf::from("/opt/cutensornet/libcutensornet.so.2")),
                 versions: Vec::new(),
-                faults: vec![
-                    LibraryFault::MissingRequiredSymbol {
-                        symbol: "cutensornetGateSplit",
-                    },
-                    LibraryFault::MissingRequiredSymbol {
-                        symbol: "cutensornetTensorQR",
-                    },
-                ],
+                faults: Vec::new(),
             },
         ],
     };
     let message = AvailabilityError::Unusable(report).to_string();
-    for symbol in ["cutensornetGateSplit", "cutensornetTensorQR"] {
+    for symbol in ["cudaMallocAsync", "cudaStreamCreate"] {
         assert_eq!(
             message.matches(symbol).count(),
             1,
             "{symbol} once: {message}"
         );
     }
-    assert_eq!(
-        message
-            .matches("/opt/cutensornet/libcutensornet.so.2")
-            .count(),
-        2,
-        "the path with each fault: {message}"
+    for (part, what) in [("CUDA Runtime", "the library"), (cuda_path, "its path")] {
+        assert_eq!(
+            message.matches(part).count(),
+            2,
+            "{what} with each fault: {message}"
+        );
+    }
+    let at = |part| message.find(part).expect("the part is in the message");
+    assert!(
+        at("CUDA Runtime") < at(cuda_path) && at(cuda_path) < at("cudaMallocAsync"),
+        "the library, then its path, then the fault: {message}"
     );
     assert!(
-        !message.contains("CUDA Runtime") && !message.contains("libcudart"),
+        !message.contains("libcutensornet"),
         "the library with no fault is not named: {message}"
     );
 }
@@ -73,7 +80,7 @@ fn a_library_not_opened_is_named_without_a_path() {
         assert!(message.contains(part), "{part} is named: {message}");
     }
     assert!(
-        !message.contains("CUDA Runtime at"),
+        !message.contains('/'),
         "no path is given for a library not opened: {message}"
     );
 }

@@ -20,7 +20,24 @@ library (each such exported name is a _symbol_), and checks the versions the
 libraries report against the audited ones. It returns an
 [`Availability`](src/discovery.rs), which keeps the libraries loaded, or an
 [`AvailabilityError`](src/discovery/error.rs) that says what is missing, so
-the caller can tell the user or run on the CPU. Nothing is linked.
+the caller can tell the user or run on the CPU.
+
+Today the crate holds:
+
+- **Discovery:** [`discover`](src/discovery.rs), which opens and checks the
+  libraries, and [`Availability`](src/discovery.rs), which keeps them loaded
+  with the table of each library's functions, typed function pointers
+  ready to call; the MPS engine, added in a later change, calls cuTensorNet
+  through them.
+- **The error:** [`AvailabilityError`](src/discovery/error.rs),
+  `UnsupportedPlatform` off Linux x86-64, or else `Unusable` with the
+  report.
+- **The reports:** [`AvailabilityReport`](src/discovery/report.rs), with a
+  [`LibraryReport`](src/libraries/report.rs) per library, in the order they
+  are opened: the library's name, the path it was opened from, the
+  [`Version`](src/libraries/report.rs)s it reports, and its
+  [`LibraryFault`](src/libraries/report.rs)s, which name the variable, path,
+  function or version at fault.
 
 **Why this approach.**
 
@@ -56,23 +73,6 @@ flowchart TD
   loader -->|"Ok"| availability["Availability: the libraries, kept loaded"]
   loader -->|"Err"| error["AvailabilityError: what is missing"]
 ```
-
-Today the crate holds:
-
-- **Discovery:** [`discover`](src/discovery.rs), which opens and checks the
-  libraries, and [`Availability`](src/discovery.rs), which keeps them loaded
-  with the table of each library's functions, typed function pointers
-  ready to call; the MPS engine, added in a later change, calls cuTensorNet
-  through them.
-- **Its error:** [`AvailabilityError`](src/discovery/error.rs),
-  `UnsupportedPlatform` off Linux x86-64, or else `Unusable` with the
-  report.
-- **The reports:** [`AvailabilityReport`](src/discovery/report.rs), with a
-  [`LibraryReport`](src/libraries/report.rs) per library, in the order they
-  are opened: the library's name, the path it was opened from, the
-  [`Version`](src/libraries/report.rs)s it reports, and its
-  [`LibraryFault`](src/libraries/report.rs)s, which name the variable, path,
-  function or version at fault.
 
 What the crate guarantees, by when it holds:
 
@@ -113,8 +113,7 @@ name, its override variable and default paths, the table of its functions
 ([`FunctionTable`](src/libraries/function_table.rs)), and how its versions
 are read and which are accepted. One list,
 [`LoadedLibraries`](src/libraries.rs), says which libraries a GPU run needs;
-it opens every library before it requires any, so the report lists every
-fault of every library. The map at the top of
+it opens every library before it requires any. The map at the top of
 [`src/libraries.rs`](src/libraries.rs) shows the steps from one to the
 other.
 
@@ -273,13 +272,16 @@ checked against them when it compiles:
 - **Checked when the crate compiles.** A library's function table is the
   list of the functions the crate uses. Each row names its symbol, and its
   function-pointer type is checked against the symbol's declaration in the
-  bindings, so no field can be looked up by another function's name. The
+  bindings, so each field has its symbol's type; the tests check that each
+  field is named for its symbol and that no symbol is held twice, which
+  catches two functions of one signature swapped or repeated. The
   version each library is accepted at is asserted to be the version its
   header declares.
 
-To bind another function of a bound release, add its row, and its
-function-pointer type, to its library's module in
-[`src/libraries/`](src/libraries): the bindings already declare it.
+To bind another function of a bound release, add its row, with a field
+named for its symbol (the tests check it), and its function-pointer type, to
+its library's module in [`src/libraries/`](src/libraries): the bindings
+already declare it.
 To bind another library, follow the steps at the top of
 [`src/libraries.rs`](src/libraries.rs). The script runs once per release of
 a library; its documentation, at the top of

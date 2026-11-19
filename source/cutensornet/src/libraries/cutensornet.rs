@@ -23,9 +23,10 @@
 //! otherwise.
 //!
 //! The table is the list of the functions the crate uses; the bindings
-//! declare the whole API, so binding another function is its row here and its
-//! type in its family's file, which the crate checks, when it compiles,
-//! against the function's declaration in `v2_13`.
+//! declare the whole API, so binding another function is its row here, with
+//! a field named for its symbol (the tests check it), and its type in its
+//! family's file, which the crate checks, when it compiles, against the
+//! function's declaration in `v2_13`.
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod context;
