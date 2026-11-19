@@ -3,8 +3,8 @@
 The CPU algebra ([`CpuAlgebra`](../src/site_algebra/cpu_algebra.rs))
 truncates a state by the singular values of small dense complex matrices,
 many thousands of times per run, and keeps the singular vectors as an
-orthonormal basis. The crate's private module
-[`dense_linalg`](../src/dense_linalg.rs) gives it a singular value
+orthonormal basis. The crate's module of dense complex matrices,
+[`dense_linalg`](../src/dense_linalg.rs), gives it a singular value
 decomposition (SVD) it can trust, with the product, thin QR decomposition
 and adjoint that it and the engine's host computations also need, in three
 parts:
