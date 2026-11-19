@@ -55,9 +55,11 @@ use std::fmt;
 /// reads.
 ///
 /// It is the state when checked, and holds no library, device or engine: a
-/// later GPU run discovers the libraries again, so a library installed or
-/// an override changed since is found then; a driver updated since is
-/// found by a GPU run in a new process.
+/// later GPU run rereads the overrides and opens the libraries again, so a
+/// library the check did not find can be found then. The system loader
+/// returns a library still loaded in the process (another user holds it,
+/// or it cannot be unloaded), so a library replaced at the same path, or a
+/// driver updated since, is found by a GPU run in a new process.
 #[derive(Debug)]
 pub struct GpuSetup {
     /// What the steps found once the libraries loaded, or why discovery
