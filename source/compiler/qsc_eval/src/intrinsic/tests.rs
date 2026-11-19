@@ -1741,6 +1741,45 @@ fn mresetz_qubit_already_released_fails() {
 }
 
 #[test]
+fn mxx_myy_mzz_mzy() {
+    check_intrinsic_output(
+        "",
+        indoc! {r#"{
+            use qs = Qubit[2];
+            let res1 = QIR.Intrinsic.__quantum__qis__mzz__body(qs[0], qs[1]);
+            if One == res1 {
+                fail "Qubits parity in ZZ basis should measure Zero"
+            }
+            H(qs[0]);
+            H(qs[1]);
+            let res2 = QIR.Intrinsic.__quantum__qis__mxx__body(qs[0], qs[1]);
+            if One == res2 {
+                fail "Qubits parity in XX basis should measure Zero"
+            }
+            S(qs[0]);
+            S(qs[1]);
+            let res3 = QIR.Intrinsic.__quantum__qis__myy__body(qs[0], qs[1]);
+            if One == res3 {
+                fail "Qubits parity in YY basis should measure Zero"
+            }
+            Adjoint S(qs[0]);
+            H(qs[0]);
+            let res4 = QIR.Intrinsic.__quantum__qis__mzy__body(qs[0], qs[1]);
+            if One == res4 {
+                fail "Qubits parity in ZY basis should measure Zero"
+            }
+            Microsoft.Quantum.Diagnostics.DumpMachine();
+            ResetAll(qs);
+        }"#},
+        &expect![[r#"
+            STATE:
+            |00⟩: 0.7071+0.0000𝑖
+            |01⟩: 0.0000+0.7071𝑖
+        "#]],
+    );
+}
+
+#[test]
 fn unknown_intrinsic() {
     let mut stdout = vec![];
     let mut out = GenericReceiver::new(&mut stdout);

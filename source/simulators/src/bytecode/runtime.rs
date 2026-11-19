@@ -149,6 +149,10 @@ const OPID_MX: u64 = 30;
 const OPID_MY: u64 = 31;
 const OPID_MZ: u64 = 21;
 const OPID_MRESETZ: u64 = 22;
+const OPID_MXX: u64 = 32;
+const OPID_MYY: u64 = 33;
+const OPID_MZZ: u64 = 34;
+const OPID_MZY: u64 = 35;
 const OPID_SWAP: u64 = 24;
 const OPID_MOVE: u64 = 28;
 const OPID_CY: u64 = 29;
@@ -307,14 +311,18 @@ fn dispatch_measure<S: Simulator>(
 ) {
     let op_idx = instr.aux0 as usize;
     let op = &program.quantum_ops[op_idx];
-    let qubit = rt.resolve_u64(instr.aux1, instr.opcode, 4) as QubitID;
-    let result_id = rt.resolve_u64(instr.aux2, instr.opcode, 5) as ResultID;
-
+    let q1 = rt.resolve_u64(instr.aux1, instr.opcode, 4) as QubitID;
+    let q2 = rt.resolve_u64(instr.aux2, instr.opcode, 5) as QubitID;
+    let result_id = rt.resolve_u64(instr.aux3, instr.opcode, 6) as ResultID;
     match op.op_id {
-        OPID_MX => sim.mx(qubit, result_id),
-        OPID_MY => sim.my(qubit, result_id),
-        OPID_MZ => sim.mz(qubit, result_id),
-        OPID_MRESETZ => sim.mresetz(qubit, result_id),
+        OPID_MX => sim.mx(q1, result_id),
+        OPID_MY => sim.my(q1, result_id),
+        OPID_MZ => sim.mz(q1, result_id),
+        OPID_MRESETZ => sim.mresetz(q1, result_id),
+        OPID_MXX => sim.mxx(q1, q2, result_id),
+        OPID_MYY => sim.myy(q1, q2, result_id),
+        OPID_MZZ => sim.mzz(q1, q2, result_id),
+        OPID_MZY => sim.mzy(q1, q2, result_id),
         _ => panic!("unsupported measure op_id={}", op.op_id),
     }
 }

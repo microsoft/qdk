@@ -75,6 +75,10 @@ pub enum QirInstructionId {
     /// New native measurements appended to the end to avoid shifting existing instruction IDs.
     MX,
     MY,
+    MXX,
+    MYY,
+    MZZ,
+    MZY
 }
 
 #[derive(Debug)]
