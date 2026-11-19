@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+//! The contract's own code, which every engine inherits: here the
+//! default conditional probability, through an engine that keeps it;
+//! the checks, the reference and the sampler in their own files.
+
 mod checks;
 mod reference;
 mod sampling;

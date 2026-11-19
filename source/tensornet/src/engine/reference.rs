@@ -52,38 +52,6 @@ use crate::sampling::{self, TooManyValues};
 use crate::{MpsEngine, MpsEngineError, MpsShape, Pauli, PauliSum, Refusal, checks};
 use num_complex::Complex64;
 
-/// Why the reference did not do an operation: refused, or a state larger
-/// than it holds.
-#[derive(Clone, Debug, PartialEq, thiserror::Error)]
-pub enum ReferenceError {
-    /// The call's arguments break the contract.
-    #[error(transparent)]
-    Refused(#[from] Refusal),
-    /// A capacity with more sites than the reference holds: a failure of
-    /// the reference, not a refusal, since another engine holds such a
-    /// state.
-    #[error("the exact reference holds at most {max} sites, not {requested}")]
-    ChainTooLong {
-        /// The sites asked for.
-        requested: usize,
-        /// [`ExactReference::MAX_SITES`].
-        max: usize,
-    },
-    /// A sample whose values do not fit in memory: a failure, not a
-    /// refusal, since the arguments break no rule.
-    #[error(transparent)]
-    TooManyValues(#[from] TooManyValues),
-}
-
-impl MpsEngineError for ReferenceError {
-    fn refusal(&self) -> Option<&Refusal> {
-        match self {
-            Self::Refused(refusal) => Some(refusal),
-            Self::ChainTooLong { .. } | Self::TooManyValues(_) => None,
-        }
-    }
-}
-
 /// The exact reference engine. It holds no state of its own, so one value
 /// serves any number of states.
 #[derive(Clone, Copy, Debug, Default)]
@@ -254,6 +222,38 @@ impl ReferenceState {
             rank += 1;
         }
         rank.max(1)
+    }
+}
+
+/// Why the reference did not do an operation: refused, or a state larger
+/// than it holds.
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
+pub enum ReferenceError {
+    /// The call's arguments break the contract.
+    #[error(transparent)]
+    Refused(#[from] Refusal),
+    /// A capacity with more sites than the reference holds: a failure of
+    /// the reference, not a refusal, since another engine holds such a
+    /// state.
+    #[error("the exact reference holds at most {max} sites, not {requested}")]
+    ChainTooLong {
+        /// The sites asked for.
+        requested: usize,
+        /// [`ExactReference::MAX_SITES`].
+        max: usize,
+    },
+    /// A sample whose values do not fit in memory: a failure, not a
+    /// refusal, since the arguments break no rule.
+    #[error(transparent)]
+    TooManyValues(#[from] TooManyValues),
+}
+
+impl MpsEngineError for ReferenceError {
+    fn refusal(&self) -> Option<&Refusal> {
+        match self {
+            Self::Refused(refusal) => Some(refusal),
+            Self::ChainTooLong { .. } | Self::TooManyValues(_) => None,
+        }
     }
 }
 

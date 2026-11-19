@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+//! The chain's layout as engines and capacities read it (its axes,
+//! bonds, element counts and the qubit chain), the chains it refuses,
+//! and when a realized chain fits a capacity.
+
 use crate::{MpsShape, MpsShapeError};
 
 fn shape(sites: Vec<Vec<usize>>) -> MpsShape {
@@ -26,12 +30,15 @@ fn the_physical_axis_is_the_first_of_the_first_site_and_the_second_of_the_others
     );
 }
 
+/// The same chain: an engine sizes the bond between two sites from the
+/// site on its left.
 #[test]
 fn the_bond_at_a_cut_is_the_right_extent_of_its_left_site() {
     let shape = shape(vec![vec![3, 4], vec![4, 5, 6], vec![6, 7]]);
     assert_eq!(bonds(&shape), [Some(4), Some(6)]);
 }
 
+/// A caller asking past the chain gets no extent, not a panic.
 #[test]
 fn a_site_or_cut_past_the_chain_is_none() {
     let shape = shape(vec![vec![2, 4], vec![4, 2]]);
@@ -55,12 +62,14 @@ fn a_bond_may_exceed_the_largest_schmidt_rank_at_its_cut() {
     assert_eq!(shape.bond_dim(0), Some(3));
 }
 
+/// The count an engine allocates each site's buffer for.
 #[test]
 fn the_element_count_of_a_site_is_the_product_of_its_extents() {
     let shape = shape(vec![vec![3, 4], vec![4, 5, 6], vec![6, 7]]);
     assert_eq!(shape.element_counts(), [12, 120, 42]);
 }
 
+/// The largest bond, here at the last cut, not the first.
 #[test]
 fn the_largest_bond_is_reported_wherever_it_is() {
     let shape = shape(vec![vec![2, 2], vec![2, 2, 7], vec![7, 2]]);
@@ -74,17 +83,22 @@ fn a_lone_site_is_a_chain_whose_largest_bond_is_one() {
     assert_eq!(shape.largest_bond(), 1);
 }
 
+/// A chain of a qutrit and a five-level site: the shape describes any
+/// levels, and only an engine's check refuses what it cannot hold.
 #[test]
 fn sites_that_are_not_qubits_are_describable() {
     let shape = MpsShape::new(vec![vec![3, 2], vec![2, 5]]);
     assert_eq!(shape.map(|s| s.physical_dim(1)), Ok(Some(5)));
 }
 
+/// A program with no qubit has no chain to describe.
 #[test]
 fn a_chain_needs_a_site() {
     assert_eq!(MpsShape::new(Vec::new()), Err(MpsShapeError::Empty));
 }
 
+/// The first and last sites have two axes, the others three, and a lone
+/// site one: a site of the wrong rank is reported with both ranks.
 #[test]
 fn a_site_has_the_rank_of_its_position() {
     for (sites, site, expected, actual) in [
@@ -105,6 +119,7 @@ fn a_site_has_the_rank_of_its_position() {
     }
 }
 
+/// A site of no element holds no state.
 #[test]
 fn an_extent_of_zero_is_refused() {
     assert_eq!(
@@ -134,6 +149,7 @@ fn neighbours_agree_about_their_bond() {
     );
 }
 
+/// A site whose element count does not fit a `usize` is never allocated.
 #[test]
 fn a_site_too_large_to_count_is_refused() {
     assert_eq!(
@@ -152,30 +168,36 @@ fn a_fault_of_a_site_comes_before_a_bond_mismatch() {
     );
 }
 
+/// With no cap, each bond is the largest Schmidt rank at its cut,
+/// `2^min(left, right)`: what an exact simulation needs.
 #[test]
 fn a_qubit_chain_has_the_largest_schmidt_rank_at_each_cut() {
     let chain = MpsShape::qubit_chain(5, usize::MAX).expect("five sites form a chain");
     assert_eq!(bonds(&chain), [Some(2), Some(4), Some(4), Some(2)]);
 }
 
+/// A simulator's χ caps the bonds above it; those below it stay.
 #[test]
 fn a_qubit_chain_caps_each_bond_at_its_max_bond_dimension() {
     let chain = MpsShape::qubit_chain(6, 3).expect("six sites form a chain");
     assert_eq!(bonds(&chain), [Some(2), Some(3), Some(3), Some(3), Some(2)]);
 }
 
+/// A one-qubit program's chain, whatever its χ.
 #[test]
 fn a_qubit_chain_of_one_site_is_a_lone_qubit() {
     let chain = MpsShape::qubit_chain(1, 4).expect("one site forms a chain");
     assert_eq!(chain, shape(vec![vec![2]]));
 }
 
+/// Every site of a qubit chain is a qubit.
 #[test]
 fn a_qubit_chain_has_two_levels_at_every_site() {
     let chain = MpsShape::qubit_chain(4, 8).expect("four sites form a chain");
     assert!((0..4).all(|site| chain.physical_dim(site) == Some(2)));
 }
 
+/// No qubit, or a χ of 0, is refused as `MpsShape::new` refuses it.
 #[test]
 fn a_qubit_chain_refuses_what_new_refuses() {
     assert_eq!(MpsShape::qubit_chain(0, 4), Err(MpsShapeError::Empty));
@@ -197,6 +219,8 @@ fn an_unbounded_qubit_chain_of_more_than_63_sites_overflows() {
     ));
 }
 
+/// A state truncated below its capacity's bonds, which an engine's
+/// buffers still hold.
 #[test]
 fn a_chain_with_smaller_bonds_fits_its_capacity() {
     let capacity = MpsShape::qubit_chain(4, 8).expect("four sites form a chain");
@@ -204,6 +228,7 @@ fn a_chain_with_smaller_bonds_fits_its_capacity() {
     assert!(realized.fits_within(&capacity));
 }
 
+/// A state at its capacity, which an untruncated run reaches.
 #[test]
 fn a_chain_fits_itself() {
     let capacity = MpsShape::qubit_chain(4, 8).expect("four sites form a chain");
@@ -222,6 +247,7 @@ fn a_chain_with_a_larger_bond_does_not_fit() {
     assert!(!last.fits_within(&capacity));
 }
 
+/// A chain of fewer or more sites is another program's.
 #[test]
 fn a_chain_of_another_length_does_not_fit() {
     let capacity = MpsShape::qubit_chain(3, 8).expect("three sites form a chain");
