@@ -15,11 +15,11 @@
 //! its steps, then a bond read, then the context resumed with the
 //! outcomes, whose next batch it lowers into the next steps, until the
 //! context ends. `prepare` makes the group's state at the first
-//! step that needs it, and a split pushes the part that waits, with a
+//! step that needs it, and a split pushes the group that waits, with a
 //! cloned context and a forked state, onto the stack.
 //!
-//! **Few states at once.** As the part with fewer shots goes on, each
-//! waiting part has at least as many shots as all the groups that wait
+//! **Few states at once.** As the smaller group goes on, each
+//! waiting group has at least as many shots as all the groups that wait
 //! above it and the one that runs, so a run of N shots holds at most
 //! ⌊log₂ N⌋ + 1 states at once.
 //!
@@ -31,7 +31,7 @@
 //! settles the group's own value first). A group that meets a
 //! failure is dropped with its state, which the engine leaves unspecified
 //! after it fails: a failed fork fails the whole group, before its shots
-//! split, while a failure settling the fork fails only the part that waits,
+//! split, while a failure settling the fork fails only the group that waits,
 //! and drops the fork. A run may also be stopped
 //! (`MpsResumer::with_stop_flag`): `run_group` reads the flag before a
 //! group runs, and after each resume that gives it a batch or a trap,
@@ -160,7 +160,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 }
                 Ok(None) => {}
                 // The group's shots now, which failed: a split may have
-                // moved its first shots to a part that went on apart.
+                // moved its first shots to a group of their own.
                 Err(failed) => self.fail(group.shots[0].place, failed),
             }
         }
@@ -288,8 +288,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     }
 
     /// Each shot of `group` draws the value of `site`; when they drew both
-    /// values, the group splits ([`Self::split`]). The state of the part
-    /// that goes on as `group` keeps its value, and is returned to |0⟩ when
+    /// values, the group splits ([`Self::split`]). The state of the group that
+    /// goes on, still `group`, keeps its value, and is returned to |0⟩ when
     /// `reset`; `result`, when given, is answered with the value.
     fn draw(
         &mut self,
@@ -338,8 +338,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// # Errors
     ///
     /// The engine's failure to fork, which fails all of `group`'s shots,
-    /// before they part: the engine leaves the state it failed on
-    /// unspecified (the `MpsEngine` contract), so no part may go on with
+    /// before they split: the engine leaves the state it failed on
+    /// unspecified (the `MpsEngine` contract), so no group may go on with
     /// it, and `run` drops it with `group`.
     fn split(
         &mut self,
