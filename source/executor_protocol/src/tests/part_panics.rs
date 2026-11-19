@@ -23,8 +23,8 @@ use crate::tests::fake_parts::{
     RowsFromThread, RowsGiven, Sending, in_each_bracketing,
 };
 use crate::{
-    Adapter, Drive, DriveError, Driver, Execute, Executor, Failure, PartId, RunError, Runner,
-    ShotId, ShotSet,
+    Adapter, Drive, DriveError, Driver, Execute, Executor, Failure, Needs, PartId, RunError,
+    Runner, ShotId, ShotSet,
 };
 
 /// The panic `runner`'s run of shots 0 to 7 raises, which it must.
@@ -857,20 +857,18 @@ fn a_panic_in_a_parts_each_names_that_part() {
     });
 }
 
-/// A driver whose stream of instructions panics when pulled for its second
-/// instruction, sent through a profiler that maps the stream on, over bits
-/// that consume it themselves, or over bits behind a renaming whose stream
-/// is cut into pieces by the default, wherever the brackets go: the run
-/// fails naming the driver, whose code panicked, not the part that pulled
-/// the instruction, and the bits still end every shot.
+/// A driver whose stream of instructions panics when pulled for one of
+/// its instructions, sent through a profiler that maps the stream on, over
+/// bits that consume it themselves, or over bits behind a renaming whose
+/// stream is cut into pieces by the default, wherever the brackets go:
+/// the run fails naming the driver, whose code panicked, not the part that
+/// pulled the instruction, and the bits still end every shot. So it does
+/// when the stream is checked, even when the panic ends a first piece that
+/// is refused: the refusal does not hide the sender's panic.
 #[test]
 fn a_panic_in_a_senders_stream_names_the_sender() {
     let driver = PartId::new(0, type_name::<Program>());
     let counted = Rc::new(Cell::new(0));
-    let panicking = || Sending::Stream {
-        produced: Rc::default(),
-        panics_at: Some(1),
-    };
     let names_the_driver = |error: &DriveError, log: &Log, case: &str| {
         assert!(
             matches!(
@@ -886,24 +884,50 @@ fn a_panic_in_a_senders_stream_names_the_sender() {
             "{case}: every shot ended"
         );
     };
-    in_each_bracketing!([d, a, e] from {
-        let log = Log::default();
-        let d = Driver::new(Program::new(&[("x", 0), ("mz", 0)]).sending_as(panicking()));
-        let a = Adapter::new(Profiler::new(&counted, &log));
-        let e = Executor::new(Bits::new(&log));
-    }, |chain, brackets| {
-        let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
-        names_the_driver(&error, &log, &format!("bits, {brackets}"));
-    });
-    in_each_bracketing!([d, a, e] from {
-        let log = Log::default();
-        let d = Driver::new(Program::new(&[("x", 0), ("mz", 0)]).sending_as(panicking()));
-        let a = Adapter::new(Profiler::new(&counted, &log));
-        let e = Executor::new(Renamed::new(Bits::new(&log), type_name::<Bits>()));
-    }, |chain, brackets| {
-        let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
-        names_the_driver(&error, &log, &format!("bits by the default, {brackets}"));
-    });
+    let refused_first_piece = [("x", 0), ("x", 5), ("mz", 0)];
+    for (case, text, checked, panics_at) in [
+        ("unchecked", &[("x", 0), ("mz", 0)][..], false, 1),
+        ("checked", &[("x", 0), ("mz", 0)], true, 1),
+        (
+            "checked, its first piece refused",
+            &refused_first_piece,
+            true,
+            2,
+        ),
+    ] {
+        let program = || {
+            let program =
+                Program::new(text)
+                    .needing(Needs::qubits(1))
+                    .sending_as(Sending::Stream {
+                        produced: Rc::default(),
+                        panics_at: Some(panics_at),
+                    });
+            if checked {
+                program.with_checked_batches()
+            } else {
+                program
+            }
+        };
+        in_each_bracketing!([d, a, e] from {
+            let log = Log::default();
+            let d = Driver::new(program());
+            let a = Adapter::new(Profiler::new(&counted, &log));
+            let e = Executor::new(Bits::new(&log));
+        }, |chain, brackets| {
+            let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
+            names_the_driver(&error, &log, &format!("{case}, bits, {brackets}"));
+        });
+        in_each_bracketing!([d, a, e] from {
+            let log = Log::default();
+            let d = Driver::new(program());
+            let a = Adapter::new(Profiler::new(&counted, &log));
+            let e = Executor::new(Renamed::new(Bits::new(&log), type_name::<Bits>()));
+        }, |chain, brackets| {
+            let error = failed(runner(chain).run(&ShotSet::ids(0..4), SEED));
+            names_the_driver(&error, &log, &format!("{case}, bits by the default, {brackets}"));
+        });
+    }
 }
 
 /// A driver whose `each` panics on the first row a worker thread hands

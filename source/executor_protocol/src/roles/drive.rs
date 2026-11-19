@@ -18,9 +18,9 @@ use crate::{DriverSetup, Execute, ExecuteError, Failure, NotReady, Seed, ShotId,
 /// Such as a program's interpreter, which sends each shot's instructions
 /// up to its next branch on a readout, or a generator of a program too
 /// long to hold, which sends it in bounded batches, or as a stream
-/// ([`Execute::execute_stream`]) that the protocol cuts into them, and
-/// reads only at the end: a driver calls the part below as many times as
-/// it likes per shot.
+/// ([`Execute::execute_stream`]), which the receiver takes whole or, by
+/// default, cuts into them, and reads only at the end: a driver calls the
+/// part below as many times as it likes per shot.
 /// It is the part at the top of a chain, and the one a runner runs shots
 /// on.
 ///

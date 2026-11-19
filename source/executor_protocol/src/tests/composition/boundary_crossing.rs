@@ -13,7 +13,9 @@
 //! fills them; again when an adapter sends an `execute` again after a
 //! failure; a panic in the caller's `execute`, once polled, when they are
 //! not one per batch; and, of unchecked batches, into readouts that held
-//! readouts as large, no allocation. The checks of one batch are in
+//! readouts as large, no allocation. A stream is checked a piece at a
+//! time, its refusal answered by where its fault is, and it ends at its
+//! sender's first `None`. The checks of one batch are in
 //! `batch_limits.rs`.
 
 mod batch_limits;
@@ -21,6 +23,7 @@ mod batch_limits;
 use std::any::type_name;
 use std::cell::{Cell, RefCell};
 use std::future::poll_fn;
+use std::iter;
 use std::pin::pin;
 use std::rc::Rc;
 use std::task::Poll;
@@ -30,7 +33,7 @@ use smallvec::smallvec;
 use super::runner::{SEED, failed, runner};
 use crate::tests::allocations;
 use crate::tests::fake_parts::{
-    Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, NamesBelow, OutputsAsRowsCome,
+    Bits, ForwardsParity, Later, Log, Misbehaving, Misbehaviour, NamesBelow, OutputsAsRowsCome,
     ParityGates, Profiler, Program, Renamed, RowsGiven, SeesPieces, Sending, coin_gate, coin_gates,
     in_each_bracketing, rows_logged,
 };
@@ -393,38 +396,43 @@ impl Adapt for Stage {
 /// The parts of a chain of a driver, up to two adapters and bits, of
 /// which one sends an instruction beyond the needs: the driver, an `x` on
 /// qubit 5 while needing two qubits, if `faulty` is 0, or else the
-/// adapter at that position. The driver's batches are checked if
-/// `checked`, and each adapter's are if the batch it received is. Each
-/// other adapter counts the instructions it receives, the first into
-/// `counted[0]`.
+/// adapter at that position. The driver sends one batch, or one stream if
+/// `streamed`, checked if `checked`, and each adapter's batches are
+/// checked if what it received is; each adapter cuts a stream into
+/// batches by its default. Each other adapter counts the instructions it
+/// receives, the first into `counted[0]`.
 struct Parts {
     faulty: usize,
     checked: bool,
+    streamed: bool,
     counted: [Rc<Cell<usize>>; 2],
     log: Log,
 }
 
 impl Parts {
-    fn new(faulty: usize, checked: bool) -> Self {
+    fn new(faulty: usize, checked: bool, streamed: bool) -> Self {
         Self {
             faulty,
             checked,
+            streamed,
             counted: [Rc::new(Cell::new(0)), Rc::new(Cell::new(0))],
             log: Log::default(),
         }
     }
 
     fn d(&self) -> Driver<Program> {
-        let program = if self.faulty == 0 {
+        let mut program = if self.faulty == 0 {
             Program::new(&[("mz", 0), ("x", 5)]).needing(Needs::qubits(2))
         } else {
             Program::new(&[("x", 0), ("mz", 0)])
         };
-        Driver::new(if self.checked {
-            program.with_checked_batches()
-        } else {
-            program
-        })
+        if self.checked {
+            program = program.with_checked_batches();
+        }
+        if self.streamed {
+            program = program.sending_as(Sending::stream());
+        }
+        Driver::new(program)
     }
 
     /// The adapter at `position`, 1 or 2 from the top.
@@ -441,29 +449,30 @@ impl Parts {
     }
 
     /// What the part below the faulty one received: the instructions the
-    /// adapter below counted, or the bits' `execute`s.
+    /// adapter below counted, or the bits' `execute`s and streams.
     fn received_below(&self, adapters: usize) -> usize {
         if self.faulty < adapters {
             self.counted[self.faulty].get()
         } else {
-            self.log.count("Bits execute")
+            self.log.count("Bits execute") + self.log.count("Bits execute_stream")
         }
     }
 }
 
 /// The chain `chain` makes, of `adapters` adapters, with each of its
-/// parts above a boundary faulty in turn: if the driver's batches are
-/// checked, the faulty batch is refused, and the part below receives
-/// nothing; if not, as by default, it reaches the bits, which panic on
-/// it.
+/// parts above a boundary faulty in turn, the driver sending a batch, then
+/// a stream: if the driver's batch or stream is checked, the faulty batch
+/// is refused, and the part below receives nothing; if not, as by
+/// default, it reaches the bits, which panic on it.
 fn each_boundary_checks_its_batch<D: Drive<Output: std::fmt::Debug>, E: Execute>(
     brackets: &str,
     adapters: usize,
     chain: impl Fn(&Parts) -> Result<Runner<D, E>, CompositionFaults>,
 ) {
     let shots = ShotSet::ids(0..2);
-    for faulty in 0..=adapters {
-        let parts = Parts::new(faulty, true);
+    for (faulty, streamed) in (0..=adapters).flat_map(|faulty| [(faulty, false), (faulty, true)]) {
+        let sent = if streamed { "a stream" } else { "a batch" };
+        let parts = Parts::new(faulty, true, streamed);
         let error = failed(runner(chain(&parts)).run(&shots, SEED));
         assert!(
             matches!(
@@ -473,23 +482,23 @@ fn each_boundary_checks_its_batch<D: Drive<Output: std::fmt::Debug>, E: Execute>
                     ..
                 })
             ),
-            "{brackets}, part {faulty} faulty, checked: {error:?}"
+            "{brackets}, part {faulty} faulty, {sent}, checked: {error:?}"
         );
         assert_eq!(
             parts.received_below(adapters),
             0,
-            "{brackets}, part {faulty} faulty, checked: the part below received nothing"
+            "{brackets}, part {faulty} faulty, {sent}, checked: the part below received nothing"
         );
-        let parts = Parts::new(faulty, false);
+        let parts = Parts::new(faulty, false, streamed);
         let error = failed(runner(chain(&parts)).run(&shots, SEED));
         let bits = PartId::new(adapters + 1, type_name::<Bits>());
         assert!(
             matches!(&error.failure, Failure::Panicked { part, .. } if *part == bits),
-            "{brackets}, part {faulty} faulty, unchecked: {error:?}"
+            "{brackets}, part {faulty} faulty, {sent}, unchecked: {error:?}"
         );
         assert!(
             parts.received_below(adapters) > 0,
-            "{brackets}, part {faulty} faulty, unchecked: the part below received it"
+            "{brackets}, part {faulty} faulty, {sent}, unchecked: the part below received it"
         );
     }
 }
@@ -498,7 +507,9 @@ fn each_boundary_checks_its_batch<D: Drive<Output: std::fmt::Debug>, E: Execute>
 /// part above a boundary sending an instruction beyond the needs in turn:
 /// if the driver's batches are checked, the adapters' are too, and the
 /// faulty batch is refused at the boundary below that part, wherever the
-/// brackets go; batches are unchecked by default.
+/// brackets go; batches are unchecked by default. So is a stream the
+/// driver sends, which each adapter cuts into batches by its default:
+/// checked, its checks reach every boundary below.
 #[test]
 fn a_checked_batch_is_checked_at_every_boundary_wherever_the_brackets_go() {
     each_boundary_checks_its_batch("d>>e", 0, |c| c.d() >> c.e());
@@ -656,6 +667,67 @@ impl Drive for StreamsBeyondItsNeeds {
     }
 }
 
+/// Bits whose own `execute_stream` runs the stream, then panics, whatever
+/// it answered: a receiver that fails on a stream ended short.
+struct PanicsAfterAStream(Bits);
+
+impl ExecutorSetup for PanicsAfterAStream {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    fn offers(&self) -> Offer {
+        self.0.offers()
+    }
+}
+
+impl Execute for PanicsAfterAStream {
+    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
+        self.0.ready(needs).await
+    }
+
+    async fn execute(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        self.0.execute(batches, seed, readouts).await
+    }
+
+    async fn execute_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        seed: Seed,
+        readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        let _ = self.0.execute_stream(stream, seed, readouts).await;
+        panic!("the stream ended short");
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        self.0.end_shots(shots);
+    }
+}
+
+/// The error a [`StreamsBeyondItsNeeds`] on shots 4 and 2, with its flip
+/// at `beyond_at`, checked if `checked`, keeps from its stream to
+/// `executor`.
+fn streamed_beyond_the_needs(
+    beyond_at: usize,
+    checked: bool,
+    executor: impl Execute,
+) -> Option<ExecuteError> {
+    let error = Rc::default();
+    runner(
+        Driver::new(StreamsBeyondItsNeeds::new(beyond_at, checked, &error))
+            >> Executor::new(executor),
+    )
+    .run(&ShotSet::ids([4, 2]), SEED)
+    .expect("the driver keeps the error");
+    error.take()
+}
+
 /// A stream on shots 4 and 2, with a flip beyond its needs, to bits
 /// taking at most 2 instructions per batch, which run streams themselves
 /// or cut them by the default, and refuse such a flip themselves when it
@@ -666,10 +738,10 @@ impl Drive for StreamsBeyondItsNeeds {
 /// A checked stream is refused by the boundary, a piece of 2 at a time,
 /// each before any of it reaches the bits, the first before the bits are
 /// called, even those that run streams themselves; an unchecked one by
-/// the bits, at the piece the default sends them.
+/// the bits, at the piece the default sends them. The boundary's refusal
+/// is the answer, even when the bits panic once the stream ends short.
 #[test]
 fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
-    let shots = ShotSet::ids([4, 2]);
     let capped = |log: &Log| {
         let offer = Offer::unlimited().max_qubits(64).without_readout_parity();
         Bits::new(log)
@@ -686,9 +758,13 @@ fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
             needs: 1,
         },
     };
-    for (checked, beyond_at, pieces_ran) in
-        [(true, 0, 0), (true, 4, 2), (false, 1, 0), (false, 3, 1)]
-    {
+    for (checked, beyond_at, pieces_ran) in [
+        (true, 0, 0),
+        (true, 1, 0),
+        (true, 4, 2),
+        (false, 1, 0),
+        (false, 3, 1),
+    ] {
         let refusal = beyond(beyond_at);
         let expected = |error: Option<&ExecuteError>| match error {
             Some(ExecuteError::Refused(refused)) => pieces_ran == 0 && *refused == refusal,
@@ -699,14 +775,12 @@ fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
             _ => false,
         };
         let case = format!("a flip beyond the needs at {beyond_at}, checked: {checked}");
-        let (error, log, produced) = (Rc::default(), Log::default(), Rc::new(Cell::new(0)));
-        runner(
-            Driver::new(StreamsBeyondItsNeeds::new(beyond_at, checked, &error))
-                >> Executor::new(SeesPieces::new(capped(&log), &produced, &log)),
-        )
-        .run(&shots, SEED)
-        .expect("the driver keeps the error");
-        let error = error.take();
+        let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
+        let error = streamed_beyond_the_needs(
+            beyond_at,
+            checked,
+            SeesPieces::new(capped(&log), &produced, &log),
+        );
         assert!(
             expected(error.as_ref()),
             "{case}, by the default: {error:?}"
@@ -721,24 +795,97 @@ fn a_refusal_ends_a_stream_as_refused_in_its_first_piece_and_failed_after() {
             // The bits' own `execute_stream` does not check its blocks.
             continue;
         }
-        let (error, log) = (Rc::default(), Log::default());
-        runner(
-            Driver::new(StreamsBeyondItsNeeds::new(beyond_at, checked, &error))
-                >> Executor::new(capped(&log)),
-        )
-        .run(&shots, SEED)
-        .expect("the driver keeps the error");
-        let error = error.take();
-        assert!(
-            expected(error.as_ref()),
-            "{case}, by the bits' own: {error:?}"
-        );
-        assert_eq!(
-            log.count("Bits execute_stream"),
-            usize::from(pieces_ran > 0),
-            "{case}: the bits' own are called only past the first piece, {:?}",
-            log.entries()
-        );
+        for (receiver, panics) in [
+            ("the bits' own", false),
+            ("the bits' own, then a panic", true),
+        ] {
+            let log = Log::default();
+            let error = if panics {
+                streamed_beyond_the_needs(beyond_at, checked, PanicsAfterAStream(capped(&log)))
+            } else {
+                streamed_beyond_the_needs(beyond_at, checked, capped(&log))
+            };
+            assert!(expected(error.as_ref()), "{case}, by {receiver}: {error:?}");
+            assert_eq!(
+                log.count("Bits execute_stream"),
+                usize::from(pieces_ran > 0),
+                "{case}, by {receiver}: the bits' own are called only past the first piece, {:?}",
+                log.entries()
+            );
+        }
+    }
+}
+
+/// A driver streaming 3 reads of qubit 0 from a source that is not fused:
+/// after its first `None`, it gives one more read, then `None` again. Its
+/// output is the readout slots of the stream's readouts, for each shot.
+struct ResumesAfterItsEnd {
+    read: Instruction,
+    checked: bool,
+}
+
+impl DriverSetup for ResumesAfterItsEnd {
+    fn sends(&self) -> &InstructionSet {
+        coin_gates()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.read.opcode = below.map(self.read.opcode);
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::qubits(1)
+    }
+}
+
+impl Drive for ResumesAfterItsEnd {
+    type Output = u32;
+
+    async fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<u32>, DriveError> {
+        let mut calls = 0;
+        let instructions = iter::from_fn(|| {
+            calls += 1;
+            matches!(calls, 1..=3 | 5).then(|| self.read.clone())
+        });
+        let stream = InstructionStream::new(shots, instructions).checked_if(self.checked);
+        let mut readouts = BatchReadouts::new(0, 0);
+        below.execute_stream(stream, seed, &mut readouts).await?;
+        below.end_shots(shots);
+        Ok(vec![readouts.readout_slots(); shots.len()])
+    }
+}
+
+/// A stream from a source that gives more after its first `None`, checked
+/// or not, to bits taking at most 2 instructions per batch, which run
+/// streams themselves or cut them by the default: the stream ends at the
+/// first `None`, after a short piece, so its readouts hold its 3 reads.
+#[test]
+fn a_stream_ends_at_its_senders_first_none() {
+    let capped = |log: &Log| {
+        let offer = Offer::unlimited().max_qubits(64).without_readout_parity();
+        Bits::new(log).offering(offer.max_instructions(2))
+    };
+    for checked in [false, true] {
+        let driver = || {
+            Driver::new(ResumesAfterItsEnd {
+                read: coin_gate("mz", 0),
+                checked,
+            })
+        };
+        let log = Log::default();
+        let own = runner(driver() >> Executor::new(capped(&log)))
+            .run(&ShotSet::ids(0..2), SEED)
+            .expect("the run succeeds");
+        assert_eq!(own, vec![3; 2], "checked: {checked}, by the bits' own");
+        let by_default = runner(driver() >> Executor::new(Later(capped(&log))))
+            .run(&ShotSet::ids(0..2), SEED)
+            .expect("the run succeeds");
+        assert_eq!(by_default, vec![3; 2], "checked: {checked}, by the default");
     }
 }
 

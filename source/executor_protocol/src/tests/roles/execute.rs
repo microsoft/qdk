@@ -15,8 +15,8 @@ use std::rc::Rc;
 
 use crate::tests::composition::runner::{SEED, failed, runner};
 use crate::tests::fake_parts::{
-    Bits, Later, Log, OutputsAsRowsCome, Profiler, Program, RandomGenerator, RowsGiven, SeesPieces,
-    Sending, Spread, Values, in_each_bracketing, sorted_values,
+    Bits, Later, Log, Offering, OutputsAsRowsCome, Profiler, Program, RandomGenerator, RowsGiven,
+    SeesPieces, Sending, Spread, Values, in_each_bracketing, sorted_values,
 };
 use crate::{Adapter, Driver, Executor, Offer, ShotConditions, ShotSet};
 
@@ -196,10 +196,16 @@ fn sent_in_every_split(
 /// short piece only at the end, and when each runs, the driver has made
 /// only the instructions of the pieces so far, so no part holds more than
 /// a piece of the stream. An empty stream runs no piece, and gets a row of
-/// no value per shot.
+/// no value per shot. An adapter that cuts a stream by its default is its
+/// receiver: through one taking at most 3 instructions over bits taking 5,
+/// the pieces hold 3.
 #[test]
 fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
     let shots = ShotSet::ids(0..3);
+    let stream = |program: &[(&str, u32)], produced: &Rc<Cell<usize>>| {
+        Driver::new(Program::new(program).sending_as(Sending::stream_counted(produced)))
+    };
+    let counted = Rc::new(Cell::new(0));
     for (program, most, pieces) in [
         (&PROGRAM[..], Some(5), &[5, 5, 2][..]),
         (&PROGRAM, Some(4), &[4, 4, 4]),
@@ -208,27 +214,17 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
         (&PROGRAM, None, &[12]),
         (&[], Some(5), &[]),
     ] {
-        let expected: Vec<String> = pieces
-            .iter()
-            .scan(0, |produced, &piece| {
-                *produced += piece;
-                Some(format!("execute of {piece}, {produced} produced"))
-            })
-            .collect();
         let seen = |log: &Log, chain: &str| {
-            let seen: Vec<String> = log
-                .entries()
-                .into_iter()
-                .filter(|entry| entry.starts_with("execute of"))
-                .collect();
-            assert_eq!(seen, expected, "at most {most:?}, {chain}");
-        };
-        let stream = |produced: &Rc<Cell<usize>>| {
-            Driver::new(Program::new(program).sending_as(Sending::stream_counted(produced)))
+            assert_eq!(
+                pieces_run(log),
+                pieces_made(pieces),
+                "at most {most:?}, {chain}"
+            );
         };
         let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
         let records = runner(
-            stream(&produced) >> Executor::new(SeesPieces::new(bits(&log, most), &produced, &log)),
+            stream(program, &produced)
+                >> Executor::new(SeesPieces::new(bits(&log, most), &produced, &log)),
         )
         .run(&shots, SEED)
         .expect("the run succeeds");
@@ -237,10 +233,9 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
             let no_value = (Values::default(), ShotConditions::NONE);
             assert_eq!(records, vec![no_value; 3], "an empty stream's rows");
         }
-        let counted = Rc::new(Cell::new(0));
         in_each_bracketing!([d, a, e] from {
             let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
-            let d = stream(&produced);
+            let d = stream(program, &produced);
             let a = Adapter::new(Profiler::new(&counted, &log));
             let e = Executor::new(SeesPieces::new(bits(&log, most), &produced, &log));
         }, |chain, brackets| {
@@ -249,7 +244,7 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
         });
         in_each_bracketing!([d, a, e] from {
             let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
-            let d = stream(&produced);
+            let d = stream(program, &produced);
             let a = Adapter::new(Spread::new(1, &log));
             let e = Executor::new(SeesPieces::new(bits(&log, most), &produced, &log));
         }, |chain, brackets| {
@@ -257,6 +252,39 @@ fn a_stream_is_run_in_pieces_of_the_receivers_most_each_pulled_as_it_runs() {
             seen(&log, &format!("an adapter cutting streams by the default, {brackets}"));
         });
     }
+    in_each_bracketing!([d, a, e] from {
+        let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
+        let d = stream(&PROGRAM, &produced);
+        let a = Adapter::new(Offering::buffering(3, &log));
+        let e = Executor::new(SeesPieces::new(bits(&log, Some(5)), &produced, &log));
+    }, |chain, brackets| {
+        runner(chain).run(&shots, SEED).expect("the run succeeds");
+        assert_eq!(
+            pieces_run(&log),
+            pieces_made(&[3, 3, 3, 3]),
+            "an adapter taking at most 3 over bits taking 5, {brackets}"
+        );
+    });
+}
+
+/// The pieces a [`SeesPieces`] logged running, in order.
+fn pieces_run(log: &Log) -> Vec<String> {
+    log.entries()
+        .into_iter()
+        .filter(|entry| entry.starts_with("execute of"))
+        .collect()
+}
+
+/// What a [`SeesPieces`] logs running `pieces` of a stream in order, each
+/// made only when pulled.
+fn pieces_made(pieces: &[usize]) -> Vec<String> {
+    pieces
+        .iter()
+        .scan(0, |produced, &piece| {
+            *produced += piece;
+            Some(format!("execute of {piece}, {produced} produced"))
+        })
+        .collect()
 }
 
 /// A driver sending one stream, of [`PROGRAM`] or empty, to bits that run

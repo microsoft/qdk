@@ -286,8 +286,9 @@ bypassed:
 
 - **Out**, the `_each` forms (`drive_each`, `adapt_each`,
   `execute_each`, and the runner's `run_each`): each shot's output, or
-  each [final row](#terms), goes to the caller's `each` as soon as it is
-  ready.
+  each [final row](#terms), goes to the caller's `each` as soon as the
+  part gives it: by default when its method answers, earlier for a part
+  that overrides the form.
 - **In**, the `_stream` forms
   ([`Execute::execute_stream`](src/roles/execute.rs) and
   [`Adapt::adapt_stream`](src/roles/adapt.rs)): a [stream](#terms) of a

@@ -359,19 +359,27 @@ impl Error for ExecuteError {}
 /// itself: [`Instruction`](Self::Instruction),
 /// [`TooManyInstructions`](Self::TooManyInstructions),
 /// [`TooManyReadoutSlots`](Self::TooManyReadoutSlots) and
-/// [`ReadoutSlotsMisstated`](Self::ReadoutSlotsMisstated). The part makes
+/// [`ReadoutSlotsMisstated`](Self::ReadoutSlotsMisstated); and, for a
+/// stream, the default [`Execute::execute_stream`] and
+/// [`Adapt::adapt_stream`](crate::Adapt::adapt_stream) make
+/// [`TooManyReadoutSlots`](Self::TooManyReadoutSlots) too, as they count
+/// its slots. The part makes
 /// the shot refusals, since only it knows which shots it holds:
 /// [`ShotNotHeld`](Self::ShotNotHeld) and
 /// [`EarlierFailure`](Self::EarlierFailure). They share one type because
 /// the boundary is itself an [`Execute`] to the part above, which gets
 /// either kind from the `execute` it calls.
+///
+/// For a stream ([`InstructionStream`]), `batch` is 0, and `at` an
+/// instruction's position in the stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ExecuteRefusal {
     /// The instruction `batches[batch].instructions[at]` is not one the
     /// receiver accepts, for `fault`; `shot` is that batch's first, in its
-    /// set's order. Checked for a [`checked`](crate::Batch::checked) batch
-    /// only.
+    /// set's order. Checked for a [`checked`](crate::Batch::checked) batch,
+    /// or a [`checked`](InstructionStream::checked) stream a piece at a
+    /// time, only.
     Instruction {
         /// The batch's first shot.
         shot: ShotId,
@@ -399,7 +407,9 @@ pub enum ExecuteRefusal {
     /// `batches[batch]`'s instructions together read more readout slots
     /// than a `u32` counts, from the instruction at `at` on, so no batch's
     /// readouts could hold them; `shot` is its first. Checked for a
-    /// [`checked`](crate::Batch::checked) batch only.
+    /// [`checked`](crate::Batch::checked) batch, a checked stream, and any
+    /// stream the default `execute_stream` or `adapt_stream` runs, checked
+    /// or not.
     TooManyReadoutSlots {
         /// The batch's first shot.
         shot: ShotId,

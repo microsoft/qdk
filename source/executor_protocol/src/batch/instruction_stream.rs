@@ -30,6 +30,8 @@ pub struct InstructionStream<'a, I> {
     /// rows.
     pub shots: &'a ShotSet,
     /// The instructions, run in order on each shot, pulled as they run.
+    /// The stream ends at the iterator's first `None`, which need not be
+    /// fused: the protocol's checks and default cuts never pull past it.
     pub instructions: I,
     /// Whether each boundary that receives it checks each piece before it
     /// runs.

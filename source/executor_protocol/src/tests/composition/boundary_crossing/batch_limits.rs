@@ -17,6 +17,8 @@ use crate::{
     Opcode, OpcodeMap, ParameterKind, ReadoutValue, Readouts, RunError, Seed, ShotId, ShotSet,
 };
 use smallvec::smallvec;
+use std::cell::Cell;
+use std::rc::Rc;
 
 fn carbon() -> BlockType {
     BlockType::new("carbon")
@@ -189,6 +191,48 @@ impl Execute for Zeros {
     }
 }
 
+/// An executor of `set` taking one instruction a batch, whose own
+/// `execute_stream` pulls every instruction of the stream, counting them
+/// in `pulled`, and reads nothing: a native stream that relies on the
+/// protocol's checks, never shaping readouts the checks refuse.
+struct Drains {
+    set: InstructionSet,
+    pulled: Rc<Cell<usize>>,
+}
+
+impl ExecutorSetup for Drains {
+    fn accepts(&self) -> &InstructionSet {
+        &self.set
+    }
+
+    fn offers(&self) -> Offer {
+        Offer::unlimited().max_instructions(1)
+    }
+}
+
+impl Execute for Drains {
+    async fn execute(
+        &mut self,
+        _batches: &[Batch<'_>],
+        _seed: Seed,
+        _readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        unreachable!("the tests send `Drains` streams only")
+    }
+
+    async fn execute_stream(
+        &mut self,
+        stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,
+        _seed: Seed,
+        _readouts: &mut BatchReadouts,
+    ) -> Result<(), ExecuteError> {
+        for _ in stream.instructions {
+            self.pulled.set(self.pulled.get() + 1);
+        }
+        Ok(())
+    }
+}
+
 /// What the protocol makes of `instructions` of `set`, sent to shots 0 and
 /// 1, needing `needs`, as one batch, checked if `checked`, over an executor
 /// of `set` taking `most` instructions at most: the readout slots their
@@ -257,11 +301,18 @@ fn checked_as_marked(
 /// its set offering `offer`: the readout slots its readouts were shaped
 /// with, if it ran, or the refusal.
 fn run_over_zeros(literal: Literal, offer: Offer) -> Result<u32, ExecuteRefusal> {
-    let executor = Executor::new(Zeros {
+    let executor = Zeros {
         set: literal.set.clone(),
         offer,
-    });
-    let Ok(mut runner) = Driver::new(literal) >> executor else {
+    };
+    run_over(literal, executor)
+}
+
+/// What `literal` makes of its batch on shots 0 and 1, over `executor`:
+/// the readout slots its readouts were shaped with, if it ran, or the
+/// refusal.
+fn run_over(literal: Literal, executor: impl Execute) -> Result<u32, ExecuteRefusal> {
+    let Ok(mut runner) = Driver::new(literal) >> Executor::new(executor) else {
         panic!("the chain composes");
     };
     refusal_of(match runner.run(&ShotSet::ids(0..2), 7) {
@@ -424,7 +475,9 @@ fn a_batch_is_checked_as_its_last_mark_says() {
 /// instructions' readout slots sum to more is refused, naming the
 /// instruction from which they no longer fit, before any later instruction
 /// is checked. So is a stream, checked or not, since its receiver counts
-/// its slots as it runs it, to shape its readouts.
+/// its slots as it runs it, to shape its readouts; a checked stream's
+/// checks count them across its pieces, so a receiver that runs the stream
+/// itself never pulls the piece from which they no longer fit.
 #[test]
 fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
     let set = InstructionSet::new(
@@ -447,7 +500,7 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
             vec![half.clone(), half.clone(), beyond],
             1,
         ),
-        ("1, 2^31, then 2^31 - 1", vec![one, half, rest], 2),
+        ("1, 2^31, then 2^31 - 1", vec![one, half.clone(), rest], 2),
     ] {
         let too_many = Err(ExecuteRefusal::TooManyReadoutSlots {
             shot: ShotId::new(0),
@@ -473,6 +526,33 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
             "{scene}, as an unchecked stream"
         );
     }
+    let pulled = Rc::new(Cell::new(0));
+    let checked_stream = Literal {
+        set: set.clone(),
+        instructions: vec![half.clone(), half],
+        stated: None,
+        needs: Needs::qubits(1),
+        mark: |batch| batch.checked(),
+        by: By::ExecuteStream,
+    };
+    let drains = Drains {
+        set,
+        pulled: Rc::clone(&pulled),
+    };
+    assert_eq!(
+        run_over(checked_stream, drains),
+        Err(ExecuteRefusal::TooManyReadoutSlots {
+            shot: ShotId::new(0),
+            batch: 0,
+            at: 1,
+        }),
+        "twice 2^31, as a checked stream in pieces of 1 to a native stream"
+    );
+    assert_eq!(
+        pulled.get(),
+        1,
+        "the receiver never pulls the piece refused"
+    );
 }
 
 /// A checked batch stating other readout slots than its instructions read

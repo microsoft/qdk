@@ -169,7 +169,8 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// Passes `stream` to the receiver, its instructions pulled from the
     /// caller in a catch, so that a panic there is the caller's: the
     /// stream ends there, and the panic is raised again once the receiver
-    /// answers, through the caller's call. A
+    /// answers, or once the stream's first piece is refused, through the
+    /// caller's call. A
     /// [`checked`](InstructionStream::checked) stream is checked a piece
     /// at a time, each piece of the most instructions the receiver takes
     /// (as its `execute_stream` cuts them by default) before any of it
@@ -177,8 +178,8 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// the receiver is called, refuses the stream, named as batch 0,
     /// without calling it. At a later piece's fault, the stream ends
     /// there, and the fault is the answer, as a failure, whatever the
-    /// receiver answers to the stream's end. Makes a failure of the
-    /// receiver's panic, named by the stream's first shot.
+    /// receiver answers to the stream's end, or if it panics. Makes a
+    /// failure of the receiver's panic, named by the stream's first shot.
     async fn execute_stream(
         &mut self,
         stream: InstructionStream<'_, impl Iterator<Item = Instruction>>,

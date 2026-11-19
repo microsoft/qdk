@@ -593,6 +593,15 @@ impl Offering {
         })
     }
 
+    /// A toy decoder whose input buffer holds at most `most` instructions,
+    /// so it lowers the offer's most instructions per batch to `most`.
+    pub(crate) fn buffering(most: u32, log: &Log) -> Self {
+        Self::new(1, log, move |below| {
+            let most = below.max_instructions.map_or(most, |m| m.min(most));
+            below.max_instructions(most)
+        })
+    }
+
     /// A toy decoder that states its offer afresh, as
     /// `Offer::unlimited().max_qubits(qubits)`, whatever is offered
     /// below: seedable, and no limit on shots.
