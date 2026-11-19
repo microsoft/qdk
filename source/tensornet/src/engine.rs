@@ -43,13 +43,16 @@
 //! state.
 
 pub mod checks;
+mod mps_engine_error;
 #[cfg(any(test, feature = "conformance"))]
 pub mod reference;
 pub mod sampling;
 
+pub use mps_engine_error::MpsEngineError;
+
 #[cfg(doc)]
 use crate::Refusal;
-use crate::{MpsEngineError, MpsShape, PauliSum};
+use crate::{MpsShape, PauliSum};
 use num_complex::Complex64;
 
 /// A matrix product state engine.
@@ -230,8 +233,7 @@ pub trait MpsEngine {
 
     /// An independent copy of `state`: what one changes, the other does
     /// not see. Its case is grouped shots (planned): the shots of a group
-    /// share one state until a measurement splits them, and each value
-    /// drawn takes a fork.
+    /// share one state until a measurement splits them.
     ///
     /// The copy holds the state it copies, truncated or not: it reads what
     /// `state` reads and has its retained weight, to rounding. So a fork

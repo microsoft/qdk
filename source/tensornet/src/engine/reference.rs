@@ -71,26 +71,15 @@ pub enum ReferenceError {
     },
     /// A sample whose values do not fit in memory: a failure, not a
     /// refusal, since the arguments break no rule.
-    #[error("{shots} shots of {sites} sites are more values than memory holds")]
-    TooManyValues {
-        /// The shots asked for.
-        shots: usize,
-        /// How many sites each shot draws.
-        sites: usize,
-    },
-}
-
-impl From<TooManyValues> for ReferenceError {
-    fn from(TooManyValues { shots, sites }: TooManyValues) -> Self {
-        Self::TooManyValues { shots, sites }
-    }
+    #[error(transparent)]
+    TooManyValues(#[from] TooManyValues),
 }
 
 impl MpsEngineError for ReferenceError {
     fn refusal(&self) -> Option<&Refusal> {
         match self {
             Self::Refused(refusal) => Some(refusal),
-            Self::ChainTooLong { .. } | Self::TooManyValues { .. } => None,
+            Self::ChainTooLong { .. } | Self::TooManyValues(_) => None,
         }
     }
 }
@@ -137,8 +126,11 @@ impl ReferenceState {
     }
 
     /// The state with these amplitudes, basis state `i` with site `k` as
-    /// bit `k`: a state no sequence of calls need reach, such as a
-    /// truncated one, for tests.
+    /// bit `k`: a state no sequence of calls on the reference reaches, such
+    /// as a truncated one, for tests. Other engines reach such states (a
+    /// truncated chain, a norm drifted by rounding), and the reference is
+    /// the oracle they are checked against, so its answers on them are its
+    /// contract.
     #[cfg(test)]
     pub(crate) fn from_amplitudes(amplitudes: &[Complex64]) -> Self {
         let sites = amplitudes.len().trailing_zeros() as usize;

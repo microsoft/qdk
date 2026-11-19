@@ -2,16 +2,12 @@
 // Licensed under the MIT License.
 
 //! [`Refusal`]: why an engine refused a call whose arguments break the
-//! contract, the same on every engine; and [`MpsEngineError`], how an
-//! engine's own error exposes it.
+//! contract, the same on every engine.
 //!
-//! An engine's error says either that the call was refused, with a
-//! `Refusal`, or that the engine failed (out of memory, a device error, a
-//! limit of its own). The caller tells them apart with
-//! [`MpsEngineError::refusal`]: a refusal is a bug in the caller, the same
-//! on every engine, and leaves the state unchanged, while a failure
-//! belongs to the engine, and leaves the state unspecified, for the caller
-//! to drop.
+//! A refusal is a bug in the caller, the same on every engine, and leaves
+//! the state unchanged; an engine's error exposes it through
+//! [`MpsEngineError::refusal`](crate::MpsEngineError::refusal), which
+//! tells it apart from the engine's own failures.
 
 /// Why an engine refused a call: its arguments break the contract of
 /// [`MpsEngine`](crate::MpsEngine). Each variant names the methods that
@@ -56,7 +52,7 @@ pub enum Refusal {
     },
 
     /// An operator on no site. Made by `apply`.
-    #[error("an operator acts on at least one site")]
+    #[error("the operator acts on no site")]
     NoSites,
 
     /// An operator on more than two sites: an engine applies operators on
@@ -100,44 +96,4 @@ pub enum Refusal {
     /// calls the engine.
     #[error("the outcome has probability zero")]
     ZeroProbabilityOutcome,
-}
-
-/// The error of an [`MpsEngine`](crate::MpsEngine): an engine's own type,
-/// which says whether the call was refused.
-///
-/// An engine's error is its own, because each fails in its own ways (a
-/// device error, a limit of its own), and holds a [`Refusal`] beside them,
-/// built from one by `From`, so that an engine's method passes a check's
-/// refusal on with `?`. It displays as the refusal it holds, word for word,
-/// so a user reads the same message whatever engine refused the call.
-///
-/// ```
-/// use tensornet::{MpsEngineError, Refusal};
-///
-/// #[derive(Debug, thiserror::Error)]
-/// enum EngineError {
-///     #[error(transparent)]
-///     Refused(#[from] Refusal),
-///     #[error("the device ran out of memory")]
-///     OutOfMemory,
-/// }
-///
-/// impl MpsEngineError for EngineError {
-///     fn refusal(&self) -> Option<&Refusal> {
-///         match self {
-///             Self::Refused(refusal) => Some(refusal),
-///             Self::OutOfMemory => None,
-///         }
-///     }
-/// }
-///
-/// let error = EngineError::from(Refusal::NoSites);
-/// assert_eq!(error.refusal(), Some(&Refusal::NoSites));
-/// assert_eq!(error.to_string(), Refusal::NoSites.to_string());
-/// assert_eq!(EngineError::OutOfMemory.refusal(), None);
-/// ```
-pub trait MpsEngineError: std::error::Error + From<Refusal> + 'static {
-    /// The refusal, when the call was refused; `None` when the engine
-    /// failed.
-    fn refusal(&self) -> Option<&Refusal>;
 }

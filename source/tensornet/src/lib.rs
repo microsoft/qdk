@@ -2,22 +2,32 @@
 // Licensed under the MIT License.
 
 //! The contract between a simulation method that runs matrix product states
-//! (MPS) and the library that holds them, with no simulator, device or vendor
-//! in it.
+//! (MPS) and the library that holds them, in tensor terms only: the method
+//! asks an engine ([`MpsEngine`]) for a state within a capacity
+//! ([`MpsShape`]), applies unitaries to its sites, reads probabilities,
+//! projects, forks and samples it from a seed, and reads expectations of
+//! Pauli sums ([`PauliSum`]); the engine answers in tensor terms, and
+//! refuses a call that breaks the contract the same way on every engine
+//! ([`Refusal`]).
 //!
-//! - [`MpsShape`]: the shape of a chain of site tensors, by the extents of
-//!   its sites alone: the capacity a caller asks for, and the chain an
-//!   engine holds, which is what the run pays for.
-//! - [`MpsEngine`]: what a library that holds matrix product states does for
-//!   a simulation method, in tensor terms only: sites, matrices,
-//!   probabilities and seeds. Its errors expose a [`Refusal`] when the
-//!   arguments break the contract, and [`checks`] makes each refusal of the
-//!   arguments once, for every engine.
-//! - [`PauliSum`]: the observable an engine reads, on sites.
-//! - [`sampling`]: an engine's `sample` from its conditional probabilities,
-//!   written once for every engine.
-//! - `reference::ExactReference`: the exact engine every other one is
-//!   checked against, for an engine's tests (feature `conformance`).
+//! Today the crate holds:
+//!
+//! - the engine: [`MpsEngine`], what a library that holds matrix product
+//!   states does for a simulation method; [`checks`], which makes each
+//!   refusal of the arguments once, for every engine; [`sampling`], an
+//!   engine's `sample` from its conditional probabilities, written once for
+//!   every engine; and `reference::ExactReference`, the exact engine every
+//!   other one is checked against, for an engine's tests (feature
+//!   `conformance`);
+//! - the refusals: [`Refusal`], why a call whose arguments break the
+//!   contract was refused, and [`MpsEngineError`], how an engine's own error
+//!   exposes it;
+//! - the chain's shape: [`MpsShape`], the shape of a chain of site tensors
+//!   by the extents of its sites alone (the capacity a caller asks for, and
+//!   the chain an engine holds, which is what the run pays for), and
+//!   [`MpsShapeError`];
+//! - the observables: [`PauliSum`], of [`PauliTerm`]s of [`Pauli`] factors,
+//!   on sites, and [`PauliError`].
 //!
 //! A Bell pair on the reference (feature `conformance`), read three ways:
 //!
@@ -62,17 +72,17 @@
 // When a module or a public type is added, moved or renamed, update the
 // README's "Files" table with it.
 mod engine;
-mod pauli;
+mod pauli_sum;
 mod refusal;
 mod shape;
 
-pub use engine::MpsEngine;
 pub use engine::checks;
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::reference;
 pub use engine::sampling;
-pub use pauli::{Pauli, PauliError, PauliSum, PauliTerm};
-pub use refusal::{MpsEngineError, Refusal};
+pub use engine::{MpsEngine, MpsEngineError};
+pub use pauli_sum::{Pauli, PauliError, PauliSum, PauliTerm};
+pub use refusal::Refusal;
 pub use shape::{MpsShape, MpsShapeError};
 
 #[cfg(test)]

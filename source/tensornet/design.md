@@ -140,8 +140,9 @@ library needs belongs in its engine. So:
   from its caller to save a contraction (cuTensorNet's state API) keeps
   that saving inside its engine.
 - `MpsEngine::fork` copies the chain where the library can copy a state;
-  where it cannot (cuTensorNet), its engine initializes a new state from
-  the tensors it holds (`cutensornetStateInitializeMPS`).
+  where it cannot (cuTensorNet's state API), an engine on that API would
+  initialize a new state from the tensors it holds
+  (`cutensornetStateInitializeMPS`).
 
 **Planned:** reads that every library offers but no simulation method
 needs yet: the amplitude of a basis state, the reduced density matrix of a
