@@ -3,14 +3,14 @@
 
 //! The native libraries the crate uses, and what it needs of each.
 //!
-//! Each library has its own module, which holds everything the crate assumes
-//! of it: its implementations of `NativeLibrary` (what discovery needs of
-//! it) and of `LibrarySetupGuide` (in `setup_guide`; what the setup check
-//! tells a user about it). Discovery's steps, and the setup check's library
-//! steps, name no library, so binding another library is adding its module
-//! and listing it in `LoadedLibraries` (the steps below). This module holds
-//! what the libraries share: the way from one library to the set a GPU run
-//! needs.
+//! Each library has its own module, which holds what discovery and the setup
+//! check's library steps assume of it: its implementations of `NativeLibrary`
+//! (what discovery needs of it) and of `LibrarySetupGuide` (in `setup_guide`;
+//! what the setup check tells a user about it). Discovery's steps, and the
+//! setup check's library steps, name no library, so binding another library is
+//! adding its module and listing it in `LoadedLibraries` (the steps below).
+//! This module holds what the libraries share: the way from one library to the
+//! set a GPU run needs.
 //!
 //! ```text
 //! NativeLibrary     one library, as the crate needs it (one module per
