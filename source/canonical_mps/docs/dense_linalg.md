@@ -105,8 +105,8 @@ The module computes its products, QR decompositions and fast route with
 t4a-faer, a fork of faer, through the module-private trait
 [`Kernels`](../src/dense_linalg/kernels.rs);
 [`kernels/t4a_faer.rs`](../src/dense_linalg/kernels/t4a_faer.rs) is its
-implementation; its header says why the module needs t4a-faer, with how
-much faster it is. t4a-faer is pinned to one version
+implementation; its header says why the module uses t4a-faer, with how
+much faster than nalgebra it is. t4a-faer is pinned to one version
 ([`Cargo.toml`](../Cargo.toml) says why), built without threads, and runs
 its QR algorithm at every size, never its divide and conquer. Each
 computation runs on the calling thread, in pure Rust, so the module builds
