@@ -1,0 +1,36 @@
+[package]
+name = "executor_protocol"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Pins the fields of the crate's hand-written futures without `unsafe`;
+# already in the workspace's builds, wasm32 included, through
+# futures-util. Why it is needed: the header of `src/composition/part_panics.rs`.
+pin-project-lite = { workspace = true }
+# `union` lays a small vector's inline items over its heap pointer with no
+# tag word, which keeps an instruction at 128 bytes rather than 144 on a
+# 64-bit target. Cargo unifies features across the workspace, so other
+# crates' small vectors get it too in a shared build. Why small vectors: the
+# comment after the `Blocks` and `Arguments` aliases, in
+# `src/instruction_set/instruction.rs`.
+smallvec = { workspace = true, features = ["union"] }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+bench = false
+
+[[example]]
+name = "compose_and_run"
+test = true
+
+[[example]]
+name = "bench"
+test = true

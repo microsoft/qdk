@@ -24,6 +24,7 @@ members = [
     "source/compiler/qsc_passes",
     "source/compiler/qsc_project",
     "source/compiler/qsc_rir",
+    "source/executor_protocol",
     "source/fuzz",
     "source/index_map",
     "source/language_service",
@@ -72,6 +73,7 @@ num-bigint = "0.4"
 num-complex = "0.4"
 num-traits = "0.2"
 paulimer = "0.2.3"
+pin-project-lite = "0.2"
 probability = "0.20"
 proptest = "1.10"
 indenter = "0.3"
@@ -79,6 +81,7 @@ regex-lite = "0.1"
 rustc-hash = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
+smallvec = "1.15"
 wasm-bindgen = "0.2.127"
 wasm-bindgen-futures = "0.4"
 rand = "0.10.2"
