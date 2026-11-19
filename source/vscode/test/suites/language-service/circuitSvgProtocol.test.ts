@@ -71,7 +71,7 @@ suite("Circuit SVG save validation", () => {
     ["a remote url in a style sheet", { css: `text{fill:url(${remote}#p)}` }],
     [
       "a remote font beside an embedded one",
-      { css: EMBEDDED_FONT.replace("}", `,url(${remote})}`) },
+      { css: EMBEDDED_FONT.replace(/}/g, `,url(${remote})}`) },
     ],
     ["a CSS escape", { css: `text{fill:u\\72l(${remote}#p)}` }],
     ["a CSS comment", { css: `text{fill:url/**/(${remote}#p)}` }],
