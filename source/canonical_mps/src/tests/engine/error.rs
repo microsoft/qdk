@@ -10,12 +10,12 @@
 //! each checked method's refusal (a qutrit, a site out of range or named
 //! twice), reported before any call of the algebra.
 //!
-//! Failures: a sample too large for memory, and each method of the algebra
+//! Failures: a sample too large for memory, and each operation of the algebra
 //! failing, on the fake [`FailingFakeAlgebra`], since the CPU algebra,
 //! [`CpuAlgebra`], fails only when its SVD does, which the engine's tests
 //! never make it do.
 
-use super::stand_ins::failing_fake_algebra::{AlgebraFailure, Method};
+use super::stand_ins::failing_fake_algebra::{AlgebraFailure, Operation};
 use super::*;
 use crate::site_algebra::{
     GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
@@ -353,11 +353,11 @@ type Failure = CanonicalMpsError<AlgebraFailure>;
 /// A state of an engine on [`FailingFakeAlgebra`].
 type FakeState = CanonicalMpsState<FailingFakeAlgebra>;
 
-/// `error` is the failure of the algebra's `method`, not a refusal.
-fn assert_fails_in(error: &Failure, method: Method, context: &str) {
+/// `error` is the failure of the algebra's `operation`, not a refusal.
+fn assert_fails_in(error: &Failure, operation: Operation, context: &str) {
     assert_eq!(
         error,
-        &CanonicalMpsError::Algebra(AlgebraFailure(method)),
+        &CanonicalMpsError::Algebra(AlgebraFailure(operation)),
         "{context}"
     );
     assert!(error.refusal().is_none(), "{context}");
@@ -402,16 +402,17 @@ fn every_algebra_failure_reaches_the_caller() {
         failures_after_a_pending_window(),
         failures_of_reads_projections_and_forks(),
     ];
-    for (name, method, error) in failures.iter().flatten() {
-        assert_fails_in(error, *method, name);
+    for (name, operation, error) in failures.iter().flatten() {
+        assert_fails_in(error, *operation, name);
     }
 }
 
 /// A row of `every_algebra_failure_reaches_the_caller`: the operation, the
 /// call that failed, and the error the operation returned.
-type FailureRow = (String, Method, Failure);
+type FailureRow = (String, Operation, Failure);
 
-/// The chain the rows prepare: 3 sites of bond 4.
+/// The chain most rows prepare: 3 sites of bond 4; a row that needs
+/// another says so.
 const SITES: usize = 3;
 
 /// The rows of preparations and gates.
@@ -420,11 +421,11 @@ fn failures_of_preparations_and_gates() -> Vec<FailureRow> {
     let mut failures = Vec::new();
 
     // A preparation uploads each site.
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::Upload));
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Operation::Upload));
     let Err(error) = engine.prepare(&capacity(sites, 4)) else {
         panic!("a preparation needs an upload");
     };
-    failures.push(("prepare".into(), Method::Upload, error));
+    failures.push(("prepare".into(), Operation::Upload, error));
 
     // A gate on neighbours splits its pair, and a gate on sites 0 and 2 of
     // 3, a matrix product operator, takes two splits, one per cut of its
@@ -432,7 +433,7 @@ fn failures_of_preparations_and_gates() -> Vec<FailureRow> {
     // algebra answers the others.
     for (on, splits) in [(&[0, 1][..], 1), (&[0, 2], 2)] {
         for failing in 0..splits {
-            let (algebra, asked) = FailingFakeAlgebra::on_call(Method::GateSplit, failing);
+            let (algebra, asked) = FailingFakeAlgebra::on_call(Operation::GateSplit, failing);
             let engine = CanonicalMpsEngine::new(algebra);
             let mut state = engine.prepare(&capacity(sites, 4)).expect("prepare");
             engine
@@ -444,14 +445,14 @@ fn failures_of_preparations_and_gates() -> Vec<FailureRow> {
                 "precondition: the gate on {on:?} asks for split {failing}"
             );
             let name = format!("a gate on {on:?}, split {failing}");
-            failures.push((name, Method::GateSplit, error));
+            failures.push((name, Operation::GateSplit, error));
         }
     }
 
     // A gate whose sites, with the pending window's, number more than a
     // window holds applies the window first: the gate itself fails as that
     // application does.
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::GateSplit));
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Operation::GateSplit));
     let mut state = engine.prepare(&capacity(4, 4)).expect("prepare");
     engine
         .apply(&mut state, &[0, 1], &cnot())
@@ -459,13 +460,13 @@ fn failures_of_preparations_and_gates() -> Vec<FailureRow> {
     let error = engine
         .apply(&mut state, &[2, 3], &cnot())
         .expect_err("the gate on sites 2 and 3 applies the window on 0 and 1");
-    let name = "a gate beside a full window".into();
-    failures.push((name, Method::GateSplit, error));
+    let name = "a gate that does not fit the pending window".into();
+    failures.push((name, Operation::GateSplit, error));
 
     // A gate on sites 0 and 2 of 3 is a matrix product operator, which,
     // once a read applies its window, uploads each site of its span
     // multiplied by its factor.
-    let (algebra, asked) = FailingFakeAlgebra::on_call(Method::Upload, sites + 1);
+    let (algebra, asked) = FailingFakeAlgebra::on_call(Operation::Upload, sites + 1);
     let engine = CanonicalMpsEngine::new(algebra);
     let mut state = engine.prepare(&capacity(sites, 4)).expect("prepare");
     engine
@@ -478,7 +479,11 @@ fn failures_of_preparations_and_gates() -> Vec<FailureRow> {
         asked.get() > sites + 1,
         "precondition: the operator asked for its second upload"
     );
-    failures.push(("an operator on sites 0 and 2".into(), Method::Upload, error));
+    failures.push((
+        "an operator on sites 0 and 2".into(),
+        Operation::Upload,
+        error,
+    ));
 
     failures
 }
@@ -489,7 +494,7 @@ fn failures_after_a_pending_window() -> Vec<FailureRow> {
     type Read<'a> = &'a dyn Fn(&mut FakeState) -> Result<(), Failure>;
     let sites = SITES;
     let mut failures = Vec::new();
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::GateSplit));
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Operation::GateSplit));
     let z = z_string(&[2]);
     let reads: [(&str, Read<'_>); 9] = [
         ("P(One)", &|state| {
@@ -527,7 +532,7 @@ fn failures_after_a_pending_window() -> Vec<FailureRow> {
             .expect("a fused gate takes no split");
         let error = read(&mut state).expect_err(name);
         let name = format!("{name} after a pending window");
-        failures.push((name, Method::GateSplit, error));
+        failures.push((name, Operation::GateSplit, error));
     }
     failures
 }
@@ -539,28 +544,28 @@ fn failures_of_reads_projections_and_forks() -> Vec<FailureRow> {
 
     // A read of a site away from the centre moves the centre there, by one
     // move per site crossed.
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::QrMove));
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Operation::QrMove));
     let state = engine.prepare(&capacity(sites, 4)).expect("prepare");
     let error = engine
         .probability_of_one(&state, 2)
         .expect_err("the centre starts on site 0");
-    failures.push(("P(One) of site 2".into(), Method::QrMove, error));
+    failures.push(("P(One) of site 2".into(), Operation::QrMove, error));
 
     // A read copies its sites to the host: a probability, which reads the
     // centre, and an expectation, which reads every site its terms span.
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::Read));
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Operation::Read));
     let state = engine.prepare(&capacity(sites, 4)).expect("prepare");
     let error = engine
         .probability_of_one(&state, 0)
         .expect_err("a read of the centre");
-    failures.push(("P(One) of the centre".into(), Method::Read, error));
+    failures.push(("P(One) of the centre".into(), Operation::Read, error));
     let error = engine
         .expectation(&state, &z_string(&[1, 2]))
         .expect_err("a read of sites 1 and 2");
-    failures.push(("an expectation".into(), Method::Read, error));
+    failures.push(("an expectation".into(), Operation::Read, error));
 
     // A projection uploads the site it projected.
-    let (algebra, asked) = FailingFakeAlgebra::on_call(Method::Upload, sites);
+    let (algebra, asked) = FailingFakeAlgebra::on_call(Operation::Upload, sites);
     let engine = CanonicalMpsEngine::new(algebra);
     let mut state = engine.prepare(&capacity(sites, 4)).expect("prepare");
     assert_eq!(
@@ -571,15 +576,15 @@ fn failures_of_reads_projections_and_forks() -> Vec<FailureRow> {
     let error = engine
         .project(&mut state, 1, false)
         .expect_err("the projection's upload fails");
-    failures.push(("project".into(), Method::Upload, error));
+    failures.push(("project".into(), Operation::Upload, error));
 
     // A fork duplicates each site.
-    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Method::Duplicate));
+    let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Operation::Duplicate));
     let state = engine.prepare(&capacity(sites, 4)).expect("prepare");
     let Err(error) = engine.fork(&state) else {
         panic!("a fork duplicates its sites");
     };
-    failures.push(("fork".into(), Method::Duplicate, error));
+    failures.push(("fork".into(), Operation::Duplicate, error));
     failures
 }
 
@@ -593,8 +598,8 @@ fn failures_of_reads_projections_and_forks() -> Vec<FailureRow> {
 #[test]
 fn a_failed_read_or_upload_leaves_the_span_unmultiplied() {
     let sites = 3;
-    for (method, failing) in [(Method::Upload, sites + 1), (Method::Read, 1)] {
-        let (algebra, asked) = FailingFakeAlgebra::on_call(method, failing);
+    for (operation, failing) in [(Operation::Upload, sites + 1), (Operation::Read, 1)] {
+        let (algebra, asked) = FailingFakeAlgebra::on_call(operation, failing);
         let engine = CanonicalMpsEngine::new(algebra);
         let mut state = engine.prepare(&capacity(sites, 4)).expect("prepare");
         let before = engine.shape(&state).expect("shape before the gate");
@@ -606,10 +611,10 @@ fn a_failed_read_or_upload_leaves_the_span_unmultiplied() {
             .expect_err("the operator's call on the second site fails");
         assert!(
             asked.get() > failing,
-            "precondition: the operator called {method:?} on the second site"
+            "precondition: the operator called {operation:?} on the second site"
         );
-        assert_fails_in(&error, method, "a gate on sites 0 and 2");
+        assert_fails_in(&error, operation, "a gate on sites 0 and 2");
         let after = engine.shape(&state).expect("shape after the failed gate");
-        assert_eq!(after, before, "a failed {method:?}");
+        assert_eq!(after, before, "a failed {operation:?}");
     }
 }
