@@ -9,7 +9,7 @@ use crate::parser::{ArgValue, PauliTarget, args_span, targets_span};
 use miette::Diagnostic;
 use parser::Pauli;
 use qsc_data_structures::{
-    display::{write_list_field, writeln_field, writeln_header_with_span},
+    display::{write_field, write_list_field, writeln_field, writeln_header_with_span},
     span::Span,
 };
 use std::{
@@ -51,8 +51,25 @@ pub enum Block {
 
 #[derive(Debug, PartialEq)]
 pub struct Instruction {
-    pub span: Span,
+    pub source_spans: InstructionSpans,
     pub kind: InstructionKind,
+}
+
+/// The spans of the source instruction that an instruction was lowered from. Broadcasting lowers
+/// one source instruction to several instructions that share them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct InstructionSpans {
+    pub instruction_span: Span,
+    pub name_span: Span,
+}
+
+impl InstructionSpans {
+    fn of(instruction: &parser::Instruction) -> Self {
+        Self {
+            instruction_span: instruction.span,
+            name_span: instruction.name.span,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -172,7 +189,9 @@ impl Display for Block {
 
 impl Display for Instruction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {:#?}", self.span, self.kind)
+        writeln_header_with_span(f, "Instruction", self.source_spans.instruction_span)?;
+        writeln_field(f, "name_span", &self.source_spans.name_span)?;
+        write_field(f, "kind", &format!("{:#?}", self.kind))
     }
 }
 
@@ -866,7 +885,7 @@ impl Lowerer {
             block_instruction, ..
         } = block;
 
-        match block_instruction.name.as_str() {
+        match block_instruction.name.value.as_str() {
             "REPEAT" => Some(self.lower_repeat_block(block)?),
             "SELECT" => Some(self.lower_select_block(block)?),
             _ => {
@@ -887,13 +906,13 @@ impl Lowerer {
 
         if instruction.targets.is_empty() {
             self.push_error(Error::MissingTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: instruction.span,
             });
             return None;
         } else if instruction.targets.len() > 1 {
             self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: instruction
                     .targets
                     .get(1)
@@ -911,7 +930,7 @@ impl Lowerer {
         } = repeat_target.kind
         else {
             self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: repeat_target.span,
             });
             return None;
@@ -947,7 +966,7 @@ impl Lowerer {
         self.validate_no_args(instruction);
         if !instruction.targets.is_empty() {
             self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: instruction
                     .targets
                     .first()
@@ -964,7 +983,7 @@ impl Lowerer {
     }
 
     fn lower_instruction(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
-        let name = instruction.name.as_str();
+        let name = instruction.name.value.as_str();
 
         if let Some(gate) = SingleQubitGateKind::from_name(name) {
             return self.broadcast_single_qubit_gate(instruction, gate);
@@ -1055,7 +1074,7 @@ impl Lowerer {
             // Control Flow
             "REPEAT" | "SELECT" => {
                 self.push_error(Error::InstructionWithoutBlock {
-                    instruction: instruction.name.clone(),
+                    instruction: instruction.name.value.clone(),
                     span: instruction.span,
                 });
                 Vec::new()
@@ -1103,7 +1122,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::Reset { q, basis },
             })
             .collect()
@@ -1119,7 +1138,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::SingleQubitGate { q, gate },
             })
             .collect()
@@ -1135,7 +1154,7 @@ impl Lowerer {
         qubit_target_pairs
             .into_iter()
             .map(|[(q0, _), (q1, _)]| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::TwoQubitGate { q0, q1, gate },
             })
             .collect()
@@ -1151,7 +1170,7 @@ impl Lowerer {
         qubit_triples
             .into_iter()
             .map(|[q0, q1, q2]| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::ThreeQubitGate { q0, q1, q2, gate },
             })
             .collect()
@@ -1182,7 +1201,7 @@ impl Lowerer {
                     .map(|[(q0, _), (q1, _)]| InstructionKind::TwoQubitGate { gate, q0, q1 }),
                 (true, true) => {
                     self.push_error(Error::BothTargetsAreMeasurementRecords {
-                        instruction: instruction.name.clone(),
+                        instruction: instruction.name.value.clone(),
                         span: Span {
                             lo: pair[0].span.lo,
                             hi: pair[1].span.hi,
@@ -1208,7 +1227,7 @@ impl Lowerer {
 
             if let Some(kind) = kind {
                 instructions.push(Instruction {
-                    span: instruction.span,
+                    source_spans: InstructionSpans::of(instruction),
                     kind,
                 });
             }
@@ -1226,7 +1245,7 @@ impl Lowerer {
     ) -> Option<InstructionKind> {
         if !record_position_is_allowed {
             self.push_error(Error::MisplacedMeasurementRecord {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: record_target.span,
             });
             return None;
@@ -1251,7 +1270,7 @@ impl Lowerer {
         pauli_products
             .into_iter()
             .map(|pauli_product| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::PauliProductGate {
                     gate,
                     product: pauli_product,
@@ -1274,7 +1293,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, negated)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::SingleQubitMeasurement {
                     reset,
                     observable,
@@ -1299,7 +1318,7 @@ impl Lowerer {
         qubit_target_pairs
             .into_iter()
             .map(|[(q0, neg0), (q1, neg1)]| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::TwoQubitMeasurement {
                     readout_noise,
                     observable,
@@ -1323,7 +1342,7 @@ impl Lowerer {
         pauli_products
             .into_iter()
             .map(|pauli_product| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::PauliProductMeasurement {
                     readout_noise,
                     product: pauli_product,
@@ -1344,7 +1363,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::Noise(Noise::SingleQubitNoise {
                     kind,
                     probability,
@@ -1363,7 +1382,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::Noise(Noise::HeraldedErase { probability, q }),
             })
             .collect()
@@ -1377,7 +1396,7 @@ impl Lowerer {
         qubit_pairs
             .into_iter()
             .map(|[(q0, _), (q1, _)]| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::Noise(Noise::Depolarize2 {
                     probability,
                     q0,
@@ -1401,7 +1420,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::Noise(Noise::HeraldedPauliChannel1 { probabilities, q }),
             })
             .collect()
@@ -1417,7 +1436,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::Noise(Noise::PauliChannel1 { probabilities, q }),
             })
             .collect()
@@ -1433,7 +1452,7 @@ impl Lowerer {
         qubit_target_pairs
             .into_iter()
             .map(|[(q0, _), (q1, _)]| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::Noise(Noise::PauliChannel2 {
                     probabilities: Box::new(probabilities),
                     q0,
@@ -1452,7 +1471,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::PeekLoss { readout_noise, q },
             })
             .collect()
@@ -1463,7 +1482,7 @@ impl Lowerer {
         let records = self.expect_measurement_records(instruction);
 
         Some(Instruction {
-            span: instruction.span,
+            source_spans: InstructionSpans::of(instruction),
             kind: InstructionKind::Annotation(Annotation::Detector {
                 coordinates,
                 records,
@@ -1486,7 +1505,7 @@ impl Lowerer {
                 1 => true,
                 _ => {
                     self.push_error(Error::UnsupportedTarget {
-                        instruction: instruction.name.clone(),
+                        instruction: instruction.name.value.clone(),
                         span: target.span,
                     });
                     continue;
@@ -1494,7 +1513,7 @@ impl Lowerer {
             };
 
             instructions.push(Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::Annotation(Annotation::MeasurementPadding {
                     readout_noise,
                     value,
@@ -1513,7 +1532,7 @@ impl Lowerer {
         let targets = self.expect_observable_targets(instruction)?;
 
         Some(Instruction {
-            span: instruction.span,
+            source_spans: InstructionSpans::of(instruction),
             kind: InstructionKind::Annotation(Annotation::ObservableInclude {
                 logical_observable,
                 targets,
@@ -1530,7 +1549,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::Annotation(Annotation::QubitCoordinates {
                     coordinates: coordinates.clone(),
                     q,
@@ -1542,7 +1561,7 @@ impl Lowerer {
     fn lower_shift_coords(&mut self, instruction: &parser::Instruction) -> Option<Instruction> {
         if instruction.args.is_empty() {
             self.push_error(Error::MissingArg {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: instruction.span,
             });
             return None;
@@ -1552,7 +1571,7 @@ impl Lowerer {
         self.validate_no_targets(instruction);
 
         Some(Instruction {
-            span: instruction.span,
+            source_spans: InstructionSpans::of(instruction),
             kind: InstructionKind::Annotation(Annotation::ShiftCoordinates {
                 offsets: coordinates,
             }),
@@ -1563,7 +1582,7 @@ impl Lowerer {
         self.validate_no_args(instruction);
         self.validate_no_targets(instruction);
         Some(Instruction {
-            span: instruction.span,
+            source_spans: InstructionSpans::of(instruction),
             kind: InstructionKind::Annotation(Annotation::Tick),
         })
     }
@@ -1581,7 +1600,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::SingleQubitRotation { axis, angle, q },
             })
             .collect()
@@ -1600,7 +1619,7 @@ impl Lowerer {
         qubit_pairs
             .into_iter()
             .map(|[(q0, _), (q1, _)]| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::TwoQubitRotation {
                     axis,
                     angle,
@@ -1621,7 +1640,7 @@ impl Lowerer {
         qubit_targets
             .into_iter()
             .map(|(q, _)| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::U3 {
                     q,
                     theta,
@@ -1644,7 +1663,7 @@ impl Lowerer {
         pauli_products
             .into_iter()
             .map(|product| Instruction {
-                span: instruction.span,
+                source_spans: InstructionSpans::of(instruction),
                 kind: InstructionKind::PauliProductRotation { angle, product },
             })
             .collect()
@@ -1666,7 +1685,7 @@ impl Lowerer {
             faults.push(fault);
         }
         Some(Instruction {
-            span: instruction.span,
+            source_spans: InstructionSpans::of(instruction),
             kind: InstructionKind::Noise(Noise::CorrelatedError {
                 kind,
                 probability,
@@ -1679,7 +1698,7 @@ impl Lowerer {
         self.validate_no_args(instruction);
         if instruction.targets.is_empty() {
             self.push_error(Error::MissingTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: instruction.span,
             });
             return None;
@@ -1700,7 +1719,7 @@ impl Lowerer {
         )?;
 
         Some(Instruction {
-            span: instruction.span,
+            source_spans: InstructionSpans::of(instruction),
             kind: InstructionKind::Require { records },
         })
     }
@@ -1709,7 +1728,7 @@ impl Lowerer {
         self.validate_no_args(instruction);
         if instruction.targets.is_empty() {
             self.push_error(Error::MissingTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: instruction.span,
             });
             return None;
@@ -1724,7 +1743,7 @@ impl Lowerer {
         self.validate_any_measurement_record_in_scope(instruction, &records)?;
 
         Some(Instruction {
-            span: instruction.span,
+            source_spans: InstructionSpans::of(instruction),
             kind: InstructionKind::NotLeaked { records },
         })
     }
@@ -1833,8 +1852,8 @@ impl Lowerer {
     ) -> Option<()> {
         if !self.record_tracker.has_active_select_scope() {
             self.push_error(Error::InstructionOutsideSelectBlock {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
+                instruction: instruction.name.value.clone(),
+                span: instruction.name.span,
             });
             return None;
         }
@@ -1851,7 +1870,7 @@ impl Lowerer {
                 .is_offset_outside_current_select_scope(record.offset)
         }) {
             self.push_error(Error::AllMeasurementRecordsOutOfScope {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: instruction.span,
             });
             return None;
@@ -1889,7 +1908,7 @@ impl Lowerer {
                 }
                 _ => {
                     self.push_error(Error::UnsupportedTarget {
-                        instruction: instruction.name.clone(),
+                        instruction: instruction.name.value.clone(),
                         span: target.span,
                     });
                     has_invalid_target = true;
@@ -1951,10 +1970,10 @@ impl Lowerer {
             self.push_error(Error::AntiHermitianPauliProduct { span: target.span });
             return None;
         }
-        if canonical_factors.is_empty() && instruction.name == "MPP" {
+        if canonical_factors.is_empty() && instruction.name.value == "MPP" {
             // TODO: an empty product measures the identity, which needs support for appending to measurement records
             self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: target.span,
             });
             return None;
@@ -1976,7 +1995,7 @@ impl Lowerer {
     ) -> Option<(Qubit, bool)> {
         let parser::TargetKind::Qubit { value, negated } = target.kind else {
             self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: target.span,
             });
             return None;
@@ -1984,7 +2003,7 @@ impl Lowerer {
 
         if negated && !allow_negated {
             self.push_error(Error::NegatedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: target.span,
             });
             return None;
@@ -2007,7 +2026,7 @@ impl Lowerer {
 
         if q0.id == q1.id {
             self.push_error(Error::RepeatedQubit {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 qubit: q1.id,
                 span: q1.span,
             });
@@ -2035,7 +2054,7 @@ impl Lowerer {
         };
 
         self.push_error(Error::RepeatedQubit {
-            instruction: instruction.name.clone(),
+            instruction: instruction.name.value.clone(),
             qubit: repeated.id,
             span: repeated.span,
         });
@@ -2064,7 +2083,7 @@ impl Lowerer {
     ) -> Option<PauliTarget> {
         let parser::TargetKind::Pauli(pauli_target) = target.kind else {
             self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: target.span,
             });
             return None;
@@ -2072,7 +2091,7 @@ impl Lowerer {
 
         if pauli_target.negated && !allow_negated {
             self.push_error(Error::NegatedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: target.span,
             });
             return None;
@@ -2087,7 +2106,7 @@ impl Lowerer {
     ) -> Option<Chunks<'a, parser::Target>> {
         if !instruction.targets.len().is_multiple_of(2) {
             self.push_error(Error::OddTargetCount {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: targets_span(&instruction.targets),
             });
             return None;
@@ -2101,7 +2120,7 @@ impl Lowerer {
     ) -> Option<Chunks<'a, parser::Target>> {
         if !instruction.targets.len().is_multiple_of(3) {
             self.push_error(Error::TargetCountNotMultipleOfThree {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: targets_span(&instruction.targets),
             });
             return None;
@@ -2118,7 +2137,7 @@ impl Lowerer {
 
         if measurement_record.negated {
             self.push_error(Error::NegatedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: target.span,
             });
             return None;
@@ -2138,7 +2157,7 @@ impl Lowerer {
         } = target.kind
         else {
             self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: target.span,
             });
             return None;
@@ -2213,7 +2232,7 @@ impl Lowerer {
                 };
             } else {
                 self.push_error(Error::InvalidAngle {
-                    instruction: instruction.name.clone(),
+                    instruction: instruction.name.value.clone(),
                     span: arg.span,
                 });
                 has_invalid_angle = true;
@@ -2234,7 +2253,7 @@ impl Lowerer {
     ) -> Option<f64> {
         let ArgValue::Default(value) = arg.value else {
             self.push_error(Error::UnexpectedRadians {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: arg.span,
             });
             return None;
@@ -2245,7 +2264,7 @@ impl Lowerer {
     fn expect_coordinates(&mut self, instruction: &parser::Instruction) -> Option<Vec<f64>> {
         if instruction.args.len() > MAX_COORDINATES {
             self.push_error(Error::TooManyArgs {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 expected: MAX_COORDINATES,
                 found: instruction.args.len(),
                 span: args_span(&instruction.args[MAX_COORDINATES..]),
@@ -2357,7 +2376,7 @@ impl Lowerer {
             Some(())
         } else {
             self.push_error(Error::InvalidProbability {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 probability,
                 span: arg_span,
             });
@@ -2372,7 +2391,7 @@ impl Lowerer {
     ) -> Option<()> {
         if total > 1.0 {
             self.push_error(Error::InvalidProbabilitySum {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 total,
                 span: args_span(&instruction.args),
             });
@@ -2389,7 +2408,7 @@ impl Lowerer {
         let args = &instruction.args;
         if args.is_empty() {
             self.push_error(Error::MissingArg {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: instruction.span,
             });
             return None;
@@ -2397,7 +2416,7 @@ impl Lowerer {
 
         if args.len() > N {
             self.push_error(Error::TooManyArgs {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 expected: N,
                 found: args.len(),
                 span: args_span(&args[N..]),
@@ -2405,7 +2424,7 @@ impl Lowerer {
             return None;
         } else if args.len() < N {
             self.push_error(Error::TooFewArgs {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 expected: N,
                 found: args.len(),
                 span: args_span(args),
@@ -2418,7 +2437,7 @@ impl Lowerer {
     fn validate_no_args(&mut self, instruction: &parser::Instruction) {
         if !instruction.args.is_empty() {
             self.push_error(Error::UnsupportedArgument {
-                instruction: instruction.name.clone(),
+                instruction: instruction.name.value.clone(),
                 span: args_span(&instruction.args),
             });
         }
@@ -2430,7 +2449,7 @@ impl Lowerer {
         };
         let last = rest.last().unwrap_or(first);
         self.push_error(Error::UnsupportedTargets {
-            instruction: instruction.name.clone(),
+            instruction: instruction.name.value.clone(),
             span: Span {
                 lo: first.span.lo,
                 hi: last.span.hi,
@@ -2440,8 +2459,8 @@ impl Lowerer {
 
     fn unknown(&mut self, instruction: &parser::Instruction) {
         self.push_error(Error::UnknownInstruction {
-            name: instruction.name.clone(),
-            span: instruction.span,
+            name: instruction.name.value.clone(),
+            span: instruction.name.span,
         });
     }
 

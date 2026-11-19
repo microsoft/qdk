@@ -63,7 +63,7 @@ impl Display for Block {
 
 pub struct Instruction {
     pub span: Span,
-    pub name: String,
+    pub name: InstructionName,
     pub tag: Option<String>,
     pub args: Vec<Arg>,
     pub targets: Vec<Target>,
@@ -76,6 +76,17 @@ impl Display for Instruction {
         writeln_opt_field(f, "tag", self.tag.as_ref())?;
         writeln_list_field(f, "args", &self.args)?;
         write_list_field(f, "targets", &self.targets)
+    }
+}
+
+pub struct InstructionName {
+    pub value: String,
+    pub span: Span,
+}
+
+impl Display for InstructionName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.value, self.span)
     }
 }
 
@@ -557,7 +568,10 @@ impl<'a> Parser<'a> {
 
         Some(Instruction {
             span: Span { lo, hi },
-            name,
+            name: InstructionName {
+                value: name,
+                span: name_token.span,
+            },
             tag,
             args,
             targets,

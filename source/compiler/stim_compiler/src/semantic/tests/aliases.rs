@@ -25,7 +25,7 @@ fn lower_without_spans(source: &str) -> Circuit {
         let Item::Instruction(instruction) = item else {
             panic!("`{source}` should produce instructions");
         };
-        instruction.span = Default::default();
+        instruction.source_spans = Default::default();
         match &mut instruction.kind {
             InstructionKind::SingleQubitGate { q, .. }
             | InstructionKind::SingleQubitMeasurement { q, .. }

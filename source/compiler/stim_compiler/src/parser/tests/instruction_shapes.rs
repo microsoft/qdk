@@ -10,13 +10,13 @@ fn no_args_no_targets() {
     check(
         "TICK",
         &expect![[r#"
-        Circuit [0-4]:
-            items:
-                Instruction [0-4]:
-                    name: TICK
-                    tag: <none>
-                    args: <empty>
-                    targets: <empty>"#]],
+            Circuit [0-4]:
+                items:
+                    Instruction [0-4]:
+                        name: TICK [0-4]
+                        tag: <none>
+                        args: <empty>
+                        targets: <empty>"#]],
     );
 }
 
@@ -25,19 +25,19 @@ fn no_args_with_targets() {
     check(
         "H 0 1 2",
         &expect![[r#"
-        Circuit [0-7]:
-            items:
-                Instruction [0-7]:
-                    name: H
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [2-3]:
-                            kind: Qubit(0)
-                        Target [4-5]:
-                            kind: Qubit(1)
-                        Target [6-7]:
-                            kind: Qubit(2)"#]],
+            Circuit [0-7]:
+                items:
+                    Instruction [0-7]:
+                        name: H [0-1]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [2-3]:
+                                kind: Qubit(0)
+                            Target [4-5]:
+                                kind: Qubit(1)
+                            Target [6-7]:
+                                kind: Qubit(2)"#]],
     );
 }
 
@@ -49,7 +49,7 @@ fn args_no_targets() {
             Circuit [0-12]:
                 items:
                     Instruction [0-12]:
-                        name: X_ERROR
+                        name: X_ERROR [0-7]
                         tag: <none>
                         args:
                             Arg [8-11]: 0.1
@@ -65,7 +65,7 @@ fn args_with_targets() {
             Circuit [0-16]:
                 items:
                     Instruction [0-16]:
-                        name: X_ERROR
+                        name: X_ERROR [0-7]
                         tag: <none>
                         args:
                             Arg [8-11]: 0.1
@@ -90,7 +90,7 @@ fn block_instruction() {
                 items:
                     Block [0-18]:
                         block_instruction: Instruction [0-8]:
-                            name: REPEAT
+                            name: REPEAT [0-6]
                             tag: <none>
                             args: <empty>
                             targets:
@@ -98,7 +98,7 @@ fn block_instruction() {
                                     kind: Qubit(5)
                         items:
                             Instruction [13-16]:
-                                name: H
+                                name: H [13-14]
                                 tag: <none>
                                 args: <empty>
                                 targets:
@@ -112,14 +112,14 @@ fn empty_parens_have_no_args() {
     check(
         "H() 0",
         &expect![[r#"
-        Circuit [0-5]:
-            items:
-                Instruction [0-5]:
-                    name: H
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-5]:
-                            kind: Qubit(0)"#]],
+            Circuit [0-5]:
+                items:
+                    Instruction [0-5]:
+                        name: H [0-1]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-5]:
+                                kind: Qubit(0)"#]],
     );
 }

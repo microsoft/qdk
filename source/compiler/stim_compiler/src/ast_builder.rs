@@ -158,12 +158,23 @@ pub(crate) fn build_record_equals_expr(
 }
 
 /// `IsLossResult(r_a) or IsLossResult(r_b) or …`
-pub(crate) fn build_any_loss_expr(records: Vec<ast::Expr>, span: Span) -> ast::Expr {
+pub(crate) fn build_any_loss_expr(
+    records: Vec<ast::Expr>,
+    callee_span: Span,
+    instruction_span: Span,
+) -> ast::Expr {
     let losses = records
         .into_iter()
-        .map(|record| build_qsharp_op_call_expr(QSharpOp::IsLossResult, vec![record], span))
+        .map(|record| {
+            build_qsharp_op_call_expr(
+                QSharpOp::IsLossResult,
+                vec![record],
+                callee_span,
+                instruction_span,
+            )
+        })
         .collect();
-    fold_exprs_with_op(ast::BinOp::OrL, losses, span)
+    fold_exprs_with_op(ast::BinOp::OrL, losses, instruction_span)
 }
 
 /// `{op}`, or `Adjoint {op}` for the adjoint variants such as `SAdj`.
@@ -180,10 +191,11 @@ fn build_qsharp_op_callee(op: QSharpOp, span: Span) -> ast::Expr {
 pub(crate) fn build_qsharp_op_call_expr(
     op: QSharpOp,
     args: Vec<ast::Expr>,
-    span: Span,
+    callee_span: Span,
+    instruction_span: Span,
 ) -> ast::Expr {
-    let callee = build_qsharp_op_callee(op, span);
-    build_call_expr(callee, build_call_args_expr(args), span)
+    let callee = build_qsharp_op_callee(op, callee_span);
+    build_call_expr(callee, build_call_args_expr(args), instruction_span)
 }
 
 /// `Controlled [Adjoint] {op}(controls, target);`
@@ -191,26 +203,42 @@ pub(crate) fn build_controlled_qsharp_op_call_stmt(
     op: QSharpOp,
     controls: ast::Expr,
     target: ast::Expr,
-    span: Span,
+    callee_span: Span,
+    instruction_span: Span,
 ) -> ast::Stmt {
     let callee = build_unary_op_expr(
         ast::UnOp::Functor(ast::Functor::Ctl),
-        build_qsharp_op_callee(op, span),
-        span,
+        build_qsharp_op_callee(op, callee_span),
+        callee_span,
     );
     let args = build_call_args_expr(vec![controls, target]);
-    build_stmt_semi_from_expr(build_call_expr(callee, args, span))
+    build_stmt_semi_from_expr(build_call_expr(callee, args, instruction_span))
 }
 
 /// `{name}(args…)`
-pub(crate) fn build_intrinsic_call_expr(name: &str, args: Vec<ast::Expr>, span: Span) -> ast::Expr {
-    let callee = build_path_ident_expr(name, span, span);
-    build_call_expr(callee, build_call_args_expr(args), span)
+pub(crate) fn build_intrinsic_call_expr(
+    name: &str,
+    args: Vec<ast::Expr>,
+    callee_span: Span,
+    instruction_span: Span,
+) -> ast::Expr {
+    let callee = build_path_ident_expr(name, callee_span, callee_span);
+    build_call_expr(callee, build_call_args_expr(args), instruction_span)
 }
 
 /// `{name}(args…);`
-pub(crate) fn build_intrinsic_call_stmt(name: &str, args: Vec<ast::Expr>, span: Span) -> ast::Stmt {
-    build_stmt_semi_from_expr(build_intrinsic_call_expr(name, args, span))
+pub(crate) fn build_intrinsic_call_stmt(
+    name: &str,
+    args: Vec<ast::Expr>,
+    callee_span: Span,
+    instruction_span: Span,
+) -> ast::Stmt {
+    build_stmt_semi_from_expr(build_intrinsic_call_expr(
+        name,
+        args,
+        callee_span,
+        instruction_span,
+    ))
 }
 
 /// `within { within } apply { apply };`, or just the `apply` statements if `within` is empty.

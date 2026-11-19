@@ -11,18 +11,20 @@ fn single_pauli_target_becomes_single_factor_product() {
         &expect![[r#"
             Circuit [0-6]:
                 items:
-                    [0-6] PauliProductGate {
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: X,
-                                    q: 0 [4-6],
-                                },
-                            ],
-                            negated: false,
-                        },
-                        gate: T,
-                    }"#]],
+                    Instruction [0-6]:
+                        name_span: [0-3]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: X,
+                                        q: 0 [4-6],
+                                    },
+                                ],
+                                negated: false,
+                            },
+                            gate: T,
+                        }"#]],
     );
 }
 
@@ -33,26 +35,28 @@ fn factors_are_sorted_by_qubit() {
         &expect![[r#"
             Circuit [0-22]:
                 items:
-                    [0-22] PauliProductRotation {
-                        angle: 0.7853981633974483 [8-12],
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: X,
-                                    q: 0 [17-19],
-                                },
-                                PauliFactor {
-                                    pauli: Y,
-                                    q: 1 [20-22],
-                                },
-                                PauliFactor {
-                                    pauli: Z,
-                                    q: 2 [14-16],
-                                },
-                            ],
-                            negated: false,
-                        },
-                    }"#]],
+                    Instruction [0-22]:
+                        name_span: [0-7]
+                        kind: PauliProductRotation {
+                            angle: 0.7853981633974483 [8-12],
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: X,
+                                        q: 0 [17-19],
+                                    },
+                                    PauliFactor {
+                                        pauli: Y,
+                                        q: 1 [20-22],
+                                    },
+                                    PauliFactor {
+                                        pauli: Z,
+                                        q: 2 [14-16],
+                                    },
+                                ],
+                                negated: false,
+                            },
+                        }"#]],
     );
 }
 
@@ -63,22 +67,24 @@ fn negation_on_later_factor_negates_product() {
         &expect![[r#"
             Circuit [0-10]:
                 items:
-                    [0-10] PauliProductGate {
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: X,
-                                    q: 0 [4-6],
-                                },
-                                PauliFactor {
-                                    pauli: Y,
-                                    q: 1 [7-10],
-                                },
-                            ],
-                            negated: true,
-                        },
-                        gate: S,
-                    }"#]],
+                    Instruction [0-10]:
+                        name_span: [0-3]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: X,
+                                        q: 0 [4-6],
+                                    },
+                                    PauliFactor {
+                                        pauli: Y,
+                                        q: 1 [7-10],
+                                    },
+                                ],
+                                negated: true,
+                            },
+                            gate: S,
+                        }"#]],
     );
 }
 
@@ -89,22 +95,24 @@ fn double_negation_cancels() {
         &expect![[r#"
             Circuit [0-15]:
                 items:
-                    [0-15] PauliProductGate {
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: X,
-                                    q: 0 [8-11],
-                                },
-                                PauliFactor {
-                                    pauli: Y,
-                                    q: 1 [12-15],
-                                },
-                            ],
-                            negated: false,
-                        },
-                        gate: S_DAG,
-                    }"#]],
+                    Instruction [0-15]:
+                        name_span: [0-7]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: X,
+                                        q: 0 [8-11],
+                                    },
+                                    PauliFactor {
+                                        pauli: Y,
+                                        q: 1 [12-15],
+                                    },
+                                ],
+                                negated: false,
+                            },
+                            gate: S_DAG,
+                        }"#]],
     );
 }
 
@@ -115,18 +123,20 @@ fn repeated_identical_factors_fold_to_single_factor() {
         &expect![[r#"
             Circuit [0-16]:
                 items:
-                    [0-16] PauliProductGate {
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: X,
-                                    q: 0 [8-10],
-                                },
-                            ],
-                            negated: false,
-                        },
-                        gate: T_DAG,
-                    }"#]],
+                    Instruction [0-16]:
+                        name_span: [0-7]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: X,
+                                        q: 0 [8-10],
+                                    },
+                                ],
+                                negated: false,
+                            },
+                            gate: T_DAG,
+                        }"#]],
     );
 }
 
@@ -137,22 +147,24 @@ fn folded_phase_negates_product() {
         &expect![[r#"
             Circuit [0-15]:
                 items:
-                    [0-15] PauliProductMeasurement {
-                        readout_noise: 0.0 [0-0],
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: Z,
-                                    q: 0 [4-6],
-                                },
-                                PauliFactor {
-                                    pauli: Z,
-                                    q: 1 [10-12],
-                                },
-                            ],
-                            negated: true,
-                        },
-                    }"#]],
+                    Instruction [0-15]:
+                        name_span: [0-3]
+                        kind: PauliProductMeasurement {
+                            readout_noise: 0.0 [0-0],
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: Z,
+                                        q: 0 [4-6],
+                                    },
+                                    PauliFactor {
+                                        pauli: Z,
+                                        q: 1 [10-12],
+                                    },
+                                ],
+                                negated: true,
+                            },
+                        }"#]],
     );
 }
 
@@ -163,22 +175,24 @@ fn explicit_negation_cancels_folded_negative_phase() {
         &expect![[r#"
             Circuit [0-16]:
                 items:
-                    [0-16] PauliProductGate {
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: Z,
-                                    q: 0 [4-7],
-                                },
-                                PauliFactor {
-                                    pauli: Z,
-                                    q: 1 [11-13],
-                                },
-                            ],
-                            negated: false,
-                        },
-                        gate: T,
-                    }"#]],
+                    Instruction [0-16]:
+                        name_span: [0-3]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: Z,
+                                        q: 0 [4-7],
+                                    },
+                                    PauliFactor {
+                                        pauli: Z,
+                                        q: 1 [11-13],
+                                    },
+                                ],
+                                negated: false,
+                            },
+                            gate: T,
+                        }"#]],
     );
 }
 
@@ -189,22 +203,24 @@ fn non_adjacent_repeated_qubits_fold_together() {
         &expect![[r#"
             Circuit [0-25]:
                 items:
-                    [0-25] PauliProductRotation {
-                        angle: 0.7853981633974483 [8-12],
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: Y,
-                                    q: 0 [14-16],
-                                },
-                                PauliFactor {
-                                    pauli: Y,
-                                    q: 1 [17-19],
-                                },
-                            ],
-                            negated: false,
-                        },
-                    }"#]],
+                    Instruction [0-25]:
+                        name_span: [0-7]
+                        kind: PauliProductRotation {
+                            angle: 0.7853981633974483 [8-12],
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: Y,
+                                        q: 0 [14-16],
+                                    },
+                                    PauliFactor {
+                                        pauli: Y,
+                                        q: 1 [17-19],
+                                    },
+                                ],
+                                negated: false,
+                            },
+                        }"#]],
     );
 }
 
@@ -215,18 +231,20 @@ fn factors_folding_to_identity_are_dropped() {
         &expect![[r#"
             Circuit [0-22]:
                 items:
-                    [0-22] PauliProductGate {
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: X,
-                                    q: 2 [20-22],
-                                },
-                            ],
-                            negated: false,
-                        },
-                        gate: S_DAG,
-                    }"#]],
+                    Instruction [0-22]:
+                        name_span: [0-7]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: X,
+                                        q: 2 [20-22],
+                                    },
+                                ],
+                                negated: false,
+                            },
+                            gate: S_DAG,
+                        }"#]],
     );
 }
 
@@ -237,38 +255,42 @@ fn multiple_products_are_canonicalized_independently() {
         &expect![[r#"
             Circuit [0-16]:
                 items:
-                    [0-16] PauliProductGate {
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: X,
-                                    q: 0 [7-9],
-                                },
-                                PauliFactor {
-                                    pauli: Z,
-                                    q: 2 [4-6],
-                                },
-                            ],
-                            negated: false,
-                        },
-                        gate: T,
-                    }
-                    [0-16] PauliProductGate {
-                        product: PauliProduct {
-                            factors: [
-                                PauliFactor {
-                                    pauli: Y,
-                                    q: 1 [13-16],
-                                },
-                                PauliFactor {
-                                    pauli: X,
-                                    q: 3 [10-12],
-                                },
-                            ],
-                            negated: true,
-                        },
-                        gate: T,
-                    }"#]],
+                    Instruction [0-16]:
+                        name_span: [0-3]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: X,
+                                        q: 0 [7-9],
+                                    },
+                                    PauliFactor {
+                                        pauli: Z,
+                                        q: 2 [4-6],
+                                    },
+                                ],
+                                negated: false,
+                            },
+                            gate: T,
+                        }
+                    Instruction [0-16]:
+                        name_span: [0-3]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [
+                                    PauliFactor {
+                                        pauli: Y,
+                                        q: 1 [13-16],
+                                    },
+                                    PauliFactor {
+                                        pauli: X,
+                                        q: 3 [10-12],
+                                    },
+                                ],
+                                negated: true,
+                            },
+                            gate: T,
+                        }"#]],
     );
 }
 
@@ -293,22 +315,26 @@ fn identity_gate_products_become_empty_products() {
     check(
         "SPP X0*X0 !Y1*Y1",
         &expect![[r#"
-        Circuit [0-16]:
-            items:
-                [0-16] PauliProductGate {
-                    product: PauliProduct {
-                        factors: [],
-                        negated: false,
-                    },
-                    gate: S,
-                }
-                [0-16] PauliProductGate {
-                    product: PauliProduct {
-                        factors: [],
-                        negated: true,
-                    },
-                    gate: S,
-                }"#]],
+            Circuit [0-16]:
+                items:
+                    Instruction [0-16]:
+                        name_span: [0-3]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [],
+                                negated: false,
+                            },
+                            gate: S,
+                        }
+                    Instruction [0-16]:
+                        name_span: [0-3]
+                        kind: PauliProductGate {
+                            product: PauliProduct {
+                                factors: [],
+                                negated: true,
+                            },
+                            gate: S,
+                        }"#]],
     );
 }
 

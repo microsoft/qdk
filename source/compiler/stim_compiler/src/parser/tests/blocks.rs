@@ -20,7 +20,7 @@ fn repeat_block_with_body() {
                 items:
                     Block [0-24]:
                         block_instruction: Instruction [0-8]:
-                            name: REPEAT
+                            name: REPEAT [0-6]
                             tag: <none>
                             args: <empty>
                             targets:
@@ -28,14 +28,14 @@ fn repeat_block_with_body() {
                                     kind: Qubit(3)
                         items:
                             Instruction [13-16]:
-                                name: H
+                                name: H [13-14]
                                 tag: <none>
                                 args: <empty>
                                 targets:
                                     Target [15-16]:
                                         kind: Qubit(0)
                             Instruction [19-22]:
-                                name: X
+                                name: X [19-20]
                                 tag: <none>
                                 args: <empty>
                                 targets:
@@ -56,7 +56,7 @@ fn empty_repeat_block() {
                 items:
                     Block [0-12]:
                         block_instruction: Instruction [0-8]:
-                            name: REPEAT
+                            name: REPEAT [0-6]
                             tag: <none>
                             args: <empty>
                             targets:
@@ -81,7 +81,7 @@ fn nested_repeat_blocks() {
                 items:
                     Block [0-37]:
                         block_instruction: Instruction [0-8]:
-                            name: REPEAT
+                            name: REPEAT [0-6]
                             tag: <none>
                             args: <empty>
                             targets:
@@ -90,7 +90,7 @@ fn nested_repeat_blocks() {
                         items:
                             Block [13-35]:
                                 block_instruction: Instruction [13-21]:
-                                    name: REPEAT
+                                    name: REPEAT [13-19]
                                     tag: <none>
                                     args: <empty>
                                     targets:
@@ -98,7 +98,7 @@ fn nested_repeat_blocks() {
                                             kind: Qubit(3)
                                 items:
                                     Instruction [28-31]:
-                                        name: H
+                                        name: H [28-29]
                                         tag: <none>
                                         args: <empty>
                                         targets:
@@ -190,7 +190,7 @@ fn non_repeat_instruction_with_block() {
                 items:
                     Block [0-7]:
                         block_instruction: Instruction [0-3]:
-                            name: H
+                            name: H [0-1]
                             tag: <none>
                             args: <empty>
                             targets:

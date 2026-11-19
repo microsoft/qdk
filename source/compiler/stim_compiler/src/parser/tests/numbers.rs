@@ -10,15 +10,15 @@ fn max_qubit_index() {
     check(
         "H 4294967295",
         &expect![[r#"
-        Circuit [0-12]:
-            items:
-                Instruction [0-12]:
-                    name: H
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [2-12]:
-                            kind: Qubit(4294967295)"#]],
+            Circuit [0-12]:
+                items:
+                    Instruction [0-12]:
+                        name: H [0-1]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [2-12]:
+                                kind: Qubit(4294967295)"#]],
     );
 }
 
@@ -77,15 +77,15 @@ fn leading_zeros_in_qubit_index() {
     check(
         "H 007",
         &expect![[r#"
-        Circuit [0-5]:
-            items:
-                Instruction [0-5]:
-                    name: H
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [2-5]:
-                            kind: Qubit(7)"#]],
+            Circuit [0-5]:
+                items:
+                    Instruction [0-5]:
+                        name: H [0-1]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [2-5]:
+                                kind: Qubit(7)"#]],
     );
 }
 

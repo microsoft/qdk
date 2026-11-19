@@ -9,15 +9,15 @@ fn qubit_target() {
     check(
         "H 0",
         &expect![[r#"
-        Circuit [0-3]:
-            items:
-                Instruction [0-3]:
-                    name: H
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [2-3]:
-                            kind: Qubit(0)"#]],
+            Circuit [0-3]:
+                items:
+                    Instruction [0-3]:
+                        name: H [0-1]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [2-3]:
+                                kind: Qubit(0)"#]],
     );
 }
 
@@ -26,21 +26,21 @@ fn multiple_qubit_targets() {
     check(
         "CX 0 1 2 3",
         &expect![[r#"
-        Circuit [0-10]:
-            items:
-                Instruction [0-10]:
-                    name: CX
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [3-4]:
-                            kind: Qubit(0)
-                        Target [5-6]:
-                            kind: Qubit(1)
-                        Target [7-8]:
-                            kind: Qubit(2)
-                        Target [9-10]:
-                            kind: Qubit(3)"#]],
+            Circuit [0-10]:
+                items:
+                    Instruction [0-10]:
+                        name: CX [0-2]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [3-4]:
+                                kind: Qubit(0)
+                            Target [5-6]:
+                                kind: Qubit(1)
+                            Target [7-8]:
+                                kind: Qubit(2)
+                            Target [9-10]:
+                                kind: Qubit(3)"#]],
     );
 }
 
@@ -49,15 +49,15 @@ fn negated_qubit_target() {
     check(
         "M !0",
         &expect![[r#"
-        Circuit [0-4]:
-            items:
-                Instruction [0-4]:
-                    name: M
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [2-4]:
-                            kind: Qubit(-0)"#]],
+            Circuit [0-4]:
+                items:
+                    Instruction [0-4]:
+                        name: M [0-1]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [2-4]:
+                                kind: Qubit(-0)"#]],
     );
 }
 
@@ -66,15 +66,15 @@ fn measurement_record_target() {
     check(
         "DETECTOR rec[-1]",
         &expect![[r#"
-        Circuit [0-16]:
-            items:
-                Instruction [0-16]:
-                    name: DETECTOR
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [9-16]:
-                            kind: MeasurementRecord(1)"#]],
+            Circuit [0-16]:
+                items:
+                    Instruction [0-16]:
+                        name: DETECTOR [0-8]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [9-16]:
+                                kind: MeasurementRecord(1)"#]],
     );
 }
 
@@ -119,15 +119,15 @@ fn sweep_bit_target() {
     check(
         "CX sweep[0]",
         &expect![[r#"
-        Circuit [0-11]:
-            items:
-                Instruction [0-11]:
-                    name: CX
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [3-11]:
-                            kind: SweepBit(0)"#]],
+            Circuit [0-11]:
+                items:
+                    Instruction [0-11]:
+                        name: CX [0-2]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [3-11]:
+                                kind: SweepBit(0)"#]],
     );
 }
 
@@ -139,7 +139,7 @@ fn pauli_target() {
             Circuit [0-6]:
                 items:
                     Instruction [0-6]:
-                        name: MPP
+                        name: MPP [0-3]
                         tag: <none>
                         args: <empty>
                         targets:
@@ -153,15 +153,15 @@ fn negated_pauli_target() {
     check(
         "MPP !X0",
         &expect![[r#"
-        Circuit [0-7]:
-            items:
-                Instruction [0-7]:
-                    name: MPP
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-7]:
-                            kind: Pauli(-X 0)"#]],
+            Circuit [0-7]:
+                items:
+                    Instruction [0-7]:
+                        name: MPP [0-3]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-7]:
+                                kind: Pauli(-X 0)"#]],
     );
 }
 
@@ -170,15 +170,15 @@ fn pauli_product_two_factors() {
     check(
         "MPP X0*X1",
         &expect![[r#"
-        Circuit [0-9]:
-            items:
-                Instruction [0-9]:
-                    name: MPP
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-9]:
-                            kind: PauliProduct(Pauli(X 0)*Pauli(X 1))"#]],
+            Circuit [0-9]:
+                items:
+                    Instruction [0-9]:
+                        name: MPP [0-3]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-9]:
+                                kind: PauliProduct(Pauli(X 0)*Pauli(X 1))"#]],
     );
 }
 
@@ -190,7 +190,7 @@ fn pauli_product_three_factors() {
             Circuit [0-12]:
                 items:
                     Instruction [0-12]:
-                        name: MPP
+                        name: MPP [0-3]
                         tag: <none>
                         args: <empty>
                         targets:
@@ -204,15 +204,15 @@ fn pauli_product_mixed_paulis() {
     check(
         "MPP X1*Y2",
         &expect![[r#"
-        Circuit [0-9]:
-            items:
-                Instruction [0-9]:
-                    name: MPP
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-9]:
-                            kind: PauliProduct(Pauli(X 1)*Pauli(Y 2))"#]],
+            Circuit [0-9]:
+                items:
+                    Instruction [0-9]:
+                        name: MPP [0-3]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-9]:
+                                kind: PauliProduct(Pauli(X 1)*Pauli(Y 2))"#]],
     );
 }
 
@@ -224,7 +224,7 @@ fn pauli_product_negated_first_factor() {
             Circuit [0-10]:
                 items:
                     Instruction [0-10]:
-                        name: MPP
+                        name: MPP [0-3]
                         tag: <none>
                         args: <empty>
                         targets:
@@ -241,7 +241,7 @@ fn pauli_product_negated_second_factor() {
             Circuit [0-10]:
                 items:
                     Instruction [0-10]:
-                        name: MPP
+                        name: MPP [0-3]
                         tag: <none>
                         args: <empty>
                         targets:
@@ -258,7 +258,7 @@ fn pauli_product_preserves_factor_negations() {
             Circuit [0-11]:
                 items:
                     Instruction [0-11]:
-                        name: MPP
+                        name: MPP [0-3]
                         tag: <none>
                         args: <empty>
                         targets:
@@ -272,17 +272,17 @@ fn multiple_pauli_products() {
     check(
         "MPP X0*Y1 Z2*Z3",
         &expect![[r#"
-        Circuit [0-15]:
-            items:
-                Instruction [0-15]:
-                    name: MPP
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-9]:
-                            kind: PauliProduct(Pauli(X 0)*Pauli(Y 1))
-                        Target [10-15]:
-                            kind: PauliProduct(Pauli(Z 2)*Pauli(Z 3))"#]],
+            Circuit [0-15]:
+                items:
+                    Instruction [0-15]:
+                        name: MPP [0-3]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-9]:
+                                kind: PauliProduct(Pauli(X 0)*Pauli(Y 1))
+                            Target [10-15]:
+                                kind: PauliProduct(Pauli(Z 2)*Pauli(Z 3))"#]],
     );
 }
 
@@ -291,17 +291,17 @@ fn pauli_product_and_single_pauli() {
     check(
         "MPP X0 Y1*Z2",
         &expect![[r#"
-        Circuit [0-12]:
-            items:
-                Instruction [0-12]:
-                    name: MPP
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-6]:
-                            kind: Pauli(X 0)
-                        Target [7-12]:
-                            kind: PauliProduct(Pauli(Y 1)*Pauli(Z 2))"#]],
+            Circuit [0-12]:
+                items:
+                    Instruction [0-12]:
+                        name: MPP [0-3]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-6]:
+                                kind: Pauli(X 0)
+                            Target [7-12]:
+                                kind: PauliProduct(Pauli(Y 1)*Pauli(Z 2))"#]],
     );
 }
 
@@ -422,15 +422,15 @@ fn space_between_combiners_is_ignored() {
     check(
         "MPP X0 * Y1",
         &expect![[r#"
-        Circuit [0-11]:
-            items:
-                Instruction [0-11]:
-                    name: MPP
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-11]:
-                            kind: PauliProduct(Pauli(X 0)*Pauli(Y 1))"#]],
+            Circuit [0-11]:
+                items:
+                    Instruction [0-11]:
+                        name: MPP [0-3]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-11]:
+                                kind: PauliProduct(Pauli(X 0)*Pauli(Y 1))"#]],
     );
 }
 
@@ -442,7 +442,7 @@ fn loss_target() {
             Circuit [0-10]:
                 items:
                     Instruction [0-10]:
-                        name: E
+                        name: E [0-1]
                         tag: <none>
                         args:
                             Arg [2-6]: 0.01

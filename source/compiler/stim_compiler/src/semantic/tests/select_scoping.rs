@@ -22,7 +22,7 @@ fn require_inside_repeat_without_select_yields_error() {
                ,-[3:5]
              2 |     M 0
              3 |     REQUIRE rec[-1]
-               :     ^^^^^^^^^^^^^^^
+               :     ^^^^^^^
              4 | }
                `----
         "#]],
@@ -44,7 +44,7 @@ fn require_outside_select_yields_error() {
                ,-[2:1]
              1 | M 0
              2 | REQUIRE rec[-1]
-               : ^^^^^^^^^^^^^^^
+               : ^^^^^^^
                `----
         "#]],
     );
@@ -114,34 +114,40 @@ fn require_with_at_least_one_record_in_scope_lowers() {
         &expect![[r#"
             Circuit [0-51]:
                 items:
-                    [0-3] SingleQubitMeasurement {
-                        reset: false,
-                        observable: Z,
-                        readout_noise: 0.0 [0-0],
-                        negated: false,
-                        q: 0 [2-3],
-                    }
+                    Instruction [0-3]:
+                        name_span: [0-1]
+                        kind: SingleQubitMeasurement {
+                            reset: false,
+                            observable: Z,
+                            readout_noise: 0.0 [0-0],
+                            negated: false,
+                            q: 0 [2-3],
+                        }
                     SelectBlock [4-50]:
                         body:
-                            [17-20] SingleQubitMeasurement {
-                                reset: false,
-                                observable: Z,
-                                readout_noise: 0.0 [0-0],
-                                negated: false,
-                                q: 1 [19-20],
-                            }
-                            [25-48] Require {
-                                records: [
-                                    NegatableMeasurementRecord {
-                                        record: rec[-1] [33-40],
-                                        negated: false,
-                                    },
-                                    NegatableMeasurementRecord {
-                                        record: rec[-2] [41-48],
-                                        negated: false,
-                                    },
-                                ],
-                            }"#]],
+                            Instruction [17-20]:
+                                name_span: [17-18]
+                                kind: SingleQubitMeasurement {
+                                    reset: false,
+                                    observable: Z,
+                                    readout_noise: 0.0 [0-0],
+                                    negated: false,
+                                    q: 1 [19-20],
+                                }
+                            Instruction [25-48]:
+                                name_span: [25-32]
+                                kind: Require {
+                                    records: [
+                                        NegatableMeasurementRecord {
+                                            record: rec[-1] [33-40],
+                                            negated: false,
+                                        },
+                                        NegatableMeasurementRecord {
+                                            record: rec[-2] [41-48],
+                                            negated: false,
+                                        },
+                                    ],
+                                }"#]],
     );
 }
 
@@ -161,21 +167,25 @@ fn measure_reset_produces_record_in_select() {
                 items:
                     SelectBlock [0-39]:
                         body:
-                            [13-17] SingleQubitMeasurement {
-                                reset: true,
-                                observable: Z,
-                                readout_noise: 0.0 [0-0],
-                                negated: false,
-                                q: 0 [16-17],
-                            }
-                            [22-37] Require {
-                                records: [
-                                    NegatableMeasurementRecord {
-                                        record: rec[-1] [30-37],
-                                        negated: false,
-                                    },
-                                ],
-                            }"#]],
+                            Instruction [13-17]:
+                                name_span: [13-15]
+                                kind: SingleQubitMeasurement {
+                                    reset: true,
+                                    observable: Z,
+                                    readout_noise: 0.0 [0-0],
+                                    negated: false,
+                                    q: 0 [16-17],
+                                }
+                            Instruction [22-37]:
+                                name_span: [22-29]
+                                kind: Require {
+                                    records: [
+                                        NegatableMeasurementRecord {
+                                            record: rec[-1] [30-37],
+                                            negated: false,
+                                        },
+                                    ],
+                                }"#]],
     );
 }
 
@@ -194,21 +204,25 @@ fn pair_measurement_produces_record_in_select() {
                 items:
                     SelectBlock [0-42]:
                         body:
-                            [13-20] TwoQubitMeasurement {
-                                readout_noise: 0.0 [0-0],
-                                observable: ZZ,
-                                negated: false,
-                                q0: 0 [17-18],
-                                q1: 1 [19-20],
-                            }
-                            [25-40] Require {
-                                records: [
-                                    NegatableMeasurementRecord {
-                                        record: rec[-1] [33-40],
-                                        negated: false,
-                                    },
-                                ],
-                            }"#]],
+                            Instruction [13-20]:
+                                name_span: [13-16]
+                                kind: TwoQubitMeasurement {
+                                    readout_noise: 0.0 [0-0],
+                                    observable: ZZ,
+                                    negated: false,
+                                    q0: 0 [17-18],
+                                    q1: 1 [19-20],
+                                }
+                            Instruction [25-40]:
+                                name_span: [25-32]
+                                kind: Require {
+                                    records: [
+                                        NegatableMeasurementRecord {
+                                            record: rec[-1] [33-40],
+                                            negated: false,
+                                        },
+                                    ],
+                                }"#]],
     );
 }
 
@@ -308,7 +322,7 @@ fn notleaked_outside_select_yields_error() {
                ,-[2:1]
              1 | M 0
              2 | NOTLEAKED rec[-1]
-               : ^^^^^^^^^^^^^^^^^
+               : ^^^^^^^^^
                `----
         "#]],
     );
@@ -353,28 +367,34 @@ fn notleaked_with_at_least_one_record_in_scope_lowers() {
         &expect![[r#"
             Circuit [0-53]:
                 items:
-                    [0-3] SingleQubitMeasurement {
-                        reset: false,
-                        observable: Z,
-                        readout_noise: 0.0 [0-0],
-                        negated: false,
-                        q: 0 [2-3],
-                    }
+                    Instruction [0-3]:
+                        name_span: [0-1]
+                        kind: SingleQubitMeasurement {
+                            reset: false,
+                            observable: Z,
+                            readout_noise: 0.0 [0-0],
+                            negated: false,
+                            q: 0 [2-3],
+                        }
                     SelectBlock [4-52]:
                         body:
-                            [17-20] SingleQubitMeasurement {
-                                reset: false,
-                                observable: Z,
-                                readout_noise: 0.0 [0-0],
-                                negated: false,
-                                q: 1 [19-20],
-                            }
-                            [25-50] NotLeaked {
-                                records: [
-                                    rec[-1] [35-42],
-                                    rec[-2] [43-50],
-                                ],
-                            }"#]],
+                            Instruction [17-20]:
+                                name_span: [17-18]
+                                kind: SingleQubitMeasurement {
+                                    reset: false,
+                                    observable: Z,
+                                    readout_noise: 0.0 [0-0],
+                                    negated: false,
+                                    q: 1 [19-20],
+                                }
+                            Instruction [25-50]:
+                                name_span: [25-34]
+                                kind: NotLeaked {
+                                    records: [
+                                        rec[-1] [35-42],
+                                        rec[-2] [43-50],
+                                    ],
+                                }"#]],
     );
 }
 

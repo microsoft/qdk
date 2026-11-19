@@ -12,7 +12,7 @@ fn single_arg() {
             Circuit [0-20]:
                 items:
                     Instruction [0-20]:
-                        name: DEPOLARIZE1
+                        name: DEPOLARIZE1 [0-11]
                         tag: <none>
                         args:
                             Arg [12-17]: 0.001
@@ -30,7 +30,7 @@ fn multiple_comma_separated_args() {
             Circuit [0-35]:
                 items:
                     Instruction [0-35]:
-                        name: PAULI_CHANNEL_1
+                        name: PAULI_CHANNEL_1 [0-15]
                         tag: <none>
                         args:
                             Arg [16-20]: 0.01
@@ -50,7 +50,7 @@ fn scientific_notation_arg() {
             Circuit [0-15]:
                 items:
                     Instruction [0-15]:
-                        name: X_ERROR
+                        name: X_ERROR [0-7]
                         tag: <none>
                         args:
                             Arg [8-12]: 0.001
@@ -68,7 +68,7 @@ fn radians_args() {
             Circuit [0-11]:
                 items:
                     Instruction [0-11]:
-                        name: R_X
+                        name: R_X [0-3]
                         tag: <none>
                         args:
                             Arg [4-8]: 1 rad
@@ -82,7 +82,7 @@ fn radians_args() {
             Circuit [0-14]:
                 items:
                     Instruction [0-14]:
-                        name: R_Y
+                        name: R_Y [0-3]
                         tag: <none>
                         args:
                             Arg [4-11]: -0.5 rad
@@ -96,7 +96,7 @@ fn radians_args() {
             Circuit [0-17]:
                 items:
                     Instruction [0-17]:
-                        name: R_Z
+                        name: R_Z [0-3]
                         tag: <none>
                         args:
                             Arg [4-14]: 0.0025 rad
@@ -114,7 +114,7 @@ fn mixed_unit_args() {
             Circuit [0-27]:
                 items:
                     Instruction [0-27]:
-                        name: U3
+                        name: U3 [0-2]
                         tag: <none>
                         args:
                             Arg [3-6]: 0.1

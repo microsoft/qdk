@@ -20,10 +20,12 @@ fn repeat_block_lowers() {
                     RepeatBlock [0-18]:
                         count: 3
                         body:
-                            [13-16] SingleQubitGate {
-                                q: 0 [15-16],
-                                gate: X,
-                            }"#]],
+                            Instruction [13-16]:
+                                name_span: [13-14]
+                                kind: SingleQubitGate {
+                                    q: 0 [15-16],
+                                    gate: X,
+                                }"#]],
     );
 }
 
@@ -41,10 +43,12 @@ fn select_block_lowers() {
                 items:
                     SelectBlock [0-16]:
                         body:
-                            [11-14] SingleQubitGate {
-                                q: 0 [13-14],
-                                gate: X,
-                            }"#]],
+                            Instruction [11-14]:
+                                name_span: [11-12]
+                                kind: SingleQubitGate {
+                                    q: 0 [13-14],
+                                    gate: X,
+                                }"#]],
     );
 }
 
@@ -87,16 +91,20 @@ fn sibling_blocks_lower() {
                     RepeatBlock [0-20]:
                         count: 2
                         body:
-                            [15-18] SingleQubitGate {
-                                q: 0 [17-18],
-                                gate: X,
-                            }
+                            Instruction [15-18]:
+                                name_span: [15-16]
+                                kind: SingleQubitGate {
+                                    q: 0 [17-18],
+                                    gate: X,
+                                }
                     SelectBlock [21-39]:
                         body:
-                            [34-37] SingleQubitGate {
-                                q: 1 [36-37],
-                                gate: Z,
-                            }"#]],
+                            Instruction [34-37]:
+                                name_span: [34-35]
+                                kind: SingleQubitGate {
+                                    q: 1 [36-37],
+                                    gate: Z,
+                                }"#]],
     );
 }
 
@@ -120,10 +128,12 @@ fn repeat_inside_repeat_lowers() {
                             RepeatBlock [15-43]:
                                 count: 3
                                 body:
-                                    [34-37] SingleQubitGate {
-                                        q: 0 [36-37],
-                                        gate: X,
-                                    }"#]],
+                                    Instruction [34-37]:
+                                        name_span: [34-35]
+                                        kind: SingleQubitGate {
+                                            q: 0 [36-37],
+                                            gate: X,
+                                        }"#]],
     );
 }
 
@@ -146,10 +156,12 @@ fn select_inside_repeat_lowers() {
                         body:
                             SelectBlock [15-41]:
                                 body:
-                                    [32-35] SingleQubitGate {
-                                        q: 0 [34-35],
-                                        gate: X,
-                                    }"#]],
+                                    Instruction [32-35]:
+                                        name_span: [32-33]
+                                        kind: SingleQubitGate {
+                                            q: 0 [34-35],
+                                            gate: X,
+                                        }"#]],
     );
 }
 
@@ -172,10 +184,12 @@ fn repeat_inside_select_lowers() {
                             RepeatBlock [13-41]:
                                 count: 2
                                 body:
-                                    [32-35] SingleQubitGate {
-                                        q: 0 [34-35],
-                                        gate: X,
-                                    }"#]],
+                                    Instruction [32-35]:
+                                        name_span: [32-33]
+                                        kind: SingleQubitGate {
+                                            q: 0 [34-35],
+                                            gate: X,
+                                        }"#]],
     );
 }
 
@@ -197,10 +211,12 @@ fn select_inside_select_lowers() {
                         body:
                             SelectBlock [13-39]:
                                 body:
-                                    [30-33] SingleQubitGate {
-                                        q: 0 [32-33],
-                                        gate: X,
-                                    }"#]],
+                                    Instruction [30-33]:
+                                        name_span: [30-31]
+                                        kind: SingleQubitGate {
+                                            q: 0 [32-33],
+                                            gate: X,
+                                        }"#]],
     );
 }
 
@@ -229,20 +245,24 @@ fn alternating_nested_blocks_lower() {
                                     RepeatBlock [26-52]:
                                         count: 3
                                         body:
-                                            [43-46] SingleQubitMeasurement {
-                                                reset: false,
-                                                observable: Z,
-                                                readout_noise: 0.0 [0-0],
-                                                negated: false,
-                                                q: 0 [45-46],
-                                            }
-                                    [57-72] Require {
-                                        records: [
-                                            NegatableMeasurementRecord {
-                                                record: rec[-1] [65-72],
-                                                negated: false,
-                                            },
-                                        ],
-                                    }"#]],
+                                            Instruction [43-46]:
+                                                name_span: [43-44]
+                                                kind: SingleQubitMeasurement {
+                                                    reset: false,
+                                                    observable: Z,
+                                                    readout_noise: 0.0 [0-0],
+                                                    negated: false,
+                                                    q: 0 [45-46],
+                                                }
+                                    Instruction [57-72]:
+                                        name_span: [57-64]
+                                        kind: Require {
+                                            records: [
+                                                NegatableMeasurementRecord {
+                                                    record: rec[-1] [65-72],
+                                                    negated: false,
+                                                },
+                                            ],
+                                        }"#]],
     );
 }
