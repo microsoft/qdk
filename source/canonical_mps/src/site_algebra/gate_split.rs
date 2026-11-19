@@ -38,10 +38,10 @@ pub struct GateSplitCall<'t, T> {
     pub max_extent: usize,
     /// The share of the squared singular values the split may drop, in
     /// `[0, 1)`, and beyond it values of rounding's size, which an SVD may
-    /// give where the exact values are zero: their squares may add the
-    /// share the conformance kit allows for rounding (`ROUNDING_SHARE`, in
-    /// `conformance/gate_split.rs`). So 0 drops the zeros, and may drop
-    /// such values.
+    /// give where the exact values are zero: their squares may add up to
+    /// 1e-20 of the squared norm (values up to 1e-10 of the norm), the share
+    /// the conformance kit allows for rounding. So 0 drops the zeros, and
+    /// may drop such values.
     pub cutoff: f64,
     /// The site that absorbs the singular values, and so holds the centre
     /// afterwards.
