@@ -11,6 +11,9 @@ Pytest creates a `.venv` inside the temporary course copy and installs the
 course requirements there. Notebook kernels use that environment, while pytest
 continues to use the component's test environment.
 
+Quiz execution and MIME output are tested inside the existing course notebook
+environment. Source validation remains in the lightweight test runner.
+
 ## Local setup
 
 Run the course suite from the repository root with Python 3.11 or later:

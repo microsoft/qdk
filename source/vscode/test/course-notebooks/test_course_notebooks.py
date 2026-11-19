@@ -2,6 +2,9 @@ import ast
 import json
 from collections import Counter
 from pathlib import Path
+from textwrap import dedent
+
+import nbformat
 
 from notebook_runner import discover_notebooks, run_notebook
 
@@ -35,6 +38,94 @@ def test_course_notebook(copied_course_notebook: tuple[Path, Path, Path]) -> Non
     notebook_path, display_path, kernel_specs_dir = copied_course_notebook
 
     report = run_notebook(notebook_path, display_path, kernel_specs_dir)
+
+    assert not report.failures, report.format_failures()
+
+
+def test_chemistry_quiz_named_callers(
+    copied_course_dirs: dict[Path, Path],
+) -> None:
+    source_course = (
+        Path(__file__).resolve().parents[2]
+        / "resources"
+        / "qdk-learning"
+        / "courses"
+        / "chemistry-qpe"
+    )
+    course_dir = copied_course_dirs[source_course]
+    author = nbformat.v4.new_notebook(
+        cells=[
+            nbformat.v4.new_code_cell(
+                'quiz("example", prompt="Pick one", options=['
+                '("yes", "Yes", True, "Right"), ("no", "No", False, "Wrong")])',
+                metadata={"tags": ["quiz"]},
+            )
+        ]
+    )
+    (course_dir / "quiz_source.ipynb").write_text(
+        json.dumps(author), encoding="utf-8"
+    )
+    notebook = nbformat.v4.new_notebook(
+        cells=[
+            nbformat.v4.new_code_cell(dedent(source))
+            for source in (
+                """\
+                import json
+                from pathlib import Path
+                from unittest import TestCase
+
+                from IPython.utils.capture import capture_output
+                from _learning_output import MIME_TYPE, quiz_for_notebook
+
+                author = Path("quiz_source.ipynb").resolve()
+                before = author.read_bytes()
+                assert json.loads(before)["cells"][0]["outputs"] == []
+                bound = quiz_for_notebook(author)
+                """,
+                """\
+                with capture_output() as captured:
+                    bound("example")
+
+                assert len(captured.outputs) == 1
+                payload = captured.outputs[0].data[MIME_TYPE]
+                assert payload["payloadId"] == "example"
+                assert payload["prompt"] == "Pick one"
+                assert author.read_bytes() == before
+                """,
+                """\
+                notebook = json.loads(before)
+                cell = notebook["cells"][0]
+                cell["source"] = cell["source"].replace("Pick one", "Updated question")
+                author.write_text(json.dumps(notebook), encoding="utf-8")
+                updated = author.read_bytes()
+
+                with capture_output() as captured:
+                    bound("example")
+
+                assert len(captured.outputs) == 1
+                assert captured.outputs[0].data[MIME_TYPE]["prompt"] == "Updated question"
+                assert author.read_bytes() == updated
+                """,
+                """\
+                checks = TestCase()
+                with checks.assertRaisesRegex(ValueError, "no quiz 'missing'"):
+                    bound("missing")
+                with checks.assertRaises(TypeError):
+                    bound("example", "second")
+                assert author.read_bytes() == updated
+                """,
+            )
+        ]
+    )
+    notebook_path = course_dir / "quiz_callers.ipynb"
+    nbformat.write(notebook, notebook_path)
+    kernel_specs_dir = course_dir / ".venv" / "share" / "jupyter" / "kernels"
+
+    report = run_notebook(
+        notebook_path,
+        Path("chemistry-qpe") / notebook_path.name,
+        kernel_specs_dir,
+    )
 
     assert not report.failures, report.format_failures()
 
