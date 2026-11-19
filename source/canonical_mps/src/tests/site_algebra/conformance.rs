@@ -54,9 +54,19 @@ fn duplicate_catches_other_elements_and_shared_storage() {
     );
 }
 
+/// The failure names the seed of the pair at fault, so that its author can
+/// repeat the scene.
 #[test]
 fn split_without_truncation_catches_a_transposed_gate() {
     caught_by("split without truncation", &[Defect::TransposedGate]);
+    let failures = failures(Defect::TransposedGate);
+    let failure = (failures.iter())
+        .find(|failure| failure.case == "split without truncation")
+        .expect("the case fails, as checked above");
+    assert!(
+        failure.message.contains("of seed 300"),
+        "the seed is named: {failure}"
+    );
 }
 
 #[test]
