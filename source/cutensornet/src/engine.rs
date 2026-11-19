@@ -22,6 +22,8 @@
 //! DeviceSession and CudaAlgebra
 //!   └─ every native call ──────► NativeCalls     CUDA and cuTensorNet
 //!                                                (native_calls.rs)
+//! all three fail with ─────────► CudaAlgebraError
+//!                                                (cuda_algebra_error.rs)
 //! ```
 //!
 //! The files here hold the cuTensorNet mechanics: no circuit or shot, only
@@ -54,10 +56,12 @@
 //! device is per thread and another algebra's call may have changed it.
 
 pub(crate) mod cuda_algebra;
+pub(crate) mod cuda_algebra_error;
 mod device_session;
 pub(crate) mod native_calls;
 
-pub use cuda_algebra::{CudaAlgebra, DeviceTensor, error::CudaAlgebraError};
+pub use cuda_algebra::{CudaAlgebra, DeviceTensor};
+pub use cuda_algebra_error::CudaAlgebraError;
 
 // What the tests under `src/tests` name of the engine's private modules:
 // the session.

@@ -10,7 +10,7 @@
 //! call. A network computes in `CUTENSORNET_COMPUTE_64F`, the default
 //! `cutensornetCreateNetwork` documents for `CUDA_C_64F` tensors.
 
-use crate::engine::cuda_algebra::error::{CudaAlgebraError, combine_execution_and_cleanup};
+use crate::engine::cuda_algebra_error::{CudaAlgebraError, combine_execution_and_cleanup};
 use crate::engine::native_calls::{
     OpaqueHandle, Stream,
     tensor_calls::{

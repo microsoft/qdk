@@ -27,8 +27,8 @@
 //! wait for the device (its stream and its copies); otherwise it is kept
 //! until one succeeds, or leaked.
 
-use super::error::{CudaAlgebraError, first_failure, report_failed_release};
 use super::resources::AlgebraResources;
+use crate::engine::cuda_algebra_error::{CudaAlgebraError, first_failure, report_failed_release};
 use crate::engine::device_session::DeviceSession;
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle};
 use std::cell::RefCell;

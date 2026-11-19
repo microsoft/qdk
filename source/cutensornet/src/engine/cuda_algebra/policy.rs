@@ -4,16 +4,16 @@
 //! The algebra's fixed settings: the device, the SVD algorithm, the
 //! rounding a split's report may carry, and how the contractions of a move
 //! of the centre find and keep their paths. No caller tunes them. The SVD
-//! algorithm was chosen by measurement on an A100, given below; the path
-//! settings were carried over from the GPU prototype of this algebra, not
-//! measured.
+//! algorithm was chosen by measurement on an A100, given below; the gate
+//! split's algorithm and the path settings were carried over from the GPU
+//! prototype of this algebra, not measured here.
 //!
-//! A gate split also runs cuTensorNet's reduced algorithm
+//! A gate split runs cuTensorNet's reduced algorithm
 //! (`CUTENSORNET_GATE_SPLIT_ALGO_REDUCED`), which first factors A and B by
-//! QR and splits only the small core: on the A100 it was faster than the
-//! direct algorithm at every bond measured. It is applied where the gate
-//! split is called, in `native_calls/loaded_libraries`, since the native
-//! calls offer no other.
+//! QR and splits only the small core, rather than the direct algorithm,
+//! which splits the whole gated pair. It is applied where the gate split is
+//! called, in `native_calls/loaded_libraries`, since the native calls offer
+//! no other.
 
 use crate::engine::native_calls::tensor_calls::SvdSetting;
 

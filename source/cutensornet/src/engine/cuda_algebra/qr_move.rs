@@ -39,8 +39,8 @@
 use super::call_scope::CallScope;
 use super::contraction::{ContractionInput, contract};
 use super::device_tensor::{DeviceTensor, element_count};
-use super::error::CudaAlgebraError;
 use super::modes::{BOND, LEFT, NEW_BOND, P, P_OUT, Q, Q_OUT, RIGHT};
+use crate::engine::cuda_algebra_error::CudaAlgebraError;
 use crate::engine::native_calls::OpaqueHandle;
 use crate::engine::native_calls::tensor_calls::TensorOperand;
 use canonical_mps::site_algebra::{CentreSide, QrMoveCall};
