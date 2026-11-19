@@ -169,10 +169,10 @@ fn a_fork_keeps_its_parents_retained_weight() {
     }
 }
 
-/// A method that truncates a pair to a bond of 1 many times keeps a
-/// weight far below the smallest normal `f64`, yet its reads keep their
-/// value, however little weight the truncations kept, as each split
-/// normalises the values it keeps. One row per read.
+/// A simulation that truncates a pair to a bond of 1 many times keeps a
+/// weight as small as 2⁻¹⁰²⁰, just above the smallest normal `f64`, yet
+/// its reads keep their value, however little weight the truncations kept,
+/// as each split normalises the values it keeps. One row per read.
 #[test]
 fn reads_after_many_truncations_keep_their_value() {
     type Row = fn(&Engine, &str);

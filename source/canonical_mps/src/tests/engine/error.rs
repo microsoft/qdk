@@ -57,7 +57,8 @@ fn a_value_of_probability_zero_is_refused() {
 
 /// A value of rounding weight, or rare but possible, is not refused: the
 /// contract (`Refusal::ZeroProbabilityOutcome`) refuses only a probability
-/// of exactly zero, and leaves a threshold to the method that needs one.
+/// of exactly zero, and leaves a threshold to the simulation method that
+/// needs one.
 /// One row per call: a condition and a projection on One of rounding
 /// weight, and a condition on Zero of weight 1e-18.
 #[test]
@@ -155,9 +156,9 @@ fn a_refused_projection_leaves_what_reads_see_with_or_without_fusion() {
     }
 }
 
-/// A Toffoli the method did not decompose, after a gate that fusion keeps
-/// pending: the engine refuses it with the contract's refusal, with or
-/// without fusion, and the reads after it are the reads before it.
+/// A Toffoli the simulation method did not decompose, after a gate that
+/// fusion keeps pending: the engine refuses it with the contract's refusal,
+/// with or without fusion, and the reads after it are the reads before it.
 #[test]
 fn refuses_a_gate_on_three_sites_leaving_what_reads_see() {
     let identity: Vec<Complex64> = (0..64)
@@ -393,8 +394,8 @@ fn a_sample_too_large_for_memory_fails() {
 /// When a call to the algebra fails (as a backend's SVD may not
 /// converge), the engine's method that made it fails with the algebra's
 /// error, not a refusal, rather than return with sites lost or read stale
-/// ones: one row per operation and the call it makes, each with the
-/// algebra failing that call.
+/// ones: one row per engine call and the algebra operation it makes, each
+/// with the algebra failing that operation.
 #[test]
 fn every_algebra_failure_reaches_the_caller() {
     let failures = [
@@ -407,8 +408,9 @@ fn every_algebra_failure_reaches_the_caller() {
     }
 }
 
-/// A row of `every_algebra_failure_reaches_the_caller`: the operation, the
-/// call that failed, and the error the operation returned.
+/// A row of `every_algebra_failure_reaches_the_caller`: the engine's call
+/// that failed, named; the algebra's operation that failed in it; and the
+/// error the engine's call returned.
 type FailureRow = (String, Operation, Failure);
 
 /// The chain most rows prepare: 3 sites of bond 4; a row that needs
@@ -451,7 +453,8 @@ fn failures_of_preparations_and_gates() -> Vec<FailureRow> {
 
     // A gate whose sites, with the pending window's, number more than a
     // window holds applies the window first: the gate itself fails as that
-    // application does.
+    // application does. On 4 sites, since on 3 every pair of gates fits one
+    // window.
     let engine = CanonicalMpsEngine::new(FailingFakeAlgebra::every(Operation::GateSplit));
     let mut state = engine.prepare(&capacity(4, 4)).expect("prepare");
     engine

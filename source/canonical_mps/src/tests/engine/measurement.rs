@@ -66,8 +66,8 @@ fn a_projection_applies_the_sites_pending_gate_once() {
     }
 }
 
-/// A method that records each measurement's probability: the projection
-/// on either value returns that value's probability before it.
+/// A simulation method that records each measurement's probability: the
+/// projection on either value returns that value's probability before it.
 #[test]
 fn a_projection_returns_the_probability_of_its_value() {
     for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
