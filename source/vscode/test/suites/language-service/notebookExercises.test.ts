@@ -2,10 +2,13 @@
 // Licensed under the MIT License.
 
 import { assert } from "chai";
+import * as vscode from "vscode";
+import { workbookUri } from "../../../src/learning/courseLayout.js";
 import {
   parseNotebookActivities,
   stripAuthoringCells,
 } from "../../../src/learning/notebookExercises.js";
+import { rematerializeUnitWorkbook } from "../../../src/learning/python/materialization.js";
 import {
   canRestoreQuizAnswer,
   isCorrectQuizAnswer,
@@ -167,6 +170,33 @@ suite("Learning notebook quiz activities", () => {
         ...original,
         source: ['quiz("first-question")\n'],
       });
+    }
+  });
+
+  test("reset reports a missing author notebook without replacing the workbook", async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+    assert(folder);
+    const unit = {
+      id: "quiz-reset-test",
+      title: "Quiz reset test",
+      activities: [],
+      sourceNotebookUri: vscode.Uri.joinPath(
+        folder,
+        `quiz-reset-test-${vscode.env.sessionId}.ipynb`,
+      ),
+    };
+    const workbook = workbookUri(unit);
+    const original = new TextEncoder().encode("Learner's work");
+    await vscode.workspace.fs.writeFile(workbook, original);
+    try {
+      const error: unknown = await rematerializeUnitWorkbook(unit).catch(
+        (error: unknown) => error,
+      );
+      assert.instanceOf(error, vscode.FileSystemError);
+      assert.equal(error.code, "FileNotFound");
+      assert.deepEqual(await vscode.workspace.fs.readFile(workbook), original);
+    } finally {
+      await vscode.workspace.fs.delete(workbook);
     }
   });
 

@@ -507,7 +507,16 @@ export class LearningService {
     if (correct && !this.isComplete(location)) {
       this.markComplete(location);
     }
-    ws.progressData.position = location;
+    // A checked answer can arrive after navigation has started. Save it
+    // without moving the learner back to the sending workbook.
+    const position = ws.progressData.position;
+    if (
+      vscode.window.activeNotebookEditor?.notebook === workbook &&
+      position.courseId === location.courseId &&
+      position.unitId === location.unitId
+    ) {
+      ws.progressData.position = location;
+    }
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     return correct;
