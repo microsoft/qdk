@@ -29,6 +29,7 @@
 //!   gate_split ──────────► gate_split.rs      one GateSplit
 //!   qr_move ─────────────► qr_move.rs         a gate, a TensorQR, a
 //!                                             contraction
+//! tensor sizes             extents.rs
 //! settings                 policy.rs
 //! failures                 CudaAlgebraError
 //!                            (../cuda_algebra_error.rs)
@@ -58,6 +59,7 @@ mod algebra_session;
 mod call_scope;
 mod contraction;
 mod device_tensor;
+mod extents;
 mod gate_split;
 mod policy;
 mod qr_move;

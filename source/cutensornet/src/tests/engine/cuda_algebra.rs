@@ -8,12 +8,13 @@
 //! meets `SiteAlgebra`'s contract (`canonical_mps`'s conformance kit), what
 //! it opens and releases, the tensors it refuses, and what it does when a
 //! call fails. The scope of one call, its cleanups, its gate splits'
-//! reports, its contraction networks and its scratch are in the submodules.
-//! The rules of `qr_move.rs`, `device_tensor.rs` and `algebra_session.rs`
-//! have no file of their own: they are tested here, through the algebra's
-//! methods. What a read returns is the kit's rule; unlike the CPU
-//! algebra's, this algebra's read copies to the host, so no test pins a
-//! borrow. The kit and the engine's circuits also run on a GPU
+//! reports, its contraction networks and its scratch are in the submodules,
+//! and the error's cleanup rule in `cleanups.rs`. The rules of
+//! `qr_move.rs`, `device_tensor.rs`, `extents.rs`, `algebra_session.rs` and
+//! `device_session.rs` have no file of their own: they are tested here,
+//! through the algebra's methods. What a read returns is the kit's rule;
+//! unlike the CPU algebra's, this algebra's read copies to the host, so no
+//! test pins a borrow. The kit and the engine's circuits also run on a GPU
 //! (`tests/cuda_algebra_on_the_gpu.rs`).
 
 mod call_scope;
@@ -263,17 +264,11 @@ fn a_call_reading_past_a_tensors_elements_is_refused() {
         centre: CentreSide::Right,
     };
     let is_refused = |method: &str, refuse: &dyn Fn() -> Result<(), CudaAlgebraError>| {
-        let before = libraries.events().len();
-        let refused = refuse();
+        let refused = making_no_native_object(&libraries, method, refuse);
         assert!(
             matches!(refused, Err(CudaAlgebraError::InvalidNativeCall { .. })),
             "{method}: {refused:?}"
         );
-        let made = libraries.events()[before..]
-            .iter()
-            .filter(|event| event.starts_with("create_") || **event == "allocate")
-            .count();
-        assert_eq!(made, 0, "{method}: no native object made");
     };
     is_refused("read", &|| algebra.read(&small, 3).map(drop));
     is_refused("duplicate", &|| algebra.duplicate(&small, 3).map(drop));
@@ -287,24 +282,82 @@ fn a_call_reading_past_a_tensors_elements_is_refused() {
     }
 }
 
+/// A call whose extents multiply past `usize` names a tensor no buffer
+/// could hold: a defect of its caller, refused with an error, not a panic,
+/// before the call makes any native object, whichever method makes it and
+/// whichever of a pair's extents overflows.
+#[test]
+fn a_call_whose_extents_overflow_is_refused() {
+    let (algebra, libraries) = algebra();
+    let (a, b) = random_pair(1, 1, 1, 3);
+    let (left, right) = (upload(&algebra, &a), upload(&algebra, &b));
+    let huge = usize::MAX / 2 + 1;
+    for (side, l, r) in [("left", huge, 1), ("right", 1, huge)] {
+        let split = Split {
+            l,
+            r,
+            ..one_qubit_split(&a, &b)
+        };
+        let moved = Move {
+            a: &a,
+            b: &b,
+            l,
+            m: 1,
+            r,
+            gate: None,
+            centre: CentreSide::Right,
+        };
+        let is_refused = |method: &str, refuse: &dyn Fn() -> Result<(), CudaAlgebraError>| {
+            let method = format!("{method}, {side} extent");
+            let refused = making_no_native_object(&libraries, &method, refuse);
+            assert!(
+                matches!(refused, Err(CudaAlgebraError::ResourceSizeOverflow { .. })),
+                "{method}: {refused:?}"
+            );
+        };
+        is_refused("gate split", &|| {
+            algebra.gate_split(&split.call(&left, &right)).map(drop)
+        });
+        is_refused("move of the centre", &|| {
+            algebra.qr_move(&moved.call(&left, &right)).map(drop)
+        });
+    }
+}
+
 /// `SiteAlgebra`'s contract never asks for an empty tensor (an upload holds
-/// at least one element, a duplicate at least 1): a caller that breaks it,
-/// uploading nothing or duplicating no element, gets an invalid call,
-/// refused before any native object is made.
+/// at least one element, and a duplicate copies at least one): a caller
+/// that breaks it, uploading nothing or duplicating no element, gets an
+/// invalid call, refused before any native object is made.
 #[test]
 fn a_call_for_an_empty_tensor_is_refused() {
     let (algebra, libraries) = algebra();
     let tensor = upload(&algebra, &random(2, 7));
-    let before = libraries.live_objects();
-    let uploaded = algebra.upload(&[]).map(drop);
-    let duplicated = algebra.duplicate(&tensor, 0).map(drop);
-    for (method, refused) in [("upload", uploaded), ("duplicate", duplicated)] {
+    let is_refused = |method: &str, refuse: &dyn Fn() -> Result<(), CudaAlgebraError>| {
+        let refused = making_no_native_object(&libraries, method, refuse);
         assert!(
             matches!(refused, Err(CudaAlgebraError::InvalidNativeCall { .. })),
             "{method}: {refused:?}"
         );
-    }
-    assert_eq!(libraries.live_objects(), before, "nothing made");
+    };
+    is_refused("upload", &|| algebra.upload(&[]).map(drop));
+    is_refused("duplicate", &|| algebra.duplicate(&tensor, 0).map(drop));
+}
+
+/// What `call` returns, once checked, with `method` named in the message,
+/// to have made no native object: no `create_*` call and no allocation.
+fn making_no_native_object(
+    libraries: &FakeLibraries,
+    method: &str,
+    call: impl FnOnce() -> Result<(), CudaAlgebraError>,
+) -> Result<(), CudaAlgebraError> {
+    let before = libraries.events().len();
+    let result = call();
+    let made = libraries.events()[before..]
+        .iter()
+        .filter(|event| event.starts_with("create_") || **event == "allocate")
+        .count();
+    assert_eq!(made, 0, "{method}: no native object made");
+    result
 }
 
 /// A tensor is freed through the session of the algebra that made it,
@@ -422,8 +475,9 @@ fn every_methods_outputs_are_ready_when_it_returns() {
 /// Dropping an algebra and its tensors releases every native object: the
 /// workspace and its scratch, the gate's and the singular values' buffers
 /// (and the smaller one a growth replaced), the prepared contractions, the
-/// tensors, and last the cuTensorNet handle, then the stream its work runs
-/// on (an order the fake libraries do not enforce, so checked here).
+/// tensors, and last, once the device is selected and the stream's work
+/// done, the cuTensorNet handle, then the stream its work runs on (an order
+/// the fake libraries do not enforce, so checked here).
 #[test]
 fn dropping_the_algebra_and_its_tensors_releases_every_native_object() {
     let (algebra, libraries) = algebra();
@@ -460,9 +514,15 @@ fn dropping_the_algebra_and_its_tensors_releases_every_native_object() {
     assert_eq!(libraries.live_objects(), 0);
     let events = libraries.events();
     assert_eq!(
-        events[events.len() - 2..],
-        ["destroy_handle", "destroy_stream"],
-        "the handle's work runs on the stream: the handle goes first"
+        events[events.len() - 4..],
+        [
+            "set_device",
+            "synchronize_stream",
+            "destroy_handle",
+            "destroy_stream"
+        ],
+        "the close selects the device and waits for the stream; the handle's \
+         work runs on the stream: the handle goes first"
     );
 }
 

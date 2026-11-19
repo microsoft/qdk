@@ -97,8 +97,8 @@ pub enum CudaAlgebraError {
     /// A CUDA algebra was given a tensor another algebra made, which it
     /// refuses before any native call: made by the CUDA algebra.
     #[error(
-        "a site tensor belongs to another GPU engine, whose device work this one cannot \
-         wait for"
+        "a site tensor was made by another CUDA algebra (another GPU engine), whose \
+         device work this one cannot wait for"
     )]
     ForeignTensor,
 

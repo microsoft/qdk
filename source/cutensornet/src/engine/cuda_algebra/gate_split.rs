@@ -28,8 +28,9 @@
 //! U's and V's extents to the reduced one, so a descriptor would not serve
 //! the next call.
 
-use super::call_scope::{CallScope, element_count};
+use super::call_scope::CallScope;
 use super::device_tensor::DeviceTensor;
+use super::extents::element_count;
 use super::modes::{BOND, LEFT, NEW_BOND, P, P_OUT, Q, Q_OUT, RIGHT};
 use super::policy;
 use crate::engine::cuda_algebra_error::CudaAlgebraError;

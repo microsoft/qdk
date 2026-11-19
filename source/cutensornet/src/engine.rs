@@ -16,7 +16,8 @@
 //! ```text
 //! CudaMpsEngine = CanonicalMpsEngine<CudaAlgebra>   (canonical_mps)
 //! CudaAlgebra ── holds ──► DeviceSession   device, stream, handle
-//!                                          (device_session.rs)
+//!                                          (device_session.rs), through
+//!                                          its AlgebraSession
 //!             ── makes ──► DeviceTensor    one site in a device buffer
 //!                                          (cuda_algebra/)
 //! DeviceSession and CudaAlgebra
@@ -75,8 +76,8 @@ pub use cuda_algebra_error::CudaAlgebraError;
 ///
 /// Open one in each run's first step, on the thread that runs it, and drop
 /// it at the run's end: it holds device 0's stream and cuTensorNet handle,
-/// and the memory it lent cuTensorNet, grown to the run's largest call,
-/// until it is dropped.
+/// the memory it lent cuTensorNet (grown to the run's largest call) and the
+/// contraction networks it prepared, until it is dropped.
 ///
 /// Its states' sites are its algebra's tensors, which another algebra
 /// refuses: a method given another engine's state that passes its sites to
