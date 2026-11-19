@@ -16,13 +16,14 @@
 //! boundary's, and the admission's, at each boundary the needs of the part
 //! above against the offer of the part below ([`CompositionFaults`]). A
 //! chain that composes is then a runner, which gets every part ready for
-//! its needs on each run, and the protocol shapes the readouts crossing
-//! its boundaries, checks every batch's count of instructions, and each
-//! batch its sender marked [`checked`](crate::Batch::checked), so a part
-//! writes only its own logic. A part has a place only in a chain, so what
-//! names it there ([`PartId`]), the call across each boundary
-//! (`boundary_crossing`) and the catching of a part's panics
-//! (`part_panics`) belong to composition too.
+//! its needs on each run, and the protocol shapes the readouts of each
+//! batch crossing its boundaries, checks every batch's count of
+//! instructions, and each batch its sender marked
+//! [`checked`](crate::Batch::checked), so a part writes only its own
+//! logic. A part has a place only in a chain, so what names it there
+//! ([`PartId`]), the call across each boundary (`boundary_crossing`) and
+//! the catching of a part's panics (`part_panics`) belong to composition
+//! too.
 //!
 //! The joins `>>` allows, and the role each gives, are in the crate's
 //! `docs/composing-and-running.md` ("Joining parts with `>>`").

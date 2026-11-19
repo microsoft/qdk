@@ -197,7 +197,7 @@ pub trait Execute: ExecutorSetup {
     /// ([`InstructionStream`]). By default, it runs the stream in pieces,
     /// each one `execute` of one batch of at most the most instructions this
     /// executor takes ([`Offer::max_instructions`](crate::Offer), or 1 if it
-    /// takes none) and at most
+    /// is 0) and at most
     /// [`MAX_INSTRUCTIONS_PER_PIECE`](crate::MAX_INSTRUCTIONS_PER_PIECE),
     /// however many it takes, pulling each piece only once the one before
     /// it has answered, so every executor serves it. It then holds one

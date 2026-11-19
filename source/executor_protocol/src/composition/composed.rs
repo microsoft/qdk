@@ -25,11 +25,11 @@
 //! (`BoundaryCrossing`), so every boundary of the chain is crossed
 //! the same way, whatever the brackets: the boundary inside a `Composed`
 //! here, and the one where the driver meets the executor by the runner.
-//! Each shapes the readouts that cross it, checks every batch's count of
-//! instructions against the most its receiver takes, and checks each
-//! batch its sender marked [`checked`](Batch::checked) against the
-//! receiver's instruction set, the shots' needs and the readout slots the
-//! batch states. It names a panic below it by the part that receives the
+//! Each shapes the readouts of each batch that crosses it, checks every
+//! batch's count of instructions against the most its receiver takes, and
+//! checks each batch its sender marked [`checked`](Batch::checked) against
+//! the receiver's instruction set, the shots' needs and the readout slots
+//! the batch states. It names a panic below it by the part that receives the
 //! calls. The limits and the names are kept when the `>>` that makes the
 //! runner reads every part's set, needs and offer, so that the checks and
 //! the names are the same wherever the brackets go. So are the needs that

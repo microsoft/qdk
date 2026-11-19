@@ -1196,18 +1196,23 @@ impl Execute for PullsExactly {
 }
 
 /// The parts of a stream of `length` flips of qubit 0 on shots 0 and 1,
+/// but for a flip of qubit 3, beyond its needs, at `beyond_at` if any,
 /// checked if `checked`, each made only when pulled, counted in
 /// `produced`, to a [`PullsExactly`] pulling `pulls` times and taking at
 /// most 2 instructions per batch, so that a checked stream crosses the
 /// boundary in pieces of 2.
 fn stream_to_one_pulling(
     length: usize,
+    beyond_at: Option<usize>,
     checked: bool,
     pulls: usize,
     produced: &Rc<Cell<usize>>,
     log: &Log,
 ) -> (Driver<Program>, Executor<PullsExactly>) {
-    let program = Program::new(&vec![("x", 0); length])
+    let flips: Vec<(&str, u32)> = (0..length)
+        .map(|at| ("x", if Some(at) == beyond_at { 3 } else { 0 }))
+        .collect();
+    let program = Program::new(&flips)
         .needing(Needs::qubits(1))
         .sending_as(Sending::stream_counted(produced));
     let offer = Offer::unlimited().max_qubits(64).without_readout_parity();
@@ -1248,13 +1253,13 @@ fn an_ok_to_a_stream_not_taken_whole_fails_naming_its_receiver() {
         for checked in [false, true] {
             let case = format!("{pulls} pulls of a stream of {length}, checked: {checked}");
             let log = Log::default();
-            let (d, e) = stream_to_one_pulling(length, checked, pulls, &Rc::default(), &log);
+            let (d, e) = stream_to_one_pulling(length, None, checked, pulls, &Rc::default(), &log);
             let run = runner(d >> e).run(&ShotSet::ids(0..2), SEED);
             assert_eq!(run.is_ok(), whole, "{case}, no adapter: {run:?}");
             let counted = Rc::new(Cell::new(0));
             in_each_bracketing!([d, a, e] from {
                 let log = Log::default();
-                let (d, e) = stream_to_one_pulling(length, checked, pulls, &Rc::default(), &log);
+                let (d, e) = stream_to_one_pulling(length, None, checked, pulls, &Rc::default(), &log);
                 let a = Adapter::new(Profiler::new(&counted, &log));
             }, |chain, brackets| {
                 let run = runner(chain).run(&ShotSet::ids(0..2), SEED);
@@ -1283,27 +1288,31 @@ fn an_ok_to_a_stream_not_taken_whole_fails_naming_its_receiver() {
 /// once the stream ended, or while a checked piece it holds still has
 /// some, so that a long stream answered early is not run to its end.
 /// A checked stream's sender has made, besides, the pieces of 2 the
-/// boundary checked before the executor pulled them.
+/// boundary checked before the executor pulled them; and none after a
+/// flip beyond the needs ended the stream in a later piece, since that
+/// stream has ended.
 #[test]
 fn after_an_ok_to_a_stream_its_sender_is_asked_at_most_once_more() {
-    for (checked, pulls, produced_then) in [
-        (false, 7, 6),
-        (false, 6, 6),
-        (false, 4, 5),
-        (false, 0, 1),
-        (true, 7, 6),
-        (true, 6, 6),
-        (true, 4, 5),
-        (true, 3, 4),
-        (true, 0, 2),
+    for (checked, pulls, beyond_at, produced_then) in [
+        (false, 7, None, 6),
+        (false, 6, None, 6),
+        (false, 4, None, 5),
+        (false, 0, None, 1),
+        (true, 7, None, 6),
+        (true, 6, None, 6),
+        (true, 4, None, 5),
+        (true, 3, None, 4),
+        (true, 0, None, 2),
+        (true, 7, Some(2), 4),
+        (true, 7, Some(3), 4),
     ] {
         let (log, produced) = (Log::default(), Rc::new(Cell::new(0)));
-        let (d, e) = stream_to_one_pulling(6, checked, pulls, &produced, &log);
+        let (d, e) = stream_to_one_pulling(6, beyond_at, checked, pulls, &produced, &log);
         let _ = runner(d >> e).run(&ShotSet::ids(0..2), SEED);
         assert_eq!(
             produced.get(),
             produced_then,
-            "{pulls} pulls of a stream of 6, checked: {checked}"
+            "{pulls} pulls of a stream of 6, beyond the needs at {beyond_at:?}, checked: {checked}"
         );
     }
 }

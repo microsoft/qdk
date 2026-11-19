@@ -31,8 +31,8 @@ below it, such as a noise model, a code's lowering and decoding, or a
 debugger; and an executor at the bottom, such as a simulator or a device.
 A part calls the part below it with `execute`: batches of instructions,
 each on a set of shots, answered with each shot's readouts; or, through
-its streaming forms, sends the instructions as they are made and gets each
-shot's readouts as they come ([Streaming](#streaming)). So a driver
+its streaming forms, sends the instructions as they are made, or gets each
+shot's rows as soon as they are final ([Streaming](#streaming)). So a driver
 sends each shot's instructions up to its next branch, reads the readouts,
 and sends the next, as an adaptive program needs. A part depends on the
 protocol alone, never on another part: the rest of the chain below it is
@@ -198,10 +198,11 @@ them as defined here.
   sender makes them, which the receiver pulls as it runs them, so that
   neither holds the whole program.
 - **Sender** and **receiver**: the two sides of an `execute` or an
-  `execute_stream`: the part above, which sends the batches or the stream,
-  and the part below, which runs them and fills their readouts. The protocol stands between them on each call
-  across the boundary: it checks the batches and shapes their readouts, so
-  that neither side has to.
+  `execute_stream`: the part above, which sends the batches or the
+  stream, and the part below, which runs them and fills their readouts.
+  The protocol stands between them on each call across the boundary: it
+  checks the batches and checked streams, and shapes each batch's
+  readouts, so that neither side has to.
 - **Checked batch**: a batch its sender marked [`checked`](src/batch.rs),
   which each boundary checks in full before it runs. An unchecked batch,
   the default, runs as sent, with only its count of instructions checked.
@@ -303,7 +304,7 @@ bypassed:
   shot set's instructions, pulled from the sender's iterator as they
   run, gets the readouts of the same instructions sent whole. By
   default, the protocol cuts it into pieces of at most the receiver's
-  most instructions per batch, or 1 for a receiver taking none, and at
+  most instructions per batch, or 1 for a receiver whose most is 0, and at
   most [`MAX_INSTRUCTIONS_PER_PIECE`](src/batch/instruction_stream.rs)
   however many it takes, and holds one piece of it at a time.
 

@@ -5,7 +5,8 @@
 //! instructions on a [`ShotSet`] of [`ShotId`]s, checked before they run
 //! when their sender asks, and for each its [`BatchReadouts`]; and a
 //! stream of instructions, the streamed counterpart of a batch, an
-//! [`InstructionStream`], cut into pieces of at most
+//! [`InstructionStream`], which the default forms cut, and each boundary
+//! checks if it is checked, in pieces of at most
 //! [`MAX_INSTRUCTIONS_PER_PIECE`].
 
 mod batch_readouts;
