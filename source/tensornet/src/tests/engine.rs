@@ -17,7 +17,8 @@ use num_complex::Complex64;
 const REFERENCE: ExactReference = ExactReference;
 
 /// The reference without its own conditional probability, so that the
-/// trait's default answers it: an engine that has no projected contraction.
+/// trait's default answers it, and draws its samples from that default: an
+/// engine that has no projected contraction.
 struct DefaultConditional;
 
 impl MpsEngine for DefaultConditional {
@@ -53,6 +54,8 @@ impl MpsEngine for DefaultConditional {
     fn fork(&self, state: &ReferenceState) -> Result<ReferenceState, ReferenceError> {
         REFERENCE.fork(state)
     }
+    /// Draws from this engine's own conditional probabilities, the trait's
+    /// default, as an engine with no sampler of its own would.
     fn sample(
         &self,
         state: &ReferenceState,
@@ -60,7 +63,10 @@ impl MpsEngine for DefaultConditional {
         shots: usize,
         seed: u64,
     ) -> Result<Vec<bool>, ReferenceError> {
-        REFERENCE.sample(state, sites, shots, seed)
+        crate::checks::sample(state.site_count(), sites)?;
+        crate::sampling::sample_by_conditionals(sites, shots, seed, |site, given| {
+            self.conditional_probability_of_one(state, site, given)
+        })
     }
     fn expectation(
         &self,
@@ -171,7 +177,8 @@ fn the_default_conditional_probability_runs_the_checks() {
 /// projection on the second value refuses it, and the default passes its
 /// refusal on. On a state whose norm is NaN or zero, every probability is
 /// NaN, and with no condition nothing is projected: the default refuses the
-/// empty condition itself, as the reference does.
+/// empty condition itself, as the reference does for such a norm (on an
+/// infinite norm the reference answers NaN instead).
 #[test]
 fn the_default_conditional_probability_refuses_a_condition_of_probability_zero_or_nan() {
     let capacity = MpsShape::qubit_chain(3, usize::MAX).expect("three sites form a chain");
@@ -194,6 +201,26 @@ fn the_default_conditional_probability_refuses_a_condition_of_probability_zero_o
         let state = ReferenceState::from_amplitudes(&amplitudes);
         assert_eq!(
             conditional(&state, 0, &[]),
+            Err(Some(Refusal::ZeroProbabilityOutcome)),
+            "{amplitudes:?}"
+        );
+    }
+}
+
+/// An engine with no sampler of its own draws from its conditional
+/// probabilities, so on a state whose norm is NaN or zero its first draw
+/// meets the default's refusal, and `sample` passes it on rather than
+/// drawing from a NaN.
+#[test]
+fn sampling_from_the_default_conditional_probability_passes_its_refusal_on() {
+    let zero = c(0.0, 0.0);
+    for amplitudes in [[c(f64::NAN, 0.0), c(1.0, 0.0)], [zero, zero]] {
+        let state = ReferenceState::from_amplitudes(&amplitudes);
+        let refusal = DefaultConditional
+            .sample(&state, &[0], 1, 7)
+            .map_err(|e| crate::MpsEngineError::refusal(&e).cloned());
+        assert_eq!(
+            refusal,
             Err(Some(Refusal::ZeroProbabilityOutcome)),
             "{amplitudes:?}"
         );

@@ -90,10 +90,11 @@ pub enum Refusal {
     /// projects a site on, or the values a condition names jointly, so no
     /// projection or conditional probability exists. Made by `project` and
     /// `conditional_probability_of_one`, which read the state, once the
-    /// checks of their arguments pass. An outcome that is impossible may
-    /// keep a tiny probability from rounding, and is then not refused: a
-    /// method that must refuse it does so by its own threshold, before it
-    /// calls the engine.
+    /// checks of their arguments pass, and passed on by `sample` in an
+    /// engine that draws from its conditional probabilities. An outcome
+    /// that is impossible may keep a tiny probability from rounding, and is
+    /// then not refused: a method that must refuse it does so by its own
+    /// threshold, before it calls the engine.
     #[error("the outcome has probability zero")]
     ZeroProbabilityOutcome,
 }

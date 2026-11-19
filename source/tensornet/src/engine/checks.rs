@@ -7,7 +7,9 @@
 //! changes the state, so that every engine refuses a call with one fault
 //! with the same [`Refusal`]. They make every refusal but
 //! [`Refusal::ZeroProbabilityOutcome`], which reads the state, so the
-//! projection and the conditional probability make it after their checks.
+//! projection and the conditional probability make it after their checks,
+//! and `sample` passes it on in an engine that draws from its conditional
+//! probabilities.
 //!
 //! Each function takes the method's arguments in the method's order, with
 //! the state's site count in place of the state, and returns the refusal

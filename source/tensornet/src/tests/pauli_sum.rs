@@ -30,16 +30,18 @@ fn applied(paulis: &[Pauli]) -> [num_complex::Complex64; 2] {
     [state.amplitude(0), state.amplitude(1)]
 }
 
-/// Y|0⟩ = i|1⟩, so in `M[out][in]` the entry M[1][0] is i, and the
-/// transposed layout would give −i|1⟩.
+/// Y|0⟩ = i|1⟩ and Y|1⟩ = −i|0⟩, so in `M[out][in]` the entry M[1][0] is
+/// i and M[0][1] is −i, and the transposed layout would swap them.
 #[test]
 fn the_y_matrix_is_row_major_out_by_in() {
     assert_eq!(on_zero(Pauli::Y), [c(0.0, 0.0), c(0.0, 1.0)]);
+    assert_eq!(on_one(Pauli::Y), [c(0.0, -1.0), c(0.0, 0.0)]);
 }
 
 #[test]
-fn the_x_matrix_flips_zero_to_one() {
+fn the_x_matrix_flips_zero_and_one() {
     assert_eq!(on_zero(Pauli::X), [c(0.0, 0.0), c(1.0, 0.0)]);
+    assert_eq!(on_one(Pauli::X), [c(1.0, 0.0), c(0.0, 0.0)]);
 }
 
 #[test]
