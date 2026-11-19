@@ -26,28 +26,6 @@ impl SessionCalls for LoadedLibraries {
         self.check_cuda("cudaSetDevice", status)
     }
 
-    fn compute_capability(&self, ordinal: i32) -> Result<(i32, i32), CudaAlgebraError> {
-        let attribute = |attribute| -> Result<i32, CudaAlgebraError> {
-            let mut value = 0;
-            // SAFETY: `value` is a valid writable `int` out-pointer and the
-            // attribute is one of the header's; CUDA checks the ordinal,
-            // returning an error for an invalid one.
-            let status = unsafe {
-                (self.cuda_runtime.functions.device_get_attribute)(
-                    &raw mut value,
-                    attribute,
-                    ordinal,
-                )
-            };
-            self.check_cuda("cudaDeviceGetAttribute", status)?;
-            Ok(value)
-        };
-        Ok((
-            attribute(cudart_12::cudaDeviceAttr_cudaDevAttrComputeCapabilityMajor)?,
-            attribute(cudart_12::cudaDeviceAttr_cudaDevAttrComputeCapabilityMinor)?,
-        ))
-    }
-
     fn create_stream(&self) -> Result<Stream, CudaAlgebraError> {
         let mut stream = std::ptr::null_mut();
         // SAFETY: `stream` is a valid writable out-pointer and the flags value

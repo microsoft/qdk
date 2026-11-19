@@ -3,8 +3,8 @@
 
 //! [`read_devices`]: how many devices there are, and the GPU engine's
 //! device, read with it current, and no other device; a failed call fails
-//! the report; and which compute capabilities NVIDIA supports cuTensorNet
-//! on.
+//! the report. Which compute capabilities the check accepts is tested where
+//! users meet it, through `GpuSetup` (`tests/gpu_setup.rs`).
 
 use std::cell::Cell;
 
@@ -146,22 +146,5 @@ fn a_failed_call_fails_the_report() {
         };
         devices.current.set(Some(0));
         assert!(read_devices(&devices).is_err(), "{call:?}");
-    }
-}
-
-/// NVIDIA supports cuTensorNet on compute capability 7.5 and later: 6.1,
-/// 7.0 and 7.4 are not supported, 7.5, 8.0 and 9.0 are.
-#[test]
-fn the_minimum_compute_capability_and_later_are_supported() {
-    let device = |compute_capability| EngineDevice {
-        compute_capability,
-        free_bytes: 0,
-        total_bytes: 0,
-    };
-    for unsupported in [(6, 1), (7, 0), (7, 4)] {
-        assert!(!device(unsupported).is_supported(), "{unsupported:?}");
-    }
-    for supported in [(7, 5), (8, 0), (9, 0)] {
-        assert!(device(supported).is_supported(), "{supported:?}");
     }
 }

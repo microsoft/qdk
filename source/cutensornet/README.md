@@ -25,12 +25,12 @@ algebra, and with libraries opened at run time. The engine's rules are
 written once, in `canonical_mps`; this crate writes only the five tensor
 operations of its `SiteAlgebra` trait, run by cuTensorNet on one GPU,
 with the sites in the GPU's memory. cuTensorNet and the CUDA Runtime are
-never linked: they are opened at run time and checked ([discovery](#the-
-discovery-and-loading-of-the-libraries)), which returns the loaded
-libraries, on which an engine opens, or why they cannot be used: every
-fault it found, or, off Linux x86-64, that the platform is unsupported.
-The GPU setup check reuses discovery, adds a device read and a trial
-run, and says what to fix.
+never linked: they are opened at run time and checked
+([discovery](#the-discovery-and-loading-of-the-libraries)), which returns
+the loaded libraries, on which an engine opens, or why they cannot be
+used: every fault it found, or, off Linux x86-64, that the platform is
+unsupported. The GPU setup check reuses discovery, adds a device read and
+a trial run, and says what to fix.
 
 Today the crate holds:
 
@@ -68,8 +68,16 @@ The extension point is an MPS simulation method: written once against
 default cutoff (`.with_cutoff(c)` sets another), as the example on
 [`CudaMpsEngine`](src/engine.rs) does; or, to hold the algebra itself,
 with `CudaMpsEngine::new(CudaAlgebra::new(&availability)?)`. The
-simulator opens the engine in each run's first step and drops it at the
-run's end; [`CudaMpsEngine`](src/engine.rs) says why.
+simulator opens the engine in each run's first step, on the thread that
+runs it, and drops it at the run's end: the engine holds device 0's
+stream and cuTensorNet handle, the memory it lent cuTensorNet (grown to
+the run's largest call) and the contraction networks it prepared, until
+it is dropped. On an error, the simulator tells the user what is missing,
+or runs on `CpuMpsEngine`. A user setting the GPU up writes nothing, and
+calls `GpuSetup::check`. A library bound later is one module under
+[`src/libraries/`](src/libraries), implementing `NativeLibrary` for
+discovery and `LibrarySetupGuide` for the setup check
+([`docs/loading.md`](docs/loading.md)).
 
 ## The MPS engine
 
@@ -365,8 +373,6 @@ cuTensorNet's.
 
 ## The GPU setup check
 
-A GPU run needs a driver, a device and two libraries, all outside the QDK,
-and a user who does not know CUDA cannot tell which is wrong.
 [`GpuSetup::check`](src/gpu_setup.rs), which the user runs while setting the
 GPU up, never fails: the [`GpuSetup`](src/gpu_setup.rs) it returns lists
 what each step below found, warns of other copies of a library, and says

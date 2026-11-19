@@ -3,6 +3,10 @@
 
 //! [`GpuSetup`]: that a user reads what was found, whether the setup is
 //! ready, and for each kind of problem, the fix that applies to it.
+//!
+//! The tests check what each message names (a library, a variable, a
+//! path, a version, `nvidia-smi`, a command), never its wording, so that a
+//! reworded message keeps its tests.
 
 mod devices;
 
@@ -18,17 +22,43 @@ use crate::{
 };
 #[cfg(unix)]
 use canonical_mps::CanonicalMpsError;
-
-/// The install every library fault is advised, without a packager's
-/// command.
 #[cfg(unix)]
-const INSTALL: &str = "install cuTensorNet 2.13 and the CUDA Runtime 12.9";
+use std::error::Error;
 
-/// What follows every install advised: the restart that loads what it
-/// installs.
+/// Whether `advice` advises the install: it names each library at its
+/// audited version.
 #[cfg(unix)]
-const RESTART: &str = ", then restart the process (in a notebook, the kernel), because a \
-                       library already loaded in the process stays loaded";
+fn advises_install(advice: &str) -> bool {
+    ["cuTensorNet 2.13", "CUDA Runtime 12.9"]
+        .iter()
+        .all(|library| advice.contains(library))
+}
+
+/// Whether `advice` says to restart the process, which loads what an
+/// install brings.
+#[cfg(unix)]
+fn advises_restart(advice: &str) -> bool {
+    advice.contains("restart")
+}
+
+/// The line of `report` that starts with `label`.
+#[cfg(unix)]
+fn line<'a>(report: &'a str, label: &str) -> &'a str {
+    report
+        .lines()
+        .find(|line| line.starts_with(label))
+        .unwrap_or_else(|| panic!("a line {label:?} in {report}"))
+}
+
+/// Whether `text` shows `error`, then the error's cause: a wrapping error
+/// does not hide why it failed.
+#[cfg(unix)]
+fn shows_with_its_cause(text: &str, error: &dyn Error) -> bool {
+    let message = error.to_string();
+    let cause = error.source().expect("the error has a cause").to_string();
+    text.find(&message)
+        .is_some_and(|at| text[at + message.len()..].contains(&cause))
+}
 
 /// The command a Python packager gives for its install.
 #[cfg(unix)]
@@ -202,15 +232,23 @@ fn a_ready_setup_lists_what_was_found_and_nothing_to_fix() {
     assert!(ready.is_ready());
     assert_eq!(ready.advice(), None);
     let report = ready.to_string();
-    for expected in [
-        "cuTensorNet: \"/env/cuquantum/lib/libcutensornet.so.2\" (2.13.0, built for CUDA Runtime 12.9)",
-        "CUDA Runtime: \"/env/nvidia/cuda_runtime/lib/libcudart.so.12\" (12.9)",
-        "CUDA driver: supports CUDA 12.8",
-        "CUDA devices: 2; CUDA device 0, where the GPU engine runs: compute capability 8.0, \
-         79.0 of 80.0 GiB free",
-        "trial run on CUDA device 0: ready",
+    for (label, items) in [
+        (
+            "cuTensorNet:",
+            &["/env/cuquantum/lib/libcutensornet.so.2", "2.13.0", "12.9"][..],
+        ),
+        (
+            "CUDA Runtime:",
+            &["/env/nvidia/cuda_runtime/lib/libcudart.so.12", "12.9"],
+        ),
+        ("CUDA driver:", &["12.8"]),
+        ("CUDA devices: 2", &["8.0", "79.0", "80.0"]),
+        ("trial run on CUDA device 0:", &["ready"]),
     ] {
-        assert!(report.contains(expected), "{expected:?} in {report}");
+        let line = line(&report, label);
+        for item in items {
+            assert!(line.contains(item), "{item:?} in {line:?}");
+        }
     }
     assert!(!report.contains("to fix"), "{report}");
 }
@@ -232,7 +270,7 @@ fn a_missing_library_is_advised_the_install_or_its_override() {
             }],
         )));
         assert!(
-            advice.contains(INSTALL) && advice.contains(variable),
+            advises_install(&advice) && advice.contains(variable),
             "{advice}"
         );
     }
@@ -264,12 +302,12 @@ fn a_path_the_process_cannot_access_is_advised_its_permissions_or_the_override()
                 message: "Permission denied (os error 13)".to_string(),
             }],
         )));
-        assert_eq!(
-            advice,
-            format!(
-                "let this process search the directories on {file:?}, or set {variable} to the \
-                 absolute path of a copy of {library} it can read"
-            )
+        assert!(
+            advice.contains(&format!("{file:?}"))
+                && advice.contains(variable)
+                && advice.contains(library)
+                && !advises_install(&advice),
+            "{advice}"
         );
     }
 }
@@ -282,14 +320,14 @@ fn a_path_the_process_cannot_access_is_advised_its_permissions_or_the_override()
 #[cfg(unix)]
 #[test]
 fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install_or_its_override() {
-    let at_fault = "as the one it names is at fault";
-    for (fault, why) in [
+    let at_fault = ("at fault", "did not load");
+    for (fault, (why, not_why)) in [
         (
             LibraryFault::LoadFailed {
                 path: PathBuf::from("/usr/lib/libcutensornet.so.2"),
                 message: "libcutensor.so.2: cannot open shared object file".to_string(),
             },
-            "as the one it names, or a library it needs, did not load",
+            ("did not load", "at fault"),
         ),
         (
             LibraryFault::UnsupportedVersion {
@@ -314,12 +352,17 @@ fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install_or_its_
             };
             report.libraries[1].from_override = from_override;
             let advice = advice(&failed(AvailabilityError::Unusable(report)));
-            let expected = if from_override {
-                format!("set QDK_CUTENSORNET_LIBRARY to an audited copy, or unset it, {why}")
+            if from_override {
+                assert!(
+                    advice.contains("QDK_CUTENSORNET_LIBRARY")
+                        && advice.contains(why)
+                        && !advice.contains(not_why)
+                        && !advises_install(&advice),
+                    "{fault:?}: {advice}"
+                );
             } else {
-                INSTALL.to_string()
-            };
-            assert!(advice.contains(&expected), "{advice}");
+                assert!(advises_install(&advice), "{fault:?}: {advice}");
+            }
         }
     }
 }
@@ -330,10 +373,7 @@ fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install_or_its_
 #[cfg(unix)]
 #[test]
 fn a_library_that_fails_to_load_is_advised_its_dependencies() {
-    for (install_command, ending) in [
-        (Some(PIP_INSTALL), ", which brings their dependencies"),
-        (None, ", with their dependencies"),
-    ] {
+    for install_command in [Some(PIP_INSTALL), None] {
         let advice = advice(&GpuSetup {
             install_command: install_command.map(str::to_string),
             ..failed(unusable(
@@ -344,7 +384,12 @@ fn a_library_that_fails_to_load_is_advised_its_dependencies() {
                 }],
             ))
         });
-        assert!(advice.ends_with(&format!("{ending}{RESTART}")), "{advice}");
+        assert!(
+            advice.contains("dependencies")
+                && install_command.is_none_or(|command| advice.contains(command))
+                && advises_restart(&advice),
+            "{advice}"
+        );
     }
 }
 
@@ -361,7 +406,7 @@ fn an_invalid_override_is_advised_by_its_variable() {
             reason: "path must be absolute",
         }],
     )));
-    assert!(advice.contains("set QDK_CUDART_LIBRARY"), "{advice}");
+    assert!(advice.contains("QDK_CUDART_LIBRARY"), "{advice}");
 }
 
 /// A user whose cuTensorNet override is mistyped, on a host without the
@@ -384,7 +429,10 @@ fn an_invalid_override_is_advised_before_the_faults_of_libraries_opened_first() 
         reason: "path must be absolute",
     }];
     let advice = advice(&failed(AvailabilityError::Unusable(report)));
-    assert!(advice.contains("set QDK_CUTENSORNET_LIBRARY"), "{advice}");
+    assert!(
+        advice.contains("QDK_CUTENSORNET_LIBRARY") && !advice.contains("QDK_CUDART_LIBRARY"),
+        "{advice}"
+    );
 }
 
 /// Without an invalid override, the advice is about the first fault of the
@@ -407,7 +455,7 @@ fn the_first_library_at_fault_is_advised() {
     }];
     let advice = advice(&failed(AvailabilityError::Unusable(report)));
     assert!(
-        advice.starts_with("CUDA Runtime was found but did not load"),
+        advice.contains("did not load") && !advice.contains("QDK_CUTENSORNET_LIBRARY"),
         "{advice}"
     );
 }
@@ -435,7 +483,7 @@ fn a_failed_cuda_version_probe_points_at_the_driver() {
         assert!(
             advice.contains("nvidia-smi")
                 && advice.contains("525.60.13")
-                && !advice.contains(INSTALL)
+                && !advises_install(&advice)
                 && !advice.contains("QDK_CUDART_LIBRARY"),
             "{advice}"
         );
@@ -462,7 +510,7 @@ fn the_first_fault_of_a_library_is_advised() {
         ],
     )));
     assert!(
-        advice.starts_with("only the audited versions are supported") && advice.contains(INSTALL),
+        advises_install(&advice) && !advice.contains("nvidia-smi"),
         "{advice}"
     );
 }
@@ -530,8 +578,8 @@ fn the_advice_to_install_says_to_restart_the_process() {
     ];
     for (fault, installs) in rows {
         let advice = advice(&failed(unusable("cuTensorNet", vec![fault.clone()])));
-        assert_eq!(advice.contains(INSTALL), installs, "{fault:?}: {advice}");
-        assert_eq!(advice.contains(RESTART), installs, "{fault:?}: {advice}");
+        assert_eq!(advises_install(&advice), installs, "{fault:?}: {advice}");
+        assert_eq!(advises_restart(&advice), installs, "{fault:?}: {advice}");
     }
 }
 
@@ -549,10 +597,7 @@ fn a_library_without_probe_advice_is_advised_the_install_when_its_probe_fails() 
             message: "not initialized".to_string(),
         }],
     )));
-    assert!(
-        advice.starts_with("cuTensorNet could not report its version") && advice.contains(INSTALL),
-        "{advice}"
-    );
+    assert!(advises_install(&advice), "{advice}");
 }
 
 /// Libraries and a device that passed their checks but a trial run that
@@ -561,15 +606,15 @@ fn a_library_without_probe_advice_is_advised_the_install_when_its_probe_fails() 
 #[cfg(unix)]
 #[test]
 fn a_failed_trial_run_is_advised_with_its_error() {
+    let error = failed_trial_run().expect_err("the trial run failed");
     let advice = advice(&setup(LoadedSetup {
         trial_run: failed_trial_run(),
         ..loaded(audited_report(), Some(a100()))
     }));
     assert!(
-        advice.starts_with("the trial run on CUDA device 0 failed")
-            && advice.contains("cudaMalloc failed with status 2: out of memory")
+        shows_with_its_cause(&advice, &error)
             && !advice.contains("nvidia-smi")
-            && !advice.contains(INSTALL),
+            && !advises_install(&advice),
         "{advice}"
     );
 }
@@ -584,7 +629,7 @@ fn a_trial_run_that_finds_no_device_is_advised_as_no_device() {
         ..loaded(audited_report(), Some(a100()))
     }));
     assert!(
-        advice.starts_with("no CUDA device was found") && advice.contains("nvidia-smi"),
+        advice.contains("nvidia-smi") && !advice.contains("trial run"),
         "{advice}"
     );
 }
@@ -613,98 +658,123 @@ fn an_unsupported_platform_is_advised_where_the_engine_runs() {
 #[cfg(unix)]
 #[test]
 fn a_failed_discovery_reports_what_it_found_its_faults_and_no_trial_run() {
-    let AvailabilityError::Unusable(mut missing_cutensornet) = unusable(
-        "cuTensorNet",
-        vec![LibraryFault::NotFound {
-            attempted: vec![PathBuf::from("libcutensornet.so.2")],
-        }],
-    ) else {
+    let not_found = LibraryFault::NotFound {
+        attempted: vec![PathBuf::from("libcutensornet.so.2")],
+    };
+    let old_version = LibraryFault::UnsupportedVersion {
+        component: "CUDA Runtime",
+        found: 12_080,
+        supported: 12_090,
+    };
+    let AvailabilityError::Unusable(mut missing_cutensornet) =
+        unusable("cuTensorNet", vec![not_found.clone()])
+    else {
         unreachable!("unusable gives a report");
     };
     missing_cutensornet.libraries[1].path = None;
     missing_cutensornet.libraries[1].versions.clear();
-    let AvailabilityError::Unusable(mut old_cuda_runtime) = unusable(
-        "CUDA Runtime",
-        vec![LibraryFault::UnsupportedVersion {
-            component: "CUDA Runtime",
-            found: 12_080,
-            supported: 12_090,
-        }],
-    ) else {
+    let AvailabilityError::Unusable(mut old_cuda_runtime) =
+        unusable("CUDA Runtime", vec![old_version.clone()])
+    else {
         unreachable!("unusable gives a report");
     };
     old_cuda_runtime.libraries[0].path = Some(PathBuf::from("/opt/cuda-12.8/libcudart.so.12"));
     old_cuda_runtime.libraries[0].versions[0].value = 12_080;
+    let (not_found, old_version) = (not_found.to_string(), old_version.to_string());
     for (error, expected, absent) in [
         (
             AvailabilityError::Unusable(missing_cutensornet),
-            [
-                "CUDA Runtime: \"/env/nvidia/cuda_runtime/lib/libcudart.so.12\" (12.9)",
-                "CUDA driver: supports CUDA 12.8",
-                "cuTensorNet at fault: not found",
+            vec![
+                (
+                    "CUDA Runtime:",
+                    vec!["/env/nvidia/cuda_runtime/lib/libcudart.so.12", "12.9"],
+                ),
+                ("CUDA driver:", vec!["12.8"]),
+                ("cuTensorNet at fault:", vec![not_found.as_str()]),
             ],
-            Some("cuTensorNet: "),
+            Some("cuTensorNet:"),
         ),
         (
             AvailabilityError::Unusable(old_cuda_runtime),
-            [
-                "CUDA Runtime: \"/opt/cuda-12.8/libcudart.so.12\" (12.8)",
-                "CUDA Runtime at fault: CUDA Runtime version 12080 is unsupported",
-                "cuTensorNet: \"/env/cuquantum/lib/libcutensornet.so.2\" (2.13.0, built for CUDA \
-                 Runtime 12.9)",
+            vec![
+                (
+                    "CUDA Runtime:",
+                    vec!["/opt/cuda-12.8/libcudart.so.12", "12.8"],
+                ),
+                ("CUDA Runtime at fault:", vec![old_version.as_str()]),
+                (
+                    "cuTensorNet:",
+                    vec!["/env/cuquantum/lib/libcutensornet.so.2", "2.13.0", "12.9"],
+                ),
             ],
             None,
         ),
     ] {
         let report = failed(error).to_string();
-        for line in expected.into_iter().chain([
-            "CUDA devices: not read",
-            "trial run on CUDA device 0: not tried",
+        for (label, items) in expected.into_iter().chain([
+            ("CUDA devices:", vec!["not read"]),
+            ("trial run on CUDA device 0:", vec!["not tried"]),
         ]) {
-            assert!(report.contains(line), "{line:?} in {report}");
+            let line = line(&report, label);
+            for item in items {
+                assert!(line.contains(item), "{item:?} in {line:?}");
+            }
         }
         if let Some(absent) = absent {
-            assert!(!report.contains(absent), "no {absent:?} in {report}");
+            assert!(
+                !report.lines().any(|line| line.starts_with(absent)),
+                "no {absent:?} in {report}"
+            );
         }
     }
 }
 
-/// The GPU engine's device, CUDA device 0, of a compute capability cuTensorNet
-/// does not support, is a problem naming its capability and the minimum.
+/// NVIDIA supports cuTensorNet on compute capability 7.5 and later: a
+/// GPU engine's device of 6.1, 7.0 or 7.4 is a problem naming its
+/// capability and the minimum, and one of 7.5, 8.0 or 9.0 is ready.
 #[cfg(unix)]
 #[test]
 fn a_device_0_below_the_minimum_compute_capability_is_a_problem() {
-    let old = EngineDevice {
-        compute_capability: (7, 0),
-        ..a100()
-    };
-    let advice = advice(&found(audited_report(), Some(old)));
-    assert!(advice.contains("7.0") && advice.contains("7.5"), "{advice}");
+    for (compute_capability, supported) in [
+        ((6, 1), false),
+        ((7, 0), false),
+        ((7, 4), false),
+        ((7, 5), true),
+        ((8, 0), true),
+        ((9, 0), true),
+    ] {
+        let device = EngineDevice {
+            compute_capability,
+            ..a100()
+        };
+        let setup = found(audited_report(), Some(device));
+        assert_eq!(setup.is_ready(), supported, "{compute_capability:?}");
+        if !supported {
+            let (major, minor) = compute_capability;
+            let advice = advice(&setup);
+            assert!(
+                advice.contains(&format!("{major}.{minor}")) && advice.contains("7.5"),
+                "{advice}"
+            );
+        }
+    }
 }
 
-/// A host with no CUDA device points at `nvidia-smi`.
+/// A devices step that finds no device, or cannot read the devices, points
+/// at `nvidia-smi`, which shows whether the driver sees a GPU.
 #[cfg(unix)]
 #[test]
-fn no_device_points_at_nvidia_smi() {
-    let advice = advice(&found(audited_report(), None));
-    assert!(
-        advice.starts_with("no CUDA device was found") && advice.contains("nvidia-smi"),
-        "{advice}"
-    );
-}
-
-/// Devices that could not be read point at `nvidia-smi`.
-#[cfg(unix)]
-#[test]
-fn unreadable_devices_point_at_nvidia_smi() {
-    let advice = advice(&setup(LoadedSetup {
-        devices: Err(unreadable_devices()),
-        ..loaded(audited_report(), Some(a100()))
-    }));
-    assert!(
-        advice.starts_with("the CUDA devices could not be read") && advice.contains("nvidia-smi"),
-        "{advice}"
-    );
+fn a_devices_problem_points_at_nvidia_smi() {
+    for setup in [
+        found(audited_report(), None),
+        setup(LoadedSetup {
+            devices: Err(unreadable_devices()),
+            ..loaded(audited_report(), Some(a100()))
+        }),
+    ] {
+        let advice = advice(&setup);
+        assert!(advice.contains("nvidia-smi"), "{advice}");
+    }
 }
 
 /// A driver that supports no CUDA 12, or no driver at all (CUDA reports
@@ -713,13 +783,12 @@ fn unreadable_devices_point_at_nvidia_smi() {
 #[cfg(unix)]
 #[test]
 fn a_driver_below_cuda_12_or_none_is_a_problem_naming_the_floor() {
-    for (driver, problem) in [
-        (11_080, "the NVIDIA driver supports CUDA 11.8 only"),
-        (0, "no NVIDIA driver was found"),
-    ] {
+    for (driver, shown) in [(11_080, Some("11.8")), (0, None)] {
         let advice = advice(&found(with_driver(driver), Some(a100())));
         assert!(
-            advice.starts_with(problem) && advice.contains("525.60.13"),
+            advice.contains("525.60.13")
+                && shown.is_none_or(|version| advice.contains(version))
+                && !advice.contains("0.0"),
             "{advice}"
         );
     }
@@ -733,7 +802,7 @@ fn a_driver_below_cuda_12_or_none_is_a_problem_naming_the_floor() {
 fn a_driver_below_cuda_12_is_advised_before_the_devices() {
     let advice = advice(&found(with_driver(11_080), None));
     assert!(
-        advice.starts_with("the NVIDIA driver supports CUDA 11.8 only"),
+        advice.contains("11.8") && !advice.contains("nvidia-smi"),
         "{advice}"
     );
 }
@@ -747,7 +816,10 @@ fn the_devices_are_advised_before_the_trial_run() {
         trial_run: failed_trial_run(),
         ..loaded(audited_report(), None)
     }));
-    assert!(advice.starts_with("no CUDA device was found"), "{advice}");
+    assert!(
+        advice.contains("nvidia-smi") && !advice.contains("cudaMalloc"),
+        "{advice}"
+    );
 }
 
 /// A CUDA device 0 of compute capability 7.0 on which the trial run also
@@ -765,7 +837,7 @@ fn device_0s_compute_capability_is_advised_before_the_trial_run() {
         ..loaded(audited_report(), Some(old))
     }));
     assert!(
-        advice.starts_with("CUDA device 0, where the GPU engine runs, has compute capability 7.0"),
+        advice.contains("7.0") && !advice.contains("cudaMalloc"),
         "{advice}"
     );
 }
@@ -775,7 +847,8 @@ fn device_0s_compute_capability_is_advised_before_the_trial_run() {
 #[test]
 fn no_device_is_shown_as_none() {
     let report = found(audited_report(), None).to_string();
-    assert!(report.contains("\nCUDA devices: none\n"), "{report}");
+    let line = line(&report, "CUDA devices:");
+    assert!(line.contains("none"), "{line:?}");
 }
 
 /// A host with no NVIDIA driver, for which CUDA reports version 0, reads
@@ -784,7 +857,8 @@ fn no_device_is_shown_as_none() {
 #[test]
 fn no_driver_is_shown_as_none() {
     let report = found(with_driver(0), None).to_string();
-    assert!(report.contains("\nCUDA driver: none\n"), "{report}");
+    let line = line(&report, "CUDA driver:");
+    assert!(line.contains("none") && !line.contains("0.0"), "{line:?}");
 }
 
 /// Devices that could not be read are shown with the CUDA Runtime's error
@@ -797,13 +871,8 @@ fn unreadable_devices_are_shown_with_their_error() {
         ..loaded(audited_report(), Some(a100()))
     })
     .to_string();
-    assert!(
-        report.contains(
-            "\nCUDA devices: CUDA Runtime cudaGetDeviceCount failed with status 35: CUDA driver \
-             version is insufficient for CUDA runtime version\n"
-        ),
-        "{report}"
-    );
+    let line = line(&report, "CUDA devices:");
+    assert!(line.contains(&unreadable_devices().to_string()), "{line:?}");
 }
 
 /// A failed trial run is shown on its line with its error and the error's
@@ -812,18 +881,14 @@ fn unreadable_devices_are_shown_with_their_error() {
 #[cfg(unix)]
 #[test]
 fn a_failed_trial_run_is_shown_with_its_error() {
+    let error = failed_trial_run().expect_err("the trial run failed");
     let report = setup(LoadedSetup {
         trial_run: failed_trial_run(),
         ..loaded(audited_report(), Some(a100()))
     })
     .to_string();
-    assert!(
-        report.contains(
-            "\ntrial run on CUDA device 0: the site algebra failed: \
-             CUDA Runtime cudaMalloc failed with status 2: out of memory"
-        ),
-        "{report}"
-    );
+    let line = line(&report, "trial run on CUDA device 0:");
+    assert!(shows_with_its_cause(line, &error), "{line:?}");
 }
 
 /// The report of a user whose cuTensorNet override is loaded beside a
@@ -915,20 +980,15 @@ fn a_warning_says_to_change_the_copy_loaded_only_when_it_is_at_fault() {
         status: 35,
         message: "CUDA driver version is insufficient".to_string(),
     }];
-    let sound = ": remove the other if nothing else uses it, as it was not checked";
-    for (from_override, faults, ending) in [
+    let variable = "QDK_CUDART_LIBRARY";
+    let sound: (&[&str], &[&str]) = (&["remove", "other"], &[variable, "unset"]);
+    for (from_override, faults, (named, not_named)) in [
         (
             true,
             at_fault.clone(),
-            ": set QDK_CUDART_LIBRARY to an audited copy, or unset it, as the one it names is \
-             at fault",
+            (&[variable, "unset"][..], &["remove"][..]),
         ),
-        (
-            false,
-            at_fault,
-            ": set QDK_CUDART_LIBRARY to an audited copy, or remove the one loaded if nothing \
-             else uses it, as it is at fault",
-        ),
+        (false, at_fault, (&[variable, "remove"], &["unset"])),
         (true, driver_at_fault.clone(), sound),
         (false, driver_at_fault, sound),
         (true, Vec::new(), sound),
@@ -947,7 +1007,14 @@ fn a_warning_says_to_change_the_copy_loaded_only_when_it_is_at_fault() {
         let [warning] = warnings.as_slice() else {
             panic!("one warning for the other copy: {warnings:?}");
         };
-        assert!(warning.ends_with(ending), "{warning}");
+        let (_, fix) = warning
+            .rsplit_once(": ")
+            .expect("a warning ends with its fix");
+        assert!(
+            named.iter().all(|item| fix.contains(item))
+                && !not_named.iter().any(|item| fix.contains(item)),
+            "{warning}"
+        );
     }
 }
 
@@ -1005,9 +1072,9 @@ fn the_report_lists_what_was_found_then_the_warnings_then_the_fix() {
         text.find(line)
             .unwrap_or_else(|| panic!("{line:?} in {text}"))
     };
-    let found_last = position("trial run on CUDA device 0: ready");
-    let warning = position("\nwarning: another copy of CUDA Runtime");
-    let fix = position("\nto fix: CUDA device 0");
+    let found_last = position("\ntrial run on CUDA device 0:");
+    let warning = position("\nwarning: ");
+    let fix = position("\nto fix: ");
     assert!(found_last < warning && warning < fix, "{text}");
 }
 
@@ -1026,7 +1093,7 @@ fn the_packagers_install_command_is_advised() {
         ))
     });
     assert!(
-        advice.starts_with(&format!("{INSTALL}, for instance with `{PIP_INSTALL}`")),
+        advises_install(&advice) && advice.contains(&format!("`{PIP_INSTALL}`")),
         "{advice}"
     );
 }
@@ -1044,7 +1111,7 @@ fn without_a_packager_the_advice_names_no_command() {
         }],
     )));
     assert!(
-        advice.starts_with(&format!("{INSTALL}{RESTART}; or set ")) && !advice.contains('`'),
+        advises_install(&advice) && !advice.contains('`'),
         "{advice}"
     );
 }

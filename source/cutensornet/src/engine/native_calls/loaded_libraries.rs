@@ -9,15 +9,16 @@
 //! This file holds what they share: turning a status into a
 //! `CudaAlgebraError` with the library's message.
 //!
-//! This module is the only code that calls cuTensorNet and the CUDA Runtime,
-//! so it is where every foreign-function obligation is kept: each `unsafe`
-//! call says what makes it sound (the handles live, the buffers large enough
-//! and kept alive, the values in the audited representation). It owns nothing:
-//! its callers create the streams, handles, objects and buffers, and
-//! release them. Discovery has checked the versions, so
-//! this code assumes cuTensorNet 2.13 and the CUDA Runtime 12.9. It
-//! compiles only on Linux x86-64, and no host test reaches it; a new native
-//! call needs its function's row in its library's table first
+//! This module holds every call the engine makes to cuTensorNet and the
+//! CUDA Runtime, so it is where their foreign-function obligations are
+//! kept: each `unsafe` call says what makes it sound (the handles live,
+//! the buffers large enough and kept alive, the values in the audited
+//! representation). It owns nothing: `DeviceSession` and `CudaAlgebra`
+//! create the streams, handles, objects and buffers, and release them.
+//! Discovery has checked the versions, so this code assumes cuTensorNet
+//! 2.13 and the CUDA Runtime 12.9. It compiles only on Linux x86-64, and no
+//! host test reaches it; a new native call needs its function's row in its
+//! library's table first
 //! (`libraries::cuda_runtime::CudaFunctions`,
 //! `libraries::cutensornet::CuTensorNetFunctions`).
 
@@ -53,7 +54,7 @@ impl LoadedLibraries {
         message
     }
 
-    fn check_cuda(
+    pub(crate) fn check_cuda(
         &self,
         operation: &'static str,
         status: cudart_12::cudaError_t,

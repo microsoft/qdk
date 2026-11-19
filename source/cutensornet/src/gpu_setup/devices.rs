@@ -19,9 +19,9 @@
 //! `cudaMemGetInfo` and `cudaDeviceGetAttribute`), a seam so that the
 //! rules run on a host with no GPU.
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-mod loaded_libraries;
+mod device_calls;
 
+pub(crate) use self::device_calls::DeviceCalls;
 use crate::CudaAlgebraError;
 use crate::engine::cuda_algebra::policy::DEVICE_ORDINAL;
 
@@ -86,16 +86,4 @@ pub(crate) fn read_devices(calls: &impl DeviceCalls) -> Result<DeviceReport, Cud
         count,
         engine_device,
     })
-}
-
-/// The CUDA Runtime calls that read the devices.
-pub(crate) trait DeviceCalls {
-    /// How many CUDA devices the process sees.
-    fn device_count(&self) -> Result<i32, CudaAlgebraError>;
-    /// Makes device `ordinal` current.
-    fn set_device(&self, ordinal: i32) -> Result<(), CudaAlgebraError>;
-    /// The (major, minor) compute capability of device `ordinal`.
-    fn compute_capability(&self, ordinal: i32) -> Result<(i32, i32), CudaAlgebraError>;
-    /// The current device's free and total memory, in bytes.
-    fn memory_info(&self) -> Result<(usize, usize), CudaAlgebraError>;
 }
