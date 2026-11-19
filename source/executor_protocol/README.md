@@ -323,8 +323,9 @@ write a part or compose a chain; the rustdoc of each item gives its
 mechanics and edge cases.
 
 - [Writing a part](docs/writing-a-part.md): each role's methods, phase by
-  phase, an executor in full, the rules a part keeps, and how a part draws
-  from the run's seed or says it cannot replay a shot.
+  phase, an executor in full, the rules a part keeps and how the
+  conformance kit checks them, and how a part draws from the run's seed or
+  says it cannot replay a shot.
 - [Batches and readouts](docs/batches-and-readouts.md): what a batch
   holds, and how its readouts are shaped, filled and kept.
 - [Instruction sets and their fit](docs/instruction-sets.md): what a set

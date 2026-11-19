@@ -610,6 +610,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "executor_protocol_conformance"
+version = "0.0.0"
+dependencies = [
+ "executor_protocol",
+ "rustc-hash",
+]
+
+[[package]]
 name = "expect-test"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

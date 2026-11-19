@@ -61,7 +61,9 @@ found suspect in the shot without ending it (`REJECTED`, `INCONSISTENT`,
 `UNRESOLVED`). A row reports the conditions raised on its shot in that
 `execute` only, since each `execute` gets its rows clear. So a part above
 merges the conditions it reads below with its own, by union, and passes
-them up; and a driver that runs a shot over several `execute`s merges each
+them up, raising its own as
+[the rules a part keeps](writing-a-part.md#the-rules-a-part-keeps) say;
+and a driver that runs a shot over several `execute`s merges each
 one's into the shot's.
 
 ## Keeping and building readouts

@@ -2,9 +2,9 @@
 
 For those who write a part, a driver, an adapter or an executor: what each
 role's methods do at each phase of a chain's life, an executor in full,
-the rules a part keeps that the protocol does not check, and how a part
-draws from the run's seed, or says it cannot replay a shot. What crosses
-a boundary is in
+the rules a part keeps that the protocol does not check and how the
+conformance kit checks them, and how a part draws from the run's seed, or
+says it cannot replay a shot. What crosses a boundary is in
 [Batches and readouts](batches-and-readouts.md); what `>>` checks of a
 part, in [Instruction sets and their fit](instruction-sets.md) and
 [Needs, offers and the admission](admission.md). The terms are those of
@@ -119,8 +119,8 @@ row and its conditions back.
 
 ## The rules a part keeps
 
-The protocol does not check these; the rustdoc of each role, and of
-[`Seed`](../src/seed.rs) for the seeds, states them:
+The protocol does not check these, except where one says so; the rustdoc
+of each role, and of [`Seed`](../src/seed.rs) for the seeds, states them:
 
 - its instruction sets, needs and offer do not change once it is composed,
   since the fit and the admission rely on those contracts staying the
@@ -128,16 +128,45 @@ The protocol does not check these; the rustdoc of each role, and of
 - a part that calls `execute` puts a shot in at most one of its batches,
   and only shots it was given: the run's, for a driver, those of the
   batches it got, for an adapter;
+- a part that calls `execute` sends no shot again once it ended it below,
+  or once the shot failed in an earlier `execute`, which the part below
+  may refuse ([`ExecuteRefusal`](../src/roles/execute.rs): `ShotNotHeld`,
+  `EarlierFailure`);
+- a part that calls `execute` states each batch's readout slots as its
+  instructions count them, since the part below shapes its readouts by
+  that count; the protocol checks it only on a checked batch, as
+  [Where and when each check runs](composing-and-running.md#where-and-when-each-check-runs)
+  says;
 - shots are independent: an executor may run an `execute`'s batches in any
   order, or at once, and may share work between shots, such as one state
   for shots whose instructions are equal so far, as long as each shot's
   readouts are those it would get run alone; it leaves untouched every
   shot that is in none of the batches;
+- for a replayable part, a shot's records depend only on the chain, the
+  run's seed and the shot's id: not on the shots run beside it, or how its
+  instructions are put in batches;
+- an executor makes a shot's state at its first batch, from the needs it
+  got ready for and the shot's seed, and keeps it from one `execute` to
+  the next until `end_shots`;
+- a part's `end_shots` does nothing for shots it does not hold, or no
+  longer holds, since the runner ends every shot of a run, some of which
+  the driver may have ended already, and in a failed run, some never sent;
+- an adapter's `needs_below` is enough to serve the needs above, and
+  states every block it takes below, since a refusal names the parts by
+  it;
 - an executor, and an adapter, writes every value of the readouts it
   answers, and keeps their shape;
 - an adapter sends the batches it makes for a checked batch checked
   ([`Batch::checked_if`](../src/batch.rs)), so that its sender's checks
   reach every boundary below;
+- a row reports only the conditions raised on its shot in that `execute`
+  ([`ShotConditions`](../src/batch/batch_readouts/shot_conditions.rs)): an
+  adapter merges into each row those read below on its shot with its own,
+  and a driver merges each `execute`'s into the shot's output; a part,
+  adapter or driver, raises its own for what it finds in its readouts,
+  never because of a condition read below, in that `execute` or an
+  earlier one, since the driver already holds that condition and a part
+  that wants to flag a shot reads its reason in the readouts;
 - a driver gives one output per shot, in the order of the run's shots;
 - a part that draws takes its streams from the run's seed, one per shot
   if it is replayable, as [Seeds](#seeds) says;
@@ -146,9 +175,21 @@ The protocol does not check these; the rustdoc of each role, and of
 - a part takes calls again after it failed or panicked, since the next run
   calls every part as before.
 
-A conformance kit, planned, will check the rules on readouts and on
-checked batches in an implementer's tests, such as a simulator's or a
-code's lowering's.
+### Checking a part's rules
+
+The conformance kit,
+[`executor_protocol_conformance`](../../executor_protocol_conformance/README.md),
+checks most of these rules in an implementer's tests (the kit's
+[limits](../../executor_protocol_conformance/docs/limits.md) lists those it
+does not), by a function per rule and role (and two rules every check of
+an executor or an adapter reports), and reports each place where a part
+breaks one. Anyone writing a part runs it. Its checks, by role:
+
+| Role     | Checks                                                                                                                                                                                                                                                                        |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| executor | [`executor`](../../executor_protocol_conformance/src/executor.rs): its readouts and their shape, each shot's records and state, its ends of shots it does not hold (a panic), its work only once polled, its `accepts` and `offers` as composed, and a run after a failed one |
+| adapter  | [`adapter`](../../executor_protocol_conformance/src/adapter.rs): an executor's rules except keeping its `accepts` and `offers`, and as a caller of the part below, the shots, seed, readout slots and checked batches it sends, and the conditions it passes up               |
+| driver   | [`driver`](../../executor_protocol_conformance/src/driver.rs): one output per shot in order, the shots, seed and readout slots it sends, and each `execute`'s conditions merged into its outputs                                                                              |
 
 ## Seeds
 

@@ -1,0 +1,19 @@
+[package]
+name = "executor_protocol_conformance"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+executor_protocol = { path = "../executor_protocol" }
+rustc-hash = { workspace = true }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+bench = false

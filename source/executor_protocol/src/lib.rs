@@ -6,6 +6,11 @@
 //!
 //! The crate's `README.md` and its `docs/` pages say what the protocol is
 //! for, the problem it solves and how, and give its rules.
+//!
+//! The conformance kit, `executor_protocol_conformance`, checks a part (a
+//! driver, an executor or an adapter) against most of the rules the
+//! protocol does not check as it runs (the kit's `docs/limits.md` lists the
+//! others). Anyone writing a part runs it in the part's tests.
 
 mod batch;
 mod composition;

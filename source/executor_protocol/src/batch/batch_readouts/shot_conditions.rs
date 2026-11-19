@@ -11,7 +11,12 @@
 //! row of a batch's readouts carries its shot's conditions; a part above
 //! must merge those it reads below with its own, by union, and pass them up,
 //! so that the driver sees every condition raised on the shot, at any
-//! level. A row reports the conditions raised on its shot in that
+//! level. A part raises its own conditions for what it finds in its
+//! readouts, never because of a condition it read below, in the same
+//! `execute` or an earlier one: the driver already holds that condition,
+//! and a part that wants to flag a shot reads its reason in the readouts.
+//! So a decoder that read `REJECTED` on a shot raises no `INCONSISTENT` on
+//! it for that. A row reports the conditions raised on its shot in that
 //! `execute` only, since each `execute` gets its rows clear
 //! ([`Execute::execute`](crate::Execute::execute)): a driver that runs a
 //! shot over several calls merges each call's conditions into the shot's,

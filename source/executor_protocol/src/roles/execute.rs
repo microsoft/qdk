@@ -66,8 +66,7 @@ pub trait Execute: ExecutorSetup {
     /// the protocol checks no value at run time. It keeps the shape of each
     /// batch's readouts, which the protocol does not check again once it
     /// answers: readouts replaced by others of another shape reach the
-    /// caller as they are. A conformance kit, planned, will check both in
-    /// the implementer's tests. What `readouts` hold after an error, or
+    /// caller as they are. What `readouts` hold after an error, or
     /// once its future is dropped before it answers, is unspecified: the
     /// caller reads them after an `Ok` only. A shot's state is made at its
     /// first batch, from the needs it got ready for and, for a

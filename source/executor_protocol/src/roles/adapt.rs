@@ -44,8 +44,7 @@ pub trait Adapt: AdapterSetup {
     /// may resend with the same readouts: the protocol shapes them again.
     /// As an executor does, it writes every value of `readouts` and hands
     /// each batch's up in that batch's shape, which the protocol does not
-    /// check once it answers; a conformance kit, planned, will check both
-    /// in the implementer's tests.
+    /// check once it answers.
     ///
     /// Each batch it sends below holds only shots of the batches it got: a
     /// rule the adapter keeps, which the protocol does not check, and
@@ -56,8 +55,7 @@ pub trait Adapt: AdapterSetup {
     /// [`checked_if(batch.is_checked())`](Batch::checked_if) marks it, so
     /// that the checks its sender chose reach every boundary below; it may
     /// mark checked a batch it sends for an unchecked one. It is a rule the
-    /// adapter keeps, which the protocol does not check; a conformance kit,
-    /// planned, will check it in the implementer's tests.
+    /// adapter keeps, which the protocol does not check.
     ///
     /// An `adapt` does its work, calling `below` included, when its future
     /// is first polled, not when it is called, as Rust's futures do by
