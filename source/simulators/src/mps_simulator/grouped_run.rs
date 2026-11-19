@@ -52,8 +52,8 @@ use tensornet::{MpsEngine, MpsShape};
 
 #[cfg(doc)]
 use super::MpsResumer;
-use super::error::MpsResumerError;
 use super::lowering::{SiteGate, SiteStep, lower};
+use super::mps_resumer_error::MpsResumerError;
 use super::qubit_order::QubitOrder;
 use super::run_report::MpsRunReport;
 use super::shot_stream::{SplitMix64, shot_stream};
@@ -410,8 +410,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     }
 
     /// Keeps the largest bond of `group`'s state in the report, when gates
-    /// were applied since it was last read: so it is read where a run of
-    /// gates ends, before the draws that may shrink it.
+    /// were applied since it was last read: so it is read where a sequence
+    /// of gates ends, before the draws that may shrink it.
     fn read_bond(&mut self, group: &mut ShotGroup<E::State>) -> Result<(), GroupFailure<E::Error>> {
         if let (true, Some(state)) = (group.bond_unread, &group.state) {
             let bond = self
@@ -509,9 +509,10 @@ fn capacity_of<E>(
 /// The value of the shots that go on as the group, given each shot's draw
 /// (One when true): the value they all drew, or, where they differ, the
 /// value of the fewer. So a group that splits keeps at most half its
-/// shots, and a run holds few states at once. A tie goes to Zero only so
-/// that a run is deterministic: no record and no bound depends on it;
-/// which shots a failure settling the fork fails does (see `split`).
+/// shots, and a run holds few states at once. A tie goes to Zero, as the
+/// docs promise: no record and no bound depends on it, but which group runs
+/// first does, and with it which groups still run after a failure, and
+/// which shots a failure settling the fork fails (see `split`).
 fn value_going_on(draws: &[bool]) -> bool {
     let ones = draws.iter().filter(|&&one| one).count();
     if ones == 0 || ones == draws.len() {

@@ -16,6 +16,7 @@
 
 mod grouped_run;
 mod lowering;
+mod mps_resumer_error;
 mod programs;
 mod qubit_order;
 mod reference_spy;

@@ -25,7 +25,7 @@
 use crate::qir::{OperatorMatrix, QirCall, QirGate};
 use qsc_data_structures::measurement::MeasurementBasis;
 
-use super::error::MpsResumerError;
+use super::mps_resumer_error::MpsResumerError;
 use super::qubit_order::QubitOrder;
 
 /// What the MPS simulation method does with a call, on sites. A new kind
