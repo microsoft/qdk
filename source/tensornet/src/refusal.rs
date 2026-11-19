@@ -4,8 +4,8 @@
 //! [`Refusal`]: why an engine refused a call whose arguments break the
 //! contract, the same on every engine.
 //!
-//! A refusal is a bug in the caller, the same on every engine, and leaves
-//! the state unchanged; an engine's error exposes it through
+//! A refusal is a bug in the caller, and leaves the state unchanged; an
+//! engine's error exposes it through
 //! [`MpsEngineError::refusal`](crate::MpsEngineError::refusal), which
 //! tells it apart from the engine's own failures.
 
