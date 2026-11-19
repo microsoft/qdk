@@ -1,28 +1,78 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The rule of truncation, [`Truncation`]: the tail below the cutoff, a
-//! fraction of the split's own weight, then what exceeds the cap; never
-//! the largest value; at a cutoff of 0, the zeros and the values whose
-//! squares, against the largest's, underflow; and what is kept,
-//! normalised, with its share of the weight; and the arguments it refuses.
+//! The CPU algebra's rule of truncation, met through
+//! [`CpuAlgebra::gate_split`]: the tail below the cutoff, a fraction of
+//! the split's own weight, then what exceeds the cap; never the largest
+//! value; at a cutoff of 0, the zeros and the values of rounding's size
+//! against the largest; and what is kept, normalised into the centre's
+//! site, with its share of the weight.
+//!
+//! Each split is of a pair whose gated pair `θ` is diagonal, so its
+//! singular values are the ones a row names.
 
-use crate::site_algebra::cpu_algebra::truncation::Truncation;
+use super::c;
+use crate::CpuAlgebra;
+use crate::site_algebra::{CentreSide, GateSplitCall, GateSplitOutcome, SiteAlgebra};
+use num_complex::Complex64;
 
 /// The singular values whose squares are `weights`.
 fn values_of(weights: &[f64]) -> Vec<f64> {
     weights.iter().map(|w| w.sqrt()).collect()
 }
 
+/// The CPU algebra's split, at `cutoff` and the cap `max_extent`, of a pair
+/// whose gated pair is diagonal with the nonincreasing `values`: the left
+/// site the identity's first `k` columns, the right site the values on its
+/// diagonal, the gate the identity, and the centre on the left.
+fn split_of(values: &[f64], cutoff: f64, max_extent: usize) -> GateSplitOutcome<Vec<Complex64>> {
+    let k = values.len();
+    let extent = k.div_ceil(2);
+    let rows = 2 * extent;
+    let left: Vec<Complex64> = (0..rows * k)
+        .map(|at| c(if at % rows == at / rows { 1.0 } else { 0.0 }, 0.0))
+        .collect();
+    let on_diagonal = |at: usize| at % k == at / k;
+    let right: Vec<Complex64> = (0..k * rows)
+        .map(|at| c(if on_diagonal(at) { values[at % k] } else { 0.0 }, 0.0))
+        .collect();
+    let identity = std::array::from_fn(|i| c(if i % 5 == 0 { 1.0 } else { 0.0 }, 0.0));
+    let call = GateSplitCall {
+        left: &left,
+        right: &right,
+        left_extent: extent,
+        bond: k,
+        right_extent: extent,
+        gate: identity,
+        max_extent,
+        cutoff,
+        centre: CentreSide::Left,
+    };
+    CpuAlgebra
+        .gate_split(&call)
+        .expect("the SVD of a diagonal matrix")
+}
+
+/// The kept values, normalised, which the split multiplied into the left
+/// site's columns: each column's norm, as the SVD's columns are unit.
+fn kept_values(outcome: &GateSplitOutcome<Vec<Complex64>>) -> Vec<f64> {
+    let rows = outcome.left.len() / outcome.bond;
+    outcome
+        .left
+        .chunks_exact(rows)
+        .map(|column| column.iter().map(Complex64::norm_sqr).sum::<f64>().sqrt())
+        .collect()
+}
+
 /// The cutoff drops the longest tail whose squares sum to at most its
 /// share of the split's weight, but never the largest value; at a cutoff
-/// of 0, it drops only the zeros and the values whose squares, against the
-/// largest's, underflow. Each row: the values, the cutoff, and the bond
-/// kept.
+/// of 0, it drops only the zeros and the values of rounding's size against
+/// the largest, which the contract allows it to drop. Each row: the values,
+/// the cutoff, and the bond kept.
 #[test]
 fn the_cutoff_discards_the_tail_within_its_share() {
     let h = std::f64::consts::FRAC_1_SQRT_2;
-    let rows: [(&str, Vec<f64>, f64, usize); 7] = [
+    let rows: [(&str, Vec<f64>, f64, usize); 6] = [
         // In floating point, the two smaller squares and the largest sum,
         // from the smallest, to no more than the cutoff's share of the
         // total, yet the largest value is kept.
@@ -44,27 +94,17 @@ fn the_cutoff_discards_the_tail_within_its_share() {
         // A Schmidt weight of 1e-20, far below the cutoffs simulations
         // use, is kept.
         ("zeros at a cutoff of 0", vec![1.0, 1e-10, 0.0, 0.0], 0.0, 2),
-        // COMPATIBILITY NOTE: this behavior was present in the earlier
-        // CPU MPS engine's truncation (its squares are of the values
-        // divided by the largest, so those below about 1e-162 of it
-        // underflow), hence we keep it: no Schmidt weight that small
-        // changes a simulation's result.
+        // The SVD leaves out a value below rounding's size against the
+        // largest (`Svd::of`'s trim), which the cutoff's doc allows.
         (
-            "a square that is subnormal at a cutoff of 0",
-            vec![1.0, 1e-161],
-            0.0,
-            2,
-        ),
-        (
-            "a square that underflows at a cutoff of 0",
-            vec![1.0, 1e-163],
+            "a value of rounding's size at a cutoff of 0",
+            vec![1.0, 1e-17],
             0.0,
             1,
         ),
     ];
     for (name, values, cutoff, bond) in rows {
-        let truncation = Truncation::of(&values, cutoff, usize::MAX);
-        assert_eq!(truncation.normalised_values.len(), bond, "{name}");
+        assert_eq!(split_of(&values, cutoff, usize::MAX).bond, bond, "{name}");
     }
 }
 
@@ -76,9 +116,9 @@ fn the_cutoff_discards_the_tail_within_its_share() {
 #[test]
 fn the_capacity_caps_the_bond_the_cutoff_keeps() {
     let values = values_of(&[0.81, 0.09, 0.09, 0.01]);
-    let truncation = Truncation::of(&values, 0.095, 2);
-    assert_eq!(truncation.normalised_values.len(), 2);
-    let fraction = truncation.retained_fraction;
+    let split = split_of(&values, 0.095, 2);
+    assert_eq!(split.bond, 2);
+    let fraction = split.retained_fraction;
     assert!((fraction - 0.9).abs() < 1e-15, "{fraction}");
 }
 
@@ -141,8 +181,8 @@ fn the_retained_fraction_is_that_of_the_kept_squares() {
             0.0,
         ),
         (
-            "a value whose square underflows dropped",
-            vec![1.0, 1e-163],
+            "a value of rounding's size dropped",
+            vec![1.0, 1e-17],
             0.0,
             usize::MAX,
             1,
@@ -151,13 +191,9 @@ fn the_retained_fraction_is_that_of_the_kept_squares() {
         ),
     ];
     for (name, values, cutoff, cap, bond, expected, tolerance) in rows {
-        let truncation = Truncation::of(&values, cutoff, cap);
-        assert_eq!(
-            truncation.normalised_values.len(),
-            bond,
-            "precondition: {name}"
-        );
-        let fraction = truncation.retained_fraction;
+        let split = split_of(&values, cutoff, cap);
+        assert_eq!(split.bond, bond, "precondition: {name}");
+        let fraction = split.retained_fraction;
         assert!(
             (fraction - expected).abs() <= tolerance,
             "{name}: {fraction} for {expected}"
@@ -165,34 +201,37 @@ fn the_retained_fraction_is_that_of_the_kept_squares() {
     }
 }
 
-/// Values 3, 2 and 1, all kept: the kept values come back divided by their
-/// L2 norm, √14.
+/// Values 3, 2 and 1, all kept: the centre's site holds them divided by
+/// their L2 norm, √14.
 #[test]
 fn the_kept_values_are_divided_by_their_norm() {
-    let truncation = Truncation::of(&[3.0, 2.0, 1.0], 0.0, usize::MAX);
+    let split = split_of(&[3.0, 2.0, 1.0], 0.0, usize::MAX);
     let norm = 14f64.sqrt();
-    for (kept, value) in truncation.normalised_values.iter().zip([3.0, 2.0, 1.0]) {
+    for (kept, value) in kept_values(&split).iter().zip([3.0, 2.0, 1.0]) {
         assert!((kept - value / norm).abs() < 1e-15, "{kept} for {value}");
     }
 }
 
 /// The values of a split, scaled by 2⁻¹⁰⁰⁰ (their squares, about 1e-603,
-/// would underflow to zero): the same bond, retained fraction and
-/// normalised values as at scale 1, to the last bit.
+/// would underflow to zero): the same bond, retained fraction and sites
+/// as at scale 1, to the last bit.
 #[test]
 fn tiny_values_truncate_as_at_scale_one() {
     let values = [0.9, 0.3, 0.1, 0.01];
     let scale = 2f64.powi(-1000);
     let tiny: Vec<f64> = values.iter().map(|v| v * scale).collect();
-    assert_eq!(
-        Truncation::of(&tiny, 0.011, usize::MAX),
-        Truncation::of(&values, 0.011, usize::MAX)
+    let (tiny, at_one) = (
+        split_of(&tiny, 0.011, usize::MAX),
+        split_of(&values, 0.011, usize::MAX),
     );
+    assert_eq!(tiny.bond, at_one.bond);
+    assert_eq!(tiny.retained_fraction, at_one.retained_fraction);
+    assert_eq!((tiny.left, tiny.right), (at_one.left, at_one.right));
 }
 
-/// The singular values of the zero matrix, which a general SVD gives as
-/// `min(rows, cols)` zeros: one value is kept, zero, with a retained
-/// fraction of 1 and no NaN.
+/// A zero gated pair, which the contract rules out but a caller may still
+/// send, and whose SVD gives `min(rows, cols)` zeros: the split keeps one
+/// value, zero, with a retained fraction of 1 and no NaN.
 // DISCUSS COMPATIBILITY: the earlier CPU MPS engine's SVD gave the zero
 // matrix one value, zero, so its truncation never met an all-zero
 // spectrum (its `0 / 0` would have failed the split with a weight
@@ -203,26 +242,8 @@ fn tiny_values_truncate_as_at_scale_one() {
 // every dropped value is zero", so we recommend keeping it.
 #[test]
 fn the_zero_spectrum_keeps_one_zero_value() {
-    let truncation = Truncation::of(&[0.0, 0.0, 0.0], 0.5, usize::MAX);
-    assert_eq!(truncation.normalised_values, [0.0]);
-    assert_eq!(truncation.retained_fraction, 1.0);
-}
-
-/// A cap of zero, since no split keeps no value, and no singular values,
-/// since every split has one: the rule refuses each with a message rather
-/// than an index error.
-#[test]
-fn inputs_no_split_can_have_are_refused() {
-    let rows: [(&[f64], usize, &str); 2] = [
-        (&[1.0], 0, "a split keeps at least one value"),
-        (&[], 1, "a split has singular values"),
-    ];
-    for (values, cap, expected) in rows {
-        let payload = std::panic::catch_unwind(|| Truncation::of(values, 0.0, cap))
-            .expect_err("inputs no split can have");
-        let message = payload
-            .downcast_ref::<&str>()
-            .expect("a literal panic message");
-        assert_eq!(*message, expected);
-    }
+    let split = split_of(&[0.0, 0.0, 0.0], 0.5, usize::MAX);
+    assert_eq!(split.bond, 1);
+    assert_eq!(kept_values(&split), [0.0]);
+    assert_eq!(split.retained_fraction, 1.0);
 }

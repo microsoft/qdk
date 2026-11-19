@@ -20,7 +20,7 @@
 //! to the leaving site, factors that site by one thin QR, and multiplies
 //! the small factor into the other site.
 
-pub(crate) mod truncation;
+mod truncation;
 
 use super::{CentreSide, GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra};
 use crate::dense_linalg::{Matrix, MatrixRef, Qr, Svd, SvdError};

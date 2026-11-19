@@ -12,14 +12,11 @@
 
 mod centre_moves;
 mod conformance;
+mod error;
 mod expectation;
-mod failures;
 mod fusion;
 mod measurement;
 mod mpo;
-mod refusals;
-mod retained_weight;
-mod sampling;
 mod stand_ins;
 mod state;
 mod statistics;
