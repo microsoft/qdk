@@ -7,7 +7,7 @@
 //! shot first needs it; a split forks it once and keeps few states at
 //! once; an engine failure fails the shot with the engine's error, and the
 //! state it failed on is not used again (a failed fork fails the whole
-//! group, a failed settle of the fork only the shots that wait); a run
+//! group, a failure settling the fork only the shots that wait); a run
 //! names its first failing shot in the order of its shots, whichever group
 //! of a split goes on, and drops the groups whose shots all come after it;
 //! a run after a failed one is independent of it; and a stop flag ends a
@@ -387,12 +387,12 @@ fn a_failed_run_names_its_first_failing_shot_in_shot_order() {
     };
     rows.push((scene_run, b, Failure::Engine));
 
-    // A failed fork, and a shot that goes on from its split and fails
-    // later on its own: a coin whose shots that read 0 trap, on an engine
-    // whose projections on One fail, so the fork for the shots that read 1
-    // fails before the shot that reads 0, going on, traps. With the
-    // shot that reads 0 first, the run names it; with it last, the first
-    // shot that reads 1.
+    // A fork that fails to settle, and a shot that goes on from its split and
+    // fails later on its own: a coin whose shots that read 0 trap, on an engine
+    // whose projections on One fail, so settling the fork for the shots that
+    // read 1 fails before the shot that reads 0, going on, traps. With the shot
+    // that reads 0 first, the run names it; with it last, the first shot that
+    // reads 1.
     let [zero, one, other_one] = a_zero_then_two_ones();
     for (scene, shots, named, failure) in [
         (
@@ -409,7 +409,7 @@ fn a_failed_run_names_its_first_failing_shot_in_shot_order() {
         ),
     ] {
         let scene_run = FailingRun {
-            scene: format!("a failed fork, {scene}"),
+            scene: format!("a fork that fails to settle, {scene}"),
             engine: ReferenceSpy::failing_projections_on_one,
             seed: 5,
             program: coins_then_trap_unless_all(1, 1),
@@ -483,14 +483,14 @@ fn no_group_runs_on_for_shots_after_the_first_failure() {
     };
     rows.push((scene_run, failing[0], Failure::Trap, 4));
 
-    // The group going on from a split whose fork failed: a coin,
-    // then three X gates on a second qubit, on an engine whose projections
-    // on One fail. The two shots that read 1 first, which wait and whose
-    // fork fails, then the shot that reads 0, which goes on and applies
-    // none of the gates.
+    // The group going on from a split whose fork failed to settle: a
+    // coin, then three X gates on a second qubit, on an engine whose
+    // projections on One fail. The two shots that read 1 first, which wait
+    // and whose fork fails to settle, then the shot that reads 0, which
+    // goes on and applies none of the gates.
     let [zero, one, other_one] = a_zero_then_two_ones();
     let scene_run = FailingRun {
-        scene: "the group going on from a failed fork".to_string(),
+        scene: "the group going on from a fork that failed to settle".to_string(),
         engine: ReferenceSpy::failing_projections_on_one,
         seed: 5,
         program: program(
@@ -508,13 +508,13 @@ fn no_group_runs_on_for_shots_after_the_first_failure() {
     };
     rows.push((scene_run, one, Failure::Engine, 1));
 
-    // The group going on from any split, not only from one whose fork
-    // failed: a first coin, whose shots that read 1 trap, then for the
-    // others a second coin and three X gates on a third qubit. The shots:
-    // A and C read 0 then 0, B reads 1, D reads 0 then 1. On the first coin
-    // B goes on, the fewer, and traps; A, C and D run after it, as A comes
-    // before it. On the second coin D goes on alone, after B, and stops:
-    // the two coins' h are applied, then the three X once, for A and C.
+    // The group going on from any split, not only from one whose fork failed to
+    // settle: a first coin, whose shots that read 1 trap, then for the others a
+    // second coin and three X gates on a third qubit. The shots: A and C read 0
+    // then 0, B reads 1, D reads 0 then 1. On the first coin B goes on, the
+    // fewer, and traps; A, C and D run after it, as A comes before it. On the
+    // second coin D goes on alone, after B, and stops: the two coins' h are
+    // applied, then the three X once, for A and C.
     let zeros = reading_on_two_coins(0, Some(0));
     let (a, c) = (zeros[0], zeros[1]);
     let b = reading_on_two_coins(1, None)[0];
@@ -660,16 +660,16 @@ fn a_failed_fork_fails_the_shots_going_on_too() {
     }
 }
 
-/// When the fork for the group of a split that waits fails, only the shots
-/// that wait fail, as the group's own state was not touched: on a coin,
-/// the shot that reads 0 goes on, the fewer, and ends, and the run names
-/// the first of the two that wait, not the shot before them. Each row is
-/// how the fork fails, and the gates the run applies: as it is projected
-/// on One, while the group going on applies an X on a second qubit; or, a
-/// coin read and reset, as the X that returns it to |0⟩ fails, which the
-/// group going on, at 0, does not need.
+/// When settling the fork for the group of a split that waits fails (its
+/// projection, or a reset's X), only the shots that wait fail, as the group's
+/// own state was not touched: on a coin, the shot that reads 0 goes on, the
+/// fewer, and ends, and the run names the first of the two that wait, not the
+/// shot before them. Each row is how settling fails, and the gates the run
+/// applies: as the fork is projected on One, while the group going on applies
+/// an X on a second qubit; or, a coin read and reset, as the X that returns it
+/// to |0⟩ fails, which the group going on, at 0, does not need.
 #[test]
-fn a_failed_fork_fails_only_the_shots_that_wait() {
+fn a_failure_settling_the_fork_fails_only_the_shots_that_wait() {
     let shots = a_zero_then_two_ones();
     let rows = [
         (
