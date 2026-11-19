@@ -31,7 +31,7 @@
 //! settles the group's own value first). A group that meets a
 //! failure is dropped with its state, which the engine leaves unspecified
 //! after it fails: a failed fork fails the whole group, before its shots
-//! part, while a failure settling the fork fails only the part that waits,
+//! split, while a failure settling the fork fails only the part that waits,
 //! and drops the fork. A run may also be stopped
 //! (`MpsResumer::with_stop_flag`): `run_group` reads the flag before a
 //! group runs, and after each resume that gives it a batch or a trap,
