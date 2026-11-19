@@ -32,8 +32,9 @@ Jacobi rotations, which converge on a matrix of full rank within a cap of
 sweeps, or report the failure; and checks, to the bounds of LAPACK's SVD
 tests, on every answer. A linear algebra library brings only the steps it
 computes faster (the products and the QR decompositions, and a fast route
-for large full-rank matrices), behind one module-private trait, so that the
-library is one file. The SVD checks every answer it gives, the fast route's
+for large full-rank matrices), behind one module-private trait, so that
+replacing the library changes that trait's implementation and none of the
+SVD's rules. The SVD checks every answer it gives, the fast route's
 included; the product and the thin QR (scaled as the SVD's input is) are
 the library's, to rounding, and not checked.
 
