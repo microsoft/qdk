@@ -57,9 +57,10 @@ or runs on `canonical_mps`'s `CpuMpsEngine`.
 
 ## The MPS engine
 
-**The problem.** Between a CPU and a GPU engine, only where the site
-tensors live and which library factors them differ; the rest must not be
-written twice.
+**The problem.** `canonical_mps`'s engine asks its algebra for
+synchronous calls that hand over site tensors, while cuTensorNet's calls
+run asynchronously on the GPU, on tensors it knows by descriptors, with
+memory its caller lends.
 
 **How it is solved.** [`CudaMpsEngine`](src/engine.rs) is
 `CanonicalMpsEngine<CudaAlgebra>`. What the engine does, and the contract
@@ -77,9 +78,10 @@ calls of each phase and the numerics, and each file's header the details.
   checked by `canonical_mps`'s conformance kit.
 - **Compared read by read.** The GPU engine reads as `canonical_mps`'s
   `CpuMpsEngine` does, up to rounding.
-- **Speed.** The GPU engine is for the instances slow on the CPU: its
-  sites live in the GPU's memory, where cuTensorNet factors them, and only
-  an upload or a read copies one between the host and the GPU.
+- **Why a GPU.** The CPU engine is slow on the large chemistry instances,
+  and the GPU engine is meant for them; its speed on them is not measured
+  yet. Its sites stay in the GPU's memory, and only an upload or a read
+  copies one between the host and the GPU.
 
 Here the engine's `MpsEngine` methods call the _`SiteAlgebra` methods_
 (`upload`, `read`, `duplicate`, `gate_split`, `qr_move`), which this
@@ -94,10 +96,8 @@ flowchart LR
 
 ### The algebra's terms
 
-The contract's methods are synchronous and hand over tensors, while
-cuTensorNet's calls run asynchronously on the GPU, on tensors it knows by
-descriptors, with memory its caller lends. These terms name what the
-algebra keeps to bridge the two:
+These terms name what the algebra keeps to bridge the engine's
+synchronous calls and cuTensorNet's asynchronous ones:
 
 - **CUDA device:** one GPU, as CUDA numbers them; the algebra runs on
   device 0 ([`policy.rs`](src/engine/cuda_algebra/policy.rs)), and a
@@ -322,8 +322,8 @@ component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
 
 ## Tests
 
-The [engine's tests](src/tests/engine.rs) run in CI, without a GPU, on
-[fake libraries](src/engine/native_calls/fake_libraries.rs) that enforce
+The [engine's tests](src/tests/engine.rs) run in CI, without a GPU, most
+on [fake libraries](src/engine/native_calls/fake_libraries.rs) that enforce
 cuTensorNet's call order and its rules on streams and copies; the fake
 libraries' [own tests](src/tests/engine/native_calls/fake_libraries.rs) pin
 how they simulate cuTensorNet's tensor API. On them, the
