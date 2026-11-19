@@ -20,7 +20,8 @@ stim_compiler = { path = "../compiler/stim_compiler" }
 qdk_simulators = { path = "../simulators", features = ["gpu"] }
 # The engines of `tensornetwork_qir(method="mps")`: `engine="gpu"` on
 # cuTensorNet, `engine="cpu"` on the host CPU, both behind `tensornet`'s
-# `MpsEngine`; joined in `src/qir_simulation/tensor_network.rs`.
+# `MpsEngine`; and the GPU setup check `check_tensornetwork_setup` runs,
+# cuTensorNet's; joined in `src/qir_simulation/tensor_network.rs`.
 qdk_cutensornet = { path = "../cutensornet" }
 canonical_mps = { path = "../canonical_mps" }
 tensornet = { path = "../tensornet" }
