@@ -255,7 +255,8 @@ debug builds.
 a GPU run needs; each library's module in [`src/libraries/`](src/libraries)
 says what the crate needs of it. Discovery sits at the crate's root, not
 under the engine, because it is the crate's entry point: a caller runs it
-before making any engine, and the engine takes its result.
+before making any engine, the engine takes its result, and the GPU setup
+check runs it too.
 
 **The problem.** cuTensorNet and the CUDA Runtime are shared libraries
 (`libcutensornet.so.2`, `libcudart.so.12`), and linking them would make
