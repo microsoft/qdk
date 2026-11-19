@@ -43,7 +43,8 @@ Today the crate holds:
   probabilities and seeds); the method keeps its instructions, its shots
   and its generator. Beside it:
   - the functions of [`checks`](src/engine/checks.rs), one per method that
-    takes arguments, make the refusals of the arguments;
+    can refuse a call (all but `fork`, `shape` and `retained_weight`), make
+    the refusals of the arguments;
   - [`sampling`](src/engine/sampling.rs) is what every engine's `sample`
     shares: `sample_by_conditionals` draws the values from the engine's
     conditional probabilities, so an engine that draws them itself writes
@@ -124,7 +125,7 @@ sequenceDiagram
   M->>E: probability_of_one(state, s), or conditional_probability_of_one(state, s, given)
   Note over M: draws the value v with its own generator
   M->>E: project(state, s, v), which returns p_v
-  M->>E: fork(state), when a group of shots splits
+  M->>E: fork(state), when a group of shots splits (planned)
   M->>E: sample(state, sites, N, seed)
   M->>E: expectation(state, O)
   M->>E: shape(state), retained_weight(state)
@@ -146,7 +147,7 @@ is for:
 - [`project`](src/engine.rs): keeps a drawn value, and returns its
   probability.
 - [`fork`](src/engine.rs): an independent copy, for the default
-  `conditional_probability_of_one` and for shots that split.
+  `conditional_probability_of_one`, and for shots that split (planned).
 - [`sample`](src/engine.rs): the values of many shots, from one seed.
 - [`expectation`](src/engine.rs): the expectation of a Pauli sum.
 - [`shape`](src/engine.rs): the chain the engine holds now, what the run
@@ -171,14 +172,16 @@ its sampler and a default `conditional_probability_of_one`:
 - implement [`MpsEngine`](src/engine.rs), with its `State` and an `Error`
   that implements [`MpsEngineError`](src/engine/mps_engine_error.rs) and is
   built from a `Refusal`;
-- start each method that takes arguments with its function of
-  [`checks`](src/engine/checks.rs) (one per such method), so that the
-  engine refuses what every engine refuses;
+- start each method that can refuse a call (all but `fork`, `shape` and
+  `retained_weight`) with its function of
+  [`checks`](src/engine/checks.rs), so that the engine refuses what every
+  engine refuses;
+- build `sample` on [`sample_by_conditionals`](src/engine/sampling.rs),
+  with an `Error` built from `TooManyValues` too (`From`), which keeps its
+  promises of reproducibility, layout and memory;
 - keep the trait's default `conditional_probability_of_one`, which forks
   the state and projects the fork, or override it where the library can
-  contract with projected sites; and build `sample` on
-  [`sample_by_conditionals`](src/engine/sampling.rs), which keeps its
-  promises of reproducibility, layout and memory;
+  contract with projected sites;
 - test the engine against [`ExactReference`](src/engine/reference.rs)
   (feature `conformance`), the exact answer every engine with enough bond
   must give.
@@ -200,10 +203,9 @@ its sampler and a default `conditional_probability_of_one`:
 
 The crate's tests are in [`src/tests/`](src/tests/), one file per module
 with run-time behaviour (the generator is tested through the sampler):
-the checks of each method refuse each fault and accept its edges, the
-shared sampler draws the published `SplitMix64` stream, and the reference's
-chain has the Schmidt ranks a singular value decomposition gives on random
-circuits.
+each check refuses each fault and accepts its edges, the shared sampler
+draws the published `SplitMix64` stream, and the reference's chain has the
+Schmidt ranks a singular value decomposition gives on random circuits.
 
 ## Files
 
@@ -211,7 +213,7 @@ circuits.
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/lib.rs`                        | the crate's public surface and its role                                                                                                   |
 | `src/engine.rs`                     | `MpsEngine`, what an engine does                                                                                                          |
-| `src/engine/checks.rs`              | the argument checks of every method that takes arguments, which make every refusal but `ZeroProbabilityOutcome`                           |
+| `src/engine/checks.rs`              | the argument checks of every method that can refuse a call, which make every refusal but `ZeroProbabilityOutcome`                         |
 | `src/engine/mps_engine_error.rs`    | `MpsEngineError`, how an engine's error exposes a refusal                                                                                 |
 | `src/engine/reference.rs`           | `ExactReference`, the exact engine, with `ReferenceState` and `ReferenceError` (feature `conformance`)                                    |
 | `src/engine/sampling.rs`            | `sample_by_conditionals` and `TooManyValues`: the sampling every engine shares                                                            |

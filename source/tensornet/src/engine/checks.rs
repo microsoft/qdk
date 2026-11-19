@@ -2,9 +2,10 @@
 // Licensed under the MIT License.
 
 //! The argument checks of the [`MpsEngine`](crate::MpsEngine) methods that
-//! take arguments: one function per such method, which every engine calls
-//! before it changes the state, so that every engine refuses a call with
-//! one fault with the same [`Refusal`]. They make every refusal but
+//! can refuse a call: one function per such method (all but `fork`,
+//! `shape` and `retained_weight`), which every engine calls before it
+//! changes the state, so that every engine refuses a call with one fault
+//! with the same [`Refusal`]. They make every refusal but
 //! [`Refusal::ZeroProbabilityOutcome`], which reads the state, so the
 //! projection and the conditional probability make it after their checks.
 //!
@@ -108,7 +109,7 @@ pub fn apply(site_count: usize, sites: &[usize], matrix: &[Complex64]) -> Result
 }
 
 /// `Σ_{i,j} |(M·M†)[i][j] − δ_ij|` for the row-major `dim`×`dim` matrix `M`.
-pub(crate) fn unitarity_deviation(matrix: &[Complex64], dim: usize) -> f64 {
+fn unitarity_deviation(matrix: &[Complex64], dim: usize) -> f64 {
     let mut deviation = 0.0;
     for (i, row) in matrix.chunks_exact(dim).enumerate() {
         for (j, other) in matrix.chunks_exact(dim).enumerate() {
