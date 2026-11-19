@@ -24,9 +24,13 @@
 //! comparison of handles, and refuses the call if the allocator returned
 //! one of them, which only a faulty allocator does; the input keeps its
 //! buffer, which the call does not free.
+//!
+//! It also sizes the tensors every call reads and makes
+//! ([`element_count`]), and gives their extents as a descriptor takes them
+//! ([`native_extents`]).
 
 use super::algebra_session::{AlgebraSession, NativeObject, Retired};
-use super::device_tensor::{DeviceTensor, native_extents};
+use super::device_tensor::DeviceTensor;
 use super::resources::AlgebraResources;
 use crate::engine::cuda_algebra_error::{
     CudaAlgebraError, combine_execution_and_cleanup, first_failure,
@@ -301,4 +305,26 @@ fn not_an_input_buffer(
         });
     }
     Ok(buffer)
+}
+
+/// `extents` as a descriptor takes them.
+pub(super) fn native_extents(extents: &[usize]) -> Result<Vec<i64>, CudaAlgebraError> {
+    extents
+        .iter()
+        .map(|&extent| {
+            i64::try_from(extent).map_err(|_| CudaAlgebraError::ResourceSizeOverflow {
+                resource: "tensor extent",
+            })
+        })
+        .collect()
+}
+
+/// The element count of a tensor of `extents`.
+pub(super) fn element_count(extents: &[usize]) -> Result<usize, CudaAlgebraError> {
+    extents
+        .iter()
+        .try_fold(1_usize, |count, &extent| count.checked_mul(extent))
+        .ok_or(CudaAlgebraError::ResourceSizeOverflow {
+            resource: "device tensor",
+        })
 }

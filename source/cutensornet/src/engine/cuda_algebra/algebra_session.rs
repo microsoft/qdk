@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! [`AlgebraSession`]: what a [`CudaAlgebra`](super::CudaAlgebra) and its
-//! tensors share, so that none of them frees a buffer the device may
-//! still use.
+//! tensors share (the device session, and the poison a failed call may
+//! leave), so that none of them frees a buffer the device may still use.
 //!
 //! Every call of the algebra returns with its device work done, so a
 //! buffer is freed at once when nothing uses it any more: a tensor when
@@ -33,9 +33,10 @@ use crate::engine::device_session::DeviceSession;
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle};
 use std::cell::RefCell;
 
-/// The device session of an algebra and its tensors, and whether a failed
-/// call left device work nobody could wait for (the module's header says
-/// what follows).
+/// An algebra's poison, and the device session it shares with its
+/// tensors: whether a failed call left device work nobody could wait for,
+/// and what that work's buffers keep until a wait succeeds (the module's
+/// header says what follows).
 pub(super) struct AlgebraSession {
     device_session: DeviceSession<dyn NativeCalls>,
     unwaited: RefCell<Option<UnwaitedWork>>,

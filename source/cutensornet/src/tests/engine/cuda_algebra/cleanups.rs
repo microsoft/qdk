@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! Tests of the algebra's cleanups: a failed release skips no other
-//! release and poisons nothing.
+//! release and poisons nothing, and a call whose releases fail returns the
+//! first failure.
 
 use super::*;
 use crate::engine::cuda_algebra::NETWORKS_KEPT;
@@ -89,4 +90,31 @@ fn a_failed_release_leaks_its_object_and_poisons_nothing() {
         drop(algebra);
         assert_eq!(libraries.live_objects(), case.left, "{release}");
     }
+}
+
+/// A call's cleanup makes several releases, each attempted even after an
+/// earlier one failed; when two fail, the call returns the first in the
+/// order they were made. Here a split whose SVD config and SVD info both
+/// fail to be destroyed.
+#[test]
+fn a_call_whose_releases_fail_returns_the_first_failure() {
+    let (algebra, libraries) = algebra();
+    let (a, b) = random_pair(1, 1, 1, 4);
+    let failing = ["destroy_svd_config", "destroy_svd_info"];
+    for release in failing {
+        libraries.fail(release, libraries.count(release) + 1);
+    }
+    let before = libraries.events().len();
+    let failed = one_qubit_split(&a, &b).on(&algebra).map(drop);
+    let made = libraries.events()[before..].to_vec();
+    let first = made.iter().copied().find(|event| failing.contains(event));
+    assert!(
+        failing.iter().all(|release| made.contains(release)),
+        "both releases are made: {made:?}"
+    );
+    let operation = match &failed {
+        Err(CudaAlgebraError::NativeCallFailed { operation, .. }) => Some(*operation),
+        _ => None,
+    };
+    assert_eq!(operation, first, "{failed:?}");
 }

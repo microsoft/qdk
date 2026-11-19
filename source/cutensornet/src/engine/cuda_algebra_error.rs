@@ -52,7 +52,7 @@ pub enum CudaAlgebraError {
     /// documented precondition. Made by the CUDA algebra, for a tensor
     /// shorter than its call reads, and by the native calls, for an empty
     /// buffer or a tensor whose extents and mode labels differ in number.
-    #[error("invalid native call: {reason}")]
+    #[error("a call was refused before reaching the CUDA device: {reason}")]
     InvalidNativeCall { reason: String },
 
     /// A native call succeeded but returned a null handle: made by the
@@ -80,7 +80,10 @@ pub enum CudaAlgebraError {
     /// cuTensorNet asked for more workspace than the device's free memory:
     /// `required` bytes, beyond the `maximum` free when the call grew its
     /// scratch. Made by the CUDA algebra's scratch, as it grows.
-    #[error("native workspace requires {required} bytes, more than the {maximum} bytes free")]
+    #[error(
+        "cuTensorNet's workspace for this call needs {required} bytes, more than the \
+         {maximum} bytes free on the CUDA device"
+    )]
     WorkspaceLimitExceeded { required: usize, maximum: usize },
 
     /// A native call returned a value that cannot be used: a gate split's
@@ -88,12 +91,15 @@ pub enum CudaAlgebraError {
     /// allocation that returned the buffer of a tensor the call reads,
     /// which it must leave unchanged. Made by the CUDA algebra, which
     /// checks each such value before it uses it.
-    #[error("invalid native result: {reason}")]
+    #[error("cuTensorNet or the CUDA Runtime returned an unusable result: {reason}")]
     InvalidNativeResult { reason: String },
 
     /// A CUDA algebra was given a tensor another algebra made, which it
     /// refuses before any native call: made by the CUDA algebra.
-    #[error("the tensor belongs to another CUDA algebra")]
+    #[error(
+        "a site tensor belongs to another GPU engine, whose device work this one cannot \
+         wait for"
+    )]
     ForeignTensor,
 
     /// An earlier failure left the algebra unusable; only dropping it, and
