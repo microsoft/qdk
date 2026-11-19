@@ -57,9 +57,9 @@ Each file's header gives the rules it implements.
 - **One implementation.** The resumer is written once, and runs on any
   `MpsEngine`: a new engine needs no change here, and gets every program
   `qir`'s machine runs but those whose shots reach a noise or loss call
-  (planned), shots grouped by their draws, the qubit order, the stop flag
-  and the truncation report; what it must keep is `tensornet`'s contract,
-  checked by `tensornet`'s conformance kit.
+  (planned) or a gate on one qubit twice, shots grouped by their draws,
+  the qubit order, the stop flag and the truncation report; what it must
+  keep is `tensornet`'s contract, checked by `tensornet`'s conformance kit.
 - **One state per group.** The shots that drew the same values share one
   state, forked only where their draws differ: a program whose draws never
   differ runs every shot on at most one state, and a run holds few states

@@ -387,10 +387,10 @@ fn a_failed_run_names_its_first_failing_shot_in_shot_order() {
     };
     rows.push((scene_run, b, Failure::Engine));
 
-    // A failed waiting copy, and a shot that goes on from its split and
-    // fails later on its own: a coin whose shots that read 0 trap, on an
-    // engine whose projections on One fail, so the copy for the shots that
-    // read 1 fails before the shot that reads 0, going on, traps. With the
+    // A failed fork, and a shot that goes on from its split and fails
+    // later on its own: a coin whose shots that read 0 trap, on an engine
+    // whose projections on One fail, so the fork for the shots that read 1
+    // fails before the shot that reads 0, going on, traps. With the
     // shot that reads 0 first, the run names it; with it last, the first
     // shot that reads 1.
     let [zero, one, other_one] = a_zero_then_two_ones();
@@ -409,7 +409,7 @@ fn a_failed_run_names_its_first_failing_shot_in_shot_order() {
         ),
     ] {
         let scene_run = FailingRun {
-            scene: format!("a failed waiting copy, {scene}"),
+            scene: format!("a failed fork, {scene}"),
             engine: ReferenceSpy::failing_projections_on_one,
             seed: 5,
             program: coins_then_trap_unless_all(1, 1),
@@ -483,14 +483,14 @@ fn no_group_runs_on_for_shots_after_the_first_failure() {
     };
     rows.push((scene_run, failing[0], Failure::Trap, 4));
 
-    // The group going on from a split whose waiting copy failed: a coin,
+    // The group going on from a split whose fork failed: a coin,
     // then three X gates on a second qubit, on an engine whose projections
     // on One fail. The two shots that read 1 first, which wait and whose
-    // copy fails, then the shot that reads 0, which goes on and applies
+    // fork fails, then the shot that reads 0, which goes on and applies
     // none of the gates.
     let [zero, one, other_one] = a_zero_then_two_ones();
     let scene_run = FailingRun {
-        scene: "the group going on from a failed waiting copy".to_string(),
+        scene: "the group going on from a failed fork".to_string(),
         engine: ReferenceSpy::failing_projections_on_one,
         seed: 5,
         program: program(
@@ -508,8 +508,8 @@ fn no_group_runs_on_for_shots_after_the_first_failure() {
     };
     rows.push((scene_run, one, Failure::Engine, 1));
 
-    // The group going on from any split, not only from one whose waiting
-    // copy failed: a first coin, whose shots that read 1 trap, then for the
+    // The group going on from any split, not only from one whose fork
+    // failed: a first coin, whose shots that read 1 trap, then for the
     // others a second coin and three X gates on a third qubit. The shots:
     // A and C read 0 then 0, B reads 1, D reads 0 then 1. On the first coin
     // B goes on, the fewer, and traps; A, C and D run after it, as A comes
@@ -660,16 +660,16 @@ fn a_failed_fork_fails_the_shots_going_on_too() {
     }
 }
 
-/// When the copy for the group of a split that waits fails, only the shots
+/// When the fork for the group of a split that waits fails, only the shots
 /// that wait fail, as the group's own state was not touched: on a coin,
 /// the shot that reads 0 goes on, the fewer, and ends, and the run names
 /// the first of the two that wait, not the shot before them. Each row is
-/// how the copy fails, and the gates the run applies: as it is projected
+/// how the fork fails, and the gates the run applies: as it is projected
 /// on One, while the group going on applies an X on a second qubit; or, a
 /// coin read and reset, as the X that returns it to |0⟩ fails, which the
 /// group going on, at 0, does not need.
 #[test]
-fn a_failed_waiting_copy_fails_only_the_shots_that_wait() {
+fn a_failed_fork_fails_only_the_shots_that_wait() {
     let shots = a_zero_then_two_ones();
     let rows = [
         (
