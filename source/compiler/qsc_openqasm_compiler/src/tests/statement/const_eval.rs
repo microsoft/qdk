@@ -254,8 +254,8 @@ fn unary_op_neg_angle() -> miette::Result<(), Vec<Report>> {
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         let a = new Std.OpenQASM.Angle.Angle {
-            Value = 7573658969935327,
-            Size = 53
+            Value = 3611402020,
+            Size = 32
         };
         let b = One;
         mutable r = [Zero];
@@ -1893,11 +1893,31 @@ fn cast_to_angle() -> miette::Result<(), Vec<Report>> {
         import Std.OpenQASM.Intrinsic.*;
         let a1 = 2.;
         let b1 = new Std.OpenQASM.Angle.Angle {
-            Value = 2867080569611330,
-            Size = 53
+            Value = 1367130551,
+            Size = 32
         };
         let s1 = One;
         mutable r1 = [Zero];
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[test]
+fn cast_sized_float_to_angle_uses_angle_width() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        const float[32] a = pi;
+        const angle[4] b = a;
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        let a = 3.141592653589793;
+        let b = new Std.OpenQASM.Angle.Angle {
+            Value = 8,
+            Size = 4
+        };
     "#]]
     .assert_eq(&qsharp);
     Ok(())

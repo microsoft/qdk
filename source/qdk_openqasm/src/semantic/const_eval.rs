@@ -935,10 +935,10 @@ fn cast_to_angle(cast: &Cast, ctx: &mut Lowerer) -> Option<LiteralKind> {
     let lit = cast.expr.const_eval(ctx)?;
 
     match &cast.expr.ty {
-        Type::Float(size, _) => rewrap_lit!(
+        Type::Float(..) => rewrap_lit!(
             lit,
             Float(val),
-            Angle(angle::Angle::from_f64_maybe_sized(val, *size))
+            Angle(angle::Angle::from_f64_maybe_sized(val, cast.ty.width()))
         ),
         Type::Angle(..) => rewrap_lit!(
             lit,
