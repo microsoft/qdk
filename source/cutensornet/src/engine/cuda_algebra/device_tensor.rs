@@ -2,9 +2,7 @@
 // Licensed under the MIT License.
 
 //! [`DeviceTensor`]: one site tensor of a [`CudaAlgebra`](super::CudaAlgebra),
-//! a device buffer of complex doubles, freed when dropped; and the sizes of
-//! a tensor of given extents, checked for overflow: its element count, and
-//! its extents as a descriptor takes them.
+//! a device buffer of complex doubles, freed when dropped.
 
 use super::algebra_session::{AlgebraSession, NativeObject, Retired};
 use crate::engine::cuda_algebra_error::{CudaAlgebraError, report_failed_release};
