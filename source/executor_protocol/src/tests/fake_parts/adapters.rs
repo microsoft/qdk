@@ -244,7 +244,8 @@ impl Adapt for NamesBelow {
 
 /// An adapter that sends each instruction of a batch as a batch of its
 /// own, one `execute` each, as a stepping debugger does, and joins their
-/// readouts into those of the batch it got.
+/// readouts into those of the batch it got. A refusal from below after an
+/// earlier step ran becomes a failure, as `Adapt::adapt` asks.
 #[derive(Default)]
 pub(crate) struct Splitter {
     below: Option<OpcodeMap>,
@@ -274,6 +275,7 @@ impl Adapt for Splitter {
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         let mut parts: Vec<BatchReadouts> = Vec::new();
+        let mut ran = false;
         for (batch, batch_readouts) in batches.iter().zip(readouts) {
             let instructions = mapped(map, batch.instructions);
             parts.clear();
@@ -285,9 +287,16 @@ impl Adapt for Splitter {
                     .checked_if(batch.is_checked())];
                 parts.push(BatchReadouts::new(0, 0));
                 let part = parts.last_mut().expect("the part just pushed");
-                below
-                    .execute(&step, seed, std::slice::from_mut(part))
-                    .await?;
+                match below.execute(&step, seed, std::slice::from_mut(part)).await {
+                    Ok(()) => ran = true,
+                    Err(ExecuteError::Refused(refusal)) if ran => {
+                        return Err(ExecuteError::Failed {
+                            shot: refusal.shot(),
+                            failure: Failure::Refused(refusal),
+                        });
+                    }
+                    Err(error) => return Err(error),
+                }
             }
             batch_readouts.concat_from(&parts);
         }

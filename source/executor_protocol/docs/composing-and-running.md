@@ -82,9 +82,10 @@ can be corrected and sent again; or `Failed`, with a
 [`ExecuteRefusal`](../src/roles/execute.rs), when nothing of it ran, or
 `Failed`, naming the shot and its `Failure`. A driver passes either up
 with `?`, and a refusal from below then fails the run as
-`Failure::Refused`. The runner sends nothing again, whatever the refusal;
-a part that retries one does so itself, as
-[Writing a part](writing-a-part.md#the-rules-a-part-keeps) says.
+`Failure::Refused`. The protocol sends nothing again, whatever the
+refusal: a refusal that reaches the runner fails the run. A part that
+retries a refusal does so itself, under the rule
+[Writing a part](writing-a-part.md#the-rules-a-part-keeps) states.
 
 A `Failure` is a part's own error (`Part`), such as a program's trap; a
 refusal once the run started (`Refused`); or a part's panic (`Panicked`),

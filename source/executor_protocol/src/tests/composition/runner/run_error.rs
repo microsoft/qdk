@@ -39,9 +39,19 @@ fn a_failing_shot_ends_the_run_naming_it() {
 }
 
 /// An executor of [`CoinGates`](crate::tests::fake_parts::CoinGates)
-/// refusing every `execute` with `refusal`.
+/// refusing every `execute` with `refusal`, counting them in `calls`.
 struct Refuses {
     refusal: ExecuteRefusal,
+    calls: Rc<Cell<u32>>,
+}
+
+impl Refuses {
+    fn new(refusal: ExecuteRefusal, calls: &Rc<Cell<u32>>) -> Self {
+        Self {
+            refusal,
+            calls: Rc::clone(calls),
+        }
+    }
 }
 
 impl ExecutorSetup for Refuses {
@@ -61,6 +71,7 @@ impl Execute for Refuses {
         _seed: Seed,
         _readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
+        self.calls.set(self.calls.get() + 1);
         Err(ExecuteError::Refused(self.refusal.clone()))
     }
 }
@@ -73,6 +84,8 @@ impl Execute for Refuses {
 /// the refusal up, wherever the brackets go: each boundary passes a
 /// refusal from below up as it was made, so that the part above reads its
 /// shot and its [`retry_class`](ExecuteRefusal::retry_class) unchanged.
+/// The protocol sends a refused `execute` once, whatever its class: the
+/// executor is asked once per run.
 #[test]
 fn a_refusal_ends_the_run_naming_its_shot() {
     let shot = ShotId::new(2);
@@ -87,16 +100,18 @@ fn a_refusal_ends_the_run_naming_its_shot() {
             ShotSet::ids(2..6),
         ),
     ] {
-        let refuses = || {
-            Executor::new(Refuses {
-                refusal: refusal.clone(),
-            })
-        };
+        let calls = Rc::new(Cell::new(0));
+        let refuses = || Executor::new(Refuses::new(refusal.clone(), &calls));
         let ends_the_run = |error: DriveError, brackets: &str| {
             assert_eq!(error.shot, shot, "{refusal:?}, {brackets}");
             assert!(
                 matches!(&error.failure, Failure::Refused(why) if *why == refusal),
                 "{brackets}: {error:?}"
+            );
+            assert_eq!(
+                calls.replace(0),
+                1,
+                "the refused execute is sent once, {refusal:?}, {brackets}"
             );
         };
         ends_the_run(
@@ -166,12 +181,13 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
             "an execute the executor cannot take now",
             runner(
                 measure()
-                    >> Executor::new(Refuses {
-                        refusal: ExecuteRefusal::NotReady {
+                    >> Executor::new(Refuses::new(
+                        ExecuteRefusal::NotReady {
                             shot: ShotId::new(0),
                             why: "the device is calibrating".into(),
                         },
-                    }),
+                        &Rc::default(),
+                    )),
             )
             .run(&shots, SEED)
             .map(drop),
