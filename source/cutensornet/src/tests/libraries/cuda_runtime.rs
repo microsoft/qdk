@@ -8,7 +8,6 @@ use super::function_table::assert_each_field_is_named_for_its_symbol;
 use crate::tests::stand_ins::{StandInResolver, cuda_version};
 use crate::{
     LibraryFault, Version,
-    libraries::function_table::FunctionTable,
     libraries::{
         NativeLibrary, ProbedVersions,
         cuda_runtime::{CudaFunctions, CudaRuntime, CudaVersionFunctions},
@@ -23,30 +22,6 @@ fn the_cuda_runtime_tables_look_each_field_up_by_its_symbol() {
     for rows in [CudaFunctions::ROWS, CudaVersionFunctions::ROWS] {
         assert_each_field_is_named_for_its_symbol(rows, "cuda");
     }
-}
-
-/// An installation whose CUDA Runtime lacks required functions is refused,
-/// naming each one.
-#[test]
-fn every_missing_required_cuda_function_is_reported() {
-    let required: Vec<_> = CudaFunctions::ROWS
-        .iter()
-        .filter(|row| row.2)
-        .map(|row| row.1)
-        .collect();
-    let resolver = required
-        .iter()
-        .fold(StandInResolver::audited(), |resolver, &symbol| {
-            resolver.without(symbol)
-        });
-    let missing = CudaFunctions::resolve(&resolver)
-        .err()
-        .expect("every required function is missing");
-    let expected: Vec<_> = required
-        .into_iter()
-        .map(|symbol| LibraryFault::MissingRequiredSymbol { symbol })
-        .collect();
-    assert_eq!(missing, expected);
 }
 
 static CUDA_ERROR_MESSAGE: &[u8] = b"simulated CUDA version failure\0";

@@ -37,14 +37,16 @@
 //!    function takes by value (no function bound today takes one);
 //! 2. add its module here, whose type implements `NativeLibrary`: its name,
 //!    override variable and default paths, its table of functions
-//!    (`function_table!`), and how its versions are read and which are
-//!    accepted, asserted at compile time to be the version its header
-//!    declares, where the header declares one;
-//! 3. add its field to `LoadedLibraries` before the fields of the libraries
-//!    it runs on, so that it is closed first, and open it in
-//!    `LoadedLibraries::open` after them;
-//! 4. test its table and versions in `tests/libraries/`, and add its
-//!    variable, paths and versions to the README.
+//!    (`function_table!`, each field named for its symbol), and how its
+//!    versions are read and which are accepted, asserted at compile time to
+//!    be the version its header declares, where the header declares one;
+//! 3. add its field to `LoadedLibraries`, and open it in
+//!    `LoadedLibraries::open` after the libraries it runs on, so that their
+//!    versions are checked first;
+//! 4. test its versions in `tests/libraries/`, and its tables there with the
+//!    naming rule (`assert_each_field_is_named_for_its_symbol`) and in the
+//!    case list of `function_table`'s tests; add its variable, paths and
+//!    versions to the README.
 //!
 //! Discovery and the public report, a list with one entry per library, do
 //! not change.
