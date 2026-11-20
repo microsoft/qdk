@@ -70,6 +70,35 @@ impl Profiler {
             profile: Profile::default(),
         }
     }
+
+    /// `execute`'s work on one shot's instructions, without the multi-shot
+    /// form: no `Batch`, `ShotSet`, `BatchReadouts` or seed. It counts them
+    /// as `execute` counts an unchecked batch, so that the `calling_form`
+    /// bench times the same work behind each form.
+    #[expect(
+        clippy::unused_async,
+        reason = "the async form is what the `calling_form` bench measures, as an executor that \
+                  never waits keeps the trait's `async fn`"
+    )]
+    pub(crate) async fn execute_one(
+        &mut self,
+        instructions: &[Instruction],
+        _readouts: &mut [ReadoutValue],
+    ) -> Result<(), ExecuteError> {
+        // Its gates read nothing: `readouts` comes sized with no slot.
+        self.profile.record(instructions, false);
+        Ok(())
+    }
+
+    /// [`execute_one`](Self::execute_one), as a plain function.
+    pub(crate) fn execute_one_sync(
+        &mut self,
+        instructions: &[Instruction],
+        _readouts: &mut [ReadoutValue],
+    ) -> Result<(), ExecuteError> {
+        self.profile.record(instructions, false);
+        Ok(())
+    }
 }
 
 impl Profile {

@@ -2,17 +2,18 @@
 // Licensed under the MIT License.
 
 //! The bench's drivers: a program sent in batches, through the chain or
-//! past it, and running a chain of them once.
+//! past it, or past it in a one-shot form; and running a chain of them once.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use executor_protocol::{
     Batch, BatchReadouts, CompositionFaults, Drive, DriveError, DriverSetup, Execute, ExecuteError,
-    ExecutorSetup, Instruction, InstructionSet, Needs, OpcodeMap, ReadoutValue, Readouts, Runner,
-    Seed, ShotSet,
+    ExecutorSetup, Instruction, InstructionSet, Needs, OpcodeMap, ReadoutFailure, ReadoutValue,
+    Readouts, Runner, Seed, ShotSet,
 };
 
+use super::Profiler;
 use crate::workload::SEED;
 
 /// A driver that sends its program below, `batch` instructions per
@@ -188,6 +189,125 @@ impl<E: Execute> Drive for Direct<'_, E> {
         // Its executor is past the chain, so the runner does not end the
         // run's shots on it.
         executor.end_shots(shots);
+        Ok(vec![received])
+    }
+}
+
+/// How [`OneShotDirect`] calls its profiler.
+#[derive(Clone, Copy)]
+pub(crate) enum OneShotForm {
+    /// [`Profiler::execute_one`], awaited.
+    Async,
+    /// [`Profiler::execute_one_sync`], a plain call.
+    Sync,
+}
+
+/// [`Direct`] over a [`Profiler`], calling it in a one-shot form: one
+/// shot's instructions and a slice of readouts, with no `Batch`, `ShotSet`,
+/// `BatchReadouts` or seed. Its loop is otherwise `send`'s: the same
+/// chunks and slots, the same clock branch, and one readout buffer, shaped
+/// only where its slots change.
+pub(crate) struct OneShotDirect<'p, 'e> {
+    pub(crate) in_batches: ProgramInBatches<'p>,
+    pub(crate) profiler: &'e mut Profiler,
+    pub(crate) form: OneShotForm,
+}
+
+impl OneShotDirect<'_, '_> {
+    async fn send_async(&mut self) -> Result<Received, ExecuteError> {
+        let Self {
+            in_batches,
+            profiler,
+            ..
+        } = self;
+        let mut received = Received {
+            values: Vec::new(),
+            call_times: Vec::new(),
+        };
+        let mut kept = Vec::new();
+        for (chunk, &slots) in in_batches
+            .program
+            .chunks(in_batches.batch)
+            .zip(in_batches.slots)
+        {
+            let start = in_batches.timed.then(Instant::now);
+            let readouts = shaped(&mut kept, slots);
+            profiler.execute_one(black_box(chunk), readouts).await?;
+            if let Some(start) = start {
+                received.call_times.push(start.elapsed());
+            }
+            received.values.extend_from_slice(readouts);
+        }
+        Ok(received)
+    }
+
+    fn send_sync(&mut self) -> Result<Received, ExecuteError> {
+        let Self {
+            in_batches,
+            profiler,
+            ..
+        } = self;
+        let mut received = Received {
+            values: Vec::new(),
+            call_times: Vec::new(),
+        };
+        let mut kept = Vec::new();
+        for (chunk, &slots) in in_batches
+            .program
+            .chunks(in_batches.batch)
+            .zip(in_batches.slots)
+        {
+            let start = in_batches.timed.then(Instant::now);
+            let readouts = shaped(&mut kept, slots);
+            profiler.execute_one_sync(black_box(chunk), readouts)?;
+            if let Some(start) = start {
+                received.call_times.push(start.elapsed());
+            }
+            received.values.extend_from_slice(readouts);
+        }
+        Ok(received)
+    }
+}
+
+/// `kept`, as `slots` values, each `Missing(ReadoutFailure::Other)` when
+/// its length changes, as `send` shapes its `BatchReadouts` only where
+/// their shape changes.
+fn shaped(kept: &mut Vec<ReadoutValue>, slots: u32) -> &mut [ReadoutValue] {
+    let slots = slots as usize;
+    if kept.len() != slots {
+        kept.clear();
+        kept.resize(slots, ReadoutValue::Missing(ReadoutFailure::Other));
+    }
+    kept
+}
+
+impl DriverSetup for OneShotDirect<'_, '_> {
+    fn sends(&self) -> &InstructionSet {
+        self.in_batches.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.in_batches.bind(below);
+    }
+
+    fn needs(&self) -> Needs {
+        self.in_batches.needs()
+    }
+}
+
+impl Drive for OneShotDirect<'_, '_> {
+    type Output = Received;
+
+    async fn drive(
+        &mut self,
+        _shots: &ShotSet,
+        _seed: Seed,
+        _chain: &mut impl Execute,
+    ) -> Result<Vec<Received>, DriveError> {
+        let received = match self.form {
+            OneShotForm::Async => self.send_async().await?,
+            OneShotForm::Sync => self.send_sync()?,
+        };
         Ok(vec![received])
     }
 }

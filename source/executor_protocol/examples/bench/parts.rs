@@ -4,8 +4,9 @@
 //! The parts the bench composes, each role's in a file of its own, and the
 //! instruction sets they speak:
 //!
-//! - drivers: [`ProgramInBatches`], which sends a program in batches, and
-//!   [`Direct`], which sends it past the chain, the baseline;
+//! - drivers: [`ProgramInBatches`], which sends a program in batches,
+//!   [`Direct`], which sends it past the chain, the baseline, and
+//!   [`OneShotDirect`], which sends it past the chain in a one-shot form;
 //! - adapters: [`Forward`], which forwards every batch, and
 //!   [`Repetition3`], a toy lowering;
 //! - executors: [`Profiler`] and [`Sink`], which count what they get, and
