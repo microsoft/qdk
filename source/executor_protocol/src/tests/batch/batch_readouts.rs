@@ -97,10 +97,13 @@ fn rows_come_back_by_position_with_their_conditions() {
 /// Two batches' readouts are equal when their rows and each shot's
 /// conditions are, whatever memory each keeps (a shot whose condition was
 /// raised, then cleared, as an adapter that resolves it clears it, equals
-/// one never raised), and differ when only a value, a shot's conditions,
-/// the number of rows or the readout slots do: also where no value
-/// differs, as for rows of no values, of a batch that only applies gates,
-/// or for readouts of no rows.
+/// one never raised; readouts without a details column equal readouts
+/// whose details are all unwritten, and readouts shaped with details, then
+/// reshaped without, as a caller's kept `Readouts` sent below another set,
+/// keep none of their details), and differ when only a value, a shot's
+/// conditions, a detail, the number of rows or the readout slots do: also
+/// where no value differs, as for rows of no values, of a batch that only
+/// applies gates, or for readouts of no rows.
 #[test]
 fn readouts_are_equal_when_their_rows_and_conditions_are() {
     let rows: [(&[ReadoutValue], ShotConditions); 2] = [
@@ -121,6 +124,13 @@ fn readouts_are_equal_when_their_rows_and_conditions_are() {
             (&[One], ShotConditions::REJECTED),
         ],
     );
+    let with_detail = || {
+        let mut detailed = BatchReadouts::with_details(2, 1);
+        detailed.set_detail(1, ReadoutSlot::new(0), ReadoutDetail::Number(0.5));
+        detailed
+    };
+    let mut reshaped = with_detail();
+    reshaped.shape(2, 1, false);
     for (row, left, right, equal) in [
         (
             "a condition raised, then cleared",
@@ -128,7 +138,25 @@ fn readouts_are_equal_when_their_rows_and_conditions_are() {
             cleared,
             true,
         ),
+        (
+            "no details column, or its details unwritten",
+            BatchReadouts::new(2, 1),
+            BatchReadouts::with_details(2, 1),
+            true,
+        ),
+        (
+            "shaped with details, then without",
+            BatchReadouts::new(2, 1),
+            reshaped,
+            true,
+        ),
         ("a value differs", readouts(1, &rows), flipped, false),
+        (
+            "a detail differs",
+            BatchReadouts::with_details(2, 1),
+            with_detail(),
+            false,
+        ),
         (
             "a shot's conditions differ",
             readouts(1, &rows),
