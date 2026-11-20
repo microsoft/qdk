@@ -2,10 +2,12 @@
 // Licensed under the MIT License.
 
 import { log } from "qsharp-lang";
+import { isLearningId } from "../notebookRenderer/schema.js";
 import type {
   CatalogActivity,
   CatalogCodeCell,
   CatalogExercise,
+  CatalogQuiz,
 } from "./types.js";
 
 /**
@@ -22,6 +24,7 @@ import type {
  * | `hint`        | markdown  | One hint. Multiple allowed, in document order.|
  * | `solution`    | code      | A reference solution. Multiple allowed.       |
  * | `explanation` | markdown  | Prose explanation of the solution.            |
+ * | `author-only` | any       | Notebook-level author tooling or notes.       |
  *
  * `hint`, `solution` and `explanation` cells bind to the nearest preceding
  * `exercise` cell, and are stripped from the learner's working copy during
@@ -33,14 +36,35 @@ import type {
  *
  * This module works on raw notebook JSON rather than VS Code's notebook API
  * because both course load and materialization happen with the file closed.
- * The transform is delete-only, so no nbformat cells are ever constructed.
+ * Materialization removes author-only cells and canonicalizes dedicated quizzes
+ * without constructing cells or regenerating outputs.
  */
 
 /** Tag marking the code cell a learner edits. */
 const EXERCISE_TAG = "exercise";
 
+/**
+ * Tag marking a dedicated quiz-only code cell.
+ *
+ * A quiz cell is learner content, so unlike the authoring tags it stays in the
+ * working copy. Each cell authors one question. It is called out because it sits *inside* a
+ * section's prose: without the tag it would hide the section heading from the
+ * code cell that follows it, which would then fall back to being named after
+ * its cell id.
+ */
+const QUIZ_TAG = "quiz";
+
+// Read only the plain quoted ID at the start of our literal-only authoring form.
+const QUIZ_TRIVIA = String.raw`(?:\s|#[^\r\n]*(?:\r?\n|$))*`;
+const QUIZ_HEADER = new RegExp(
+  String.raw`^${QUIZ_TRIVIA}quiz[ \t]*\(${QUIZ_TRIVIA}(["'])([^"'\\\r\n]*)\1${QUIZ_TRIVIA},`,
+);
+
 /** Tags marking author-only cells, removed from the learner's working copy. */
 const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
+
+/** Notebook-level author content, not associated with an exercise. */
+const AUTHOR_ONLY_TAG = "author-only";
 
 /** Test-only tag removed from cells in the learner's working copy. */
 const SKIP_TEST_TAG = "skip-test";
@@ -52,6 +76,7 @@ interface RawCell {
   id?: unknown;
   cell_type?: unknown;
   source?: unknown;
+  outputs?: unknown;
   metadata?: { tags?: unknown };
 }
 
@@ -73,6 +98,7 @@ type ParsedNotebook = RawNotebook & { cells: RawCell[] };
 export function parseNotebookActivities(
   text: string,
   unitLabel: string,
+  unitNumber = 1,
 ): CatalogActivity[] {
   const cells = readCells(text, unitLabel);
   if (!cells) {
@@ -80,6 +106,7 @@ export function parseNotebookActivities(
   }
 
   const activities: CatalogActivity[] = [];
+  let quizNumber = 0;
 
   // The exercise most recently seen, and therefore the one that any
   // subsequent authoring cells belong to. `undefined` until the first
@@ -89,6 +116,33 @@ export function parseNotebookActivities(
   for (let i = 0; i < cells.length; i++) {
     const cell = cells[i];
     const tags = cellTags(cell);
+
+    if (tags.includes(AUTHOR_ONLY_TAG)) {
+      continue;
+    }
+
+    if (tags.includes(QUIZ_TAG)) {
+      const cellId = cellIdOf(cell);
+      if (cellKind(cell) !== "code" || !cellId) {
+        log.warn(
+          `Learning: skipping a quiz in unit "${unitLabel}": expected a code cell with an id.`,
+        );
+        continue;
+      }
+      const quizId = authoredQuizId(cell);
+      if (!quizId) {
+        log.warn(
+          `Learning: skipping a quiz in unit "${unitLabel}": write its name as quiz("question-id", ...).`,
+        );
+        continue;
+      }
+      activities.push({
+        type: "quiz",
+        id: cellId,
+        title: `Quiz ${unitNumber}.${++quizNumber}`,
+      } satisfies CatalogQuiz);
+      continue;
+    }
 
     const authoringTag = AUTHORING_TAGS.find((t) => tags.includes(t));
 
@@ -193,10 +247,11 @@ export function parseNotebookActivities(
  * Remove the author-only cells from a notebook's JSON text, returning the
  * notebook the learner works in.
  *
- * Retained cells preserve their content, ids, and other tags, including the
- * `exercise` tag. The test-only `skip-test` tag is removed so it doesn't leak
- * into the learner's working copy. Returns `undefined` if the text isn't a
- * notebook, leaving the caller to decide on a fallback.
+ * Dedicated quiz cells get a lookup call using their authored question ID, preserving
+ * saved outputs when available. Other retained cells preserve their
+ * content, ids, and tags except the test-only `skip-test` tag.
+ * Returns `undefined` if the text isn't a notebook. A missing quiz-cell ID/name
+ * throws so the caller cannot copy answer-bearing source as a fallback.
  */
 export function stripAuthoringCells(
   text: string,
@@ -209,10 +264,16 @@ export function stripAuthoringCells(
 
   notebook.cells = notebook.cells.filter((cell) => {
     const tags = cellTags(cell);
-    return !AUTHORING_TAGS.some((t) => tags.includes(t));
+    return (
+      !tags.includes(AUTHOR_ONLY_TAG) &&
+      !AUTHORING_TAGS.some((t) => tags.includes(t))
+    );
   });
 
   for (const cell of notebook.cells) {
+    if (cellKind(cell) === "code" && cellTags(cell).includes(QUIZ_TAG)) {
+      materializeQuizSource(cell, unitLabel);
+    }
     const metadata = cell.metadata;
     if (metadata && Array.isArray(metadata.tags)) {
       metadata.tags = metadata.tags.filter((tag) => tag !== SKIP_TEST_TAG);
@@ -222,6 +283,30 @@ export function stripAuthoringCells(
   // Match the ipynb serializer's formatting so the file stays diff-stable
   // once VS Code starts saving it: one space of indent, trailing newline.
   return `${JSON.stringify(notebook, undefined, 1)}\n`;
+}
+
+function materializeQuizSource(cell: RawCell, unitLabel: string): void {
+  const cellId = cellIdOf(cell);
+  if (!cellId) {
+    throw new Error(
+      `Cannot materialize a quiz in unit "${unitLabel}": the cell has no id.`,
+    );
+  }
+
+  const quizId = authoredQuizId(cell);
+  if (!quizId) {
+    throw new Error(
+      `Cannot materialize quiz cell "${cellId}" in unit "${unitLabel}": ` +
+        'write its name as quiz("question-id", ...) with a plain quoted ID.',
+    );
+  }
+  const source = `quiz(${JSON.stringify(quizId)})\n`;
+  cell.source = Array.isArray(cell.source) ? [source] : source;
+}
+
+function authoredQuizId(cell: RawCell): string | undefined {
+  const id = QUIZ_HEADER.exec(cellSource(cell))?.[2];
+  return isLearningId(id) ? id : undefined;
 }
 
 // ─── Cell readers ───
@@ -315,11 +400,19 @@ function extractTitleFromPrecedingCell(
   for (let i = exerciseIndex - 1; i >= 0; i--) {
     const cell = cells[i];
     const tags = cellTags(cell);
+    if (tags.includes(AUTHOR_ONLY_TAG)) {
+      continue;
+    }
     if (
       tags.includes(EXERCISE_TAG) ||
       AUTHORING_TAGS.some((t) => tags.includes(t))
     ) {
       break;
+    }
+    // A quiz sits within a section rather than starting one, so look straight
+    // past it for the heading instead of stopping at it.
+    if (tags.includes(QUIZ_TAG)) {
+      continue;
     }
     if (cellKind(cell) !== "markdown") {
       break;

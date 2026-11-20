@@ -183,7 +183,10 @@ export class NotebookCourseProvider implements CourseProvider {
     }
 
     const units: NotebookCatalogUnit[] = [];
-    for (const manifestUnit of manifestUnits(loc.manifest.units, loc.dir)) {
+    for (const [unitIndex, manifestUnit] of manifestUnits(
+      loc.manifest.units,
+      loc.dir,
+    ).entries()) {
       const unitDir = vscode.Uri.joinPath(loc.dir, manifestUnit.dir);
       if (!(await uriExists(unitDir))) {
         log.warn(
@@ -194,6 +197,7 @@ export class NotebookCourseProvider implements CourseProvider {
       const { activities, sourceNotebookUri } = await this.parseNotebookUnit(
         unitDir,
         manifestUnit,
+        Number(/^(\d+)(?:[-_]|$)/.exec(manifestUnit.dir)?.[1] ?? unitIndex + 1),
       );
       if (!sourceNotebookUri) {
         log.warn(
@@ -239,6 +243,7 @@ export class NotebookCourseProvider implements CourseProvider {
   private async parseNotebookUnit(
     unitDir: vscode.Uri,
     unit: ManifestUnit,
+    unitNumber: number,
   ): Promise<{
     activities?: CatalogActivity[];
     sourceNotebookUri?: vscode.Uri;
@@ -279,7 +284,7 @@ export class NotebookCourseProvider implements CourseProvider {
     // tags. Read it here so it's available before materialization.
     const notebookText = await tryReadText(sourceNotebookUri);
     const activities = notebookText
-      ? parseNotebookActivities(notebookText, unit.id)
+      ? parseNotebookActivities(notebookText, unit.id, unitNumber)
       : undefined;
 
     return { activities, sourceNotebookUri };
