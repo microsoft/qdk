@@ -16,7 +16,8 @@ use std::f64::consts::FRAC_PI_4;
 /// A set of every part a declaration holds: two block types, one of two
 /// qubits, a variadic operand, parameters of every kind, outcomes, flags,
 /// and meanings of every step, guarded both ways, with an angle and an
-/// observable of each kind, and one declared with no step.
+/// observable of each kind, literal angles of both signed zeros, and one
+/// declared with no step.
 fn every_part() -> InstructionSet {
     let qubit = || BlockType::qubit();
     InstructionSet::new(
@@ -30,6 +31,12 @@ fn every_part() -> InstructionSet {
             InstructionDef::new("t")
                 .acts_on([qubit()])
                 .meaning(Meaning::declared().rotate(Pauli::z(0), Angle::Literal(FRAC_PI_4))),
+            // Angles compare bit for bit, so each zero keeps its sign.
+            InstructionDef::new("zeros").acts_on([qubit()]).meaning(
+                Meaning::declared()
+                    .rotate(Pauli::z(0), Angle::Literal(0.0))
+                    .rotate(Pauli::z(0), Angle::Literal(-0.0)),
+            ),
             InstructionDef::new("rz")
                 .acts_on([qubit()])
                 .parameter("theta", ParameterKind::Number)
@@ -431,6 +438,48 @@ const EVERY_PART_FORM: &str = r#"{
               "pauli": "Z_0",
               "angle": {
                 "literal": 0.7853981633974483
+              }
+            }
+          },
+          "guard": null
+        }
+      ]
+    },
+    {
+      "mnemonic": "zeros",
+      "inputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "outputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "parameters": [],
+      "outcomes": 0,
+      "flags": [],
+      "meaning": [
+        {
+          "operation": {
+            "rotate": {
+              "pauli": "Z_0",
+              "angle": {
+                "literal": 0.0
+              }
+            }
+          },
+          "guard": null
+        },
+        {
+          "operation": {
+            "rotate": {
+              "pauli": "Z_0",
+              "angle": {
+                "literal": -0.0
               }
             }
           },
