@@ -84,7 +84,10 @@ use std::hash::{Hash, Hasher};
 ///
 /// Two sets are equal when their declarations are: their names, their
 /// block types (each with its qubits) in order, and their instructions in
-/// order, so that equal sets give each opcode the same instruction.
+/// order, each as [`InstructionDef`] compares it: a meaning in its
+/// canonical form ([`Meaning`]), so that two written otherwise (Clifford
+/// images in another order, a guard term that cancels) are the same.
+/// Equal sets give each opcode the same instruction.
 /// What a set derives from its declaration when it is built is not
 /// compared. `Hash` hashes what equality compares, for use in one process
 /// only: Rust does not keep a hash's value across its versions or

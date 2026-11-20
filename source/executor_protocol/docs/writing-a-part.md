@@ -6,9 +6,10 @@ the rules a part keeps that the protocol does not check, and how a part
 draws from the run's seed, or says it cannot replay a shot. What crosses
 a boundary is in
 [Batches and readouts](batches-and-readouts.md); what `>>` checks of a
-part, in [Instruction sets and their fit](instruction-sets.md) and
-[Needs, offers and the admission](admission.md). The terms are those of
-the [README](../README.md#terms).
+part, in
+[Instruction sets: their fit, equality and stable form](instruction-sets.md)
+and [Needs, offers and the admission](admission.md). The terms are those
+of the [README](../README.md#terms).
 
 ## The roles' methods, phase by phase
 

@@ -86,29 +86,16 @@ fn rz_gates_form() -> Value {
     serde_json::from_str(RZ_GATES_FORM).expect("the golden is JSON")
 }
 
-/// The far end of a link decodes the near end's set and compares it with
-/// its own: a set read back from its stable form is equal to the one
-/// written, and what it derives (its opcodes, its readout slots) is
-/// derived again.
+/// Two builds that exchange sets read each other's form, and the far end
+/// of a link compares the set it decodes with its own: the text a set
+/// writes does not change, its fields' order included, and it reads back
+/// as a set equal to the one written, whose opcodes and readout slots
+/// (derived, not written) are derived again.
 #[test]
-fn a_set_read_back_from_its_stable_form_is_equal_to_the_one_written() {
-    let set = every_part();
-    let text = serde_json::to_string(&set).expect("a set writes its stable form");
-    let read: InstructionSet = serde_json::from_str(&text).expect("the form reads back");
-    assert_eq!(read, set);
-    let mpp = set.opcode("mpp").expect("an instruction of the set");
-    assert_eq!(read.opcode("mpp"), Some(mpp));
-    assert_eq!(read.readout_slots(mpp), Some(2));
-}
-
-/// Two builds that exchange sets read each other's form: the text a set
-/// writes does not change, its fields' order included, so a build reads
-/// what an earlier one wrote.
-#[test]
-fn a_sets_stable_form_does_not_change() {
-    for (row, set, form) in [
-        ("a set of one instruction", rz_gates(), RZ_GATES_FORM),
-        ("a set of every part", every_part(), EVERY_PART_FORM),
+fn a_sets_stable_form_does_not_change_and_reads_back_as_the_set() {
+    for (row, set, form, mnemonic) in [
+        ("a set of one instruction", rz_gates(), RZ_GATES_FORM, "rz"),
+        ("a set of every part", every_part(), EVERY_PART_FORM, "mpp"),
     ] {
         assert_eq!(
             serde_json::to_string_pretty(&set).expect("a set writes its stable form"),
@@ -117,6 +104,13 @@ fn a_sets_stable_form_does_not_change() {
         );
         let read: InstructionSet = serde_json::from_str(form).expect("the form reads back");
         assert_eq!(read, set, "{row}");
+        let opcode = set.opcode(mnemonic).expect("an instruction of the set");
+        assert_eq!(read.opcode(mnemonic), Some(opcode), "{row}: its opcode");
+        assert_eq!(
+            read.readout_slots(opcode),
+            set.readout_slots(opcode),
+            "{row}: its readout slots"
+        );
     }
 }
 
@@ -201,6 +195,9 @@ fn a_faulty_declaration_is_refused_when_read_naming_its_faults() {
     twice_form["meaning"] = json!([
         {"operation": {"clifford": [["X_0", "Z_0"], ["X_0", "Y_0"]]}, "guard": null}
     ]);
+    let never = h().meaning(Meaning::declared().pauli(Pauli::x(0)).only_if([]));
+    let mut never_form = serde_json::to_value(h()).expect("an instruction writes its form");
+    never_form["meaning"] = json!([{"operation": {"pauli": "X_0"}, "guard": {"if": []}}]);
     for (row, declared, form, fault_count) in [
         (
             "an operand of an undeclared block type",
@@ -221,6 +218,7 @@ fn a_faulty_declaration_is_refused_when_read_naming_its_faults() {
             Some(vec![twice_form]),
             1,
         ),
+        ("an `if` of no term", vec![never], Some(vec![never_form]), 1),
         (
             "a mnemonic declared twice, and a meaning naming a parameter it lacks",
             vec![h(), rotate_by_a_parameter()],

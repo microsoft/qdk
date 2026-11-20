@@ -1,4 +1,4 @@
-# Instruction sets and their fit
+# Instruction sets: their fit, equality and stable form
 
 For those who declare the instructions a part sends or accepts, and who
 need to know when two parts' sets fit: what a set declares, how a set and
