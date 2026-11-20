@@ -1,15 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { MAJORANA_VIEWS, type MajoranaView } from "./types.js";
+import {
+  MAJORANA_VIEWS,
+  type MajoranaView,
+  type MajoranaPresentationOptions,
+} from "./types.js";
 
 export type MajoranaControlsProps = {
   view: MajoranaView;
   step: number;
   maximumStep: number;
   playing: boolean;
-  showQubitLabels: boolean;
-  showMzmLabels: boolean;
+  presentation: Required<MajoranaPresentationOptions>;
   onViewChange(view: MajoranaView): void;
   onStepChange(step: number): void;
   onPlayPause(): void;
@@ -24,8 +27,7 @@ export function MajoranaControls({
   step,
   maximumStep,
   playing,
-  showQubitLabels,
-  showMzmLabels,
+  presentation: { showQubitLabels, showMzmLabels },
   onViewChange,
   onStepChange,
   onPlayPause,
@@ -42,7 +44,9 @@ export function MajoranaControls({
           role="group"
           aria-label="Visualization zoom"
         >
-          <KeyboardHelp />
+          <div class="qs-majorana-keyboard-help">
+            <IconButton label="Keyboard shortcuts" icon="info" />
+          </div>
           <IconButton label="Zoom in" icon="zoom-in" onClick={onZoomIn} />
           <IconButton label="Zoom out" icon="zoom-out" onClick={onZoomOut} />
         </div>
@@ -70,28 +74,22 @@ export function MajoranaControls({
           ))}
         </div>
         <div class="qs-majorana-label-controls">
-          <label>
-            <input
-              type="checkbox"
-              checked={showQubitLabels}
-              aria-label="Qubit labels"
-              onChange={(event) =>
-                onShowQubitLabelsChange(event.currentTarget.checked)
-              }
-            />
-            <span class="qs-majorana-option-label">Qubit labels</span>
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={showMzmLabels}
-              aria-label="MZM labels"
-              onChange={(event) =>
-                onShowMzmLabelsChange(event.currentTarget.checked)
-              }
-            />
-            <span class="qs-majorana-option-label">MZM labels</span>
-          </label>
+          {(
+            [
+              ["Qubit labels", showQubitLabels, onShowQubitLabelsChange],
+              ["MZM labels", showMzmLabels, onShowMzmLabelsChange],
+            ] as const
+          ).map(([label, checked, onChange]) => (
+            <label key={label}>
+              <input
+                type="checkbox"
+                checked={checked}
+                aria-label={label}
+                onChange={(event) => onChange(event.currentTarget.checked)}
+              />
+              <span class="qs-majorana-option-label">{label}</span>
+            </label>
+          ))}
         </div>
         <label class="qs-majorana-scrubber-label">
           <span class="qs-majorana-step">
@@ -138,48 +136,39 @@ export function MajoranaControls({
   );
 }
 
-function KeyboardHelp() {
-  return (
-    <div class="qs-majorana-keyboard-help">
-      <IconButton label="Keyboard shortcuts" icon="info" />
-    </div>
-  );
-}
-
 function KeyboardHelpPanel() {
   return (
     <div class="qs-majorana-keyboard-help-panel" role="tooltip">
       <strong>Keyboard shortcuts</strong>
       <div class="qs-majorana-keyboard-help-grid">
-        <span>Left</span>
-        <span>Step back</span>
-        <span>Right</span>
-        <span>Step forward</span>
-        <span>Up</span>
-        <span>Zoom in</span>
-        <span>Down</span>
-        <span>Zoom out</span>
-        <span>P</span>
-        <span>Play / pause</span>
-        <span>F</span>
-        <span>Faster playback</span>
-        <span>S</span>
-        <span>Slower playback</span>
-        <span>T</span>
-        <span>Toggle Tetrons / Qubits</span>
+        {[
+          ["Left", "Step back"],
+          ["Right", "Step forward"],
+          ["Up", "Zoom in"],
+          ["Down", "Zoom out"],
+          ["P", "Play / pause"],
+          ["F", "Faster playback"],
+          ["S", "Slower playback"],
+          ["T", "Toggle Tetrons / Qubits"],
+        ].flatMap(([key, description]) => [
+          <span key={key}>{key}</span>,
+          <span key={`${key}-description`}>{description}</span>,
+        ])}
       </div>
     </div>
   );
 }
 
-type IconName =
-  | "info"
-  | "zoom-out"
-  | "zoom-in"
-  | "previous"
-  | "play"
-  | "pause"
-  | "next";
+const ICON_PATHS = {
+  info: "M12 10.875v6.75",
+  "zoom-out": "m5 10 7 6 7-6",
+  "zoom-in": "m5 14 7-6 7 6",
+  previous: "M11 6 4 12l7 6V6zm9 0-7 6 7 6V6z",
+  play: "M7 5v14l12-7L7 5z",
+  pause: "M7 5h4v14H7V5zm6 0h4v14h-4V5z",
+  next: "m4 6 7 6-7 6V6zm9 0 7 6-7 6V6z",
+} as const;
+type IconName = keyof typeof ICON_PATHS;
 
 function IconButton({
   label,
@@ -203,55 +192,15 @@ function IconButton({
       disabled={disabled}
       onClick={onClick}
     >
-      <ControlIcon name={icon} />
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        {icon === "info" && (
+          <circle class="qs-majorana-info-dot" cx="12" cy="6.375" r="1.125" />
+        )}
+        <path
+          class={icon === "info" ? "qs-majorana-info-line" : undefined}
+          d={ICON_PATHS[icon]}
+        />
+      </svg>
     </button>
   );
-}
-
-function ControlIcon({ name }: { name: IconName }) {
-  switch (name) {
-    case "info":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle class="qs-majorana-info-dot" cx="12" cy="6.375" r="1.125" />
-          <path class="qs-majorana-info-line" d="M12 10.875v6.75" />
-        </svg>
-      );
-    case "zoom-out":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m5 10 7 6 7-6" />
-        </svg>
-      );
-    case "zoom-in":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m5 14 7-6 7 6" />
-        </svg>
-      );
-    case "previous":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M11 6 4 12l7 6V6zm9 0-7 6 7 6V6z" />
-        </svg>
-      );
-    case "play":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 5v14l12-7L7 5z" />
-        </svg>
-      );
-    case "pause":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 5h4v14H7V5zm6 0h4v14h-4V5z" />
-        </svg>
-      );
-    case "next":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m4 6 7 6-7 6V6zm9 0 7 6-7 6V6z" />
-        </svg>
-      );
-  }
 }

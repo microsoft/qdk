@@ -1,28 +1,19 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import type { MajoranaGeometry } from "./geometry.js";
-import type { OperationProjection } from "./operations.js";
-import type { MajoranaTopology } from "./topology.js";
-import type { MajoranaTransitionPhase } from "./types.js";
-
-export type QubitsProps = {
-  topology: MajoranaTopology;
-  geometry: MajoranaGeometry;
-  operations: readonly OperationProjection[];
-  showQubitLabels: boolean;
-  transitionPhase: MajoranaTransitionPhase;
-};
+import { requiredTetron } from "./layout.js";
+import type { MajoranaViewProps } from "./app.js";
 
 export function Qubits({
-  topology,
-  geometry,
+  layout,
   operations,
-  showQubitLabels,
+  presentation: { showQubitLabels },
   transitionPhase,
-}: QubitsProps) {
+}: MajoranaViewProps) {
   const activeQubits = new Set(
-    operations.flatMap((operation) => [...operation.targetQubitIds]),
+    operations.flatMap((operation) =>
+      operation.overlays.map(({ qubitId }) => qubitId),
+    ),
   );
   const activeEdges = new Set(
     operations.flatMap((operation) =>
@@ -35,11 +26,7 @@ export function Qubits({
   return (
     <g class="qs-majorana-qubits" data-view="Qubits">
       <g class="qs-majorana-adjacencies" aria-label="Supported qubit adjacency">
-        {topology.adjacencyEdges.map((edge) => {
-          const line = geometry.adjacencyEdges.get(edge.id);
-          if (line === undefined) {
-            throw new Error(`Missing geometry for adjacency ${edge.id}`);
-          }
+        {[...layout.adjacencyEdges.values()].map((edge) => {
           const active = activeEdges.has(edge.id);
           return (
             <line
@@ -51,42 +38,38 @@ export function Qubits({
                 edge.firstQubitId
               } and Q${edge.secondQubitId}`}
               role="group"
-              x1={line.start.x}
-              y1={line.start.y}
-              x2={line.end.x}
-              y2={line.end.y}
+              x1={edge.start.x}
+              y1={edge.start.y}
+              x2={edge.end.x}
+              y2={edge.end.y}
             />
           );
         })}
       </g>
       <g class="qs-majorana-qubit-boxes" aria-label="Qubits">
-        {topology.tetrons.map((tetron) => {
-          const tetronGeometry = geometry.tetrons.get(tetron.id);
-          if (tetronGeometry === undefined) {
-            throw new Error(`Missing geometry for qubit ${tetron.id}`);
-          }
-          const active = activeQubits.has(tetron.id);
+        {layout.tetrons.map((tetron) => {
+          const active = activeQubits.has(tetron.qubitId);
           return (
             <g
-              key={tetron.id}
-              data-majorana-id={`q${tetron.id}`}
+              key={tetron.qubitId}
+              data-majorana-id={`q${tetron.qubitId}`}
               data-active={active ? "true" : "false"}
-              aria-label={`Qubit ${tetron.id}${active ? ", active" : ""}`}
+              aria-label={`Qubit ${tetron.qubitId}${active ? ", active" : ""}`}
               role="group"
             >
               <rect
                 class="qs-majorana-qubit-box"
                 rx="14"
-                {...tetronGeometry.qubitBox}
+                {...tetron.qubitBox}
               />
               {showQubitLabels && (
                 <text
                   class="qs-majorana-qubit-box-label"
-                  x={tetronGeometry.qubitBox.x + 10}
-                  y={tetronGeometry.qubitBox.y + 20}
+                  x={tetron.qubitBox.x + 10}
+                  y={tetron.qubitBox.y + 20}
                   aria-hidden="true"
                 >
-                  Q{tetron.id}
+                  Q{tetron.qubitId}
                 </text>
               )}
             </g>
@@ -96,23 +79,19 @@ export function Qubits({
       <g
         class={`qs-majorana-operation-layer qs-majorana-operation-layer-${transitionPhase}`}
       >
-        {topology.adjacencyEdges
+        {[...layout.adjacencyEdges.values()]
           .filter((edge) => activeEdges.has(edge.id))
           .map((edge) => {
-            const line = geometry.adjacencyEdges.get(edge.id);
-            if (line === undefined) {
-              throw new Error(`Missing geometry for adjacency ${edge.id}`);
-            }
-            const centerX = (line.start.x + line.end.x) / 2;
-            const centerY = (line.start.y + line.end.y) / 2;
+            const centerX = (edge.start.x + edge.end.x) / 2;
+            const centerY = (edge.start.y + edge.end.y) / 2;
             return (
               <g key={`active-${edge.id}`} aria-hidden="true">
                 <line
                   class="qs-majorana-adjacency-active"
-                  x1={line.start.x}
-                  y1={line.start.y}
-                  x2={line.end.x}
-                  y2={line.end.y}
+                  x1={edge.start.x}
+                  y1={edge.start.y}
+                  x2={edge.end.x}
+                  y2={edge.end.y}
                 />
                 <circle
                   class="qs-majorana-joint-measurement-background"
@@ -131,10 +110,7 @@ export function Qubits({
             );
           })}
         {[...activeQubits].map((qubitId) => {
-          const tetron = geometry.tetrons.get(qubitId);
-          if (tetron === undefined) {
-            throw new Error(`Missing geometry for qubit ${qubitId}`);
-          }
+          const tetron = requiredTetron(layout, qubitId);
           return (
             <g key={`active-q${qubitId}`} aria-hidden="true">
               <rect
@@ -156,10 +132,7 @@ export function Qubits({
         })}
         {operations.flatMap((operation, operationIndex) =>
           operation.overlays.map((overlay) => {
-            const tetron = geometry.tetrons.get(overlay.qubitId);
-            if (tetron === undefined) {
-              throw new Error(`Missing geometry for qubit ${overlay.qubitId}`);
-            }
+            const tetron = requiredTetron(layout, overlay.qubitId);
             return (
               <text
                 key={`${operationIndex}-${overlay.qubitId}`}
@@ -168,9 +141,9 @@ export function Qubits({
                     ? "qs-majorana-operation-overlay-pulse"
                     : "qs-majorana-operation-overlay-measurement"
                 }`}
-                data-operation={operation.operation.name}
+                data-operation={operation.name}
                 data-qubit-id={overlay.qubitId}
-                aria-label={`${operation.operation.name} on Q${overlay.qubitId}: ${overlay.value}`}
+                aria-label={`${operation.name} on Q${overlay.qubitId}: ${overlay.value}`}
                 role="group"
                 x={tetron.center.x}
                 y={tetron.center.y}

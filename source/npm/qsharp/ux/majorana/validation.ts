@@ -1,16 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { getTetronGridPosition } from "./topology.js";
+import { getTetronGridPosition } from "./layout.js";
 import {
-  JOINT_QUBIT_OPERATION_NAMES,
+  JOINT_OPERATIONS,
   MAJORANA_VIEWS,
-  SINGLE_QUBIT_OPERATION_NAMES,
-  type IslandRoute,
+  SINGLE_OPERATIONS,
   type JointQubitOperationName,
   type MajoranaPresentationOptions,
   type MajoranaValidationErrorCode,
-  type Pauli,
   type ResolvedMajoranaOptions,
   type SingleQubitOperationName,
   type ValidatedJointOperation,
@@ -20,15 +18,13 @@ import {
   type ValidatedSingleOperation,
 } from "./types.js";
 
-const SINGLE_OPERATION_NAMES = new Set<string>(SINGLE_QUBIT_OPERATION_NAMES);
-const JOINT_OPERATION_NAMES = new Set<string>(JOINT_QUBIT_OPERATION_NAMES);
-const VIEW_NAMES = new Set<string>(MAJORANA_VIEWS);
-const OPTION_NAMES = new Set([
-  "showQubitLabels",
-  "showMzmLabels",
-  "initialView",
-]);
-const PRESENTATION_OPTION_NAMES = new Set(["showQubitLabels", "showMzmLabels"]);
+const PRESENTATION_OPTION_NAMES = ["showQubitLabels", "showMzmLabels"] as const;
+const OPTION_NAMES = new Set([...PRESENTATION_OPTION_NAMES, "initialView"]);
+const PRESENTATION_NAMES = new Set(PRESENTATION_OPTION_NAMES);
+const PRESENTATION_DEFAULTS: Required<MajoranaPresentationOptions> = {
+  showQubitLabels: true,
+  showMzmLabels: false,
+};
 
 export class MajoranaValidationError extends Error {
   constructor(
@@ -40,64 +36,6 @@ export class MajoranaValidationError extends Error {
     this.name = "MajoranaValidationError";
   }
 }
-
-type SingleOperationMetadata = {
-  pauli: Pauli | undefined;
-  islandRoute: IslandRoute;
-  operationType: "measurement" | "pulse";
-};
-
-const SINGLE_OPERATION_METADATA: Record<
-  SingleQubitOperationName,
-  SingleOperationMetadata
-> = {
-  Mx: { pauli: "X", islandRoute: "none", operationType: "measurement" },
-  "My-up": {
-    pauli: "Y",
-    islandRoute: "upper",
-    operationType: "measurement",
-  },
-  "My-lw": {
-    pauli: "Y",
-    islandRoute: "lower",
-    operationType: "measurement",
-  },
-  "Mz-up": {
-    pauli: "Z",
-    islandRoute: "upper",
-    operationType: "measurement",
-  },
-  "Mz-lw": {
-    pauli: "Z",
-    islandRoute: "lower",
-    operationType: "measurement",
-  },
-  "T-up": {
-    pauli: undefined,
-    islandRoute: "upper",
-    operationType: "pulse",
-  },
-  "T-lw": {
-    pauli: undefined,
-    islandRoute: "lower",
-    operationType: "pulse",
-  },
-};
-
-const JOINT_OPERATION_METADATA: Record<
-  JointQubitOperationName,
-  {
-    orientation: "horizontal" | "vertical";
-    firstPauli: Pauli;
-    secondPauli: Pauli;
-  }
-> = {
-  Mzz: { orientation: "vertical", firstPauli: "Z", secondPauli: "Z" },
-  Mzy: { orientation: "vertical", firstPauli: "Z", secondPauli: "Y" },
-  Myy: { orientation: "vertical", firstPauli: "Y", secondPauli: "Y" },
-  Myz: { orientation: "vertical", firstPauli: "Y", secondPauli: "Z" },
-  Mxx: { orientation: "horizontal", firstPauli: "X", secondPauli: "X" },
-};
 
 export function validateMajoranaInput(input: unknown): ValidatedMajoranaInput {
   if (!Array.isArray(input) || input.length !== 2) {
@@ -122,14 +60,10 @@ export function validateMajoranaOptions(
   options: unknown = {},
 ): ResolvedMajoranaOptions {
   const values = validateOptionsObject(options, OPTION_NAMES);
-  const showQubitLabels = validateBooleanOption(
-    values,
-    "showQubitLabels",
-    true,
-  );
-  const showMzmLabels = validateBooleanOption(values, "showMzmLabels", false);
-  const initialView = values.initialView ?? "Tetrons";
-  if (typeof initialView !== "string" || !VIEW_NAMES.has(initialView)) {
+  const showQubitLabels = validateBooleanOption(values, "showQubitLabels");
+  const showMzmLabels = validateBooleanOption(values, "showMzmLabels");
+  const initialView = values.initialView ?? MAJORANA_VIEWS[0];
+  if (initialView !== MAJORANA_VIEWS[0] && initialView !== MAJORANA_VIEWS[1]) {
     fail(
       "invalid-options",
       "options.initialView",
@@ -141,28 +75,19 @@ export function validateMajoranaOptions(
   return {
     showQubitLabels,
     showMzmLabels,
-    initialView: initialView as ResolvedMajoranaOptions["initialView"],
+    initialView,
   };
 }
 
 export function validateMajoranaPresentationOptions(
   options: unknown,
 ): MajoranaPresentationOptions {
-  const values = validateOptionsObject(options, PRESENTATION_OPTION_NAMES);
+  const values = validateOptionsObject(options, PRESENTATION_NAMES);
   const result: MajoranaPresentationOptions = {};
-  if ("showQubitLabels" in values) {
-    result.showQubitLabels = validateBooleanOption(
-      values,
-      "showQubitLabels",
-      true,
-    );
-  }
-  if ("showMzmLabels" in values) {
-    result.showMzmLabels = validateBooleanOption(
-      values,
-      "showMzmLabels",
-      false,
-    );
+  for (const name of PRESENTATION_OPTION_NAMES) {
+    if (name in values) {
+      result[name] = validateBooleanOption(values, name);
+    }
   }
   return result;
 }
@@ -236,32 +161,25 @@ function validateOperation(
   }
 
   const [name, targets] = value;
-  if (
-    typeof name !== "string" ||
-    (!SINGLE_OPERATION_NAMES.has(name) && !JOINT_OPERATION_NAMES.has(name))
-  ) {
-    fail(
-      "unknown-operation",
-      `${path}.operation`,
-      "expected a supported operation name",
-      name,
-    );
+  if (isOperationName(SINGLE_OPERATIONS, name)) {
+    return validateSingleOperation(name, targets, path, device);
   }
-
-  if (SINGLE_OPERATION_NAMES.has(name)) {
-    return validateSingleOperation(
-      name as SingleQubitOperationName,
-      targets,
-      path,
-      device,
-    );
+  if (isOperationName(JOINT_OPERATIONS, name)) {
+    return validateJointOperation(name, targets, path, device);
   }
-  return validateJointOperation(
-    name as JointQubitOperationName,
-    targets,
-    path,
-    device,
+  fail(
+    "unknown-operation",
+    `${path}.operation`,
+    "expected a supported operation name",
+    name,
   );
+}
+
+function isOperationName<T extends object>(
+  operations: T,
+  name: unknown,
+): name is keyof T {
+  return typeof name === "string" && Object.hasOwn(operations, name);
 }
 
 function validateSingleOperation(
@@ -280,7 +198,7 @@ function validateSingleOperation(
   }
 
   const target = validateTarget(targets[0], `${path}.targets[0]`, device);
-  const metadata = SINGLE_OPERATION_METADATA[name];
+  const metadata = SINGLE_OPERATIONS[name];
   const position = getTetronGridPosition(target, device);
   if (metadata.islandRoute === "upper" && position.row === 0) {
     fail(
@@ -306,7 +224,9 @@ function validateSingleOperation(
     kind: "single",
     name,
     target,
-    ...metadata,
+    pauli: metadata.overlay === "T" ? undefined : metadata.overlay,
+    islandRoute: metadata.islandRoute,
+    operationType: metadata.overlay === "T" ? "pulse" : "measurement",
   };
 }
 
@@ -336,7 +256,7 @@ function validateJointOperation(
     );
   }
 
-  const metadata = JOINT_OPERATION_METADATA[name];
+  const metadata = JOINT_OPERATIONS[name];
   const first = getTetronGridPosition(firstTarget, device);
   const second = getTetronGridPosition(secondTarget, device);
   if (metadata.orientation === "horizontal") {
@@ -386,7 +306,9 @@ function validateJointOperation(
     name,
     firstTarget,
     secondTarget,
-    ...metadata,
+    orientation: metadata.orientation,
+    firstPauli: metadata.paulis[0],
+    secondPauli: metadata.paulis[1],
   };
 }
 
@@ -440,12 +362,11 @@ function validateOptionsObject(
 
 function validateBooleanOption(
   options: Record<string, unknown>,
-  name: string,
-  defaultValue: boolean,
+  name: keyof MajoranaPresentationOptions,
 ): boolean {
   const value = options[name];
   if (value === undefined) {
-    return defaultValue;
+    return PRESENTATION_DEFAULTS[name];
   }
   if (typeof value !== "boolean") {
     fail("invalid-options", `options.${name}`, "expected a boolean", value);

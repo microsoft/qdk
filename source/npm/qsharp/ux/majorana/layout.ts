@@ -1,7 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import type { MajoranaTopology, MzmId } from "./topology.js";
+import {
+  MZM_IDS,
+  type MzmId,
+  type Orientation,
+  type ValidatedMajoranaDevice,
+} from "./types.js";
 
 export type Point = {
   x: number;
@@ -16,26 +21,28 @@ export type Rectangle = Point & {
 export type TetronGeometry = {
   qubitId: number;
   center: Point;
-  bounds: Rectangle;
   qubitBox: Rectangle;
   mzmAnchors: Readonly<Record<MzmId, Point>>;
-  upperRail: AdjacencyGeometry;
-  lowerRail: AdjacencyGeometry;
-  bridge: AdjacencyGeometry;
+  upperRail: LineGeometry;
+  lowerRail: LineGeometry;
+  bridge: LineGeometry;
 };
 
-export type LinearIslandGeometry = {
-  islandId: string;
-  center: Point;
-  bounds: Rectangle;
+export type LinearIsland = LineGeometry & {
+  upperQubitId: number;
+  lowerQubitId: number;
+};
+
+export type LineGeometry = {
+  id: string;
   start: Point;
   end: Point;
 };
 
-export type AdjacencyGeometry = {
-  edgeId: string;
-  start: Point;
-  end: Point;
+export type AdjacencyEdge = LineGeometry & {
+  orientation: Orientation;
+  firstQubitId: number;
+  secondQubitId: number;
 };
 
 export type RoutingObstacleGeometry = {
@@ -44,11 +51,12 @@ export type RoutingObstacleGeometry = {
   bounds: Rectangle;
 };
 
-export type MajoranaGeometry = {
+export type MajoranaLayout = {
+  device: ValidatedMajoranaDevice;
   viewBox: Rectangle;
-  tetrons: ReadonlyMap<number, TetronGeometry>;
-  linearIslands: ReadonlyMap<string, LinearIslandGeometry>;
-  adjacencyEdges: ReadonlyMap<string, AdjacencyGeometry>;
+  tetrons: readonly TetronGeometry[];
+  linearIslands: ReadonlyMap<string, LinearIsland>;
+  adjacencyEdges: ReadonlyMap<string, AdjacencyEdge>;
   routingObstacles: readonly RoutingObstacleGeometry[];
 };
 
@@ -61,7 +69,6 @@ export const MAJORANA_GEOMETRY = {
   qubitBoxWidth: 176,
   qubitBoxHeight: 112,
   islandWidth: 200,
-  islandHeight: 12,
   routingBlockSize: 42,
   routingBlockGap: 34,
   mzmConnectorWidth: 14,
@@ -69,66 +76,79 @@ export const MAJORANA_GEOMETRY = {
   verticalConnectorWidth: 42,
   verticalConnectorHeight: 14,
   routingObstacleCornerRadius: 5,
-  topologyStrokeWidth: 12,
 } as const;
 
-export function createMajoranaGeometry(
-  topology: MajoranaTopology,
-): MajoranaGeometry {
-  const tetrons = new Map<number, TetronGeometry>();
-  const linearIslands = new Map<string, LinearIslandGeometry>();
-  const adjacencyEdges = new Map<string, AdjacencyGeometry>();
+export function createMajoranaLayout(
+  device: ValidatedMajoranaDevice,
+): MajoranaLayout {
+  const tetrons = Array.from({ length: device.qubitCount }, (_, id) => {
+    const { row, column } = getTetronGridPosition(id, device);
+    return createTetronGeometry(id, row, column);
+  });
+  const linearIslands = new Map<string, LinearIsland>();
+  const adjacencyEdges = new Map<string, AdjacencyEdge>();
   const routingObstacles: RoutingObstacleGeometry[] = [];
 
-  for (const tetron of topology.tetrons) {
-    const geometry = createTetronGeometry(tetron.id, tetron.row, tetron.column);
-    tetrons.set(tetron.id, geometry);
-    routingObstacles.push(...createTetronRoutingObstacles(geometry));
+  for (const tetron of tetrons) {
+    routingObstacles.push(...createTetronRoutingObstacles(tetron));
   }
 
-  for (const island of topology.linearIslands) {
-    const upper = requiredTetronGeometry(tetrons, island.upperQubitId);
-    const lower = requiredTetronGeometry(tetrons, island.lowerQubitId);
+  for (let id = 0; id < device.qubitCount - device.tetronColumns; id++) {
+    const upper = tetrons[id];
+    const lower = tetrons[id + device.tetronColumns];
+    const { row, column } = getTetronGridPosition(id, device);
+    const islandId = getLinearIslandId(row, column);
     const center = {
       x: upper.center.x,
       y: (upper.center.y + lower.center.y) / 2,
     };
-    const bounds = centeredRectangle(
-      center,
-      MAJORANA_GEOMETRY.islandWidth,
-      MAJORANA_GEOMETRY.islandHeight,
-    );
-    const islandGeometry = {
-      islandId: island.id,
-      center,
-      bounds,
-      start: { x: bounds.x, y: center.y },
-      end: { x: bounds.x + bounds.width, y: center.y },
+    const island = {
+      id: islandId,
+      upperQubitId: id,
+      lowerQubitId: lower.qubitId,
+      start: { x: center.x - MAJORANA_GEOMETRY.islandWidth / 2, y: center.y },
+      end: { x: center.x + MAJORANA_GEOMETRY.islandWidth / 2, y: center.y },
     };
-    linearIslands.set(island.id, islandGeometry);
+    linearIslands.set(islandId, island);
     routingObstacles.push(
-      ...createEndpointRoutingObstacles(
-        island.id,
-        islandGeometry.start,
-        "left",
-      ),
-      ...createEndpointRoutingObstacles(island.id, islandGeometry.end, "right"),
-      ...createIslandStackConnectors(island.id, islandGeometry.start, "left"),
-      ...createIslandStackConnectors(island.id, islandGeometry.end, "right"),
+      ...createEndpointRoutingObstacles(islandId, island.start, "left"),
+      ...createEndpointRoutingObstacles(islandId, island.end, "right"),
+      ...createIslandStackConnectors(islandId, island.start, "left"),
+      ...createIslandStackConnectors(islandId, island.end, "right"),
     );
   }
 
-  for (const edge of topology.adjacencyEdges) {
-    const first = requiredTetronGeometry(tetrons, edge.firstQubitId);
-    const second = requiredTetronGeometry(tetrons, edge.secondQubitId);
-    adjacencyEdges.set(edge.id, {
-      edgeId: edge.id,
-      start: adjacencyEndpoint(first, second.center, edge.orientation),
-      end: adjacencyEndpoint(second, first.center, edge.orientation),
+  function addEdge(
+    first: TetronGeometry,
+    second: TetronGeometry,
+    orientation: Orientation,
+  ): void {
+    const id = getAdjacencyEdgeId(orientation, first.qubitId, second.qubitId);
+    adjacencyEdges.set(id, {
+      id,
+      orientation,
+      firstQubitId: first.qubitId,
+      secondQubitId: second.qubitId,
+      start: adjacencyEndpoint(first, second.center, orientation),
+      end: adjacencyEndpoint(second, first.center, orientation),
     });
-    if (edge.orientation === "horizontal") {
+    if (orientation === "horizontal") {
       routingObstacles.push(
-        ...createHorizontalBridgeConnectors(edge.id, first, second),
+        ...createHorizontalBridgeConnectors(id, first, second),
+      );
+    }
+  }
+
+  for (const tetron of tetrons) {
+    const { row, column } = getTetronGridPosition(tetron.qubitId, device);
+    if (column + 1 < device.tetronColumns) {
+      addEdge(tetron, tetrons[tetron.qubitId + 1], "horizontal");
+    }
+    if (row + 1 < device.tetronRows) {
+      addEdge(
+        tetron,
+        tetrons[tetron.qubitId + device.tetronColumns],
+        "vertical",
       );
     }
   }
@@ -137,13 +157,14 @@ export function createMajoranaGeometry(
     MAJORANA_GEOMETRY.outerMargin * 2 +
     routingObstacleExtent() * 2 +
     MAJORANA_GEOMETRY.tetronWidth +
-    (topology.device.tetronColumns - 1) * MAJORANA_GEOMETRY.tetronColumnPitch;
+    (device.tetronColumns - 1) * MAJORANA_GEOMETRY.tetronColumnPitch;
   const height =
     MAJORANA_GEOMETRY.outerMargin * 2 +
     MAJORANA_GEOMETRY.tetronHeight +
-    (topology.device.tetronRows - 1) * MAJORANA_GEOMETRY.tetronRowPitch;
+    (device.tetronRows - 1) * MAJORANA_GEOMETRY.tetronRowPitch;
 
   return {
+    device,
     viewBox: { x: 0, y: 0, width, height },
     tetrons,
     linearIslands,
@@ -184,7 +205,6 @@ function createTetronGeometry(
   return {
     qubitId,
     center,
-    bounds,
     qubitBox: centeredRectangle(
       center,
       MAJORANA_GEOMETRY.qubitBoxWidth,
@@ -197,17 +217,17 @@ function createTetronGeometry(
       4: lowerRight,
     },
     upperRail: {
-      edgeId: `q${qubitId}-upper-rail`,
+      id: `q${qubitId}-upper-rail`,
       start: upperLeft,
       end: upperRight,
     },
     lowerRail: {
-      edgeId: `q${qubitId}-lower-rail`,
+      id: `q${qubitId}-lower-rail`,
       start: lowerLeft,
       end: lowerRight,
     },
     bridge: {
-      edgeId: `q${qubitId}-bridge`,
+      id: `q${qubitId}-bridge`,
       start: { x: center.x, y: center.y - halfHeight },
       end: { x: center.x, y: center.y + halfHeight },
     },
@@ -218,7 +238,7 @@ function createTetronRoutingObstacles(
   tetron: TetronGeometry,
 ): RoutingObstacleGeometry[] {
   const obstacles: RoutingObstacleGeometry[] = [];
-  for (const mzmId of [1, 2, 3, 4] as const) {
+  for (const mzmId of MZM_IDS) {
     const anchor = tetron.mzmAnchors[mzmId];
     obstacles.push(
       ...createEndpointRoutingObstacles(
@@ -358,7 +378,7 @@ function routingObstacleExtent(): number {
 function adjacencyEndpoint(
   tetron: TetronGeometry,
   otherCenter: Point,
-  orientation: "horizontal" | "vertical",
+  orientation: Orientation,
 ): Point {
   if (orientation === "horizontal") {
     return {
@@ -390,13 +410,44 @@ function centeredRectangle(
   };
 }
 
-function requiredTetronGeometry(
-  tetrons: ReadonlyMap<number, TetronGeometry>,
+export function requiredTetron(
+  layout: MajoranaLayout,
   qubitId: number,
 ): TetronGeometry {
-  const geometry = tetrons.get(qubitId);
+  const geometry = layout.tetrons[qubitId];
   if (geometry === undefined) {
     throw new Error(`Missing geometry for qubit ${qubitId}`);
   }
   return geometry;
+}
+
+export function getTetronGridPosition(
+  qubitId: number,
+  device: ValidatedMajoranaDevice,
+): { row: number; column: number } {
+  if (
+    !Number.isInteger(qubitId) ||
+    qubitId < 0 ||
+    qubitId >= device.qubitCount
+  ) {
+    throw new RangeError(
+      `Qubit ID ${qubitId} is outside 0 through ${device.qubitCount - 1}`,
+    );
+  }
+  return {
+    row: Math.floor(qubitId / device.tetronColumns),
+    column: qubitId % device.tetronColumns,
+  };
+}
+
+export function getLinearIslandId(row: number, column: number): string {
+  return `island-r${row}-c${column}`;
+}
+
+export function getAdjacencyEdgeId(
+  orientation: Orientation,
+  firstQubitId: number,
+  secondQubitId: number,
+): string {
+  return `${orientation}-q${firstQubitId}-q${secondQubitId}`;
 }

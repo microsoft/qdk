@@ -3,9 +3,8 @@
 
 import { h, render } from "preact";
 import { MajoranaScene, type MajoranaSceneProps } from "./app.js";
-import { createMajoranaGeometry, type MajoranaGeometry } from "./geometry.js";
+import { createMajoranaLayout, type MajoranaLayout } from "./layout.js";
 import { projectTraceStep } from "./operations.js";
-import { createMajoranaTopology, type MajoranaTopology } from "./topology.js";
 import {
   MAJORANA_VIEWS,
   type MajoranaController,
@@ -29,18 +28,14 @@ type PlaybackSpeed = (typeof playbackSpeeds)[number];
 
 type MajoranaSceneModel = {
   validatedInput: ValidatedMajoranaInput;
-  topology: MajoranaTopology;
-  geometry: MajoranaGeometry;
+  layout: MajoranaLayout;
 };
 
 function createSceneModel(input: MajoranaInput): MajoranaSceneModel {
   const validatedInput = validateMajoranaInput(input);
-  const topology = createMajoranaTopology(validatedInput.device);
-  const geometry = createMajoranaGeometry(topology);
   return {
     validatedInput,
-    topology,
-    geometry,
+    layout: createMajoranaLayout(validatedInput.device),
   };
 }
 
@@ -90,22 +85,21 @@ export function Majorana(
       scene === undefined || renderedStep === 0
         ? []
         : projectTraceStep(
-            scene.topology,
+            scene.layout,
             scene.validatedInput.trace[renderedStep - 1],
           );
     const props: MajoranaSceneProps = {
-      topology: scene?.topology,
-      geometry: scene?.geometry,
+      layout: scene?.layout,
       operations,
-      presentation,
-      view,
       zoom,
       availableWidth,
       step: renderedStep,
-      selectedStep,
       transitionPhase,
       error,
       controls: {
+        view,
+        step: selectedStep,
+        presentation,
         maximumStep: scene?.validatedInput.trace.length ?? 0,
         playing,
         onViewChange: setView,

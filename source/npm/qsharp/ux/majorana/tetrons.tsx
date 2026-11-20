@@ -1,38 +1,21 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import {
-  MAJORANA_GEOMETRY,
-  type AdjacencyGeometry,
-  type MajoranaGeometry,
-  type Point,
-  type TetronGeometry,
-} from "./geometry.js";
+import { MAJORANA_GEOMETRY, type LineGeometry } from "./layout.js";
 import type { OperationProjection } from "./operations.js";
-import type { MajoranaTopology, MzmId } from "./topology.js";
-import type { MajoranaTransitionPhase } from "./types.js";
-
-export type TetronsProps = {
-  topology: MajoranaTopology;
-  geometry: MajoranaGeometry;
-  operations: readonly OperationProjection[];
-  showQubitLabels: boolean;
-  showMzmLabels: boolean;
-  transitionPhase: MajoranaTransitionPhase;
-};
+import { MZM_IDS } from "./types.js";
+import type { MajoranaViewProps } from "./app.js";
 
 export function Tetrons({
-  topology,
-  geometry,
+  layout,
   operations,
-  showQubitLabels,
-  showMzmLabels,
+  presentation: { showQubitLabels, showMzmLabels },
   transitionPhase,
-}: TetronsProps) {
+}: MajoranaViewProps) {
   return (
     <g class="qs-majorana-tetrons" data-view="Tetrons">
       <g class="qs-majorana-topology" aria-label="Majorana device topology">
-        {geometry.routingObstacles.map((obstacle) => (
+        {layout.routingObstacles.map((obstacle) => (
           <rect
             key={obstacle.id}
             class={`qs-majorana-routing-obstacle qs-majorana-routing-obstacle-${obstacle.kind}`}
@@ -42,7 +25,7 @@ export function Tetrons({
             {...obstacle.bounds}
           />
         ))}
-        {[...geometry.tetrons.values()].map((tetron) => (
+        {layout.tetrons.map((tetron) => (
           <g
             key={`body-${tetron.qubitId}`}
             class="qs-majorana-tetron"
@@ -66,13 +49,11 @@ export function Tetrons({
             />
           </g>
         ))}
-        {[...geometry.linearIslands.values()].map((island) => (
+        {[...layout.linearIslands.values()].map((island) => (
           <g
-            key={island.islandId}
-            data-majorana-id={island.islandId}
-            aria-label={`Linear island between qubits ${
-              topology.islandsById.get(island.islandId)?.upperQubitId
-            } and ${topology.islandsById.get(island.islandId)?.lowerQubitId}`}
+            key={island.id}
+            data-majorana-id={island.id}
+            aria-label={`Linear island between qubits ${island.upperQubitId} and ${island.lowerQubitId}`}
             role="group"
           >
             <line
@@ -98,20 +79,16 @@ export function Tetrons({
         ))}
       </g>
       <g class="qs-majorana-mzms" aria-label="Majorana zero modes">
-        {topology.tetrons.flatMap((tetron) =>
-          tetron.mzmNodes.map((node) => {
-            const anchor = geometry.tetrons.get(tetron.id)?.mzmAnchors[
-              node.mzmId
-            ];
-            if (anchor === undefined) {
-              throw new Error(`Missing MZM anchor for ${node.id}`);
-            }
+        {layout.tetrons.flatMap((tetron) =>
+          MZM_IDS.map((mzmId) => {
+            const anchor = tetron.mzmAnchors[mzmId];
+            const id = `q${tetron.qubitId}-m${mzmId}`;
             return (
               <circle
-                key={node.id}
+                key={id}
                 class="qs-majorana-mzm"
-                data-majorana-id={node.id}
-                aria-label={`Qubit ${node.qubitId}, gamma ${node.mzmId}`}
+                data-majorana-id={id}
+                aria-label={`Qubit ${tetron.qubitId}, gamma ${mzmId}`}
                 role="group"
                 cx={anchor.x}
                 cy={anchor.y}
@@ -123,7 +100,7 @@ export function Tetrons({
       </g>
       <g class="qs-majorana-labels" aria-hidden="true">
         {showQubitLabels &&
-          [...geometry.tetrons.values()].map((tetron) => (
+          layout.tetrons.map((tetron) => (
             <text
               key={`label-q${tetron.qubitId}`}
               class="qs-majorana-qubit-label"
@@ -134,22 +111,17 @@ export function Tetrons({
             </text>
           ))}
         {showMzmLabels &&
-          topology.tetrons.flatMap((tetron) =>
-            tetron.mzmNodes.map((node) => {
-              const anchor = geometry.tetrons.get(tetron.id)?.mzmAnchors[
-                node.mzmId
-              ];
-              if (anchor === undefined) {
-                throw new Error(`Missing MZM anchor for ${node.id}`);
-              }
+          layout.tetrons.flatMap((tetron) =>
+            MZM_IDS.map((mzmId) => {
+              const anchor = tetron.mzmAnchors[mzmId];
               return (
                 <text
-                  key={`label-${node.id}`}
+                  key={`label-q${tetron.qubitId}-m${mzmId}`}
                   class="qs-majorana-mzm-label"
                   x={anchor.x}
                   y={anchor.y - 12}
                 >
-                  γ{node.mzmId}
+                  γ{mzmId}
                 </text>
               );
             }),
@@ -160,7 +132,7 @@ export function Tetrons({
       >
         {operations.map((operation, index) => (
           <g
-            key={`${operation.operation.name}-${index}`}
+            key={`${operation.name}-${index}`}
             class="qs-majorana-operation"
             aria-label={operationLabel(operation)}
             role="group"
@@ -169,9 +141,9 @@ export function Tetrons({
               class={`qs-majorana-loop ${
                 operation.stroke === "dotted" ? "qs-majorana-loop-dotted" : ""
               }`}
-              data-operation={operation.operation.name}
+              data-operation={operation.name}
               data-stroke={operation.stroke}
-              d={createLoopPath(operation, geometry)}
+              d={operation.loopPath}
             />
           </g>
         ))}
@@ -184,13 +156,13 @@ function TopologyLine({
   geometry,
   className,
 }: {
-  geometry: AdjacencyGeometry;
+  geometry: LineGeometry;
   className: string;
 }) {
   return (
     <line
       class={className}
-      data-majorana-id={geometry.edgeId}
+      data-majorana-id={geometry.id}
       x1={geometry.start.x}
       y1={geometry.start.y}
       x2={geometry.end.x}
@@ -199,169 +171,10 @@ function TopologyLine({
   );
 }
 
-export function createLoopPath(
-  operation: OperationProjection,
-  geometry: MajoranaGeometry,
-): string {
-  const route = operation.loopRoute;
-  if (route.kind === "single") {
-    const tetron = requiredTetronGeometry(geometry, route.tetron.qubitId);
-    const { points, start, end } = tetronPath(tetron, ...route.tetron.mzmIds);
-    if (route.islandId === undefined) {
-      points.push(...routeOutsideTetron(end, start, tetron));
-    } else {
-      const island = geometry.linearIslands.get(route.islandId);
-      if (island === undefined) {
-        throw new Error(`Missing geometry for island ${route.islandId}`);
-      }
-      const islandEntry =
-        Math.abs(end.x - island.start.x) < Math.abs(end.x - island.end.x)
-          ? island.start
-          : island.end;
-      const islandExit =
-        islandEntry === island.start ? island.end : island.start;
-      const entryDirection: -1 | 1 = islandEntry === island.start ? -1 : 1;
-      const exitDirection: -1 | 1 = entryDirection === -1 ? 1 : -1;
-      points.push(
-        ...routeOutside(end, islandEntry, entryDirection),
-        islandExit,
-        ...routeOutside(islandExit, start, exitDirection),
-      );
-    }
-    return pathFromPoints(points);
-  }
-
-  const firstTetron = requiredTetronGeometry(geometry, route.first.qubitId);
-  const secondTetron = requiredTetronGeometry(geometry, route.second.qubitId);
-  const firstPath = tetronPath(firstTetron, ...route.first.mzmIds);
-  let secondPath = tetronPath(secondTetron, ...route.second.mzmIds);
-  if (
-    pointDistance(firstPath.end, secondPath.end) <
-    pointDistance(firstPath.end, secondPath.start)
-  ) {
-    secondPath = {
-      start: secondPath.end,
-      end: secondPath.start,
-      points: [...secondPath.points].reverse(),
-    };
-  }
-
-  return pathFromPoints([
-    ...firstPath.points,
-    ...routeBetweenTetrons(
-      firstPath.end,
-      secondPath.start,
-      route.orientation,
-      firstPath.end.x < firstTetron.center.x ? -1 : 1,
-    ),
-    ...secondPath.points,
-    ...routeBetweenTetrons(
-      secondPath.end,
-      firstPath.start,
-      route.orientation,
-      secondPath.end.x < secondTetron.center.x ? -1 : 1,
-    ),
-  ]);
-}
-
-function tetronPath(
-  tetron: TetronGeometry,
-  firstMzmId: MzmId,
-  secondMzmId: MzmId,
-): { start: Point; end: Point; points: Point[] } {
-  const first = tetron.mzmAnchors[firstMzmId];
-  const second = tetron.mzmAnchors[secondMzmId];
-  if (
-    (firstMzmId === 1 && secondMzmId === 2) ||
-    (firstMzmId === 2 && secondMzmId === 1) ||
-    (firstMzmId === 3 && secondMzmId === 4) ||
-    (firstMzmId === 4 && secondMzmId === 3)
-  ) {
-    return { start: first, end: second, points: [first, second] };
-  }
-  return {
-    start: first,
-    end: second,
-    points: [
-      first,
-      { x: tetron.center.x, y: first.y },
-      { x: tetron.center.x, y: second.y },
-      second,
-    ],
-  };
-}
-
-function routeOutsideTetron(
-  from: Point,
-  to: Point,
-  tetron: TetronGeometry,
-): Point[] {
-  const direction = from.x < tetron.center.x ? -1 : 1;
-  const outsideX =
-    tetron.center.x +
-    direction *
-      (MAJORANA_GEOMETRY.tetronWidth / 2 +
-        MAJORANA_GEOMETRY.routingBlockGap +
-        MAJORANA_GEOMETRY.routingBlockSize / 2);
-  return [{ x: outsideX, y: from.y }, { x: outsideX, y: to.y }, to];
-}
-
-function routeOutside(from: Point, to: Point, direction: -1 | 1): Point[] {
-  const outsideX =
-    from.x +
-    direction *
-      (MAJORANA_GEOMETRY.routingBlockGap +
-        MAJORANA_GEOMETRY.routingBlockSize / 2);
-  return [{ x: outsideX, y: from.y }, { x: outsideX, y: to.y }, to];
-}
-
-function routeBetweenTetrons(
-  from: Point,
-  to: Point,
-  orientation: "horizontal" | "vertical",
-  direction: -1 | 1,
-): Point[] {
-  if (orientation === "horizontal") {
-    const channelX = (from.x + to.x) / 2;
-    return [{ x: channelX, y: from.y }, { x: channelX, y: to.y }, to];
-  }
-  const channelX =
-    from.x +
-    direction *
-      (MAJORANA_GEOMETRY.routingBlockGap +
-        MAJORANA_GEOMETRY.routingBlockSize / 2);
-  return [{ x: channelX, y: from.y }, { x: channelX, y: to.y }, to];
-}
-
-function requiredTetronGeometry(
-  geometry: MajoranaGeometry,
-  qubitId: number,
-): TetronGeometry {
-  const tetron = geometry.tetrons.get(qubitId);
-  if (tetron === undefined) {
-    throw new Error(`Missing geometry for qubit ${qubitId}`);
-  }
-  return tetron;
-}
-
-function pointDistance(first: Point, second: Point): number {
-  return Math.hypot(first.x - second.x, first.y - second.y);
-}
-
-function pathFromPoints(points: readonly Point[]): string {
-  const distinctPoints = points.filter(
-    (point, index) =>
-      index === 0 ||
-      point.x !== points[index - 1].x ||
-      point.y !== points[index - 1].y,
-  );
-  return `${distinctPoints
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
-    .join(" ")} Z`;
-}
-
 function operationLabel(operation: OperationProjection): string {
-  const targets = operation.targetQubitIds.map((id) => `Q${id}`).join(" and ");
+  const targets = operation.overlays
+    .map(({ qubitId }) => `Q${qubitId}`)
+    .join(" and ");
   const pulse = operation.stroke === "dotted" ? ", dotted T-pulse loop" : "";
-  return `${operation.operation.name} on ${targets}${pulse}`;
+  return `${operation.name} on ${targets}${pulse}`;
 }
