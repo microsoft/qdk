@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QDK review cases",
+  "type": "array",
+  "minItems": 1,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["id", "oracle"],
+    "properties": {
+      "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+      "source": { "type": "string" },
+      "source_file": { "type": "string", "minLength": 1 },
+      "project_root": { "type": "string", "minLength": 1 },
+      "adapter": { "type": "string", "minLength": 1 },
+      "entry": { "type": "string", "minLength": 1 },
+      "language_features": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": { "type": "string", "minLength": 1 }
+      },
+      "profiles": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": { "enum": ["Base", "Adaptive_RI", "Adaptive_RIF", "Adaptive"] }
+      },
+      "oracle": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind"],
+        "properties": {
+          "kind": { "enum": ["deterministic", "observe", "compile_only"] },
+          "expected": { "type": "object" }
+        }
+      },
+      "issues": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": { "type": "integer", "minimum": 1 }
+      },
+      "origin": { "type": "string" },
+      "notes": { "type": "string" },
+      "shots": { "type": "integer", "minimum": 1 },
+      "seed": { "type": "integer", "minimum": 0 }
+    }
+  }
+}
