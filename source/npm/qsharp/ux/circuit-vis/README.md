@@ -114,6 +114,7 @@ ux/circuit-vis/
 │   └── formatters/                 render-data → SVG
 │       ├── formatUtils.ts            low-level SVG element builders (group/line/circle/...)
 │       ├── gateFormatter.ts          gate boxes, controls, zoom buttons
+│       ├── labelFormatter.ts         label render data (styled text runs) → SVG text
 │       ├── registerFormatter.ts      qubit/classical register wire lines
 │       └── inputFormatter.ts         qubit input labels
 │

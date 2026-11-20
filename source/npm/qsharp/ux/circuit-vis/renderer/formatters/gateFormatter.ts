@@ -21,11 +21,11 @@ import {
   circle,
   controlDot,
   box,
-  text,
   arc,
   dashedLine,
   dashedBox,
 } from "./formatUtils.js";
+import { formatLabel, gateLabelRuns } from "./labelFormatter.js";
 
 import { mathChars } from "../../utils.js";
 
@@ -351,13 +351,13 @@ const _measure = (
           : undefined;
   const elements = [mBox, mArc, meter];
   if (basis !== undefined) {
-    const basisLabel = text(
-      basis,
-      x + width - 8,
-      y + 8 + argsFontSize / 2,
-      argsFontSize,
-    );
-    basisLabel.classList.add("measurement-basis");
+    const basisLabel = formatLabel({
+      kind: "basis",
+      x: x + width - 8,
+      y: y + 8 + argsFontSize / 2,
+      fontSize: argsFontSize,
+      runs: [{ text: basis, style: "plain" }],
+    });
     basisLabel.style.pointerEvents = "none";
     elements.push(basisLabel);
   }
@@ -365,8 +365,6 @@ const _measure = (
   mBox.setAttribute("data-width", `${width}`);
   return group(elements);
 };
-
-const use_katex = true;
 
 function createLinkElement(href: string, title: string) {
   const linkElem = createSvgElement("a", {
@@ -381,56 +379,6 @@ function createLinkElement(href: string, title: string) {
   return linkElem;
 }
 
-function _style_gate_text(gate: SVGTextElement) {
-  if (!use_katex) return;
-  const label = gate.textContent || "";
-
-  // In general, use the regular math font
-  gate.classList.add("qs-maintext");
-
-  // Build the label from DOM nodes rather than markup so that characters such as `<` and `&` in
-  // operation names stay text.
-  gate.replaceChildren();
-  const styledText = label.endsWith("'") ? label.slice(0, -1) : label;
-
-  // Wrap any latin or greek letters in tspan with KaTeX_Math font Style the entire Greek + Coptic
-  // block (https://unicodeplus.com/block/0370) Note this deliberately leaves ASCII digits [0-9]
-  // non-italic. Subscript any `_0`, `_1`, etc. in the label.
-  let offset = 0;
-  for (const match of styledText.matchAll(
-    /_(\d+)|[a-zA-Z\u{0370}-\u{03ff}]+/gu,
-  )) {
-    const index = match.index;
-    if (index > offset) {
-      gate.append(styledText.slice(offset, index));
-    }
-    const tspan =
-      match[1] === undefined
-        ? createSvgElement("tspan", { class: "qs-mathtext" })
-        : createSvgElement("tspan", {
-            "baseline-shift": "sub",
-            "font-size": "65%",
-          });
-    tspan.append(match[1] ?? match[0]);
-    gate.appendChild(tspan);
-    offset = index + match[0].length;
-  }
-  if (offset < styledText.length) {
-    gate.append(styledText.slice(offset));
-  }
-
-  // Replace a trailing ' with the proper unicode dagger symbol
-  if (styledText !== label) {
-    const dagger = createSvgElement("tspan", {
-      dx: "2",
-      dy: "-3",
-      style: "font-size: 0.8em;",
-    });
-    dagger.append(mathChars.dagger);
-    gate.appendChild(dagger);
-  }
-}
-
 /**
  * Creates the SVG for a unitary gate on an arbitrary number of qubits.
  *
@@ -442,6 +390,7 @@ function _style_gate_text(gate: SVGTextElement) {
  * @param params  Non-Qubit required parameters for the unitary gate.
  * @param renderDashedLine If true, draw dashed lines between non-adjacent unitaries.
  * @param cssClass         Optional CSS class to apply to the unitary gate for styling.
+ * @param labelKind        What the label in each box is.
  *
  * @returns SVG representation of unitary gate.
  */
@@ -453,6 +402,7 @@ const _unitary = (
   displayArgs?: string,
   renderDashedLine = true,
   cssClass?: string,
+  labelKind: "gate" | "ket" = "gate",
 ): SVGElement => {
   if (y.length === 0)
     throw new Error(
@@ -473,6 +423,7 @@ const _unitary = (
       wireYs,
       displayArgs,
       cssClass,
+      labelKind,
     );
   });
 
@@ -500,6 +451,7 @@ const _unitary = (
  * @param wireYs y coords of wires connected to the gate.
  * @param displayArgs Arguments passed in to gate.
  * @param cssClass Optional CSS class to apply to the unitary gate for styling.
+ * @param labelKind What the label in the box is.
  *
  * @returns SVG representation of unitary box.
  */
@@ -512,6 +464,7 @@ const _unitaryBox = (
   wireYs: number[],
   displayArgs?: string,
   cssClass?: string,
+  labelKind: "gate" | "ket" = "gate",
 ): SVGElement => {
   y -= gateHeight / 2;
   const uBox: SVGElement = box(
@@ -528,6 +481,7 @@ const _unitaryBox = (
   uBox.setAttribute("data-width", `${width}`);
 
   const labelText = _labelText(
+    labelKind,
     label,
     x,
     y + height / 2 - (displayArgs == null ? 0 : 7),
@@ -536,11 +490,7 @@ const _unitaryBox = (
   const elems = [uBox, labelText];
   if (displayArgs != null) {
     const argStrY = y + height / 2 + 8;
-
-    const argButton = text(displayArgs, x, argStrY, argsFontSize);
-    _style_gate_text(argButton);
-    argButton.setAttribute("class", "arg-button");
-    elems.push(argButton);
+    elems.push(_labelText("argument", displayArgs, x, argStrY, argsFontSize));
   }
 
   return group(elems);
@@ -600,7 +550,7 @@ const _x = (renderData: GateRenderData): SVGElement => {
  */
 const _ket = (label: string, renderData: GateRenderData): SVGElement => {
   const { x, targetsY, width } = renderData;
-  const gate = _unitary(
+  return _unitary(
     `|${label}${mathChars.rangle}`,
     x,
     targetsY as number[][],
@@ -608,9 +558,8 @@ const _ket = (label: string, renderData: GateRenderData): SVGElement => {
     undefined,
     false,
     "gate-ket",
+    "ket",
   );
-  gate.querySelector("text")!.classList.add("ket-text");
-  return gate;
 };
 
 /**
@@ -796,11 +745,11 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
   if (children != null) elems.push(formatGates(children as GateRenderData[][]));
 
   const labelText = _labelText(
+    "group",
     label,
     boxX + labelPaddingX,
     boxY + groupTopPadding / 2 + groupLabelPaddingY,
   );
-  labelText.classList.add("qs-group-label");
 
   if (renderData.link) {
     const link = createLinkElement(renderData.link.href, renderData.link.title);
@@ -945,39 +894,37 @@ const _controlCircle = (
  * @returns          SVG representation of control label
  */
 function controlLabel(x: number, y: number, label: number | null): SVGElement {
-  const el: SVGElement = text("", x, y, labelFontSize);
-
-  // Create text content "c"
-  el.appendChild(document.createTextNode("c"));
-
-  // Create tspan with subscript label
-  const tspan = createSvgElement("tspan", {
-    "baseline-shift": "sub",
-    "font-size": "65%",
+  return formatLabel({
+    kind: "control",
+    x,
+    y,
+    fontSize: labelFontSize,
+    runs: [
+      { text: "c", style: "plain" },
+      { text: String(label), style: "subscript" },
+    ],
   });
-  tspan.appendChild(document.createTextNode(String(label)));
-  el.appendChild(tspan);
-
-  el.setAttribute("text-anchor", "start");
-  el.setAttribute("dominant-baseline", "middle");
-  el.classList.add("qs-maintext");
-
-  return el;
 }
 
 /**
- * Generates the SVG representation of the label text for a gate or grouped operation.
+ * Generates the SVG representation of a label written like a gate name.
  *
- * @param label Label text.
- * @param x     x coord.
- * @param y     y coord.
+ * @param kind     What the label is.
+ * @param label    Label text.
+ * @param x        x coord.
+ * @param y        y coord.
+ * @param fontSize Font size of the label.
  *
  * @returns SVG representation of label text.
  */
-function _labelText(label: string, x: number, y: number): SVGTextElement {
-  const labelText = text(label, x, y, labelFontSize);
-  _style_gate_text(labelText);
-  return labelText;
+function _labelText(
+  kind: "gate" | "argument" | "ket" | "group",
+  label: string,
+  x: number,
+  y: number,
+  fontSize: number = labelFontSize,
+): SVGTextElement {
+  return formatLabel({ kind, x, y, fontSize, runs: gateLabelRuns(label) });
 }
 
 export {
