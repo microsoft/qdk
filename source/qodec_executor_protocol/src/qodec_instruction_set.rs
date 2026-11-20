@@ -193,9 +193,10 @@ impl QodecInstructionSet {
     }
 
     /// The results of `calls`, one per call that has a result, read from
-    /// `row`, a shot's readouts of them, each with `conditions`, the
-    /// shot's: the protocol raises conditions per shot and batch, not per
-    /// result.
+    /// `row`, a shot's readouts of them, each with `conditions`, those of
+    /// the batch below that read them: the shot's, or one part's when the
+    /// adapter splits a layer's batch. The protocol raises conditions per
+    /// shot and batch, not per result.
     pub(crate) fn results(
         &self,
         calls: &[Call],

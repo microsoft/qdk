@@ -235,9 +235,11 @@ const QUBITS: u32 = 5;
 /// shot 1, is refused as an earlier failure before anything of that
 /// `execute` runs, so shot 1, sent before it, reaches no part below
 /// either. The error is a rotation by a non-Clifford angle, which a
-/// stabilizer simulator cannot run, or a refusal of a part below that takes
-/// no instruction at all: the layers' work on the shot is lost with it, so
-/// the refusal fails the shot rather than being passed up as one.
+/// stabilizer simulator cannot run, sent whole or in batches of one
+/// instruction after the earlier ones of its layer's batch ran below; or a
+/// refusal of a part below that takes no instruction at all: the layers'
+/// work on the shot is lost with it, so the refusal fails the shot rather
+/// than being passed up as one.
 #[test]
 fn a_shot_an_error_lost_is_refused_when_sent_again() {
     let model = qodecs::model("repetition3/repetition3.qodec.yaml");
@@ -245,6 +247,7 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
     // Each case, and the most instructions the part below takes per batch.
     let cases = [
         ("the simulator fails", None),
+        ("the simulator fails a later batch of a split", Some(1)),
         ("the part below refuses", Some(0)),
     ];
     for (case, most) in cases {
@@ -263,7 +266,7 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
         };
         let failed_as_expected = matches!(
             (most, first),
-            (None, ExecuteEnd::Failed { refusal: None, .. })
+            (None | Some(1), ExecuteEnd::Failed { refusal: None, .. })
                 | (
                     Some(0),
                     ExecuteEnd::Failed {
@@ -273,6 +276,18 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
                 )
         );
         assert!(failed_as_expected, "{case}: the shot fails: {first:?}");
+        if most == Some(1) {
+            assert!(
+                below
+                    .received
+                    .iter()
+                    .filter(|batch| batch.shots.contains(&3))
+                    .count()
+                    > 1,
+                "precondition: batches of shot 3 ran below before the failing one: {:?}",
+                below.received
+            );
+        }
         let refused = |end: &ExecuteEnd| matches!(end, ExecuteEnd::Refused(ExecuteRefusal::EarlierFailure(shot)) if shot.get() == 3);
         assert!(refused(second), "{case}: {second:?}");
         assert!(
@@ -352,53 +367,63 @@ fn the_layers_send_batches_checked_as_the_ones_they_get() {
 }
 
 /// A part below that takes at most two instructions per batch, as a
-/// device with a small instruction memory may, gets the layers'
-/// instructions in batches of at most two, each instruction once, and the
-/// shots read what they read with no such limit.
+/// device with a small instruction memory may, gets each of the layers'
+/// batches in batches of two, the last holding what is left, each
+/// instruction once; checked or not, the shots read what they read with no
+/// such limit.
 #[test]
 fn the_layers_split_their_batches_to_the_most_the_part_below_takes() {
     let model = qodecs::model("steane/steane.qodec.yaml");
     let program = Program::parse(
         "prepare_z 0; prepare_x 1; idle_ft 0; h 0; cnot 0 1; measure_z 0; measure_x 1",
     );
-    let run = |below: &mut ExecutorSpy<ActionSimulatorExecutor>| {
-        over(
-            &model,
-            TopIsaDriver::new(&model.top, &program),
-            below,
-            &ShotSet::ids(0..SHOTS),
-        )
-        .into_iter()
-        .map(|run| run.readouts)
-        .collect::<Vec<_>>()
-    };
-    let mut unlimited = spied_stabilizer(&model);
-    let mut limited = spied_stabilizer(&model).taking_at_most(2);
+    for checked in [false, true] {
+        let run = |below: &mut ExecutorSpy<ActionSimulatorExecutor>| {
+            let driver = TopIsaDriver::new(&model.top, &program);
+            let driver = if checked { driver.checked() } else { driver };
+            over(&model, driver, below, &ShotSet::ids(0..SHOTS))
+                .into_iter()
+                .map(|run| run.readouts)
+                .collect::<Vec<_>>()
+        };
+        let mut unlimited = spied_stabilizer(&model);
+        let mut limited = spied_stabilizer(&model).taking_at_most(2);
 
-    let expected = run(&mut unlimited);
-    let readouts = run(&mut limited);
+        let expected = run(&mut unlimited);
+        let readouts = run(&mut limited);
 
-    assert!(
-        unlimited
+        assert!(
+            unlimited
+                .received
+                .iter()
+                .any(|batch| batch.instructions > 2),
+            "precondition: the layers send batches of more than two instructions"
+        );
+        let in_twos = unlimited
             .received
             .iter()
-            .any(|batch| batch.instructions > 2),
-        "precondition: the layers send batches of more than two instructions"
-    );
-    assert!(
-        limited.received.iter().all(|batch| batch.instructions <= 2),
-        "{:?}",
-        limited.received
-    );
-    let sent = |below: &ExecutorSpy<_>| {
-        below
-            .received
-            .iter()
-            .map(|batch| batch.instructions)
-            .sum::<usize>()
-    };
-    assert_eq!(sent(&limited), sent(&unlimited), "instructions sent below");
-    assert_eq!(readouts, expected);
+            .map(|batch| batch.instructions.div_ceil(2))
+            .sum::<usize>();
+        assert!(
+            limited.received.len() == in_twos
+                && limited.received.iter().all(|batch| batch.instructions <= 2),
+            "checked: {checked}; {in_twos} batches of at most two expected: {:?}",
+            limited.received
+        );
+        let sent = |below: &ExecutorSpy<_>| {
+            below
+                .received
+                .iter()
+                .map(|batch| batch.instructions)
+                .sum::<usize>()
+        };
+        assert_eq!(
+            sent(&limited),
+            sent(&unlimited),
+            "checked: {checked}; instructions sent below"
+        );
+        assert_eq!(readouts, expected, "checked: {checked}");
+    }
 }
 
 /// A rotation sent without its angle, in an unchecked batch, is a call

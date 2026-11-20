@@ -5,7 +5,8 @@
 //! driven directly: the same program, on the same shots, through
 //!
 //! ```text
-//! TopIsaDriver >> QodecLayerAdapter >> CountingExecutor<ActionSimulatorExecutor>
+//! TopIsaDriver >> QodecLayerAdapter
+//!     >> CountingExecutor<ActionSimulatorExecutor>
 //! ```
 //!
 //! and through one Qodec runtime per shot over the same stabilizer
