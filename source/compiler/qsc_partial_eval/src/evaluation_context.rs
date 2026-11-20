@@ -123,6 +123,9 @@ pub struct Scope {
     /// Set of mutable local variables in this scope. Used to decide which variables are tracked across
     /// the partial eval <-> eval boundary (hybrid map <-> classical env).
     mutable_vars: FxHashSet<LocalVarId>,
+    /// Invocation-local Boolean identities used by resource analysis.
+    pub(crate) resource_flags: FxHashMap<LocalVarId, usize>,
+    pub(crate) resource_flag_keys: Vec<usize>,
     /// Number of currently active blocks (starting from where this scope was created).
     active_block_count: usize,
     /// Debug context, used for generating debug metadata.
@@ -199,6 +202,8 @@ impl Scope {
             hybrid_vars,
             static_vars: FxHashMap::default(),
             mutable_vars: FxHashSet::default(),
+            resource_flags: FxHashMap::default(),
+            resource_flag_keys: Vec::new(),
             dbg_context: ScopeDbgContext::default(),
             arrays: arrays.into_iter().map(|array| (array, None)).collect(),
         }
