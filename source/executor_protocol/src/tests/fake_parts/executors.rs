@@ -13,7 +13,8 @@ use std::time::Duration;
 use super::{CoinGates, Log, Stream, YieldNow};
 use crate::{
     Batch, BatchReadouts, BlockType, Execute, ExecuteError, ExecutorSetup, InstructionSet, Needs,
-    NotReady, Offer, Opcode, ReadoutFailure, ReadoutValue, Seed, ShotConditions, ShotId, ShotSet,
+    NotReady, Offer, Opcode, ReadoutDetail, ReadoutFailure, ReadoutSlot, ReadoutValue, Seed,
+    ShotConditions, ShotId, ShotSet,
 };
 
 /// A toy executor on classical bits: `h` tosses a bit from the shot's
@@ -27,6 +28,8 @@ pub(crate) struct Bits {
     shots: BTreeMap<ShotId, (Vec<bool>, Stream)>,
     busy: Option<&'static str>,
     loses: bool,
+    /// The detail it gives beside each value it reads, if any.
+    detail: Option<ReadoutDetail>,
     /// The set `accepts` answers once ready, if it changes then.
     set_once_ready: Option<InstructionSet>,
     log: Log,
@@ -48,6 +51,7 @@ impl Bits {
             shots: BTreeMap::new(),
             busy: None,
             loses: false,
+            detail: None,
             set_once_ready: None,
             log: log.clone(),
         }
@@ -77,6 +81,14 @@ impl Bits {
     /// suspect.
     pub(crate) fn losing(mut self) -> Self {
         self.loses = true;
+        self
+    }
+
+    /// These bits, giving `detail` beside each value they read, as a
+    /// device giving each measurement's confidence: their set must declare
+    /// `mz`'s detail.
+    pub(crate) fn giving(mut self, detail: ReadoutDetail) -> Self {
+        self.detail = Some(detail);
         self
     }
 }
@@ -120,7 +132,7 @@ impl Execute for Bits {
                     .shots
                     .entry(id)
                     .or_insert_with(|| (vec![false; qubits], Stream(seed.shot(id))));
-                let mut row = batch_readouts.row_mut(position).iter_mut();
+                let mut slot = 0;
                 for instruction in batch.instructions {
                     let q = instruction.blocks[0] as usize;
                     let opcode = Some(instruction.opcode);
@@ -129,13 +141,17 @@ impl Execute for Bits {
                     } else if opcode == x {
                         bits[q] = !bits[q];
                     } else if opcode == mz {
-                        *row.next().expect("a slot per `mz`") = if self.loses {
+                        batch_readouts.row_mut(position)[slot as usize] = if self.loses {
                             ReadoutValue::Missing(ReadoutFailure::Loss)
                         } else if bits[q] {
                             ReadoutValue::One
                         } else {
                             ReadoutValue::Zero
                         };
+                        if let Some(detail) = self.detail {
+                            batch_readouts.set_detail(position, ReadoutSlot::new(slot), detail);
+                        }
+                        slot += 1;
                     }
                 }
                 if self.loses {

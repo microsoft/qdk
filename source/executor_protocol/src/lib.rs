@@ -25,8 +25,8 @@ mod seed;
 mod tests;
 
 pub use batch::{
-    Batch, BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
-    ShotId, ShotSet, ShotSetFault,
+    Batch, BatchReadouts, ReadoutDetail, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts,
+    ShotConditions, ShotId, ShotSet, ShotSetFault,
 };
 pub use composition::{
     Adapter, AdmissionFaults, Compose, Composed, CompositionFaults, Driver, Executor, PartId,
@@ -36,7 +36,7 @@ pub use instruction_set::{
     Angle, Argument, Arguments, Bit, BlockOperand, BlockType, Blocks, DeclarationFault, FitFaults,
     Guard, Instruction, InstructionDef, InstructionFault, InstructionMismatch, InstructionSet,
     Meaning, MeaningFault, Observable, Opcode, OpcodeMap, Parameter, ParameterKind, Pauli,
-    ReadoutParity, SelectPattern,
+    ReadoutDetailKind, ReadoutParity, SelectPattern,
 };
 pub use needs::{Needs, UnmetNeed};
 pub use offer::Offer;

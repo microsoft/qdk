@@ -4,7 +4,7 @@
 //! An instruction's declaration in its set ([`InstructionDef`]), built
 //! step by step.
 
-use super::{BlockOperand, DeclarationFault, Meaning, Parameter, ParameterKind};
+use super::{BlockOperand, DeclarationFault, Meaning, Parameter, ParameterKind, ReadoutDetailKind};
 
 /// An instruction's declaration in its set, as Qodec writes it.
 ///
@@ -31,6 +31,9 @@ pub struct InstructionDef {
     pub outcomes: u32,
     /// Then its flags: its readouts are the outcomes, then the flags.
     pub flags: Vec<String>,
+    /// The kind of detail each of its outcomes carries beside its bit, if
+    /// any; its flags carry none.
+    pub outcome_detail: Option<ReadoutDetailKind>,
     /// Its Qodec `action`, in canonical form, or undeclared.
     pub meaning: Meaning,
 }
@@ -47,6 +50,7 @@ impl InstructionDef {
             parameters: Vec::new(),
             outcomes: 0,
             flags: Vec::new(),
+            outcome_detail: None,
             meaning: Meaning::undeclared(),
         }
     }
@@ -92,6 +96,14 @@ impl InstructionDef {
     #[must_use]
     pub fn flags(mut self, flags: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.flags = flags.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Each of its outcomes carries a detail of `kind` beside its bit: a
+    /// receiver's set gives it, a sender's set needs it.
+    #[must_use]
+    pub fn outcome_detail(mut self, kind: ReadoutDetailKind) -> Self {
+        self.outcome_detail = Some(kind);
         self
     }
 

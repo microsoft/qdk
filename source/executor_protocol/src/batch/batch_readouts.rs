@@ -26,9 +26,17 @@
 //! shapes, so a caller that keeps its [`Readouts`] from one `execute` to
 //! the next allocates nothing once they have held readouts as large.
 //!
+//! Beside its bit, a readout may carry a [`ReadoutDetail`] (a confidence, a
+//! level), when its instruction declares one
+//! ([`InstructionDef::outcome_detail`](crate::InstructionDef::outcome_detail)).
+//! The details are a second column, one optional detail per value, shaped
+//! only for a batch whose receiver's set declares details: the readouts of
+//! a set without them hold no column, and cost what bits alone cost.
+//!
 //! The crate's `docs/batches-and-readouts.md` gives the batches and their
 //! readouts as a part that sends or answers them sees them.
 
+mod readout_detail;
 mod readout_failure;
 mod readout_slot;
 mod readout_value;
@@ -37,6 +45,7 @@ mod shot_conditions;
 
 use std::fmt;
 
+pub use readout_detail::ReadoutDetail;
 pub use readout_failure::ReadoutFailure;
 pub use readout_slot::ReadoutSlot;
 pub use readout_value::ReadoutValue;
@@ -67,19 +76,30 @@ pub struct BatchReadouts {
     /// conditions are `NONE`, so that readouts of clear shots take no
     /// allocation for them.
     conditions: Vec<ShotConditions>,
+    /// Each value's detail, at the value's index in `values`, when the
+    /// readouts were shaped with details; empty otherwise, so that the
+    /// readouts of a set that declares none take no allocation for them.
+    details: Vec<Option<ReadoutDetail>>,
 }
 
 /// The value of each slot once shaped, until a part writes it: lost, for
 /// no reason given.
 const PREFILL: ReadoutValue = ReadoutValue::Missing(ReadoutFailure::Other);
 
-/// The same readout slots, rows and conditions, whatever memory each keeps.
+/// The same readout slots, rows, conditions and details, whatever memory
+/// each keeps: readouts without a details column equal readouts whose
+/// details are all unwritten.
 impl PartialEq for BatchReadouts {
     fn eq(&self, other: &Self) -> bool {
         self.readout_slots == other.readout_slots
             && self.shots == other.shots
             && self.values == other.values
             && (0..self.shots).all(|i| self.conditions(i) == other.conditions(i))
+            && (self.details.is_empty() && other.details.is_empty()
+                || (0..self.values.len()).all(|k| {
+                    self.details.get(k).copied().flatten()
+                        == other.details.get(k).copied().flatten()
+                }))
     }
 }
 
@@ -110,15 +130,34 @@ impl BatchReadouts {
             shots: 0,
             values: Vec::new(),
             conditions: Vec::new(),
+            details: Vec::new(),
         };
-        new.shape(shots, readout_slots);
+        new.shape(shots, readout_slots, false);
         new
     }
 
-    /// Shapes it as [`new`](Self::new) does, keeping its memory: no
-    /// allocation where its memory has the room.
+    /// As [`new`](Self::new), with a details column: each value's detail
+    /// unwritten. The shape the protocol gives an executor whose set
+    /// declares readout details
+    /// ([`InstructionSet::declares_readout_details`](crate::InstructionSet::declares_readout_details)),
+    /// here for a part that builds such readouts itself.
+    ///
+    /// # Panics
+    ///
+    /// As [`new`](Self::new).
+    #[must_use]
+    pub fn with_details(shots: usize, readout_slots: u32) -> Self {
+        let mut new = Self::new(0, 0);
+        new.shape(shots, readout_slots, true);
+        new
+    }
+
+    /// Shapes it as [`new`](Self::new) does, with a details column if
+    /// `details`, keeping its memory: no allocation where its memory has
+    /// the room. Without details, its only work beyond the bits' is to
+    /// empty the column: one store per batch, none per value.
     #[inline]
-    pub(crate) fn shape(&mut self, shots: usize, readout_slots: u32) {
+    pub(crate) fn shape(&mut self, shots: usize, readout_slots: u32, details: bool) {
         let values = shots
             .checked_mul(readout_slots as usize)
             .unwrap_or_else(|| {
@@ -132,6 +171,10 @@ impl BatchReadouts {
         self.values.clear();
         self.values.resize(values, PREFILL);
         self.conditions.clear();
+        self.details.clear();
+        if details {
+            self.details.resize(values, None);
+        }
     }
 
     /// The number of values in each row: the readout slots of the batch's
@@ -238,11 +281,59 @@ impl BatchReadouts {
         self.conditions[position] = conditions;
     }
 
+    /// Whether it holds a details column: whether the receiver's set
+    /// declares readout details, for readouts the protocol shaped of at
+    /// least one value (a column of no values is no column).
+    #[must_use]
+    #[inline]
+    pub fn holds_details(&self) -> bool {
+        !self.details.is_empty()
+    }
+
+    /// The detail in readout slot `slot` of the row of the shot at
+    /// `position`: `None` where none was written, or where the readouts
+    /// hold no details column.
+    ///
+    /// # Panics
+    ///
+    /// As [`value`](Self::value).
+    #[must_use]
+    #[track_caller]
+    #[inline]
+    pub fn detail(&self, position: usize, slot: ReadoutSlot) -> Option<ReadoutDetail> {
+        let index = self.index_of(position, slot);
+        self.details.get(index).copied().flatten()
+    }
+
+    /// Sets the detail in readout slot `slot` of the row of the shot at
+    /// `position`, beside its value. Its kind is not checked against the
+    /// one the slot's instruction declares.
+    ///
+    /// # Panics
+    ///
+    /// As [`value`](Self::value), and when the readouts hold no details
+    /// column: the receiver's set declares no readout details.
+    #[track_caller]
+    #[inline]
+    pub fn set_detail(&mut self, position: usize, slot: ReadoutSlot, detail: ReadoutDetail) {
+        let index = self.index_of(position, slot);
+        assert!(
+            self.holds_details(),
+            "these readouts hold no details column: the receiver's set declares no readout \
+             details, so slot {} of shot position {position} takes none",
+            slot.get()
+        );
+        self.details[index] = Some(detail);
+    }
+
     /// Fills these readouts with `parts` joined, the readouts of one
     /// batch's instructions sent below in parts, as consecutive `execute`s
     /// on the same shots, such as a stepping debugger sends them: each
     /// shot's row is its rows in the parts, in order, and its conditions
     /// their union.
+    ///
+    /// Each of its joined values' details, too, when it holds a details
+    /// column: a part without one gives its slots no detail.
     ///
     /// # Panics
     ///
@@ -277,6 +368,43 @@ impl BatchReadouts {
             }
             self.set_conditions(position, conditions);
         }
+        if self.holds_details() {
+            self.concat_details_from(parts);
+        }
+    }
+
+    /// Fills the details column with `parts`' details joined, as
+    /// [`concat_from`](Self::concat_from) joins their values.
+    fn concat_details_from(&mut self, parts: &[BatchReadouts]) {
+        let mut to = self.details.iter_mut();
+        for position in 0..self.shots {
+            for part in parts {
+                let slots = part.readout_slots as usize;
+                for k in position * slots..(position + 1) * slots {
+                    *to.next().expect("as many details as values") =
+                        part.details.get(k).copied().flatten();
+                }
+            }
+        }
+    }
+
+    /// The index in `values` of readout slot `slot` of the shot at
+    /// `position`.
+    ///
+    /// # Panics
+    ///
+    /// As [`value`](Self::value).
+    #[track_caller]
+    #[inline]
+    fn index_of(&self, position: usize, slot: ReadoutSlot) -> usize {
+        self.check_position(position);
+        assert!(
+            slot.get() < self.readout_slots,
+            "slot {} is beyond the rows' {} readout slots",
+            slot.get(),
+            self.readout_slots
+        );
+        position * self.readout_slots as usize + slot.get() as usize
     }
 
     /// Panics, naming the rows, when `position` is not a row's.
@@ -302,10 +430,14 @@ impl fmt::Debug for BatchReadouts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let rows =
             (0..self.shots()).map(|position| (self.row(position), self.conditions(position)));
-        f.debug_struct("BatchReadouts")
+        let mut debug = f.debug_struct("BatchReadouts");
+        debug
             .field("readout_slots", &self.readout_slots)
-            .field("rows", &DebugRows(rows))
-            .finish()
+            .field("rows", &DebugRows(rows));
+        if self.holds_details() {
+            debug.field("details", &self.details);
+        }
+        debug.finish()
     }
 }
 

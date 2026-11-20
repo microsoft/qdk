@@ -6,7 +6,7 @@
 
 use crate::{
     BlockOperand, BlockType, InstructionDef, InstructionMismatch, InstructionSet, Meaning,
-    ParameterKind, Pauli,
+    ParameterKind, Pauli, ReadoutDetailKind,
 };
 
 /// The set `name` over qubits of `qubits` qubits each.
@@ -249,6 +249,50 @@ fn an_instruction_fits_only_one_of_the_same_shape() {
         ),
     ] {
         assert_eq!(sent.fits(&accepted).map(|_| ()), fit, "{row}");
+    }
+}
+
+/// A decoder reading each measurement's confidence sits above a device:
+/// the boundary fits only if the device's `m` gives a detail of the kind
+/// the decoder's `m` needs; one giving a detail the sender does not need
+/// fits, since the sender reads its values as before.
+#[test]
+fn an_outcome_detail_a_sender_needs_must_be_given() {
+    let m = |detail: Option<ReadoutDetailKind>| {
+        let m = gate("m").outcomes(1);
+        match detail {
+            Some(kind) => m.outcome_detail(kind),
+            None => m,
+        }
+    };
+    let set = |detail| set_of("Gates", 1, vec![m(detail)]);
+    let refused = |needed| {
+        Err(vec![InstructionMismatch::ReadoutDetail {
+            mnemonic: "m".into(),
+            needed,
+        }])
+    };
+    let (number, integer) = (
+        Some(ReadoutDetailKind::Number),
+        Some(ReadoutDetailKind::Integer),
+    );
+    for (row, sent, accepted, fit) in [
+        ("needed and given", number, number, Ok(())),
+        (
+            "needed, none given",
+            number,
+            None,
+            refused(ReadoutDetailKind::Number),
+        ),
+        (
+            "needed, another kind given",
+            number,
+            integer,
+            refused(ReadoutDetailKind::Number),
+        ),
+        ("given, not needed", None, integer, Ok(())),
+    ] {
+        assert_eq!(set(sent).fits(&set(accepted)).map(|_| ()), fit, "{row}");
     }
 }
 

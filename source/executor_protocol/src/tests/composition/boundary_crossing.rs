@@ -12,7 +12,11 @@
 //! fills them; again when an adapter sends an `execute` again after a
 //! failure; a panic in the caller's `execute`, once polled, when they are
 //! not one per batch; and, of unchecked batches, into readouts that held
-//! readouts as large, no allocation. The checks of one batch are in
+//! readouts as large, no allocation; and, where the receiver's set
+//! declares readout details, a details column beside the values, which
+//! carries what the executor writes up, none otherwise, and a chain whose
+//! parts below do not give a detail a part above needs does not compose.
+//! The checks of one batch are in
 //! `batch_limits.rs`.
 
 mod batch_limits;
@@ -33,10 +37,11 @@ use crate::tests::fake_parts::{
     Program, Renamed, coin_gate, coin_gates, in_each_bracketing,
 };
 use crate::{
-    Adapt, Adapter, AdapterSetup, Argument, Batch, BatchReadouts, CompositionFaults, Drive,
-    DriveError, Driver, DriverSetup, Execute, ExecuteError, ExecuteRefusal, Executor,
-    ExecutorSetup, Failure, Instruction, InstructionFault, InstructionSet, Needs, NotReady, Offer,
-    OpcodeMap, PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    Adapt, Adapter, AdapterSetup, Argument, Batch, BatchReadouts, BlockType, CompositionFaults,
+    Drive, DriveError, Driver, DriverSetup, Execute, ExecuteError, ExecuteRefusal, Executor,
+    ExecutorSetup, Failure, Instruction, InstructionDef, InstructionFault, InstructionMismatch,
+    InstructionSet, Needs, NotReady, Offer, OpcodeMap, PartId, ReadoutDetail, ReadoutDetailKind,
+    ReadoutSlot, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -1297,4 +1302,148 @@ fn a_round_of_unchecked_batches_into_readouts_kept_allocates_nothing() {
     .run(&ShotSet::ids(0..5), SEED)
     .expect("a run");
     assert_eq!(allocated.get(), Some(0));
+}
+
+// ------------------------------------------------------- readout details
+
+/// The instructions of [`CoinGates`](crate::tests::fake_parts::CoinGates),
+/// `mz`'s outcome giving a confidence beside its value, as `SoftGates`.
+fn soft_gates() -> InstructionSet {
+    let defs = [("h", 0), ("x", 0), ("mz", 1)].map(|(mnemonic, outcomes)| {
+        let def = InstructionDef::new(mnemonic)
+            .acts_on([BlockType::qubit()])
+            .outcomes(outcomes);
+        if outcomes > 0 {
+            def.outcome_detail(ReadoutDetailKind::Number)
+        } else {
+            def
+        }
+    });
+    InstructionSet::new("SoftGates", [(BlockType::qubit(), 1)], defs).expect("a valid set")
+}
+
+/// A driver sending `x 0; mz 0` of `set` to every shot; each shot's output
+/// is the detail of its readout, and whether its readouts held details.
+struct ReadsDetails {
+    set: InstructionSet,
+    instructions: Vec<Instruction>,
+    slots: u32,
+}
+
+impl ReadsDetails {
+    fn of(set: InstructionSet) -> Self {
+        let instructions = ["x", "mz"]
+            .map(|mnemonic| set.instruction(mnemonic, [0], &[]).expect("in the set"))
+            .to_vec();
+        let slots = set.readout_slots_of(&instructions).expect("in the set");
+        Self {
+            set,
+            instructions,
+            slots,
+        }
+    }
+}
+
+impl DriverSetup for ReadsDetails {
+    fn sends(&self) -> &InstructionSet {
+        &self.set
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        for instruction in &mut self.instructions {
+            instruction.opcode = below.map(instruction.opcode);
+        }
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::qubits(1)
+    }
+}
+
+impl Drive for ReadsDetails {
+    type Output = (Option<ReadoutDetail>, bool);
+
+    async fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Execute,
+    ) -> Result<Vec<Self::Output>, DriveError> {
+        let batches = [Batch::new(shots, &self.instructions, self.slots)];
+        let mut kept = Readouts::new();
+        let readouts = kept.readouts_for(&batches);
+        below.execute(&batches, seed, readouts).await?;
+        below.end_shots(shots);
+        let read = &readouts[0];
+        Ok((0..shots.len())
+            .map(|i| (read.detail(i, ReadoutSlot::new(0)), read.holds_details()))
+            .collect())
+    }
+}
+
+/// A device gives each measurement's confidence beside its value, and a
+/// decoder above reads it: the confidence an executor writes is what the
+/// driver reads, directly or through an adapter, in each bracketing.
+#[test]
+fn a_detail_written_below_is_read_above() {
+    let confidence = ReadoutDetail::Number(0.875);
+    let expected = vec![(Some(confidence), true); 3];
+    let counted = Rc::new(Cell::new(0));
+    let log = Log::default();
+    let read = records(
+        Driver::new(ReadsDetails::of(soft_gates()))
+            >> Executor::new(Bits::accepting(soft_gates(), &log).giving(confidence)),
+    );
+    assert_eq!(read, expected, "directly");
+    in_each_bracketing!(
+        [d, a, e] from {
+            let d = Driver::new(ReadsDetails::of(soft_gates()));
+            let a = Adapter::new(Profiler::on(soft_gates(), &counted, &log));
+            let e = Executor::new(Bits::accepting(soft_gates(), &log).giving(confidence));
+        },
+        |chain, brackets| assert_eq!(records(chain), expected, "{brackets}"),
+    );
+}
+
+/// A chain of today's sets, which declare no detail, pays nothing for
+/// details: the readouts the driver reads hold no details column, and a
+/// slot has no detail.
+#[test]
+fn readouts_of_a_set_without_details_hold_no_details_column() {
+    let log = Log::default();
+    let read = records(
+        Driver::new(ReadsDetails::of(coin_gates().clone())) >> Executor::new(Bits::new(&log)),
+    );
+    assert_eq!(read, vec![(None, false); 3]);
+}
+
+/// A decoder needing each measurement's confidence, on a device that gives
+/// none: the chain does not compose, and its fault names the measurement
+/// (beside the sets' other names, a fault of its own).
+#[test]
+fn a_chain_below_which_no_part_gives_a_needed_detail_does_not_compose() {
+    let log = Log::default();
+    let fit = super::faults(
+        Driver::new(ReadsDetails::of(soft_gates())) >> Executor::new(Bits::new(&log)),
+    )
+    .fit()
+    .to_vec();
+    let [fault] = fit.as_slice() else {
+        panic!("one boundary that does not fit: {fit:?}");
+    };
+    let needed = InstructionMismatch::ReadoutDetail {
+        mnemonic: "mz".into(),
+        needed: ReadoutDetailKind::Number,
+    };
+    assert!(fault.mismatches.contains(&needed), "{fault}");
+    assert!(fault.to_string().contains("`mz` needs"), "{fault}");
+}
+
+/// The output of the run of 3 shots on the chain `composed` makes.
+fn records<D: Drive, E: Execute>(
+    composed: Result<Runner<D, E>, CompositionFaults>,
+) -> Vec<D::Output> {
+    runner(composed)
+        .run(&ShotSet::ids(0..3), SEED)
+        .expect("a run")
 }

@@ -122,7 +122,11 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
                     .check(batch.instructions, batch.readout_slots())
                     .map_err(refused)?;
             }
-            batch_readouts.shape(batch.shots.len(), batch.readout_slots());
+            batch_readouts.shape(
+                batch.shots.len(),
+                batch.readout_slots(),
+                self.batch_limits.set().declares_readout_details(),
+            );
         }
         match catch_panic(|| self.inner.execute(batches, seed, readouts)).await {
             Ok(ran) => ran,

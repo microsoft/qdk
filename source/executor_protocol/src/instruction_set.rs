@@ -49,6 +49,7 @@ mod opcode;
 mod opcode_map;
 mod parameter;
 mod pauli;
+mod readout_detail_kind;
 
 pub use block_operand::BlockOperand;
 pub use block_type::BlockType;
@@ -63,6 +64,7 @@ pub use opcode::Opcode;
 pub use opcode_map::OpcodeMap;
 pub use parameter::{Parameter, ParameterKind};
 pub use pauli::Pauli;
+pub use readout_detail_kind::ReadoutDetailKind;
 
 use layout::Layout;
 use std::collections::BTreeMap;
@@ -89,6 +91,10 @@ pub struct InstructionSet {
     layouts: Vec<Layout>,
     /// Each mnemonic's opcode, for resolving names.
     opcodes: BTreeMap<String, Opcode>,
+    /// Whether any instruction's outcomes carry a detail: derived once, so
+    /// that a boundary reads one field per batch to know whether to shape
+    /// a details column.
+    declares_readout_details: bool,
 }
 
 impl InstructionSet {
@@ -153,6 +159,9 @@ impl InstructionSet {
         Ok(Self {
             name: name.into(),
             block_types,
+            declares_readout_details: instructions
+                .iter()
+                .any(|def| def.outcome_detail.is_some() && def.outcomes > 0),
             instructions,
             layouts,
             opcodes,
@@ -208,6 +217,19 @@ impl InstructionSet {
         instructions.iter().try_fold(0u32, |slots, instruction| {
             slots.checked_add(self.readout_slots(instruction.opcode)?)
         })
+    }
+
+    /// Whether any of its instructions' outcomes carry a detail
+    /// ([`InstructionDef::outcome_detail`]): then the readouts of every
+    /// batch a boundary sends to a receiver of this set hold a details
+    /// column ([`BatchReadouts::holds_details`]); otherwise they hold none,
+    /// and cost nothing more than bits.
+    ///
+    /// [`BatchReadouts::holds_details`]: crate::BatchReadouts::holds_details
+    #[inline]
+    #[must_use]
+    pub fn declares_readout_details(&self) -> bool {
+        self.declares_readout_details
     }
 
     /// Its block types, in order.

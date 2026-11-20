@@ -10,7 +10,9 @@
 //!
 //! Each sent instruction must be accepted with the same blocks (`in` and
 //! `out`, their types and sizes), parameters (their kinds, in order) and
-//! readouts (outcomes, then flags). It is matched by meaning where both
+//! readouts (outcomes, then flags), and, where its outcomes need a detail
+//! ([`InstructionDef::outcome_detail`]), one whose outcomes give that kind.
+//! It is matched by meaning where both
 //! instructions declare one, so a set of another name fits when its
 //! instructions do the same (Stim's `H` is a state vector's `h`); by
 //! mnemonic only where neither declares one and the sets' names agree,
@@ -20,7 +22,7 @@
 //! share one: one mnemonic both sets declare to do different things is
 //! refused, though another instruction does the same.
 
-use super::{InstructionDef, InstructionSet, Opcode, OpcodeMap};
+use super::{InstructionDef, InstructionSet, Opcode, OpcodeMap, ReadoutDetailKind};
 use std::fmt;
 
 impl InstructionSet {
@@ -49,7 +51,9 @@ impl InstructionSet {
     /// [`Blocks`](InstructionMismatch::Blocks),
     /// [`Parameters`](InstructionMismatch::Parameters) and
     /// [`Readouts`](InstructionMismatch::Readouts) that differ from the
-    /// receiver's instruction of its mnemonic; `Meaning` when one of the
+    /// receiver's instruction of its mnemonic, and
+    /// [`ReadoutDetail`](InstructionMismatch::ReadoutDetail) when its
+    /// outcomes need a detail that one does not give; `Meaning` when one of the
     /// two declares what it does and the other does not; else, both
     /// undeclared under sets of other names,
     /// [`OtherSet`](InstructionMismatch::OtherSet), given once.
@@ -182,6 +186,14 @@ impl InstructionSet {
                 accepted: readouts(theirs),
             });
         }
+        if let Some(needed) = sent.outcome_detail
+            && theirs.outcome_detail != Some(needed)
+        {
+            mismatches.push(InstructionMismatch::ReadoutDetail {
+                mnemonic: mnemonic(),
+                needed,
+            });
+        }
         mismatches
     }
 }
@@ -220,6 +232,15 @@ pub enum InstructionMismatch {
         /// The accepted instruction's `(outcomes, flags)`.
         accepted: (u32, u32),
     },
+    /// Its outcomes need a detail of a kind the receiver's instruction
+    /// does not give: the part above reads soft information the part below
+    /// does not write.
+    ReadoutDetail {
+        /// The instruction's mnemonic.
+        mnemonic: String,
+        /// The kind of detail its outcomes need.
+        needed: ReadoutDetailKind,
+    },
     /// The receiver's instruction of this mnemonic does something else, or
     /// one side declares what it does and the other does not.
     Meaning {
@@ -251,6 +272,11 @@ impl fmt::Display for InstructionMismatch {
                 f,
                 "`{mnemonic}` gives {} outcomes and {} flags, accepted with {} and {}",
                 sent.0, sent.1, accepted.0, accepted.1
+            ),
+            InstructionMismatch::ReadoutDetail { mnemonic, needed } => write!(
+                f,
+                "`{mnemonic}` needs a `{needed}` detail on its outcomes, which the receiver does \
+                 not give"
             ),
             InstructionMismatch::Meaning { mnemonic } => {
                 write!(

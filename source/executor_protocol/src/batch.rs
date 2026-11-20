@@ -9,7 +9,8 @@ mod batch_readouts;
 mod shot_set;
 
 pub use batch_readouts::{
-    BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
+    BatchReadouts, ReadoutDetail, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts,
+    ShotConditions,
 };
 pub use shot_set::{ShotId, ShotSet, ShotSetFault};
 

@@ -8,8 +8,8 @@
 
 use crate::tests::allocations;
 use crate::{
-    Batch, BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
-    ShotSet,
+    Batch, BatchReadouts, ReadoutDetail, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts,
+    ShotConditions, ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -211,7 +211,7 @@ fn readouts_kept_from_a_larger_round_take_a_later_one_without_allocating() {
     // executor do.
     let mut round = |count: usize, shots: usize, slots: u32| {
         for batch_readouts in kept.readouts_for(&batches[..count]) {
-            batch_readouts.shape(shots, slots);
+            batch_readouts.shape(shots, slots, false);
             batch_readouts.row_mut(0).fill(One);
             batch_readouts.set_conditions(shots - 1, ShotConditions::REJECTED);
         }
@@ -337,6 +337,25 @@ fn concat_joins_each_shots_rows_in_order() {
         joined.concat_from(&parts);
         assert_eq!(joined, expected, "{row}");
     }
+}
+
+/// A debugger steps through a batch whose measurements give a confidence:
+/// the joined readouts keep each value's detail beside it, in the order of
+/// its parts, and a part without details gives its slots none.
+#[test]
+fn concat_joins_each_values_detail() {
+    let confidence = |c| Some(ReadoutDetail::Number(c));
+    let mut first = BatchReadouts::with_details(2, 1);
+    first.set_detail(0, ReadoutSlot::new(0), ReadoutDetail::Number(0.5));
+    first.set_detail(1, ReadoutSlot::new(0), ReadoutDetail::Number(0.25));
+    let plain = BatchReadouts::new(2, 1);
+    let mut joined = BatchReadouts::with_details(2, 2);
+    joined.concat_from(&[plain, first]);
+    let details: Vec<_> = (0..2)
+        .flat_map(|position| (0..2).map(move |slot| (position, ReadoutSlot::new(slot))))
+        .map(|(position, slot)| joined.detail(position, slot))
+        .collect();
+    assert_eq!(details, [None, confidence(0.5), None, confidence(0.25)]);
 }
 
 /// A condition any part raised on a shot stays raised on the joined row,
