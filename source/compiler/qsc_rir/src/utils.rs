@@ -265,7 +265,7 @@ pub(crate) fn map_variable_use_in_block(
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
 
             Instruction::Alloca(..) => {
-                panic!("alloca/load not supported in ssa transformation")
+                panic!("alloca not supported in variable mapping pass")
             }
         }
         block.0.push(instr);
