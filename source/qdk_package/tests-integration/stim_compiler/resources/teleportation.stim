@@ -1,0 +1,10 @@
+RY 0
+Z 0
+H 1
+CX 1 2
+CX 0 1
+H 0
+M 0 1
+CX rec[-1] 2
+CZ rec[-2] 2
+MY 2
