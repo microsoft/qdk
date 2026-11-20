@@ -89,8 +89,9 @@ fn each_shot_reads_what_its_simulator_reads_driven_directly() {
 /// A shot reads the same bits run alone as among other shots, whatever
 /// its place among them: it draws from its own stream, not from the
 /// batch's. So for shots 5 and 11 among the first 16, and for each of
-/// shots 5, 1 and the last id, sent in that order, whose places in the
-/// batch are not their ids, nor the first id's plus their places.
+/// shots 5, 1 and the last id, sent in that order, of which shots 1 and
+/// the last are neither at their id's place nor at the first id's plus
+/// their place.
 #[test]
 fn each_shot_draws_from_its_own_stream_of_the_seed() {
     let bottom = qodecs::model("steane/steane.qodec.yaml").bottom;

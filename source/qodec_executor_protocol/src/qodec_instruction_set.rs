@@ -274,8 +274,8 @@ pub(crate) fn write_results(results: &[BasicReadout], row: &mut [ReadoutValue]) 
 /// block of another type, which Qodec's single label per block cannot tell
 /// apart. Into an instruction: a call the layers send below whose
 /// values do not match its instruction's parameters, in number or in kind
-/// (such as a text that Qodec does not read as a Pauli), or whose block
-/// label is beyond a `u32`; that is a fault of the qodec's layers, which
+/// (such as a text that Qodec does not read as a Pauli, or a Pauli whose
+/// qubit index is beyond a `u32`), or whose block label is beyond a `u32`; that is a fault of the qodec's layers, which
 /// none of Qodec's examples makes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]

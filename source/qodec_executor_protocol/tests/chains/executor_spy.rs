@@ -30,6 +30,8 @@ pub struct ReceivedBatch {
     pub readout_slots: u32,
     /// Its instructions' `number` arguments, in order.
     pub numbers: Vec<f64>,
+    /// Its instructions' Pauli arguments, as text, in order.
+    pub paulis: Vec<String>,
 }
 
 /// `executor`, recording each batch it receives.
@@ -93,7 +95,7 @@ impl<E> ExecutorSpy<E> {
     /// This spy, reading every value the executor it wraps writes as
     /// `Missing(ReadoutFailure::Loss)`: a device that lost every
     /// measurement.
-    pub fn reading_every_value_as_missing(mut self) -> Self {
+    pub fn losing_every_value(mut self) -> Self {
         self.losing_every_value = true;
         self
     }
@@ -103,24 +105,35 @@ impl<E> ExecutorSpy<E> {
     /// runs the batch: a part that finds a shot's work rejected, say,
     /// though the work reads nothing.
     pub fn raising_on_batches_reading_nothing(
-        mut self,
+        self,
         conditions: ShotConditions,
         on_shot: fn(u32) -> bool,
     ) -> Self {
-        self.raising = conditions;
-        self.raising_on = on_shot;
-        self
+        self.raising(conditions, on_shot, false)
     }
 
     /// This spy, raising `conditions` on each shot of every batch whose id
     /// `on_shot` picks, after the executor it wraps runs the batch.
     pub fn raising_on_every_batch(
-        mut self,
+        self,
         conditions: ShotConditions,
         on_shot: fn(u32) -> bool,
     ) -> Self {
-        self.raising_on_every_batch = true;
-        self.raising_on_batches_reading_nothing(conditions, on_shot)
+        self.raising(conditions, on_shot, true)
+    }
+
+    /// This spy, raising `conditions` on each shot `on_shot` picks, of
+    /// every batch or of those with no readout slots only.
+    fn raising(
+        mut self,
+        conditions: ShotConditions,
+        on_shot: fn(u32) -> bool,
+        on_every_batch: bool,
+    ) -> Self {
+        self.raising = conditions;
+        self.raising_on = on_shot;
+        self.raising_on_every_batch = on_every_batch;
+        self
     }
 }
 
@@ -168,6 +181,15 @@ impl<E: Execute> Execute for ExecutorSpy<E> {
                     .flat_map(|instruction| &instruction.arguments)
                     .filter_map(|argument| match argument {
                         Argument::Number(number) => Some(*number),
+                        _ => None,
+                    })
+                    .collect(),
+                paulis: batch
+                    .instructions
+                    .iter()
+                    .flat_map(|instruction| &instruction.arguments)
+                    .filter_map(|argument| match argument {
+                        Argument::Pauli(pauli) => Some(pauli.to_string()),
                         _ => None,
                     })
                     .collect(),

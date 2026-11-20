@@ -152,10 +152,13 @@ impl QodecLayerAdapter {
         }
         // Qodec's encoder labels the blocks below in one space across their
         // types, the lowest free label first (its `allocate_lower`), so a
-        // block's label stays below the most blocks live at once, whatever
-        // their types: at most the sum of each type's most. The protocol
-        // checks each block's index against its own type's count, so each
-        // type states that sum; with one type below, its own count.
+        // block's label stays below the most labels the encoder holds at
+        // once, whatever their types: at most the sum of each type's most.
+        // That bounds the labels held, not the blocks live below: a block
+        // the encoder releases without a release instruction below stays
+        // live there after its label is taken back. The protocol checks
+        // each block's index against its own type's count, so each type
+        // states that sum; with one type below, its own count.
         let labels: usize = lower.blocks.values().sum();
         for (name, &n) in &lower.blocks {
             if n > 0 {
@@ -185,7 +188,10 @@ impl AdapterSetup for QodecLayerAdapter {
     /// The blocks the layers lower `above`'s to. Below several block types,
     /// each type's count is the sum of all types' counts, since Qodec labels
     /// the blocks below in one space across their types: a part below then
-    /// reserves more blocks than the layers hold at once. When Qodec's model
+    /// reserves more blocks than the layers hold at once. With one adapter
+    /// per layer, the adapter below a seam of several types lowers those
+    /// sums again, so the needs that reach the bottom part may be larger
+    /// than with one adapter for those layers. When Qodec's model
     /// cannot say, none: [`ready`](Adapt::ready) then answers why. A need to
     /// run a shot again is passed below in either case.
     fn needs_below(&self, above: Needs) -> Needs {

@@ -19,7 +19,7 @@ use qodec_runtime_recipes::{FaultKind, Isa, QodecModel, runtime};
 
 use crate::SEED;
 use crate::direct_runtime::{answering_no_bit, full_state, run_directly, simulator, stabilizer};
-use crate::executor_spy::ExecutorSpy;
+use crate::executor_spy::{ExecutorSpy, ReceivedBatch};
 use crate::late_answer_executor::{LateAnswerExecutor, Wake};
 use crate::programs::Program;
 use crate::qodecs;
@@ -70,7 +70,7 @@ fn over(
 /// simulator drawing from the shot's stream of the seed. The same holds
 /// over a part below that numbers the layers' bottom ISA in another order,
 /// as the fit lets it: the layers send it its own opcodes; and over one
-/// that reads every value as missing, as a device that lost them does:
+/// that loses every value, as a device that lost its measurements does:
 /// the layers get no bit for them, as Qodec's runtime over a backend
 /// answering no bit does. On surface's two block types, a call may prepare
 /// a block at the label of a live one of its own type, or at the label of
@@ -98,7 +98,7 @@ fn each_shot_reads_what_qodecs_runtime_reads_driven_directly() {
         (
             "steane/steane.qodec.yaml",
             "prepare_z 0; measure_z 0",
-            Below::ReadingNothing,
+            Below::LosingEveryValue,
         ),
         (
             "c4c6/qodec.yaml",
@@ -139,7 +139,7 @@ fn each_shot_reads_what_qodecs_runtime_reads_driven_directly() {
         match below_is {
             Below::Simulator => {}
             Below::Renumbered => below = below.numbering_in_reverse(&model.bottom),
-            Below::ReadingNothing => below = below.reading_every_value_as_missing(),
+            Below::LosingEveryValue => below = below.losing_every_value(),
         }
         let runs = over(
             &model,
@@ -149,7 +149,7 @@ fn each_shot_reads_what_qodecs_runtime_reads_driven_directly() {
         );
         for run in runs {
             let engine = simulator(plan.bottom(), stabilizer(run.stream));
-            let expected = if matches!(below_is, Below::ReadingNothing) {
+            let expected = if matches!(below_is, Below::LosingEveryValue) {
                 run_directly(
                     plan.top(),
                     &program,
@@ -174,12 +174,13 @@ enum Below {
     Simulator,
     /// It numbers the bottom ISA's instructions in reverse.
     Renumbered,
-    /// It reads every value as missing.
-    ReadingNothing,
+    /// It loses every value: each reads as missing.
+    LosingEveryValue,
 }
 
 /// A one-layer test qodec whose lower ISA has two block types, `a` and
-/// `b`, one of each per logical qubit (its file says more).
+/// `b`: one of each per `pair` logical qubit, and one `b` block per
+/// `single` one (its file says more).
 const TWO_LOWER_TYPES: &str = "fixtures/two_lower_types.qodec.yaml";
 
 /// Two logical qubits of [`TWO_LOWER_TYPES`], the second flipped: their
@@ -476,6 +477,35 @@ fn the_layers_ask_the_part_below_for_the_qubits_they_lower_their_blocks_to() {
 /// a rotation: its three data qubits and two ancillas.
 const QUBITS: u32 = 5;
 
+/// Below several block types, which Qodec's encoder labels in one space
+/// and the protocol counts each on its own, the layers ask the part below
+/// for as many blocks of each type they lower to as the labels they may
+/// hold at once: the sum of each type's most blocks. On the two-type
+/// fixture, a pair (an `a` and a `b` block) and a single (a `b` block)
+/// lower to one `a` and two `b` blocks, so the layers ask for three of
+/// each; a single alone lowers to one `b` block, and the layers ask for no
+/// `a`.
+#[test]
+fn below_several_block_types_each_is_asked_for_every_label_the_layers_may_hold() {
+    let model = qodecs::model(TWO_LOWER_TYPES);
+    let adapter = QodecLayerAdapter::whole(&model).expect("the fixture's layers assemble");
+    let needs = |blocks: &[(&str, u32)]| {
+        blocks.iter().fold(Needs::default(), |needs, &(name, n)| {
+            needs.blocks(BlockType::new(name), n)
+        })
+    };
+    // Each case: the blocks above, and the blocks below.
+    for (above, below) in [
+        (
+            needs(&[("pair", 1), ("single", 1)]),
+            needs(&[("a", 3), ("b", 3)]),
+        ),
+        (needs(&[("single", 1)]), needs(&[("b", 1)])),
+    ] {
+        assert_eq!(adapter.needs_below(above.clone()), below, "{above:?}");
+    }
+}
+
 /// A driver that runs a shot of an earlier run again, as a debugger
 /// stepping into the shot that failed does, needs the part below the
 /// layers to run it again too: the layers pass the need below, with the
@@ -587,6 +617,30 @@ fn a_rotations_angle_reaches_the_part_below_as_the_program_states_it() {
     }
 }
 
+/// A Pauli a gadget passes to an instruction below reaches the part below
+/// as Qodec reads it, sign included, though the sign of a Pauli applied to
+/// a block is a global phase that no bit shows: the two-type fixture's `x`
+/// gadget passes `X`, which Qodec reads as `X_0`, and `-X_0`.
+#[test]
+fn a_gadgets_pauli_reaches_the_part_below_as_qodec_reads_it() {
+    let model = qodecs::model(TWO_LOWER_TYPES);
+    let mut below = spied_stabilizer(&model);
+
+    over(
+        &model,
+        TopIsaDriver::new(&model.top, &Program::parse("prepare_z 0; x 0; measure_z 0")),
+        &mut below,
+        &ShotSet::ids([0]),
+    );
+
+    let paulis: Vec<&str> = below
+        .received
+        .iter()
+        .flat_map(|batch| batch.paulis.iter().map(String::as_str))
+        .collect();
+    assert_eq!(paulis, ["X_0", "-X_0"]);
+}
+
 /// An error below the layers fails shot 3 and loses it there and in them:
 /// the shot sent again, as a debugger stepping on would, together with
 /// shot 1, in one batch or after shot 1's in a batch of its own, is
@@ -598,7 +652,13 @@ fn a_rotations_angle_reaches_the_part_below_as_the_program_states_it() {
 /// at all: the layers' work on the shot is lost with it, so the refusal
 /// fails the shot rather than being passed up as one; or a fault of the
 /// layers, a Steane Hadamard on a block that is not live, which Qodec's
-/// runtime raises while it runs the batch.
+/// runtime raises while it runs the batch. The last error is a known
+/// difference from Qodec's runtime driven directly, which runs its program:
+/// the two-type fixture's layers release a `b` block without ending it
+/// below, as its lower ISA has no release instruction, and prepare an `a`
+/// block at its label; a part below cannot tell that block from one a
+/// program prepares at the index of a live block of another type, so it
+/// refuses it, naming both blocks and the label.
 #[test]
 fn a_shot_an_error_lost_is_refused_when_sent_again() {
     /// How the first `execute` must fail shot 3.
@@ -607,12 +667,17 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
         "repetition3/repetition3.qodec.yaml",
         "prepare_z 0; rotate_z 0 theta=0.5 | prepare_z 0; measure_z 0",
     );
+    let label_released_lazily = (
+        TWO_LOWER_TYPES,
+        "prepare_single 0; release_single 0; prepare_z 1 | prepare_z 1; measure_z 1",
+    );
+    qodecs_runtime_runs(label_released_lazily);
     let together: &[&[usize]] = &[&[0, 1]];
     let shot_3_after_shot_1: &[&[usize]] = &[&[0], &[1]];
     // Each case: its qodec and program, the most instructions the part
     // below takes per batch, the batches, by position in shots [1, 3], of
     // the second `execute`, and how the first fails shot 3.
-    let cases: [(_, _, _, _, Fails); 5] = [
+    let cases: [(_, _, _, _, Fails); 6] = [
         (
             "the simulator fails",
             rotation,
@@ -651,6 +716,13 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
             together,
             failed_on_a_fault_of_layer_0,
         ),
+        (
+            "the part below refuses a label the layers released lazily",
+            label_released_lazily,
+            None,
+            together,
+            failed_below_on_a_label_of_two_types,
+        ),
     ];
     for (case, (path, text), most, batches, fails) in cases {
         let model = qodecs::model(path);
@@ -671,16 +743,7 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
         };
         assert!(fails(first), "{case}: the shot fails: {first:?}");
         if most == Some(1) {
-            assert!(
-                below
-                    .received
-                    .iter()
-                    .filter(|batch| batch.shots.contains(&3))
-                    .count()
-                    > 1,
-                "precondition: batches of shot 3 ran below before the failing one: {:?}",
-                below.received
-            );
+            batches_of_shot_3_ran_before_the_failing_one(&below.received);
         }
         let refused = |end: &ExecuteEnd| matches!(end, ExecuteEnd::Refused(ExecuteRefusal::EarlierFailure(shot)) if shot.get() == 3);
         assert!(refused(second), "{case}: {second:?}");
@@ -697,6 +760,30 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
     }
 }
 
+/// Precondition: Qodec's runtime driven directly runs the qodec at `path`
+/// on `text` (`run_directly` panics otherwise).
+fn qodecs_runtime_runs((path, text): (&str, &str)) {
+    let plan = qodecs::plan(&qodecs::model(path));
+    run_directly(
+        plan.top(),
+        &Program::parse(text),
+        &mut runtime(&plan, simulator(plan.bottom(), stabilizer(SEED))),
+    );
+}
+
+/// Precondition: the part below `received` more than one batch of shot 3,
+/// so a later one failed after earlier ones ran.
+fn batches_of_shot_3_ran_before_the_failing_one(received: &[ReceivedBatch]) {
+    assert!(
+        received
+            .iter()
+            .filter(|batch| batch.shots.contains(&3))
+            .count()
+            > 1,
+        "precondition: batches of shot 3 ran below before the failing one: {received:?}"
+    );
+}
+
 /// Whether `end` is a failure raised below the layers, neither a fault of
 /// theirs nor a refusal.
 fn failed_below(end: &ExecuteEnd) -> bool {
@@ -708,6 +795,16 @@ fn failed_below(end: &ExecuteEnd) -> bool {
             ..
         }
     )
+}
+
+/// Whether `end` is a failure raised below the layers on a new `a` block
+/// at the label of a live `b` block, 0, naming both blocks and the label.
+fn failed_below_on_a_label_of_two_types(end: &ExecuteEnd) -> bool {
+    failed_below(end)
+        && matches!(end, ExecuteEnd::Failed { message, .. } if
+            ["`a` block 0", "`b` block 0", "label 0"]
+                .iter()
+                .all(|named| message.contains(named)))
 }
 
 /// Whether `end` is a failure on a part below's refusal to take any

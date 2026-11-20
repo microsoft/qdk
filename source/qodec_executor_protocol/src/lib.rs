@@ -23,7 +23,13 @@
 //! live block of another type: Qodec has one label per block, whatever its
 //! type, so such a call (a `surface` patch prepared at the index of a live
 //! `merged` one) fails, naming both blocks ([`TranslationFault`]). The
-//! parts keep the rules of Qodec's runtime, not those of Qodec's drivers,
+//! layers make such a call themselves below a seam of several block types
+//! whose lower ISA has no release instruction: Qodec's encoder releases a
+//! block there by taking its label back, while the block stays live below,
+//! and may prepare a block of another type at that label. The part below
+//! refuses that call too, and the shot is lost, where Qodec's runtime ends
+//! the old block and runs on; none of Qodec's examples has such a seam.
+//! The parts keep the rules of Qodec's runtime, not those of Qodec's drivers,
 //! which first check each batch's types (Qodec's `TypeChecker`, not
 //! ported): a call on a block that is not live loses the shot here, where
 //! such a driver rejects its batch and keeps the shot.

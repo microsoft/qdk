@@ -16,6 +16,14 @@
 //! two blocks share a label fails, naming them, before anything of its
 //! batch runs on the shot.
 //!
+//! The calls Qodec's layers send below are checked too, and the layers
+//! may make such a call themselves: below a seam of several block types
+//! whose lower ISA has no release instruction, Qodec's encoder releases a
+//! block by taking its label back, while the block stays live below, and
+//! may prepare a block of another type at that label. A label alone cannot
+//! tell that call from a program's, so the part below refuses it, where
+//! Qodec's translator ends the old block and runs on.
+//!
 //! A block's type follows Qodec's own check ([`TypeChecker`]): a call's
 //! inputs end, and its outputs become live, each of the type its operand
 //! declares, so a merge's output keeps its first input's label under the
