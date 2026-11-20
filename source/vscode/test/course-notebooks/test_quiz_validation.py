@@ -61,6 +61,48 @@ def test_baker_repairs_payload_types_without_rewriting_text_fallbacks(
     assert bake_quizzes(notebook) == []
 
 
+@pytest.mark.parametrize("state", ["fresh", "updated", "removed", "unbaked"])
+def test_baker_preserves_unrelated_outputs_and_their_order(state: str) -> None:
+    cell = _quiz_cell()
+    notebook = {"cells": [cell]}
+    bake_quizzes(notebook)
+    quiz_output = cell["outputs"][0]
+    stdout = {"output_type": "stream", "name": "stdout", "text": "Before quiz\n"}
+    stderr = {"output_type": "stream", "name": "stderr", "text": "After quiz\n"}
+    other_display = {
+        "output_type": "display_data",
+        "data": {"text/plain": "Other display"},
+        "metadata": {"keep": True},
+    }
+    cell["outputs"] = [stdout, quiz_output, other_display, stderr]
+    if state == "updated":
+        cell["source"] = cell["source"].replace("Pick one", "Updated question")
+        cell["outputs"].append(quiz_output)
+    elif state == "removed":
+        cell["source"] = ""
+        cell["metadata"]["tags"] = []
+    elif state == "unbaked":
+        cell["outputs"].remove(quiz_output)
+
+    assert bake_quizzes(notebook) == ([] if state == "fresh" else ["question-cell"])
+    outputs = cell["outputs"]
+    assert [
+        output for output in outputs if MIME_TYPE not in output.get("data", {})
+    ] == [stdout, other_display, stderr]
+    if state == "removed":
+        assert outputs == [stdout, other_display, stderr]
+    else:
+        quiz_index = 3 if state == "unbaked" else 1
+        payload = outputs[quiz_index]["data"][MIME_TYPE]
+        assert payload["prompt"] == (
+            "Updated question" if state == "updated" else "Pick one"
+        )
+        expected = [stdout, other_display, stderr]
+        expected.insert(quiz_index, outputs[quiz_index])
+        assert outputs == expected
+    assert bake_quizzes(notebook) == []
+
+
 def test_validation_reads_source_without_requiring_or_writing_outputs(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

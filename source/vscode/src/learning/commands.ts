@@ -291,6 +291,7 @@ async function openCourseNotebook(
     log.warn("No notebook associated with the current position.");
     return;
   }
+  const courseId = service.getActiveCourseId();
   const cellId = service.getCurrentExerciseCellId();
   const includePreviousMarkdown =
     cellId === undefined || !service.isActivityCellId(cellId, "quiz");
@@ -301,9 +302,6 @@ async function openCourseNotebook(
   // Try to open via the Jupyter extension's unstable API so the course's
   // Python environment is automatically set as the active kernel.
   try {
-    // Grab before awaiting, in case it changes while we're yielding
-    // and gets out of sync with notebookUri
-    const courseId = service.getActiveCourseId();
     const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
     const api = await jupyter?.activate();
     if (api && typeof api.openNotebook === "function") {

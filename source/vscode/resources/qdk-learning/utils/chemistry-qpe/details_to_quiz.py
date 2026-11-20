@@ -52,21 +52,21 @@ def bake_quizzes(notebook: dict[str, Any]) -> list[str]:
     for cell in notebook["cells"]:
         if cell.get("cell_type") != "code":
             continue
-        rendered = outputs.get(cell.get("id"))
-        if rendered is None:
-            expected = [
-                output for output in cell.get("outputs", [])
-                if MIME_TYPE not in output.get("data", {})
-            ]
-        else:
-            expected = [
-                {
-                    "output_type": "display_data",
-                    "data": output._repr_mimebundle_(),
-                    "metadata": {},
-                }
-                for output in rendered
-            ]
+        rendered = iter(
+            {
+                "output_type": "display_data",
+                "data": output._repr_mimebundle_(),
+                "metadata": {},
+            }
+            for output in outputs.get(cell.get("id"), [])
+        )
+        expected = []
+        for output in cell.get("outputs", []):
+            if MIME_TYPE not in output.get("data", {}):
+                expected.append(output)
+            elif (replacement := next(rendered, None)) is not None:
+                expected.append(replacement)
+        expected.extend(rendered)
         if _normalize_bundle(cell.get("outputs", [])) == _normalize_bundle(expected):
             continue
         cell["outputs"] = expected
