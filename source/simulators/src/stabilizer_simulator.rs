@@ -18,7 +18,7 @@ use paulimer::{PauliObservable, UnitaryOp, core::PositionedPauliObservable, paul
 use qsc_data_structures::measurement::MeasurementBasis;
 use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use std::{
-    f64::consts::{FRAC_PI_2, PI, TAU},
+    f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU},
     sync::Arc,
 };
 
@@ -430,6 +430,44 @@ impl Simulator for StabilizerSimulator {
             control,
             target,
         );
+    }
+
+    fn ccx(&mut self, control1: QubitID, control2: QubitID, target: QubitID) {
+        use paulimer::core::{x, z};
+
+        let targets = [control1, control2, target];
+        let has_loss = targets.iter().any(|q| self.loss[*q]);
+        for q in targets {
+            if !self.loss[q] {
+                self.apply_idle_noise(q);
+                if has_loss {
+                    match self.noise_config.ccx.on_loss {
+                        LossPolicy::Skip => (),
+                        LossPolicy::Propagate => self.loss_impl(q),
+                        LossPolicy::ResidualSDagger => self.residual_s_dagger(q),
+                        LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                            "ccx does not support the Degrade or ApplyAnyway loss policies"
+                        ),
+                    }
+                }
+            }
+        }
+        if !has_loss {
+            // Seven commuting Pauli rotations, up to global phase; see Fig. 2(g):
+            // https://arxiv.org/abs/1603.06867
+            self.state.rotate(FRAC_PI_4, &[z(control1)].into());
+            self.state.rotate(FRAC_PI_4, &[z(control2)].into());
+            self.state.rotate(FRAC_PI_4, &[x(target)].into());
+            self.state
+                .rotate(-FRAC_PI_4, &[z(control1), z(control2)].into());
+            self.state
+                .rotate(-FRAC_PI_4, &[z(control1), x(target)].into());
+            self.state
+                .rotate(-FRAC_PI_4, &[z(control2), x(target)].into());
+            self.state
+                .rotate(FRAC_PI_4, &[z(control1), z(control2), x(target)].into());
+        }
+        self.apply_noise(|config| &config.ccx, &targets);
     }
 
     fn cy(&mut self, control: QubitID, target: QubitID) {
