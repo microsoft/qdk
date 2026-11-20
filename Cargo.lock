@@ -606,6 +606,8 @@ name = "executor_protocol"
 version = "0.0.0"
 dependencies = [
  "pin-project-lite",
+ "serde",
+ "serde_json",
  "smallvec",
 ]
 

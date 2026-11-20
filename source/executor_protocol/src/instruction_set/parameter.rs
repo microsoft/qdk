@@ -11,6 +11,11 @@ use std::fmt;
 /// is given when an instruction is built, and its kind. An instruction's
 /// parameters are ordered, and its arguments follow that order.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
 pub struct Parameter {
     /// Its name, by which an argument is given.
     pub name: String,
@@ -30,8 +35,13 @@ impl Parameter {
 }
 
 /// The kind of a parameter, and of the argument that fills it: Qodec's
-/// parameter types.
+/// parameter types, by whose names its stable form writes it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "lowercase")
+)]
 #[non_exhaustive]
 pub enum ParameterKind {
     /// A classical bit known when the shot runs, Qodec's `bit`: a value,
@@ -46,6 +56,7 @@ pub enum ParameterKind {
     /// `boolean`; unlike a [`Bit`](Self::Bit), never a readout.
     Boolean,
     /// A string, Qodec's `string`.
+    #[cfg_attr(feature = "serde", serde(rename = "string"))]
     Text,
     /// A Pauli operator over the instruction's qubits (not checked),
     /// Qodec's `pauli`.

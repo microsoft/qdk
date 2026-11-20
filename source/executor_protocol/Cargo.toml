@@ -19,6 +19,15 @@ pin-project-lite = { workspace = true }
 # comment after the `Blocks` and `Arguments` aliases, in
 # `src/instruction_set/instruction.rs`.
 smallvec = { workspace = true, features = ["union"] }
+serde = { workspace = true, optional = true }
+
+[features]
+# `Serialize` and `Deserialize` for an instruction set and its declaration's
+# types: a stable form, for crossing a process boundary. Off by default.
+serde = ["dep:serde"]
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

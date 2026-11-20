@@ -3,13 +3,22 @@
 
 //! The angle of a rotation step ([`Angle`]): a number, or a parameter.
 
+use std::hash::{Hash, Hasher};
+
 /// The angle of a rotation: a number, or one of the instruction's `number`
 /// parameters.
 ///
-/// Angles compare bit for bit, so that meanings are `Eq`: `0.5` equals
-/// `0.5`, a NaN equals itself, and `0.0` differs from `-0.0`; a loader
-/// that reads angles from text writes each the same way.
+/// Angles compare and hash bit for bit, so that meanings are `Eq` and
+/// `Hash`: `0.5` equals `0.5`, a NaN equals itself, and `0.0` differs from
+/// `-0.0`; a loader that reads angles from text writes each the same way.
+/// Its stable form writes a number as a 64-bit float, which a binary
+/// format keeps bit for bit; a text format may not (JSON has no NaN).
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
 pub enum Angle {
     /// An angle fixed by the instruction, in radians.
     Literal(f64),
@@ -28,3 +37,12 @@ impl PartialEq for Angle {
 }
 
 impl Eq for Angle {}
+
+impl Hash for Angle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Angle::Literal(angle) => (0u8, angle.to_bits()).hash(state),
+            Angle::Parameter(parameter) => (1u8, parameter).hash(state),
+        }
+    }
+}

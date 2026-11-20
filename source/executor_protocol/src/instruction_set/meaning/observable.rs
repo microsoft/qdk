@@ -9,7 +9,12 @@ use crate::Pauli;
 /// What an observation measures: a Pauli, or the instruction's `pauli`
 /// parameter at a position, as Stim's `MPP` measures the product it is
 /// given (Qodec's `observe: p`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
 pub enum Observable {
     /// This Pauli, fixed by the instruction.
     Pauli(Pauli),

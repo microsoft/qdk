@@ -33,7 +33,8 @@
 //! (`pauli`), what an instruction does (`meaning`), what each
 //! instruction's check compares (`layout`), the instructions a batch holds
 //! and their checks (`instruction`), the fit of one set to another
-//! (`fit`), and the translation of opcodes it gives (`opcode_map`).
+//! (`fit`), and the translation of opcodes it gives (`opcode_map`); with
+//! the `serde` feature, a set's stable form (`stable_form`).
 //!
 //! The crate's `docs/instruction-sets.md` gives how a part declares its
 //! sets, and when two sets fit.
@@ -49,6 +50,8 @@ mod opcode;
 mod opcode_map;
 mod parameter;
 mod pauli;
+#[cfg(feature = "serde")]
+mod stable_form;
 
 pub use block_operand::BlockOperand;
 pub use block_type::BlockType;
@@ -67,6 +70,7 @@ pub use pauli::Pauli;
 use layout::Layout;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 /// An instruction set, as Qodec declares one: its name, which says when its
 /// undeclared instructions match another set's ([`name`](Self::name)), its
@@ -76,6 +80,21 @@ use std::fmt;
 /// Built by [`InstructionSet::new`], or, for a set written in code, by
 /// [`instruction_set!`](crate::instruction_set), which also names its
 /// opcodes as constants.
+///
+/// Two sets are equal when their declarations are: their names, their
+/// block types (each with its qubits) in order, and their instructions in
+/// order, so that equal sets give each opcode the same instruction.
+/// What a set derives from its declaration when it is built is not
+/// compared. `Hash` hashes what equality compares, for use in one process
+/// only: Rust does not keep a hash's value across its versions or
+/// platforms.
+///
+/// With the `serde` feature, a set has a stable form, for crossing a
+/// process boundary: it writes the declaration alone, and reads it back
+/// through [`InstructionSet::new`], so a decoded set is checked as a built
+/// one is, and a faulty declaration is refused, naming its faults
+/// ([`DeclarationFault`]). The far end of a link can then compare the set
+/// it decodes with its own by `==`.
 #[derive(Clone, Debug)]
 pub struct InstructionSet {
     /// What it promises, in [`name`](Self::name).
@@ -228,6 +247,26 @@ impl InstructionSet {
     fn opcodes(&self) -> impl Iterator<Item = Opcode> + '_ {
         (0..self.instructions.len())
             .map(|index| Opcode::at(u32::try_from(index).expect("checked when the set is built")))
+    }
+}
+
+/// Compares the declarations; what is derived from them is equal when
+/// they are.
+impl PartialEq for InstructionSet {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.block_types == other.block_types
+            && self.instructions == other.instructions
+    }
+}
+
+impl Eq for InstructionSet {}
+
+impl Hash for InstructionSet {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.block_types.hash(state);
+        self.instructions.hash(state);
     }
 }
 

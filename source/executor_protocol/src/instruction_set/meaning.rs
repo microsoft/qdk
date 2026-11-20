@@ -31,6 +31,8 @@
 mod angle;
 mod guard;
 mod observable;
+#[cfg(feature = "serde")]
+mod stable_form;
 
 pub use angle::Angle;
 pub use guard::Guard;
@@ -39,6 +41,7 @@ pub use observable::Observable;
 use super::{Parameter, ParameterKind, Pauli};
 use std::collections::BTreeMap;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 /// What an instruction does, as Qodec declares it in its `action`, or
 /// [`undeclared`](Self::undeclared).
@@ -58,6 +61,11 @@ use std::fmt;
 /// the slips made while writing it (a guard or a generator given twice),
 /// are checked when its set is built, as a
 /// [`DeclarationFault::Meaning`](crate::DeclarationFault::Meaning).
+///
+/// With the `serde` feature, its stable form writes its canonical steps,
+/// and is read back through this builder, so a form written by hand is
+/// made canonical and its slips are refused when its set is built, as a
+/// built meaning's are. A meaning written with a slip has no stable form.
 #[derive(Clone, Debug, Default, Eq)]
 pub struct Meaning {
     /// `None` when undeclared.
@@ -81,6 +89,14 @@ pub struct Meaning {
 impl PartialEq for Meaning {
     fn eq(&self, other: &Self) -> bool {
         self.steps == other.steps && self.slips == other.slips
+    }
+}
+
+/// Hashes what equality compares: its steps and its slips.
+impl Hash for Meaning {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.steps.hash(state);
+        self.slips.hash(state);
     }
 }
 
@@ -293,7 +309,7 @@ impl Meaning {
 /// Why a meaning does not fit the instruction it is declared for: a slip
 /// made while writing it, or what its steps refer to that the instruction
 /// lacks. A step is counted from 0.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum MeaningFault {
     /// `only_if` or `unless` before any step: it guards nothing.
@@ -408,14 +424,14 @@ impl fmt::Display for MeaningFault {
 }
 
 /// One step of an action: what it does, and its guard, if any.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Step {
     operation: Operation,
     guard: Option<Condition>,
 }
 
 /// What a step does, in Qodec's terms.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Operation {
     /// Prepares the state these Paulis stabilize.
     Stabilize(Vec<Pauli>),
@@ -432,7 +448,7 @@ enum Operation {
 /// A step runs when the parity of its terms is `odd` (Qodec's `if`) or
 /// even (`unless`). Canonical: its terms sorted, and a term given twice
 /// dropped, since it cancels in a parity.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Condition {
     odd: bool,
     terms: Vec<Guard>,

@@ -216,3 +216,25 @@ impl fmt::Debug for Pauli {
         fmt::Display::fmt(self, f)
     }
 }
+
+/// Its stable form is its text, as [`Display`](fmt::Display) writes it,
+/// which reads as Qodec's and is canonical, so equal operators write the
+/// same text.
+#[cfg(feature = "serde")]
+impl serde::Serialize for Pauli {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+/// Read from Qodec's sparse form, as [`Argument::pauli`](crate::Argument::pauli)
+/// reads it; any other text is refused.
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Pauli {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Pauli::parse(&text).ok_or_else(|| {
+            serde::de::Error::custom(format_args!("`{text}` is not a Pauli operator"))
+        })
+    }
+}

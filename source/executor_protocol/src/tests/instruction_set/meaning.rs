@@ -7,6 +7,9 @@
 //! set's declaration ([`DeclarationFault::Meaning`]), through which these
 //! tests read them.
 
+#[cfg(feature = "serde")]
+mod stable_form;
+
 use crate::{
     Angle, BlockType, DeclarationFault, Guard, InstructionDef, InstructionSet, Meaning,
     MeaningFault, Observable, ParameterKind, Pauli,

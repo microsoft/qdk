@@ -12,7 +12,12 @@ use super::{BlockOperand, DeclarationFault, Meaning, Parameter, ParameterKind};
 /// Qodec's `{mnemonic: rz, in: [qubit], out: [qubit], parameters: {theta:
 /// number}}` is `InstructionDef::new("rz").acts_on([BlockType::qubit()])
 /// .parameter("theta", ParameterKind::Number)`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
 pub struct InstructionDef {
     /// `mnemonic`: its name, unique in its set.
     pub mnemonic: String,

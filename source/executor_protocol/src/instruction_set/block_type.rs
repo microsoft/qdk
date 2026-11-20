@@ -17,6 +17,11 @@ use std::fmt;
 /// `in`; how many qubits one block encodes is declared by the set that
 /// uses the type.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct BlockType(String);
 
 impl BlockType {

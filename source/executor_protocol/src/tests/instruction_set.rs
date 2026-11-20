@@ -1,21 +1,25 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The checks of a set's declaration, its opcodes by name, and the sets
-//! the macro writes. The faults of a meaning, which a set's declaration
-//! reports ([`DeclarationFault::Meaning`]), are in `meaning.rs`, Pauli
-//! operators' in `pauli.rs`.
+//! The checks of a set's declaration, its opcodes by name, its equality,
+//! and the sets the macro writes. The faults of a meaning, which a set's
+//! declaration reports ([`DeclarationFault::Meaning`]), are in
+//! `meaning.rs`, Pauli operators' in `pauli.rs`, and a set's stable form,
+//! with the `serde` feature, in `stable_form.rs`.
 
 mod fit;
 mod instruction;
 mod meaning;
 mod pauli;
+#[cfg(feature = "serde")]
+mod stable_form;
 
 use crate::{
-    BlockOperand, BlockType, DeclarationFault, Instruction, InstructionDef, InstructionSet, Opcode,
-    ParameterKind, instruction_set,
+    BlockOperand, BlockType, DeclarationFault, Instruction, InstructionDef, InstructionSet,
+    Meaning, Opcode, ParameterKind, Pauli, instruction_set,
 };
 use smallvec::smallvec;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 // Copied in `instruction_set!`'s doc: keep the two the same.
 instruction_set! {
@@ -234,6 +238,121 @@ fn macro_set_is_named_for_its_type() {
 fn lookups_outside_the_set_give_none() {
     assert_eq!(RotationGates::set().opcode("t"), None);
     assert_eq!(CodeGates::set().mnemonic(RotationGates::MZ), None);
+}
+
+/// A part that receives a set, from a loader or across a process
+/// boundary, checks it is the one it runs by `==`: two sets are equal
+/// exactly when their declarations are, and equal sets hash equally. A
+/// meaning compares in its canonical form, so one written otherwise is
+/// the same; any other part of the declaration that differs, an order
+/// included, makes the sets differ.
+#[test]
+fn sets_are_equal_exactly_when_their_declarations_are() {
+    let qubits = |n: u32| vec![(BlockType::qubit(), n)];
+    let qubit_and_carbon = || vec![(BlockType::qubit(), 1), (carbon(), 2)];
+    let carbon_and_qubit = || vec![(carbon(), 2), (BlockType::qubit(), 1)];
+    let on_a_qubit = |mnemonic: &str| InstructionDef::new(mnemonic).acts_on([BlockType::qubit()]);
+    let h = || on_a_qubit("h");
+    let mz = || {
+        InstructionDef::new("mz")
+            .acts_on([BlockType::qubit()])
+            .outcomes(1)
+    };
+    let swap_xz =
+        |images: [(Pauli, Pauli); 2]| vec![h().meaning(Meaning::declared().clifford(images))];
+    let xz = || (Pauli::x(0), Pauli::z(0));
+    let zx = || (Pauli::z(0), Pauli::x(0));
+    let set = |name: &str, blocks: Vec<(BlockType, u32)>, instructions: Vec<InstructionDef>| {
+        InstructionSet::new(name, blocks, instructions).expect("a valid set")
+    };
+    let gates = |instructions: Vec<InstructionDef>| set("Gates", qubits(1), instructions);
+    for (row, a, b, equal) in [
+        (
+            "one declaration, built twice",
+            gates(vec![h(), mz()]),
+            gates(vec![h(), mz()]),
+            true,
+        ),
+        (
+            "a meaning's Clifford images in another order",
+            gates(swap_xz([xz(), zx()])),
+            gates(swap_xz([zx(), xz()])),
+            true,
+        ),
+        (
+            "the name",
+            gates(vec![h()]),
+            set("Other", qubits(1), vec![h()]),
+            false,
+        ),
+        (
+            "a block type's qubits",
+            gates(vec![h()]),
+            set("Gates", qubits(2), vec![h()]),
+            false,
+        ),
+        (
+            "a block type more",
+            gates(vec![h()]),
+            set("Gates", qubit_and_carbon(), vec![h()]),
+            false,
+        ),
+        (
+            "the block types' order",
+            set("Gates", qubit_and_carbon(), vec![h()]),
+            set("Gates", carbon_and_qubit(), vec![h()]),
+            false,
+        ),
+        (
+            "the instructions' order",
+            gates(vec![h(), mz()]),
+            gates(vec![mz(), h()]),
+            false,
+        ),
+        (
+            "a mnemonic",
+            gates(vec![h()]),
+            gates(vec![on_a_qubit("hadamard")]),
+            false,
+        ),
+        (
+            "an operand",
+            gates(vec![h()]),
+            gates(vec![
+                InstructionDef::new("h").acts_on([BlockOperand::variadic(BlockType::qubit())]),
+            ]),
+            false,
+        ),
+        (
+            "a parameter's kind",
+            gates(vec![h().parameter("p", ParameterKind::Number)]),
+            gates(vec![h().parameter("p", ParameterKind::Integer)]),
+            false,
+        ),
+        (
+            "a flag",
+            gates(vec![mz()]),
+            gates(vec![mz().flags(["leak"])]),
+            false,
+        ),
+        (
+            "a meaning",
+            gates(vec![h()]),
+            gates(swap_xz([xz(), zx()])),
+            false,
+        ),
+    ] {
+        assert_eq!(a == b, equal, "{row}");
+        if equal {
+            assert_eq!(hash_of(&a), hash_of(&b), "{row}");
+        }
+    }
+}
+
+fn hash_of(set: &InstructionSet) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    set.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// A set declares each name once: a block type, a mnemonic, and, in one

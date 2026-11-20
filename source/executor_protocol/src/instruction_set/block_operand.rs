@@ -10,6 +10,11 @@ use super::BlockType;
 /// when `variadic`, any positive number of them, as Qodec's `[[carbon]]`
 /// (Stim's `MPP` on any number of qubits).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
 pub struct BlockOperand {
     /// The type of its blocks.
     pub block_type: BlockType,
