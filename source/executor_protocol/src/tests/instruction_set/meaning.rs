@@ -10,6 +10,7 @@
 #[cfg(feature = "serde")]
 mod stable_form;
 
+use super::hash_of;
 use crate::{
     Angle, BlockType, DeclarationFault, Guard, InstructionDef, InstructionSet, Meaning,
     MeaningFault, Observable, ParameterKind, Pauli,
@@ -19,7 +20,8 @@ use crate::{
 /// are: equality is syntactic, so the order of Clifford images and of
 /// guard terms, unchanged generators and terms that cancel are ignored,
 /// while `only_if` and `unless`, declared and undeclared, and angles bit
-/// for bit (zero and minus zero) are told apart.
+/// for bit (zero and minus zero) are told apart. Equal meanings hash
+/// equally, however they were written, so a set holding them does too.
 #[test]
 fn meanings_are_equal_exactly_when_their_canonical_forms_are() {
     let cx = |images: Vec<(Pauli, Pauli)>| Meaning::declared().clifford(images);
@@ -91,6 +93,9 @@ fn meanings_are_equal_exactly_when_their_canonical_forms_are() {
         ("NaN and itself", rotate(f64::NAN), rotate(f64::NAN), true),
     ] {
         assert_eq!(a == b, equal, "{row}");
+        if equal {
+            assert_eq!(hash_of(&a), hash_of(&b), "{row}");
+        }
     }
 }
 

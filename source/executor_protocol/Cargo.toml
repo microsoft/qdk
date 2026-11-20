@@ -27,7 +27,9 @@ serde = { workspace = true, optional = true }
 serde = ["dep:serde"]
 
 [dev-dependencies]
-serde_json = { workspace = true }
+# `float_roundtrip`, so that a literal angle read back from JSON is the one
+# written, as a correctly rounding reader gives it.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 
 [lints]
 workspace = true

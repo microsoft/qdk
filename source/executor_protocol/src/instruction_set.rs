@@ -92,9 +92,13 @@ use std::hash::{Hash, Hasher};
 /// With the `serde` feature, a set has a stable form, for crossing a
 /// process boundary: it writes the declaration alone, and reads it back
 /// through [`InstructionSet::new`], so a decoded set is checked as a built
-/// one is, and a faulty declaration is refused, naming its faults
-/// ([`DeclarationFault`]). The far end of a link can then compare the set
-/// it decodes with its own by `==`.
+/// one is, and a faulty declaration is refused, naming the set and its
+/// faults ([`DeclarationFault`]). A form holding a field the form does not
+/// have is refused too, naming the field, so that a set whose form a newer
+/// build extends is never read as another set. Read back from a format
+/// that keeps a 64-bit float bit for bit (see [`Angle`](crate::Angle)), a
+/// set is equal to the one written, so the far end of a link can compare
+/// the set it decodes with its own by `==`.
 #[derive(Clone, Debug)]
 pub struct InstructionSet {
     /// What it promises, in [`name`](Self::name).

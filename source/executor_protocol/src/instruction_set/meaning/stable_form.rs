@@ -4,8 +4,11 @@
 //! A meaning's stable form, with the `serde` feature: what an instruction
 //! does, written to cross a process boundary with its set. `null` for an
 //! undeclared meaning, else its steps in order, each its operation and
-//! its guard, in Qodec's words: `{"operation": {"pauli": "X_0"}, "guard":
-//! {"if": [{"parameter": 0}, {"outcome": 0}]}}`.
+//! its guard: `{"operation": {"pauli": "X_0"}, "guard": {"if":
+//! [{"parameter": 0}, {"outcome": 0}]}}`. Its operations and guards are
+//! named as Qodec names them, and a guard's terms by position, as
+//! [`Guard`] gives them. An absent meaning reads as undeclared, as in
+//! Qodec, and an absent guard as none.
 //!
 //! It is read back through the builder, step by step, as a loader of
 //! Qodec's YAML would build it, so a decoded meaning is canonical, and

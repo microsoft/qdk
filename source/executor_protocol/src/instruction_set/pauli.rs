@@ -122,6 +122,17 @@ enum Axis {
 }
 
 impl Axis {
+    /// Its letter in Qodec's text. Written out rather than taken from the
+    /// derived `Debug`, whose output Rust does not promise, since a set's
+    /// stable form writes a Pauli's text.
+    fn letter(self) -> char {
+        match self {
+            Axis::X => 'X',
+            Axis::Y => 'Y',
+            Axis::Z => 'Z',
+        }
+    }
+
     /// The product `self · other`: the power of i it carries, and its
     /// factor, `None` for the identity (`X · X = I`, `X · Y = i Z`,
     /// `Y · X = −i Z`).
@@ -203,7 +214,7 @@ impl fmt::Display for Pauli {
             if k > 0 {
                 f.write_str(" ")?;
             }
-            write!(f, "{axis:?}_{qubit}")?;
+            write!(f, "{}_{qubit}", axis.letter())?;
         }
         Ok(())
     }
@@ -227,8 +238,9 @@ impl serde::Serialize for Pauli {
     }
 }
 
-/// Read from Qodec's sparse form, as [`Argument::pauli`](crate::Argument::pauli)
-/// reads it; any other text is refused.
+/// Read from Qodec's sparse form, as
+/// [`Argument::pauli`](crate::Argument::pauli) reads it; any other text is
+/// refused.
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for Pauli {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

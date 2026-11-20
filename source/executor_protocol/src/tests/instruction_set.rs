@@ -349,9 +349,11 @@ fn sets_are_equal_exactly_when_their_declarations_are() {
     }
 }
 
-fn hash_of(set: &InstructionSet) -> u64 {
+/// Its hash, by the standard library's hasher, which is the same for equal
+/// values in one process.
+fn hash_of(value: &impl Hash) -> u64 {
     let mut hasher = DefaultHasher::new();
-    set.hash(&mut hasher);
+    value.hash(&mut hasher);
     hasher.finish()
 }
 
