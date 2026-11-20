@@ -230,41 +230,62 @@ fn the_layers_ask_the_part_below_for_the_qubits_they_lower_their_blocks_to() {
 /// a rotation: its three data qubits and two ancillas.
 const QUBITS: u32 = 5;
 
-/// A rotation by a non-Clifford angle, which a stabilizer simulator cannot
-/// run, fails shot 3 below the layers and loses it there and in them: the
-/// shot sent again, as a debugger stepping on would, together with shot 1,
-/// is refused as an earlier failure before anything of that `execute`
-/// runs, so shot 1, sent before it, reaches no part below either.
+/// An error below the layers fails shot 3 and loses it there and in them:
+/// the shot sent again, as a debugger stepping on would, together with
+/// shot 1, is refused as an earlier failure before anything of that
+/// `execute` runs, so shot 1, sent before it, reaches no part below
+/// either. The error is a rotation by a non-Clifford angle, which a
+/// stabilizer simulator cannot run, or a refusal of a part below that takes
+/// no instruction at all: the layers' work on the shot is lost with it, so
+/// the refusal fails the shot rather than being passed up as one.
 #[test]
 fn a_shot_an_error_lost_is_refused_when_sent_again() {
     let model = qodecs::model("repetition3/repetition3.qodec.yaml");
     let program = Program::parse("prepare_z 0; rotate_z 0 theta=0.5 | prepare_z 0; measure_z 0");
-    let driver = TopIsaDriver::new(&model.top, &program)
-        .sending_execute_to(0, &[1])
-        .going_on_after_errors();
+    // Each case, and the most instructions the part below takes per batch.
+    let cases = [
+        ("the simulator fails", None),
+        ("the part below refuses", Some(0)),
+    ];
+    for (case, most) in cases {
+        let driver = TopIsaDriver::new(&model.top, &program)
+            .sending_execute_to(0, &[1])
+            .going_on_after_errors();
 
-    let mut below = spied_stabilizer(&model);
-    let runs = over(&model, driver, &mut below, &ShotSet::ids([1, 3]));
+        let mut below = spied_stabilizer(&model);
+        if let Some(most) = most {
+            below = below.taking_at_most(most);
+        }
+        let runs = over(&model, driver, &mut below, &ShotSet::ids([1, 3]));
 
-    let [first, second] = runs[1].ends.as_slice() else {
-        panic!("two `execute`s for shot 3: {:?}", runs[1].ends);
-    };
-    assert!(
-        matches!(first, ExecuteEnd::Failed { .. }),
-        "precondition: the rotation fails: {first:?}"
-    );
-    let refused = |end: &ExecuteEnd| matches!(end, ExecuteEnd::Refused(ExecuteRefusal::EarlierFailure(shot)) if shot.get() == 3);
-    assert!(refused(second), "{second:?}");
-    assert!(
-        matches!(runs[0].ends.as_slice(), [end] if refused(end)),
-        "shot 1: {:?}",
-        runs[0].ends
-    );
-    assert!(
-        below.received.iter().all(|batch| !batch.shots.contains(&1)),
-        "shot 1 reached the part below: {:?}",
-        below.received
-    );
+        let [first, second] = runs[1].ends.as_slice() else {
+            panic!("{case}: two `execute`s for shot 3: {:?}", runs[1].ends);
+        };
+        let failed_as_expected = matches!(
+            (most, first),
+            (None, ExecuteEnd::Failed { refusal: None, .. })
+                | (
+                    Some(0),
+                    ExecuteEnd::Failed {
+                        refusal: Some(ExecuteRefusal::TooManyInstructions { max: 0, .. }),
+                        ..
+                    },
+                )
+        );
+        assert!(failed_as_expected, "{case}: the shot fails: {first:?}");
+        let refused = |end: &ExecuteEnd| matches!(end, ExecuteEnd::Refused(ExecuteRefusal::EarlierFailure(shot)) if shot.get() == 3);
+        assert!(refused(second), "{case}: {second:?}");
+        assert!(
+            matches!(runs[0].ends.as_slice(), [end] if refused(end)),
+            "{case}: shot 1: {:?}",
+            runs[0].ends
+        );
+        assert!(
+            below.received.iter().all(|batch| !batch.shots.contains(&1)),
+            "{case}: shot 1 reached the part below: {:?}",
+            below.received
+        );
+    }
 }
 
 /// A runner runs again on the shots of its last run, in which a rotation by
@@ -332,8 +353,8 @@ fn the_layers_send_batches_checked_as_the_ones_they_get() {
 
 /// A part below that takes at most two instructions per batch, as a
 /// device with a small instruction memory may, gets the layers'
-/// instructions in batches of at most two, and the shots read what they
-/// read with no such limit.
+/// instructions in batches of at most two, each instruction once, and the
+/// shots read what they read with no such limit.
 #[test]
 fn the_layers_split_their_batches_to_the_most_the_part_below_takes() {
     let model = qodecs::model("steane/steane.qodec.yaml");
@@ -369,6 +390,14 @@ fn the_layers_split_their_batches_to_the_most_the_part_below_takes() {
         "{:?}",
         limited.received
     );
+    let sent = |below: &ExecutorSpy<_>| {
+        below
+            .received
+            .iter()
+            .map(|batch| batch.instructions)
+            .sum::<usize>()
+    };
+    assert_eq!(sent(&limited), sent(&unlimited), "instructions sent below");
     assert_eq!(readouts, expected);
 }
 

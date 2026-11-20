@@ -17,10 +17,10 @@
 //! feeds, never gets it: the task is held here, so the run deadlocks.
 //!
 //! The layers' batches are their own, so one may hold more instructions
-//! than the part below takes in a batch. The part below refuses such a
-//! batch before running any of it, naming its most; the bridge then sends
-//! the same instructions in batches of at most that many, in order, and
-//! keeps the most for the batches that follow.
+//! than the part below takes in a batch, which its offer states. The
+//! bridge sends such a batch's instructions in batches of at most that
+//! many, in order: Qodec's calls take values, never an earlier readout, so
+//! the split reads what one batch would.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,8 +28,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread::Thread;
 
 use executor_protocol::{
-    Batch, Execute, ExecuteError, ExecuteRefusal, Failure, Instruction, OpcodeMap, Readouts, Seed,
-    ShotSet,
+    Batch, Execute, ExecuteError, Failure, Instruction, OpcodeMap, Readouts, Seed, ShotSet,
 };
 use qodec_runtime_recipes::{Backend, BasicReadout, Call};
 
@@ -49,8 +48,9 @@ pub(super) struct BelowBridge<'a, X> {
     /// Its opcodes in the set below.
     pub(super) map: &'a OpcodeMap,
     pub(super) readouts: &'a mut Readouts,
-    /// The most instructions the part below takes in a batch, once known.
-    pub(super) most_instructions: &'a mut Option<u32>,
+    /// The most instructions the part below takes in a batch, from the
+    /// offer it was composed with.
+    pub(super) most_instructions: Option<u32>,
 }
 
 impl<X: Execute> Backend<Vec<Call>, Result<Vec<BasicReadout>, ExecuteError>>
@@ -66,30 +66,17 @@ impl<X: Execute> Backend<Vec<Call>, Result<Vec<BasicReadout>, ExecuteError>>
                 shot,
                 failure: Failure::Part(Box::new(fault)),
             })?;
-        let mut results = Vec::new();
-        let mut start = 0;
-        loop {
-            let end = match *self.most_instructions {
-                Some(most) => calls.len().min(start + most as usize),
-                None => calls.len(),
-            };
-            match self.send(&calls[start..end], &instructions[start..end]) {
-                Ok(part) if start == 0 && end == calls.len() => return Ok(part),
-                Ok(part) => {
-                    results.extend(part);
-                    start = end;
-                    if start == calls.len() {
-                        return Ok(results);
-                    }
-                }
-                Err(ExecuteError::Refused(ExecuteRefusal::TooManyInstructions { max, .. }))
-                    if max > 0 && (max as usize) < end - start =>
-                {
-                    *self.most_instructions = Some(max);
-                }
-                Err(error) => return Err(error),
-            }
+        // A part that takes no instruction gets the whole batch, and its
+        // boundary refuses it.
+        let most = match self.most_instructions {
+            Some(most) if most > 0 && (most as usize) < calls.len() => most as usize,
+            _ => return self.send(&calls, &instructions),
+        };
+        let mut results = Vec::with_capacity(calls.len());
+        for (calls, instructions) in calls.chunks(most).zip(instructions.chunks(most)) {
+            results.extend(self.send(calls, instructions)?);
         }
+        Ok(results)
     }
 }
 

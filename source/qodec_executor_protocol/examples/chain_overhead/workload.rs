@@ -20,3 +20,8 @@ pub const CASES: [(&str, &str); 3] = [
         "prepare_z 0; prepare_z 1; idle 0; merge_zz 0 1; measure_merged_z 0",
     ),
 ];
+
+/// The most instructions per batch the split chain's simulator takes:
+/// fewer than most of the layers' batches hold, so that the adapter splits
+/// them (the bench checks that it sends more batches).
+pub const MOST_BELOW: u32 = 2;

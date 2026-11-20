@@ -48,11 +48,13 @@ pub struct ShotRun {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExecuteEnd {
     Ran,
-    /// It failed: the failure's message, and the Qodec fault it is, if one.
+    /// It failed: the failure's message, the Qodec fault it is, if one, and
+    /// the refusal below it is, if one.
     Failed {
         #[allow(dead_code, reason = "shown by a failing test's `Debug`")]
         message: String,
         fault: Option<Fault>,
+        refusal: Option<ExecuteRefusal>,
     },
     Refused(ExecuteRefusal),
 }
@@ -66,9 +68,14 @@ impl ExecuteEnd {
                     Failure::Part(error) => error.downcast_ref::<Fault>().cloned(),
                     _ => None,
                 };
+                let refusal = match &failure {
+                    Failure::Refused(refusal) => Some(refusal.clone()),
+                    _ => None,
+                };
                 Self::Failed {
                     message: failure.to_string(),
                     fault,
+                    refusal,
                 }
             }
             _ => unreachable!("an execute fails or is refused"),

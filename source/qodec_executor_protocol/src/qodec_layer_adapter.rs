@@ -56,9 +56,6 @@ pub struct QodecLayerAdapter {
     below: Option<OpcodeMap>,
     shots: BTreeMap<ShotId, ShotState>,
     readouts_below: Readouts,
-    /// The most instructions the part below takes in a batch, once it has
-    /// refused a batch for holding more.
-    most_instructions_below: Option<u32>,
 }
 
 /// A shot's layers, and whether an error lost the shot.
@@ -110,7 +107,6 @@ impl QodecLayerAdapter {
             below: None,
             shots: BTreeMap::new(),
             readouts_below: Readouts::new(),
-            most_instructions_below: None,
         })
     }
 
@@ -227,7 +223,8 @@ impl Adapt for QodecLayerAdapter {
     /// Runs each batch through each of its shots' layers, in order. A shot
     /// an earlier error lost, in any batch, is refused before anything
     /// runs. An error below, or a layer's fault, fails the batch at that
-    /// shot and loses it. A call with the wrong arguments for its
+    /// shot and loses it; a refusal below too, since the layers may have
+    /// run part of the shot's batch before it. A call with the wrong arguments for its
     /// instruction, which Qodec's runtime rejects before running it, fails
     /// the batch at that shot without losing it; only an unchecked batch
     /// can carry one. An unchecked batch's instruction of another set, or
@@ -257,6 +254,7 @@ impl Adapt for QodecLayerAdapter {
             .below
             .as_ref()
             .expect("`>>` binds an adapter before it runs");
+        let most_instructions = below.offers().max_instructions;
         for (batch, batch_readouts) in batches.iter().zip(readouts) {
             let calls = batch
                 .instructions
@@ -287,7 +285,7 @@ impl Adapt for QodecLayerAdapter {
                         sends: &self.sends,
                         map,
                         readouts: &mut self.readouts_below,
-                        most_instructions: &mut self.most_instructions_below,
+                        most_instructions,
                     };
                     Runtime::new(
                         ShotLayers(&mut state.layers),
