@@ -42,6 +42,13 @@ Optional extras enable additional submodules:
   (:mod:`qdk.ec`).
 """
 
+import importlib.metadata
+
+try:
+    __version__ = importlib.metadata.version("qdk")
+except importlib.metadata.PackageNotFoundError:
+    __version__ = "unknown"
+
 from .telemetry_events import on_qdk_import
 
 on_qdk_import()
@@ -76,6 +83,7 @@ except NameError:
 
 # Public API exposed at the top of the qdk package.
 __all__ = [
+    "__version__",
     "code",
     "set_quantum_seed",
     "set_classical_seed",
