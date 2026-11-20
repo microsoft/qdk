@@ -4,6 +4,22 @@
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
+from qdk import Result
+
+
+def map_result_list_to_str(results) -> str:
+	if isinstance(results, (list, tuple)):
+		return "".join(map_result_list_to_str(r) for r in results)
+	match results:
+		case Result.Zero:
+			return "0"
+		case Result.One:
+			return "1"
+		case Result.Loss:
+			return "L"
+	return ""
+
+
 def check_histogram(
 	results: Sequence[str] | Counter[str],
 	expected_probs: Mapping[str, float],
