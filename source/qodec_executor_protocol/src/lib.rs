@@ -19,7 +19,14 @@
 //!
 //! A chain of them gives the readouts the qodec's runtime gives driven
 //! directly over the same simulator, seeded alike, however the layers are
-//! bracketed.
+//! bracketed, for a program that never prepares a block at the index of a
+//! live block of another type: Qodec has one label per block, whatever its
+//! type, so such a call (a `surface` patch prepared at the index of a live
+//! `merged` one) fails, naming both blocks ([`TranslationFault`]). The
+//! parts keep the rules of Qodec's runtime, not those of Qodec's drivers,
+//! which first check each batch's types (Qodec's `TypeChecker`, not
+//! ported): a call on a block that is not live loses the shot here, where
+//! such a driver rejects its batch and keeps the shot.
 
 mod action_simulator_executor;
 mod qodec_instruction_set;

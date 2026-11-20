@@ -10,6 +10,10 @@
 //! instructions for the part below; the executor turns the instructions it
 //! gets into the calls its simulator takes. The set keeps the ISA's order,
 //! so an instruction's opcode is at the place of its Qodec instruction id.
+//! Both also keep each shot's [`LiveBlocks`], as a block's address in one
+//! runtime is not always one in the other.
+
+mod live_blocks;
 
 use std::fmt;
 use std::sync::Arc;
@@ -22,6 +26,8 @@ use executor_protocol::{
 use qodec_runtime_recipes::{BasicReadout, Call, Isa, Operand, OwnedParam, ParamKind, Status};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
+
+pub(crate) use live_blocks::LiveBlocks;
 
 /// A Qodec ISA, and the same instructions as the protocol's
 /// [`InstructionSet`]: its name, block types and instructions, each with
@@ -263,7 +269,9 @@ pub(crate) fn write_results(results: &[BasicReadout], row: &mut [ReadoutValue]) 
 
 /// Why an instruction and a Qodec call cannot be translated into each
 /// other. Into a call: a readout parity argument, which Qodec's calls
-/// cannot take. Into an instruction: a call the layers send below whose
+/// cannot take; or a call that prepares a block at the index of a live
+/// block of another type, which Qodec's single label per block cannot tell
+/// apart. Into an instruction: a call the layers send below whose
 /// values do not match its instruction's parameters, in number or in kind
 /// (such as a text that is not a Pauli), or whose block label is beyond a
 /// `u32`; that is a fault of the qodec's layers, which none of Qodec's

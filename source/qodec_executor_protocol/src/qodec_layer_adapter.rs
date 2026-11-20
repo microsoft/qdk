@@ -28,7 +28,7 @@ use std::ops::Range;
 use executor_protocol::{
     Adapt, AdapterSetup, Batch, BatchReadouts, BlockType, DeclarationFault, Execute, ExecuteError,
     ExecuteRefusal, Failure, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Readouts, Seed,
-    ShotId, ShotSet,
+    ShotConditions, ShotId, ShotSet,
 };
 use qodec_runtime_recipes::{
     Backend as _, Call, Fault, FrameDecoding, PlanError, QodecLayers, QodecModel, QodecPlan,
@@ -36,7 +36,7 @@ use qodec_runtime_recipes::{
 };
 
 use crate::QodecInstructionSet;
-use crate::qodec_instruction_set::write_results;
+use crate::qodec_instruction_set::{LiveBlocks, write_results};
 use below_bridge::BelowBridge;
 use shot_layers::ShotLayers;
 
@@ -58,9 +58,11 @@ pub struct QodecLayerAdapter {
     readouts_below: Readouts,
 }
 
-/// A shot's layers, and whether an error lost the shot.
+/// A shot's layers, its live blocks above them, and whether an error lost
+/// the shot.
 struct ShotState {
     layers: QodecLayers,
+    live: LiveBlocks,
     lost: bool,
 }
 
@@ -229,9 +231,20 @@ impl Adapt for QodecLayerAdapter {
     /// running it, or with an argument Qodec's calls have no form for,
     /// such as a readout parity, which the layers cannot translate, fails
     /// the batch without losing any of its shots; only an unchecked batch
-    /// can carry one. An unchecked batch's instruction of another set, or
+    /// can carry one. A call that would prepare a block at the index of a
+    /// live block of another type, which Qodec's one label per block cannot
+    /// tell apart ([`TranslationFault`](crate::TranslationFault)), checked
+    /// or not, fails the batch at that shot, before any of the batch runs on
+    /// it, without losing it. A call on a block that is not live is a fault
+    /// of the layers, which loses the shot, as in Qodec's runtime; Qodec's
+    /// drivers reject such a batch first, with their `TypeChecker`, which
+    /// is not ported. An unchecked batch's instruction of another set, or
     /// readout slots fewer than its instructions read, panics, as the core
     /// lets a receiver of an unchecked batch do.
+    ///
+    /// Each shot's conditions are those its layers' results raise, and
+    /// those the part below raises on any of the shot's batches below,
+    /// whether or not that batch reads a value.
     #[expect(
         clippy::unused_async_trait_impl,
         reason = "the layers wait for the part below by blocking, so `adapt` never awaits"
@@ -275,9 +288,18 @@ impl Adapt for QodecLayerAdapter {
                 };
                 let state = self.shots.entry(shot).or_insert_with(|| ShotState {
                     layers: self.plan.instantiate(),
+                    live: LiveBlocks::default(),
                     lost: false,
                 });
+                let live = state
+                    .live
+                    .after(self.accepts.isa(), &calls)
+                    .map_err(|fault| ExecuteError::Failed {
+                        shot,
+                        failure: Failure::Part(Box::new(fault)),
+                    })?;
                 let one_shot = ShotSet::ids([shot.get()]);
+                let mut raised = ShotConditions::NONE;
                 let outcome = {
                     let bridge = BelowBridge {
                         below: &mut *below,
@@ -287,6 +309,7 @@ impl Adapt for QodecLayerAdapter {
                         sends: &self.sends,
                         map,
                         readouts: &mut self.readouts_below,
+                        raised: &mut raised,
                         most_instructions,
                     };
                     Runtime::new(
@@ -300,7 +323,8 @@ impl Adapt for QodecLayerAdapter {
                 match outcome {
                     Ok(results) => {
                         let conditions = write_results(&results, batch_readouts.row_mut(position));
-                        batch_readouts.set_conditions(position, conditions);
+                        batch_readouts.set_conditions(position, conditions | raised);
+                        state.live = live;
                     }
                     Err(error) => {
                         state.lost = !matches!(error, QodecRuntimeError::Rejected(_));

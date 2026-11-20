@@ -28,7 +28,8 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread::Thread;
 
 use executor_protocol::{
-    Batch, Execute, ExecuteError, Failure, Instruction, OpcodeMap, Readouts, Seed, ShotSet,
+    Batch, Execute, ExecuteError, Failure, Instruction, OpcodeMap, Readouts, Seed, ShotConditions,
+    ShotSet,
 };
 use qodec_runtime_recipes::{Backend, BasicReadout, Call};
 
@@ -48,6 +49,10 @@ pub(super) struct BelowBridge<'a, X> {
     /// Its opcodes in the set below.
     pub(super) map: &'a OpcodeMap,
     pub(super) readouts: &'a mut Readouts,
+    /// The conditions the part below raised on the shot in each batch it
+    /// read, whether or not the batch read any value: the results Qodec's
+    /// layers return carry them only on the calls that read one.
+    pub(super) raised: &'a mut ShotConditions,
     /// The most instructions the part below takes in a batch, from the
     /// offer it was composed with.
     pub(super) most_instructions: Option<u32>,
@@ -94,6 +99,7 @@ impl<X: Execute> BelowBridge<'_, X> {
         ];
         let readouts = self.readouts.readouts_for(&batches);
         wait(self.below.execute(&batches, self.seed, readouts))?;
+        *self.raised |= readouts[0].conditions(0);
         Ok(self
             .sends
             .results(calls, readouts[0].row(0), readouts[0].conditions(0)))

@@ -22,7 +22,7 @@ use qdk_simulators::action_simulators::{FullStateActionSimulator, StabilizerActi
 use qodec_runtime_recipes::{ActionOp, ActionTranslator, Backend, Call, Isa, Stack};
 
 use crate::QodecInstructionSet;
-use crate::qodec_instruction_set::write_results;
+use crate::qodec_instruction_set::{LiveBlocks, write_results};
 
 /// The engine under the translator: an action simulator.
 type ActionEngine = Box<dyn Backend<Vec<ActionOp>, Result<Vec<bool>, String>>>;
@@ -39,9 +39,11 @@ pub struct ActionSimulatorExecutor {
     shots: BTreeMap<ShotId, ShotSimulator>,
 }
 
-/// A shot's translator and simulator, and whether an error lost the shot.
+/// A shot's translator and simulator, its live blocks, and whether an
+/// error lost the shot.
 struct ShotSimulator {
     stack: Stack<ActionTranslator, ActionEngine>,
+    live: LiveBlocks,
     lost: bool,
 }
 
@@ -139,7 +141,11 @@ impl Execute for ActionSimulatorExecutor {
     /// and loses it. An instruction with an argument Qodec's calls have no
     /// form for, such as a readout parity, fails its batch before any of
     /// the batch's shots runs, and loses none; only an unchecked batch can
-    /// carry one.
+    /// carry one. An instruction that would prepare a block at the index of
+    /// a live block of another type, which Qodec's one label per block
+    /// cannot tell apart ([`TranslationFault`](crate::TranslationFault)),
+    /// checked or not, fails the batch at that shot, before any of the
+    /// batch runs on it, without losing it.
     #[expect(
         clippy::unused_async_trait_impl,
         reason = "a part that never waits keeps the trait's `async fn` form"
@@ -180,12 +186,21 @@ impl Execute for ActionSimulatorExecutor {
                         ActionTranslator::new(self.accepts.isa()),
                         (self.engine_for_shot)(seed.shot(shot), self.qubits),
                     ),
+                    live: LiveBlocks::default(),
                     lost: false,
                 });
+                let live = state
+                    .live
+                    .after(self.accepts.isa(), &calls)
+                    .map_err(|fault| ExecuteError::Failed {
+                        shot,
+                        failure: Failure::Part(Box::new(fault)),
+                    })?;
                 match state.stack.execute(calls) {
                     Ok(results) => {
                         let conditions = write_results(&results, batch_readouts.row_mut(position));
                         batch_readouts.set_conditions(position, conditions);
+                        state.live = live;
                     }
                     Err(error) => {
                         state.lost = true;

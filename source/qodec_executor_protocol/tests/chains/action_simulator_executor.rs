@@ -118,43 +118,84 @@ fn a_shot_the_simulator_failed_is_refused_when_sent_again() {
     }
 }
 
-/// A correction conditioned on the parity of the shot's latest readout, in
-/// an unchecked batch to an executor whose needs state no parity: Qodec's
-/// calls have no form for it, so its `execute` fails naming the
-/// instruction, rather than sending the correction without its condition,
-/// and runs nothing of the shot, which goes on: the next `execute` reads
-/// what it reads with the failing one never sent.
+/// An instruction the executor cannot translate into Qodec's calls fails
+/// its `execute` naming it, rather than running something else, and runs
+/// nothing of the shot, which goes on: the next `execute` reads what it
+/// reads with the failing one never sent. A correction conditioned on the
+/// parity of the shot's latest readout, in an unchecked batch to an
+/// executor whose needs state no parity, is an argument Qodec's calls have
+/// no form for. A new surface patch 0 prepared while the merged patch 0 a
+/// lattice-surgery merge gave is live, on an executor of surface's top
+/// ISA, is two blocks of the protocol, at one index of two types, but one
+/// label in Qodec, whose translator would end the merged patch to prepare
+/// the new one: the failure names both types and the label, whether the
+/// merge came in an earlier `execute` or earlier in the same one.
 #[test]
-fn a_readout_parity_argument_fails_its_execute_and_keeps_the_shot() {
-    let bottom = qodecs::model("steane/steane.qodec.yaml").bottom;
-    let mut executor =
-        ActionSimulatorExecutor::stabilizer(&bottom).expect("Stim's ISA is a protocol set");
+fn an_instruction_the_executor_cannot_translate_fails_its_execute_and_keeps_the_shot() {
+    /// A driver with one of its calls made malformed.
+    type Malformed = fn(TopIsaDriver) -> TopIsaDriver;
+    let steane = qodecs::model("steane/steane.qodec.yaml").bottom;
+    let surface = qodecs::model("surface/surface.qodec.yaml").top;
+    let clash: &[&str] = &[
+        "prepare_z",
+        "`surface` block 0",
+        "`merged` block 0",
+        "label 0",
+    ];
+    // Each case: the executor's ISA, its program, that program without
+    // the failing `execute`, the malformed call, if one, and what the
+    // failure names.
+    let cases: [(_, _, _, Malformed, &[&str]); 3] = [
+        (
+            &steane,
+            "R 0; M 0; R 1; X 1 | Z_if 1 correction=1 | M 1",
+            "R 0; M 0; R 1; X 1 | M 1",
+            |driver| driver.with_a_readout_parity(1, 0),
+            &["Z_if"],
+        ),
+        (
+            &surface,
+            "prepare_z 0; prepare_z 1; merge_zz 0 1 | prepare_z 0 | measure_merged_z 0",
+            "prepare_z 0; prepare_z 1; merge_zz 0 1 | measure_merged_z 0",
+            |driver| driver,
+            clash,
+        ),
+        (
+            &surface,
+            "prepare_z 0; prepare_z 1 | merge_zz 0 1; prepare_z 0 | measure_z 0; measure_z 1",
+            "prepare_z 0; prepare_z 1 | measure_z 0; measure_z 1",
+            |driver| driver,
+            clash,
+        ),
+    ];
+    for (isa, text, without, malformed, named) in cases {
+        let mut executor =
+            ActionSimulatorExecutor::stabilizer(isa).expect("the example's ISA is a protocol set");
+        let mut run = |driver: TopIsaDriver| {
+            (Driver::new(driver) >> Executor::new(&mut executor))
+                .expect("the driver sends the executor's ISA")
+                .run(&ShotSet::ids([0]), SEED)
+                .expect("the driver goes on after errors")
+        };
 
-    let runs = (Driver::new(
-        TopIsaDriver::new(
-            &bottom,
-            &Program::parse("R 0; M 0; R 1; X 1 | Z_if 1 correction=1 | M 1"),
-        )
-        .with_a_readout_parity(1, 0)
-        .going_on_after_errors(),
-    ) >> Executor::new(&mut executor))
-    .expect("the driver sends the executor's ISA")
-    .run(&ShotSet::ids([0]), SEED)
-    .expect("the driver goes on after errors");
-    let expected = run(
-        &mut executor,
-        &Program::parse("R 0; M 0; R 1; X 1 | M 1"),
-        &ShotSet::ids([0]),
-    );
+        let runs =
+            run(malformed(TopIsaDriver::new(isa, &Program::parse(text))).going_on_after_errors());
+        let expected = run(TopIsaDriver::new(isa, &Program::parse(without)));
 
-    let [
-        ExecuteEnd::Ran,
-        ExecuteEnd::Failed { message, .. },
-        ExecuteEnd::Ran,
-    ] = runs[0].ends.as_slice()
-    else {
-        panic!("only the parity fails its `execute`: {:?}", runs[0].ends);
-    };
-    assert!(message.contains("Z_if"), "{message}");
-    assert_eq!(runs[0].readouts, expected[0].readouts);
+        let [
+            ExecuteEnd::Ran,
+            ExecuteEnd::Failed { message, .. },
+            ExecuteEnd::Ran,
+        ] = runs[0].ends.as_slice()
+        else {
+            panic!(
+                "{text}: only the untranslatable call fails: {:?}",
+                runs[0].ends
+            );
+        };
+        for named in named {
+            assert!(message.contains(named), "{text}: names {named}: {message}");
+        }
+        assert_eq!(runs[0].readouts, expected[0].readouts, "{text}");
+    }
 }

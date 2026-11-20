@@ -208,7 +208,9 @@ fn parameter_kind(isa: &Isa, mnemonic: &str, name: &str) -> ParamKind {
 }
 
 /// Adds to `needs` the blocks `mnemonic` of `isa` acts on at `blocks`:
-/// operand `j` is of the type of its `in[j]`, or else its `out[j]`.
+/// operand `j` is a block of the type of its `in[j]` and one of its
+/// `out[j]`'s, at index `blocks[j]` among each type's, as a merge that
+/// changes a block's type keeps its index.
 fn add_needs(isa: &Isa, mnemonic: &str, blocks: &[u32], needs: &mut Needs) {
     let signature = isa
         .instructions
@@ -216,14 +218,16 @@ fn add_needs(isa: &Isa, mnemonic: &str, blocks: &[u32], needs: &mut Needs) {
         .find(|signature| signature.mnemonic == mnemonic)
         .unwrap_or_else(|| panic!("`{mnemonic}` is in `{}`", isa.name));
     for (j, &block) in blocks.iter().enumerate() {
-        let operand = signature
-            .inputs
-            .get(j)
-            .or_else(|| signature.outputs.get(j))
-            .expect("an operand of the instruction");
-        let block_type = BlockType::new(isa.types.names[operand.block].clone());
-        let held = needs.blocks.entry(block_type).or_insert(0);
-        *held = (*held).max(block + 1);
+        let operands = [signature.inputs.get(j), signature.outputs.get(j)];
+        assert!(
+            operands.iter().any(Option::is_some),
+            "`{mnemonic}` has an operand {j}"
+        );
+        for operand in operands.into_iter().flatten() {
+            let block_type = BlockType::new(isa.types.names[operand.block].clone());
+            let held = needs.blocks.entry(block_type).or_insert(0);
+            *held = (*held).max(block + 1);
+        }
     }
 }
 

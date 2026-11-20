@@ -5,13 +5,18 @@
 //! runtime reads driven directly, however they are bracketed, and keep each
 //! shot's state and errors as that runtime does.
 
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
+
 use executor_protocol::{Adapter, Driver, ExecuteRefusal, Executor, ShotConditions, ShotSet};
 use qodec_executor_protocol::{ActionSimulatorExecutor, QodecLayerAdapter};
 use qodec_runtime_recipes::{FaultKind, QodecModel, runtime};
 
 use crate::SEED;
-use crate::direct_runtime::{run_directly, simulator, stabilizer};
+use crate::direct_runtime::{full_state, run_directly, simulator, stabilizer};
 use crate::executor_spy::ExecutorSpy;
+use crate::late_answer_executor::{LateAnswerExecutor, Wake};
 use crate::programs::Program;
 use crate::qodecs;
 use crate::top_isa_driver::{ExecuteEnd, ShotRun, TopIsaDriver};
@@ -155,23 +160,79 @@ fn one_adapter_per_layer_reads_what_one_adapter_for_all_layers_reads() {
     );
 }
 
-/// C4/C6's decoder cannot resolve the C6 measurement Qodec's REPL tests
-/// end with, and says so in the result's status: the driver sees the shot
-/// unresolved, through the protocol's conditions.
+/// The conditions raised in or below the layers reach the driver, on the
+/// shot they were raised on. C4/C6's decoder cannot resolve the C6
+/// measurement Qodec's REPL tests end with, and says so in the result's
+/// status. A part below finds a shot's work rejected, inconsistent or
+/// unresolved on a batch that reads nothing, such as the seven Hadamards
+/// that are Steane's logical Hadamard, sent whole or in batches of two:
+/// no result of the layers carries it, yet the driver sees it.
 #[test]
-fn the_conditions_the_layers_raise_reach_the_driver() {
-    let model = qodecs::model("c4c6/qodec.yaml");
-    let program = Program::parse("prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0");
+fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
+    let stepped_hadamard = "prepare_z 0 | h 0 | measure_z 0";
+    let split_hadamard = "prepare_z 0; h 0; measure_z 0";
+    // Each case: its qodec, its program, the conditions the part below
+    // raises on a batch reading nothing, the most instructions it takes per
+    // batch, and the condition the driver sees.
+    let cases = [
+        (
+            "c4c6/qodec.yaml",
+            "prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0",
+            ShotConditions::NONE,
+            None,
+            ShotConditions::UNRESOLVED,
+        ),
+        (
+            "steane/steane.qodec.yaml",
+            stepped_hadamard,
+            ShotConditions::REJECTED,
+            None,
+            ShotConditions::REJECTED,
+        ),
+        (
+            "steane/steane.qodec.yaml",
+            stepped_hadamard,
+            ShotConditions::INCONSISTENT,
+            None,
+            ShotConditions::INCONSISTENT,
+        ),
+        (
+            "steane/steane.qodec.yaml",
+            split_hadamard,
+            ShotConditions::UNRESOLVED,
+            Some(2),
+            ShotConditions::UNRESOLVED,
+        ),
+    ];
+    for (path, text, raised_below, most, seen) in cases {
+        let model = qodecs::model(path);
+        let mut below = spied_stabilizer(&model).raising_on_batches_reading_nothing(raised_below);
+        if let Some(most) = most {
+            below = below.taking_at_most(most);
+        }
 
-    let runs = on_stabilizer(&model, TopIsaDriver::new(&model.top, &program));
-
-    for run in runs {
-        assert!(
-            run.readouts.conditions.contains(ShotConditions::UNRESOLVED),
-            "shot of stream {}: {:?}",
-            run.stream,
-            run.readouts.conditions
+        let runs = over(
+            &model,
+            TopIsaDriver::new(&model.top, &Program::parse(text)),
+            &mut below,
+            &ShotSet::ids(0..SHOTS),
         );
+
+        if raised_below != ShotConditions::NONE {
+            assert!(
+                below.received.iter().any(|batch| batch.readout_slots == 0),
+                "precondition: {text}: a batch reading nothing went below: {:?}",
+                below.received
+            );
+        }
+        for run in runs {
+            assert!(
+                run.readouts.conditions.contains(seen),
+                "{text}, shot of stream {}: {:?}",
+                run.stream,
+                run.readouts.conditions
+            );
+        }
     }
 }
 
@@ -229,6 +290,57 @@ fn the_layers_ask_the_part_below_for_the_qubits_they_lower_their_blocks_to() {
 /// The qubits repetition3's layers lower one block to, for the memory with
 /// a rotation: its three data qubits and two ancillas.
 const QUBITS: u32 = 5;
+
+/// A rotation by an angle the program states, of no effect (0), a Pauli
+/// (pi) or non-Clifford (1.234), runs on a full-state simulator below
+/// repetition3's layers, which lower it to a rotation of a data qubit by
+/// the same angle: the part below gets that angle as the program wrote it,
+/// and the shots read what Qodec's runtime reads driven directly.
+#[test]
+fn a_rotations_angle_reaches_the_part_below_as_the_program_states_it() {
+    let model = qodecs::model("repetition3/repetition3.qodec.yaml");
+    let plan = qodecs::plan(&model);
+    for angle in [0.0, std::f64::consts::PI, 1.234] {
+        let program = Program::parse(&format!(
+            "prepare_z 0; rotate_z 0 theta={angle}; measure_z 0"
+        ));
+        let mut below = ExecutorSpy::new(
+            ActionSimulatorExecutor::full_state(&model.bottom, QUBITS)
+                .expect("the example's bottom ISA is a protocol set"),
+        );
+
+        let runs = over(
+            &model,
+            TopIsaDriver::new(&model.top, &program),
+            &mut below,
+            &ShotSet::ids(0..4),
+        );
+
+        let numbers: Vec<f64> = below
+            .received
+            .iter()
+            .flat_map(|batch| batch.numbers.iter().copied())
+            .collect();
+        assert!(
+            !numbers.is_empty()
+                && numbers
+                    .iter()
+                    .all(|number| number.to_bits() == angle.to_bits()),
+            "angle {angle}: the numbers sent below: {numbers:?}"
+        );
+        for run in runs {
+            let mut direct = runtime(
+                &plan,
+                simulator(plan.bottom(), full_state(run.stream, QUBITS as usize)),
+            );
+            assert_eq!(
+                run.readouts,
+                run_directly(plan.top(), &program, &mut direct),
+                "angle {angle}"
+            );
+        }
+    }
+}
 
 /// An error below the layers fails shot 3 and loses it there and in them:
 /// the shot sent again, as a debugger stepping on would, together with
@@ -439,27 +551,33 @@ fn the_layers_split_their_batches_to_the_most_the_part_below_takes() {
     }
 }
 
-/// A call the layers reject before running anything, in an unchecked
-/// batch, fails its `execute` without losing the shot: the next `execute`
-/// reads what it reads with the failing one never sent. Qodec's runtime
-/// rejects a rotation sent without its angle, as a fault of its top layer
+/// A call the layers reject before running anything fails its `execute`
+/// without losing the shot: the next `execute` reads what it reads with
+/// the failing one never sent. Qodec's runtime rejects a rotation sent
+/// without its angle, in an unchecked batch, as a fault of its top layer
 /// naming the instruction; a Pauli correction conditioned on the parity of
-/// a readout is an argument Qodec's calls have no form for, so the layers
-/// cannot translate it, and fail naming the instruction.
+/// a readout, in an unchecked batch, is an argument Qodec's calls have no
+/// form for, so the layers cannot translate it, and fail naming the
+/// instruction. A new surface patch 0 prepared while the merged patch 0 a
+/// lattice-surgery merge gave is live is two blocks of the protocol, at
+/// one index of two types, but one label in Qodec, whose runtime would end
+/// the merged patch to prepare the new one: the layers refuse it, naming
+/// both types and the label, whether the merge came in an earlier
+/// `execute` or earlier in the same one.
 #[test]
 fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
     /// A driver with one of its calls made malformed.
     type Malformed = fn(TopIsaDriver) -> TopIsaDriver;
     // Each case: its qodec, its program, that program without the failing
-    // `execute`, the malformed call, the instruction the failure names,
-    // and the kind and layer of the Qodec fault it is, if one.
-    let cases: [(_, _, _, Malformed, _, _); 2] = [
+    // `execute`, the malformed call, if one, what the failure names, and
+    // the kind and layer of the Qodec fault it is, if one.
+    let cases: [(_, _, _, Malformed, &[&str], _); 4] = [
         (
             "repetition3/repetition3.qodec.yaml",
             "prepare_z 0 | rotate_z 0 theta=0.5 | measure_z 0",
             "prepare_z 0 | measure_z 0",
             |driver| driver.without_its_arguments(1, 0),
-            "rotate_z",
+            &["rotate_z"],
             Some((FaultKind::InvalidInstruction, Some(0))),
         ),
         (
@@ -467,11 +585,37 @@ fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
             "prepare_z_all 0 | x0_if 0 correction=1 | measure_z_all 0",
             "prepare_z_all 0 | measure_z_all 0",
             |driver| driver.with_a_readout_parity(1, 0),
-            "x0_if",
+            &["x0_if"],
+            None,
+        ),
+        (
+            "surface/surface.qodec.yaml",
+            "prepare_z 0; prepare_z 1; merge_zz 0 1 | prepare_z 0 | measure_merged_z 0",
+            "prepare_z 0; prepare_z 1; merge_zz 0 1 | measure_merged_z 0",
+            |driver| driver,
+            &[
+                "prepare_z",
+                "`surface` block 0",
+                "`merged` block 0",
+                "label 0",
+            ],
+            None,
+        ),
+        (
+            "surface/surface.qodec.yaml",
+            "prepare_z 0; prepare_z 1 | merge_zz 0 1; prepare_z 0 | measure_z 0; measure_z 1",
+            "prepare_z 0; prepare_z 1 | measure_z 0; measure_z 1",
+            |driver| driver,
+            &[
+                "prepare_z",
+                "`surface` block 0",
+                "`merged` block 0",
+                "label 0",
+            ],
             None,
         ),
     ];
-    for (path, text, without, malformed, mnemonic, qodec_fault) in cases {
+    for (path, text, without, malformed, named, qodec_fault) in cases {
         let model = qodecs::model(path);
         let driver = |text| TopIsaDriver::new(&model.top, &Program::parse(text));
 
@@ -489,15 +633,20 @@ fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
                 ExecuteEnd::Ran,
             ] = run.ends.as_slice()
             else {
-                panic!("{path}: only the malformed call fails: {:?}", run.ends);
+                panic!(
+                    "{path}: {text}: only the rejected call fails: {:?}",
+                    run.ends
+                );
             };
-            assert!(message.contains(mnemonic), "{path}: {message}");
+            for named in named {
+                assert!(message.contains(named), "{path}: names {named}: {message}");
+            }
             assert_eq!(
                 fault.as_ref().map(|fault| (fault.kind, fault.layer)),
                 qodec_fault,
                 "{path}: {message}"
             );
-            assert_eq!(run.readouts, expected.readouts, "{path}");
+            assert_eq!(run.readouts, expected.readouts, "{path}: {text}");
         }
     }
 }
@@ -536,6 +685,65 @@ fn a_layers_fault_names_its_place_in_the_whole_qodec() {
         );
     };
     assert_eq!(fault.layer, Some(1), "{fault}");
+}
+
+/// A part below whose answers are pending when first asked, as a device's
+/// are, woken from another thread or before it says they are pending:
+/// the layers wait for each answer, and the shots read what they read over
+/// a part below answering at once. The run is bounded: a wake the layers
+/// lose fails the test rather than hanging it.
+#[test]
+fn a_part_below_answering_late_reads_what_one_answering_at_once_reads() {
+    const PATH: &str = "steane/steane.qodec.yaml";
+    const TEXT: &str =
+        "prepare_z 0; prepare_x 1 | idle_ft 0; h 0; cnot 0 1 | measure_z 0; measure_x 1";
+    let model = qodecs::model(PATH);
+    let mut at_once = spied_stabilizer(&model);
+    let expected = over(
+        &model,
+        TopIsaDriver::new(&model.top, &Program::parse(TEXT)),
+        &mut at_once,
+        &ShotSet::ids(0..SHOTS),
+    );
+    for wake in [Wake::FromAnotherThread, Wake::BeforePending] {
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let model = qodecs::model(PATH);
+            let mut late = LateAnswerExecutor::new(spied_stabilizer(&model), wake);
+            let runs = over_late(&model, TEXT, &mut late);
+            sender
+                .send((runs, late.late_answers))
+                .expect("the test waits for the run");
+        });
+
+        let (runs, late_answers) = receiver
+            .recv_timeout(Duration::from_secs(60))
+            .unwrap_or_else(|_| panic!("{wake:?}: the run ends"));
+
+        assert!(
+            late_answers > 0,
+            "precondition: {wake:?}: answers came late"
+        );
+        assert_eq!(
+            runs.iter().map(|run| &run.readouts).collect::<Vec<_>>(),
+            expected.iter().map(|run| &run.readouts).collect::<Vec<_>>(),
+            "{wake:?}"
+        );
+    }
+}
+
+/// Runs `text` on every layer of `model` over `late`.
+fn over_late(
+    model: &QodecModel,
+    text: &str,
+    late: &mut LateAnswerExecutor<ExecutorSpy<ActionSimulatorExecutor>>,
+) -> Vec<ShotRun> {
+    (Driver::new(TopIsaDriver::new(&model.top, &Program::parse(text)))
+        >> Adapter::new(QodecLayerAdapter::whole(model).expect("the example's layers assemble"))
+        >> Executor::new(late))
+    .expect("the layers fit the driver above and the part below")
+    .run(&ShotSet::ids(0..SHOTS), SEED)
+    .expect("the run gives its outputs")
 }
 
 /// Steane's program in checked batches reads what it reads unchecked: the
