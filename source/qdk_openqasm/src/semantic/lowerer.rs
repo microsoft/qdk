@@ -4777,10 +4777,13 @@ impl Lowerer {
         // behave as static arrays of 0s and 1s, so, they get indexed in big-endian
         // order. Therefore, we need to change the endianness of our indices after we
         // make the cast to bitarray.
-        let indices = indices
+        let Some(indices) = indices
             .into_iter()
             .map(|idx| self.change_index_endianness(idx, width))
-            .collect();
+            .collect()
+        else {
+            return err_expr!(Type::Err, expr.span);
+        };
 
         // Then, we reuse the codepath for lowering indexed arrays.
         // The spec says: "The bit slicing operation always returns a bit array
@@ -4857,7 +4860,13 @@ impl Lowerer {
         self.lower_indexed_ident_expr_rec(collection, indices.into())
     }
 
-    fn change_index_endianness(&mut self, idx: semantic::Index, width: u32) -> semantic::Index {
+    /// Returns `None` if `idx` is a const index that isn't an int or that
+    /// failed to const evaluate. An error has been reported in both cases.
+    fn change_index_endianness(
+        &mut self,
+        idx: semantic::Index,
+        width: u32,
+    ) -> Option<semantic::Index> {
         let idx_span = idx.span();
         let width = i64::from(width);
 
@@ -4887,8 +4896,16 @@ impl Lowerer {
         match idx {
             semantic::Index::Expr(expr) => {
                 let new_expr = if expr.ty.is_const() {
-                    let (val, span) = unwrap_range_component(Some(&expr.with_const_value(self)), 0);
-                    Expr::int(width_minus_expr_minus_one(val), span)
+                    if !matches!(expr.ty, Type::Int(..) | Type::UInt(..)) {
+                        self.push_const_eval_error(ConstEvalError::IndexMustBeInt(expr.span));
+                        return None;
+                    }
+                    let expr = expr.with_const_value(self);
+                    // If const evaluation failed, it already reported why.
+                    let Some(semantic::LiteralKind::Int(val)) = expr.const_value else {
+                        return None;
+                    };
+                    Expr::int(width_minus_expr_minus_one(val), expr.span)
                 } else {
                     Expr::bin_op(
                         semantic::BinOp::Sub,
@@ -4897,7 +4914,7 @@ impl Lowerer {
                         expr,
                     )
                 };
-                semantic::Index::Expr(new_expr)
+                Some(semantic::Index::Expr(new_expr))
             }
             semantic::Index::Range(range) => {
                 let start = {
@@ -4912,13 +4929,13 @@ impl Lowerer {
                     let (val, span) = unwrap_range_component(range.step.as_ref(), 1);
                     Some(Expr::int(-val, span))
                 };
-                semantic::Index::Range(Box::new(semantic::Range {
+                Some(semantic::Index::Range(Box::new(semantic::Range {
                     span: range.span,
                     start,
                     end,
                     step,
                     ty: Type::Range,
-                }))
+                })))
             }
         }
     }
@@ -4968,10 +4985,13 @@ impl Lowerer {
                     // behave as static arrays of 0s and 1s, so, they get indexed in big-endian
                     // order. Therefore, we need to change the endianness of our indices since we
                     // will cast to bitarray.
-                    let indices = indices
+                    let Some(indices) = indices
                         .into_iter()
                         .map(|idx| self.change_index_endianness(idx, width))
-                        .collect();
+                        .collect()
+                    else {
+                        return (err_expr!(Type::Err, expr.span), Default::default());
+                    };
 
                     (expr, indices)
                 }

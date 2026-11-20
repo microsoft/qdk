@@ -180,3 +180,11 @@ fn fuzz_2702() {
     let source = r#""0"[0:"0":0]"#;
     compile_qasm_best_effort(source);
 }
+
+/// Indexing into an int with a const index that isn't an int, like the
+/// `durationof` call here, was hitting an `unreachable!` in the lowerer.
+#[test]
+fn fuzz_4287() {
+    let source = "int[4]a a[durationof({";
+    compile_qasm_best_effort(source);
+}
