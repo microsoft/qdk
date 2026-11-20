@@ -8,8 +8,9 @@
 //! [`ActionTranslator`], which turns each bottom-ISA call into the steps of
 //! its Qodec action, as Qodec's runtime runs a shot directly. The shot's
 //! simulator draws from the shot's stream of the run's seed
-//! ([`Seed::shot`]), so a shot gives the same readouts alone, with others,
-//! and driven directly with a simulator seeded with that stream.
+//! ([`Seed::shot`]), a full-state one from the stream's low 32 bits, as it
+//! takes a 32-bit seed, so a shot gives the same readouts alone, with
+//! others, and driven directly with a simulator seeded with that stream.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

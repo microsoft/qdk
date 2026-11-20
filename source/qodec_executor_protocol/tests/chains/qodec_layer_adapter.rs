@@ -9,9 +9,12 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use executor_protocol::{Adapter, Driver, ExecuteRefusal, Executor, ShotConditions, ShotSet};
+use executor_protocol::{
+    Adapter, Driver, ExecuteRefusal, Executor, InstructionDef, InstructionSet, Opcode,
+    ShotConditions, ShotSet,
+};
 use qodec_executor_protocol::{ActionSimulatorExecutor, QodecLayerAdapter};
-use qodec_runtime_recipes::{FaultKind, QodecModel, runtime};
+use qodec_runtime_recipes::{FaultKind, Isa, QodecModel, runtime};
 
 use crate::SEED;
 use crate::direct_runtime::{full_state, run_directly, simulator, stabilizer};
@@ -62,41 +65,63 @@ fn over(
 /// Qodec's examples, each with a program of Qodec's own REPL tests or a
 /// random one: on every shot, the chain reads the outcomes, flags and
 /// conditions that Qodec's runtime reads driven directly over a stabilizer
-/// simulator drawing from the shot's stream of the seed.
+/// simulator drawing from the shot's stream of the seed. The same holds
+/// over a part below that numbers the layers' bottom ISA in another order,
+/// as the fit lets it: the layers send it its own opcodes.
 #[test]
 fn each_shot_reads_what_qodecs_runtime_reads_driven_directly() {
-    for (path, text) in [
+    let steane_gadgets =
+        "prepare_z 0; prepare_x 1; idle_ft 0; h 0; cnot 0 1; measure_z 0; measure_x 1";
+    // Each case: its qodec, its program, and whether the part below
+    // numbers its instructions in reverse.
+    for (path, text, renumbered) in [
+        ("steane/steane.qodec.yaml", steane_gadgets, false),
+        ("steane/steane.qodec.yaml", steane_gadgets, true),
         (
             "steane/steane.qodec.yaml",
-            "prepare_z 0; prepare_x 1; idle_ft 0; h 0; cnot 0 1; measure_z 0; measure_x 1",
+            "prepare_z 0; measure_x 0",
+            false,
         ),
-        ("steane/steane.qodec.yaml", "prepare_z 0; measure_x 0"),
         (
             "c4c6/qodec.yaml",
             "prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0",
+            false,
         ),
         (
             "surface/surface.qodec.yaml",
             "prepare_z 0; prepare_z 1; idle 0; merge_zz 0 1; measure_merged_z 0",
+            false,
         ),
         (
             "five_qubit/five_qubit.qodec.yaml",
             "prepare_z 0; idle 0; cycle 0; measure_x 0",
+            false,
         ),
         (
             "iceberg/iceberg.qodec.yaml",
             "prepare_z_all 0; idle 0; measure_z_all 0",
+            false,
         ),
     ] {
         let model = qodecs::model(path);
         let plan = qodecs::plan(&model);
         let program = Program::parse(text);
-        for run in on_stabilizer(&model, TopIsaDriver::new(&model.top, &program)) {
+        let mut below = spied_stabilizer(&model);
+        if renumbered {
+            below = below.numbering_in_reverse(&model.bottom);
+        }
+        let runs = over(
+            &model,
+            TopIsaDriver::new(&model.top, &program),
+            &mut below,
+            &ShotSet::ids(0..SHOTS),
+        );
+        for run in runs {
             let mut direct = runtime(&plan, simulator(plan.bottom(), stabilizer(run.stream)));
             assert_eq!(
                 run.readouts,
                 run_directly(plan.top(), &program, &mut direct),
-                "{path}: {text}"
+                "{path}: {text}, renumbered below: {renumbered}"
             );
         }
     }
@@ -165,8 +190,8 @@ fn one_adapter_per_layer_reads_what_one_adapter_for_all_layers_reads() {
 /// measurement Qodec's REPL tests end with, and says so in the result's
 /// status. A part below finds a shot's work rejected, inconsistent or
 /// unresolved on a batch that reads nothing, such as the seven Hadamards
-/// that are Steane's logical Hadamard, sent whole or in batches of two:
-/// no result of the layers carries it, yet the driver sees it.
+/// that are Steane's logical Hadamard, sent whole, in batches of two, or
+/// one by one: no result of the layers carries it, yet the driver sees it.
 #[test]
 fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
     let stepped_hadamard = "prepare_z 0 | h 0 | measure_z 0";
@@ -202,6 +227,13 @@ fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
             ShotConditions::UNRESOLVED,
             Some(2),
             ShotConditions::UNRESOLVED,
+        ),
+        (
+            "steane/steane.qodec.yaml",
+            stepped_hadamard,
+            ShotConditions::REJECTED,
+            Some(1),
+            ShotConditions::REJECTED,
         ),
     ];
     for (path, text, raised_below, most, seen) in cases {
@@ -649,6 +681,56 @@ fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
             assert_eq!(run.readouts, expected.readouts, "{path}: {text}");
         }
     }
+}
+
+/// An unchecked batch the layers cannot read: a Steane measurement sent
+/// with an opcode beyond the layers' top ISA, or stating no readout slot
+/// for it. The core lets a receiver of such a batch panic, and gives the
+/// part above the panic as the `execute`'s failure; the layers lose no
+/// shot for it, and the next `execute` reads what it reads with the
+/// failing one never sent.
+#[test]
+fn an_unchecked_batch_the_layers_cannot_read_panics_and_keeps_the_shot() {
+    let model = qodecs::model("steane/steane.qodec.yaml");
+    let driver = |text| TopIsaDriver::new(&model.top, &Program::parse(text));
+    let text = "prepare_z 0; measure_z 0 | prepare_z 0; measure_z 0";
+    let cases = [
+        (
+            "an opcode beyond the set",
+            driver(text).sending_opcode(0, 1, an_opcode_beyond(&model.top)),
+        ),
+        ("no readout slot", driver(text).stating_readout_slots(0, 0)),
+    ];
+    let expected = on_stabilizer(&model, driver("prepare_z 0; measure_z 0"));
+    for (case, malformed) in cases {
+        let runs = on_stabilizer(&model, malformed.going_on_after_errors());
+
+        for (run, expected) in runs.iter().zip(&expected) {
+            assert!(
+                matches!(
+                    run.ends.as_slice(),
+                    [ExecuteEnd::Panicked { .. }, ExecuteEnd::Ran]
+                ),
+                "{case}: only the unreadable batch fails, as a panic: {:?}",
+                run.ends
+            );
+            assert_eq!(run.readouts, expected.readouts, "{case}");
+        }
+    }
+}
+
+/// The first opcode beyond `isa`'s instructions, as the protocol numbers
+/// them: an opcode of a set one instruction longer.
+fn an_opcode_beyond(isa: &Isa) -> Opcode {
+    let count = isa.instructions.len();
+    InstructionSet::new(
+        "longer",
+        [],
+        (0..=count).map(|k| InstructionDef::new(format!("i{k}"))),
+    )
+    .expect("a set of distinct mnemonics")
+    .opcode(&format!("i{count}"))
+    .expect("the longer set has its last instruction")
 }
 
 /// C4/C6's lower layer alone, below a driver of its ISA, given a Hadamard

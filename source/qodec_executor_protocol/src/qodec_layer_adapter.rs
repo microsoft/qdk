@@ -238,9 +238,11 @@ impl Adapt for QodecLayerAdapter {
     /// it, without losing it. A call on a block that is not live is a fault
     /// of the layers, which loses the shot, as in Qodec's runtime; Qodec's
     /// drivers reject such a batch first, with their `TypeChecker`, which
-    /// is not ported. An unchecked batch's instruction of another set, or
-    /// readout slots fewer than its instructions read, panics, as the core
-    /// lets a receiver of an unchecked batch do.
+    /// is not ported. An unchecked batch's opcode this set does not have,
+    /// or readout slots fewer than its instructions read, panics, as the
+    /// core lets a receiver of an unchecked batch do, and loses no shot.
+    /// An opcode of another set that this set also has is not detected, as
+    /// the core's `OpcodeMap` says: it runs as this set's instruction.
     ///
     /// Each shot's conditions are those its layers' results raise, and
     /// those the part below raises on any of the shot's batches below,

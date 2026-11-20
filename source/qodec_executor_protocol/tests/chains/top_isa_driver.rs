@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use executor_protocol::{
     Argument, Batch, BatchReadouts, Bit, BlockType, Drive, DriveError, DriverSetup, Execute,
-    ExecuteError, ExecuteRefusal, Failure, Instruction, InstructionSet, Needs, OpcodeMap,
+    ExecuteError, ExecuteRefusal, Failure, Instruction, InstructionSet, Needs, Opcode, OpcodeMap,
     ReadoutValue, Seed, ShotConditions, ShotSet,
 };
 use qodec_executor_protocol::QodecInstructionSet;
@@ -34,6 +34,9 @@ pub struct TopIsaDriver {
     /// The positions, in the run's shots, each batch of each `execute`
     /// goes to: one batch of all of them when `None`.
     targets: Vec<Option<Vec<Vec<usize>>>>,
+    /// Opcodes sent in place of those `bind` gives: each `execute`'s,
+    /// instruction's place in it, and opcode.
+    sent_opcodes: Vec<(usize, usize, Opcode)>,
     needs: Needs,
     checked: bool,
     going_on: bool,
@@ -59,6 +62,11 @@ pub enum ExecuteEnd {
         fault: Option<Fault>,
         refusal: Option<ExecuteRefusal>,
     },
+    /// A part below panicked: the panic's message, if text.
+    Panicked {
+        #[allow(dead_code, reason = "shown by a failing test's `Debug`")]
+        message: Option<String>,
+    },
     Refused(ExecuteRefusal),
 }
 
@@ -66,6 +74,10 @@ impl ExecuteEnd {
     fn of(error: ExecuteError) -> Self {
         match error {
             ExecuteError::Refused(refusal) => Self::Refused(refusal),
+            ExecuteError::Failed {
+                failure: Failure::Panicked { message, .. },
+                ..
+            } => Self::Panicked { message },
             ExecuteError::Failed { failure, .. } => {
                 let fault = match &failure {
                     Failure::Part(error) => error.downcast_ref::<Fault>().cloned(),
@@ -127,6 +139,7 @@ impl TopIsaDriver {
             set,
             executes,
             targets,
+            sent_opcodes: Vec::new(),
             needs,
             checked: false,
             going_on: false,
@@ -162,6 +175,22 @@ impl TopIsaDriver {
                 *argument = Argument::recent(1);
             }
         }
+        self
+    }
+
+    /// This driver, sending instruction `at` of `execute` with `opcode`, in
+    /// place of the opcode the set below has for it: an instruction no
+    /// fit gives, which only an unchecked batch can carry.
+    pub fn sending_opcode(mut self, execute: usize, at: usize, opcode: Opcode) -> Self {
+        self.sent_opcodes.push((execute, at, opcode));
+        self
+    }
+
+    /// This driver, stating `slots` readout slots for `execute`, whatever
+    /// its instructions read: a misstatement only an unchecked batch can
+    /// carry.
+    pub fn stating_readout_slots(mut self, execute: usize, slots: u32) -> Self {
+        self.executes[execute].1 = slots;
         self
     }
 
@@ -241,6 +270,9 @@ impl DriverSetup for TopIsaDriver {
             for instruction in instructions {
                 instruction.opcode = below.map(instruction.opcode);
             }
+        }
+        for &(execute, at, opcode) in &self.sent_opcodes {
+            self.executes[execute].0[at].opcode = opcode;
         }
     }
 

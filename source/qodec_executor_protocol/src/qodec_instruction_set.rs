@@ -122,9 +122,9 @@ impl QodecInstructionSet {
     ///
     /// # Panics
     ///
-    /// When `instruction`'s opcode is not of this set, which only an
-    /// unchecked batch can carry; the core lets a receiver panic on such a
-    /// batch.
+    /// When this set has no instruction of `instruction`'s opcode, which
+    /// only an unchecked batch can carry; the core lets a receiver panic on
+    /// such a batch.
     pub(crate) fn call(&self, instruction: &Instruction) -> Result<Call, TranslationFault> {
         let instruction_id = *self
             .ids
