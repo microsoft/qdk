@@ -122,7 +122,8 @@ impl QodecLayerAdapter {
     }
 
     /// The needs below the layers for a program that needs `above`: the
-    /// blocks Qodec's model says the layers lower them to.
+    /// blocks Qodec's model says the layers lower them to, each type's
+    /// stated as the blocks of every type together.
     fn needs_for(&self, above: &Needs) -> Result<Needs, PlanError> {
         let top = Resources::blocks(
             above
@@ -149,9 +150,16 @@ impl QodecLayerAdapter {
                 count(lower.qubits)?,
             );
         }
+        // Qodec's encoder labels the blocks below in one space across their
+        // types, the lowest free label first (its `allocate_lower`), so a
+        // block's label stays below the most blocks live at once, whatever
+        // their types: at most the sum of each type's most. The protocol
+        // checks each block's index against its own type's count, so each
+        // type states that sum; with one type below, its own count.
+        let labels: usize = lower.blocks.values().sum();
         for (name, &n) in &lower.blocks {
             if n > 0 {
-                needs = needs.blocks(BlockType::new(name.clone()), count(n)?);
+                needs = needs.blocks(BlockType::new(name.clone()), count(labels)?);
             }
         }
         if above.replayable {
@@ -174,8 +182,11 @@ impl AdapterSetup for QodecLayerAdapter {
         self.sends.instruction_set()
     }
 
-    /// The blocks the layers lower `above`'s to. When Qodec's model cannot
-    /// say, none: [`ready`](Adapt::ready) then answers why.
+    /// The blocks the layers lower `above`'s to. Below several block types,
+    /// each type's count is the sum of all types' counts, since Qodec labels
+    /// the blocks below in one space across their types: a part below then
+    /// reserves more blocks than the layers hold at once. When Qodec's model
+    /// cannot say, none: [`ready`](Adapt::ready) then answers why.
     fn needs_below(&self, above: Needs) -> Needs {
         self.needs_for(&above).unwrap_or_else(|_| {
             let needs = Needs::default();

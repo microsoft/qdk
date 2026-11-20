@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use qodec_runtime_recipes::{
     ActionOp, ActionTranslator, Backend, BasicReadout, Call, Isa, OwnedParam, ParamKind, Stack,
+    from_fn,
 };
 use smallvec::SmallVec;
 
@@ -36,6 +37,22 @@ pub fn full_state(stream: u64, qubits: usize) -> Engine {
 /// directly.
 pub fn simulator(isa: &Arc<Isa>, engine: Engine) -> Stack<ActionTranslator, Engine> {
     Stack::new(ActionTranslator::new(isa), engine)
+}
+
+/// `backend`, answering every bit it reads as undetermined (`None`): a
+/// device that lost every measurement.
+pub fn answering_no_bit<E>(
+    mut backend: impl Backend<Vec<Call>, Result<Vec<BasicReadout>, E>>,
+) -> impl Backend<Vec<Call>, Result<Vec<BasicReadout>, E>> {
+    from_fn(move |calls| {
+        backend.execute(calls).map(|mut results| {
+            for result in &mut results {
+                result.outcomes.fill(None);
+                result.flags.fill(None);
+            }
+            results
+        })
+    })
 }
 
 /// What one shot of `program`, of `top`, reads on `backend` (Qodec's

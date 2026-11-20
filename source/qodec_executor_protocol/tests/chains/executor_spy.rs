@@ -3,14 +3,16 @@
 
 //! [`ExecutorSpy`]: an executor that records each batch it receives before
 //! the executor it wraps runs it, may take fewer instructions per batch
-//! than that executor, may number its instructions in another order, and
-//! may raise conditions on chosen shots of a batch that reads nothing.
+//! than that executor, may number its instructions in another order, may
+//! read every value as lost, and may raise conditions on chosen shots of a
+//! batch that reads nothing.
 
 use std::sync::Arc;
 
 use executor_protocol::{
     Argument, Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup, Instruction,
-    InstructionSet, Needs, NotReady, Offer, Seed, ShotConditions, ShotId, ShotSet,
+    InstructionSet, Needs, NotReady, Offer, ReadoutFailure, ReadoutValue, Seed, ShotConditions,
+    ShotId, ShotSet,
 };
 use qodec_executor_protocol::QodecInstructionSet;
 use qodec_runtime_recipes::Isa;
@@ -37,6 +39,8 @@ pub struct ExecutorSpy<E> {
     /// The set it accepts in place of the executor's, if it numbers the
     /// same instructions otherwise.
     renumbered: Option<QodecInstructionSet>,
+    /// Whether it reads every value the executor wrote as lost.
+    losing_every_value: bool,
     /// The conditions it raises on a batch with no readout slots, and the
     /// shots, by id, it raises them on.
     raising: ShotConditions,
@@ -53,6 +57,7 @@ impl<E> ExecutorSpy<E> {
             executor,
             most_instructions: None,
             renumbered: None,
+            losing_every_value: false,
             raising: ShotConditions::NONE,
             raising_on: |_| false,
             received: Vec::new(),
@@ -80,6 +85,14 @@ impl<E> ExecutorSpy<E> {
         let renumbered = QodecInstructionSet::new(&Arc::new(reversed))
             .expect("the example's bottom ISA, reversed, is a protocol set");
         self.renumbered = Some(renumbered);
+        self
+    }
+
+    /// This spy, reading every value the executor it wraps writes as
+    /// `Missing(ReadoutFailure::Loss)`: a device that lost every
+    /// measurement.
+    pub fn reading_every_value_as_missing(mut self) -> Self {
+        self.losing_every_value = true;
         self
     }
 
@@ -184,6 +197,15 @@ impl<E: Execute> Execute for ExecutorSpy<E> {
                     .await?;
             }
             None => self.executor.execute(batches, seed, readouts).await?,
+        }
+        if self.losing_every_value {
+            for batch_readouts in readouts.iter_mut() {
+                for position in 0..batch_readouts.shots() {
+                    batch_readouts
+                        .row_mut(position)
+                        .fill(ReadoutValue::Missing(ReadoutFailure::Loss));
+                }
+            }
         }
         for (batch, batch_readouts) in batches
             .iter()

@@ -23,6 +23,7 @@ use executor_protocol::{
     InstructionDef, InstructionSet, Opcode, OpcodeMap, ParameterKind, ReadoutFailure, ReadoutValue,
     ShotConditions,
 };
+use qodec_runtime_recipes::pauli::Pauli;
 use qodec_runtime_recipes::{BasicReadout, Call, Isa, Operand, OwnedParam, ParamKind, Status};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -273,9 +274,9 @@ pub(crate) fn write_results(results: &[BasicReadout], row: &mut [ReadoutValue]) 
 /// block of another type, which Qodec's single label per block cannot tell
 /// apart. Into an instruction: a call the layers send below whose
 /// values do not match its instruction's parameters, in number or in kind
-/// (such as a text that is not a Pauli), or whose block label is beyond a
-/// `u32`; that is a fault of the qodec's layers, which none of Qodec's
-/// examples makes.
+/// (such as a text that Qodec does not read as a Pauli), or whose block
+/// label is beyond a `u32`; that is a fault of the qodec's layers, which
+/// none of Qodec's examples makes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TranslationFault {
@@ -340,8 +341,13 @@ fn argument(kind: ParamKind, value: &OwnedParam) -> Result<Argument, String> {
         (ParamKind::Integer, OwnedParam::Int(integer)) => Argument::Integer(*integer),
         (ParamKind::Boolean, OwnedParam::Bool(boolean)) => Argument::Boolean(*boolean),
         (ParamKind::String, OwnedParam::Text(text)) => Argument::Text(text.as_str().into()),
+        // Qodec's grammar is wider than the protocol's: a term without its
+        // `_index` acts on qubit 0, and an empty text is the identity. So
+        // the text is read as Qodec reads it, and passed on in the form
+        // both grammars share (`-X_0 Z_2`, `I`).
         (ParamKind::Pauli, OwnedParam::Text(text)) => {
-            Argument::pauli(text).map_err(|fault| fault.to_string())?
+            let pauli = Pauli::parse(text)?;
+            Argument::pauli(&pauli.to_string()).map_err(|fault| fault.to_string())?
         }
         _ => return Err(mismatch()),
     })

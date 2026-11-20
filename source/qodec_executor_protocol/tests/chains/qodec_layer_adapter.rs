@@ -17,7 +17,7 @@ use qodec_executor_protocol::{ActionSimulatorExecutor, QodecLayerAdapter};
 use qodec_runtime_recipes::{FaultKind, Isa, QodecModel, runtime};
 
 use crate::SEED;
-use crate::direct_runtime::{full_state, run_directly, simulator, stabilizer};
+use crate::direct_runtime::{answering_no_bit, full_state, run_directly, simulator, stabilizer};
 use crate::executor_spy::ExecutorSpy;
 use crate::late_answer_executor::{LateAnswerExecutor, Wake};
 use crate::programs::Program;
@@ -68,53 +68,77 @@ fn over(
 /// conditions that Qodec's runtime reads driven directly over a stabilizer
 /// simulator drawing from the shot's stream of the seed. The same holds
 /// over a part below that numbers the layers' bottom ISA in another order,
-/// as the fit lets it: the layers send it its own opcodes. On surface's
-/// two block types, a call may prepare a block at the label of a live one
-/// of its own type, or at the label of a block of another type that has
-/// ended: neither shares a label between two live blocks.
+/// as the fit lets it: the layers send it its own opcodes; and over one
+/// that reads every value as missing, as a device that lost them does:
+/// the layers get no bit for them, as Qodec's runtime over a backend
+/// answering no bit does. On surface's two block types, a call may prepare
+/// a block at the label of a live one of its own type, or at the label of
+/// a block of another type that has ended: neither shares a label between
+/// two live blocks. A gadget may pass a Pauli in Qodec's shorthand, `X`
+/// for `X_0`, as the two-type fixture's `x` does.
 #[test]
 fn each_shot_reads_what_qodecs_runtime_reads_driven_directly() {
     let steane_gadgets =
         "prepare_z 0; prepare_x 1; idle_ft 0; h 0; cnot 0 1; measure_z 0; measure_x 1";
-    // Each case: its qodec, its program, and whether the part below
-    // numbers its instructions in reverse.
-    for (path, text, renumbered) in [
-        ("steane/steane.qodec.yaml", steane_gadgets, false),
-        ("steane/steane.qodec.yaml", steane_gadgets, true),
+    // Each case: its qodec, its program, and how the part below differs
+    // from a stabilizer simulator of the layers' bottom ISA.
+    for (path, text, below_is) in [
+        ("steane/steane.qodec.yaml", steane_gadgets, Below::Simulator),
+        (
+            "steane/steane.qodec.yaml",
+            steane_gadgets,
+            Below::Renumbered,
+        ),
         (
             "steane/steane.qodec.yaml",
             "prepare_z 0; measure_x 0",
-            false,
+            Below::Simulator,
+        ),
+        (
+            "steane/steane.qodec.yaml",
+            "prepare_z 0; measure_z 0",
+            Below::ReadingNothing,
         ),
         (
             "c4c6/qodec.yaml",
             "prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0",
-            false,
+            Below::Simulator,
         ),
         (
             "surface/surface.qodec.yaml",
             "prepare_z 0; prepare_z 1; idle 0; merge_zz 0 1; measure_merged_z 0",
-            false,
+            Below::Simulator,
         ),
-        ("surface/surface.qodec.yaml", SURFACE_REPREPARED, false),
-        ("surface/surface.qodec.yaml", SURFACE_LABEL_REUSED, false),
+        (
+            "surface/surface.qodec.yaml",
+            SURFACE_REPREPARED,
+            Below::Simulator,
+        ),
+        (
+            "surface/surface.qodec.yaml",
+            SURFACE_LABEL_REUSED,
+            Below::Simulator,
+        ),
         (
             "five_qubit/five_qubit.qodec.yaml",
             "prepare_z 0; idle 0; cycle 0; measure_x 0",
-            false,
+            Below::Simulator,
         ),
         (
             "iceberg/iceberg.qodec.yaml",
             "prepare_z_all 0; idle 0; measure_z_all 0",
-            false,
+            Below::Simulator,
         ),
+        (TWO_LOWER_TYPES, TWO_PAIRS_ONE_FLIPPED, Below::Simulator),
     ] {
         let model = qodecs::model(path);
         let plan = qodecs::plan(&model);
         let program = Program::parse(text);
         let mut below = spied_stabilizer(&model);
-        if renumbered {
-            below = below.numbering_in_reverse(&model.bottom);
+        match below_is {
+            Below::Simulator => {}
+            Below::Renumbered => below = below.numbering_in_reverse(&model.bottom),
+            Below::ReadingNothing => below = below.reading_every_value_as_missing(),
         }
         let runs = over(
             &model,
@@ -123,15 +147,44 @@ fn each_shot_reads_what_qodecs_runtime_reads_driven_directly() {
             &ShotSet::ids(0..SHOTS),
         );
         for run in runs {
-            let mut direct = runtime(&plan, simulator(plan.bottom(), stabilizer(run.stream)));
+            let engine = simulator(plan.bottom(), stabilizer(run.stream));
+            let expected = if matches!(below_is, Below::ReadingNothing) {
+                run_directly(
+                    plan.top(),
+                    &program,
+                    &mut runtime(&plan, answering_no_bit(engine)),
+                )
+            } else {
+                run_directly(plan.top(), &program, &mut runtime(&plan, engine))
+            };
             assert_eq!(
-                run.readouts,
-                run_directly(plan.top(), &program, &mut direct),
-                "{path}: {text}, renumbered below: {renumbered}"
+                run.readouts, expected,
+                "{path}: {text}, below: {below_is:?}"
             );
         }
     }
 }
+
+/// How the part below a chain differs from a stabilizer simulator of the
+/// layers' bottom ISA.
+#[derive(Clone, Copy, Debug)]
+enum Below {
+    /// It does not.
+    Simulator,
+    /// It numbers the bottom ISA's instructions in reverse.
+    Renumbered,
+    /// It reads every value as missing.
+    ReadingNothing,
+}
+
+/// A one-layer test qodec whose lower ISA has two block types, `a` and
+/// `b`, one of each per logical qubit (its file says more).
+const TWO_LOWER_TYPES: &str = "fixtures/two_lower_types.qodec.yaml";
+
+/// Two logical qubits of [`TWO_LOWER_TYPES`], the second flipped: their
+/// blocks below take labels 0 to 3 across both types, though each type has
+/// two blocks live.
+const TWO_PAIRS_ONE_FLIPPED: &str = "prepare_z 0; prepare_z 1; x 1 | measure_z 0; measure_z 1";
 
 /// A program sent one step per `execute`, as a debugger steps through it,
 /// reads what it reads sent whole: each shot's layers keep its blocks'
@@ -674,15 +727,24 @@ fn the_layers_split_their_batches_to_the_most_the_part_below_takes() {
 /// one index of two types, but one label in Qodec, whose runtime would end
 /// the merged patch to prepare the new one: the layers refuse it, naming
 /// both types and the label, whether the merge came in an earlier
-/// `execute` or earlier in the same one.
+/// `execute` or earlier in the same one, and in a checked batch, which the
+/// protocol's boundary lets through, as much as in an unchecked one.
 #[test]
 fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
-    /// A driver with one of its calls made malformed.
-    type Malformed = fn(TopIsaDriver) -> TopIsaDriver;
+    /// A driver made to send its program otherwise: with one of its calls
+    /// malformed, or in checked batches.
+    type Altered = fn(TopIsaDriver) -> TopIsaDriver;
+    let clash: &[&str] = &[
+        "prepare_z",
+        "`surface` block 0",
+        "`merged` block 0",
+        "label 0",
+    ];
     // Each case: its qodec, its program, that program without the failing
-    // `execute`, the malformed call, if one, what the failure names, and
-    // the kind and layer of the Qodec fault it is, if one.
-    let cases: [(_, _, _, Malformed, &[&str], _); 4] = [
+    // `execute`, how the driver sends it otherwise, if it does, what the
+    // failure names, and the kind and layer of the Qodec fault it is, if
+    // one.
+    let cases: [(_, _, _, Altered, &[&str], _); 5] = [
         (
             "repetition3/repetition3.qodec.yaml",
             "prepare_z 0 | rotate_z 0 theta=0.5 | measure_z 0",
@@ -704,12 +766,15 @@ fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
             "prepare_z 0; prepare_z 1; merge_zz 0 1 | prepare_z 0 | measure_merged_z 0",
             "prepare_z 0; prepare_z 1; merge_zz 0 1 | measure_merged_z 0",
             |driver| driver,
-            &[
-                "prepare_z",
-                "`surface` block 0",
-                "`merged` block 0",
-                "label 0",
-            ],
+            clash,
+            None,
+        ),
+        (
+            "surface/surface.qodec.yaml",
+            "prepare_z 0; prepare_z 1; merge_zz 0 1 | prepare_z 0 | measure_merged_z 0",
+            "prepare_z 0; prepare_z 1; merge_zz 0 1 | measure_merged_z 0",
+            TopIsaDriver::checked,
+            clash,
             None,
         ),
         (
@@ -717,20 +782,15 @@ fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
             "prepare_z 0; prepare_z 1 | merge_zz 0 1; prepare_z 0 | measure_z 0; measure_z 1",
             "prepare_z 0; prepare_z 1 | measure_z 0; measure_z 1",
             |driver| driver,
-            &[
-                "prepare_z",
-                "`surface` block 0",
-                "`merged` block 0",
-                "label 0",
-            ],
+            clash,
             None,
         ),
     ];
-    for (path, text, without, malformed, named, qodec_fault) in cases {
+    for (path, text, without, altered, named, qodec_fault) in cases {
         let model = qodecs::model(path);
         let driver = |text| TopIsaDriver::new(&model.top, &Program::parse(text));
 
-        let runs = on_stabilizer(&model, malformed(driver(text)).going_on_after_errors());
+        let runs = on_stabilizer(&model, altered(driver(text)).going_on_after_errors());
         let expected = on_stabilizer(&model, driver(without));
 
         for (run, expected) in runs.iter().zip(&expected) {
@@ -908,23 +968,34 @@ fn over_late(
     .expect("the run gives its outputs")
 }
 
-/// Steane's program in checked batches reads what it reads unchecked: the
-/// layers send the part below batches its boundary accepts.
+/// A program in checked batches reads what it reads unchecked: the layers
+/// state the blocks they need below, and send the part below batches its
+/// boundary accepts. So for Steane's program, and for two logical qubits
+/// of the two-type fixture, whose blocks below Qodec numbers in one label
+/// space across their types: the labels of each type reach past the count
+/// of its live blocks.
 #[test]
 fn checked_batches_read_what_unchecked_ones_read() {
-    let model = qodecs::model("steane/steane.qodec.yaml");
-    let program = Program::parse(
-        "prepare_z 0; prepare_x 1; idle_ft 0 | h 0; cnot 0 1 | measure_z 0; measure_x 1",
-    );
-    let readouts = |driver| {
-        on_stabilizer(&model, driver)
-            .into_iter()
-            .map(|run| run.readouts)
-            .collect::<Vec<_>>()
-    };
+    for (path, text) in [
+        (
+            "steane/steane.qodec.yaml",
+            "prepare_z 0; prepare_x 1; idle_ft 0 | h 0; cnot 0 1 | measure_z 0; measure_x 1",
+        ),
+        (TWO_LOWER_TYPES, TWO_PAIRS_ONE_FLIPPED),
+    ] {
+        let model = qodecs::model(path);
+        let program = Program::parse(text);
+        let readouts = |driver| {
+            on_stabilizer(&model, driver)
+                .into_iter()
+                .map(|run| run.readouts)
+                .collect::<Vec<_>>()
+        };
 
-    assert_eq!(
-        readouts(TopIsaDriver::new(&model.top, &program).checked()),
-        readouts(TopIsaDriver::new(&model.top, &program))
-    );
+        assert_eq!(
+            readouts(TopIsaDriver::new(&model.top, &program).checked()),
+            readouts(TopIsaDriver::new(&model.top, &program)),
+            "{path}: {text}"
+        );
+    }
 }

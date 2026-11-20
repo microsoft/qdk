@@ -176,11 +176,14 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
 /// ISA, is two blocks of the protocol, at one index of two types, but one
 /// label in Qodec, whose translator would end the merged patch to prepare
 /// the new one: the failure names both types and the label, whether the
-/// merge came in an earlier `execute` or earlier in the same one.
+/// merge came in an earlier `execute` or earlier in the same one, and in a
+/// checked batch, which the protocol's boundary lets through, as much as
+/// in an unchecked one.
 #[test]
 fn an_instruction_the_executor_cannot_translate_fails_its_execute_and_keeps_the_shot() {
-    /// A driver with one of its calls made malformed.
-    type Malformed = fn(TopIsaDriver) -> TopIsaDriver;
+    /// A driver made to send its program otherwise: with one of its calls
+    /// malformed, or in checked batches.
+    type Altered = fn(TopIsaDriver) -> TopIsaDriver;
     let steane = qodecs::model("steane/steane.qodec.yaml").bottom;
     let surface = qodecs::model("surface/surface.qodec.yaml").top;
     let clash: &[&str] = &[
@@ -190,9 +193,9 @@ fn an_instruction_the_executor_cannot_translate_fails_its_execute_and_keeps_the_
         "label 0",
     ];
     // Each case: the executor's ISA, its program, that program without
-    // the failing `execute`, the malformed call, if one, and what the
-    // failure names.
-    let cases: [(_, _, _, Malformed, &[&str]); 3] = [
+    // the failing `execute`, how the driver sends it otherwise, if it
+    // does, and what the failure names.
+    let cases: [(_, _, _, Altered, &[&str]); 4] = [
         (
             &steane,
             "R 0; M 0; R 1; X 1 | Z_if 1 correction=1 | M 1",
@@ -209,13 +212,20 @@ fn an_instruction_the_executor_cannot_translate_fails_its_execute_and_keeps_the_
         ),
         (
             &surface,
+            "prepare_z 0; prepare_z 1; merge_zz 0 1 | prepare_z 0 | measure_merged_z 0",
+            "prepare_z 0; prepare_z 1; merge_zz 0 1 | measure_merged_z 0",
+            TopIsaDriver::checked,
+            clash,
+        ),
+        (
+            &surface,
             "prepare_z 0; prepare_z 1 | merge_zz 0 1; prepare_z 0 | measure_z 0; measure_z 1",
             "prepare_z 0; prepare_z 1 | measure_z 0; measure_z 1",
             |driver| driver,
             clash,
         ),
     ];
-    for (isa, text, without, malformed, named) in cases {
+    for (isa, text, without, altered, named) in cases {
         let mut executor =
             ActionSimulatorExecutor::stabilizer(isa).expect("the example's ISA is a protocol set");
         let mut run = |driver: TopIsaDriver| {
@@ -226,7 +236,7 @@ fn an_instruction_the_executor_cannot_translate_fails_its_execute_and_keeps_the_
         };
 
         let runs =
-            run(malformed(TopIsaDriver::new(isa, &Program::parse(text))).going_on_after_errors());
+            run(altered(TopIsaDriver::new(isa, &Program::parse(text))).going_on_after_errors());
         let expected = run(TopIsaDriver::new(isa, &Program::parse(without)));
 
         let [
