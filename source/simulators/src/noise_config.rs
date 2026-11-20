@@ -122,7 +122,6 @@ impl LossPolicy {
 /// written.
 #[derive(Clone, Debug)]
 pub struct NoiseConfig<T, Q> {
-    pub i: NoiseTable<T>,
     pub x: NoiseTable<T>,
     pub y: NoiseTable<T>,
     pub z: NoiseTable<T>,
@@ -162,7 +161,6 @@ pub const fn const_empty_hash_map<K, V>() -> FxHashMap<K, V> {
 
 impl<T, Q> NoiseConfig<T, Q> {
     pub const NOISELESS: Self = Self {
-        i: NoiseTable::<T>::noiseless(1),
         x: NoiseTable::<T>::noiseless(1),
         y: NoiseTable::<T>::noiseless(1),
         z: NoiseTable::<T>::noiseless(1),
@@ -193,8 +191,7 @@ impl<T, Q> NoiseConfig<T, Q> {
 
     #[must_use]
     pub fn is_noiseless(&self) -> bool {
-        self.i.is_noiseless()
-            && self.x.is_noiseless()
+        self.x.is_noiseless()
             && self.y.is_noiseless()
             && self.z.is_noiseless()
             && self.h.is_noiseless()
@@ -240,7 +237,6 @@ impl<T: Display, Q: Display> Display for NoiseConfig<T, Q> {
         writeln_header(f, "NoiseConfig")?;
 
         // Write stdgates with noise.
-        write_if_noisy!(i);
         write_if_noisy!(x);
         write_if_noisy!(y);
         write_if_noisy!(z);
@@ -389,7 +385,6 @@ impl<T: Display> Display for NoiseTable<T> {
 /// This is the internal format used by the simulator.
 #[derive(Default)]
 pub struct CumulativeNoiseConfig {
-    pub i: CumulativeNoiseTable,
     pub x: CumulativeNoiseTable,
     pub y: CumulativeNoiseTable,
     pub z: CumulativeNoiseTable,
@@ -427,7 +422,6 @@ impl From<NoiseConfig<f64, f64>> for CumulativeNoiseConfig {
             .collect::<FxHashMap<_, _>>();
 
         Self {
-            i: value.i.into(),
             x: value.x.into(),
             y: value.y.into(),
             z: value.z.into(),
