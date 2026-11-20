@@ -86,30 +86,73 @@ fn each_shot_reads_what_its_simulator_reads_driven_directly() {
     }
 }
 
-/// A shot reads the same bits run alone as among other shots: it draws
-/// from its own stream, not from the batch's.
+/// A shot reads the same bits run alone as among other shots, whatever
+/// its place among them: it draws from its own stream, not from the
+/// batch's. So for shots 5 and 11 among the first 16, and for each of
+/// shots 5, 1 and the last id, sent in that order, whose places in the
+/// batch are not their ids, nor the first id's plus their places.
 #[test]
 fn each_shot_draws_from_its_own_stream_of_the_seed() {
     let bottom = qodecs::model("steane/steane.qodec.yaml").bottom;
     let program = Program::parse(COINS);
     let mut executor =
         ActionSimulatorExecutor::stabilizer(&bottom).expect("Stim's ISA is a protocol set");
-
-    let together = run(&mut executor, &program, &ShotSet::ids(0..16));
-    assert!(
-        together
-            .iter()
-            .any(|run| run.readouts != together[0].readouts),
-        "precondition: the shots read different bits"
-    );
-
-    for shot in [5, 11] {
-        let alone = run(&mut executor, &program, &ShotSet::ids([shot]));
-        assert_eq!(
-            alone[0].readouts, together[shot as usize].readouts,
-            "shot {shot}"
+    // Each case: the shots run together, and those of them run alone too.
+    let cases: [(ShotSet, &[u32]); 2] = [
+        (ShotSet::ids(0..16), &[5, 11]),
+        (ShotSet::ids([5, 1, u32::MAX]), &[5, 1, u32::MAX]),
+    ];
+    for (shots, alone) in cases {
+        let together = run(&mut executor, &program, &shots);
+        assert!(
+            together
+                .iter()
+                .any(|run| run.readouts != together[0].readouts),
+            "precondition: {shots:?}: the shots read different bits"
         );
+
+        for &shot in alone {
+            let position = shots
+                .iter()
+                .position(|id| id.get() == shot)
+                .expect("the shot is among those run together");
+            let alone = run(&mut executor, &program, &ShotSet::ids([shot]));
+            assert_eq!(
+                alone[0].readouts, together[position].readouts,
+                "shot {shot} of {shots:?}"
+            );
+        }
     }
+}
+
+/// A driver that ends shot 5 after the first `execute`, as one that has
+/// read all it wants of it may, leaves shot 1's simulator in place: shot
+/// 1's measurement in the next `execute` reads the qubit its first one
+/// flipped, as it does when no shot ends.
+#[test]
+fn a_shot_keeps_its_simulator_when_another_shot_ends() {
+    let bottom = qodecs::model("steane/steane.qodec.yaml").bottom;
+    let program = Program::parse("R 0; X 0 | M 0");
+    let run = |driver: TopIsaDriver| {
+        let mut executor =
+            ActionSimulatorExecutor::stabilizer(&bottom).expect("Stim's ISA is a protocol set");
+        let driver = driver.sending_execute_to(1, &[0]).going_on_after_errors();
+        (Driver::new(driver) >> Executor::new(&mut executor))
+            .expect("the driver sends the executor's ISA")
+            .run(&ShotSet::ids([1, 5]), SEED)
+            .expect("the driver goes on after errors")
+    };
+
+    let ending = run(TopIsaDriver::new(&bottom, &program).ending_shots_after(0, &[1]));
+    let not_ending = run(TopIsaDriver::new(&bottom, &program));
+
+    assert_eq!(
+        not_ending[0].readouts.values,
+        [Some(true)],
+        "precondition: shot 1 reads the flipped qubit"
+    );
+    assert_eq!(ending[0].ends, [ExecuteEnd::Ran, ExecuteEnd::Ran]);
+    assert_eq!(ending[0].readouts, not_ending[0].readouts);
 }
 
 /// An error fails shot 3 and loses it: the shot sent a rotation by a

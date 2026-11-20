@@ -186,7 +186,8 @@ impl AdapterSetup for QodecLayerAdapter {
     /// each type's count is the sum of all types' counts, since Qodec labels
     /// the blocks below in one space across their types: a part below then
     /// reserves more blocks than the layers hold at once. When Qodec's model
-    /// cannot say, none: [`ready`](Adapt::ready) then answers why.
+    /// cannot say, none: [`ready`](Adapt::ready) then answers why. A need to
+    /// run a shot again is passed below in either case.
     fn needs_below(&self, above: Needs) -> Needs {
         self.needs_for(&above).unwrap_or_else(|_| {
             let needs = Needs::default();

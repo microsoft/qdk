@@ -5,7 +5,7 @@
 //! the executor it wraps runs it, may take fewer instructions per batch
 //! than that executor, may number its instructions in another order, may
 //! read every value as lost, and may raise conditions on chosen shots of a
-//! batch that reads nothing.
+//! batch that reads nothing, or of every batch.
 
 use std::sync::Arc;
 
@@ -41,10 +41,11 @@ pub struct ExecutorSpy<E> {
     renumbered: Option<QodecInstructionSet>,
     /// Whether it reads every value the executor wrote as lost.
     losing_every_value: bool,
-    /// The conditions it raises on a batch with no readout slots, and the
-    /// shots, by id, it raises them on.
+    /// The conditions it raises on a batch with no readout slots, or on
+    /// every batch, and the shots, by id, it raises them on.
     raising: ShotConditions,
     raising_on: fn(u32) -> bool,
+    raising_on_every_batch: bool,
     /// Each batch received, in order: only those the protocol's boundary
     /// let through.
     pub received: Vec<ReceivedBatch>,
@@ -60,6 +61,7 @@ impl<E> ExecutorSpy<E> {
             losing_every_value: false,
             raising: ShotConditions::NONE,
             raising_on: |_| false,
+            raising_on_every_batch: false,
             received: Vec::new(),
         }
     }
@@ -108,6 +110,17 @@ impl<E> ExecutorSpy<E> {
         self.raising = conditions;
         self.raising_on = on_shot;
         self
+    }
+
+    /// This spy, raising `conditions` on each shot of every batch whose id
+    /// `on_shot` picks, after the executor it wraps runs the batch.
+    pub fn raising_on_every_batch(
+        mut self,
+        conditions: ShotConditions,
+        on_shot: fn(u32) -> bool,
+    ) -> Self {
+        self.raising_on_every_batch = true;
+        self.raising_on_batches_reading_nothing(conditions, on_shot)
     }
 }
 
@@ -207,11 +220,9 @@ impl<E: Execute> Execute for ExecutorSpy<E> {
                 }
             }
         }
-        for (batch, batch_readouts) in batches
-            .iter()
-            .zip(readouts)
-            .filter(|(_, batch_readouts)| batch_readouts.readout_slots() == 0)
-        {
+        for (batch, batch_readouts) in batches.iter().zip(readouts).filter(|(_, batch_readouts)| {
+            self.raising_on_every_batch || batch_readouts.readout_slots() == 0
+        }) {
             for (position, shot) in batch.shots.iter().enumerate() {
                 if (self.raising_on)(shot.get()) {
                     let conditions = batch_readouts.conditions(position) | self.raising;

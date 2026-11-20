@@ -5,15 +5,16 @@
 //! runtime reads driven directly, however they are bracketed, and keep each
 //! shot's state and errors as that runtime does.
 
+use std::ops::Range;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use executor_protocol::{
-    Adapter, Driver, ExecuteRefusal, Executor, InstructionDef, InstructionSet, Opcode,
-    ShotConditions, ShotSet,
+    Adapter, AdapterSetup, BlockType, Driver, ExecuteRefusal, Executor, InstructionDef,
+    InstructionSet, Needs, Offer, Opcode, ShotConditions, ShotSet,
 };
-use qodec_executor_protocol::{ActionSimulatorExecutor, QodecLayerAdapter};
+use qodec_executor_protocol::{ActionSimulatorExecutor, QodecLayerAdapter, QodecLayerAdapterError};
 use qodec_runtime_recipes::{FaultKind, Isa, QodecModel, runtime};
 
 use crate::SEED;
@@ -209,6 +210,40 @@ fn a_shots_layers_keep_its_state_from_one_execute_to_the_next() {
     }
 }
 
+/// A driver that ends shot 5 after the first `execute`, as one that has
+/// read all it wants of it may, leaves shot 1's layers in place: shot 1's
+/// measurement in the next `execute` of the block it prepared in the first
+/// reads what it reads when no shot ends.
+#[test]
+fn a_shot_keeps_its_layers_when_another_shot_ends() {
+    let model = qodecs::model("steane/steane.qodec.yaml");
+    let program = Program::parse("prepare_x 0 | measure_x 0");
+    let run = |driver: TopIsaDriver| {
+        let mut executor = ActionSimulatorExecutor::stabilizer(&model.bottom)
+            .expect("the example's bottom ISA is a protocol set");
+        let driver = driver.sending_execute_to(1, &[0]).going_on_after_errors();
+        (Driver::new(driver)
+            >> Adapter::new(
+                QodecLayerAdapter::whole(&model).expect("the example's layers assemble"),
+            )
+            >> Executor::new(&mut executor))
+        .expect("the layers fit the driver above and the simulator below")
+        .run(&ShotSet::ids([1, 5]), SEED)
+        .expect("the driver goes on after errors")
+    };
+
+    let ending = run(TopIsaDriver::new(&model.top, &program).ending_shots_after(0, &[1]));
+    let not_ending = run(TopIsaDriver::new(&model.top, &program));
+
+    assert_eq!(
+        not_ending[0].ends,
+        [ExecuteEnd::Ran, ExecuteEnd::Ran],
+        "precondition: shot 1 runs"
+    );
+    assert_eq!(ending[0].ends, not_ending[0].ends);
+    assert_eq!(ending[0].readouts, not_ending[0].readouts);
+}
+
 /// C4/C6's two layers, one adapter each, with room between them for a
 /// part (a noise model, a debugger), read what one adapter of both reads.
 #[test]
@@ -251,27 +286,41 @@ fn one_adapter_per_layer_reads_what_one_adapter_for_all_layers_reads() {
 /// inconsistent or unresolved on a batch that reads nothing, such as the
 /// seven Hadamards that are Steane's logical Hadamard, sent whole, in
 /// batches of two, or one by one: no result of the layers carries it, yet
-/// the driver sees it on those shots, and not on the odd ones.
+/// the driver sees it on those shots, and not on the odd ones. Where both
+/// raise one on a shot in one `execute`, C4/C6's decoder and a part below
+/// finding the work of the even shots rejected on every batch, the driver
+/// sees both.
 #[test]
 fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
+    let unresolved = "prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0";
     let stepped_hadamard = "prepare_z 0 | h 0 | measure_z 0";
     let split_hadamard = "prepare_z 0; h 0; measure_z 0";
     // Each case: its qodec, its program, the conditions the part below
-    // raises on the even shots of a batch reading nothing, the most
-    // instructions it takes per batch, and the condition the driver sees
-    // on those shots.
+    // raises on the even shots of a batch reading nothing, whether it
+    // raises them on batches that read too, the most instructions it takes
+    // per batch, and the condition the driver sees on those shots.
     let cases = [
         (
             "c4c6/qodec.yaml",
-            "prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0",
+            unresolved,
             ShotConditions::NONE,
+            false,
             None,
             ShotConditions::UNRESOLVED,
+        ),
+        (
+            "c4c6/qodec.yaml",
+            unresolved,
+            ShotConditions::REJECTED,
+            true,
+            None,
+            ShotConditions::UNRESOLVED | ShotConditions::REJECTED,
         ),
         (
             "steane/steane.qodec.yaml",
             stepped_hadamard,
             ShotConditions::REJECTED,
+            false,
             None,
             ShotConditions::REJECTED,
         ),
@@ -279,6 +328,7 @@ fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
             "steane/steane.qodec.yaml",
             stepped_hadamard,
             ShotConditions::INCONSISTENT,
+            false,
             None,
             ShotConditions::INCONSISTENT,
         ),
@@ -286,6 +336,7 @@ fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
             "steane/steane.qodec.yaml",
             split_hadamard,
             ShotConditions::UNRESOLVED,
+            false,
             Some(2),
             ShotConditions::UNRESOLVED,
         ),
@@ -293,14 +344,19 @@ fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
             "steane/steane.qodec.yaml",
             stepped_hadamard,
             ShotConditions::REJECTED,
+            false,
             Some(1),
             ShotConditions::REJECTED,
         ),
     ];
-    for (path, text, raised_below, most, seen) in cases {
+    for (path, text, raised_below, on_every_batch, most, seen) in cases {
         let model = qodecs::model(path);
-        let mut below = spied_stabilizer(&model)
-            .raising_on_batches_reading_nothing(raised_below, |shot| shot % 2 == 0);
+        let even = |shot| shot % 2 == 0;
+        let mut below = if on_every_batch {
+            spied_stabilizer(&model).raising_on_every_batch(raised_below, even)
+        } else {
+            spied_stabilizer(&model).raising_on_batches_reading_nothing(raised_below, even)
+        };
         if let Some(most) = most {
             below = below.taking_at_most(most);
         }
@@ -312,7 +368,7 @@ fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
             &ShotSet::ids(0..SHOTS),
         );
 
-        if raised_below != ShotConditions::NONE {
+        if raised_below != ShotConditions::NONE && !on_every_batch {
             assert!(
                 below.received.iter().any(|batch| batch.readout_slots == 0),
                 "precondition: {text}: a batch reading nothing went below: {:?}",
@@ -359,6 +415,34 @@ fn a_driver_of_another_isa_is_refused_at_composition() {
     assert!(!faults.fit().is_empty(), "{faults}");
 }
 
+/// A run of layers a qodec does not have is refused when the adapter is
+/// made, naming the run and how many layers the qodec has: an empty run,
+/// before, between or after C4/C6's two layers, a reversed one, and one
+/// reaching past the last layer, from within or from beyond. A run of
+/// one layer, or of both, is made, the last layer included.
+#[test]
+fn a_run_of_layers_the_qodec_does_not_have_is_refused() {
+    let model = qodecs::model("c4c6/qodec.yaml");
+    assert_eq!(model.layers.len(), 2, "precondition: C4/C6 has two layers");
+    let reversed = Range { start: 2, end: 1 };
+    for layers in [0..0, 1..1, 2..2, reversed, 1..3, 2..3, 6..9] {
+        match QodecLayerAdapter::new(&model, layers.clone()) {
+            Err(QodecLayerAdapterError::NoSuchLayers {
+                layers: refused,
+                qodec_layers,
+            }) => assert_eq!((refused, qodec_layers), (layers, 2)),
+            Err(error) => panic!("{layers:?}: refused otherwise: {error}"),
+            Ok(_) => panic!("{layers:?}: made"),
+        }
+    }
+    for layers in [0..1, 1..2, 0..2] {
+        assert!(
+            QodecLayerAdapter::new(&model, layers.clone()).is_ok(),
+            "{layers:?}"
+        );
+    }
+}
+
 /// A repetition-code memory with a rotation lowers each logical block to
 /// data and ancilla qubits: a state-vector simulator of fewer qubits than
 /// those is refused when the chain is composed, and one of as many runs it.
@@ -391,6 +475,65 @@ fn the_layers_ask_the_part_below_for_the_qubits_they_lower_their_blocks_to() {
 /// The qubits repetition3's layers lower one block to, for the memory with
 /// a rotation: its three data qubits and two ancillas.
 const QUBITS: u32 = 5;
+
+/// A driver that runs a shot of an earlier run again, as a debugger
+/// stepping into the shot that failed does, needs the part below the
+/// layers to run it again too: the layers pass the need below, with the
+/// blocks they lower the driver's to, or alone when Qodec's model cannot
+/// lower them (a block type Steane's top ISA does not have), where
+/// [`ready`](executor_protocol::Adapt::ready) then answers why; a driver
+/// that does not need it does not pass it.
+#[test]
+fn a_need_to_run_a_shot_again_reaches_the_part_below() {
+    let model = qodecs::model("steane/steane.qodec.yaml");
+    let adapter = QodecLayerAdapter::whole(&model).expect("the example's layers assemble");
+    // Each case: the driver's block type, and whether the layers lower it.
+    for (block_type, lowered) in [("steane", true), ("not_steanes", false)] {
+        for replayable in [false, true] {
+            let above = Needs::default().blocks(BlockType::new(block_type), 1);
+            let above = if replayable {
+                above.with_replay()
+            } else {
+                above
+            };
+
+            let below = adapter.needs_below(above);
+
+            assert_eq!(
+                below.blocks.is_empty(),
+                !lowered,
+                "precondition: {block_type}: {below:?}"
+            );
+            assert_eq!(below.replayable, replayable, "{block_type}: {below:?}");
+        }
+    }
+}
+
+/// The layers offer the driver above them the shots, seeding and replay
+/// of the part below, which an adapter may narrow but never widen: over a
+/// part below that takes one shot a run, cannot fix its seed, and cannot
+/// run a shot again, as a quantum computer may, the layers offer the same;
+/// over one with no such limit, none.
+#[test]
+fn the_layers_offer_the_shots_seeding_and_replay_of_the_part_below() {
+    let model = qodecs::model("steane/steane.qodec.yaml");
+    let adapter = QodecLayerAdapter::whole(&model).expect("the example's layers assemble");
+    for below in [
+        Offer::unlimited(),
+        Offer::unlimited()
+            .max_shots(1)
+            .not_seedable()
+            .not_replayable(),
+    ] {
+        let above = adapter.offers_above(below.clone());
+
+        assert_eq!(
+            (above.max_shots, above.seedable, above.replayable),
+            (below.max_shots, below.seedable, below.replayable),
+            "{below:?}"
+        );
+    }
+}
 
 /// A rotation by an angle the program states, of no effect (0), a Pauli
 /// (pi) or non-Clifford (1.234), runs on a full-state simulator below

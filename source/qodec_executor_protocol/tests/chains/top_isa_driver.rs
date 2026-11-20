@@ -3,7 +3,7 @@
 
 //! [`TopIsaDriver`]: a program of a qodec's top ISA, sent to every shot,
 //! or to the shots chosen for an `execute`, each `execute` as one batch or
-//! as the batches chosen for it.
+//! as the batches chosen for it, ending chosen shots after an `execute`.
 
 use std::sync::Arc;
 
@@ -21,9 +21,11 @@ use crate::programs::{Program, ShotReadouts};
 /// it ([`sending_execute_to`](TopIsaDriver::sending_execute_to)), in one
 /// batch or in the batches chosen for it
 /// ([`sending_execute_in_batches`](TopIsaDriver::sending_execute_in_batches)),
-/// and gives each shot's stream of the run's
-/// seed (to drive Qodec's runtime directly with) and readouts. By default
-/// an `execute`'s error ends the run; a driver
+/// ending the shots chosen after an `execute`
+/// ([`ending_shots_after`](TopIsaDriver::ending_shots_after)), and gives
+/// each shot's stream of the run's seed (to drive Qodec's runtime directly
+/// with) and readouts. By default an `execute`'s error ends the run; a
+/// driver
 /// [`going_on_after_errors`](TopIsaDriver::going_on_after_errors) sends the
 /// next `execute` anyway, as a debugger may, and gives how each ended.
 pub struct TopIsaDriver {
@@ -37,6 +39,9 @@ pub struct TopIsaDriver {
     /// Opcodes sent in place of those `bind` gives: each `execute`'s,
     /// instruction's place in it, and opcode.
     sent_opcodes: Vec<(usize, usize, Opcode)>,
+    /// The shots ended after an `execute`: the `execute`, and the shots'
+    /// positions in the run's shots.
+    endings: Vec<(usize, Vec<usize>)>,
     needs: Needs,
     checked: bool,
     going_on: bool,
@@ -140,6 +145,7 @@ impl TopIsaDriver {
             executes,
             targets,
             sent_opcodes: Vec::new(),
+            endings: Vec::new(),
             needs,
             checked: false,
             going_on: false,
@@ -205,6 +211,14 @@ impl TopIsaDriver {
     /// the others' ends and readouts skip it.
     pub fn sending_execute_in_batches(mut self, execute: usize, batches: &[&[usize]]) -> Self {
         self.targets[execute] = Some(batches.iter().map(|positions| positions.to_vec()).collect());
+        self
+    }
+
+    /// This driver, ending the shots at `positions` of the run's shots once
+    /// `execute` ran, as a driver that has read all it wants of them may:
+    /// the parts below may then drop what they hold for them.
+    pub fn ending_shots_after(mut self, execute: usize, positions: &[usize]) -> Self {
+        self.endings.push((execute, positions.to_vec()));
         self
     }
 
@@ -301,7 +315,9 @@ impl Drive for TopIsaDriver {
                 ends: Vec::new(),
             })
             .collect();
-        for ((instructions, slots), target) in self.executes.iter().zip(&self.targets) {
+        for (execute, ((instructions, slots), target)) in
+            self.executes.iter().zip(&self.targets).enumerate()
+        {
             let batch_positions: Vec<Vec<usize>> = match target {
                 Some(batch_positions) => batch_positions.clone(),
                 None => vec![(0..shots.len()).collect()],
@@ -341,6 +357,13 @@ impl Drive for TopIsaDriver {
                     }
                     run.ends.push(end.clone());
                 }
+            }
+            for (_, positions) in self.endings.iter().filter(|(after, _)| *after == execute) {
+                below.end_shots(
+                    &shots
+                        .select(positions)
+                        .expect("the chosen positions are among the run's shots"),
+                );
             }
         }
         Ok(runs)
