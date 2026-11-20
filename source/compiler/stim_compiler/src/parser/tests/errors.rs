@@ -37,7 +37,7 @@ fn lexer_error_is_surfaced() {
             Circuit [0-4]:
                 items:
                     Instruction [0-4]:
-                        name: H
+                        name: H [0-1]
                         tag: <none>
                         args: <empty>
                         targets:
@@ -68,7 +68,7 @@ fn parser_recovers_to_next_line_after_error() {
             Circuit [0-8]:
                 items:
                     Instruction [4-7]:
-                        name: H
+                        name: H [4-5]
                         tag: <none>
                         args: <empty>
                         targets:
@@ -173,14 +173,14 @@ fn recovery_preserves_surrounding_instructions() {
             Circuit [0-12]:
                 items:
                     Instruction [0-3]:
-                        name: H
+                        name: H [0-1]
                         tag: <none>
                         args: <empty>
                         targets:
                             Target [2-3]:
                                 kind: Qubit(0)
                     Instruction [8-11]:
-                        name: X
+                        name: X [8-9]
                         tag: <none>
                         args: <empty>
                         targets:
@@ -215,7 +215,7 @@ fn recovery_inside_repeat_block() {
                 items:
                     Block [0-24]:
                         block_instruction: Instruction [0-8]:
-                            name: REPEAT
+                            name: REPEAT [0-6]
                             tag: <none>
                             args: <empty>
                             targets:
@@ -223,7 +223,7 @@ fn recovery_inside_repeat_block() {
                                     kind: Qubit(2)
                         items:
                             Instruction [19-22]:
-                                name: H
+                                name: H [19-20]
                                 tag: <none>
                                 args: <empty>
                                 targets:
@@ -254,7 +254,7 @@ fn malformed_line_is_discarded_during_recovery() {
             Circuit [0-10]:
                 items:
                     Instruction [6-9]:
-                        name: X
+                        name: X [6-7]
                         tag: <none>
                         args: <empty>
                         targets:

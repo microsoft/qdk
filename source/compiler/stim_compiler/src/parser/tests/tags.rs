@@ -10,15 +10,15 @@ fn instruction_with_tag() {
     check(
         "H[tag] 0",
         &expect![[r#"
-        Circuit [0-8]:
-            items:
-                Instruction [0-8]:
-                    name: H
-                    tag: tag
-                    args: <empty>
-                    targets:
-                        Target [7-8]:
-                            kind: Qubit(0)"#]],
+            Circuit [0-8]:
+                items:
+                    Instruction [0-8]:
+                        name: H [0-1]
+                        tag: tag
+                        args: <empty>
+                        targets:
+                            Target [7-8]:
+                                kind: Qubit(0)"#]],
     );
 }
 
@@ -30,7 +30,7 @@ fn empty_tag() {
             Circuit [0-5]:
                 items:
                     Instruction [0-5]:
-                        name: H
+                        name: H [0-1]
                         tag: 
                         args: <empty>
                         targets:
@@ -47,7 +47,7 @@ fn tag_with_complicated_name() {
             Circuit [0-24]:
                 items:
                     Instruction [0-24]:
-                        name: H
+                        name: H [0-1]
                         tag:    _my.name_Is_TAG1_ 
                         args: <empty>
                         targets: <empty>"#]],
@@ -62,7 +62,7 @@ fn tag_with_args_and_targets() {
             Circuit [0-17]:
                 items:
                     Instruction [0-17]:
-                        name: X_ERROR
+                        name: X_ERROR [0-7]
                         tag: t
                         args:
                             Arg [11-14]: 0.1
@@ -85,7 +85,7 @@ fn tag_on_block_instruction() {
                 items:
                     Block [0-21]:
                         block_instruction: Instruction [0-11]:
-                            name: REPEAT
+                            name: REPEAT [0-6]
                             tag: t
                             args: <empty>
                             targets:
@@ -93,7 +93,7 @@ fn tag_on_block_instruction() {
                                     kind: Qubit(5)
                         items:
                             Instruction [16-19]:
-                                name: H
+                                name: H [16-17]
                                 tag: <none>
                                 args: <empty>
                                 targets:

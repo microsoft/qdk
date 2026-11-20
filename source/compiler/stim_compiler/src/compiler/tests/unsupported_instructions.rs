@@ -11,14 +11,14 @@ fn mpad_yields_unsupported_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
-          x unsupported instruction: MPAD
-           ,----
-         1 | MPAD 0 1
-           : ^^^^^^^^
-           `----
-    "#]],
+              x unsupported instruction: MPAD
+               ,----
+             1 | MPAD 0 1
+               : ^^^^
+               `----
+        "#]],
     );
 }
 
@@ -54,7 +54,7 @@ fn heralded_erase_yields_unsupported_error() {
               x unsupported instruction: HERALDED_ERASE
                ,----
              1 | HERALDED_ERASE(0.01) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^
+               : ^^^^^^^^^^^^^^
                `----
         "#]],
     );
@@ -70,7 +70,7 @@ fn heralded_pauli_channel_1_yields_unsupported_error() {
               x unsupported instruction: HERALDED_PAULI_CHANNEL_1
                ,----
              1 | HERALDED_PAULI_CHANNEL_1(0, 0, 0, 0.1) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               : ^^^^^^^^^^^^^^^^^^^^^^^^
                `----
         "#]],
     );
@@ -82,15 +82,15 @@ fn reference_to_mpad_record_does_not_panic() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
-          x unsupported instruction: MPAD
-           ,-[1:1]
-         1 | MPAD 0
-           : ^^^^^^
-         2 | CX rec[-1] 1
-           `----
-    "#]],
+              x unsupported instruction: MPAD
+               ,-[1:1]
+             1 | MPAD 0
+               : ^^^^
+             2 | CX rec[-1] 1
+               `----
+        "#]],
     );
 }
 
@@ -100,15 +100,15 @@ fn reference_to_heralded_erase_record_does_not_panic() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
-          x unsupported instruction: HERALDED_ERASE
-           ,-[1:1]
-         1 | HERALDED_ERASE(0.01) 0
-           : ^^^^^^^^^^^^^^^^^^^^^^
-         2 | CX rec[-1] 1
-           `----
-    "#]],
+              x unsupported instruction: HERALDED_ERASE
+               ,-[1:1]
+             1 | HERALDED_ERASE(0.01) 0
+               : ^^^^^^^^^^^^^^
+             2 | CX rec[-1] 1
+               `----
+        "#]],
     );
 }
 
@@ -118,14 +118,14 @@ fn reference_to_heralded_pauli_channel_1_record_does_not_panic() {
     check(
         source,
         &expect![[r#"
-      Qdk.Stim.Compiler.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
-        x unsupported instruction: HERALDED_PAULI_CHANNEL_1
-         ,-[1:1]
-       1 | HERALDED_PAULI_CHANNEL_1(0, 0, 0, 0.1) 0
-         : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-       2 | CX rec[-1] 1
-         `----
-  "#]],
+              x unsupported instruction: HERALDED_PAULI_CHANNEL_1
+               ,-[1:1]
+             1 | HERALDED_PAULI_CHANNEL_1(0, 0, 0, 0.1) 0
+               : ^^^^^^^^^^^^^^^^^^^^^^^^
+             2 | CX rec[-1] 1
+               `----
+        "#]],
     );
 }

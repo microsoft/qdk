@@ -79,7 +79,7 @@ fn comment_inside_block() {
                 items:
                     Block [0-28]:
                         block_instruction: Instruction [0-8]:
-                            name: REPEAT
+                            name: REPEAT [0-6]
                             tag: <none>
                             args: <empty>
                             targets:
@@ -87,7 +87,7 @@ fn comment_inside_block() {
                                     kind: Qubit(2)
                         items:
                             Instruction [23-26]:
-                                name: H
+                                name: H [23-24]
                                 tag: <none>
                                 args: <empty>
                                 targets:

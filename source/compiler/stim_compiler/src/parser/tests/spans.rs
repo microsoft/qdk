@@ -11,13 +11,13 @@ fn instruction_span_with_no_targets() {
     check(
         "S",
         &expect![[r#"
-        Circuit [0-1]:
-            items:
-                Instruction [0-1]:
-                    name: S
-                    tag: <none>
-                    args: <empty>
-                    targets: <empty>"#]],
+            Circuit [0-1]:
+                items:
+                    Instruction [0-1]:
+                        name: S [0-1]
+                        tag: <none>
+                        args: <empty>
+                        targets: <empty>"#]],
     );
 }
 
@@ -26,19 +26,19 @@ fn instruction_span_extends_to_last_target() {
     check(
         "CZ 7 8 9",
         &expect![[r#"
-        Circuit [0-8]:
-            items:
-                Instruction [0-8]:
-                    name: CZ
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [3-4]:
-                            kind: Qubit(7)
-                        Target [5-6]:
-                            kind: Qubit(8)
-                        Target [7-8]:
-                            kind: Qubit(9)"#]],
+            Circuit [0-8]:
+                items:
+                    Instruction [0-8]:
+                        name: CZ [0-2]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [3-4]:
+                                kind: Qubit(7)
+                            Target [5-6]:
+                                kind: Qubit(8)
+                            Target [7-8]:
+                                kind: Qubit(9)"#]],
     );
 }
 
@@ -47,15 +47,15 @@ fn negated_target_span_includes_the_bang() {
     check(
         "MX !3",
         &expect![[r#"
-        Circuit [0-5]:
-            items:
-                Instruction [0-5]:
-                    name: MX
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [3-5]:
-                            kind: Qubit(-3)"#]],
+            Circuit [0-5]:
+                items:
+                    Instruction [0-5]:
+                        name: MX [0-2]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [3-5]:
+                                kind: Qubit(-3)"#]],
     );
 }
 
@@ -72,7 +72,7 @@ fn block_span_covers_through_closing_brace() {
                 items:
                     Block [0-19]:
                         block_instruction: Instruction [0-8]:
-                            name: REPEAT
+                            name: REPEAT [0-6]
                             tag: <none>
                             args: <empty>
                             targets:
@@ -80,7 +80,7 @@ fn block_span_covers_through_closing_brace() {
                                     kind: Qubit(2)
                         items:
                             Instruction [13-17]:
-                                name: TICK
+                                name: TICK [13-17]
                                 tag: <none>
                                 args: <empty>
                                 targets: <empty>"#]],
@@ -96,7 +96,7 @@ fn span_includes_args_when_no_targets() {
             Circuit [0-13]:
                 items:
                     Instruction [0-12]:
-                        name: X_ERROR
+                        name: X_ERROR [0-7]
                         tag: <none>
                         args:
                             Arg [8-11]: 0.1
@@ -112,7 +112,7 @@ fn each_arg_gets_its_own_span() {
             Circuit [0-35]:
                 items:
                     Instruction [0-35]:
-                        name: PAULI_CHANNEL_1
+                        name: PAULI_CHANNEL_1 [0-15]
                         tag: <none>
                         args:
                             Arg [16-20]: 0.01
@@ -132,7 +132,7 @@ fn radians_arg_span_includes_the_suffix() {
             Circuit [0-14]:
                 items:
                     Instruction [0-14]:
-                        name: R_X
+                        name: R_X [0-3]
                         tag: <none>
                         args:
                             Arg [4-11]: -0.5 rad
@@ -148,13 +148,13 @@ fn span_includes_tag_when_no_targets() {
     check(
         "H[tag]\n",
         &expect![[r#"
-        Circuit [0-7]:
-            items:
-                Instruction [0-6]:
-                    name: H
-                    tag: tag
-                    args: <empty>
-                    targets: <empty>"#]],
+            Circuit [0-7]:
+                items:
+                    Instruction [0-6]:
+                        name: H [0-1]
+                        tag: tag
+                        args: <empty>
+                        targets: <empty>"#]],
     );
 }
 
@@ -168,7 +168,7 @@ fn span_extends_past_tag_and_args_to_target() {
             Circuit [0-18]:
                 items:
                     Instruction [0-17]:
-                        name: X_ERROR
+                        name: X_ERROR [0-7]
                         tag: t
                         args:
                             Arg [11-14]: 0.1
@@ -184,14 +184,14 @@ fn rec_target_span_covers_full_token() {
     check(
         "DETECTOR rec[-1]",
         &expect![[r#"
-        Circuit [0-16]:
-            items:
-                Instruction [0-16]:
-                    name: DETECTOR
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [9-16]:
-                            kind: MeasurementRecord(1)"#]],
+            Circuit [0-16]:
+                items:
+                    Instruction [0-16]:
+                        name: DETECTOR [0-8]
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [9-16]:
+                                kind: MeasurementRecord(1)"#]],
     );
 }

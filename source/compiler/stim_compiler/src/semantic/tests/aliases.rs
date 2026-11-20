@@ -3,7 +3,7 @@
 
 use crate::{
     parser,
-    semantic::{self, Circuit, Item},
+    semantic::{self, Circuit, InstructionKind, Item},
 };
 
 fn lower_without_spans(source: &str) -> Circuit {
@@ -25,7 +25,40 @@ fn lower_without_spans(source: &str) -> Circuit {
         let Item::Instruction(instruction) = item else {
             panic!("`{source}` should produce instructions");
         };
-        instruction.span = Default::default();
+        instruction.source_spans = Default::default();
+        match &mut instruction.kind {
+            InstructionKind::SingleQubitGate { q, .. }
+            | InstructionKind::SingleQubitMeasurement { q, .. }
+            | InstructionKind::Reset { q, .. } => q.span = Default::default(),
+            InstructionKind::U3 {
+                q,
+                theta,
+                phi,
+                lambda,
+            } => {
+                q.span = Default::default();
+                theta.span = Default::default();
+                phi.span = Default::default();
+                lambda.span = Default::default();
+            }
+            InstructionKind::TwoQubitGate { q0, q1, .. } => {
+                q0.span = Default::default();
+                q1.span = Default::default();
+            }
+            InstructionKind::Noise(semantic::Noise::CorrelatedError {
+                probability,
+                faults,
+                ..
+            }) => {
+                probability.span = Default::default();
+                for fault in faults {
+                    fault.q.span = Default::default();
+                }
+            }
+            kind => {
+                panic!("`{source}` lowered to an instruction this test doesn't handle: {kind:?}")
+            }
+        }
     }
     circuit
 }

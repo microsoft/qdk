@@ -17,9 +17,9 @@ use qsc_data_structures::span::Span;
 use crate::compiler::{QSharpOp, QUBIT_REGISTER, QubitId, ResultId};
 
 /// `@EntryPoint() operation Main() : Result[] { stmts }`
-pub(crate) fn build_main(stmts: Vec<ast::Stmt>, span: Span) -> ast::Item {
+pub(crate) fn build_main(stmts: Vec<ast::Stmt>, circuit_span: Span) -> ast::Item {
     let result_array_ty = wrap_ty_in_array(build_path_ident_ty("Result"));
-    build_operation_with_stmts("Main", vec![], result_array_ty, stmts, span, true)
+    build_operation_with_stmts("Main", vec![], result_array_ty, stmts, circuit_span, true)
 }
 
 /// `@{attr}() operation {name}(arg0 : {param_tys[0]}, …) : {output} { body intrinsic; }`
@@ -81,11 +81,11 @@ pub(crate) fn build_intrinsic_decl(
 }
 
 /// `qs[k]`
-pub(crate) fn build_qubit_expr(qubit: QubitId, span: Span) -> ast::Expr {
+pub(crate) fn build_qubit_expr(qubit: QubitId, qubit_span: Span) -> ast::Expr {
     build_index_expr(
-        build_path_ident_expr(QUBIT_REGISTER, span, span),
-        build_lit_int_expr(i64::from(qubit), span),
-        span,
+        build_path_ident_expr(QUBIT_REGISTER, qubit_span, qubit_span),
+        build_lit_int_expr(i64::from(qubit), qubit_span),
+        qubit_span,
     )
 }
 
@@ -94,8 +94,8 @@ fn record_name(result_id: ResultId) -> String {
 }
 
 /// `r_k`
-pub(crate) fn build_record_expr(result_id: ResultId, span: Span) -> ast::Expr {
-    build_path_ident_expr(record_name(result_id), span, span)
+pub(crate) fn build_record_expr(result_id: ResultId, record_span: Span) -> ast::Expr {
+    build_path_ident_expr(record_name(result_id), record_span, record_span)
 }
 
 /// `mutable r_k = Zero;`
@@ -144,32 +144,37 @@ pub(crate) fn build_records_return_stmt(count: u32, span: Span) -> ast::Stmt {
 
 /// `r_k == value`
 pub(crate) fn build_record_equals_expr(
-    result_id: ResultId,
+    record: ast::Expr,
     value: ast::Result,
     span: Span,
 ) -> ast::Expr {
     build_binary_expr(
         false,
         ast::BinOp::Eq,
-        build_record_expr(result_id, span),
+        record,
         build_lit_result_expr(value, span),
         span,
     )
 }
 
 /// `IsLossResult(r_a) or IsLossResult(r_b) or …`
-pub(crate) fn build_any_loss_expr(result_ids: &[ResultId], span: Span) -> ast::Expr {
-    let losses = result_ids
-        .iter()
-        .map(|&result_id| {
+pub(crate) fn build_any_loss_expr(
+    records: Vec<ast::Expr>,
+    callee_span: Span,
+    instruction_span: Span,
+) -> ast::Expr {
+    let losses = records
+        .into_iter()
+        .map(|record| {
             build_qsharp_op_call_expr(
                 QSharpOp::IsLossResult,
-                vec![build_record_expr(result_id, span)],
-                span,
+                vec![record],
+                callee_span,
+                instruction_span,
             )
         })
         .collect();
-    fold_exprs_with_op(ast::BinOp::OrL, losses, span)
+    fold_exprs_with_op(ast::BinOp::OrL, losses, instruction_span)
 }
 
 /// `{op}`, or `Adjoint {op}` for the adjoint variants such as `SAdj`.
@@ -186,10 +191,11 @@ fn build_qsharp_op_callee(op: QSharpOp, span: Span) -> ast::Expr {
 pub(crate) fn build_qsharp_op_call_expr(
     op: QSharpOp,
     args: Vec<ast::Expr>,
-    span: Span,
+    callee_span: Span,
+    instruction_span: Span,
 ) -> ast::Expr {
-    let callee = build_qsharp_op_callee(op, span);
-    build_call_expr(callee, build_call_args_expr(args), span)
+    let callee = build_qsharp_op_callee(op, callee_span);
+    build_call_expr(callee, build_call_args_expr(args), instruction_span)
 }
 
 /// `Controlled [Adjoint] {op}(controls, target);`
@@ -197,26 +203,42 @@ pub(crate) fn build_controlled_qsharp_op_call_stmt(
     op: QSharpOp,
     controls: ast::Expr,
     target: ast::Expr,
-    span: Span,
+    callee_span: Span,
+    instruction_span: Span,
 ) -> ast::Stmt {
     let callee = build_unary_op_expr(
         ast::UnOp::Functor(ast::Functor::Ctl),
-        build_qsharp_op_callee(op, span),
-        span,
+        build_qsharp_op_callee(op, callee_span),
+        callee_span,
     );
     let args = build_call_args_expr(vec![controls, target]);
-    build_stmt_semi_from_expr(build_call_expr(callee, args, span))
+    build_stmt_semi_from_expr(build_call_expr(callee, args, instruction_span))
 }
 
 /// `{name}(args…)`
-pub(crate) fn build_intrinsic_call_expr(name: &str, args: Vec<ast::Expr>, span: Span) -> ast::Expr {
-    let callee = build_path_ident_expr(name, span, span);
-    build_call_expr(callee, build_call_args_expr(args), span)
+pub(crate) fn build_intrinsic_call_expr(
+    name: &str,
+    args: Vec<ast::Expr>,
+    callee_span: Span,
+    instruction_span: Span,
+) -> ast::Expr {
+    let callee = build_path_ident_expr(name, callee_span, callee_span);
+    build_call_expr(callee, build_call_args_expr(args), instruction_span)
 }
 
 /// `{name}(args…);`
-pub(crate) fn build_intrinsic_call_stmt(name: &str, args: Vec<ast::Expr>, span: Span) -> ast::Stmt {
-    build_stmt_semi_from_expr(build_intrinsic_call_expr(name, args, span))
+pub(crate) fn build_intrinsic_call_stmt(
+    name: &str,
+    args: Vec<ast::Expr>,
+    callee_span: Span,
+    instruction_span: Span,
+) -> ast::Stmt {
+    build_stmt_semi_from_expr(build_intrinsic_call_expr(
+        name,
+        args,
+        callee_span,
+        instruction_span,
+    ))
 }
 
 /// `within { within } apply { apply };`, or just the `apply` statements if `within` is empty.
