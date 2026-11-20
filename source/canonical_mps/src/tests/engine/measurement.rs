@@ -362,15 +362,17 @@ fn a_sample_never_draws_a_value_of_probability_zero() {
         // A sample of a site and site 0 after a measurement of the site
         // drew One, with the seed whose first uniform is the largest a draw
         // gives: the sample draws One, not the Zero of probability zero,
-        // and the next site's draw, given it, is not refused. The site, per
-        // fusion setting, is one on which P(One) over the site's whole
-        // weight, summed in another order than the two values' weights,
-        // rounds below that uniform: site 2 of 5 sites fused, site 1 of 5
-        // unfused, found by a probe of the circuits of 5 to 10 sites that
-        // `a_measured_value_has_probability_exactly_one` measures. Such
-        // sites move with any change to the splits' rounding: a
-        // precondition checks that the chosen site still rounds so, and
-        // asks to re-probe when it does not.
+        // and the next site's draw, given it, is not refused. The site is
+        // one on which P(One) over the site's whole weight, summed in
+        // another order than the two values' weights, rounds below that
+        // uniform: site 1 of 5 sites fused, found by a probe of the
+        // circuits of 5 to 20 sites (the exact reference's limit) that
+        // `a_measured_value_has_probability_exactly_one` measures, which
+        // found no such site unfused; the sampling rule is the same for
+        // both settings, so the row runs fused alone. Such sites move with
+        // any change to the splits' rounding: a precondition checks that
+        // the chosen site still rounds so, and asks to re-probe when it
+        // does not.
         ("One where Zero has probability zero", |engine, name| {
             // COMPATIBILITY NOTE: this behavior was present in the earlier
             // CPU MPS engine's sampling, hence we keep its rule. The sites
@@ -383,11 +385,10 @@ fn a_sample_never_draws_a_value_of_probability_zero() {
                 !first_draw(1.0 - f64::EPSILON / 2.0, SEED_OF_THE_LARGEST_UNIFORM),
                 "the seed's first draw is 1 − 2⁻⁵³ exactly"
             );
-            let (sites, site) = if name.starts_with("fused") {
-                (5, 2)
-            } else {
-                (5, 1)
-            };
+            if !name.starts_with("fused") {
+                return;
+            }
+            let (sites, site) = (5, 1);
             let state = measured_on(engine, sites, site, true);
             let whole = engine
                 .probability_of_one_over_the_whole_weight(&state, site)

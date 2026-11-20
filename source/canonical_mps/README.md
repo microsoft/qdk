@@ -124,11 +124,10 @@ and the state's statistics.
   circuits run the engine on it against an exact reference, so no backend
   writes those checks again.
 - **Portable.** The crate depends on `tensornet`, `num-complex`,
-  `t4a-faer` and `thiserror`, all pure Rust, so it builds on every
-  [platform](#platforms) the QDK supports.
-- **Low cost.** Gates fused into one application per window, one read per
-  site for all of an observable's terms, and a fast route for the dense
-  linear algebra's SVD keep a shot's cost low;
+  `nalgebra`, `matrixmultiply` and `thiserror`, all pure Rust, so it
+  builds on every [platform](#platforms) the QDK supports.
+- **Low cost.** Gates fused into one application per window, and one read
+  per site for all of an observable's terms, keep a shot's cost low;
   [`accuracy_and_cost`](examples/accuracy_and_cost.rs) measures it.
 
 ## Terms
@@ -420,8 +419,9 @@ contractions), come from the crate's module
 QR and a checked SVD, which either answers factors checked against the
 matrix or reports a failure (`SvdError`, exported at the crate's root).
 [`docs/dense_linalg.md`](docs/dense_linalg.md) gives the SVD's guarantees
-and steps, and t4a-faer, the library that computes the module's products
-and QR decompositions and the SVD's fast route, with why.
+and steps, and what computes the module's products and QR decompositions:
+the products and the thin QR by matrixmultiply and nalgebra, the
+column-pivoted QR the module's own.
 
 ## Examples
 

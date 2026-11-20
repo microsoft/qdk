@@ -1,37 +1,27 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Kernels`]: the steps of the module's computations that a linear
-//! algebra library provides, so that replacing the library changes this
-//! trait's implementation and none of the SVD's rules.
+//! [`Kernels`]: the steps that set the module's speed, behind one trait so
+//! that replacing their implementation changes none of the SVD's rules.
 //!
 //! The SVD's rules are the module's own and computed once, on top of these
 //! steps: the checks, the trim's choice of rows, the scaling (the thin
-//! QR's too), the one-sided Jacobi rotations and the rule that routes a
-//! matrix to the fast route. A library brings the steps that set the
-//! module's speed: the product, the thin QR, the column-pivoted QR and the
-//! application of its `Q`, and the fast route's SVD
-//! (`kernels/t4a_faer.rs`'s header gives how much faster than nalgebra).
+//! QR's too) and the one-sided Jacobi rotations. The kernels bring the
+//! product, the thin QR, and the column-pivoted QR and the application of
+//! its `Q`.
 //!
 //! [`DefaultKernels`] is the implementation the public API computes with.
 
-mod t4a_faer;
+mod nalgebra_matrixmultiply;
 
 use crate::dense_linalg::matrix::{Matrix, MatrixRef};
 use crate::dense_linalg::qr::Qr;
 use num_complex::Complex64;
 
 /// The implementation of [`Kernels`] the public API computes with.
-pub(crate) type DefaultKernels = self::t4a_faer::T4aFaer;
+pub(crate) type DefaultKernels = self::nalgebra_matrixmultiply::NalgebraMatrixmultiply;
 
-/// An SVD as column-major arrays, `(U, S, V)` with `W = U·diag(S)·V†`,
-/// the values nonincreasing: `U` is `rows × r` and `V` is `cols × r`,
-/// `W` being `rows × cols`. Both routes answer one: the fast route
-/// ([`Kernels::tall_svd`]) and the rotations.
-pub(crate) type ColumnMajorSvd = (Vec<Complex64>, Vec<f64>, Vec<Complex64>);
-
-/// The steps a linear algebra library computes for the module, each on the
-/// calling thread.
+/// The steps that set the module's speed, each on the calling thread.
 pub(crate) trait Kernels {
     /// What [`Kernels::q_kept_times`] needs of a column-pivoted QR to apply
     /// its `Q` (for instance, its reflectors).
@@ -47,7 +37,14 @@ pub(crate) trait Kernels {
     /// empty matrix itself.
     fn qr(a: MatrixRef<'_>) -> Qr;
 
-    /// The column-pivoted QR decomposition `a·P = Q·R` of `a`, thin.
+    /// The column-pivoted QR decomposition `a·P = Q·R` of `a`, thin, to
+    /// rounding, at the scales the SVD's scaling leaves
+    /// ([`PowerOfTwoScaling`]): entries far below the largest may be rounded
+    /// to 0. The pivot of each step is the remaining column of largest norm,
+    /// so that `|R_kk| ≥ ‖R[k.., j]‖` for every `j > k`, to rounding: the
+    /// SVD's trim reads the rank from `R`. `a` has elements.
+    ///
+    /// [`PowerOfTwoScaling`]: crate::dense_linalg::scaling::PowerOfTwoScaling
     fn pivoted_qr(a: MatrixRef<'_>) -> PivotedQr<Self::Q>;
 
     /// `Q_kept·x`, column-major, as many rows as `qr`'s `A`: `Q_kept` the
@@ -59,13 +56,6 @@ pub(crate) trait Kernels {
         x: &[Complex64],
         rank: usize,
     ) -> Vec<Complex64>;
-
-    /// The fast route's SVD: `w = U·diag(S)·V†` of the `rows × cols`
-    /// matrix `w`, column-major, `rows ≥ cols ≥ 1`, with one value per
-    /// column; or `None` when it reports a failure. Its factors are not
-    /// trusted: the SVD checks them, and factors `w` by the rotations
-    /// when they are not finite.
-    fn tall_svd(rows: usize, cols: usize, w: &[Complex64]) -> Option<ColumnMajorSvd>;
 }
 
 /// A column-pivoted QR decomposition `A·P = Q·R` of a `rows × cols`

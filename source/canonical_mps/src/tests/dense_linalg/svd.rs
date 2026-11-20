@@ -4,8 +4,7 @@
 //! The tests of the SVD's guarantees (`svd`), through
 //! [`Svd::of`](crate::dense_linalg::Svd::of) where they can be: accuracy on the
 //! matrices an MPS simulation meets, the trim that leaves out only rounding,
-//! every scale, the routes, each giving a checked SVD, with the fallback to the
-//! rotations, and the errors. The checks and the rotations have their own
+//! every scale, and the errors. The checks and the rotations have their own
 //! files.
 
 mod checks;
@@ -20,13 +19,24 @@ mod decomposition {
     use num_complex::Complex64;
 
     /// Random matrices, tall, wide, square, a single row, and up to
-    /// 128 × 128: the SVD gives back each, with orthonormal U and V and
+    /// 128 × 128, complex and one real; those of 48 columns or rows and
+    /// more are full rank and far from orthogonal, as the splits of deep
+    /// circuits are. The SVD gives back each, with orthonormal U and V and
     /// nonincreasing values, one per column of the smaller side.
     #[test]
     fn decomposes_by_svd() {
-        let larger = [(128, 128), (64, 128), (2, 2)];
-        for (seed, &(rows, cols)) in (1..).zip(SHAPES.iter().chain(&larger)) {
-            let values = check_svd(&matrix(rows, cols, seed));
+        let larger = [(128, 128), (64, 128), (96, 48), (48, 96), (2, 2)];
+        let mut cases: Vec<Matrix> = (1..)
+            .zip(SHAPES.iter().chain(&larger))
+            .map(|(seed, &(rows, cols))| matrix(rows, cols, seed))
+            .collect();
+        let a = matrix(64, 64, 2);
+        cases.push(Matrix::from_fn(64, 64, |i, j| {
+            Complex64::new(a.elements()[i + 64 * j].re, 0.0)
+        }));
+        for a in cases {
+            let (rows, cols) = (a.rows(), a.cols());
+            let values = check_svd(&a);
             assert_eq!(values.len(), rows.min(cols), "{rows} × {cols}");
         }
     }
@@ -34,11 +44,12 @@ mod decomposition {
     /// Rank-deficient matrices, with repeated and zero singular values,
     /// as an MPS simulation meets them all the time: nalgebra 0.35's own
     /// SVD returns a wrong singular value on 8 of these, which a caller
-    /// truncating by the values would act on. The SVD gives back each;
-    /// on `U·diag(√½, …, √½, 0, …)·V`, it gives the value √½ `rank`
-    /// times, and leaves out the zeros or gives them at rounding's size.
-    /// The zero matrix gives one value, exactly 0: the trim would keep
-    /// none of its rows.
+    /// truncating by the values would act on. The SVD gives back each,
+    /// with exactly `rank` values: on `U·diag(√½, …, √½, 0, …)·V`, the
+    /// value √½ `rank` times, and on a product of random `rows × rank` and
+    /// `rank × cols` factors, `rank` values; the trim leaves out the rows of
+    /// `R` that the pivoting leaves at rounding's size. The zero matrix
+    /// gives one value, exactly 0: the trim would keep none of its rows.
     #[test]
     fn decomposes_rank_deficient_matrices_by_svd() {
         for (rows, cols) in [(4, 3), (3, 4)] {
@@ -57,14 +68,9 @@ mod decomposition {
             let degenerate =
                 naive_product(naive_product(u.view(), diagonal.view()).view(), v.view());
             let values = check_svd(&degenerate);
-            let (repeated, rest) = values.split_at(rank.min(values.len()));
-            assert_eq!(repeated.len(), rank, "n {n}, rank {rank}: {values:?}");
+            assert_eq!(values.len(), rank, "n {n}, rank {rank}: {values:?}");
             assert!(
-                repeated.iter().all(|s| (s - half).abs() < 1e-13),
-                "n {n}, rank {rank}: {values:?}"
-            );
-            assert!(
-                rest.iter().all(|&s| s < 1e-13),
+                values.iter().all(|s| (s - half).abs() < 1e-13),
                 "n {n}, rank {rank}: {values:?}"
             );
             let (rows, cols) = (n + case % 3, n + (case / 3) % 3);
@@ -73,8 +79,9 @@ mod decomposition {
                 matrix(rank, cols, 3 * seed + 2).view(),
             );
             let values = check_svd(&product);
-            assert!(
-                values.iter().skip(rank).all(|&s| s < 1e-13),
+            assert_eq!(
+                values.len(),
+                rank,
                 "{rows} × {cols}, rank {rank}: {values:?}"
             );
         }
@@ -122,8 +129,8 @@ mod errors {
     /// A matrix with a NaN or an infinite entry, in its real or imaginary
     /// part, has no SVD to rounding: the SVD fails, its error saying that
     /// the factors failed the checks, rather than answer factors that are
-    /// not finite. Tall, wide, square, routed to the fast route and 1 × 1,
-    /// and zero but for the entry, whose largest finite entry is 0.
+    /// not finite. Tall, wide, square up to 64 × 64, and 1 × 1, and zero
+    /// but for the entry, whose largest finite entry is 0.
     #[test]
     fn fails_on_a_matrix_with_an_entry_that_is_not_finite() {
         let not_finite = [
@@ -169,10 +176,9 @@ mod accuracy {
     /// MPS simulation meets them (its singular values come in degenerate
     /// pairs), here alone. faer 0.24.4's QR algorithm reported that it does
     /// not converge on it, and its divide and conquer took the same QR
-    /// algorithm at this size. The SVD
-    /// gives the pair to rounding, and so with a phase on each row, which
-    /// leaves the singular values as they are and makes the products of
-    /// the pair's columns complex.
+    /// algorithm at this size. The SVD gives the pair to rounding, and so
+    /// with a phase on each row, which leaves the singular values as they
+    /// are and makes the products of the pair's columns complex.
     #[test]
     fn decomposes_a_degenerate_pair_one_ulp_apart() {
         let (d, d_next) = (9.282_350_173_388_935e-1, 9.282_350_173_388_936e-1);
@@ -253,12 +259,12 @@ mod trim {
     use num_complex::Complex64;
 
     /// A 4 × 4 matrix from an MPS simulation of H₂: two columns equal
-    /// to rounding, and two of norm 4e-6 that differ by about 1e-9.
-    /// t4a-faer's pivoted QR, as faer 0.24.4's did, puts the pivot of
+    /// to rounding, and two of norm 4e-6 that differ by about 1e-9. A
+    /// blocked pivoted QR (faer 0.24.4's, t4a-faer's) put the pivot of
     /// rounding's size (2e-16) before the one of 1e-9, so a trim that cut
     /// the rows of `R` at the first small diagonal entry would drop the
-    /// singular value 9.4e-10. The SVD keeps it: the factors give back the
-    /// matrix to 1e-13.
+    /// singular value 9.4e-10. The SVD keeps it, whatever the pivoted QR's
+    /// order: the factors give back the matrix to 1e-13.
     #[test]
     fn keeps_a_singular_value_behind_a_pivot_of_rounding_size() {
         let entries = [
@@ -496,129 +502,5 @@ mod scale {
                 "2^{exponent}"
             );
         }
-    }
-}
-
-/// Every route gives a checked SVD: the fast route on large matrices far
-/// from orthogonal, the rotations otherwise and whenever the fast route
-/// fails or answers factors that are not finite.
-mod routes {
-    use super::super::{check_svd, check_svd_of, matrix};
-    use crate::dense_linalg::{
-        Matrix, SvdError,
-        kernels::{ColumnMajorSvd, DefaultKernels},
-        svd::{
-            checks::checked,
-            jacobi::{MAX_SWEEPS, one_sided},
-            trimmed_thin_svd,
-        },
-    };
-    use num_complex::Complex64;
-    use std::cell::Cell;
-
-    /// Full-rank matrices of rank 32 and more, far from orthogonal, as the
-    /// splits of deep circuits are, the matrices the route sends to the
-    /// fast route today: the SVD gives an SVD, tall, square or wide, real
-    /// or complex, with one value per column of the smaller side.
-    #[test]
-    fn decomposes_full_rank_matrices_far_from_orthogonal() {
-        for (rows, cols, seed) in [(32, 32, 1), (64, 64, 2), (96, 48, 3), (48, 96, 4)] {
-            let a = matrix(rows, cols, seed);
-            let values = check_svd(&a);
-            assert_eq!(values.len(), rows.min(cols), "{rows} × {cols}");
-            let real = Matrix::from_fn(rows, cols, |i, j| {
-                Complex64::new(a.elements()[i + rows * j].re, 0.0)
-            });
-            let values = check_svd(&real);
-            assert_eq!(values.len(), rows.min(cols), "{rows} × {cols}, real");
-        }
-    }
-
-    /// A correct SVD of `w` standing for the fast route's, so that these
-    /// tests do not depend on the library's: the rotations'.
-    fn correct(rows: usize, cols: usize, w: &[Complex64]) -> Option<ColumnMajorSvd> {
-        let columns = w
-            .chunks_exact(rows)
-            .flat_map(|column| {
-                column
-                    .iter()
-                    .map(|x| x.re)
-                    .chain(column.iter().map(|x| x.im))
-            })
-            .collect();
-        one_sided(rows, cols, columns, MAX_SWEEPS)
-    }
-
-    /// The fast route's factors of `w` with a NaN in the first entry of
-    /// one factor (U, the singular values, or V, by `factor`), in its real
-    /// or `imaginary` part.
-    fn spoiled(
-        rows: usize,
-        cols: usize,
-        w: &[Complex64],
-        factor: usize,
-        imaginary: bool,
-    ) -> Option<ColumnMajorSvd> {
-        let (mut u, mut values, mut v) = correct(rows, cols, w)?;
-        let nan = if imaginary {
-            Complex64::new(0.0, f64::NAN)
-        } else {
-            Complex64::new(f64::NAN, 0.0)
-        };
-        match factor {
-            0 => u[0] += nan,
-            1 => values[0] = f64::NAN,
-            _ => v[0] += nan,
-        }
-        Some((u, values, v))
-    }
-
-    /// When the fast route fails, the rotations decompose the matrix
-    /// instead: a matrix the route takes still gets its SVD. Each row: no
-    /// answer, as faer 0.24.4's QR algorithm reported on a degenerate pair
-    /// one ulp apart; or factors that are not finite, which the checks
-    /// would refuse, a NaN in U, the values or V (by `factor`), in a real
-    /// or an imaginary part.
-    #[test]
-    fn falls_back_to_the_rotations_when_the_fast_route_fails() {
-        let a = matrix(64, 64, 2);
-        let rows = [
-            None,
-            Some((0, false)),
-            Some((0, true)),
-            Some((1, false)),
-            Some((2, false)),
-            Some((2, true)),
-        ];
-        for row in rows {
-            let calls = Cell::new(0);
-            let fast_route = |rows: usize, cols: usize, w: &[Complex64]| {
-                calls.set(calls.get() + 1);
-                let (factor, imaginary) = row?;
-                spoiled(rows, cols, w, factor, imaginary)
-            };
-            let svd = trimmed_thin_svd::<DefaultKernels>(a.view(), &fast_route)
-                .unwrap_or_else(|| panic!("{row:?}: the rotations answer"));
-            assert!(
-                calls.get() > 0,
-                "{row:?}: the 64 × 64 matrix goes to the fast route"
-            );
-            assert_eq!(check_svd_of(&a, svd).len(), 64, "{row:?}");
-        }
-    }
-
-    /// The fast route's factors pass the same checks as the rotations':
-    /// finite factors whose product is not the matrix, values 1% too
-    /// large, fail the SVD.
-    #[test]
-    fn refuses_the_fast_routes_factors_that_do_not_give_back_the_matrix() {
-        let a = matrix(64, 64, 2);
-        let off = |rows: usize, cols: usize, w: &[Complex64]| {
-            let (u, values, v) = correct(rows, cols, w)?;
-            Some((u, values.iter().map(|s| s * 1.01).collect(), v))
-        };
-        let answer = trimmed_thin_svd::<DefaultKernels>(a.view(), &off);
-        let error = checked::<DefaultKernels>(a.view(), answer).expect_err("values 1% off");
-        assert_eq!(error, SvdError::FailedChecks { rows: 64, cols: 64 });
     }
 }
