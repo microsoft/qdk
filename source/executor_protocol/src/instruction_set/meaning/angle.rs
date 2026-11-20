@@ -11,11 +11,11 @@ use std::hash::{Hash, Hasher};
 /// Angles compare and hash bit for bit, so that meanings are `Eq` and
 /// `Hash`: `0.5` equals `0.5`, a NaN equals itself, and `0.0` differs from
 /// `-0.0`; a loader that reads angles from text writes each the same way.
-/// Its stable form writes a number as a 64-bit float, which a binary
-/// format keeps bit for bit. A text format keeps it only when its reader
-/// rounds correctly (`serde_json`'s does with its `float_roundtrip`
-/// feature), and JSON has no NaN or infinity: such an angle written to
-/// JSON does not read back.
+/// Its stable form writes a number as a 64-bit float, which a format that
+/// writes its eight bytes as they are (bincode, for instance) keeps bit
+/// for bit. A text format keeps it only when its reader rounds correctly
+/// (`serde_json`'s does with its `float_roundtrip` feature), and JSON has
+/// no NaN or infinity: such an angle written to JSON does not read back.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(
     feature = "serde",

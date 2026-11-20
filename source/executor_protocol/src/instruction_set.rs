@@ -37,7 +37,8 @@
 //! the `serde` feature, a set's stable form (`stable_form`).
 //!
 //! The crate's `docs/instruction-sets.md` gives how a part declares its
-//! sets, when two sets fit, and when two are equal.
+//! sets, when two sets fit, when two are equal, and a set's stable form,
+//! for sending it to another process.
 
 mod block_operand;
 mod block_type;
@@ -97,13 +98,12 @@ use std::hash::{Hash, Hasher};
 /// and a faulty declaration is refused, naming the set and its faults
 /// ([`DeclarationFault`]). A struct's field the form does not have is
 /// refused, naming it, so that a set whose form a newer build extends is
-/// never read as another set. Read back from a format that also keeps a
-/// 64-bit float bit for bit (see [`Angle`](crate::Angle)), a set is equal
+/// never read as another set. Read back from a format that keeps its
+/// literal angles ([`Angle`](crate::Angle) says which do), a set is equal
 /// to the one written, so the far end of a link can compare the set it
 /// decodes with its own by `==`. A format that writes fields and variants
-/// by position (a binary one) reads back what the same build wrote, but
-/// its form is not pinned across builds: reordering the fields or
-/// variants of the declaration's types changes it.
+/// by position (bincode, for instance) has no pinned form: reordering the
+/// fields or variants of the declaration's types changes it.
 #[derive(Clone, Debug)]
 pub struct InstructionSet {
     /// What it promises, in [`name`](Self::name).

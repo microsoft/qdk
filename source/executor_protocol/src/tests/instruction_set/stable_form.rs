@@ -103,9 +103,7 @@ fn a_set_read_back_from_its_stable_form_is_equal_to_the_one_written() {
 
 /// Two builds that exchange sets read each other's form: the text a set
 /// writes does not change, its fields' order included, so a build reads
-/// what an earlier one wrote. Steps, guards and kinds are named as Qodec
-/// names them, a Pauli is written as Qodec's text, and every other part
-/// by its Rust name.
+/// what an earlier one wrote.
 #[test]
 fn a_sets_stable_form_does_not_change() {
     for (row, set, form) in [
@@ -255,21 +253,12 @@ fn a_faulty_declaration_is_refused_when_read_naming_its_faults() {
     }
 }
 
-/// A form that is not a set's is refused, naming what is wrong: a
-/// parameter kind Qodec lacks (`ParameterKind` is plain data, with no test
-/// file of its own), or a struct's field the form does not have, which a
-/// newer build's form may hold, so that a set it extends is never read as
-/// another one.
+/// A struct's field the form does not have, which a newer build's form
+/// may hold, is refused, naming it, so that a set it extends is never read
+/// as another one.
 #[test]
-fn a_form_that_is_not_a_sets_is_refused_naming_what_is_wrong() {
+fn a_field_the_form_does_not_have_is_refused_naming_it() {
     for (row, at, field, value, named) in [
-        (
-            "a parameter kind Qodec lacks",
-            "/instructions/0/parameters/0",
-            "kind",
-            json!("float"),
-            "float",
-        ),
         ("a set's field it lacks", "", "version", json!(2), "version"),
         (
             "an instruction's field it lacks",
@@ -313,7 +302,7 @@ fn a_form_that_is_not_a_sets_is_refused_naming_what_is_wrong() {
             .expect("a part of the form")
             .insert(field.into(), value);
         let refusal = serde_json::from_value::<InstructionSet>(form)
-            .expect_err("a form that is not a set's is refused")
+            .expect_err("a field the form does not have is refused")
             .to_string();
         assert!(
             refusal.contains(named),

@@ -4,12 +4,15 @@
 //! The checks of a set's declaration, its opcodes by name, its equality,
 //! and the sets the macro writes. The faults of a meaning, which a set's
 //! declaration reports ([`DeclarationFault::Meaning`]), are in
-//! `meaning.rs`, Pauli operators' in `pauli.rs`, and a set's stable form,
-//! with the `serde` feature, in `stable_form.rs`.
+//! `meaning.rs`, Pauli operators' in `pauli.rs`, and, with the `serde`
+//! feature, a parameter kind's form in `parameter.rs` and a set's stable
+//! form in `stable_form.rs`.
 
 mod fit;
 mod instruction;
 mod meaning;
+#[cfg(feature = "serde")]
+mod parameter;
 mod pauli;
 #[cfg(feature = "serde")]
 mod stable_form;

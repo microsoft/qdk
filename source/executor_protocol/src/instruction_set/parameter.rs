@@ -73,8 +73,8 @@ impl fmt::Display for ParameterKind {
 }
 
 impl ParameterKind {
-    /// Every kind, so that one is read back by the name `Display` writes:
-    /// a new kind joins this list.
+    /// Every kind, so that one is read back by the name `Display` writes,
+    /// each at its [`place`](Self::place).
     #[cfg(feature = "serde")]
     const ALL: [ParameterKind; 6] = [
         ParameterKind::Bit,
@@ -84,7 +84,36 @@ impl ParameterKind {
         ParameterKind::Text,
         ParameterKind::Pauli,
     ];
+
+    /// Its place in [`ALL`](Self::ALL). The match is exhaustive, so a new
+    /// kind does not build until it is given a place, and the check below
+    /// fails the build unless each kind of `ALL` is at its place.
+    #[cfg(feature = "serde")]
+    const fn place(self) -> usize {
+        match self {
+            ParameterKind::Bit => 0,
+            ParameterKind::Number => 1,
+            ParameterKind::Integer => 2,
+            ParameterKind::Boolean => 3,
+            ParameterKind::Text => 4,
+            ParameterKind::Pauli => 5,
+        }
+    }
 }
+
+/// Each kind of `ParameterKind::ALL` is at its place, checked when the
+/// crate builds.
+#[cfg(feature = "serde")]
+const _: () = {
+    let mut place = 0;
+    while place < ParameterKind::ALL.len() {
+        assert!(
+            ParameterKind::ALL[place].place() == place,
+            "each kind of `ParameterKind::ALL` is at its place"
+        );
+        place += 1;
+    }
+};
 
 /// Its stable form is its name, Qodec's, as [`Display`](fmt::Display)
 /// writes it.

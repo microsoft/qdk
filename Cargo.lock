@@ -605,6 +605,7 @@ dependencies = [
 name = "executor_protocol"
 version = "0.0.0"
 dependencies = [
+ "executor_protocol",
  "pin-project-lite",
  "serde",
  "serde_json",

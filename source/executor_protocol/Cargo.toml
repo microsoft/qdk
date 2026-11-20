@@ -27,6 +27,9 @@ serde = { workspace = true, optional = true }
 serde = ["dep:serde"]
 
 [dev-dependencies]
+# Enables `serde` for the crate's own tests, so that a plain `cargo test`
+# (the repository's test step) runs the stable form's tests.
+executor_protocol = { path = ".", features = ["serde"] }
 serde_json = { workspace = true }
 
 [lints]

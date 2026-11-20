@@ -1,13 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A meaning's stable form, with the `serde` feature: its shape. `null`
-//! for an undeclared meaning, else its steps in order, each its operation
-//! and its guard, `null` or absent for none: `{"operation": {"pauli":
-//! "X_0"}, "guard": {"if": [{"parameter": 0}, {"outcome": 0}]}}`. Its
-//! operations and guards are named as Qodec names them, and a guard's
-//! terms by position, as [`Guard`] gives them. How it is read back is
-//! [`Meaning`]'s to say.
+//! A meaning's stable form, with the `serde` feature, as part of its
+//! set's: `null` for an undeclared meaning, else its steps in order, each
+//! its operation and its guard. Its shape is in
+//! `docs/instruction-sets.md`; how it is read back is [`Meaning`]'s to
+//! say.
 
 use super::{Angle, Condition, Guard, Meaning, Observable, Operation, Pauli, Step};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

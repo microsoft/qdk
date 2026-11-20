@@ -1,13 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A set's stable form, with the `serde` feature: its shape. The set's
-//! declaration alone: its name, its block types as `[name, qubits]`
-//! pairs, and its instructions, in order, each with the fields of
-//! [`InstructionDef`] by their Rust names; an instruction's meaning is
-//! written as `meaning/stable_form.rs` says. An example is in
-//! `docs/instruction-sets.md`. What the form promises is
-//! [`InstructionSet`]'s to say.
+//! A set's stable form, with the `serde` feature: the set's declaration
+//! alone, its name, its block types and its instructions, in order, each
+//! an [`InstructionDef`]. Its shape is in `docs/instruction-sets.md`;
+//! what the form promises is [`InstructionSet`]'s to say.
 
 use super::{BlockType, InstructionDef, InstructionSet};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

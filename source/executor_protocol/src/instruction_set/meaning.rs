@@ -67,7 +67,11 @@ use std::hash::{Hash, Hasher};
 /// made canonical and its slips are refused when its set is built, as a
 /// built meaning's are. An instruction's form without a meaning reads as
 /// undeclared, and a step's without a guard as unguarded, as in Qodec. A
-/// meaning written with a slip has no stable form.
+/// meaning written with a slip has no stable form. A guard's terms that
+/// cancel are not written, so what they name is not checked when the form
+/// is read: a meaning whose cancelled term names a parameter its
+/// instruction lacks, refused when its set is built, reads back as one
+/// that is not.
 #[derive(Clone, Debug, Default, Eq)]
 pub struct Meaning {
     /// `None` when undeclared.
