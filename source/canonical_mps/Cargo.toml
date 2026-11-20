@@ -8,13 +8,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The dense linear algebra's steps (src/dense_linalg/kernels/), both
+# already in the QDK's dependency tree: matrixmultiply's complex `zgemm`
+# (its `cgemm` feature; the product under ndarray's complex products and
+# nalgebra's real ones) for the products, and nalgebra for the thin QR.
+# The column-pivoted QR is the crate's own.
+matrixmultiply = { workspace = true, features = ["cgemm"] }
+nalgebra = { workspace = true }
 num-complex = { workspace = true }
-# The dense linear algebra's products, QR decompositions and fast SVD route
-# (src/dense_linalg/kernels/t4a_faer.rs), and only theirs. Pinned to one
-# version: its owner publishes semver-major releases days apart, so each
-# update needs the SVD's checks and timings rerun.
-# Its library is named `faer`; renamed so that code never reads as faer's.
-t4a_faer = { package = "t4a-faer", version = "=0.31.0", default-features = false, features = ["std", "linalg"] }
 tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
 

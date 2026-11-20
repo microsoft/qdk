@@ -5,12 +5,13 @@
 //! returns it.
 //!
 //! A caller trusts the SVD: a truncation keeps values by size, and an
-//! orthonormal basis needs orthonormal singular vectors. No route is trusted
+//! orthonormal basis needs orthonormal singular vectors. No SVD is trusted
 //! to deliver that on every matrix (a library's SVD has returned wrong
-//! factors without reporting a failure), so each answer is checked against
-//! the matrix, and [`Svd::of`] fails with an [`SvdError`] rather than answer
-//! values that are not finite, factors whose product is not the matrix, or
-//! singular vectors that are not orthonormal.
+//! factors without reporting a failure), the rotations included, whose
+//! answer passes through the kernels' QR and products; so each answer is
+//! checked against the matrix, and [`Svd::of`] fails with an [`SvdError`]
+//! rather than answer values that are not finite, factors whose product is
+//! not the matrix, or singular vectors that are not orthonormal.
 //!
 //! The bounds are those of LAPACK's SVD tests ([`TEST_RATIO`]), in the
 //! Frobenius norm, and hold at any scale: the reconstruction is measured
@@ -23,8 +24,8 @@ use crate::dense_linalg::kernels::Kernels;
 use crate::dense_linalg::matrix::{Matrix, MatrixRef};
 use crate::dense_linalg::svd::{Svd, SvdError};
 
-/// The SVD `answer` of `a` when it is one (a route reports a failure with
-/// `None`), its factors give back `a` ([`reconstructs`], which also
+/// The SVD `answer` of `a` when it is one (the rotations report a failure
+/// with `None`), its factors give back `a` ([`reconstructs`], which also
 /// refuses factors that are not finite) and its singular vectors are
 /// orthonormal ([`is_orthonormal`]); else [`SvdError::DidNotConverge`] for
 /// `None`, [`SvdError::FailedChecks`] otherwise. The products are `K`'s.
