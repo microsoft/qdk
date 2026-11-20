@@ -1188,6 +1188,9 @@ class NoiseConfig:
     # idle: IdleNoiseParams
     intrinsics: NoiseIntrinsicsTable
 
+    def copy(self) -> NoiseConfig:
+        """Copies gate noise tables while sharing the original intrinsics table."""
+
     def intrinsic(self, name: str, num_qubits: int) -> NoiseTable:
         """
         The noise table for a custom intrinsic.
