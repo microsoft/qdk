@@ -12,7 +12,7 @@ use crate::{
     utils::{get_block_successors, get_variable_assignments},
 };
 
-pub fn insert_alloca_load_instrs(program: &mut Program) {
+pub(crate) fn insert_alloca_load_instrs(program: &mut Program) {
     // Get the next available variable ID for use in newly generated loads.
     let mut next_var_id = get_variable_assignments(program)
         .iter()
@@ -34,16 +34,25 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
 
     let mut vars_to_alloca = IndexMap::default();
     let mut visited_blocks = FxHashSet::default();
-    let mut blocks_to_visit = vec![entry_block_id];
-    while let Some(block_id) = blocks_to_visit.pop() {
-        if visited_blocks.contains(&block_id) {
+    let mut loaded_var_ids = FxHashSet::default();
+    let mut blocks_to_visit_list = vec![entry_block_id];
+    let mut blocks_to_visit_set = FxHashSet::default();
+    blocks_to_visit_set.insert(entry_block_id);
+    while let Some(block_id) = blocks_to_visit_list.pop() {
+        blocks_to_visit_set.remove(&block_id);
+        if !visited_blocks.insert(block_id) {
             continue;
         }
-        visited_blocks.insert(block_id);
-        add_alloca_load_to_block(program, block_id, &mut vars_to_alloca, next_var_id);
+        add_alloca_load_to_block(
+            program,
+            block_id,
+            &mut vars_to_alloca,
+            next_var_id,
+            &mut loaded_var_ids,
+        );
         for successor_id in get_block_successors(program.get_block(block_id)) {
-            if !visited_blocks.contains(&successor_id) {
-                blocks_to_visit.push(successor_id);
+            if !visited_blocks.contains(&successor_id) && blocks_to_visit_set.insert(successor_id) {
+                blocks_to_visit_list.push(successor_id);
             }
         }
     }
@@ -66,9 +75,10 @@ fn add_alloca_load_to_block(
     block_id: BlockId,
     vars_to_alloca: &mut IndexMap<VariableId, Variable>,
     next_var_id: &mut VariableId,
+    loaded_var_ids: &mut FxHashSet<VariableId>,
 ) {
     let block = program.get_block_mut(block_id);
-    let instrs = block.0.drain(..).collect::<Vec<_>>();
+    let instrs = std::mem::take(&mut block.0);
     let mut var_map = FxHashMap::default();
     for mut instr in instrs {
         match &mut instr {
@@ -210,15 +220,27 @@ fn add_alloca_load_to_block(
                 continue;
             }
 
+            // A previously inserted load instruction may already exist for this variable, so we check the map to avoid conflicts
+            // or duplicate loads into the same variable.
+            Instruction::Load(_, to_var) => {
+                if !loaded_var_ids.insert(to_var.variable_id) {
+                    // If the variable has been loaded before, we need a new id here for subsequent loads to avoid conflicts.
+                    let new_var = Variable {
+                        variable_id: *next_var_id,
+                        ty: to_var.ty,
+                    };
+                    *next_var_id = next_var_id.successor();
+                    var_map.insert(to_var.variable_id, Operand::Variable(new_var));
+                    *to_var = new_var;
+                }
+            }
+
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
 
             Instruction::Alloca(..) => {
                 panic!("alloca not expected in alloca insertion")
-            }
-            Instruction::Load(..) => {
-                panic!("load not expected in alloca insertion")
             }
         }
         block.0.push(instr);

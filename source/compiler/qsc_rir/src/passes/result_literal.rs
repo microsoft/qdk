@@ -11,7 +11,7 @@ mod tests;
 /// Transforms result literals in the program.
 /// Since result literals are not supported in QIR, this function attempts to handle them as best as possible.
 /// Result literals are replaced with new result ids that are explicitly set via calls to the `write_result` function.
-pub fn transform_result_literals(program: &mut Program) {
+pub(crate) fn transform_result_literals(program: &mut Program) {
     let result_zero_id = program.num_results;
     let result_one_id = program.num_results + 1;
     let mut replaced_zero = false;

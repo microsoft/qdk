@@ -221,6 +221,22 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                     pyqir.ptr_id(call.args[1]),
                 )
             )
+        elif callee_name == "__quantum__qis__mx__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MX,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                )
+            )
+        elif callee_name == "__quantum__qis__my__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MY,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                )
+            )
         elif callee_name == "__quantum__qis__mz__body":
             self.gates.append(
                 (
@@ -433,6 +449,9 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         self, call: Call, value: Value, target: Value
     ) -> None:
         assert isinstance(value, IntConstant)
+        if value.value == 0:
+            self._record_leaf("[]")
+            return
         self._output_str += "["
         self._closers.append("]")
         # if len(self._counters) > 0:
@@ -443,6 +462,9 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         self, call: Call, value: Value, target: Value
     ) -> None:
         assert isinstance(value, IntConstant)
+        if value.value == 0:
+            self._record_leaf("()")
+            return
         self._output_str += "("
         self._closers.append(")")
         # if len(self._counters) > 0:
@@ -539,6 +561,86 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
         self.builder.call(self.cz_func, [ctrl2, ctrl1])
         self.builder.call(self.h_func, [ctrl1])
         self.builder.call(self.h_func, [target])
+        call.erase()
+
+
+class DecomposeMxMyPass(pyqir.QirModuleVisitor):
+    h_func: Function
+    s_func: Function
+    sadj_func: Function
+    mz_func: Function
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def _on_module(self, module: Module) -> None:
+        void = Type.void(module.context)
+        qubit_ty = PointerType(Type.void(module.context))
+
+        # Find or create all the needed functions.
+        for func in module.functions:
+            match func.name:
+                case "__quantum__qis__h__body":
+                    self.h_func = func
+                case "__quantum__qis__s__body":
+                    self.s_func = func
+                case "__quantum__qis__s__adj":
+                    self.sadj_func = func
+                case "__quantum__qis__m__body":
+                    self.mz_func = func
+        if not hasattr(self, "h_func"):
+            self.h_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__h__body",
+                module,
+            )
+        if not hasattr(self, "s_func"):
+            self.s_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__s__body",
+                module,
+            )
+        if not hasattr(self, "sadj_func"):
+            self.sadj_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__s__adj",
+                module,
+            )
+        if not hasattr(self, "mz_func"):
+            self.mz_func = Function(
+                FunctionType(void, [qubit_ty, qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__m__body",
+                module,
+            )
+        super()._on_module(module)
+
+    def _on_call_instr(self, call: Call) -> None:
+        name = call.callee.name
+        if name == "__quantum__qis__mx__body":
+            self._on_qis_mx(call, call.args[0], call.args[1])
+        elif name == "__quantum__qis__my__body":
+            self._on_qis_my(call, call.args[0], call.args[1])
+        else:
+            super()._on_call_instr(call)
+
+    def _on_qis_mx(self, call: Call, target: Value, result: Value) -> None:
+        self.builder.insert_before(call)
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.mz_func, [target, result])
+        self.builder.call(self.h_func, [target])
+        call.erase()
+
+    def _on_qis_my(self, call: Call, target: Value, result: Value) -> None:
+        self.builder.insert_before(call)
+        self.builder.call(self.sadj_func, [target])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.mz_func, [target, result])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.s_func, [target])
         call.erase()
 
 
@@ -695,6 +797,8 @@ def run_qir_gpu(
     mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
+    # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
+    DecomposeMxMyPass().run(mod)
     _validate_noise_intrinsics(mod, noise)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit32).run(mod, noise)
@@ -714,6 +818,8 @@ def prepare_qir_with_correlated_noise(
 
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
+    # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
+    DecomposeMxMyPass().run(mod)
 
     # Extract the gates including correlated noise instructions
     return GpuCorrelatedNoisePass(noise_tables).run_and_collect(mod)
@@ -762,6 +868,9 @@ class GpuSimulator:
         mod, _, _, _ = preprocess_simulation_input(input, None, None, None)
         if is_adaptive(mod):
             self._is_adaptive = True
+            # Ccx and X/Y-basis measurements are not supported in the GPU simulator, decompose them
+            DecomposeCcxPass().run(mod)
+            DecomposeMxMyPass().run(mod)
             # Build noise_intrinsics dict from loaded noise tables (if any)
             noise_intrinsics = None
             if self.tables is not None:

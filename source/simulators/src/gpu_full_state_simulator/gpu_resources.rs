@@ -16,6 +16,11 @@ use crate::{
     },
 };
 
+// Checks if the given adapter is unsupported due to known issues with DX12 on Adreno X1.
+fn is_unsupported_adapter(info: &wgpu::AdapterInfo) -> bool {
+    info.backend == wgpu::Backend::Dx12 && info.name.to_lowercase().contains("adreno(tm) x1")
+}
+
 #[derive(Debug, Default)]
 pub struct GpuResources {
     adapter: Option<Adapter>,
@@ -227,15 +232,21 @@ impl GpuResources {
 
         let score_adapter = |adapter: &Adapter| -> (u32, u32, u32, u64) {
             let info = adapter.get_info();
-            let device_score = match info.device_type {
-                wgpu::DeviceType::DiscreteGpu => 8,
-                wgpu::DeviceType::IntegratedGpu => 4,
-                _ => 0,
-            };
-            let backend_score = match info.backend {
-                wgpu::Backend::Vulkan | wgpu::Backend::Metal => 2,
-                wgpu::Backend::Dx12 => 1,
-                _ => 0,
+            let (device_score, backend_score) = if is_unsupported_adapter(&info) {
+                (0, 0)
+            } else {
+                (
+                    match info.device_type {
+                        wgpu::DeviceType::DiscreteGpu => 8,
+                        wgpu::DeviceType::IntegratedGpu => 4,
+                        _ => 0,
+                    },
+                    match info.backend {
+                        wgpu::Backend::Vulkan | wgpu::Backend::Metal => 2,
+                        wgpu::Backend::Dx12 => 1,
+                        _ => 0,
+                    },
+                )
             };
             let limits = adapter.limits();
             (
@@ -246,7 +257,8 @@ impl GpuResources {
             )
         };
 
-        // Filter to discrete or integrated GPUs that support Vulkan, Metal, or DX12
+        // Filter to discrete or integrated GPUs that support Vulkan, Metal, or DX12, excluding
+        // adapters that are unsupported (scored (0, 0) above).
         // Then sort prefering discrete over integrated, Vulkan/Metal over DX12, and most workgroup memory
         // On Windows we want to prefer Vulkan if possible. It seems to have less issues than DX12.
         // Note that requesting a high-performance adapter via the wgpu API just prefers discrete GPUs also.

@@ -336,3 +336,78 @@ fn result_ids_are_correct_for_measuring_multiple_qubits() {
     assert_eq!(program.num_qubits, 3);
     assert_eq!(program.num_results, 3);
 }
+
+#[test]
+fn result_ids_are_correct_for_measuring_multiple_qubits_in_different_basis() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : (Result, Result, Result) {
+                use (q0, q1, q2) = (Qubit(), Qubit(), Qubit());
+                (QIR.Intrinsic.__quantum__qis__m__body(q0),
+                QIR.Intrinsic.__quantum__qis__mx__body(q1),
+                QIR.Intrinsic.__quantum__qis__my__body(q2))
+            }
+        }
+        "#,
+    });
+    let op_callable_id = CallableId(1);
+    let tuple_record_id = CallableId(2);
+    let result_record_id = CallableId(3);
+    assert_callable(
+        &program,
+        op_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_callable(
+        &program,
+        tuple_record_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__m__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_callable(
+        &program,
+        result_record_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mx__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Qubit(1), Result(1), )
+                Call id(4), args( Qubit(2), Result(2), )
+                Call id(5), args( Integer(3), Tag(0, 3), )
+                Call id(6), args( Result(0), Tag(1, 5), )
+                Call id(6), args( Result(1), Tag(2, 5), )
+                Call id(6), args( Result(2), Tag(3, 5), )
+                Return Integer(0)"#]],
+    );
+    assert_eq!(program.num_qubits, 3);
+    assert_eq!(program.num_results, 3);
+}

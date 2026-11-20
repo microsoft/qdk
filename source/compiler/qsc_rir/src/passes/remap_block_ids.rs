@@ -3,11 +3,12 @@
 
 use std::collections::VecDeque;
 
-use rustc_hash::FxHashMap;
+use qsc_data_structures::target::TargetCapabilityFlags;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     rir::{BlockId, Instruction, Program},
-    utils::{get_all_block_successors, get_block_successors},
+    utils::get_block_successors,
 };
 
 #[cfg(test)]
@@ -18,32 +19,65 @@ mod tests;
 /// Topological ordering is useful for passes that assume each block's successors
 /// have higher IDs than the block itself. This is best effort; if the program has a cycle,
 /// the function will still remap block IDs but the ordering may not be topological.
-pub fn remap_block_ids(program: &mut Program) {
+pub(crate) fn remap_block_ids(program: &mut Program) {
     // Check if the program is acyclic, which lets us construct a topological ordering.
-    let is_acyclic = check_acyclic(program);
+    let is_acyclic = !program
+        .config
+        .capabilities
+        .contains(TargetCapabilityFlags::BackwardsBranching);
 
     // Because we know the program is acyclic, we can keep a list as the map from old block IDs to new block IDs, where
     // the new block ID is the index in the list. We accumulate this list by walking the reachable blocks of every
     // bodied callable in a deterministic order, so block-id assignment is stable across runs (and snapshots).
     // Distinct callable bodies own disjoint block sets, so each callable contributes a contiguous segment of new IDs.
-    let mut block_id_map = Vec::new();
+    let mut block_order = Vec::new();
+    let mut blocks_visited = FxHashSet::default();
     for callable_id in program.all_callable_ids() {
         // Intrinsics (and any other bodyless callables) have no blocks to remap.
         let Some(entry_block_id) = program.get_callable(callable_id).body else {
             continue;
         };
 
+        // When the graph is acyclic, we can use Kahn's algorithm and skip the general approach
+        // below. Each block is numbered once, after all of its predecessors.
+        if is_acyclic {
+            let mut reachable = Vec::new();
+            let mut stack = vec![entry_block_id];
+            while let Some(block_id) = stack.pop() {
+                if blocks_visited.insert(block_id) {
+                    reachable.push(block_id);
+                    stack.extend(get_block_successors(program.get_block(block_id)));
+                }
+            }
+            let mut in_degree: FxHashMap<BlockId, usize> = FxHashMap::default();
+            for block_id in &reachable {
+                for successor in get_block_successors(program.get_block(*block_id)) {
+                    *in_degree.entry(successor).or_default() += 1;
+                }
+            }
+            let mut ready: VecDeque<BlockId> = vec![entry_block_id].into();
+            while let Some(block_id) = ready.pop_front() {
+                block_order.push(block_id);
+                for successor in get_block_successors(program.get_block(block_id)) {
+                    let degree = in_degree
+                        .get_mut(&successor)
+                        .expect("successor should be counted");
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.push_back(successor);
+                    }
+                }
+            }
+            continue;
+        }
+
         let mut blocks_to_visit: VecDeque<BlockId> = vec![entry_block_id].into();
         while let Some(block_id) = blocks_to_visit.pop_front() {
-            // If we've already visited this block, remove it from the previous ordering so that we can insert it at the end.
-            // This effectively remaps all the blocks in the list and updates the mapped id of the current block.
-            // This is only safe without cycles, so on a cyclic graph the node is skipped and not remapped.
-            if is_acyclic {
-                block_id_map.retain(|id| *id != block_id);
-            } else if block_id_map.contains(&block_id) {
+            if blocks_visited.contains(&block_id) {
                 continue;
             }
-            block_id_map.push(block_id);
+            blocks_visited.insert(block_id);
+            block_order.push(block_id);
 
             let successors = get_block_successors(program.get_block(block_id));
             if blocks_to_visit.len() >= successors.len()
@@ -64,7 +98,7 @@ pub fn remap_block_ids(program: &mut Program) {
         }
     }
 
-    let block_id_map = block_id_map
+    let block_id_map = block_order
         .into_iter()
         .enumerate()
         .map(|(new_id, old_id)| (old_id, new_id))
@@ -73,7 +107,6 @@ pub fn remap_block_ids(program: &mut Program) {
     let blocks = program.blocks.drain().collect::<Vec<_>>();
     for (old_block_id, mut block) in blocks {
         let new_block_id = block_id_map[&old_block_id];
-        update_phi_nodes(&block_id_map, &mut block.0);
         update_terminator(
             &block_id_map,
             block
@@ -94,31 +127,6 @@ pub fn remap_block_ids(program: &mut Program) {
             .get_mut(callable_id)
             .expect("callable should exist")
             .body = Some(block_id_map[&old_body].into());
-    }
-}
-
-fn check_acyclic(program: &Program) -> bool {
-    for (block_id, _) in program.blocks.iter() {
-        if get_all_block_successors(block_id, program).contains(&block_id) {
-            return false;
-        }
-    }
-    true
-}
-
-fn update_phi_nodes(block_id_map: &FxHashMap<BlockId, usize>, instrs: &mut [Instruction]) {
-    for instr in instrs.iter_mut() {
-        if let Instruction::Phi(args, _) = instr {
-            for arg in args.iter_mut() {
-                arg.1 = (*block_id_map
-                    .get(&arg.1)
-                    .expect("block ids in phi node should exist in block id map"))
-                .into();
-            }
-        } else {
-            // Since phi nodes are always at the top of the block, we can break early.
-            return;
-        }
     }
 }
 

@@ -216,9 +216,9 @@ def _run_qasm(
 
     if search_path := value_or_default("search_path"):
         args["search_path"] = search_path
-    if shots := value_or_default("shots"):
+    if (shots := value_or_default("shots")) is not None:
         args["shots"] = shots
-    if seed := value_or_default("seed"):
+    if (seed := value_or_default("seed")) is not None:
         args["seed"] = seed
 
     return run_qasm_program(

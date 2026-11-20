@@ -32,6 +32,31 @@ SHOTS = 100
 SIM_TYPES = ["cpu", "stabilizer", "clifford"]
 
 
+@pytest.mark.parametrize("profile", [qdk.TargetProfile.Base, qdk.TargetProfile.Adaptive_RI])
+@pytest.mark.parametrize(
+    "return_type,expression,expected",
+    [
+        ("(Result[], Result)", "([], one)", ([], Result.One)),
+        ("(Unit, Result)", "((), one)", ((), Result.One)),
+        ("(Result, Result[], Result)", "(one, [], one)", (Result.One, [], Result.One)),
+        ("(Result[][], Result)", "([[], [one], []], one)", ([[], [Result.One], []], Result.One)),
+        ("Unit", "()", ()),
+    ],
+)
+def test_output_nesting_with_empty_containers(profile, return_type, expression, expected):
+    ctx = qdk.Context(target_profile=profile)
+    ctx.eval(f"""
+        operation Main() : {return_type} {{
+            use q = Qubit();
+            X(q);
+            let one = MResetZ(q);
+            {expression}
+        }}
+    """)
+    qir = ctx.compile("Main()")
+    assert run_qir(qir, shots=1, type="cpu") == [expected]
+
+
 def map_result_list_to_str(results):
     results_str = ""
     if isinstance(results, (list, tuple)):

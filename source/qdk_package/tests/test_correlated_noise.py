@@ -67,6 +67,24 @@ attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubi
         run_qir(qir, shots=1, noise=noise, type=sim_type)
 
 
+@pytest.mark.parametrize(
+    "configure",
+    [
+        lambda table: setattr(table, "x", 0.0),
+        lambda table: table.set_pauli_noise("X", 0.0),
+        lambda table: table.set_depolarizing(0.0),
+    ],
+)
+def test_zero_probability_noise_is_noiseless(configure):
+    table = NoiseConfig().x
+    table.x = 1.0
+    assert not table.is_noiseless()
+    configure(table)
+    assert table.is_noiseless()
+    table.z = 0.5
+    assert not table.is_noiseless()
+
+
 QASM_WITH_CORRELATED_NOISE = """
 OPENQASM 3.0;
 include "stdgates.inc";

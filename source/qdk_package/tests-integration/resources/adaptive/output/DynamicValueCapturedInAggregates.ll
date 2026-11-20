@@ -10,9 +10,6 @@ block_0:
   %var_1 = alloca i64
   %var_2 = alloca i64
   %var_3 = alloca i64
-  %var_7 = alloca i64
-  %var_8 = alloca i64
-  %var_10 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   call void @X(ptr inttoptr (i64 0 to ptr))
   store i64 0, ptr %var_1
@@ -26,24 +23,18 @@ block_1:
   store i64 4, ptr %var_2
   br label %block_2
 block_2:
-  %var_14 = load i64, ptr %var_1
-  store i64 %var_14, ptr %var_7
-  %var_16 = load i64, ptr %var_2
-  store i64 %var_16, ptr %var_8
+  %var_7 = load i64, ptr %var_1
+  %var_8 = load i64, ptr %var_2
   store i64 3, ptr %var_2
-  %var_19 = load i64, ptr %var_8
-  store i64 %var_19, ptr %var_3
+  store i64 %var_8, ptr %var_3
   store i64 5, ptr %var_1
   store i64 7, ptr %var_1
-  %var_23 = load i64, ptr %var_3
-  store i64 %var_23, ptr %var_10
+  %var_10 = load i64, ptr %var_3
   call void @__quantum__rt__tuple_record_output(i64 3, ptr @0)
-  %var_25 = load i64, ptr %var_7
-  call void @__quantum__rt__int_record_output(i64 %var_25, ptr @1)
+  call void @__quantum__rt__int_record_output(i64 %var_7, ptr @1)
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @2)
   call void @__quantum__rt__int_record_output(i64 3, ptr @3)
-  %var_26 = load i64, ptr %var_10
-  call void @__quantum__rt__int_record_output(i64 %var_26, ptr @4)
+  call void @__quantum__rt__int_record_output(i64 %var_10, ptr @4)
   call void @__quantum__rt__int_record_output(i64 5, ptr @5)
   ret i64 0
 }

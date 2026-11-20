@@ -633,3 +633,39 @@ def test_teleported_t_distribution_matches_full_state():
         / 2.0
     )
     assert total_variation_distance < 0.15
+
+
+# Z maps |+> to |->, so after correcting on the first MX result
+# the second MX is always Zero.
+MX_CORRECTION_QSHARP = """{
+    use q = Qubit();
+    if MX(q) == One { Z(q); }
+    let r = MX(q);
+    Reset(q);
+    r
+}"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_branch_on_mx_result(sim_type):
+    qsharp.init(target_profile=TargetProfile.Adaptive_RIF)
+    qir = str(qsharp.compile(MX_CORRECTION_QSHARP))
+    assert set(_run(qir, shots=100, sim_type=sim_type)) == {"0"}
+
+
+# X maps |-i> to |i> (up to phase), so after correcting on the first MY result
+# the second MY is always Zero.
+MY_CORRECTION_QSHARP = """{
+    use q = Qubit();
+    if MY(q) == One { X(q); }
+    let r = MY(q);
+    Reset(q);
+    r
+}"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_branch_on_my_result(sim_type):
+    qsharp.init(target_profile=TargetProfile.Adaptive_RIF)
+    qir = str(qsharp.compile(MY_CORRECTION_QSHARP))
+    assert set(_run(qir, shots=100, sim_type=sim_type)) == {"0"}

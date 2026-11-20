@@ -6,17 +6,16 @@ mod tests;
 
 use crate::{
     rir::{BlockId, Instruction, Operand, OperandMapping, Program, Ty, Variable, VariableId},
-    utils::{get_all_block_successors, get_variable_assignments, map_variable_use_in_block},
+    utils::{get_variable_assignments, map_variable_use_in_block},
 };
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Transforms the program into Single Static Assignment (SSA) form by inserting phi nodes
 /// at the beginning of blocks where necessary, allowing the removal of store instructions.
-pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<BlockId>>) {
-    // Ensure that the graph is acyclic before proceeding. Current approach does not support cycles.
-    ensure_acyclic(preds);
-
+/// This transformation does not handle cycles, and expects that the block IDs have already been
+/// remapped into an ascending Directed Acyclic Graph (DAG).
+pub(crate) fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<BlockId>>) {
     // Get the next available variable ID for use in newly generated phi nodes. This is computed once
     // across the whole program so that freshly minted SSA versions stay unique across every body.
     let mut next_var_id = get_variable_assignments(program)
@@ -30,9 +29,9 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
     // rather than inferring the entry from blocks that happen to have no predecessors.
     for callable_id in program.all_callable_ids() {
         let callable = program.get_callable(callable_id);
-        let Some(entry) = callable.body else {
+        if callable.body.is_none() {
             continue;
-        };
+        }
 
         // Live-in parameters have no defining instruction, so pair each one with its declared type so
         // it can be seeded as a definition at the body entry.
@@ -43,7 +42,7 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
             .zip(callable.input_type.iter().copied())
             .collect();
 
-        transform_body_to_ssa(program, entry, &input_vars, preds, &mut next_var_id);
+        transform_body_to_ssa(program, &input_vars, preds, &mut next_var_id);
     }
 }
 
@@ -51,15 +50,17 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
 // are processed, and the body's live-in parameters are seeded as definitions at the entry.
 fn transform_body_to_ssa(
     program: &mut Program,
-    entry: BlockId,
     input_vars: &[(VariableId, Ty)],
     preds: &IndexMap<BlockId, Vec<BlockId>>,
     next_var_id: &mut VariableId,
 ) {
     // Process the entry block together with every block reachable from it, in ascending block-id
     // order so that each block is handled after its predecessors.
-    let mut body_blocks = vec![entry];
-    body_blocks.append(&mut get_all_block_successors(entry, program));
+    let body_blocks = program
+        .blocks
+        .iter()
+        .map(|(block_id, _)| block_id)
+        .collect::<Vec<_>>();
 
     let mut block_var_map = IndexMap::with_capacity(body_blocks.len());
 
@@ -92,6 +93,7 @@ fn transform_body_to_ssa(
                 program.get_block_mut(block_id),
                 &mut var_map,
                 &FxHashSet::default(),
+                None,
             );
             block_var_map.insert(block_id, var_map);
             continue;
@@ -189,19 +191,8 @@ fn transform_body_to_ssa(
 
         // Now that the block has finished processing, apply any updates to the block and
         // merge those updates into the stored variable map to propagate to successors.
-        map_variable_use_in_block(block, &mut var_map, &FxHashSet::default());
+        map_variable_use_in_block(block, &mut var_map, &FxHashSet::default(), None);
 
         block_var_map.insert(block_id, var_map);
-    }
-}
-
-// For now, SSA transform assumes the graph is acyclic, so verify that no block has a predecessor with
-// a block id less than itself, which would indicate a cycle.
-fn ensure_acyclic(preds: &IndexMap<BlockId, Vec<BlockId>>) {
-    for (block_id, block_preds) in preds.iter() {
-        assert!(
-            !block_preds.iter().any(|pred| *pred >= block_id),
-            "block {block_id:?} has a cycle in its predecessors"
-        );
     }
 }

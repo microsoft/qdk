@@ -272,9 +272,9 @@ fn test_map_creation_no_purely_physical_templates_filtered_out_by_is_valid_condi
     let templates = create_templates_list_2_2_2();
     let ftp = surface_code_gate_based();
     let map = create_default_map(PhysicalQubit::default(), &ftp, &templates);
-    assert!(map.num_physical_distillation_units == 0);
-    assert!(map.num_logical_distillation_units == 2);
-    assert!(map.num_combined_distillation_units == 2);
+    assert_eq!(map.num_physical_distillation_units, 0);
+    assert_eq!(map.num_logical_distillation_units, 2);
+    assert_eq!(map.num_combined_distillation_units, 2);
     assert_eq!(map.get(0, 1, 0).name, "combined1");
     assert_eq!(map.get(0, 1, 1).name, "combined2");
 
@@ -289,9 +289,9 @@ fn test_map_creation_with_purely_physical_templates() {
     let templates: Vec<TFactoryDistillationUnitTemplate> = create_templates_list_2_2_2();
     let ftp = floquet_code();
     let map = create_default_map(PhysicalQubit::qubit_maj_ns_e4(), &ftp, &templates);
-    assert!(map.num_physical_distillation_units == 2);
-    assert!(map.num_logical_distillation_units == 2);
-    assert!(map.num_combined_distillation_units == 2);
+    assert_eq!(map.num_physical_distillation_units, 2);
+    assert_eq!(map.num_logical_distillation_units, 2);
+    assert_eq!(map.num_combined_distillation_units, 2);
     assert_eq!(map.get(0, 1, 0).name, "combined1");
     assert_eq!(map.get(0, 1, 1).name, "combined2");
     assert_eq!(map.get(0, 1, 4).name, "physical1");
@@ -308,9 +308,9 @@ fn test_map_creation_with_purely_physical_and_no_combined_templates() {
     let templates = create_templates_list_0_2_1();
     let ftp = floquet_code();
     let map = create_default_map(PhysicalQubit::qubit_maj_ns_e4(), &ftp, &templates);
-    assert!(map.num_physical_distillation_units == 1);
-    assert!(map.num_logical_distillation_units == 2);
-    assert!(map.num_combined_distillation_units == 0);
+    assert_eq!(map.num_physical_distillation_units, 1);
+    assert_eq!(map.num_logical_distillation_units, 2);
+    assert_eq!(map.num_combined_distillation_units, 0);
     assert_eq!(map.get(0, 1, 2).name, "physical1");
     assert_eq!(map.get(0, 3, 0).name, "logical1");
     assert_eq!(map.get(0, 3, 1).name, "logical2");
@@ -324,9 +324,9 @@ fn test_first_round_overrides_applied() {
     let ftp = floquet_code();
     let map = create_default_map(PhysicalQubit::qubit_maj_ns_e4(), &ftp, &templates);
 
-    assert!(map.num_physical_distillation_units == 2);
-    assert!(map.num_logical_distillation_units == 2);
-    assert!(map.num_combined_distillation_units == 4);
+    assert_eq!(map.num_physical_distillation_units, 2);
+    assert_eq!(map.num_logical_distillation_units, 2);
+    assert_eq!(map.num_combined_distillation_units, 4);
 
     // physical
     let unit1_1 = map.get(0, 1, 2);

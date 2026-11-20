@@ -940,7 +940,7 @@ impl<'a> Analyzer<'a> {
                 .active_dynamic_scopes
                 .pop()
                 .expect("at least one dynamic scope should exist");
-            assert!(dynamic_scope_expr_id == condition_expr_id);
+            assert_eq!(dynamic_scope_expr_id, condition_expr_id);
         }
 
         // Aggregate the runtime features of the sub-expressions.
@@ -1438,7 +1438,7 @@ impl<'a> Analyzer<'a> {
                         .active_dynamic_scopes
                         .pop()
                         .expect("at least one dynamic scope should exist");
-                    assert!(dynamic_scope_expr_id == condition_expr_id);
+                    assert_eq!(dynamic_scope_expr_id, condition_expr_id);
                 }
 
                 let application_instance = self.get_current_application_instance();
@@ -1556,7 +1556,7 @@ impl<'a> Analyzer<'a> {
         self.push_item_context(item_id);
         self.visit_item(item);
         let popped_item_id = self.pop_item_context();
-        assert!(popped_item_id == item_id);
+        assert_eq!(popped_item_id, item_id);
     }
 
     fn analyze_package_internal(&mut self, package_id: PackageId, package: &'a Package) {
@@ -1601,7 +1601,7 @@ impl<'a> Analyzer<'a> {
             }
         }
         let top_level_context = self.pop_top_level_context();
-        assert!(top_level_context.package_id == package_id);
+        assert_eq!(top_level_context.package_id, package_id);
 
         // Save the analysis of the top-level elements to the corresponding package compute properties.
         let package_compute_properties = self
@@ -1668,7 +1668,7 @@ impl<'a> Analyzer<'a> {
 
         // Since we are done analyzing the specialization, pop the active item context.
         let popped_item_id = self.pop_item_context();
-        assert!(popped_item_id == id.callable);
+        assert_eq!(popped_item_id, id.callable);
     }
 
     fn analyze_spec_decl(&mut self, decl: &'a SpecDecl, functor_set_value: FunctorSetValue) {
@@ -1689,7 +1689,7 @@ impl<'a> Analyzer<'a> {
         self.set_current_spec_context(decl, functor_set_value);
         self.visit_spec_decl(decl);
         let spec_context = self.clear_current_spec_context();
-        assert!(spec_context.functor_set_value == functor_set_value);
+        assert_eq!(spec_context.functor_set_value, functor_set_value);
 
         // Save the analysis to the corresponding package compute properties.
         let package_compute_properties = self
@@ -2050,7 +2050,7 @@ impl<'a> Analyzer<'a> {
             }
             ExprKind::Tuple(assignee_exprs) => {
                 if let ExprKind::Tuple(value_exprs) = &value_expr.kind {
-                    assert!(assignee_exprs.len() == value_exprs.len());
+                    assert_eq!(assignee_exprs.len(), value_exprs.len());
 
                     // To determine the update compute kind, we aggregate the runtime features of each element.
                     let mut updated_compute_kind = ComputeKind::Static;

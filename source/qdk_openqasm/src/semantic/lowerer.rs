@@ -1273,7 +1273,7 @@ impl Lowerer {
                 let kind = SemanticErrorKind::ArrayDeclarationTypeError(
                     format!(
                         "expected an array of size {} but found {}",
-                        expected_size, &expr.kind
+                        expected_size, expr.kind
                     ),
                     expr.span,
                 );
@@ -3853,12 +3853,11 @@ impl Lowerer {
                         ));
                     }
                     unreachable!("`can_cast_literal_with_value_knowledge` admitted the value");
-                } else {
-                    // A `Bit` target with an `Int`, `Bool`, or `Angle` literal
-                    // returned at the top of this function, and the assertion
-                    // above rejects every other literal kind for this pair.
-                    unreachable!("a `Bit` target coerces its literal kinds above");
                 }
+                // A `Bit` target with an `Int`, `Bool`, or `Angle` literal
+                // returned at the top of this function, and the assertion
+                // above rejects every other literal kind for this pair.
+                unreachable!("a `Bit` target coerces its literal kinds above");
             }
             (Type::Int(width, _), Type::Int(_, _) | Type::UInt(_, _)) => {
                 // we've already checked that this conversion can happen from a signed to unsigned int

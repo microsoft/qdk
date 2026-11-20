@@ -7,11 +7,8 @@ use expect_test::expect;
 use qsc_data_structures::target::Profile;
 
 use crate::{
-    builder::{
-        bell_program, new_program, teleport_program, two_body_mutable_param_program,
-        two_body_program, two_body_program_with_branch, two_body_program_with_loop,
-    },
-    passes::{check_and_transform, test_utils::assert_panics_with},
+    builder::{bell_program, new_program, teleport_program},
+    passes::check_and_transform,
     rir::{
         Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Prim,
         Program, Ty, Variable, VariableId,
@@ -27,7 +24,7 @@ fn transform_program(program: &mut Program) {
 // the program. This isolates the transform from the dominator-graph build and SSA checker, which is
 // useful for exercising multi-body programs.
 fn transform_to_ssa_directly(program: &mut Program) {
-    let preds = build_predecessors_map(program);
+    let preds = build_predecessors_map(program, true);
     super::transform_to_ssa(program, &preds);
 }
 
@@ -3086,7 +3083,6 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_usi
             blocks:
                 Block 0: Block:
                     Variable(1, Integer) = Alloca
-                    Variable(2, Integer) = Alloca
                     Variable(0, Boolean) = Call id(1), args( )
                     Variable(1, Integer) = Store Integer(0)
                     Branch Variable(0, Boolean), 1, 2
@@ -3094,12 +3090,10 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_usi
                     Variable(1, Integer) = Store Integer(1)
                     Jump(2)
                 Block 2: Block:
-                    Variable(5, Integer) = Load Variable(1, Integer)
-                    Variable(2, Integer) = Store Variable(5, Integer)
+                    Variable(2, Integer) = Load Variable(1, Integer)
                     Variable(1, Integer) = Store Integer(2)
-                    Variable(8, Integer) = Load Variable(1, Integer)
-                    Variable(9, Integer) = Load Variable(2, Integer)
-                    Variable(3, Integer) = Add Variable(8, Integer), Variable(9, Integer)
+                    Variable(6, Integer) = Load Variable(1, Integer)
+                    Variable(3, Integer) = Add Variable(6, Integer), Variable(2, Integer)
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -4076,8 +4070,8 @@ fn ssa_transform_two_bodies_store_to_phi_independent() {
                 Block 2: Block:
                     Jump(3)
                 Block 3: Block:
-                    Variable(7, Integer) = Phi ( [Integer(10), 1], [Integer(20), 2], )
-                    Variable(2, Integer) = Add Variable(7, Integer), Integer(1)
+                    Variable(6, Integer) = Phi ( [Integer(10), 1], [Integer(20), 2], )
+                    Variable(2, Integer) = Add Variable(6, Integer), Integer(1)
                     Return Variable(2, Integer)
                 Block 4: Block:
                     Variable(3, Boolean) = Call id(2), args( )
@@ -4087,250 +4081,9 @@ fn ssa_transform_two_bodies_store_to_phi_independent() {
                 Block 6: Block:
                     Jump(7)
                 Block 7: Block:
-                    Variable(6, Integer) = Phi ( [Integer(100), 5], [Integer(200), 6], )
-                    Variable(5, Integer) = Add Variable(6, Integer), Integer(1)
+                    Variable(7, Integer) = Phi ( [Integer(100), 5], [Integer(200), 6], )
+                    Variable(5, Integer) = Add Variable(7, Integer), Integer(1)
                     Return Variable(5, Integer)
-            config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
-            num_qubits: 0
-            num_results: 0
-            tags:
-    "#]].assert_eq(&program.to_string());
-}
-
-#[test]
-fn ssa_transform_second_body_entry_identified() {
-    // The entry body of `two_body_program` lives in block 2, which is a higher block id than the
-    // helper body's blocks. The transform must use each callable's declared `body` as the root rather
-    // than assuming block 0 is the entry.
-    let mut program = two_body_program();
-
-    transform_to_ssa_directly(&mut program);
-
-    // The entry callable still roots at its declared body.
-    assert_eq!(program.get_callable(CallableId(0)).body, Some(BlockId(2)));
-
-    expect![[r#"
-        Program:
-            entry: 0
-            callables:
-                Callable 0: Callable:
-                    name: main
-                    call_type: Regular
-                    input_type: <VOID>
-                    output_type: Integer
-                    body: 2
-                Callable 1: Callable:
-                    name: helper
-                    call_type: Regular
-                    input_type:
-                        [0]: Integer
-                    input_vars:
-                        [0]: 0
-                    output_type: Integer
-                    body: 0
-            blocks:
-                Block 0: Block:
-                    Variable(1, Integer) = Add Variable(0, Integer), Integer(1)
-                    Return Variable(1, Integer)
-                Block 2: Block:
-                    Variable(2, Integer) = Call id(1), args( Integer(7), )
-                    Return Variable(2, Integer)
-            config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
-            num_qubits: 0
-            num_results: 0
-            tags:
-    "#]].assert_eq(&program.to_string());
-}
-
-#[test]
-fn ssa_transform_parameters_seeded_as_entry_defs() {
-    // The helper body branches on its boolean `input_vars` parameter without storing into anything.
-    // The parameter is live-in with no defining instruction, so the transform must seed it as a
-    // definition at the body entry and complete without error.
-    let mut program = two_body_program_with_branch();
-
-    transform_to_ssa_directly(&mut program);
-    expect![[r#"
-        Program:
-            entry: 0
-            callables:
-                Callable 0: Callable:
-                    name: main
-                    call_type: Regular
-                    input_type: <VOID>
-                    output_type: Integer
-                    body: 3
-                Callable 1: Callable:
-                    name: helper
-                    call_type: Regular
-                    input_type:
-                        [0]: Boolean
-                    input_vars:
-                        [0]: 0
-                    output_type: Integer
-                    body: 0
-            blocks:
-                Block 0: Block:
-                    Branch Variable(0, Boolean), 1, 2
-                Block 1: Block:
-                    Return Integer(1)
-                Block 2: Block:
-                    Return Integer(0)
-                Block 3: Block:
-                    Variable(1, Integer) = Call id(1), args( Bool(true), )
-                    Return Variable(1, Integer)
-            config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
-            num_qubits: 0
-            num_results: 0
-            tags:
-    "#]].assert_eq(&program.to_string());
-}
-
-#[test]
-fn ssa_transform_second_body_with_loop() {
-    // A backward branch in a secondary body forms a cycle. The transform does not support cycles, so
-    // the acyclic guard must reject the program even when the loop lives outside the entry body.
-    let mut program = two_body_program_with_loop();
-
-    assert_panics_with("has a cycle", move || {
-        transform_to_ssa_directly(&mut program);
-    });
-}
-
-#[test]
-fn ssa_transform_value_returning_body() {
-    // A secondary body whose terminator returns a static operand must transform cleanly, exercising
-    // the value-returning (IR-function) shape that only ever appears in non-entry bodies.
-    let mut program = Program::default();
-    program.config.capabilities = Profile::AdaptiveRIF.into();
-
-    program.callables.insert(
-        CallableId(0),
-        Callable {
-            name: "main".to_string(),
-            input_type: Vec::new(),
-            input_vars: Vec::new(),
-            output_type: Some(Ty::Prim(Prim::Integer)),
-            body: Some(BlockId(1)),
-            call_type: CallableType::Regular,
-        },
-    );
-    program.callables.insert(
-        CallableId(1),
-        Callable {
-            name: "helper".to_string(),
-            input_type: Vec::new(),
-            input_vars: Vec::new(),
-            output_type: Some(Ty::Prim(Prim::Integer)),
-            body: Some(BlockId(0)),
-            call_type: CallableType::Regular,
-        },
-    );
-
-    // Helper body: return a constant.
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Return(Some(Operand::Literal(
-            Literal::Integer(42),
-        )))]),
-    );
-    // Entry body: call the helper and return its result.
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![
-            Instruction::Call(
-                CallableId(1),
-                Vec::new(),
-                Some(Variable {
-                    variable_id: VariableId(0),
-                    ty: Ty::Prim(Prim::Integer),
-                }),
-                None,
-            ),
-            Instruction::Return(Some(Operand::Variable(Variable {
-                variable_id: VariableId(0),
-                ty: Ty::Prim(Prim::Integer),
-            }))),
-        ]),
-    );
-
-    program.entry = CallableId(0);
-
-    transform_to_ssa_directly(&mut program);
-    expect![[r#"
-        Program:
-            entry: 0
-            callables:
-                Callable 0: Callable:
-                    name: main
-                    call_type: Regular
-                    input_type: <VOID>
-                    output_type: Integer
-                    body: 1
-                Callable 1: Callable:
-                    name: helper
-                    call_type: Regular
-                    input_type: <VOID>
-                    output_type: Integer
-                    body: 0
-            blocks:
-                Block 0: Block:
-                    Return Integer(42)
-                Block 1: Block:
-                    Variable(0, Integer) = Call id(1), args( )
-                    Return Variable(0, Integer)
-            config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
-            num_qubits: 0
-            num_results: 0
-            tags:
-    "#]].assert_eq(&program.to_string());
-}
-
-#[test]
-fn ssa_transform_mutable_parameter_versioned() {
-    // The helper stores a derived value back into its own `input_vars` parameter. The parameter is
-    // both seeded as the entry definition and versioned by the store, so the store must convert to an
-    // SSA value without a false duplicate-assignment, while the parameter remains the entry def.
-    let mut program = two_body_mutable_param_program();
-
-    transform_to_ssa_directly(&mut program);
-
-    // The parameter remains declared as the body's live-in definition.
-    assert_eq!(
-        program.get_callable(CallableId(1)).input_vars,
-        vec![VariableId(0)]
-    );
-
-    expect![[r#"
-        Program:
-            entry: 0
-            callables:
-                Callable 0: Callable:
-                    name: main
-                    call_type: Regular
-                    input_type: <VOID>
-                    output_type: Integer
-                    body: 1
-                Callable 1: Callable:
-                    name: helper
-                    call_type: Regular
-                    input_type:
-                        [0]: Integer
-                    input_vars:
-                        [0]: 0
-                    output_type: Integer
-                    body: 0
-            blocks:
-                Block 0: Block:
-                    Variable(1, Integer) = Add Variable(0, Integer), Integer(1)
-                    Return Variable(1, Integer)
-                Block 1: Block:
-                    Variable(2, Integer) = Call id(1), args( Integer(5), )
-                    Return Variable(2, Integer)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 0
