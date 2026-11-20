@@ -11,7 +11,7 @@
 // it in a headless instance of Chromium to run the integration test suite.
 //
 // Command-line arguments:
-// --suite=<name>           Run only the specified test suite (language-service or debugger)
+// --suite=<name>           Run only the specified test suite
 // --waitForDebugger=<port> Wait for debugger to attach on the specified port before running tests
 // --verbose                Enable verbose logging for VS Code and test web server
 //                          Note: This controls the VS Code and test web server logging level.
@@ -19,8 +19,11 @@
 //                          To control the Q# extension log level see: suites/extensionUtils.ts
 
 import { runTests as runTestsWeb } from "@vscode/test-web";
-import { runTests as runTestsElectron } from "@vscode/test-electron";
-import { readFileSync } from "node:fs";
+import {
+  runTests as runTestsElectron,
+  runVSCodeCommand,
+} from "@vscode/test-electron";
+import { readFileSync, rmSync } from "node:fs";
 import { SourceMap } from "node:module";
 import path, { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,37 +55,88 @@ const thisDir = dirname(fileURLToPath(import.meta.url));
 const extensionDevelopmentPath = join(thisDir, "..");
 
 try {
-  // Run the "empty" suite first to verify VS Code can be downloaded and launched.
-  // This catches flaky infrastructure failures (e.g. VS Code download issues)
-  // before running the real test suites. If it fails in CI, we skip the tests
-  // with a warning instead of failing the build.
-  console.log("Running empty suite to verify VS Code test environment...");
-  try {
-    await runSuite("empty");
-  } catch (err) {
-    if (isCI) {
-      console.warn(
-        "WARNING: VS Code test environment setup failed. " +
-          "Skipping integration tests in CI due to infrastructure issue.",
-      );
-      console.warn(`Error: ${err}`);
-      process.exit(0);
+  if (selectedSuite === "jupyter-api-contract") {
+    await runJupyterApiContractSuite();
+  } else {
+    // Run the "empty" suite first to verify VS Code can be downloaded and launched.
+    // This catches flaky infrastructure failures (e.g. VS Code download issues)
+    // before running the real test suites. If it fails in CI, we skip the tests
+    // with a warning instead of failing the build.
+    console.log("Running empty suite to verify VS Code test environment...");
+    try {
+      await runSuite("empty");
+    } catch (err) {
+      if (isCI) {
+        console.warn(
+          "WARNING: VS Code test environment setup failed. " +
+            "Skipping integration tests in CI due to infrastructure issue.",
+        );
+        console.warn(`Error: ${err}`);
+        process.exit(0);
+      }
+      throw err;
     }
-    throw err;
-  }
-  console.log("Empty suite succeeded.");
+    console.log("Empty suite succeeded.");
 
-  const suites = ["language-service", "debugger"];
-  const toRun =
-    selectedSuite && suites.includes(selectedSuite) ? [selectedSuite] : suites;
+    const suites = ["language-service", "debugger"];
+    const toRun =
+      selectedSuite && suites.includes(selectedSuite)
+        ? [selectedSuite]
+        : suites;
 
-  for (const suite of toRun) {
-    console.log(`Running suite: ${suite}`);
-    await runSuite(suite);
+    for (const suite of toRun) {
+      console.log(`Running suite: ${suite}`);
+      await runSuite(suite);
+    }
   }
-} catch {
-  console.error("Test run failed.");
+} catch (err) {
+  console.error("Test run failed.", err);
   process.exit(1);
+}
+
+async function runJupyterApiContractSuite() {
+  const cachePath = join(extensionDevelopmentPath, ".vscode-test");
+  const profilePath = join(cachePath, "jupyter-api-contract");
+  const extensionsPath = join(profilePath, "extensions");
+  const userDataPath = join(profilePath, "user-data");
+  const profileArgs = [
+    `--extensions-dir=${extensionsPath}`,
+    `--user-data-dir=${userDataPath}`,
+  ];
+
+  rmSync(profilePath, { recursive: true, force: true });
+
+  console.log("Installing the latest Jupyter extension from Marketplace...");
+  // Note that this throws if installation fails
+  const installResult = await runVSCodeCommand(
+    ["--install-extension", "ms-toolsai.jupyter", "--force", ...profileArgs],
+    { version: "stable", cachePath },
+  );
+  if (installResult.stdout.trim()) {
+    console.log(installResult.stdout.trim());
+  }
+  if (installResult.stderr.trim()) {
+    console.error(installResult.stderr.trim());
+  }
+
+  console.log("Running Jupyter API contract suite...");
+  await runTestsElectron({
+    version: "stable",
+    cachePath,
+    extensionDevelopmentPath,
+    extensionTestsPath: join(
+      thisDir,
+      "out",
+      "node",
+      "jupyter-api-contract",
+      "index.node.js",
+    ),
+    launchArgs: [
+      join(thisDir, "suites", "empty", "test-workspace"),
+      "--log=info",
+      ...profileArgs,
+    ],
+  });
 }
 
 async function runSuite(name) {
