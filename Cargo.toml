@@ -36,6 +36,7 @@ members = [
     "source/qodec/qodec_runtime_pieces",
     "source/qodec/qodec_runtime_reader",
     "source/qodec/qodec_runtime_recipes",
+    "source/qodec_executor_protocol",
     "source/simulators",
     "source/qdk_openqasm",
     "source/qdk_package",

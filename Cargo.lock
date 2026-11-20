@@ -2896,6 +2896,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "qodec_executor_protocol"
+version = "0.0.0"
+dependencies = [
+ "executor_protocol",
+ "qdk_simulators",
+ "qodec",
+ "qodec_runtime_reader",
+ "qodec_runtime_recipes",
+ "rustc-hash",
+ "smallvec",
+]
+
+[[package]]
 name = "qodec_human_interface"
 version = "0.0.0"
 dependencies = [

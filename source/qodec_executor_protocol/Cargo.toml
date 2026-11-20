@@ -1,0 +1,33 @@
+[package]
+name = "qodec_executor_protocol"
+publish = false
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+executor_protocol = { path = "../executor_protocol" }
+# The action simulators, for the executor that runs a qodec's bottom ISA.
+qdk_simulators = { path = "../simulators", default-features = false }
+# The Qodec runtime's model, plan and pieces, re-exported together.
+qodec_runtime_recipes = { path = "../qodec/qodec_runtime_recipes" }
+rustc-hash = { workspace = true }
+smallvec = { workspace = true }
+
+[dev-dependencies]
+qodec = { workspace = true }
+qodec_runtime_reader = { path = "../qodec/qodec_runtime_reader" }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+# A plain binary: it asserts that the chain and the runtime driven directly
+# agree, then prints their times and ratios.
+[[example]]
+name = "chain_overhead"
