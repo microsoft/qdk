@@ -661,6 +661,19 @@ Simulator: TypeAlias = Callable[
 ]
 
 
+def _validate_noise_intrinsics(mod: Module, noise: Optional[NoiseConfig]) -> None:
+    if noise is None:
+        return
+    for function in mod.functions:
+        if (
+            function.name in noise.intrinsics
+            and "qdk_noise" not in function.attributes.func
+        ):
+            raise ValueError(
+                f"Noise table '{function.name}' does not name a noise intrinsic."
+            )
+
+
 def preprocess_simulation_input(
     input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
@@ -684,6 +697,8 @@ def preprocess_simulation_input(
         mod = Module.from_ir(context, input)
     else:
         mod = Module.from_bitcode(context, input)
+
+    _validate_noise_intrinsics(mod, noise)
 
     return (mod, shots, noise, seed)
 
@@ -761,6 +776,7 @@ def run_qir_clifford(
 ) -> List:
     mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     DecomposeCcxPass().run(mod)
+    _validate_noise_intrinsics(mod, noise)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
         return run_adaptive(run_clifford_adaptive, mod, program, shots, noise, seed)
@@ -776,6 +792,7 @@ def run_qir_cpu(
 ) -> List:
     mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     DecomposeCcxPass().run(mod)
+    _validate_noise_intrinsics(mod, noise)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
         return run_adaptive(run_cpu_adaptive, mod, program, shots, noise, seed)
@@ -794,6 +811,7 @@ def run_qir_gpu(
     DecomposeCcxPass().run(mod)
     # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
     DecomposeMxMyPass().run(mod)
+    _validate_noise_intrinsics(mod, noise)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit32).run(mod, noise)
         return run_adaptive(
