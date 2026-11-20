@@ -2,17 +2,21 @@
 // Licensed under the MIT License.
 
 //! An instruction's declaration in its set ([`InstructionDef`]), built
-//! field by field or step by step.
+//! step by step.
 
 use super::{BlockOperand, DeclarationFault, Meaning, Parameter, ParameterKind};
 
 /// An instruction's declaration in its set, as Qodec writes it.
 ///
-/// Built field by field, or step by step from [`InstructionDef::new`]:
-/// Qodec's `{mnemonic: rz, in: [qubit], out: [qubit], parameters: {theta:
-/// number}}` is `InstructionDef::new("rz").acts_on([BlockType::qubit()])
-/// .parameter("theta", ParameterKind::Number)`.
+/// Built step by step from [`InstructionDef::new`], its fields public to
+/// read and to change: Qodec's `{mnemonic: rz, in: [qubit], out: [qubit],
+/// parameters: {theta: number}}` is
+/// `InstructionDef::new("rz").acts_on([BlockType::qubit()])
+/// .parameter("theta", ParameterKind::Number)`. It is non-exhaustive, so
+/// that a field Qodec adds to its declarations is added here without
+/// breaking the parts that declare sets.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InstructionDef {
     /// `mnemonic`: its name, unique in its set.
     pub mnemonic: String,
