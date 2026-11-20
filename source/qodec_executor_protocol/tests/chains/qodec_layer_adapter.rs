@@ -3,7 +3,8 @@
 
 //! [`QodecLayerAdapter`]: a qodec's layers in a chain read what Qodec's
 //! runtime reads driven directly, however they are bracketed, and keep each
-//! shot's state and errors as that runtime does.
+//! shot's state and errors as that runtime does, except where a part's
+//! boundary sees the layers reuse a label lazily for another type.
 
 use std::ops::Range;
 use std::sync::mpsc;
@@ -245,40 +246,99 @@ fn a_shot_keeps_its_layers_when_another_shot_ends() {
     assert_eq!(ending[0].readouts, not_ending[0].readouts);
 }
 
-/// C4/C6's two layers, one adapter each, with room between them for a
-/// part (a noise model, a debugger), read what one adapter of both reads.
+/// A qodec's two layers, one adapter each, with room between them for a
+/// part (a noise model, a debugger), read what one adapter of both reads:
+/// C4/C6's do. Except at a middle seam of several block types whose ISA has
+/// no release instruction, a known difference: there the upper layer
+/// releases a block lazily, keeping it live in the middle, and may prepare
+/// one of another type at its label. One adapter of both hands that call to
+/// Qodec's next layer, which ends the old block and runs on, as Qodec's
+/// runtime does; one adapter per layer hands it to the lower adapter, which
+/// cannot tell it from a program's call preparing a block at the index of a
+/// live block of another type, so it fails it, naming both blocks and the
+/// label.
 #[test]
 fn one_adapter_per_layer_reads_what_one_adapter_for_all_layers_reads() {
-    let model = qodecs::model("c4c6/qodec.yaml");
-    assert_eq!(model.layers.len(), 2, "precondition: C4/C6 has two layers");
-    let program = Program::parse(
-        "prepare_x_all 0; hadamard_all 0; mul_u 0; prepare_z_all 1; controlled_x_all 0 1; \
-         measure_z_all 0; measure_x_all 1",
-    );
-    let whole = on_stabilizer(&model, TopIsaDriver::new(&model.top, &program));
+    // Each case: its qodec, its program, and what one adapter per layer
+    // reads.
+    for (path, text, per_layer_reads) in [
+        (
+            "c4c6/qodec.yaml",
+            "prepare_x_all 0; hadamard_all 0; mul_u 0; prepare_z_all 1; controlled_x_all 0 1; \
+             measure_z_all 0; measure_x_all 1",
+            PerLayer::TheSame,
+        ),
+        (
+            TWO_MIDDLE_TYPES,
+            "prepare_single 0; release_single 0; prepare_z 1; measure_z 1",
+            PerLayer::FailingOnTheLazilyReleasedLabel,
+        ),
+    ] {
+        let model = qodecs::model(path);
+        assert_eq!(model.layers.len(), 2, "precondition: {path} has two layers");
+        let program = Program::parse(text);
+        let driver = || TopIsaDriver::new(&model.top, &program).going_on_after_errors();
+        let whole = on_stabilizer(&model, driver());
 
-    let mut executor = ActionSimulatorExecutor::stabilizer(&model.bottom)
-        .expect("the example's bottom ISA is a protocol set");
-    let layer = |k| QodecLayerAdapter::new(&model, k..k + 1).expect("each layer assembles alone");
-    let per_layer = (Driver::new(TopIsaDriver::new(&model.top, &program))
-        >> Adapter::new(layer(0))
-        >> Adapter::new(layer(1))
-        >> Executor::new(&mut executor))
-    .expect("each layer fits the next")
-    .run(&ShotSet::ids(0..SHOTS), SEED)
-    .expect("the program runs");
+        let mut executor = ActionSimulatorExecutor::stabilizer(&model.bottom)
+            .expect("the example's bottom ISA is a protocol set");
+        let layer =
+            |k| QodecLayerAdapter::new(&model, k..k + 1).expect("each layer assembles alone");
+        let per_layer = (Driver::new(driver())
+            >> Adapter::new(layer(0))
+            >> Adapter::new(layer(1))
+            >> Executor::new(&mut executor))
+        .expect("each layer fits the next")
+        .run(&ShotSet::ids(0..SHOTS), SEED)
+        .expect("the driver goes on after errors");
 
-    assert_eq!(
-        per_layer
-            .into_iter()
-            .map(|run| run.readouts)
-            .collect::<Vec<_>>(),
-        whole
-            .into_iter()
-            .map(|run| run.readouts)
-            .collect::<Vec<_>>()
-    );
+        match per_layer_reads {
+            PerLayer::TheSame => assert_eq!(
+                per_layer
+                    .into_iter()
+                    .map(|run| (run.ends, run.readouts))
+                    .collect::<Vec<_>>(),
+                whole
+                    .into_iter()
+                    .map(|run| (run.ends, run.readouts))
+                    .collect::<Vec<_>>(),
+                "{path}"
+            ),
+            PerLayer::FailingOnTheLazilyReleasedLabel => {
+                qodecs_runtime_runs((path, text));
+                for run in &whole {
+                    assert_eq!(
+                        run.ends,
+                        [ExecuteEnd::Ran],
+                        "precondition: one adapter of both runs {text}"
+                    );
+                }
+                for run in per_layer {
+                    assert!(
+                        matches!(run.ends.as_slice(), [end] if failed_below_on_a_label_of_two_types(end)),
+                        "{path}: {:?}",
+                        run.ends
+                    );
+                }
+            }
+        }
+    }
 }
+
+/// What one adapter per layer reads, against one adapter for all layers.
+#[derive(Clone, Copy, Debug)]
+enum PerLayer {
+    /// The same.
+    TheSame,
+    /// A failure on each shot, where the upper layer prepares a block at the
+    /// label of a block it released lazily, of another type: the known
+    /// difference.
+    FailingOnTheLazilyReleasedLabel,
+}
+
+/// A two-layer test qodec whose middle ISA has two block types, `a` and
+/// `b`, and no release instruction (its file says more).
+const TWO_MIDDLE_TYPES: &str = "fixtures/two_middle_types.qodec.yaml";
 
 /// The conditions raised in or below the layers reach the driver, on the
 /// shot they were raised on only. C4/C6's decoder cannot resolve the C6
@@ -486,7 +546,7 @@ const QUBITS: u32 = 5;
 /// each; a single alone lowers to one `b` block, and the layers ask for no
 /// `a`.
 #[test]
-fn below_several_block_types_each_is_asked_for_every_label_the_layers_may_hold() {
+fn the_layers_ask_for_each_type_below_as_many_blocks_as_labels_they_may_hold() {
     let model = qodecs::model(TWO_LOWER_TYPES);
     let adapter = QodecLayerAdapter::whole(&model).expect("the fixture's layers assemble");
     let needs = |blocks: &[(&str, u32)]| {
@@ -652,13 +712,13 @@ fn a_gadgets_pauli_reaches_the_part_below_as_qodec_reads_it() {
 /// at all: the layers' work on the shot is lost with it, so the refusal
 /// fails the shot rather than being passed up as one; or a fault of the
 /// layers, a Steane Hadamard on a block that is not live, which Qodec's
-/// runtime raises while it runs the batch. The last error is a known
+/// runtime raises while it runs the batch. One more error is a known
 /// difference from Qodec's runtime driven directly, which runs its program:
 /// the two-type fixture's layers release a `b` block without ending it
 /// below, as its lower ISA has no release instruction, and prepare an `a`
 /// block at its label; a part below cannot tell that block from one a
 /// program prepares at the index of a live block of another type, so it
-/// refuses it, naming both blocks and the label.
+/// fails it, naming both blocks and the label.
 #[test]
 fn a_shot_an_error_lost_is_refused_when_sent_again() {
     /// How the first `execute` must fail shot 3.
@@ -717,7 +777,7 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
             failed_on_a_fault_of_layer_0,
         ),
         (
-            "the part below refuses a label the layers released lazily",
+            "the part below fails a label the layers released lazily",
             label_released_lazily,
             None,
             together,

@@ -1,0 +1,121 @@
+# two_middle_types: a two-layer qodec whose middle ISA has two block types
+# and no release instruction.
+#
+# A `one` logical qubit is held by one block of type `a`, and a `single`
+# one by one block of type `b`, each a bare qubit below. A `single` is
+# released without a gadget, so Qodec's encoder releases its `b` block
+# lazily: it emits nothing, and gives the block's label to the next middle
+# block it prepares, of either type, while the `b` block stays live in the
+# middle layer.
+---
+qodec.yaml:
+  name: two_middle_types
+  description: One bare qubit per logical qubit, held by a middle block of one of two types.
+  layers:
+    - instruction_set: top.isa.yaml
+      codes:
+        one: bare.code.yaml
+        single: bare.code.yaml
+      gadgets:
+        prepare_z: prepare_z.gadget.yaml
+        prepare_single: prepare_single.gadget.yaml
+        measure_z: measure_z.gadget.yaml
+    - instruction_set: two_types.isa.yaml
+      codes:
+        a: bare.code.yaml
+        b: bare.code.yaml
+      gadgets:
+        prepare_a: prepare_bare.gadget.yaml
+        prepare_b: prepare_bare.gadget.yaml
+        measure_a: measure_bare.gadget.yaml
+    - instruction_set: qubits.isa.yaml
+---
+top.isa.yaml:
+  name: top
+  description: One logical qubit per block, of either type.
+  blocks: { one: 1, single: 1 }
+  instructions:
+    - mnemonic: prepare_z
+      description: Prepare the logical |0> state.
+      out: [one]
+      action: [stabilize: Z_0]
+    - mnemonic: measure_z
+      description: Destructive logical Z measurement.
+      in: [one]
+      action: [observe: Z_0]
+    - mnemonic: prepare_single
+      description: Prepare the logical |0> state.
+      out: [single]
+      action: [stabilize: Z_0]
+    - mnemonic: release_single
+      description: Release the block.
+      in: [single]
+---
+two_types.isa.yaml:
+  name: two_types
+  description: Two block types of one qubit each, with no release instruction.
+  blocks: { a: 1, b: 1 }
+  instructions:
+    - mnemonic: prepare_a
+      description: Reset to |0>.
+      out: [a]
+      action: [stabilize: Z_0]
+    - mnemonic: prepare_b
+      description: Reset to |0>.
+      out: [b]
+      action: [stabilize: Z_0]
+    - mnemonic: measure_a
+      description: Destructive Z measurement.
+      in: [a]
+      action: [observe: Z_0]
+---
+qubits.isa.yaml:
+  name: qubits
+  description: Bare qubits.
+  blocks: { qubit: 1 }
+  instructions:
+    - mnemonic: R
+      description: Reset to |0>.
+      out: [qubit]
+      action: [stabilize: Z_0]
+    - mnemonic: M
+      description: Destructive Z measurement.
+      in: [qubit]
+      action: [observe: Z_0]
+---
+bare.code.yaml:
+  name: bare
+  description: One unencoded qubit.
+  stabilizers: []
+  x: [X_0]
+  z: [Z_0]
+---
+prepare_z.gadget.yaml:
+  circuit:
+    source:
+      - prepare_a: [0]
+    out: { "0": a }
+---
+prepare_single.gadget.yaml:
+  circuit:
+    source:
+      - prepare_b: [0]
+    out: { "0": b }
+---
+measure_z.gadget.yaml:
+  circuit:
+    source:
+      - measure_a: [0]
+    in: { "0": a }
+  readouts: [["circuit.readouts[0]", "in[0].z[0]"]]
+---
+prepare_bare.gadget.yaml:
+  circuit:
+    source:
+      - R: [0]
+---
+measure_bare.gadget.yaml:
+  circuit:
+    source:
+      - M: [0]
+  readouts: [["circuit.readouts[0]", "in[0].z[0]"]]

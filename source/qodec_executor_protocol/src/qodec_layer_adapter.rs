@@ -8,7 +8,12 @@
 //! A user brackets a qodec's layers as their chain needs: all of them in
 //! one adapter, or one adapter per layer, so that a part (a debugger, a
 //! noise model, a counter) sits between two layers. Each bracketing gives
-//! the same readouts, since each layer sees the same calls.
+//! the same readouts, since each layer sees the same calls, except at a
+//! seam of several block types whose lower ISA has no release instruction:
+//! there the layers may prepare a block at the label of a block of another
+//! type they released lazily, which Qodec's next layer runs within one
+//! adapter, while the adapter whose boundary is that seam fails the call,
+//! and the shot is lost (the crate's doc says more).
 //!
 //! Each shot has its own layers, built from the qodec's plan at the shot's
 //! first batch and dropped when the shot ends, as Qodec's runtime does for

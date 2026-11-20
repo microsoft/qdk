@@ -19,16 +19,20 @@
 //!
 //! A chain of them gives the readouts the qodec's runtime gives driven
 //! directly over the same simulator, seeded alike, however the layers are
-//! bracketed, for a program that never prepares a block at the index of a
-//! live block of another type: Qodec has one label per block, whatever its
-//! type, so such a call (a `surface` patch prepared at the index of a live
-//! `merged` one) fails, naming both blocks ([`TranslationFault`]). The
-//! layers make such a call themselves below a seam of several block types
-//! whose lower ISA has no release instruction: Qodec's encoder releases a
-//! block there by taking its label back, while the block stays live below,
-//! and may prepare a block of another type at that label. The part below
-//! refuses that call too, and the shot is lost, where Qodec's runtime ends
-//! the old block and runs on; none of Qodec's examples has such a seam.
+//! bracketed, as long as no call that reaches a part, the program's or the
+//! layers' own, prepares a block at the index of a live block of another
+//! type: Qodec has one label per block, whatever its type, so such a call
+//! (a `surface` patch prepared at the index of a live `merged` one) fails,
+//! naming both blocks ([`TranslationFault`]). The layers make such a call
+//! themselves below a seam of several block types whose lower ISA has no
+//! release instruction: Qodec's encoder releases a block there by taking
+//! its label back, while the block stays live below, and may prepare a
+//! block of another type at that label. Where the seam is a part's
+//! boundary (the bottom part's, or that of an adapter of the layers below
+//! it), that part fails the call too, and the shot is lost, where Qodec's
+//! runtime, and an adapter holding the layers on both sides of the seam,
+//! end the old block and run on. So at such a seam the readouts depend on
+//! the bracketing; none of Qodec's examples has one.
 //! The parts keep the rules of Qodec's runtime, not those of Qodec's drivers,
 //! which first check each batch's types (Qodec's `TypeChecker`, not
 //! ported): a call on a block that is not live loses the shot here, where

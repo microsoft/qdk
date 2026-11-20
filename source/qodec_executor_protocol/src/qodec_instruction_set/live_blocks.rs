@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! [`LiveBlocks`]: a shot's live blocks under Qodec's labels, with their
-//! types, so that the parts refuse a call whose new block would take the
+//! types, so that the parts fail a call whose new block would take the
 //! label of a live block of another type.
 //!
 //! The protocol addresses a block by its type and its index among that
@@ -16,13 +16,14 @@
 //! two blocks share a label fails, naming them, before anything of its
 //! batch runs on the shot.
 //!
-//! The calls Qodec's layers send below are checked too, and the layers
-//! may make such a call themselves: below a seam of several block types
-//! whose lower ISA has no release instruction, Qodec's encoder releases a
-//! block by taking its label back, while the block stays live below, and
-//! may prepare a block of another type at that label. A label alone cannot
-//! tell that call from a program's, so the part below refuses it, where
-//! Qodec's translator ends the old block and runs on.
+//! The calls Qodec's layers send to the part below them are checked too,
+//! and the layers may make such a call themselves: below a seam of several
+//! block types whose lower ISA has no release instruction, Qodec's encoder
+//! releases a block by taking its label back, while the block stays live
+//! below, and may prepare a block of another type at that label. A label
+//! alone cannot tell that call from a program's, so the part below fails
+//! it, where Qodec's next layer, or its translator, ends the old block and
+//! runs on.
 //!
 //! A block's type follows Qodec's own check ([`TypeChecker`]): a call's
 //! inputs end, and its outputs become live, each of the type its operand
@@ -61,7 +62,7 @@ impl LiveBlocks {
     /// The exception is a release without a gadget, which Qodec's layers
     /// run unbound: the batch runs, but the blocks returned omit what the
     /// rest of the batch ends and prepares, so a later clash may go
-    /// unchecked, or a later valid call be refused. Only an ill-typed
+    /// unchecked, or a later valid call fail. Only an ill-typed
     /// program on an ISA of several types reaches it, one that Qodec's
     /// drivers reject first with their `TypeChecker`, which is not ported.
     ///
