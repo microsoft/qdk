@@ -18,10 +18,10 @@ use crate::parts::{
 use crate::timing::{best, per, per_call};
 use crate::workload::QUBITS;
 
-/// Each calling form, per batch size, in ns per instruction, and the
+/// Each calling form, per batch size of `batches`, in ns per instruction, and the
 /// differences between neighbouring forms per call. Batches are always
 /// unchecked: the one-shot forms have no flag to check them.
-pub(crate) fn bench(size: &Size, program: &[Instruction]) {
+pub(crate) fn bench(size: &Size, program: &[Instruction], batches: &[usize]) {
     println!(
         "\ncalling_form: one shot, the direct column's work behind three calling forms, ns/instr (difference per call), batches unchecked"
     );
@@ -33,7 +33,7 @@ pub(crate) fn bench(size: &Size, program: &[Instruction]) {
         "  {:>7} {:>8} {:>20} {:>20}",
         "batch", "today", "one-shot async", "one-shot sync"
     );
-    for batch in [1, 10, 100] {
+    for &batch in batches {
         let slots = slots_per_batch(&MixGates::set(), program, batch);
         let time = |form| {
             best(size.repeats, &expected, || {

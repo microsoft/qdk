@@ -17,10 +17,10 @@ use crate::parts::{
 use crate::timing::{PER_CALL_UP_TO, best, per, per_call};
 use crate::workload::QUBITS;
 
-/// Each chain, per batch size, in ns per instruction and, beside each
+/// Each chain, per batch size of `batches`, in ns per instruction and, beside each
 /// chain, its cost per `execute` over the direct call, at batches of at
 /// most [`PER_CALL_UP_TO`] instructions.
-pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
+pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool, batches: &[usize]) {
     println!(
         "\nchains: one driver on four chains, ns/instr (overhead per call vs direct, batch ≤ {PER_CALL_UP_TO})"
     );
@@ -32,7 +32,7 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
         "  {:>7} {:>8} {:>20} {:>20} {:>20}",
         "batch", "direct", "≫P", "≫F≫P", "≫F≫F≫P"
     );
-    for batch in [1, 10, 100, 1_000, 10_000] {
+    for &batch in batches {
         let slots = slots_per_batch(&MixGates::set(), program, batch);
         let time = |chain| {
             best(size.repeats, &expected, || {

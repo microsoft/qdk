@@ -8,7 +8,7 @@
 //! - `chains`: one driver on four chains, batches of 1 to 10 000
 //!   instructions, over an executor whose `execute` is an `async fn`, as
 //!   users write it. A chain's cost over direct is the protocol's own;
-//! - `calling_form`: the direct column's work, at batches of 1 to 100
+//! - `calling_form`: the direct column's work, at batches of 1 to 128
 //!   instructions, beside the same work called in a one-shot form, with no
 //!   `Batch`, `ShotSet` or `BatchReadouts`, awaited or as a plain call;
 //! - `checks`: a batch's checks, whether a boundary without them costs
@@ -33,7 +33,9 @@
 //! [`checked`](executor_protocol::Batch::checked) with `--checked`;
 //! `checks` runs both, `calling_form` unchecked only. `chains`,
 //! `calling_form`, `checks` and `worker` draw the common mix, or the
-//! parity-heavy one with `--parity-heavy`. Run it with
+//! parity-heavy one with `--parity-heavy`. `chains` and `calling_form`
+//! run other batch sizes with `--batches=` and a list, such as
+//! `--batches=1,2,4`. Run it with
 //! `cargo run --release --example bench`, followed by at most one of
 //! `chains`, `calling_form`, `checks`, `lowering` and `worker`, and the
 //! flags.
@@ -100,6 +102,17 @@ const CHECKED: &str = "--checked";
 /// The flag that draws the parity-heavy mix.
 const PARITY_HEAVY: &str = "--parity-heavy";
 
+/// The flag's prefix that names the batch sizes of `chains` and
+/// `calling_form`, as a comma-separated list.
+const BATCHES: &str = "--batches=";
+
+/// The batch sizes `chains` runs, unless `--batches=` names others.
+const CHAINS_BATCHES: [usize; 5] = [1, 10, 100, 1_000, 10_000];
+
+/// The batch sizes `calling_form` runs, unless `--batches=` names others:
+/// few instructions per call, where its fixed cost shows.
+const CALLING_FORM_BATCHES: [usize; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
+
 fn main() {
     let (flags, benches): (Vec<String>, Vec<String>) = std::env::args()
         .skip(1)
@@ -110,12 +123,25 @@ fn main() {
     } else {
         Mix::Common
     };
-    let unknown = flags
+    let batches = flags
         .iter()
-        .find(|flag| ![CHECKED, PARITY_HEAVY].contains(&flag.as_str()));
+        .filter_map(|flag| flag.strip_prefix(BATCHES))
+        .next_back()
+        .map(|list| {
+            list.split(',')
+                .map(|size| size.parse::<usize>().ok().filter(|&size| size > 0))
+                .collect::<Option<Vec<_>>>()
+                .unwrap_or_else(|| {
+                    eprintln!("{BATCHES}{list:?}: a list of batch sizes above 0, such as 1,2,4");
+                    std::process::exit(2);
+                })
+        });
+    let unknown = flags.iter().find(|flag| {
+        ![CHECKED, PARITY_HEAVY].contains(&flag.as_str()) && !flag.starts_with(BATCHES)
+    });
     let only = benches.first();
     if let Some(flag) = unknown {
-        eprintln!("no flag {flag:?}: the flags are {CHECKED} and {PARITY_HEAVY}");
+        eprintln!("no flag {flag:?}: the flags are {CHECKED}, {PARITY_HEAVY} and {BATCHES}");
         std::process::exit(2);
     }
     if let Some(only) = only
@@ -126,14 +152,21 @@ fn main() {
         );
         std::process::exit(2);
     }
-    run(&FULL, only.map(String::as_str), checked, mix);
+    run(
+        &FULL,
+        only.map(String::as_str),
+        checked,
+        mix,
+        batches.as_deref(),
+    );
 }
 
 /// Runs the benches, or only the one named `only`, each batch
 /// [`checked`](executor_protocol::Batch::checked) if `checked` (`checks`
 /// runs both, `calling_form` unchecked only), `chains`, `calling_form`,
-/// `checks` and `worker` on `mix`.
-fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix) {
+/// `checks` and `worker` on `mix`; `chains` and `calling_form` at
+/// `batches`, or their own sizes if `None`.
+fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix, batches: Option<&[usize]>) {
     let wants = |bench: &str| only.is_none_or(|only| only == bench);
     println!("an instruction is {} bytes", size_of::<Instruction>());
     if wants("chains") || wants("lowering") || wants("worker") {
@@ -160,10 +193,10 @@ fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix) {
         let draws = draws(size.instructions, mix);
         let program = build(&draws);
         if wants("chains") {
-            chains::bench(size, &program, checked);
+            chains::bench(size, &program, checked, batches.unwrap_or(&CHAINS_BATCHES));
         }
         if wants("calling_form") {
-            calling_form::bench(size, &program);
+            calling_form::bench(size, &program, batches.unwrap_or(&CALLING_FORM_BATCHES));
         }
         if wants("checks") {
             checks::bench(size, &draws, &program);
@@ -187,8 +220,8 @@ mod tests {
     #[test]
     fn every_variant_does_the_same_work_at_a_tiny_size() {
         for mix in [Mix::Common, Mix::ParityHeavy] {
-            run(&TINY, None, false, mix);
-            run(&TINY, None, true, mix);
+            run(&TINY, None, false, mix, None);
+            run(&TINY, None, true, mix, None);
         }
     }
 }
