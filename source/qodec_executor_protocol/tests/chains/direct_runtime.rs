@@ -10,7 +10,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use qodec_runtime_recipes::{
-    ActionOp, ActionTranslator, Backend, BasicReadout, Call, Isa, OwnedParam, Stack,
+    ActionOp, ActionTranslator, Backend, BasicReadout, Call, Isa, OwnedParam, ParamKind, Stack,
 };
 use smallvec::SmallVec;
 
@@ -79,7 +79,10 @@ fn call(isa: &Isa, step: &Step) -> Call {
             .iter()
             .find(|(name, _)| *name == parameter.name)
             .unwrap_or_else(|| panic!("`{}` has an argument `{}`", step.mnemonic, parameter.name));
-        parameters.push(OwnedParam::Float(*value));
+        parameters.push(match parameter.kind {
+            ParamKind::Bit => OwnedParam::Bool(*value != 0.0),
+            _ => OwnedParam::Float(*value),
+        });
     }
     Call {
         instruction_id,

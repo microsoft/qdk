@@ -40,6 +40,7 @@ mod qodecs;
 mod top_isa_driver;
 
 mod timing;
+mod workload;
 
 use executor_protocol::{Adapter, Driver, Executor, ShotSet};
 use qodec_executor_protocol::{ActionSimulatorExecutor, QodecLayerAdapter};
@@ -48,6 +49,7 @@ use qodec_runtime_recipes::runtime;
 use crate::direct_runtime::{run_directly, simulator, stabilizer};
 use crate::programs::{Program, ShotReadouts};
 use crate::top_isa_driver::TopIsaDriver;
+use crate::workload::CASES;
 
 /// The seed of every run.
 const SEED: u64 = 0x5EED;
@@ -57,22 +59,6 @@ const SHOTS: u32 = 2_000;
 
 /// The rounds each variant is timed over; the best counts.
 const ROUNDS: usize = 5;
-
-/// Each qodec, with a program of Qodec's own REPL tests.
-const CASES: [(&str, &str); 3] = [
-    (
-        "steane/steane.qodec.yaml",
-        "prepare_z 0; prepare_x 1; idle_ft 0; h 0; cnot 0 1; measure_z 0; measure_x 1",
-    ),
-    (
-        "c4c6/qodec.yaml",
-        "prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0",
-    ),
-    (
-        "surface/surface.qodec.yaml",
-        "prepare_z 0; prepare_z 1; idle 0; merge_zz 0 1; measure_merged_z 0",
-    ),
-];
 
 fn main() {
     let shots = std::env::args()

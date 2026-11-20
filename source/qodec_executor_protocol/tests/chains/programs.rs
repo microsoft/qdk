@@ -7,8 +7,9 @@
 use executor_protocol::ShotConditions;
 
 /// A program: `execute`s separated by `|`, each of instructions separated
-/// by `;`, each a mnemonic, its blocks, and its `number` arguments as
-/// `name=value`: `prepare_z 0; idle 0 | rotate_z 0 theta=0.5; measure_z 0`.
+/// by `;`, each a mnemonic, its blocks, and its arguments as `name=value`,
+/// a number, or 0 or 1 for a `bit` parameter:
+/// `prepare_z 0; idle 0 | rotate_z 0 theta=0.5; measure_z 0`.
 pub struct Program {
     /// Each `execute`'s instructions, in order.
     pub executes: Vec<Vec<Step>>,
@@ -19,7 +20,7 @@ pub struct Step {
     pub mnemonic: String,
     /// Each operand's block, among the shot's blocks of its type.
     pub blocks: Vec<u32>,
-    /// Its `number` arguments, by parameter name.
+    /// Its arguments' values, by parameter name.
     pub numbers: Vec<(String, f64)>,
 }
 
@@ -35,7 +36,7 @@ impl Program {
                 match word.split_once('=') {
                     Some((name, value)) => numbers.push((
                         name.to_owned(),
-                        value.parse().expect("an argument is a number"),
+                        value.parse().expect("an argument's value is a number"),
                     )),
                     None => blocks.push(word.parse().expect("an operand is a block")),
                 }

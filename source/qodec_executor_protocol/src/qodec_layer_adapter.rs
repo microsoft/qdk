@@ -14,8 +14,9 @@
 //! first batch and dropped when the shot ends, as Qodec's runtime does for
 //! a shot it runs directly. Each batch runs through them shot by shot: the
 //! layers call the part below as often as they need, with one-shot
-//! batches, and wait for each answer (`below_bridge.rs` says why they
-//! wait by blocking).
+//! batches, each split to the most instructions the part below takes, and
+//! wait for each answer (`below_bridge.rs` says why they wait by
+//! blocking).
 
 mod below_bridge;
 mod shot_layers;
@@ -55,6 +56,9 @@ pub struct QodecLayerAdapter {
     below: Option<OpcodeMap>,
     shots: BTreeMap<ShotId, ShotState>,
     readouts_below: Readouts,
+    /// The most instructions the part below takes in a batch, once it has
+    /// refused a batch for holding more.
+    most_instructions_below: Option<u32>,
 }
 
 /// A shot's layers, and whether an error lost the shot.
@@ -106,6 +110,7 @@ impl QodecLayerAdapter {
             below: None,
             shots: BTreeMap::new(),
             readouts_below: Readouts::new(),
+            most_instructions_below: None,
         })
     }
 
@@ -133,9 +138,14 @@ impl QodecLayerAdapter {
         let mut needs = Needs::default();
         let count = |n: usize| u32::try_from(n).map_err(|_| PlanError::from("over 2^32 blocks"));
         if lower.qubits > 0 {
-            let only = types
-                .only()
-                .expect("Qodec counts qubits of an ISA of one type");
+            let only = types.only().ok_or_else(|| {
+                PlanError::from(format!(
+                    "the layers lower to {} qubits, and the ISA below has {} block types, \
+                     so which type holds them is not known",
+                    lower.qubits,
+                    types.names.len()
+                ))
+            })?;
             needs = needs.blocks(
                 BlockType::new(types.names[only].clone()),
                 count(lower.qubits)?,
@@ -181,10 +191,10 @@ impl AdapterSetup for QodecLayerAdapter {
 
     /// Any number of blocks of each type of the ISA the layers accept: how
     /// many the part below holds is checked at its own boundary, against
-    /// what the layers lower them to. Any number of instructions per batch,
-    /// which the layers lower to batches of their own. No readout parity:
-    /// Qodec's calls take values. The shots, seeding and replay of the part
-    /// below.
+    /// what the layers lower them to. Any number of instructions per batch:
+    /// the layers lower them to batches of their own, which the adapter
+    /// splits to the most the part below takes. No readout parity: Qodec's
+    /// calls take values. The shots, seeding and replay of the part below.
     fn offers_above(&self, below: Offer) -> Offer {
         let mut above = below;
         above.max_blocks = self
@@ -215,10 +225,14 @@ impl Adapt for QodecLayerAdapter {
     }
 
     /// Runs each batch through each of its shots' layers, in order. A shot
-    /// an earlier error lost is refused before anything runs. An error
-    /// below, or a layer's fault, fails the batch at that shot and loses
-    /// it; a call the layers reject (an unchecked batch's malformed
-    /// instruction) fails the batch at that shot without losing it.
+    /// an earlier error lost, in any batch, is refused before anything
+    /// runs. An error below, or a layer's fault, fails the batch at that
+    /// shot and loses it. A call with the wrong arguments for its
+    /// instruction, which Qodec's runtime rejects before running it, fails
+    /// the batch at that shot without losing it; only an unchecked batch
+    /// can carry one. An unchecked batch's instruction of another set, or
+    /// readout slots fewer than its instructions read, panics, as the core
+    /// lets a receiver of an unchecked batch do.
     #[expect(
         clippy::unused_async_trait_impl,
         reason = "the layers wait for the part below by blocking, so `adapt` never awaits"
@@ -273,6 +287,7 @@ impl Adapt for QodecLayerAdapter {
                         sends: &self.sends,
                         map,
                         readouts: &mut self.readouts_below,
+                        most_instructions: &mut self.most_instructions_below,
                     };
                     Runtime::new(
                         ShotLayers(&mut state.layers),
@@ -325,9 +340,10 @@ impl QodecLayerAdapter {
                     failure: Failure::Part(Box::new(at_layer(fault))),
                 }
             }
-            QodecRuntimeError::Poisoned => {
-                ExecuteError::Refused(ExecuteRefusal::EarlierFailure(shot))
-            }
+            QodecRuntimeError::Poisoned => unreachable!(
+                "a runtime is made for each shot of each `adapt`, and runs once, after the \
+                 shots an earlier error lost are refused, so it is never poisoned"
+            ),
         }
     }
 }

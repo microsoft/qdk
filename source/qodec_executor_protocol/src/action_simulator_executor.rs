@@ -68,6 +68,14 @@ impl ActionSimulatorExecutor {
     /// `bottom` on a state-vector simulator of `qubits` qubits: any
     /// rotation. A block holds as many of them as its type's capacity.
     ///
+    /// Each block type is offered `qubits` over its capacity on its own, so
+    /// for a `bottom` of several types, the blocks a shot holds together may
+    /// need more qubits than the simulator has, which fails the shot when it
+    /// takes them; Qodec's bottom ISAs have one type. Each shot holds its own
+    /// simulator, of `2^qubits` amplitudes of 16 bytes, from its first batch
+    /// until its end, and the offer bounds no shots: a run of 2000 shots of
+    /// 20 qubits that ends its shots only at the run's end holds 32 GiB.
+    ///
     /// # Errors
     ///
     /// The faults the protocol finds in `bottom`'s declaration.

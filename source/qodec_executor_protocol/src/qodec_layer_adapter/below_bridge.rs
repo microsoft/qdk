@@ -12,7 +12,15 @@
 //! as the protocol's runner waits for a run. A part below that answers at
 //! once, as a simulator does, costs no park; one that answers later, such
 //! as a device, holds the thread meanwhile, so the chain runs no other
-//! shot in the time.
+//! shot in the time. A part below whose answer waits on work of the same
+//! task, such as a part that awaits a channel another part of the chain
+//! feeds, never gets it: the task is held here, so the run deadlocks.
+//!
+//! The layers' batches are their own, so one may hold more instructions
+//! than the part below takes in a batch. The part below refuses such a
+//! batch before running any of it, naming its most; the bridge then sends
+//! the same instructions in batches of at most that many, in order, and
+//! keeps the most for the batches that follow.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,7 +28,8 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread::Thread;
 
 use executor_protocol::{
-    Batch, Execute, ExecuteError, Failure, Instruction, OpcodeMap, Readouts, Seed, ShotSet,
+    Batch, Execute, ExecuteError, ExecuteRefusal, Failure, Instruction, OpcodeMap, Readouts, Seed,
+    ShotSet,
 };
 use qodec_runtime_recipes::{Backend, BasicReadout, Call};
 
@@ -40,6 +49,8 @@ pub(super) struct BelowBridge<'a, X> {
     /// Its opcodes in the set below.
     pub(super) map: &'a OpcodeMap,
     pub(super) readouts: &'a mut Readouts,
+    /// The most instructions the part below takes in a batch, once known.
+    pub(super) most_instructions: &'a mut Option<u32>,
 }
 
 impl<X: Execute> Backend<Vec<Call>, Result<Vec<BasicReadout>, ExecuteError>>
@@ -55,15 +66,50 @@ impl<X: Execute> Backend<Vec<Call>, Result<Vec<BasicReadout>, ExecuteError>>
                 shot,
                 failure: Failure::Part(Box::new(fault)),
             })?;
+        let mut results = Vec::new();
+        let mut start = 0;
+        loop {
+            let end = match *self.most_instructions {
+                Some(most) => calls.len().min(start + most as usize),
+                None => calls.len(),
+            };
+            match self.send(&calls[start..end], &instructions[start..end]) {
+                Ok(part) if start == 0 && end == calls.len() => return Ok(part),
+                Ok(part) => {
+                    results.extend(part);
+                    start = end;
+                    if start == calls.len() {
+                        return Ok(results);
+                    }
+                }
+                Err(ExecuteError::Refused(ExecuteRefusal::TooManyInstructions { max, .. }))
+                    if max > 0 && (max as usize) < end - start =>
+                {
+                    *self.most_instructions = Some(max);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+impl<X: Execute> BelowBridge<'_, X> {
+    /// Sends `instructions`, those of `calls`, below in one batch: the
+    /// results of `calls`.
+    fn send(
+        &mut self,
+        calls: &[Call],
+        instructions: &[Instruction],
+    ) -> Result<Vec<BasicReadout>, ExecuteError> {
         let batches = [
-            Batch::new(self.shot, &instructions, self.sends.readout_slots(&calls))
+            Batch::new(self.shot, instructions, self.sends.readout_slots(calls))
                 .checked_if(self.checked),
         ];
         let readouts = self.readouts.readouts_for(&batches);
         wait(self.below.execute(&batches, self.seed, readouts))?;
         Ok(self
             .sends
-            .results(&calls, readouts[0].row(0), readouts[0].conditions(0)))
+            .results(calls, readouts[0].row(0), readouts[0].conditions(0)))
     }
 }
 

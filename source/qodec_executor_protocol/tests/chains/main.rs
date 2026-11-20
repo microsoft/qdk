@@ -10,10 +10,12 @@
 //!
 //! The driver and the direct runtime are written here, on the protocol's
 //! roles and on Qodec's runtime; they read one program, in Qodec's REPL
-//! syntax.
+//! syntax. A spy between the layers and the executor shows what the layers
+//! send below.
 
 mod action_simulator_executor;
 mod direct_runtime;
+mod executor_spy;
 mod programs;
 mod qodec_layer_adapter;
 mod qodecs;

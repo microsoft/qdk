@@ -11,6 +11,7 @@ use qodec_runtime_recipes::{QodecModel, runtime};
 
 use crate::SEED;
 use crate::direct_runtime::{run_directly, simulator, stabilizer};
+use crate::executor_spy::ExecutorSpy;
 use crate::programs::Program;
 use crate::qodecs;
 use crate::top_isa_driver::{ExecuteEnd, ShotRun, TopIsaDriver};
@@ -28,6 +29,29 @@ fn on_stabilizer(model: &QodecModel, driver: TopIsaDriver) -> Vec<ShotRun> {
     .expect("the layers fit the driver above and the simulator below")
     .run(&ShotSet::ids(0..SHOTS), SEED)
     .expect("the program runs")
+}
+
+/// A stabilizer simulator of `model`'s bottom ISA, spied on.
+fn spied_stabilizer(model: &QodecModel) -> ExecutorSpy<ActionSimulatorExecutor> {
+    ExecutorSpy::new(
+        ActionSimulatorExecutor::stabilizer(&model.bottom)
+            .expect("the example's bottom ISA is a protocol set"),
+    )
+}
+
+/// Runs `driver` on every layer of `model` over `below`, on `shots`.
+fn over(
+    model: &QodecModel,
+    driver: TopIsaDriver,
+    below: &mut ExecutorSpy<ActionSimulatorExecutor>,
+    shots: &ShotSet,
+) -> Vec<ShotRun> {
+    (Driver::new(driver)
+        >> Adapter::new(QodecLayerAdapter::whole(model).expect("the example's layers assemble"))
+        >> Executor::new(below))
+    .expect("the layers fit the driver above and the part below")
+    .run(shots, SEED)
+    .expect("the run gives its outputs")
 }
 
 /// Qodec's examples, each with a program of Qodec's own REPL tests or a
@@ -207,34 +231,145 @@ fn the_layers_ask_the_part_below_for_the_qubits_they_lower_their_blocks_to() {
 const QUBITS: u32 = 5;
 
 /// A rotation by a non-Clifford angle, which a stabilizer simulator cannot
-/// run, fails the shot below the layers and loses it there and in them:
-/// the shot sent again, as a debugger stepping on would, is refused as an
-/// earlier failure, before anything runs.
+/// run, fails shot 3 below the layers and loses it there and in them: the
+/// shot sent again, as a debugger stepping on would, together with shot 1,
+/// is refused as an earlier failure before anything of that `execute`
+/// runs, so shot 1, sent before it, reaches no part below either.
 #[test]
 fn a_shot_an_error_lost_is_refused_when_sent_again() {
     let model = qodecs::model("repetition3/repetition3.qodec.yaml");
-    let program = Program::parse("prepare_z 0; rotate_z 0 theta=0.5 | measure_z 0");
+    let program = Program::parse("prepare_z 0; rotate_z 0 theta=0.5 | prepare_z 0; measure_z 0");
+    let driver = TopIsaDriver::new(&model.top, &program)
+        .sending_execute_to(0, &[1])
+        .going_on_after_errors();
 
-    let mut executor = ActionSimulatorExecutor::stabilizer(&model.bottom)
-        .expect("the example's bottom ISA is a protocol set");
-    let runs = (Driver::new(TopIsaDriver::new(&model.top, &program).going_on_after_errors())
-        >> Adapter::new(QodecLayerAdapter::whole(&model).expect("the example's layers assemble"))
-        >> Executor::new(&mut executor))
-    .expect("the layers fit the driver above and the simulator below")
-    .run(&ShotSet::ids([3]), SEED)
-    .expect("the driver goes on after errors");
+    let mut below = spied_stabilizer(&model);
+    let runs = over(&model, driver, &mut below, &ShotSet::ids([1, 3]));
 
-    let [first, second] = runs[0].ends.as_slice() else {
-        panic!("two `execute`s: {:?}", runs[0].ends);
+    let [first, second] = runs[1].ends.as_slice() else {
+        panic!("two `execute`s for shot 3: {:?}", runs[1].ends);
     };
     assert!(
         matches!(first, ExecuteEnd::Failed { .. }),
         "precondition: the rotation fails: {first:?}"
     );
+    let refused = |end: &ExecuteEnd| matches!(end, ExecuteEnd::Refused(ExecuteRefusal::EarlierFailure(shot)) if shot.get() == 3);
+    assert!(refused(second), "{second:?}");
     assert!(
-        matches!(second, ExecuteEnd::Refused(ExecuteRefusal::EarlierFailure(shot)) if shot.get() == 3),
-        "{second:?}"
+        matches!(runs[0].ends.as_slice(), [end] if refused(end)),
+        "shot 1: {:?}",
+        runs[0].ends
     );
+    assert!(
+        below.received.iter().all(|batch| !batch.shots.contains(&1)),
+        "shot 1 reached the part below: {:?}",
+        below.received
+    );
+}
+
+/// A runner runs again on the shots of its last run, in which a rotation by
+/// a non-Clifford angle, which a stabilizer simulator cannot run, failed
+/// and lost them: the layers forgot them when the run ended, so each fails
+/// again as it failed then, rather than being refused as an earlier
+/// failure.
+#[test]
+fn a_shot_lost_in_one_run_runs_afresh_in_the_next() {
+    let model = qodecs::model("repetition3/repetition3.qodec.yaml");
+    let program = Program::parse("prepare_z 0; rotate_z 0 theta=0.5 | measure_z 0");
+    let driver = TopIsaDriver::new(&model.top, &program).going_on_after_errors();
+    let mut executor = ActionSimulatorExecutor::stabilizer(&model.bottom)
+        .expect("the example's bottom ISA is a protocol set");
+    let mut runner = (Driver::new(driver)
+        >> Adapter::new(QodecLayerAdapter::whole(&model).expect("the example's layers assemble"))
+        >> Executor::new(&mut executor))
+    .expect("the layers fit the driver above and the simulator below");
+    let shots = ShotSet::ids([3, 7]);
+    let mut run = || {
+        runner
+            .run(&shots, SEED)
+            .expect("the driver goes on after errors")
+            .into_iter()
+            .map(|run| run.ends)
+            .collect::<Vec<_>>()
+    };
+
+    let first = run();
+    assert!(
+        first
+            .iter()
+            .all(|ends| matches!(ends.as_slice(), [ExecuteEnd::Failed { .. }, _])),
+        "precondition: the rotation fails every shot: {first:?}"
+    );
+    assert_eq!(run(), first);
+}
+
+/// Batches sent checked, or unchecked, reach the part below the layers
+/// checked as they were sent: the layers send the part below the
+/// instructions it accepts, but leave the checks to what their caller
+/// asks.
+#[test]
+fn the_layers_send_batches_checked_as_the_ones_they_get() {
+    let model = qodecs::model("steane/steane.qodec.yaml");
+    let program = Program::parse("prepare_z 0; prepare_x 1 | cnot 0 1; measure_z 0; measure_x 1");
+    for checked in [false, true] {
+        let driver = TopIsaDriver::new(&model.top, &program);
+        let driver = if checked { driver.checked() } else { driver };
+
+        let mut below = spied_stabilizer(&model);
+        over(&model, driver, &mut below, &ShotSet::ids(0..4));
+
+        assert!(
+            !below.received.is_empty(),
+            "precondition: batches went below"
+        );
+        assert!(
+            below.received.iter().all(|batch| batch.checked == checked),
+            "sent checked: {checked}; received: {:?}",
+            below.received
+        );
+    }
+}
+
+/// A part below that takes at most two instructions per batch, as a
+/// device with a small instruction memory may, gets the layers'
+/// instructions in batches of at most two, and the shots read what they
+/// read with no such limit.
+#[test]
+fn the_layers_split_their_batches_to_the_most_the_part_below_takes() {
+    let model = qodecs::model("steane/steane.qodec.yaml");
+    let program = Program::parse(
+        "prepare_z 0; prepare_x 1; idle_ft 0; h 0; cnot 0 1; measure_z 0; measure_x 1",
+    );
+    let run = |below: &mut ExecutorSpy<ActionSimulatorExecutor>| {
+        over(
+            &model,
+            TopIsaDriver::new(&model.top, &program),
+            below,
+            &ShotSet::ids(0..SHOTS),
+        )
+        .into_iter()
+        .map(|run| run.readouts)
+        .collect::<Vec<_>>()
+    };
+    let mut unlimited = spied_stabilizer(&model);
+    let mut limited = spied_stabilizer(&model).taking_at_most(2);
+
+    let expected = run(&mut unlimited);
+    let readouts = run(&mut limited);
+
+    assert!(
+        unlimited
+            .received
+            .iter()
+            .any(|batch| batch.instructions > 2),
+        "precondition: the layers send batches of more than two instructions"
+    );
+    assert!(
+        limited.received.iter().all(|batch| batch.instructions <= 2),
+        "{:?}",
+        limited.received
+    );
+    assert_eq!(readouts, expected);
 }
 
 /// A rotation sent without its angle, in an unchecked batch, is a call
@@ -266,8 +401,10 @@ fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
 }
 
 /// C4/C6's lower layer alone, below a driver of its ISA, given a Hadamard
-/// on two blocks: the fault it raises names it as layer 1, its place in the
-/// whole qodec, as Qodec's runtime running every layer names it.
+/// on two blocks, which Qodec's check of a call's arguments lets through
+/// (it does not count blocks): the fault the layer raises when it binds the
+/// call's blocks names it as layer 1, its place in the whole qodec, as
+/// Qodec's runtime running every layer names it.
 #[test]
 fn a_layers_fault_names_its_place_in_the_whole_qodec() {
     let model = qodecs::model("c4c6/qodec.yaml");

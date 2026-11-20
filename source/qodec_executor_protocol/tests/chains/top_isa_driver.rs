@@ -2,21 +2,23 @@
 // Licensed under the MIT License.
 
 //! [`TopIsaDriver`]: a program of a qodec's top ISA, sent to every shot,
-//! each of its `execute`s as one batch.
+//! or to the shots chosen for an `execute`, each `execute` as one batch.
 
 use std::sync::Arc;
 
 use executor_protocol::{
-    Argument, Batch, BatchReadouts, BlockType, Drive, DriveError, DriverSetup, Execute,
+    Argument, Batch, BatchReadouts, Bit, BlockType, Drive, DriveError, DriverSetup, Execute,
     ExecuteError, ExecuteRefusal, Failure, Instruction, InstructionSet, Needs, OpcodeMap,
     ReadoutValue, Seed, ShotConditions, ShotSet,
 };
 use qodec_executor_protocol::QodecInstructionSet;
-use qodec_runtime_recipes::{Fault, Isa};
+use qodec_runtime_recipes::{Fault, Isa, ParamKind};
 
 use crate::programs::{Program, ShotReadouts};
 
-/// Sends `program` to every shot, and gives each shot's stream of the run's
+/// Sends `program` to every shot, or each `execute` to the shots chosen for
+/// it ([`sending_execute_to`](TopIsaDriver::sending_execute_to)), and gives
+/// each shot's stream of the run's
 /// seed (to drive Qodec's runtime directly with) and readouts. By default
 /// an `execute`'s error ends the run; a driver
 /// [`going_on_after_errors`](TopIsaDriver::going_on_after_errors) sends the
@@ -26,6 +28,9 @@ pub struct TopIsaDriver {
     /// Each `execute`'s instructions, in the driver's set, then in the set
     /// below once `>>` binds them, and their readout slots.
     executes: Vec<(Vec<Instruction>, u32)>,
+    /// The positions, in the run's shots, each `execute` goes to: all of
+    /// them when `None`.
+    targets: Vec<Option<Vec<usize>>>,
     needs: Needs,
     checked: bool,
     going_on: bool,
@@ -40,7 +45,7 @@ pub struct ShotRun {
 }
 
 /// How an `execute` ended.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExecuteEnd {
     Ran,
     /// It failed: the failure's message, and the Qodec fault it is, if one.
@@ -76,7 +81,7 @@ impl TopIsaDriver {
     pub fn new(top: &Arc<Isa>, program: &Program) -> Self {
         let set = QodecInstructionSet::new(top).expect("the example's ISA is a protocol set");
         let mut needs = Needs::default();
-        let executes = program
+        let executes: Vec<(Vec<Instruction>, u32)> = program
             .executes
             .iter()
             .map(|steps| {
@@ -87,7 +92,13 @@ impl TopIsaDriver {
                         let arguments: Vec<(&str, Argument)> = step
                             .numbers
                             .iter()
-                            .map(|(name, value)| (name.as_str(), Argument::Number(*value)))
+                            .map(|(name, value)| {
+                                let argument = match parameter_kind(top, &step.mnemonic, name) {
+                                    ParamKind::Bit => Argument::Bit(Bit::Value(*value != 0.0)),
+                                    _ => Argument::Number(*value),
+                                };
+                                (name.as_str(), argument)
+                            })
                             .collect();
                         set.instruction_set()
                             .instruction(&step.mnemonic, step.blocks.iter().copied(), &arguments)
@@ -101,9 +112,11 @@ impl TopIsaDriver {
                 (instructions, slots)
             })
             .collect();
+        let targets = vec![None; executes.len()];
         Self {
             set,
             executes,
+            targets,
             needs,
             checked: false,
             going_on: false,
@@ -128,6 +141,27 @@ impl TopIsaDriver {
         self
     }
 
+    /// This driver, with each `bit` argument of instruction `at` of
+    /// `execute` replaced by the parity of the shot's latest readout: an
+    /// argument a qodec's call has no form for, which this driver's needs
+    /// do not state, so that only the boundary of a checked batch refuses
+    /// it.
+    pub fn with_a_readout_parity(mut self, execute: usize, at: usize) -> Self {
+        for argument in &mut self.executes[execute].0[at].arguments {
+            if matches!(argument, Argument::Bit(_)) {
+                *argument = Argument::recent(1);
+            }
+        }
+        self
+    }
+
+    /// This driver, sending `execute` only to the shots at `positions` of
+    /// the run's shots: the others' ends and readouts skip it.
+    pub fn sending_execute_to(mut self, execute: usize, positions: &[usize]) -> Self {
+        self.targets[execute] = Some(positions.to_vec());
+        self
+    }
+
     /// This driver, sending each `execute` whatever the last gave.
     pub fn going_on_after_errors(mut self) -> Self {
         self.going_on = true;
@@ -139,6 +173,21 @@ impl TopIsaDriver {
         self.checked = true;
         self
     }
+}
+
+/// The kind of parameter `name` of `mnemonic` in `isa`.
+fn parameter_kind(isa: &Isa, mnemonic: &str, name: &str) -> ParamKind {
+    isa.instructions
+        .iter()
+        .find(|signature| signature.mnemonic == mnemonic)
+        .and_then(|signature| {
+            signature
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == name)
+        })
+        .unwrap_or_else(|| panic!("`{mnemonic}` of `{}` has a parameter `{name}`", isa.name))
+        .kind
 }
 
 /// Adds to `needs` the blocks `mnemonic` of `isa` acts on at `blocks`:
@@ -199,17 +248,25 @@ impl Drive for TopIsaDriver {
                 ends: Vec::new(),
             })
             .collect();
-        for (instructions, slots) in &self.executes {
+        for ((instructions, slots), target) in self.executes.iter().zip(&self.targets) {
+            let positions: Vec<usize> = match target {
+                Some(positions) => positions.clone(),
+                None => (0..shots.len()).collect(),
+            };
+            let targeted = shots
+                .select(&positions)
+                .expect("the chosen positions are among the run's shots");
             let mut readouts = [BatchReadouts::new(0, 0)];
-            let batch = Batch::new(shots, instructions, *slots).checked_if(self.checked);
+            let batch = Batch::new(&targeted, instructions, *slots).checked_if(self.checked);
             let end = match below.execute(&[batch], seed, &mut readouts).await {
                 Ok(()) => ExecuteEnd::Ran,
                 Err(error) if self.going_on => ExecuteEnd::of(error),
                 Err(error) => return Err(error.into()),
             };
-            for (position, run) in runs.iter_mut().enumerate() {
+            for (row_index, &position) in positions.iter().enumerate() {
+                let run = &mut runs[position];
                 if matches!(end, ExecuteEnd::Ran) {
-                    let row = readouts[0].row(position);
+                    let row = readouts[0].row(row_index);
                     run.readouts
                         .values
                         .extend(row.iter().map(|value| match value {
@@ -217,7 +274,7 @@ impl Drive for TopIsaDriver {
                             ReadoutValue::One => Some(true),
                             _ => None,
                         }));
-                    run.readouts.conditions |= readouts[0].conditions(position);
+                    run.readouts.conditions |= readouts[0].conditions(row_index);
                 }
                 run.ends.push(end.clone());
             }

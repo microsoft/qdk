@@ -105,13 +105,20 @@ impl QodecInstructionSet {
         &self.instruction_set
     }
 
-    /// The Qodec ISA.
-    #[must_use]
-    pub fn isa(&self) -> &Arc<Isa> {
+    /// The Qodec ISA, which the executor's translator runs.
+    pub(crate) fn isa(&self) -> &Arc<Isa> {
         &self.isa
     }
 
-    /// The Qodec call of `instruction`, an instruction of this set.
+    /// The Qodec call of `instruction`, an instruction of this set. Its
+    /// `select` is not sent: Qodec's `Call` has no field for it, and the
+    /// core makes it advisory.
+    ///
+    /// # Panics
+    ///
+    /// When `instruction`'s opcode is not of this set, which only an
+    /// unchecked batch can carry; the core lets a receiver panic on such a
+    /// batch.
     pub(crate) fn call(&self, instruction: &Instruction) -> Result<Call, TranslationFault> {
         let instruction_id = *self
             .ids
@@ -135,7 +142,9 @@ impl QodecInstructionSet {
     }
 
     /// The instruction of `call`, a call of this ISA, in the opcodes of the
-    /// set `below` maps this one into.
+    /// set `below` maps this one into. A call whose values do not match its
+    /// instruction's parameters, in number or in kind, is a fault, never
+    /// sent short.
     pub(crate) fn instruction(
         &self,
         call: &Call,
@@ -154,6 +163,13 @@ impl QodecInstructionSet {
                     .map_err(|_| fault(format!("block {label} is beyond a `u32`")))?,
             );
             rest = tail;
+        }
+        if rest.len() != signature.parameters.len() {
+            return Err(fault(format!(
+                "{} values for {} parameters",
+                rest.len(),
+                signature.parameters.len()
+            )));
         }
         let mut arguments = Arguments::new();
         for (parameter, value) in signature.parameters.iter().zip(rest) {
@@ -213,6 +229,12 @@ impl QodecInstructionSet {
 /// Writes `results` into `row`, a shot's readouts: each result's outcomes,
 /// then its flags, in order. Returns the shot's conditions: those any
 /// result raises.
+///
+/// # Panics
+///
+/// When `row` has fewer slots than `results` have values, which only an
+/// unchecked batch that misstates its readout slots can cause; the core
+/// lets a receiver panic on such a batch.
 pub(crate) fn write_results(results: &[BasicReadout], row: &mut [ReadoutValue]) -> ShotConditions {
     let value = |bit: &Option<bool>| match bit {
         Some(bit) => ReadoutValue::from(*bit),
@@ -239,8 +261,14 @@ pub(crate) fn write_results(results: &[BasicReadout], row: &mut [ReadoutValue]) 
 }
 
 /// Why an instruction and a Qodec call cannot be translated into each
-/// other: an argument one side has no form for.
+/// other. Into a call: a readout parity argument, which Qodec's calls
+/// cannot take. Into an instruction: a call the layers send below whose
+/// values do not match its instruction's parameters, in number or in kind
+/// (such as a text that is not a Pauli), or whose block label is beyond a
+/// `u32`; that is a fault of the qodec's layers, which none of Qodec's
+/// examples makes.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TranslationFault {
     /// The instruction's mnemonic.
     pub mnemonic: String,
@@ -282,6 +310,7 @@ fn owned_param(argument: &Argument) -> Result<OwnedParam, String> {
         Argument::Integer(integer) => OwnedParam::Int(*integer),
         Argument::Text(text) => OwnedParam::Text(text.to_string()),
         Argument::Pauli(pauli) => OwnedParam::Text(pauli.to_string()),
+        // A kind the protocol adds later.
         _ => return Err("the argument's kind has no Qodec value".to_owned()),
     })
 }
@@ -302,8 +331,8 @@ fn argument(kind: ParamKind, value: &OwnedParam) -> Result<Argument, String> {
         (ParamKind::Integer, OwnedParam::Int(integer)) => Argument::Integer(*integer),
         (ParamKind::Boolean, OwnedParam::Bool(boolean)) => Argument::Boolean(*boolean),
         (ParamKind::String, OwnedParam::Text(text)) => Argument::Text(text.as_str().into()),
-        (ParamKind::Pauli, OwnedParam::Text(_)) => {
-            return Err("the protocol reads no Pauli from Qodec's text".to_owned());
+        (ParamKind::Pauli, OwnedParam::Text(text)) => {
+            Argument::pauli(text).map_err(|fault| fault.to_string())?
         }
         _ => return Err(mismatch()),
     })

@@ -105,3 +105,29 @@ fn a_shot_the_simulator_failed_is_refused_when_sent_again() {
         "{second:?}"
     );
 }
+
+/// A correction conditioned on the parity of the shot's latest readout, in
+/// an unchecked batch to an executor whose needs state no parity: Qodec's
+/// calls have no form for it, so its `execute` fails naming the
+/// instruction, rather than sending the correction without its condition.
+#[test]
+fn a_readout_parity_argument_fails_its_execute_naming_the_instruction() {
+    let bottom = qodecs::model("steane/steane.qodec.yaml").bottom;
+    let program = Program::parse("R 0; M 0; Z_if 0 correction=1");
+    let mut executor =
+        ActionSimulatorExecutor::stabilizer(&bottom).expect("Stim's ISA is a protocol set");
+
+    let runs = (Driver::new(
+        TopIsaDriver::new(&bottom, &program)
+            .with_a_readout_parity(0, 2)
+            .going_on_after_errors(),
+    ) >> Executor::new(&mut executor))
+    .expect("the driver sends the executor's ISA")
+    .run(&ShotSet::ids([0]), SEED)
+    .expect("the driver goes on after errors");
+
+    let [ExecuteEnd::Failed { message, .. }] = runs[0].ends.as_slice() else {
+        panic!("the parity fails its `execute`: {:?}", runs[0].ends);
+    };
+    assert!(message.contains("Z_if"), "{message}");
+}
