@@ -18,7 +18,7 @@ mod pauli;
 mod stable_form;
 
 use crate::{
-    BlockOperand, BlockType, DeclarationFault, Instruction, InstructionDef, InstructionSet,
+    BlockOperand, BlockType, DeclarationFault, Guard, Instruction, InstructionDef, InstructionSet,
     Meaning, Opcode, ParameterKind, Pauli, instruction_set,
 };
 use smallvec::smallvec;
@@ -246,8 +246,9 @@ fn lookups_outside_the_set_give_none() {
 /// A part that receives a set, from a loader or across a process
 /// boundary, checks it is the one it runs by `==`: two sets are equal
 /// exactly when their declarations are, and equal sets hash equally. A
-/// meaning compares in its canonical form, so one written otherwise is
-/// the same; any other part of the declaration that differs, an order
+/// meaning compares in its canonical form, so one written otherwise (in
+/// another order, with an empty guard, with a term that cancels) is the
+/// same; any other part of the declaration that differs, an order
 /// included, makes the sets differ.
 #[test]
 #[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
@@ -266,6 +267,14 @@ fn sets_are_equal_exactly_when_their_declarations_are() {
         |images: [(Pauli, Pauli); 2]| vec![h().meaning(Meaning::declared().clifford(images))];
     let xz = || (Pauli::x(0), Pauli::z(0));
     let zx = || (Pauli::z(0), Pauli::x(0));
+    let x_0 = || Meaning::declared().pauli(Pauli::x(0));
+    let x_0_if = |terms: &[Guard]| {
+        vec![
+            h().parameter("a", ParameterKind::Bit)
+                .parameter("b", ParameterKind::Bit)
+                .meaning(x_0().only_if(terms.iter().copied())),
+        ]
+    };
     let set = |name: &str, blocks: Vec<(BlockType, u32)>, instructions: Vec<InstructionDef>| {
         InstructionSet::new(name, blocks, instructions).expect("a valid set")
     };
@@ -281,6 +290,23 @@ fn sets_are_equal_exactly_when_their_declarations_are() {
             "a meaning's Clifford images in another order",
             gates(swap_xz([xz(), zx()])),
             gates(swap_xz([zx(), xz()])),
+            true,
+        ),
+        // `unless` of no term always holds.
+        (
+            "a meaning's step with an empty guard",
+            gates(vec![h().meaning(x_0().unless([]))]),
+            gates(vec![h().meaning(x_0())]),
+            true,
+        ),
+        (
+            "a meaning's guard term given twice",
+            gates(x_0_if(&[
+                Guard::Parameter(0),
+                Guard::Parameter(1),
+                Guard::Parameter(1),
+            ])),
+            gates(x_0_if(&[Guard::Parameter(0)])),
             true,
         ),
         (

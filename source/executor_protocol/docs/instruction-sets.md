@@ -70,10 +70,12 @@ is on [`InstructionSet`](../src/instruction_set.rs).
 
 With the crate's `serde` feature, a set has a stable form, for sending
 it to another process: its declaration alone, so that the far end builds
-the set again and checks it as any set is checked. What a read refuses,
-which formats pin the form, and which keep a literal angle are on
-[`InstructionSet`](../src/instruction_set.rs). In JSON, the set `Gates`
-of one instruction, `rz`, rotating its qubit by its parameter `theta`:
+the set again and checks it as any set is checked. What a read refuses and
+which formats pin the form are on
+[`InstructionSet`](../src/instruction_set.rs), and which keep a literal
+angle on [`Angle`](../src/instruction_set/meaning/angle.rs). In JSON, the
+set `Gates` of one instruction, `rz`, rotating its qubit by its parameter
+`theta`:
 
 ```json
 {
@@ -101,7 +103,8 @@ of one instruction, `rz`, rotating its qubit by its parameter `theta`:
 ```
 
 Steps, guards and parameter kinds are named as Qodec names them, a
-guard's terms by position, a Pauli as Qodec's text, and every other part
-by its Rust name; a meaning is `null` when undeclared. The example
+guard's terms by position, a Pauli as Qodec's text, a block type as a
+`[name, qubits]` pair, and every other part by its Rust name, in snake
+case; a meaning is `null` when undeclared. The example
 matches the form the [tests](../src/tests/instruction_set/stable_form.rs)
 pin, which is its source: keep the two the same.

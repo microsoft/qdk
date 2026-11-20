@@ -21,6 +21,9 @@ use std::ops::{Mul, Neg};
 /// Pauli::x(1)` is `X_0 X_1`, `-Pauli::z(0)` is `-Z_0`; a qubit's factors
 /// multiply into one (`X_0 · Y_0` is `i Z_0`). A `pauli` argument is
 /// parsed from Qodec's text by [`Argument::pauli`](crate::Argument::pauli).
+///
+/// Its order, derived, is the order a meaning's stable form writes its
+/// Clifford images in.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Pauli {
     /// The power of i it is multiplied by, from 0 to 3: 2 is −1.

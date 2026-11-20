@@ -7,6 +7,9 @@
 /// One term of a step's guard, Qodec's `if: [correction, outcomes[0]]`:
 /// the instruction's `bit` parameter at a position, or an outcome of an
 /// earlier observation of the same action, counted across them from 0.
+///
+/// Its order, derived, is the order a step's stable form writes its terms
+/// in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(
     feature = "serde",
