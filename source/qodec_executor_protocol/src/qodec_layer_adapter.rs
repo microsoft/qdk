@@ -226,10 +226,12 @@ impl Adapt for QodecLayerAdapter {
     /// shot and loses it; a refusal below too, since the layers may have
     /// run part of the shot's batch before it. A call with the wrong
     /// arguments for its instruction, which Qodec's runtime rejects before
-    /// running it, fails the batch at that shot without losing it; only an
-    /// unchecked batch can carry one. An unchecked batch's instruction of
-    /// another set, or readout slots fewer than its instructions read,
-    /// panics, as the core lets a receiver of an unchecked batch do.
+    /// running it, or with an argument Qodec's calls have no form for,
+    /// such as a readout parity, which the layers cannot translate, fails
+    /// the batch without losing any of its shots; only an unchecked batch
+    /// can carry one. An unchecked batch's instruction of another set, or
+    /// readout slots fewer than its instructions read, panics, as the core
+    /// lets a receiver of an unchecked batch do.
     #[expect(
         clippy::unused_async_trait_impl,
         reason = "the layers wait for the part below by blocking, so `adapt` never awaits"

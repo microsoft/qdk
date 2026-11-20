@@ -134,8 +134,12 @@ impl ExecutorSetup for ActionSimulatorExecutor {
 
 impl Execute for ActionSimulatorExecutor {
     /// Runs each batch on each of its shots' simulators, in order. A shot
-    /// an earlier error lost is refused before anything runs. A step the
-    /// simulator cannot run fails the batch at that shot, and loses it.
+    /// an earlier error lost, in any batch, is refused before anything
+    /// runs. A step the simulator cannot run fails the batch at that shot,
+    /// and loses it. An instruction with an argument Qodec's calls have no
+    /// form for, such as a readout parity, fails its batch before any of
+    /// the batch's shots runs, and loses none; only an unchecked batch can
+    /// carry one.
     #[expect(
         clippy::unused_async_trait_impl,
         reason = "a part that never waits keeps the trait's `async fn` form"

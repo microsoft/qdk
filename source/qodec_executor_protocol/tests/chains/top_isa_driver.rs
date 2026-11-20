@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! [`TopIsaDriver`]: a program of a qodec's top ISA, sent to every shot,
-//! or to the shots chosen for an `execute`, each `execute` as one batch.
+//! or to the shots chosen for an `execute`, each `execute` as one batch or
+//! as the batches chosen for it.
 
 use std::sync::Arc;
 
@@ -17,8 +18,10 @@ use qodec_runtime_recipes::{Fault, Isa, ParamKind};
 use crate::programs::{Program, ShotReadouts};
 
 /// Sends `program` to every shot, or each `execute` to the shots chosen for
-/// it ([`sending_execute_to`](TopIsaDriver::sending_execute_to)), and gives
-/// each shot's stream of the run's
+/// it ([`sending_execute_to`](TopIsaDriver::sending_execute_to)), in one
+/// batch or in the batches chosen for it
+/// ([`sending_execute_in_batches`](TopIsaDriver::sending_execute_in_batches)),
+/// and gives each shot's stream of the run's
 /// seed (to drive Qodec's runtime directly with) and readouts. By default
 /// an `execute`'s error ends the run; a driver
 /// [`going_on_after_errors`](TopIsaDriver::going_on_after_errors) sends the
@@ -28,9 +31,9 @@ pub struct TopIsaDriver {
     /// Each `execute`'s instructions, in the driver's set, then in the set
     /// below once `>>` binds them, and their readout slots.
     executes: Vec<(Vec<Instruction>, u32)>,
-    /// The positions, in the run's shots, each `execute` goes to: all of
-    /// them when `None`.
-    targets: Vec<Option<Vec<usize>>>,
+    /// The positions, in the run's shots, each batch of each `execute`
+    /// goes to: one batch of all of them when `None`.
+    targets: Vec<Option<Vec<Vec<usize>>>>,
     needs: Needs,
     checked: bool,
     going_on: bool,
@@ -164,8 +167,15 @@ impl TopIsaDriver {
 
     /// This driver, sending `execute` only to the shots at `positions` of
     /// the run's shots: the others' ends and readouts skip it.
-    pub fn sending_execute_to(mut self, execute: usize, positions: &[usize]) -> Self {
-        self.targets[execute] = Some(positions.to_vec());
+    pub fn sending_execute_to(self, execute: usize, positions: &[usize]) -> Self {
+        self.sending_execute_in_batches(execute, &[positions])
+    }
+
+    /// This driver, sending `execute` as one batch per entry of `batches`,
+    /// in order, each to the shots at its positions of the run's shots:
+    /// the others' ends and readouts skip it.
+    pub fn sending_execute_in_batches(mut self, execute: usize, batches: &[&[usize]]) -> Self {
+        self.targets[execute] = Some(batches.iter().map(|positions| positions.to_vec()).collect());
         self
     }
 
@@ -256,34 +266,45 @@ impl Drive for TopIsaDriver {
             })
             .collect();
         for ((instructions, slots), target) in self.executes.iter().zip(&self.targets) {
-            let positions: Vec<usize> = match target {
-                Some(positions) => positions.clone(),
-                None => (0..shots.len()).collect(),
+            let batch_positions: Vec<Vec<usize>> = match target {
+                Some(batch_positions) => batch_positions.clone(),
+                None => vec![(0..shots.len()).collect()],
             };
-            let targeted = shots
-                .select(&positions)
-                .expect("the chosen positions are among the run's shots");
-            let mut readouts = [BatchReadouts::new(0, 0)];
-            let batch = Batch::new(&targeted, instructions, *slots).checked_if(self.checked);
-            let end = match below.execute(&[batch], seed, &mut readouts).await {
+            let targeted: Vec<ShotSet> = batch_positions
+                .iter()
+                .map(|positions| {
+                    shots
+                        .select(positions)
+                        .expect("the chosen positions are among the run's shots")
+                })
+                .collect();
+            let batches: Vec<Batch<'_>> = targeted
+                .iter()
+                .map(|targeted| Batch::new(targeted, instructions, *slots).checked_if(self.checked))
+                .collect();
+            let mut readouts: Vec<BatchReadouts> =
+                batches.iter().map(|_| BatchReadouts::new(0, 0)).collect();
+            let end = match below.execute(&batches, seed, &mut readouts).await {
                 Ok(()) => ExecuteEnd::Ran,
                 Err(error) if self.going_on => ExecuteEnd::of(error),
                 Err(error) => return Err(error.into()),
             };
-            for (row_index, &position) in positions.iter().enumerate() {
-                let run = &mut runs[position];
-                if matches!(end, ExecuteEnd::Ran) {
-                    let row = readouts[0].row(row_index);
-                    run.readouts
-                        .values
-                        .extend(row.iter().map(|value| match value {
-                            ReadoutValue::Zero => Some(false),
-                            ReadoutValue::One => Some(true),
-                            _ => None,
-                        }));
-                    run.readouts.conditions |= readouts[0].conditions(row_index);
+            for (positions, batch_readouts) in batch_positions.iter().zip(&readouts) {
+                for (row_index, &position) in positions.iter().enumerate() {
+                    let run = &mut runs[position];
+                    if matches!(end, ExecuteEnd::Ran) {
+                        let row = batch_readouts.row(row_index);
+                        run.readouts
+                            .values
+                            .extend(row.iter().map(|value| match value {
+                                ReadoutValue::Zero => Some(false),
+                                ReadoutValue::One => Some(true),
+                                _ => None,
+                            }));
+                        run.readouts.conditions |= batch_readouts.conditions(row_index);
+                    }
+                    run.ends.push(end.clone());
                 }
-                run.ends.push(end.clone());
             }
         }
         Ok(runs)
