@@ -14,7 +14,7 @@ The QDK extension currently supports:
 - Local quantum simulation, including support for Pauli noise and qubit loss
 - Breakpoint debugging for Q# and OpenQASM
 - Code samples for Q# and OpenQASM demonstrating well known algorithms
-- Circuit diagram visualization and editing
+- Circuit diagram visualization and editing, including export to SVG with light-theme colors
 - Q# cell support in Jupyter notebooks. The extension will detect `%%qsharp` magic cells and automatically update the cell language to Q#
 - Integration with Azure Quantum for job submission to quantum hardware providers
 

@@ -16,7 +16,8 @@ import {
   gateHeight,
   gatePadding,
 } from "../constants.js";
-import { createSvgElement, group, text } from "./formatUtils.js";
+import { createSvgElement, group } from "./formatUtils.js";
+import { formatLabel, type LabelRun } from "./labelFormatter.js";
 import { mathChars } from "../../utils.js";
 
 /**
@@ -213,18 +214,22 @@ const qubitInput = (
   subscript?: string,
   link?: { href: string; title: string },
 ): SVGElement => {
-  const el: SVGElement = text("", leftPadding, y, 16);
-
-  const subtext = subscript
-    ? `<tspan baseline-shift="sub" font-size="65%">${subscript}</tspan>`
-    : "";
-
-  el.innerHTML = `|<tspan class="qs-mathtext">${mathChars.psi}</tspan>${subtext}${mathChars.rangle}</tspan>`;
-
-  el.setAttribute("text-anchor", "start");
-  el.setAttribute("dominant-baseline", "middle");
-  el.setAttribute("data-wire", wireIndex.toString());
-  el.classList.add("qs-maintext", "qs-qubit-label");
+  const runs: LabelRun[] = [
+    { text: "|", style: "plain" },
+    { text: mathChars.psi, style: "italic" },
+  ];
+  if (subscript) {
+    runs.push({ text: subscript, style: "subscript" });
+  }
+  runs.push({ text: mathChars.rangle, style: "plain" });
+  const el: SVGElement = formatLabel({
+    kind: "qubit",
+    x: leftPadding,
+    y,
+    fontSize: 16,
+    runs,
+    dataAttributes: { wire: wireIndex.toString() },
+  });
 
   if (link) {
     const linkElem = createSvgElement("a", {

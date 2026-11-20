@@ -1,0 +1,177 @@
+{
+  "_comment": "SVG export coverage for all supported gate render forms, rotations, inverted and multiple controls, disconnected targets, subscripts, adjoints, and expanded/collapsed classical groups.",
+  "version": 2,
+  "circuits": [
+    {
+      "qubits": [
+        { "id": 0, "numResults": 1 },
+        { "id": 1 },
+        { "id": 2 },
+        { "id": 12 }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+          ]
+        },
+        {
+          "components": [
+            { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 1 }] }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "X",
+              "controls": [{ "qubit": 0 }],
+              "targets": [{ "qubit": 1 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "SWAP",
+              "targets": [{ "qubit": 1 }, { "qubit": 2 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "SWAP",
+              "controls": [{ "qubit": 0 }],
+              "targets": [{ "qubit": 1 }, { "qubit": 2 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Rz",
+              "args": ["\u03c0/4"],
+              "controls": [{ "qubit": 0, "inverted": true }],
+              "targets": [{ "qubit": 2 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "X",
+              "controls": [{ "qubit": 0 }, { "qubit": 1 }],
+              "targets": [{ "qubit": 2 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Rx",
+              "args": ["\u03c0/2"],
+              "targets": [{ "qubit": 1 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Ry",
+              "args": ["-\u03c0/2"],
+              "targets": [{ "qubit": 2 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "U_12",
+              "args": ["\u03b8_2 + \u03c0/4"],
+              "isAdjoint": true,
+              "targets": [{ "qubit": 0 }, { "qubit": 2 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "measurement",
+              "gate": "Measure",
+              "qubits": [{ "qubit": 0 }],
+              "results": [{ "qubit": 0, "result": 0 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            { "kind": "ket", "gate": "0", "targets": [{ "qubit": 1 }] },
+            { "kind": "ket", "gate": "1", "targets": [{ "qubit": 2 }] }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Composite",
+              "targets": [{ "qubit": 1 }, { "qubit": 2 }],
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "H",
+                      "targets": [{ "qubit": 1 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "Z",
+                      "targets": [{ "qubit": 2 }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "if: c_3 = |1\u3009",
+              "controls": [{ "qubit": 0, "result": 0 }],
+              "targets": [{ "qubit": 2 }],
+              "metadata": {
+                "controlResultIds": [[{ "qubit": 0, "result": 0 }, 3]]
+              },
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "Rz",
+                      "args": ["0.4321"],
+                      "targets": [{ "qubit": 2 }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

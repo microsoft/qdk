@@ -28,6 +28,10 @@ import { installEditor } from "./editor/installEditor.js";
 import { getOperationRegisters } from "./utils.js";
 import type { StateColumn } from "./state-viz/stateViz.js";
 import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
+import {
+  createStandaloneCircuitSvg,
+  type CircuitRendererSvgOptions,
+} from "./renderer/circuitSvgDocument.js";
 
 /**
  * Contains render data for visualization.
@@ -106,6 +110,8 @@ export class Sqore {
    * rebase and just refreshes the snapshot.
    */
   private lastLocationMap: Map<Operation, string> | null = null;
+  /** Height of the rendered circuit, without the row the editor adds for a new qubit. */
+  private circuitHeight: number | undefined;
   /**
    * Initializes Sqore object.
    *
@@ -147,6 +153,20 @@ export class Sqore {
       this.zoomToFit();
       window.addEventListener("resize", () => this.onResize());
     }
+  }
+
+  /** Export the mounted circuit without changing its layout or view state. */
+  exportSvg(options: CircuitRendererSvgOptions = {}): string {
+    const svg = this.container?.querySelector<SVGElement>("svg.qviz");
+    if (svg == null) {
+      throw new Error("The circuit must be rendered before exporting SVG.");
+    }
+    // The editor makes the SVG taller for its add-qubit row; export only the circuit itself.
+    return createStandaloneCircuitSvg(
+      svg,
+      options,
+      this.options.editor != null ? this.circuitHeight : undefined,
+    );
   }
 
   /**
@@ -285,6 +305,7 @@ export class Sqore {
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
+    this.circuitHeight = composedSqore.height;
     const svg: SVGElement = this.generateSvg(composedSqore);
     this.setViewBox(svg);
     if (this.options.onZoomChange != null) {

@@ -18,6 +18,7 @@ import prettier from "prettier";
 import { log } from "../dist/log.js";
 import { getCompiler, loadWasmModule } from "../dist/node.js";
 import { draw } from "../dist/ux/circuit-vis/index.js";
+import { readCircuitSvgTextFallback } from "../dist/ux/circuit-vis/renderer/circuitSvgDocument.js";
 
 // Load the wasm module before running any tests
 const wasmPath = new URL("../lib/web/qsc_wasm_bg.wasm", import.meta.url);
@@ -193,6 +194,28 @@ function renderLocation(location) {
   }
 }
 
+/**
+ * Export the drawn circuit and check that its labels became glyph outlines. A label may stay as
+ * text only when it has a character the KaTeX fonts lack; any other label left as text is a kind
+ * of label that the SVG export does not recognize.
+ * @param {ReturnType<typeof draw>} renderer
+ */
+function assertSvgExportOutlinesLabels(renderer) {
+  const svg = renderer.exportSvg();
+  const missing = (readCircuitSvgTextFallback(svg) ?? []).map((codePoint) =>
+    String.fromCodePoint(parseInt(codePoint.slice(2), 16)),
+  );
+  for (const [label] of svg.matchAll(
+    /<text\b[^>]*?(?:\/>|>[\s\S]*?<\/text>)/g,
+  )) {
+    assert.ok(
+      missing.some((character) => label.includes(character)),
+      "The SVG export left a label as text although the KaTeX fonts have all its characters. " +
+        `Handle this kind of label in ux/circuit-vis/renderer/circuitSvgDocument.ts:\n${label}`,
+    );
+  }
+}
+
 test("circuit snapshot tests - .qsc files", async (t) => {
   const files = findFilesWithExtension(getCasesDirectory(), ".qsc");
   if (files.length === 0) {
@@ -205,13 +228,14 @@ test("circuit snapshot tests - .qsc files", async (t) => {
     await t.test(relName, async (tt) => {
       const circuit = loadCircuit(file);
       const container = createContainerElement(`circuit`);
-      draw(circuit, container, {
+      const renderer = draw(circuit, container, {
         editor: {
           editCallback: () => {},
         },
         renderLocations,
         renderDepth: 999999,
       });
+      assertSvgExportOutlinesLabels(renderer);
       await checkDocumentSnapshot(tt, tt.name);
     });
   }
@@ -284,6 +308,8 @@ async function generateAndDrawCircuit(
   title.innerHTML = `<h2>${id}</h2>`;
   document.body.appendChild(title);
   const container = createContainerElement(id);
+  /** @type {ReturnType<typeof draw> | undefined} */
+  let renderer;
   try {
     // Generate the circuit from Q#
     const circuit = await compiler.getCircuit(
@@ -302,7 +328,7 @@ async function generateAndDrawCircuit(
     );
 
     // Render the circuit
-    draw(circuit, container, {
+    renderer = draw(circuit, container, {
       renderDepth,
       renderLocations,
     });
@@ -310,6 +336,9 @@ async function generateAndDrawCircuit(
     const pre = document.createElement("pre");
     pre.appendChild(document.createTextNode(`Error generating circuit: ${e}`));
     container.appendChild(pre);
+  }
+  if (renderer !== undefined) {
+    assertSvgExportOutlinesLabels(renderer);
   }
 }
 
