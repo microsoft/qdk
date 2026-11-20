@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "matcher": ".*",
+        "exec": "/usr/bin/python3",
+        "args": ["-I", "/opt/sandbox/runtime/policy/tool_policy.py"],
+        "timeoutSec": 5
+      }
+    ]
+  }
+}
