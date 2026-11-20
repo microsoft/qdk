@@ -510,10 +510,10 @@ fn a_need_to_run_a_shot_again_reaches_the_part_below() {
 }
 
 /// The layers offer the driver above them the shots, seeding and replay
-/// of the part below, which an adapter may narrow but never widen: over a
-/// part below that takes one shot a run, cannot fix its seed, and cannot
-/// run a shot again, as a quantum computer may, the layers offer the same;
-/// over one with no such limit, none.
+/// of the part below, since they run each shot on it: over a part below
+/// that takes one shot a run, cannot fix its seed, and cannot run a shot
+/// again, as a quantum computer may, the layers offer the same; over one
+/// with no such limit, none.
 #[test]
 fn the_layers_offer_the_shots_seeding_and_replay_of_the_part_below() {
     let model = qodecs::model("steane/steane.qodec.yaml");
