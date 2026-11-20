@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::compiler;
 use crate::lex;
 use crate::parser;
-use crate::qir;
 use crate::semantic;
 use miette::Diagnostic;
 use thiserror::Error;
@@ -18,5 +18,5 @@ pub enum Error {
     #[diagnostic(transparent)]
     Semantic(#[from] semantic::Error),
     #[diagnostic(transparent)]
-    Qir(#[from] qir::Error),
+    Compiler(#[from] compiler::Error),
 }

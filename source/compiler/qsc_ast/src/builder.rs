@@ -1009,6 +1009,16 @@ pub fn build_continue_stmt(span: Span) -> Stmt {
     build_stmt_semi_from_expr_with_span(expr, span)
 }
 
+/// `within { within } apply { apply }`
+#[must_use]
+pub fn build_conjugate_expr(within: Block, apply: Block, span: Span) -> Expr {
+    Expr {
+        id: NodeId::default(),
+        span,
+        kind: Box::new(ExprKind::Conjugate(Box::new(within), Box::new(apply))),
+    }
+}
+
 #[must_use]
 pub fn build_index_expr(expr: Expr, index_expr: Expr, span: Span) -> Expr {
     let kind = ExprKind::Index(Box::new(expr), Box::new(index_expr));

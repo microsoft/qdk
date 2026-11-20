@@ -34,9 +34,12 @@ fn other_annotations_are_ignored() {
     check(
         source,
         &expect![[r#"
-            [metadata]
-              required_num_qubits = 0
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    []
+                }
+            }"#]],
     );
 }
 
