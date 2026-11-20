@@ -29,3 +29,15 @@ fn angle_as_double_does_not_round_to_tau() {
         &Value::Bool(true),
     );
 }
+
+#[test]
+fn double_as_angle_rounding_up_to_tau_wraps_to_zero() {
+    test_expression(
+        indoc! {r#"{
+            import Std.OpenQASM.Angle.*;
+            let angle = DoubleAsAngle(-0.1, 4);
+            (angle.Value, angle.Size)
+        }"#},
+        &Value::Tuple(vec![Value::Int(0), Value::Int(4)].into(), None),
+    );
+}
