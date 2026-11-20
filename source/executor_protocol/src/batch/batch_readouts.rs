@@ -173,8 +173,18 @@ impl BatchReadouts {
         self.conditions.clear();
         self.details.clear();
         if details {
-            self.details.resize(values, None);
+            self.shape_details(values);
         }
+    }
+
+    /// Fills the details column with `values` unwritten details. Out of
+    /// line, so that `shape` stays small enough to inline at every
+    /// boundary: with the resize inline, `shape` was no longer inlined, and
+    /// the sets that declare no details paid a call per batch.
+    #[cold]
+    #[inline(never)]
+    fn shape_details(&mut self, values: usize) {
+        self.details.resize(values, None);
     }
 
     /// The number of values in each row: the readout slots of the batch's
