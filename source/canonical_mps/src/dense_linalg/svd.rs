@@ -10,7 +10,9 @@
 //! rank-deficient most of the time (they have fewer nonzero singular values
 //! than their smaller side), with repeated values, and general SVDs have
 //! returned wrong factors on such matrices without reporting a failure:
-//! nalgebra 0.35's and faer 0.24's on degenerate and rank-deficient
+//! nalgebra 0.35's (finite and orthonormal factors whose product missed
+//! a 56 × 72 matrix from an MPS simulation of H₂ by about 330 times the
+//! checks' bound) and faer 0.24's on degenerate and rank-deficient
 //! matrices, and t4a-faer's default method, divide and conquer, on a
 //! 128 × 128 matrix from an MPS simulation of a polyene's chain.
 //!
@@ -27,7 +29,10 @@
 //!   rounding: those of the rows of the pivoted QR's `R` of smallest norm,
 //!   as many as keep the dropped rows' Frobenius norm within
 //!   `max(m, n) · ε` times the largest row's; rows that are exactly zero
-//!   are always among them. It returns one value, 0, for the zero matrix.
+//!   are always among them. A matrix whose `R` has `r` rows each above
+//!   that bound and the others jointly within it gets exactly `r` values:
+//!   for instance a product of random factors with `r` columns, whose rank
+//!   is `r`. It returns one value, 0, for the zero matrix.
 //! - **Any scale.** It answers at any scale, down to subnormal entries,
 //!   short of the matrices whose singular values are too small or too large
 //!   to store, which the checks refuse.
@@ -48,28 +53,23 @@
 //!    row's norm. So the trim changes the matrix by no more than rounding
 //!    does, whatever its size, and the factorization after it sees full
 //!    rank. The rows are chosen by their norms ([`factor`] says why).
-//! 5. The route: `W`, the adjoint of the kept rows of `R·Pᵀ`, goes to the
-//!    fast route ([`Kernels::tall_svd`]) when the trim keeps at least
-//!    [`FAST_ROUTE_MIN_RANK`] rows and they have, on average, at least
-//!    [`FAST_ROUTE_MIN_OFF_DIAGONAL`] of their squared norm off the
-//!    diagonal, the sign that `W` is far from orthogonal; every other `W`
-//!    goes to the one-sided Jacobi rotations ([`jacobi`]), as does one the
-//!    fast route reports a failure on or answers factors that are not
-//!    finite for. The route changes the cost, not what is computed: both
-//!    give the SVD of `W`, checked alike.
+//! 5. The rotations: `W`, the adjoint of the kept rows of `R·Pᵀ`, is
+//!    factored by the one-sided Jacobi rotations ([`jacobi`]).
 //! 6. The left singular vectors are the kept columns of `Q` times `W`'s
 //!    right ones.
 //!
-//! The route's constants are performance choices (measured), not promises:
-//! the tests pin that every route gives a checked SVD and that the fallback
-//! answers, not where the route changes.
+//! Planned: a faster SVD for the `W`s far from orthogonal, a bidiagonal
+//! SVD on nalgebra's bidiagonalization, checked alike (nalgebra's own SVD
+//! is not one: above). On an MPS simulation of benzene at bond dimension
+//! 32, t4a-faer's bidiagonal SVD on those `W`s and the rotations on the
+//! rest took about 30% less time than the rotations alone on all of them.
 
 pub(crate) mod checks;
 pub(crate) mod jacobi;
 
 use self::checks::checked;
-use self::jacobi::{MAX_SWEEPS, one_sided};
-use crate::dense_linalg::kernels::{ColumnMajorSvd, DefaultKernels, Kernels};
+use self::jacobi::{ColumnMajorSvd, MAX_SWEEPS, one_sided};
+use crate::dense_linalg::kernels::{DefaultKernels, Kernels};
 use crate::dense_linalg::matrix::{Matrix, MatrixRef};
 use crate::dense_linalg::scaling::PowerOfTwoScaling;
 use num_complex::Complex64;
@@ -115,10 +115,7 @@ impl Svd {
             // the module doc) reads only finite entries.
             return Err(SvdError::FailedChecks { rows, cols });
         }
-        checked::<DefaultKernels>(
-            a,
-            trimmed_thin_svd::<DefaultKernels>(a, &DefaultKernels::tall_svd),
-        )
+        checked::<DefaultKernels>(a, trimmed_thin_svd::<DefaultKernels>(a))
     }
 }
 
@@ -149,31 +146,9 @@ pub enum SvdError {
     },
 }
 
-/// The smallest kept rank whose `W` may go to the fast route: below it,
-/// giving every `W` to t4a-faer's QR algorithm saved at most 3% of an SVD's
-/// time, and cost 1.1 to 1.3 times the rotations' on small graded and
-/// rank-deficient matrices (measured with t4a-faer on aarch64).
-pub(crate) const FAST_ROUTE_MIN_RANK: usize = 32;
-
-/// The smallest mean fraction `1 − |R_ii|²/‖R_i‖²` of the kept rows of `R`
-/// whose `W` goes to the fast route: below it, as on the matrices of an MPS
-/// simulation of H₂, the rotations end within five sweeps and are as fast
-/// (measured with t4a-faer on aarch64).
-pub(crate) const FAST_ROUTE_MIN_OFF_DIAGONAL: f64 = 0.1;
-
-/// The fast route, a thin SVD of a tall matrix, as [`Kernels::tall_svd`]
-/// states it.
-///
-/// [`trimmed_thin_svd`] takes it as a parameter for the fallback's tests
-/// alone: no matrix is known on which t4a-faer's QR algorithm fails or
-/// answers values that are not finite, so the tests pass one that does.
-pub(crate) type TallSvd<'f> = &'f dyn Fn(usize, usize, &[Complex64]) -> Option<ColumnMajorSvd>;
-
-/// The thin SVD of `a` (not empty) after a pivoted-QR trim, by `tall_svd`
-/// on the matrices the module doc routes to it and by the rotations
-/// otherwise, or `None` when the rotations' last sweep allowed
-/// ([`MAX_SWEEPS`]) still rotates a pair. [`Svd::of`] passes
-/// [`Kernels::tall_svd`].
+/// The thin SVD of `a` (not empty) after a pivoted-QR trim, by the
+/// rotations, or `None` when their last sweep allowed ([`MAX_SWEEPS`])
+/// still rotates a pair.
 ///
 /// It returns `r` values, `1 ≤ r ≤ min(m, n)` for a finite matrix, one for
 /// each row the trim keeps; the values left out are rounding's (the zero
@@ -186,7 +161,7 @@ pub(crate) type TallSvd<'f> = &'f dyn Fn(usize, usize, &[Complex64]) -> Option<C
 /// (above `f64::MAX`) gets infinite ones once they are scaled back, which
 /// the checks refuse, as they refuse values too small to store to their
 /// bound.
-pub(crate) fn trimmed_thin_svd<K: Kernels>(a: MatrixRef<'_>, tall_svd: TallSvd<'_>) -> Option<Svd> {
+pub(crate) fn trimmed_thin_svd<K: Kernels>(a: MatrixRef<'_>) -> Option<Svd> {
     let (rows, cols) = (a.rows(), a.cols());
     let zero = Complex64::new(0.0, 0.0);
     if a.elements().iter().all(|x| *x == zero) {
@@ -218,7 +193,7 @@ pub(crate) fn trimmed_thin_svd<K: Kernels>(a: MatrixRef<'_>, tall_svd: TallSvd<'
         }
     });
     let b = prepared.as_ref().map_or(a, Matrix::view);
-    let (u_b, mut singular_values, v_b) = factor::<K>(b, tall_svd)?;
+    let (u_b, mut singular_values, v_b) = factor::<K>(b)?;
     if let Some(scaling) = &scaling {
         for value in &mut singular_values {
             *value = scaling.scaled_back(*value);
@@ -240,11 +215,13 @@ pub(crate) fn trimmed_thin_svd<K: Kernels>(a: MatrixRef<'_>, tall_svd: TallSvd<'
 /// cost.
 ///
 /// The trim drops the rows of `R` chosen by their norms, not by their
-/// diagonal entries and not as a prefix, because the pivoting does not keep
-/// `|R_ii|` nonincreasing: on a 4 × 4 matrix from an MPS simulation of H₂,
-/// t4a-faer's puts a pivot of 1.9e-16 before one of 1.3e-9, as faer 0.24's
-/// did.
-fn factor<K: Kernels>(b: MatrixRef<'_>, tall_svd: TallSvd<'_>) -> Option<ColumnMajorSvd> {
+/// diagonal entries and not as a prefix, so that its choice does not rest
+/// on `|R_ii|` being nonincreasing: [`Kernels::pivoted_qr`]'s pivoting
+/// keeps it so only to rounding, and a blocked pivoting need not keep it at
+/// all (on a 4 × 4 matrix from an MPS simulation of H₂, t4a-faer's put a
+/// pivot of 1.9e-16 before one of 1.3e-9, as faer 0.24's did); and a row's
+/// norm may exceed its diagonal entry.
+fn factor<K: Kernels>(b: MatrixRef<'_>) -> Option<ColumnMajorSvd> {
     let cols = b.cols();
     let qr = K::pivoted_qr(b);
     let (r_rows, r) = (qr.r.rows(), qr.r.elements());
@@ -280,52 +257,7 @@ fn factor<K: Kernels>(b: MatrixRef<'_>, tall_svd: TallSvd<'_>) -> Option<ColumnM
         }
     }
     // W = U_W·S·V_W†, so R_kept·Pᵀ = V_W·S·U_W† and B = (Q_kept·V_W)·S·U_W†.
-    let by_fast_route = goes_to_fast_route(&kept, &row_norms, |i| at(i, i).norm_sqr())
-        .then(|| tall_svd(cols, kept.len(), &to_complex(&w, cols)))
-        .flatten()
-        .filter(is_finite);
-    let (u_w, singular_values, v_w) = match by_fast_route {
-        Some(factors) => factors,
-        None => one_sided(cols, kept.len(), w, MAX_SWEEPS)?,
-    };
+    let (u_w, singular_values, v_w) = one_sided(cols, kept.len(), w, MAX_SWEEPS)?;
     let u = K::q_kept_times(&qr, &kept, &v_w, singular_values.len());
     Some((u, singular_values, u_w))
-}
-
-/// Whether the kept rows `kept` of `R` (norms `row_norms`, squared
-/// diagonal entries `diagonal_sqr`) go to the fast route: at least
-/// [`FAST_ROUTE_MIN_RANK`] of them, with a mean fraction of their squared
-/// norm off the diagonal of at least [`FAST_ROUTE_MIN_OFF_DIAGONAL`].
-fn goes_to_fast_route(
-    kept: &[usize],
-    row_norms: &[f64],
-    diagonal_sqr: impl Fn(usize) -> f64,
-) -> bool {
-    if kept.len() < FAST_ROUTE_MIN_RANK {
-        return false;
-    }
-    let off_diagonal: f64 = kept
-        .iter()
-        .map(|&i| 1.0 - diagonal_sqr(i) / (row_norms[i] * row_norms[i]))
-        .sum();
-    #[expect(clippy::cast_precision_loss, reason = "a matrix dimension")]
-    let mean = off_diagonal / kept.len() as f64;
-    mean >= FAST_ROUTE_MIN_OFF_DIAGONAL
-}
-
-/// The `rows`-row columns of `w`, each stored as `[re…, im…]`, as complex
-/// numbers, column-major.
-fn to_complex(w: &[f64], rows: usize) -> Vec<Complex64> {
-    w.chunks_exact(2 * rows)
-        .flat_map(|column| {
-            let (re, im) = column.split_at(rows);
-            re.iter().zip(im).map(|(&x, &y)| Complex64::new(x, y))
-        })
-        .collect()
-}
-
-/// Whether every entry of the factors is finite, in both parts.
-fn is_finite((u, values, v): &ColumnMajorSvd) -> bool {
-    let finite = |x: &Complex64| x.re.is_finite() && x.im.is_finite();
-    values.iter().all(|s| s.is_finite()) && u.iter().all(finite) && v.iter().all(finite)
 }

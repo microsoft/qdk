@@ -1,22 +1,22 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`one_sided`]: one-sided Jacobi rotations (Hestenes), the SVD's route for
-//! every matrix but the large ones far from orthogonal.
+//! [`one_sided`]: one-sided Jacobi rotations (Hestenes), which factor every
+//! matrix the SVD reduces, and [`ColumnMajorSvd`], the SVD they answer.
 //!
 //! The SVD (the parent module) reduces each matrix to a matrix `W` of full
 //! rank, the adjoint of the rows of `R` its trim keeps, and needs `W`'s SVD.
 //! One-sided Jacobi finds it by rotating pairs of `W`'s columns until every two
 //! are orthogonal: the column norms are then the singular values. Where `W` is
 //! nearly orthogonal, as on the matrices of an MPS simulation of H₂, a few
-//! sweeps over the pairs suffice.
+//! sweeps over the pairs suffice; far from orthogonal, they take more (the
+//! parent module plans a faster SVD for those).
 //!
 //! The rotations converge on a matrix of full rank, but may need more sweeps
 //! than they allow ([`MAX_SWEEPS`]). They report a failure rather than answer
 //! columns that are not yet orthogonal: when the last sweep allowed still
 //! rotates a pair, the SVD fails
-//! ([`SvdError::DidNotConverge`](super::SvdError::DidNotConverge)). They also
-//! factor the `W` that the fast route fails on.
+//! ([`SvdError::DidNotConverge`](super::SvdError::DidNotConverge)).
 //!
 //! A sweep visits every pair `(p, q)` in cyclic order and rotates it when
 //! `|w_p† w_q| > √n · ε · ‖w_p‖ · ‖w_q‖`, with `n` the length of a column
@@ -33,8 +33,12 @@
 //! compiler vectorizes; they multiply and add without fused multiply-add (see
 //! [`dot`]).
 
-use crate::dense_linalg::kernels::ColumnMajorSvd;
 use num_complex::Complex64;
+
+/// An SVD as column-major arrays, `(U, S, V)` with `W = U·diag(S)·V†`,
+/// the values nonincreasing: `U` is `rows × r` and `V` is `cols × r`,
+/// `W` being `rows × cols`. [`one_sided`] answers one.
+pub(crate) type ColumnMajorSvd = (Vec<Complex64>, Vec<f64>, Vec<Complex64>);
 
 /// The sweeps the rotations allow, after which they report a failure:
 /// LAPACK `zgesvj`'s cap.
@@ -155,10 +159,9 @@ fn column(m: &[f64], rows: usize, j: usize) -> &[f64] {
 ///
 /// These loops (`dot`, [`norm_sqr`] and the rotations) multiply and add
 /// without fused multiply-add, which some targets lack, so that the
-/// rotations round alike on every target. The library's steps
-/// ([`Kernels`](crate::dense_linalg::kernels::Kernels): the pivoted QR
-/// before them, the fast route and the products) may use it where the
-/// target has it.
+/// rotations round alike on every target. The products
+/// ([`Kernels`](crate::dense_linalg::kernels::Kernels)) may use it where
+/// the target has it.
 fn dot(x: &[f64], y: &[f64]) -> (f64, f64) {
     let len = x.len() / 2;
     let (x_re, x_im) = x.split_at(len);

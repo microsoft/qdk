@@ -71,6 +71,7 @@ log = "0.4"
 miette = { version = "7.6" }
 thiserror = "2.0"
 nalgebra = { version = "0.35" }
+matrixmultiply = { version = "0.3" }
 ndarray = "0.17"
 num-bigint = "0.4"
 num-complex = "0.4"
