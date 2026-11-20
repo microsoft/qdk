@@ -17,8 +17,10 @@ use crate::{
 };
 
 // Checks if the given adapter is unsupported due to known issues with DX12 on Adreno X1.
-fn is_unsupported_adapter(info: &wgpu::AdapterInfo) -> bool {
-    info.backend == wgpu::Backend::Dx12 && info.name.to_lowercase().contains("adreno(tm) x1")
+fn is_unsupported_adapter(_info: &wgpu::AdapterInfo) -> bool {
+    // Testing
+    // info.backend == wgpu::Backend::Dx12 && info.name.to_lowercase().contains("adreno(tm) x1")
+    false
 }
 
 #[derive(Debug, Default)]
