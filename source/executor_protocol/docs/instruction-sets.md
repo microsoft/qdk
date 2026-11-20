@@ -105,6 +105,9 @@ set `Gates` of one instruction, `rz`, rotating its qubit by its parameter
 Steps, guards and parameter kinds are named as Qodec names them, a
 guard's terms by position, a Pauli as Qodec's text, a block type as a
 `[name, qubits]` pair, and every other part by its Rust name, in snake
-case; a meaning is `null` when undeclared. The example
-matches the form the [tests](../src/tests/instruction_set/stable_form.rs)
-pin, which is its source: keep the two the same.
+case; a meaning is `null` when undeclared. A Clifford is a list of
+`[generator, image]` pairs, not a map as Qodec writes it, so that a
+generator given twice is refused when read, rather than one of its images
+kept silently. The example matches the form the
+[tests](../src/tests/instruction_set/stable_form.rs) pin, which is its
+source: keep the two the same.

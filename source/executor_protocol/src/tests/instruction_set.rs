@@ -60,6 +60,14 @@ fn faults_of(instructions: impl IntoIterator<Item = InstructionDef>) -> Vec<Decl
         .expect_err("a faulty declaration")
 }
 
+/// Its hash, by the standard library's hasher, which is the same for equal
+/// values in one process.
+fn hash_of(value: &impl Hash) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[expect(dead_code, reason = "the test reads a few of the 200 constants")]
 mod many_gates {
     use crate::instruction_set;
@@ -389,14 +397,6 @@ fn sets_are_equal_exactly_when_their_declarations_are() {
             assert_eq!(hash_of(&a), hash_of(&b), "{row}");
         }
     }
-}
-
-/// Its hash, by the standard library's hasher, which is the same for equal
-/// values in one process.
-fn hash_of(value: &impl Hash) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
 }
 
 /// A set declares each name once: a block type, a mnemonic, and, in one

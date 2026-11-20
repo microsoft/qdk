@@ -12,14 +12,7 @@ use serde_json::json;
 /// read back from it.
 #[test]
 fn a_kind_is_written_and_read_as_its_displayed_name() {
-    for kind in [
-        ParameterKind::Bit,
-        ParameterKind::Number,
-        ParameterKind::Integer,
-        ParameterKind::Boolean,
-        ParameterKind::Text,
-        ParameterKind::Pauli,
-    ] {
+    for kind in every_kind() {
         let name = json!(kind.to_string());
         assert_eq!(
             serde_json::to_value(kind).expect("a kind writes its form"),
@@ -32,6 +25,21 @@ fn a_kind_is_written_and_read_as_its_displayed_name() {
             "{kind}"
         );
     }
+}
+
+/// Every kind, each listed by the one before it, in a `match` the compiler
+/// checks: a new kind does not build until it is given its arm, which
+/// links it into the list.
+fn every_kind() -> Vec<ParameterKind> {
+    let next = |kind: &ParameterKind| match kind {
+        ParameterKind::Bit => Some(ParameterKind::Number),
+        ParameterKind::Number => Some(ParameterKind::Integer),
+        ParameterKind::Integer => Some(ParameterKind::Boolean),
+        ParameterKind::Boolean => Some(ParameterKind::Text),
+        ParameterKind::Text => Some(ParameterKind::Pauli),
+        ParameterKind::Pauli => None,
+    };
+    std::iter::successors(Some(ParameterKind::Bit), next).collect()
 }
 
 /// A peer's set names its parameter kinds as Qodec does: any other text is

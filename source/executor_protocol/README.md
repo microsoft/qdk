@@ -371,7 +371,8 @@ cargo run --release -p executor_protocol --example bench
 
 - **Expected, not verified:** the other platforms the QDK builds for,
   Linux x86-64 among them: the crate uses only the standard library and
-  two dependencies, `pin-project-lite` and `smallvec`, and its
+  two dependencies, `pin-project-lite` and `smallvec` (three with the
+  `serde` feature, which adds `serde`), and its
   platform-specific code is the wasm32 case above, a drawn seed without a
   clock on wasm32 ([`Runner::run_async`](src/composition/runner.rs)), and two size
   checks made on 64-bit targets only.
