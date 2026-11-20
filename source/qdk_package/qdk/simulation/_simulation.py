@@ -262,6 +262,42 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                     pyqir.ptr_id(call.args[1]),
                 )
             )
+        elif callee_name == "__quantum__qis__mxx__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MXX,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                    pyqir.ptr_id(call.args[2]),
+                )
+            )
+        elif callee_name == "__quantum__qis__myy__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MYY,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                    pyqir.ptr_id(call.args[2]),
+                )
+            )
+        elif callee_name == "__quantum__qis__mzz__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MZZ,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                    pyqir.ptr_id(call.args[2]),
+                )
+            )
+        elif callee_name == "__quantum__qis__mzy__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MZY,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                    pyqir.ptr_id(call.args[2]),
+                )
+            )
         elif callee_name == "__quantum__qis__reset__body":
             self.gates.append((QirInstructionId.RESET, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__move__body":
@@ -576,7 +612,17 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
         call.erase()
 
 
-class DecomposeMxMyPass(pyqir.QirModuleVisitor):
+JOINT_MEASUREMENTS = [
+    "__quantum__qis__mxx__body",
+    "__quantum__qis__myy__body",
+    "__quantum__qis__mzz__body",
+    "__quantum__qis__mzy__body",
+]
+
+
+# Pass to decompose all measurements that are not natively supported by the GPU simulator.
+# For now, GPU simulator does not support joint measurements.
+class DecomposeMeasurementsPass(pyqir.QirModuleVisitor):
     h_func: Function
     s_func: Function
     sadj_func: Function
@@ -636,6 +682,9 @@ class DecomposeMxMyPass(pyqir.QirModuleVisitor):
             self._on_qis_mx(call, call.args[0], call.args[1])
         elif name == "__quantum__qis__my__body":
             self._on_qis_my(call, call.args[0], call.args[1])
+        # TODO(pranavijain): Handle joint measurements for GPU simulator
+        elif name in JOINT_MEASUREMENTS:
+            raise ValueError("GPU simulator does not support joint measurements.")
         else:
             super()._on_call_instr(call)
 
@@ -810,7 +859,8 @@ def run_qir_gpu(
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
     # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
-    DecomposeMxMyPass().run(mod)
+    # This pass also throws an error if joint measurements are present in the module.
+    DecomposeMeasurementsPass().run(mod)
     _validate_noise_intrinsics(mod, noise)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit32).run(mod, noise)
@@ -831,8 +881,8 @@ def prepare_qir_with_correlated_noise(
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
     # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
-    DecomposeMxMyPass().run(mod)
-
+    # This pass also throws an error if joint measurements are present in the module.
+    DecomposeMeasurementsPass().run(mod)
     # Extract the gates including correlated noise instructions
     return GpuCorrelatedNoisePass(noise_tables).run_and_collect(mod)
 
@@ -880,9 +930,11 @@ class GpuSimulator:
         mod, _, _, _ = preprocess_simulation_input(input, None, None, None)
         if is_adaptive(mod):
             self._is_adaptive = True
-            # Ccx and X/Y-basis measurements are not supported in the GPU simulator, decompose them
+            # Ccx is not supported in the GPU simulator, decompose it
             DecomposeCcxPass().run(mod)
-            DecomposeMxMyPass().run(mod)
+            # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
+            # This pass also throws an error if joint measurements are present in the module.
+            DecomposeMeasurementsPass().run(mod)
             # Build noise_intrinsics dict from loaded noise tables (if any)
             noise_intrinsics = None
             if self.tables is not None:

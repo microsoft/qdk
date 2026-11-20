@@ -983,6 +983,10 @@ class QirInstructionId(Enum):
     MX: QirInstructionId
     MY: QirInstructionId
     MZ: QirInstructionId
+    MXX: QirInstructionId
+    MYY: QirInstructionId
+    MZZ: QirInstructionId
+    MZY: QirInstructionId
     Move: QirInstructionId
     ReadResult: QirInstructionId
     ResultRecordOutput: QirInstructionId

@@ -15,7 +15,7 @@ use crate::{
 use branching_state::BranchingState;
 use operation::Operation;
 use paulimer::{PauliObservable, UnitaryOp, core::PositionedPauliObservable, pauli::SparsePauli};
-use qsc_data_structures::measurement::MeasurementBasis;
+use qsc_data_structures::measurement::{JointMeasurementBasis, MeasurementBasis};
 use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
@@ -299,8 +299,20 @@ impl StabilizerSimulator {
     }
 
     /// Records a single `Pauli`-measurement on the given `target`.
-    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: MeasurementBasis) {
-        let measurement = self.m_pauli_impl(target, pauli);
+    fn record_m_single(&mut self, target: QubitID, result_id: ResultID, basis: MeasurementBasis) {
+        let measurement = self.m_single_impl(target, basis);
+        self.measurements[result_id] = measurement;
+    }
+
+    /// Records a `Pauli \otimes Pauli`-measurement on the given `q0, q1`.
+    fn record_m_joint(
+        &mut self,
+        q0: QubitID,
+        q1: QubitID,
+        result_id: ResultID,
+        basis: JointMeasurementBasis,
+    ) {
+        let measurement = self.measure_joint_qubits(q0, q1, basis);
         self.measurements[result_id] = measurement;
     }
 
@@ -311,13 +323,13 @@ impl StabilizerSimulator {
     }
 
     /// Measures a `Pauli` observable on the given `target`.
-    fn m_pauli_impl(&mut self, target: QubitID, pauli: MeasurementBasis) -> MeasurementResult {
+    fn m_single_impl(&mut self, target: QubitID, basis: MeasurementBasis) -> MeasurementResult {
         if self.loss[target] {
             self.loss[target] = false;
             return MeasurementResult::Loss;
         }
 
-        let observable = match pauli {
+        let observable = match basis {
             MeasurementBasis::X => [paulimer::core::x(target)].into(),
             MeasurementBasis::Y => [paulimer::core::y(target)].into(),
             MeasurementBasis::Z => [paulimer::core::z(target)].into(),
@@ -356,7 +368,7 @@ impl StabilizerSimulator {
             return MeasurementResult::Loss;
         }
 
-        let result = self.m_pauli_impl(target, MeasurementBasis::Z);
+        let result = self.m_single_impl(target, MeasurementBasis::Z);
         if result == MeasurementResult::One {
             self.state.pauli(&[paulimer::core::x(target)].into());
         }
@@ -367,6 +379,55 @@ impl StabilizerSimulator {
         if !self.loss[target] {
             self.mresetz_impl(target);
             self.loss[target] = true;
+        }
+    }
+
+    /// Measure a `Pauli \otimes Pauli` observable on the given targets `q0` and `q1`.
+    fn measure_joint_qubits(
+        &mut self,
+        q0: QubitID,
+        q1: QubitID,
+        basis: JointMeasurementBasis,
+    ) -> MeasurementResult {
+        if self.loss[q0] {
+            self.loss[q0] = false;
+            return MeasurementResult::Loss;
+        }
+        if self.loss[q1] {
+            self.loss[q1] = false;
+            return MeasurementResult::Loss;
+        }
+
+        let observable = match basis {
+            JointMeasurementBasis::XX => [paulimer::core::x(q0), paulimer::core::x(q1)].into(),
+            JointMeasurementBasis::YY => [paulimer::core::y(q0), paulimer::core::y(q1)].into(),
+            JointMeasurementBasis::ZZ => [paulimer::core::z(q0), paulimer::core::z(q1)].into(),
+            JointMeasurementBasis::ZY => [paulimer::core::z(q0), paulimer::core::y(q1)].into(),
+        };
+        let one_probability = self.state.outcome_probability(&observable, true);
+        // Snap numerical residue so deterministic measurements do not consume randomness.
+        let outcome = if one_probability.is_nearly_zero() {
+            false
+        } else if (1.0 - one_probability).is_nearly_zero() {
+            true
+        } else {
+            self.measurement_rng
+                .random_bool(one_probability.clamp(0.0, 1.0))
+        };
+        if outcome {
+            let probability = self.state.project(&observable, true);
+            assert!(
+                !probability.is_nearly_zero(),
+                "sampled a zero-probability measurement outcome"
+            );
+            MeasurementResult::One
+        } else {
+            let zero_probability = self.state.project(&observable, false);
+            assert!(
+                !zero_probability.is_nearly_zero(),
+                "sampled a zero-probability measurement outcome"
+            );
+            MeasurementResult::Zero
         }
     }
 }
@@ -587,23 +648,23 @@ impl Simulator for StabilizerSimulator {
 
     fn mx(&mut self, target: QubitID, result_id: ResultID) {
         // The MX measurement currently use `mz` noise.
-        // TODO(pranavijain): Change noise type when noise for MX is configured
+        // TODO(pjain): Change noise type when noise for MX is configured
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, MeasurementBasis::X);
+        self.record_m_single(target, result_id, MeasurementBasis::X);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn my(&mut self, target: QubitID, result_id: ResultID) {
         // The MY measurement currently uses `mz` noise.
-        // TODO(pranavijain): Change noise type when noise for MY is configured.
+        // TODO(pjain): Change noise type when noise for MY is configured.
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, MeasurementBasis::Y);
+        self.record_m_single(target, result_id, MeasurementBasis::Y);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn mz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, MeasurementBasis::Z);
+        self.record_m_single(target, result_id, MeasurementBasis::Z);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
@@ -611,6 +672,27 @@ impl Simulator for StabilizerSimulator {
         self.apply_idle_noise(target);
         self.record_mresetz(target, result_id);
         self.apply_noise(|config| &config.mresetz, &[target]);
+    }
+
+    // TODO(pjain): Apply noise to all joint measurements: `mxx`, `myy`, `mzz`, `mzy` when configured.
+    fn mxx(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID) {
+        // This measurement is currently noiseless.
+        self.record_m_joint(q1, q2, result_id, JointMeasurementBasis::XX);
+    }
+
+    fn myy(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID) {
+        // This measurement is currently noiseless.
+        self.record_m_joint(q1, q2, result_id, JointMeasurementBasis::YY);
+    }
+
+    fn mzz(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID) {
+        // This measurement is currently noiseless.
+        self.record_m_joint(q1, q2, result_id, JointMeasurementBasis::ZZ);
+    }
+
+    fn mzy(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID) {
+        // This measurement is currently noiseless.
+        self.record_m_joint(q1, q2, result_id, JointMeasurementBasis::ZY);
     }
 
     fn resetz(&mut self, target: QubitID) {
