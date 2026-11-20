@@ -112,19 +112,31 @@ fn each_shot_draws_from_its_own_stream_of_the_seed() {
     }
 }
 
-/// A rotation by a non-Clifford angle, which the stabilizer simulator
-/// cannot run, fails shot 3 and loses it: the shot sent the rotation
-/// again, together with shot 1, in one batch or after shot 1's in a batch
-/// of its own, is refused as an earlier failure before anything runs, so
-/// shot 1, which the same rotation would fail, ends refused, not failed.
+/// An error fails shot 3 and loses it: the shot sent a rotation by a
+/// non-Clifford angle again, together with shot 1, in one batch or after
+/// shot 1's in a batch of its own, is refused as an earlier failure before
+/// anything runs, so shot 1, which the same rotation would fail, ends
+/// refused, not failed. The error is that rotation, which the stabilizer
+/// simulator cannot run, or a rotation sent without its angle, unchecked,
+/// which Qodec's translator cannot run (where the layers would keep the
+/// shot).
 #[test]
-fn a_shot_the_simulator_failed_is_refused_when_sent_again() {
+fn a_shot_an_error_lost_is_refused_when_sent_again() {
+    /// A driver with one of its calls made malformed.
+    type Malformed = fn(TopIsaDriver) -> TopIsaDriver;
     let bottom = qodecs::model("repetition3/repetition3.qodec.yaml").bottom;
     let program = Program::parse("R 0; rotate_z 0 theta=0.5 | R 0; rotate_z 0 theta=0.5");
     let together: &[&[usize]] = &[&[0, 1]];
     let shot_3_after_shot_1: &[&[usize]] = &[&[0], &[1]];
-    for batches in [together, shot_3_after_shot_1] {
-        let driver = TopIsaDriver::new(&bottom, &program)
+    // Each case: the batches, by position in shots [1, 3], of the second
+    // `execute`, and the first `execute`'s malformed call, if one.
+    let cases: [(_, Malformed); 3] = [
+        (together, |driver| driver),
+        (shot_3_after_shot_1, |driver| driver),
+        (together, |driver| driver.without_its_arguments(0, 1)),
+    ];
+    for (batches, malformed) in cases {
+        let driver = malformed(TopIsaDriver::new(&bottom, &program))
             .sending_execute_to(0, &[1])
             .sending_execute_in_batches(1, batches)
             .going_on_after_errors();

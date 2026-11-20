@@ -138,15 +138,19 @@ impl ExecutorSetup for ActionSimulatorExecutor {
 impl Execute for ActionSimulatorExecutor {
     /// Runs each batch on each of its shots' simulators, in order. A shot
     /// an earlier error lost, in any batch, is refused before anything
-    /// runs. A step the simulator cannot run fails the batch at that shot,
-    /// and loses it. An instruction with an argument Qodec's calls have no
-    /// form for, such as a readout parity, fails its batch before any of
-    /// the batch's shots runs, and loses none; only an unchecked batch can
-    /// carry one. An instruction that would prepare a block at the index of
-    /// a live block of another type, which Qodec's one label per block
-    /// cannot tell apart ([`TranslationFault`](crate::TranslationFault)),
-    /// checked or not, fails the batch at that shot, before any of the
-    /// batch runs on it, without losing it.
+    /// runs. A call Qodec's translator cannot run (arguments that do not
+    /// fit its instruction, a block that is not live), or a step the
+    /// simulator cannot run, fails the batch at that shot, and loses it;
+    /// the layers, unlike this executor, keep the shot on arguments that do
+    /// not fit, which Qodec's runtime rejects before running anything. An
+    /// instruction with an argument Qodec's calls have no form for, such as
+    /// a readout parity, fails its batch before any of the batch's shots
+    /// runs, and loses none; only an unchecked batch can carry one. An
+    /// instruction that would prepare a block at the index of a live block
+    /// of another type, which Qodec's one label per block cannot tell apart
+    /// ([`TranslationFault`](crate::TranslationFault)), checked or not,
+    /// fails the batch at that shot, before any of the batch runs on it,
+    /// without losing it.
     #[expect(
         clippy::unused_async_trait_impl,
         reason = "a part that never waits keeps the trait's `async fn` form"

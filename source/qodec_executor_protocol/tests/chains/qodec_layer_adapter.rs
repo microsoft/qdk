@@ -398,32 +398,67 @@ fn a_rotations_angle_reaches_the_part_below_as_the_program_states_it() {
 /// so shot 1 reaches no part below either. The error is a rotation by a
 /// non-Clifford angle, which a stabilizer simulator cannot run, sent whole
 /// or in batches of one instruction after the earlier ones of its layer's
-/// batch ran below; or a refusal of a part below that takes no instruction
+/// batch ran below; a refusal of a part below that takes no instruction
 /// at all: the layers' work on the shot is lost with it, so the refusal
-/// fails the shot rather than being passed up as one.
+/// fails the shot rather than being passed up as one; or a fault of the
+/// layers, a Steane Hadamard on a block that is not live, which Qodec's
+/// runtime raises while it runs the batch.
 #[test]
 fn a_shot_an_error_lost_is_refused_when_sent_again() {
-    let model = qodecs::model("repetition3/repetition3.qodec.yaml");
-    let program = Program::parse("prepare_z 0; rotate_z 0 theta=0.5 | prepare_z 0; measure_z 0");
+    /// How the first `execute` must fail shot 3.
+    type Fails = fn(&ExecuteEnd) -> bool;
+    let rotation = (
+        "repetition3/repetition3.qodec.yaml",
+        "prepare_z 0; rotate_z 0 theta=0.5 | prepare_z 0; measure_z 0",
+    );
     let together: &[&[usize]] = &[&[0, 1]];
     let shot_3_after_shot_1: &[&[usize]] = &[&[0], &[1]];
-    // Each case, the most instructions the part below takes per batch, and
-    // the batches, by position in shots [1, 3], of the second `execute`.
-    let cases = [
-        ("the simulator fails", None, together),
+    // Each case: its qodec and program, the most instructions the part
+    // below takes per batch, the batches, by position in shots [1, 3], of
+    // the second `execute`, and how the first fails shot 3.
+    let cases: [(_, _, _, _, Fails); 5] = [
+        (
+            "the simulator fails",
+            rotation,
+            None,
+            together,
+            failed_below,
+        ),
         (
             "the simulator fails; shot 3 sent again in a batch after shot 1's",
+            rotation,
             None,
             shot_3_after_shot_1,
+            failed_below,
         ),
         (
             "the simulator fails a later batch of a split",
+            rotation,
             Some(1),
             together,
+            failed_below,
         ),
-        ("the part below refuses", Some(0), together),
+        (
+            "the part below refuses",
+            rotation,
+            Some(0),
+            together,
+            failed_on_a_refusal_below,
+        ),
+        (
+            "a layer faults",
+            (
+                "steane/steane.qodec.yaml",
+                "prepare_z 0; h 1 | prepare_z 0; measure_z 0",
+            ),
+            None,
+            together,
+            failed_on_a_fault_of_layer_0,
+        ),
     ];
-    for (case, most, batches) in cases {
+    for (case, (path, text), most, batches, fails) in cases {
+        let model = qodecs::model(path);
+        let program = Program::parse(text);
         let driver = TopIsaDriver::new(&model.top, &program)
             .sending_execute_to(0, &[1])
             .sending_execute_in_batches(1, batches)
@@ -438,18 +473,7 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
         let [first, second] = runs[1].ends.as_slice() else {
             panic!("{case}: two `execute`s for shot 3: {:?}", runs[1].ends);
         };
-        let failed_as_expected = matches!(
-            (most, first),
-            (None | Some(1), ExecuteEnd::Failed { refusal: None, .. })
-                | (
-                    Some(0),
-                    ExecuteEnd::Failed {
-                        refusal: Some(ExecuteRefusal::TooManyInstructions { max: 0, .. }),
-                        ..
-                    },
-                )
-        );
-        assert!(failed_as_expected, "{case}: the shot fails: {first:?}");
+        assert!(fails(first), "{case}: the shot fails: {first:?}");
         if most == Some(1) {
             assert!(
                 below
@@ -475,6 +499,44 @@ fn a_shot_an_error_lost_is_refused_when_sent_again() {
             below.received
         );
     }
+}
+
+/// Whether `end` is a failure raised below the layers, neither a fault of
+/// theirs nor a refusal.
+fn failed_below(end: &ExecuteEnd) -> bool {
+    matches!(
+        end,
+        ExecuteEnd::Failed {
+            fault: None,
+            refusal: None,
+            ..
+        }
+    )
+}
+
+/// Whether `end` is a failure on a part below's refusal to take any
+/// instruction.
+fn failed_on_a_refusal_below(end: &ExecuteEnd) -> bool {
+    matches!(
+        end,
+        ExecuteEnd::Failed {
+            refusal: Some(ExecuteRefusal::TooManyInstructions { max: 0, .. }),
+            ..
+        }
+    )
+}
+
+/// Whether `end` is a failure on an invalid instruction that Qodec's runtime
+/// raised in layer 0 of its qodec.
+fn failed_on_a_fault_of_layer_0(end: &ExecuteEnd) -> bool {
+    matches!(
+        end,
+        ExecuteEnd::Failed {
+            fault: Some(fault),
+            refusal: None,
+            ..
+        } if fault.kind == FaultKind::InvalidInstruction && fault.layer == Some(0)
+    )
 }
 
 /// A runner runs again on the shots of its last run, in which a rotation by
@@ -704,10 +766,9 @@ fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
 /// with an opcode beyond the layers' top ISA, or stating no readout slot
 /// for it. The core lets a receiver of such a batch panic, and gives the
 /// part above the panic as the `execute`'s failure; the layers keep the
-/// shot and answer its next batch. Nothing of the batch runs before the
-/// opcode's panic, but the batch with no slot runs, in the layers and
-/// below, before its panic: so the next `execute` here prepares its block
-/// afresh, and reads what it reads sent alone.
+/// shot and answer its next batch. How much of the failing batch ran
+/// before the panic is not promised, so the next `execute` here prepares
+/// its block afresh, and reads what it reads sent alone.
 #[test]
 fn an_unchecked_batch_the_layers_cannot_read_panics_and_keeps_the_shot() {
     let model = qodecs::model("steane/steane.qodec.yaml");

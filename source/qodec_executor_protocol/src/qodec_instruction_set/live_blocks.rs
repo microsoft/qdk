@@ -44,17 +44,18 @@ impl LiveBlocks {
     ///
     /// A call whose arguments do not fit its instruction, or whose operands
     /// do not bind, ends the tracking there: the blocks returned are those
-    /// after the calls before it, and the part fails the batch when it runs
-    /// that call. In the layers, Qodec's runtime rejects a call whose
-    /// arguments do not fit before running the batch, so the shot keeps
-    /// these live blocks, and a call whose operands do not bind is a fault,
-    /// which loses the shot; the executor's translator fails on either,
-    /// losing the shot. The exception is a release without a gadget, which
-    /// Qodec's layers run unbound: the batch runs, and the blocks returned
-    /// miss the rest of it, a clash after the release and the blocks it
-    /// ends. Only an ill-typed program on an ISA of several types reaches
-    /// it, one that Qodec's drivers reject first with their `TypeChecker`,
-    /// which is not ported.
+    /// after the calls before it, and the part fails the batch on that call.
+    /// In the layers, Qodec's runtime rejects a call whose arguments do not
+    /// fit before running anything of the batch, so the shot keeps the
+    /// blocks it had before the batch; a call whose operands do not bind is
+    /// a fault, which loses the shot. The executor's translator fails on
+    /// either, before running anything of the batch, and loses the shot.
+    /// The exception is a release without a gadget, which Qodec's layers
+    /// run unbound: the batch runs, but the blocks returned omit what the
+    /// rest of the batch ends and prepares, so a later clash may go
+    /// unchecked, or a later valid call be refused. Only an ill-typed
+    /// program on an ISA of several types reaches it, one that Qodec's
+    /// drivers reject first with their `TypeChecker`, which is not ported.
     ///
     /// # Errors
     ///
