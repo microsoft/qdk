@@ -295,7 +295,7 @@ impl Adapt for QodecLayerAdapter {
                 });
                 let live = state
                     .live
-                    .after(self.accepts.isa(), &calls)
+                    .after_checking_labels(self.accepts.isa(), &calls)
                     .map_err(|fault| ExecuteError::Failed {
                         shot,
                         failure: Failure::Part(Box::new(fault)),

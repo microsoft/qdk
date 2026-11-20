@@ -4,7 +4,7 @@
 //! [`ExecutorSpy`]: an executor that records each batch it receives before
 //! the executor it wraps runs it, may take fewer instructions per batch
 //! than that executor, may number its instructions in another order, and
-//! may raise conditions on the shots of a batch that reads nothing.
+//! may raise conditions on chosen shots of a batch that reads nothing.
 
 use std::sync::Arc;
 
@@ -37,9 +37,10 @@ pub struct ExecutorSpy<E> {
     /// The set it accepts in place of the executor's, if it numbers the
     /// same instructions otherwise.
     renumbered: Option<QodecInstructionSet>,
-    /// The conditions it raises on each shot of a batch with no readout
-    /// slots.
+    /// The conditions it raises on a batch with no readout slots, and the
+    /// shots, by id, it raises them on.
     raising: ShotConditions,
+    raising_on: fn(u32) -> bool,
     /// Each batch received, in order: only those the protocol's boundary
     /// let through.
     pub received: Vec<ReceivedBatch>,
@@ -53,6 +54,7 @@ impl<E> ExecutorSpy<E> {
             most_instructions: None,
             renumbered: None,
             raising: ShotConditions::NONE,
+            raising_on: |_| false,
             received: Vec::new(),
         }
     }
@@ -82,11 +84,16 @@ impl<E> ExecutorSpy<E> {
     }
 
     /// This spy, raising `conditions` on each shot of a batch with no
-    /// readout slots, after the executor it wraps runs the batch: a part
-    /// that finds a shot's work rejected, say, though the work reads
-    /// nothing.
-    pub fn raising_on_batches_reading_nothing(mut self, conditions: ShotConditions) -> Self {
+    /// readout slots whose id `on_shot` picks, after the executor it wraps
+    /// runs the batch: a part that finds a shot's work rejected, say,
+    /// though the work reads nothing.
+    pub fn raising_on_batches_reading_nothing(
+        mut self,
+        conditions: ShotConditions,
+        on_shot: fn(u32) -> bool,
+    ) -> Self {
         self.raising = conditions;
+        self.raising_on = on_shot;
         self
     }
 }
@@ -178,13 +185,16 @@ impl<E: Execute> Execute for ExecutorSpy<E> {
             }
             None => self.executor.execute(batches, seed, readouts).await?,
         }
-        for batch_readouts in readouts
-            .iter_mut()
-            .filter(|batch_readouts| batch_readouts.readout_slots() == 0)
+        for (batch, batch_readouts) in batches
+            .iter()
+            .zip(readouts)
+            .filter(|(_, batch_readouts)| batch_readouts.readout_slots() == 0)
         {
-            for position in 0..batch_readouts.shots() {
-                let conditions = batch_readouts.conditions(position) | self.raising;
-                batch_readouts.set_conditions(position, conditions);
+            for (position, shot) in batch.shots.iter().enumerate() {
+                if (self.raising_on)(shot.get()) {
+                    let conditions = batch_readouts.conditions(position) | self.raising;
+                    batch_readouts.set_conditions(position, conditions);
+                }
             }
         }
         Ok(())

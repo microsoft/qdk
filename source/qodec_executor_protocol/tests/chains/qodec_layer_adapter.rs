@@ -22,6 +22,7 @@ use crate::executor_spy::ExecutorSpy;
 use crate::late_answer_executor::{LateAnswerExecutor, Wake};
 use crate::programs::Program;
 use crate::qodecs;
+use crate::surface_programs::{SURFACE_LABEL_REUSED, SURFACE_REPREPARED};
 use crate::top_isa_driver::{ExecuteEnd, ShotRun, TopIsaDriver};
 
 /// The shots of each run.
@@ -67,7 +68,10 @@ fn over(
 /// conditions that Qodec's runtime reads driven directly over a stabilizer
 /// simulator drawing from the shot's stream of the seed. The same holds
 /// over a part below that numbers the layers' bottom ISA in another order,
-/// as the fit lets it: the layers send it its own opcodes.
+/// as the fit lets it: the layers send it its own opcodes. On surface's
+/// two block types, a call may prepare a block at the label of a live one
+/// of its own type, or at the label of a block of another type that has
+/// ended: neither shares a label between two live blocks.
 #[test]
 fn each_shot_reads_what_qodecs_runtime_reads_driven_directly() {
     let steane_gadgets =
@@ -92,6 +96,8 @@ fn each_shot_reads_what_qodecs_runtime_reads_driven_directly() {
             "prepare_z 0; prepare_z 1; idle 0; merge_zz 0 1; measure_merged_z 0",
             false,
         ),
+        ("surface/surface.qodec.yaml", SURFACE_REPREPARED, false),
+        ("surface/surface.qodec.yaml", SURFACE_LABEL_REUSED, false),
         (
             "five_qubit/five_qubit.qodec.yaml",
             "prepare_z 0; idle 0; cycle 0; measure_x 0",
@@ -186,19 +192,21 @@ fn one_adapter_per_layer_reads_what_one_adapter_for_all_layers_reads() {
 }
 
 /// The conditions raised in or below the layers reach the driver, on the
-/// shot they were raised on. C4/C6's decoder cannot resolve the C6
+/// shot they were raised on only. C4/C6's decoder cannot resolve the C6
 /// measurement Qodec's REPL tests end with, and says so in the result's
-/// status. A part below finds a shot's work rejected, inconsistent or
-/// unresolved on a batch that reads nothing, such as the seven Hadamards
-/// that are Steane's logical Hadamard, sent whole, in batches of two, or
-/// one by one: no result of the layers carries it, yet the driver sees it.
+/// status. A part below finds the work of the even shots rejected,
+/// inconsistent or unresolved on a batch that reads nothing, such as the
+/// seven Hadamards that are Steane's logical Hadamard, sent whole, in
+/// batches of two, or one by one: no result of the layers carries it, yet
+/// the driver sees it on those shots, and not on the odd ones.
 #[test]
 fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
     let stepped_hadamard = "prepare_z 0 | h 0 | measure_z 0";
     let split_hadamard = "prepare_z 0; h 0; measure_z 0";
     // Each case: its qodec, its program, the conditions the part below
-    // raises on a batch reading nothing, the most instructions it takes per
-    // batch, and the condition the driver sees.
+    // raises on the even shots of a batch reading nothing, the most
+    // instructions it takes per batch, and the condition the driver sees
+    // on those shots.
     let cases = [
         (
             "c4c6/qodec.yaml",
@@ -238,7 +246,8 @@ fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
     ];
     for (path, text, raised_below, most, seen) in cases {
         let model = qodecs::model(path);
-        let mut below = spied_stabilizer(&model).raising_on_batches_reading_nothing(raised_below);
+        let mut below = spied_stabilizer(&model)
+            .raising_on_batches_reading_nothing(raised_below, |shot| shot % 2 == 0);
         if let Some(most) = most {
             below = below.taking_at_most(most);
         }
@@ -257,13 +266,20 @@ fn the_conditions_raised_in_or_below_the_layers_reach_the_driver() {
                 below.received
             );
         }
-        for run in runs {
-            assert!(
-                run.readouts.conditions.contains(seen),
-                "{text}, shot of stream {}: {:?}",
-                run.stream,
-                run.readouts.conditions
-            );
+        for (shot, run) in runs.iter().enumerate() {
+            let conditions = run.readouts.conditions;
+            if raised_below == ShotConditions::NONE || shot % 2 == 0 {
+                assert!(
+                    conditions.contains(seen),
+                    "{text}, most {most:?}, shot {shot}: {conditions:?}"
+                );
+            } else {
+                assert!(
+                    !conditions.contains(raised_below),
+                    "{text}, most {most:?}: shot {shot}, on which nothing was raised: \
+                     {conditions:?}"
+                );
+            }
         }
     }
 }
@@ -326,8 +342,9 @@ const QUBITS: u32 = 5;
 /// A rotation by an angle the program states, of no effect (0), a Pauli
 /// (pi) or non-Clifford (1.234), runs on a full-state simulator below
 /// repetition3's layers, which lower it to a rotation of a data qubit by
-/// the same angle: the part below gets that angle as the program wrote it,
-/// and the shots read what Qodec's runtime reads driven directly.
+/// the same angle: the part below gets that angle as the program wrote it.
+/// The shots' bits cannot show the angle, as the rotation is of a Z
+/// eigenstate, so the witness is the number the part below receives.
 #[test]
 fn a_rotations_angle_reaches_the_part_below_as_the_program_states_it() {
     let model = qodecs::model("repetition3/repetition3.qodec.yaml");
@@ -348,6 +365,17 @@ fn a_rotations_angle_reaches_the_part_below_as_the_program_states_it() {
             &ShotSet::ids(0..4),
         );
 
+        for run in runs {
+            let mut direct = runtime(
+                &plan,
+                simulator(plan.bottom(), full_state(run.stream, QUBITS as usize)),
+            );
+            assert_eq!(
+                run.readouts,
+                run_directly(plan.top(), &program, &mut direct),
+                "precondition: angle {angle}: the shots read what Qodec's runtime reads"
+            );
+        }
         let numbers: Vec<f64> = below
             .received
             .iter()
@@ -360,17 +388,6 @@ fn a_rotations_angle_reaches_the_part_below_as_the_program_states_it() {
                     .all(|number| number.to_bits() == angle.to_bits()),
             "angle {angle}: the numbers sent below: {numbers:?}"
         );
-        for run in runs {
-            let mut direct = runtime(
-                &plan,
-                simulator(plan.bottom(), full_state(run.stream, QUBITS as usize)),
-            );
-            assert_eq!(
-                run.readouts,
-                run_directly(plan.top(), &program, &mut direct),
-                "angle {angle}"
-            );
-        }
     }
 }
 
@@ -686,9 +703,11 @@ fn a_call_the_layers_reject_fails_its_execute_and_keeps_the_shot() {
 /// An unchecked batch the layers cannot read: a Steane measurement sent
 /// with an opcode beyond the layers' top ISA, or stating no readout slot
 /// for it. The core lets a receiver of such a batch panic, and gives the
-/// part above the panic as the `execute`'s failure; the layers lose no
-/// shot for it, and the next `execute` reads what it reads with the
-/// failing one never sent.
+/// part above the panic as the `execute`'s failure; the layers keep the
+/// shot and answer its next batch. Nothing of the batch runs before the
+/// opcode's panic, but the batch with no slot runs, in the layers and
+/// below, before its panic: so the next `execute` here prepares its block
+/// afresh, and reads what it reads sent alone.
 #[test]
 fn an_unchecked_batch_the_layers_cannot_read_panics_and_keeps_the_shot() {
     let model = qodecs::model("steane/steane.qodec.yaml");

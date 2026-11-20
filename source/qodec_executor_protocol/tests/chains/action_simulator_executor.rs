@@ -5,13 +5,17 @@
 //! action simulator reads what that simulator reads driven directly, from
 //! the shot's own stream of the seed, and keeps each shot's errors.
 
+use std::sync::Arc;
+
 use executor_protocol::{Driver, ExecuteRefusal, Executor, ShotSet};
 use qodec_executor_protocol::ActionSimulatorExecutor;
+use qodec_runtime_recipes::Isa;
 
 use crate::SEED;
 use crate::direct_runtime::{full_state, run_directly, simulator, stabilizer};
 use crate::programs::Program;
 use crate::qodecs;
+use crate::surface_programs::{SURFACE_LABEL_REUSED, SURFACE_REPREPARED};
 use crate::top_isa_driver::{ExecuteEnd, ShotRun, TopIsaDriver};
 
 /// Three qubits, each measured after a Hadamard: three random bits per
@@ -21,10 +25,21 @@ const COINS: &str = "R 0; H 0; M 0; R 1; H 1; M 1 | R 2; H 2; M 2";
 /// The qubits of the state-vector simulator.
 const QUBITS: u32 = 3;
 
-/// Runs `program`, of `executor`'s ISA, on `shots`.
+/// Runs `program`, of Steane's bottom ISA, Stim's, on `executor`, on
+/// `shots`.
 fn run(executor: &mut ActionSimulatorExecutor, program: &Program, shots: &ShotSet) -> Vec<ShotRun> {
     let isa = qodecs::model("steane/steane.qodec.yaml").bottom;
-    (Driver::new(TopIsaDriver::new(&isa, program)) >> Executor::new(executor))
+    run_of(&isa, executor, program, shots)
+}
+
+/// Runs `program`, of `isa`, `executor`'s ISA, on `shots`.
+fn run_of(
+    isa: &Arc<Isa>,
+    executor: &mut ActionSimulatorExecutor,
+    program: &Program,
+    shots: &ShotSet,
+) -> Vec<ShotRun> {
+    (Driver::new(TopIsaDriver::new(isa, program)) >> Executor::new(executor))
         .expect("the driver sends the executor's ISA")
         .run(shots, SEED)
         .expect("the program runs")
@@ -32,22 +47,42 @@ fn run(executor: &mut ActionSimulatorExecutor, program: &Program, shots: &ShotSe
 
 /// On both simulators, each shot reads the bits the simulator reads under
 /// Qodec's translator, driven directly from the shot's stream of the seed.
+/// On surface's two block types, a call may prepare a block at the label
+/// of a live one of its own type, or at the label of a block of another
+/// type that has ended: neither shares a label between two live blocks.
 #[test]
 fn each_shot_reads_what_its_simulator_reads_driven_directly() {
-    let bottom = qodecs::model("steane/steane.qodec.yaml").bottom;
-    let program = Program::parse(COINS);
-    let mut stabilizers =
-        ActionSimulatorExecutor::stabilizer(&bottom).expect("Stim's ISA is a protocol set");
-    let mut full_states =
-        ActionSimulatorExecutor::full_state(&bottom, QUBITS).expect("Stim's ISA is a protocol set");
+    let stim = qodecs::model("steane/steane.qodec.yaml").bottom;
+    let surface = qodecs::model("surface/surface.qodec.yaml").top;
+    // Each case: the executor's ISA, its program, and whether it runs on a
+    // state-vector simulator rather than a stabilizer one.
+    for (isa, text, on_full_state) in [
+        (&stim, COINS, false),
+        (&stim, COINS, true),
+        (&surface, SURFACE_REPREPARED, false),
+        (&surface, SURFACE_LABEL_REUSED, false),
+    ] {
+        let program = Program::parse(text);
+        let mut executor = if on_full_state {
+            ActionSimulatorExecutor::full_state(isa, QUBITS)
+        } else {
+            ActionSimulatorExecutor::stabilizer(isa)
+        }
+        .expect("the example's ISA is a protocol set");
 
-    for run in run(&mut stabilizers, &program, &ShotSet::ids(0..16)) {
-        let mut direct = simulator(&bottom, stabilizer(run.stream));
-        assert_eq!(run.readouts, run_directly(&bottom, &program, &mut direct));
-    }
-    for run in run(&mut full_states, &program, &ShotSet::ids(0..16)) {
-        let mut direct = simulator(&bottom, full_state(run.stream, QUBITS as usize));
-        assert_eq!(run.readouts, run_directly(&bottom, &program, &mut direct));
+        for run in run_of(isa, &mut executor, &program, &ShotSet::ids(0..16)) {
+            let engine = if on_full_state {
+                full_state(run.stream, QUBITS as usize)
+            } else {
+                stabilizer(run.stream)
+            };
+            let mut direct = simulator(isa, engine);
+            assert_eq!(
+                run.readouts,
+                run_directly(isa, &program, &mut direct),
+                "{text}, on a state vector: {on_full_state}"
+            );
+        }
     }
 }
 

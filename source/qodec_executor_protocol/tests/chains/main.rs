@@ -21,6 +21,7 @@ mod late_answer_executor;
 mod programs;
 mod qodec_layer_adapter;
 mod qodecs;
+mod surface_programs;
 mod top_isa_driver;
 
 /// The seed of every run.

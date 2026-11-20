@@ -38,19 +38,34 @@ pub(crate) struct LiveBlocks {
 }
 
 impl LiveBlocks {
-    /// The live blocks after `calls`, calls of `isa`, run on these.
+    /// The live blocks after `calls`, calls of `isa`, run on these, once
+    /// no call of them would prepare a block at the label of a live block
+    /// of another type.
     ///
-    /// A call Qodec's runtime rejects before running it, whose arguments
-    /// do not fit its instruction or whose operands do not bind, ends the
-    /// tracking there: the runtime fails the batch, and these stay the
-    /// shot's live blocks.
+    /// A call whose arguments do not fit its instruction, or whose operands
+    /// do not bind, ends the tracking there: the blocks returned are those
+    /// after the calls before it, and the part fails the batch when it runs
+    /// that call. In the layers, Qodec's runtime rejects a call whose
+    /// arguments do not fit before running the batch, so the shot keeps
+    /// these live blocks, and a call whose operands do not bind is a fault,
+    /// which loses the shot; the executor's translator fails on either,
+    /// losing the shot. The exception is a release without a gadget, which
+    /// Qodec's layers run unbound: the batch runs, and the blocks returned
+    /// miss the rest of it, a clash after the release and the blocks it
+    /// ends. Only an ill-typed program on an ISA of several types reaches
+    /// it, one that Qodec's drivers reject first with their `TypeChecker`,
+    /// which is not ported.
     ///
     /// # Errors
     ///
     /// When a call prepares a block, an output that is not one of its
     /// inputs, at the label of a live block of another type: the fault
     /// names the call, both types and the label.
-    pub(crate) fn after(&self, isa: &Isa, calls: &[Call]) -> Result<Self, TranslationFault> {
+    pub(crate) fn after_checking_labels(
+        &self,
+        isa: &Isa,
+        calls: &[Call],
+    ) -> Result<Self, TranslationFault> {
         if isa.types.names.len() < 2 {
             return Ok(Self::default());
         }
