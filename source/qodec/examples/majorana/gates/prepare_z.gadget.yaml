@@ -1,0 +1,3 @@
+circuit:
+  source: [prepare_z: [0]]
+out: [qubit: [0]]

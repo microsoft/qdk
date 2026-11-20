@@ -1,0 +1,16 @@
+# Hadamard by one-bit teleportation. With the ancilla in |+>, measuring X Z
+# makes the data's X equal to the ancilla's Z. Measuring the data's Z then
+# leaves the ancilla's X carrying the data's old Z, so the state moves to the
+# ancilla with X and Z swapped.
+circuit:
+  source:
+    - prepare_z: [1]
+    - measure_x: [1]
+    - measure_xz: [0, 1]
+    - measure_z: [0]
+    - release: [0]
+in: [qubit: [0]]
+out: [qubit: [1]]
+frames:
+  "out[0].x[0]": ["circuit.readouts[0]", "circuit.readouts[2]"]
+  "out[0].z[0]": ["circuit.readouts[1]"]

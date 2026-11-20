@@ -1,0 +1,6 @@
+circuit:
+  source:
+    - measure_x: [0]
+    - release: [0]
+in: [qubit: [0]]
+readouts: [["circuit.readouts[0]", "in[0].x[0]"]]

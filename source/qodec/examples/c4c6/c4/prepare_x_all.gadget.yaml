@@ -1,0 +1,72 @@
+implements: ../c4c6.isa.yaml#prepare_x_all
+# Knill's fault-tolerant |++>_L preparation for the C4 [[4,2,2]] code,
+# transcribed from Fig 8 bottom of arXiv:quant-ph/0410199 ("reducebprepX").
+# Dual to prepare_z_all: ancilla roles flip from X+ to Z+, Bell-pair CXs and
+# the cat-prep cycle reverse direction, and the ancillas are measured in X.
+#
+# Qubits 0-3: codeword survivors, each initialized as |+> (X+).
+# Qubits 4-7: ancillas, each initialized as |0> (Z+), measured in X.
+# Bell pairs: survivor 0 controls ancilla 4, 1 controls 5, etc.
+# Cat-prep cycle: each ancilla XORs into the next pair's survivor, with a long
+# wrap-around from ancilla 7 into survivor 0.
+#
+# Only 2 of the 8 reachable ancilla outcomes leave the survivors in |++>_L; the
+# other 6 carry a logical Z_L, Z_S or Z_L Z_S. Knill's construction feeds the
+# outcomes forward to cancel it, which is what the trailing Z_if calls do:
+# Z_L0 = Z_0 Z_2 when readout 2 is set, Z_L1 = Z_2 Z_3 when readouts 1 and 2
+# differ. Written as inline calls rather than Stim because Stim's `CZ rec[-k] q`
+# has no qodec spelling; `Z_if` carries the classical bit as an operand.
+circuit:
+  source:
+    - R: [0]
+    - R: [1]
+    - R: [2]
+    - R: [3]
+    - R: [4]
+    - R: [5]
+    - R: [6]
+    - R: [7]
+    - H: [0]
+    - H: [1]
+    - H: [2]
+    - H: [3]
+    - CX: [0, 4]
+    - CX: [1, 5]
+    - CX: [2, 6]
+    - CX: [3, 7]
+    - CX: [4, 1]
+    - CX: [5, 2]
+    - CX: [6, 3]
+    - CX: [7, 0]
+    - H: [4]
+    - H: [5]
+    - H: [6]
+    - H: [7]
+    - M: [4]
+    - M: [5]
+    - M: [6]
+    - M: [7]
+    - Z_if: [0, correction: "circuit.readouts[2]"]
+    - Z_if: [2, correction: "circuit.readouts[2]"]
+    - Z_if: [2, correction: "circuit.readouts[1]"]
+    - Z_if: [3, correction: "circuit.readouts[1]"]
+    - Z_if: [2, correction: "circuit.readouts[2]"]
+    - Z_if: [3, correction: "circuit.readouts[2]"]
+checks:
+  # The correction fixes the logical state, not the syndrome: stabilizer 0's sign
+  # still records the ancilla outcomes that produced it.
+  - - circuit.readouts[0]
+    - circuit.readouts[2]
+    - out[0].stabilizers[0]
+  - - out[0].stabilizers[1]
+readouts:
+  # One flag (Knill's verification): reject iff the total parity of the four
+  # ancilla X measurements is odd. X_4 X_5 X_6 X_7 = +1 (parity 0) in noiseless
+  # execution, so reject is deterministically 0; a consumer post-selects on it.
+  - reject:
+      [
+        "circuit.readouts[0]",
+        "circuit.readouts[1]",
+        "circuit.readouts[2]",
+        "circuit.readouts[3]",
+      ]

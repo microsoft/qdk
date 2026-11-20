@@ -1,0 +1,7 @@
+# A Pauli gate needs no loop: it only updates the Pauli frame. X flips the
+# sign of Z.
+circuit:
+  source: []
+in: [qubit: [0]]
+out: [qubit: [0]]
+frames: { "out[0].z[0]": [1] }

@@ -1,0 +1,246 @@
+# Honeycomb Floquet code - single-file qodec bundle (generated).
+#
+# A measurement-only code on the honeycomb lattice (Hastings-Haah, Quantum 5, 564,
+# 2021). Qubits on vertices; the three edge colours carry two-qubit checks
+# red=XX, green=YY, blue=ZZ; a period-3 schedule measures all red, then green, then
+# blue checks. The INSTANTANEOUS STABILIZER GROUP rotates each round: its
+# generators are two of that colour's edge checks plus the two conserved plaquettes
+# (X^6 and Z^6, the Floquet detectors). The k=2 logical operators rotate too.
+#
+# qodec models the rotating ISG as THREE codes (isg_red/green/blue) with the rounds
+# as code-switching gadgets (in: previous phase, out: next phase) - the same way
+# c412_minimal models a smaller Floquet code. The same 6 physical qubits are
+# described by three different stabilizer groups; this is the catalog's sharpest
+# test of qodec's otherwise-static "one code per block" assumption.
+#
+# Smallest FAITHFUL instance: the honeycomb on the (1,1) torus - 6 qubits, 3 edges
+# per colour, k=2 logical qubits. (The (1,1) torus is the minimal size whose period
+# preserves the logical information; verified by generate_honeycomb.py.)
+#
+# Reference: M. B. Hastings, J. Haah, "Dynamically Generated Logical Qubits",
+# Quantum 5, 564 (2021); A. Kitaev, Ann. Phys. 321, 2 (2006) (the honeycomb model).
+---
+qodec.yaml:
+  name: honeycomb
+  description: >-
+    The honeycomb Floquet code on the (1,1) torus: a period-3 schedule of XX/YY/ZZ
+    edge measurements whose instantaneous stabilizer group rotates each round.
+    Modelled as three ISG codes with code-switching round gadgets.
+  layers:
+    - instruction_set: honeycomb.isa.yaml
+      codes:
+        isg_red: isg_red.code.yaml
+        isg_green: isg_green.code.yaml
+        isg_blue: isg_blue.code.yaml
+      gadgets:
+        prepare_red_all: prepare_red_all.gadget.yaml
+        round_green: round_green.gadget.yaml
+        round_blue: round_blue.gadget.yaml
+        round_red: round_red.gadget.yaml
+        measure_red_all: measure_red_all.gadget.yaml
+    - instruction_set: ../stim.isa.yaml
+---
+honeycomb.isa.yaml:
+  name: honeycomb
+  description: >-
+    The Floquet schedule. A block is the honeycomb patch (k=2 logical qubits); its
+    three block types are the three ISG phases. Each round measures one colour's
+    edge checks and advances the ISG, applying the per-round logical Clifford that
+    rotates the instantaneous logical operators; the three rounds compose to the
+    e<->m exchange automorphism over one period.
+  blocks: { isg_red: 2, isg_green: 2, isg_blue: 2 }
+  instructions:
+    - mnemonic: prepare_red_all
+      description: >-
+        Prepare the patch projected into the red ISG. The reset+projection
+        circuit fixes the logical Z operators (the realisation stabilizes Z_0,
+        Z_1); the period's e/m rotation carries them to X across the schedule.
+      out: [isg_red]
+      action: [stabilize: [Z_0, Z_1]]
+    - mnemonic: round_green
+      description: Measure the green (YY) checks; advance isg_red -> isg_green.
+      in: [isg_red]
+      out: [isg_green]
+      action: [clifford: { Z_0: Y_0 X_1, Z_1: X_0 Z_1 }]
+    - mnemonic: round_blue
+      description: Measure the blue (ZZ) checks; advance isg_green -> isg_blue.
+      in: [isg_green]
+      out: [isg_blue]
+      action: [clifford: { X_0: Z_0 Z_1, X_1: Z_1, Z_0: Y_0, Z_1: Y_0 Y_1 }]
+    - mnemonic: round_red
+      description: Measure the red (XX) checks; advance isg_blue -> isg_red.
+      in: [isg_blue]
+      out: [isg_red]
+      action: [clifford: { X_0: X_1, X_1: X_0 X_1, Z_0: Z_0 Z_1, Z_1: Z_0 }]
+    - mnemonic: measure_red_all
+      description: Destructive readout of the two logical Z observables (red ISG).
+      in: [isg_red]
+      action: [observe: [Z_0, Z_1]]
+---
+isg_red.code.yaml:
+  name: isg_red
+  description: >-
+    Instantaneous stabilizer group after the red round: two red
+    edge checks (XX, stabilizers 0-1) plus the two conserved plaquettes
+    X^6 (2) and Z^6 (3). The third red edge is their product (a
+    detector). k=2 dynamically generated logical qubits rotate with the ISG.
+  stabilizers:
+    - X_0 X_1
+    - X_2 X_3
+    - X_0 X_1 X_2 X_3 X_4 X_5
+    - Z_0 Z_1 Z_2 Z_3 Z_4 Z_5
+  x: [X_0 X_4, X_0 X_2]
+  z: [Z_4 Z_5, Z_0 Z_1 Z_4 Z_5]
+---
+isg_green.code.yaml:
+  name: isg_green
+  description: >-
+    Instantaneous stabilizer group after the green round: two green
+    edge checks (YY, stabilizers 0-1) plus the two conserved plaquettes
+    X^6 (2) and Z^6 (3). The third green edge is their product (a
+    detector). k=2 dynamically generated logical qubits rotate with the ISG.
+  stabilizers:
+    - Y_0 Y_4
+    - Y_1 Y_3
+    - X_0 X_1 X_2 X_3 X_4 X_5
+    - Z_0 Z_1 Z_2 Z_3 Z_4 Z_5
+  x: [X_0 X_4, X_1 X_3]
+  z: [Y_0 X_2 Z_5, X_1 X_2 Z_3 Z_5]
+---
+isg_blue.code.yaml:
+  name: isg_blue
+  description: >-
+    Instantaneous stabilizer group after the blue round: two blue
+    edge checks (ZZ, stabilizers 0-1) plus the two conserved plaquettes
+    X^6 (2) and Z^6 (3). The third blue edge is their product (a
+    detector). k=2 dynamically generated logical qubits rotate with the ISG.
+  stabilizers:
+    - Z_0 Z_2
+    - Z_1 Z_5
+    - X_0 X_1 X_2 X_3 X_4 X_5
+    - Z_0 Z_1 Z_2 Z_3 Z_4 Z_5
+  x: [X_0 X_2, X_3 X_4]
+  z: [Z_0 Z_5, Z_3 Z_5]
+---
+# Prepare the patch into the red ISG: reset (fixing Z^6 = +1), then measure
+# the three red edges as two-body MXX checks. X^6 (stabilizer 2) is their
+# product.
+prepare_red_all.gadget.yaml:
+  circuit:
+    source:
+      - R: [0]
+      - R: [1]
+      - R: [2]
+      - R: [3]
+      - R: [4]
+      - R: [5]
+      - MXX: [0, 1]
+      - MXX: [2, 3]
+      - MXX: [4, 5]
+  out:
+    - isg_red: [0, 1, 2, 3, 4, 5]
+  checks:
+    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "out[0].stabilizers[1]"]
+    - [
+        "circuit.readouts[0]",
+        "circuit.readouts[1]",
+        "circuit.readouts[2]",
+        "out[0].stabilizers[2]",
+      ]
+    - ["out[0].stabilizers[3]"]
+---
+# round_red: measure the three red edge checks (XX),
+# advancing the ISG isg_blue -> isg_red. Each check is a native
+# two-body Pauli measurement. Two edges become the new stabilizers; the
+# two plaquettes carry forward; the third edge is a deterministic detector
+# (its product with the first two is a plaquette).
+round_red.gadget.yaml:
+  circuit:
+    source:
+      - MXX: [0, 1]
+      - MXX: [2, 3]
+      - MXX: [4, 5]
+  in:
+    - isg_blue: [0, 1, 2, 3, 4, 5]
+  out:
+    - isg_red: [0, 1, 2, 3, 4, 5]
+  checks:
+    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "out[0].stabilizers[1]"]
+    - ["in[0].stabilizers[2]", "out[0].stabilizers[2]"]
+    - ["in[0].stabilizers[3]", "out[0].stabilizers[3]"]
+    - [
+        "circuit.readouts[0]",
+        "circuit.readouts[1]",
+        "circuit.readouts[2]",
+        "in[0].stabilizers[2]",
+      ]
+---
+# round_green: measure the three green edge checks (YY),
+# advancing the ISG isg_red -> isg_green. Each check is a native
+# two-body Pauli measurement. Two edges become the new stabilizers; the
+# two plaquettes carry forward; the third edge is a deterministic detector
+# (its product with the first two is a plaquette).
+round_green.gadget.yaml:
+  circuit:
+    source:
+      - MYY: [0, 4]
+      - MYY: [1, 3]
+      - MYY: [2, 5]
+  in:
+    - isg_red: [0, 1, 2, 3, 4, 5]
+  out:
+    - isg_green: [0, 1, 2, 3, 4, 5]
+  checks:
+    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "out[0].stabilizers[1]"]
+    - ["in[0].stabilizers[2]", "out[0].stabilizers[2]"]
+    - ["in[0].stabilizers[3]", "out[0].stabilizers[3]"]
+    - [
+        "circuit.readouts[0]",
+        "circuit.readouts[1]",
+        "circuit.readouts[2]",
+        "in[0].stabilizers[2]",
+        "in[0].stabilizers[3]",
+      ]
+---
+# round_blue: measure the three blue edge checks (ZZ),
+# advancing the ISG isg_green -> isg_blue. Each check is a native
+# two-body Pauli measurement. Two edges become the new stabilizers; the
+# two plaquettes carry forward; the third edge is a deterministic detector
+# (its product with the first two is a plaquette).
+round_blue.gadget.yaml:
+  circuit:
+    source:
+      - MZZ: [0, 2]
+      - MZZ: [1, 5]
+      - MZZ: [3, 4]
+  in:
+    - isg_green: [0, 1, 2, 3, 4, 5]
+  out:
+    - isg_blue: [0, 1, 2, 3, 4, 5]
+  checks:
+    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "out[0].stabilizers[1]"]
+    - ["in[0].stabilizers[2]", "out[0].stabilizers[2]"]
+    - ["in[0].stabilizers[3]", "out[0].stabilizers[3]"]
+    - [
+        "circuit.readouts[0]",
+        "circuit.readouts[1]",
+        "circuit.readouts[2]",
+        "in[0].stabilizers[3]",
+      ]
+---
+# Destructive logical readout: the two red-ISG logical Z operators are
+# all-Z, so each is read as a product of two-body MZZ measurements.
+measure_red_all.gadget.yaml:
+  circuit:
+    source:
+      - MZZ: [4, 5]
+      - MZZ: [0, 1]
+  in:
+    - isg_red: [0, 1, 2, 3, 4, 5]
+  readouts:
+    - ["circuit.readouts[0]", "in[0].z[0]"]
+    - ["circuit.readouts[1]", "circuit.readouts[0]", "in[0].z[1]"]

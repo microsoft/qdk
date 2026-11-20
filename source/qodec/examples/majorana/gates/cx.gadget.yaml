@@ -1,0 +1,16 @@
+# Measurement-based CX with an ancilla in |+>, as in lattice surgery: measure
+# Z Z between control and ancilla, then X X between ancilla and target, then
+# the ancilla's Z.
+circuit:
+  source:
+    - prepare_z: [2]
+    - measure_x: [2]
+    - measure_zz: [0, 2]
+    - measure_xx: [2, 1]
+    - measure_z: [2]
+    - release: [2]
+in: [qubit: [0], qubit: [1]]
+out: [qubit: [0], qubit: [1]]
+frames:
+  "out[0].x[0]": ["circuit.readouts[0]", "circuit.readouts[2]"]
+  "out[1].z[0]": ["circuit.readouts[1]", "circuit.readouts[3]"]

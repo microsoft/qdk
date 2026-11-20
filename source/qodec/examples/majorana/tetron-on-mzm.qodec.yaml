@@ -1,0 +1,22 @@
+# Stacks the two physical layers: tetron.isa.yaml on top, lowered onto
+# mzm.isa.yaml. tetron.code.yaml places each tetron's qubit among its four
+# MZMs, and each gadget in tetron/ is one MZM loop.
+#
+# The lower blocks hold two qubits each, so every gadget states its `in` and
+# `out` supports rather than relying on the default layout.
+name: tetron-on-mzm
+description: Majorana tetron qubits lowered onto their Majorana zero modes.
+layers:
+  - instruction_set: tetron.isa.yaml
+    codes:
+      tetron: tetron.code.yaml
+    gadgets:
+      prepare_z: tetron/prepare_z.gadget.yaml
+      release: tetron/release.gadget.yaml
+      measure_z: tetron/measure_z.gadget.yaml
+      measure_x: tetron/measure_x.gadget.yaml
+      measure_y: tetron/measure_y.gadget.yaml
+      measure_zz: tetron/measure_zz.gadget.yaml
+      measure_xx: tetron/measure_xx.gadget.yaml
+      measure_xz: tetron/measure_xz.gadget.yaml
+  - instruction_set: mzm.isa.yaml

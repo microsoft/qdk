@@ -1,0 +1,6 @@
+# Majorana tetrons as one physical layer, with each tetron treated as one
+# qubit. See tetron.isa.yaml.
+name: tetron
+description: Measurement-only Majorana tetron qubits, with each tetron treated as one qubit.
+layers:
+  - instruction_set: tetron.isa.yaml

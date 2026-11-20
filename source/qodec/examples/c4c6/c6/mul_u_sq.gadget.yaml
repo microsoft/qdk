@@ -1,0 +1,17 @@
+implements: ../c4c6.isa.yaml#mul_u_sq
+# Transversal mul_u_sq on the 3 C4 sub-blocks acts on the C6 logicals
+# as multiplication by u (= the inverse of u²). See the note on
+# ../c6/mul_u.gadget.yaml for the orientation argument. To realize
+# C6 mul_u_sq we therefore apply mul_u on each sub-block.
+circuit:
+  instruction_set: ../c4c6.isa.yaml
+  source:
+    - mul_u: [0]
+    - mul_u: [1]
+    - mul_u: [2]
+  in: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+  out: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+in:
+  - c4c6_block: [0, 1, 2]
+out:
+  - c4c6_block: [0, 1, 2]

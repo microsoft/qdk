@@ -1,0 +1,5 @@
+name: qubit
+description: One qubit on one tetron, unencoded.
+stabilizers: []
+x: [X_0]
+z: [Z_0]

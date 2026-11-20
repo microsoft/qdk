@@ -1,0 +1,6 @@
+# The Majorana zero modes of tetron islands, as one physical layer. See
+# mzm.isa.yaml for the Jordan-Wigner map from MZMs to qubits.
+name: mzm
+description: Measurement-only Majorana tetrons, with each tetron's four MZMs mapped to two qubits by Jordan-Wigner.
+layers:
+  - instruction_set: mzm.isa.yaml

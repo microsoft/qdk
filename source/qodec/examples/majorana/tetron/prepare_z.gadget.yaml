@@ -1,0 +1,9 @@
+circuit:
+  source: [prepare: [0]]
+out: [tetron: [0]]
+# The total parity Z_0 Z_1 comes out +1.
+checks: [["out[0].stabilizers[0]"]]
+# Flip both logical signs, so that the tetron's Z is -Z_0 and its X is
+# -X_0 X_1. prepare leaves -Z_0 = +1, which is then the |0> required. The X
+# flip leaves |0> as it is and only fixes the convention.
+frames: { "out[0].z[0]": [1], "out[0].x[0]": [1] }

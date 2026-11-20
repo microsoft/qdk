@@ -1,0 +1,16 @@
+# Where a tetron's qubit lives among its four MZMs, under the Jordan-Wigner map
+# of mzm.isa.yaml. The stabilizer is the total fermion parity, and the logical
+# operators are pair parities:
+#
+#   Z = i gamma_0 gamma_1 = -Z_0      X = i gamma_1 gamma_2 = -X_0 X_1
+#
+# Codes take unsigned Paulis, so this lists Z_0 and X_0 X_1, and the gadgets in
+# tetron/ carry the minus signs. prepare_z starts both logical signs flipped,
+# and a one-tetron loop's readout adds a constant 1 because the loop measures
+# -Z_0 or -X_0 X_1. A two-tetron loop of two such parities has its signs
+# cancel. A raw loop outcome is therefore the tetron's outcome.
+name: tetron
+description: A tetron's qubit in the even-parity space of its four MZMs (Jordan-Wigner).
+stabilizers: [Z_0 Z_1]
+x: [X_0 X_1]
+z: [Z_0]

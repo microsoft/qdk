@@ -1,0 +1,39 @@
+name: C832
+description: |
+  [[8,3,2]] 3D color code on the cube. 8 physical qubits at the cube
+  vertices labelled by binary triples (x,y,z) ∈ {0,1}³:
+
+      0=000  1=001  2=010  3=011  4=100  5=101  6=110  7=111
+
+  Encodes 3 logical qubits with distance 2 (error-detecting). Hosts a
+  transversal physical CCZ gate which realises logical CCZ on the three
+  logical qubits, used in the Nelson-Landahl-Baczewski architecture
+  (arXiv:2507.20387) for the non-Clifford logical CCZ.
+
+  Stabiliser generators:
+    1 X-type, weight 8: X on every vertex.
+    4 Z-type, weight 4: Z on each of the four 2D faces of the cube
+      x=0, x=1, y=0, z=0 (the remaining three opposite faces are
+      products of these).
+
+  Logical operator convention: each X_i is the X-Pauli on a face
+  containing vertex 0 (axis-aligned); each Z_i is the Z-Pauli on the
+  cube edge through vertex 0 along the same axis. Each (X_i, Z_i)
+  pair shares vertex 0 only, giving odd overlap (anticommute), while
+  cross pairs (i ≠ j) overlap on an even number of vertices (commute).
+
+stabilizers:
+  - "X_0 X_1 X_2 X_3 X_4 X_5 X_6 X_7"
+  - "Z_0 Z_1 Z_2 Z_3"
+  - "Z_4 Z_5 Z_6 Z_7"
+  - "Z_0 Z_1 Z_4 Z_5"
+  - "Z_0 Z_2 Z_4 Z_6"
+
+x:
+  - "X_0 X_1 X_2 X_3"
+  - "X_0 X_1 X_4 X_5"
+  - "X_0 X_2 X_4 X_6"
+z:
+  - "Z_0 Z_4"
+  - "Z_0 Z_2"
+  - "Z_0 Z_1"

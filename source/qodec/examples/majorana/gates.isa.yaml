@@ -1,0 +1,48 @@
+# A small gate set for logical qubits: preparation, measurement, the Paulis,
+# and the Clifford gates H, S and CX.
+name: gates
+description: Common single- and two-qubit gates on qubits.
+blocks: { qubit: 1 }
+instructions:
+  - mnemonic: prepare_z
+    description: Prepare |0>.
+    out: [qubit]
+    action: [stabilize: Z_0]
+  - mnemonic: measure_z
+    description: Destructive Z-basis measurement.
+    in: [qubit]
+    action: [observe: Z_0]
+  - mnemonic: measure_x
+    description: Destructive X-basis measurement.
+    in: [qubit]
+    action: [observe: X_0]
+  - mnemonic: x
+    description: Pauli X.
+    in: [qubit]
+    out: [qubit]
+    action: [pauli: X_0]
+  - mnemonic: "y"
+    description: Pauli Y.
+    in: [qubit]
+    out: [qubit]
+    action: [pauli: Y_0]
+  - mnemonic: z
+    description: Pauli Z.
+    in: [qubit]
+    out: [qubit]
+    action: [pauli: Z_0]
+  - mnemonic: h
+    description: Hadamard.
+    in: [qubit]
+    out: [qubit]
+    action: [clifford: { X_0: Z_0, Z_0: X_0 }]
+  - mnemonic: s
+    description: Phase gate S = diag(1, i).
+    in: [qubit]
+    out: [qubit]
+    action: [clifford: { X_0: Y_0 }]
+  - mnemonic: cx
+    description: Controlled-X, with the first qubit as control.
+    in: [qubit, qubit]
+    out: [qubit, qubit]
+    action: [clifford: { X_0: X_0 X_1, Z_1: Z_0 Z_1 }]
