@@ -37,7 +37,7 @@
 //! the `serde` feature, a set's stable form (`stable_form`).
 //!
 //! The crate's `docs/instruction-sets.md` gives how a part declares its
-//! sets, and when two sets fit.
+//! sets, when two sets fit, and when two are equal.
 
 mod block_operand;
 mod block_type;
@@ -90,15 +90,20 @@ use std::hash::{Hash, Hasher};
 /// platforms.
 ///
 /// With the `serde` feature, a set has a stable form, for crossing a
-/// process boundary: it writes the declaration alone, and reads it back
-/// through [`InstructionSet::new`], so a decoded set is checked as a built
-/// one is, and a faulty declaration is refused, naming the set and its
-/// faults ([`DeclarationFault`]). A form holding a field the form does not
-/// have is refused too, naming the field, so that a set whose form a newer
-/// build extends is never read as another set. Read back from a format
-/// that keeps a 64-bit float bit for bit (see [`Angle`](crate::Angle)), a
-/// set is equal to the one written, so the far end of a link can compare
-/// the set it decodes with its own by `==`.
+/// process boundary, in a self-describing format that writes field and
+/// variant names, such as JSON; its shape is in `docs/instruction-sets.md`.
+/// It writes the declaration alone, and reads it back through
+/// [`InstructionSet::new`], so a decoded set is checked as a built one is,
+/// and a faulty declaration is refused, naming the set and its faults
+/// ([`DeclarationFault`]). A struct's field the form does not have is
+/// refused, naming it, so that a set whose form a newer build extends is
+/// never read as another set. Read back from a format that also keeps a
+/// 64-bit float bit for bit (see [`Angle`](crate::Angle)), a set is equal
+/// to the one written, so the far end of a link can compare the set it
+/// decodes with its own by `==`. A format that writes fields and variants
+/// by position (a binary one) reads back what the same build wrote, but
+/// its form is not pinned across builds: reordering the fields or
+/// variants of the declaration's types changes it.
 #[derive(Clone, Debug)]
 pub struct InstructionSet {
     /// What it promises, in [`name`](Self::name).

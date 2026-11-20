@@ -56,3 +56,20 @@ fn pauli_text_reads_back_as_the_same_pauli() {
         );
     }
 }
+
+/// A peer's set names its Paulis in Qodec's text: any other text is
+/// refused when read, naming it, rather than read as some other operator.
+#[cfg(feature = "serde")]
+#[test]
+fn a_text_that_is_not_a_pauli_is_refused_when_read_naming_it() {
+    for (row, text) in [
+        ("an axis Qodec lacks", "W_0"),
+        ("a qubit named twice", "X_0 Z_0"),
+        ("a qubit that is not a number", "X_a"),
+    ] {
+        let refusal = serde_json::from_value::<Pauli>(serde_json::json!(text))
+            .expect_err("a text that is not a Pauli is refused")
+            .to_string();
+        assert!(refusal.contains(text), "{row}: {refusal:?} names {text:?}");
+    }
+}

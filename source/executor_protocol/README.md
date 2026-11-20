@@ -328,7 +328,7 @@ mechanics and edge cases.
 - [Batches and readouts](docs/batches-and-readouts.md): what a batch
   holds, and how its readouts are shaped, filled and kept.
 - [Instruction sets and their fit](docs/instruction-sets.md): what a set
-  declares, how it is built, and when two sets fit.
+  declares, how it is built, when two sets fit, and when two are equal.
 - [Needs, offers and the admission](docs/admission.md): what a part needs
   and offers, replay included, how an adapter adapts both, and what a
   refusal names.

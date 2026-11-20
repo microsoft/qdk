@@ -1,19 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A meaning's stable form, with the `serde` feature: what an instruction
-//! does, written to cross a process boundary with its set. `null` for an
-//! undeclared meaning, else its steps in order, each its operation and
-//! its guard: `{"operation": {"pauli": "X_0"}, "guard": {"if":
-//! [{"parameter": 0}, {"outcome": 0}]}}`. Its operations and guards are
-//! named as Qodec names them, and a guard's terms by position, as
-//! [`Guard`] gives them. An absent meaning reads as undeclared, as in
-//! Qodec, and an absent guard as none.
-//!
-//! It is read back through the builder, step by step, as a loader of
-//! Qodec's YAML would build it, so a decoded meaning is canonical, and
-//! the slips of a form written by hand (a Clifford mapping a generator
-//! twice) are refused when its set is built, as a built one's are.
+//! A meaning's stable form, with the `serde` feature: its shape. `null`
+//! for an undeclared meaning, else its steps in order, each its operation
+//! and its guard, `null` or absent for none: `{"operation": {"pauli":
+//! "X_0"}, "guard": {"if": [{"parameter": 0}, {"outcome": 0}]}}`. Its
+//! operations and guards are named as Qodec names them, and a guard's
+//! terms by position, as [`Guard`] gives them. How it is read back is
+//! [`Meaning`]'s to say.
 
 use super::{Angle, Condition, Guard, Meaning, Observable, Operation, Pauli, Step};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -23,7 +17,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[serde(deny_unknown_fields)]
 struct StepForm {
     operation: OperationForm,
-    guard: Option<GuardForm>,
+    guard: Option<ConditionForm>,
 }
 
 /// What a step does, by Qodec's step names.
@@ -42,10 +36,11 @@ enum OperationForm {
     },
 }
 
-/// A step's guard: Qodec's `if` (an odd parity) or `unless` (an even one).
+/// A step's guard, a [`Condition`]: Qodec's `if` (an odd parity) or
+/// `unless` (an even one), and its terms.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum GuardForm {
+enum ConditionForm {
     If(Vec<Guard>),
     Unless(Vec<Guard>),
 }
@@ -84,8 +79,8 @@ impl<'de> Deserialize<'de> for Meaning {
             };
             meaning = match guard {
                 None => meaning,
-                Some(GuardForm::If(terms)) => meaning.only_if(terms),
-                Some(GuardForm::Unless(terms)) => meaning.unless(terms),
+                Some(ConditionForm::If(terms)) => meaning.only_if(terms),
+                Some(ConditionForm::Unless(terms)) => meaning.unless(terms),
             };
         }
         Ok(meaning)
@@ -111,9 +106,9 @@ impl From<&Step> for StepForm {
         };
         let guard = guard.as_ref().map(|Condition { odd, terms }| {
             if *odd {
-                GuardForm::If(terms.clone())
+                ConditionForm::If(terms.clone())
             } else {
-                GuardForm::Unless(terms.clone())
+                ConditionForm::Unless(terms.clone())
             }
         });
         Self { operation, guard }

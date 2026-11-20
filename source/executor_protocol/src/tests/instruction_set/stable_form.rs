@@ -3,8 +3,7 @@
 
 //! A set's stable form, with the `serde` feature: what a part sends to
 //! prove, across a process boundary, which set it runs. Written and read
-//! here as JSON, one of the formats serde serves, by a reader that rounds
-//! floats correctly.
+//! here as JSON, a self-describing format serde serves.
 
 use super::carbon;
 use crate::{
@@ -68,107 +67,8 @@ fn every_part() -> InstructionSet {
     .expect("a valid set")
 }
 
-/// `every_part`'s form.
-fn every_part_form() -> Value {
-    let on_a_qubit = json!([{"block_type": "qubit", "variadic": false}]);
-    let unguarded = |operation: Value| json!({"operation": operation, "guard": null});
-    json!({
-        "name": "Everything",
-        "block_types": [["qubit", 1], ["carbon", 2]],
-        "instructions": [
-            {
-                "mnemonic": "h",
-                "inputs": on_a_qubit,
-                "outputs": on_a_qubit,
-                "parameters": [],
-                "outcomes": 0,
-                "flags": [],
-                "meaning": [unguarded(json!({"clifford": [["X_0", "Z_0"], ["Z_0", "X_0"]]}))]
-            },
-            {
-                "mnemonic": "t",
-                "inputs": on_a_qubit,
-                "outputs": on_a_qubit,
-                "parameters": [],
-                "outcomes": 0,
-                "flags": [],
-                "meaning": [unguarded(
-                    json!({"rotate": {"pauli": "Z_0", "angle": {"literal": FRAC_PI_4}}})
-                )]
-            },
-            {
-                "mnemonic": "rz",
-                "inputs": on_a_qubit,
-                "outputs": on_a_qubit,
-                "parameters": [{"name": "theta", "kind": "number"}],
-                "outcomes": 0,
-                "flags": [],
-                "meaning": [unguarded(
-                    json!({"rotate": {"pauli": "Z_0", "angle": {"parameter": 0}}})
-                )]
-            },
-            {
-                "mnemonic": "mpp",
-                "inputs": [{"block_type": "qubit", "variadic": true}],
-                "outputs": [{"block_type": "qubit", "variadic": true}],
-                "parameters": [{"name": "p", "kind": "pauli"}],
-                "outcomes": 1,
-                "flags": ["leak"],
-                "meaning": [unguarded(json!({"observe": [{"parameter": 0}]}))]
-            },
-            {
-                "mnemonic": "prepare",
-                "inputs": [],
-                "outputs": [{"block_type": "carbon", "variadic": false}],
-                "parameters": [],
-                "outcomes": 0,
-                "flags": [],
-                "meaning": [unguarded(json!({"stabilize": ["X_0 X_1"]}))]
-            },
-            {
-                "mnemonic": "measure_correct",
-                "inputs": on_a_qubit,
-                "outputs": on_a_qubit,
-                "parameters": [{"name": "correction", "kind": "bit"}],
-                "outcomes": 1,
-                "flags": [],
-                "meaning": [
-                    unguarded(json!({"observe": [{"pauli": "Z_0"}]})),
-                    {
-                        "operation": {"pauli": "X_0"},
-                        "guard": {"if": [{"parameter": 0}, {"outcome": 0}]}
-                    },
-                    {"operation": {"pauli": "-Z_0"}, "guard": {"unless": [{"outcome": 0}]}}
-                ]
-            },
-            {
-                "mnemonic": "note",
-                "inputs": [],
-                "outputs": [],
-                "parameters": [
-                    {"name": "n", "kind": "integer"},
-                    {"name": "on", "kind": "boolean"},
-                    {"name": "text", "kind": "string"}
-                ],
-                "outcomes": 0,
-                "flags": [],
-                "meaning": null
-            },
-            {
-                "mnemonic": "i",
-                "inputs": on_a_qubit,
-                "outputs": on_a_qubit,
-                "parameters": [],
-                "outcomes": 0,
-                "flags": [],
-                "meaning": []
-            }
-        ]
-    })
-}
-
-/// A set of one instruction, `rz`, whose form the module doc of
-/// `instruction_set/stable_form.rs` shows.
+/// A set of one instruction, `rz`, whose form `docs/instruction-sets.md`
+/// shows.
 fn rz_gates() -> InstructionSet {
     InstructionSet::new(
         "Gates",
@@ -181,28 +81,9 @@ fn rz_gates() -> InstructionSet {
     .expect("a valid set")
 }
 
-/// `rz_gates`' form, as the module doc shows it.
+/// `rz_gates`' form, to edit.
 fn rz_gates_form() -> Value {
-    json!({
-        "name": "Gates",
-        "block_types": [["qubit", 1]],
-        "instructions": [
-            {
-                "mnemonic": "rz",
-                "inputs": [{"block_type": "qubit", "variadic": false}],
-                "outputs": [{"block_type": "qubit", "variadic": false}],
-                "parameters": [{"name": "theta", "kind": "number"}],
-                "outcomes": 0,
-                "flags": [],
-                "meaning": [
-                    {
-                        "operation": {"rotate": {"pauli": "Z_0", "angle": {"parameter": 0}}},
-                        "guard": null
-                    }
-                ]
-            }
-        ]
-    })
+    serde_json::from_str(RZ_GATES_FORM).expect("the golden is JSON")
 }
 
 /// The far end of a link decodes the near end's set and compares it with
@@ -220,22 +101,23 @@ fn a_set_read_back_from_its_stable_form_is_equal_to_the_one_written() {
     assert_eq!(read.readout_slots(mpp), Some(2));
 }
 
-/// Two builds that exchange sets read each other's form: the form a set
-/// writes does not change, so a build reads what an earlier one wrote.
-/// Steps, guards and kinds are named as Qodec names them, a Pauli is
-/// written as Qodec's text, and every other part by its Rust name.
+/// Two builds that exchange sets read each other's form: the text a set
+/// writes does not change, its fields' order included, so a build reads
+/// what an earlier one wrote. Steps, guards and kinds are named as Qodec
+/// names them, a Pauli is written as Qodec's text, and every other part
+/// by its Rust name.
 #[test]
 fn a_sets_stable_form_does_not_change() {
     for (row, set, form) in [
-        ("a set of one instruction", rz_gates(), rz_gates_form()),
-        ("a set of every part", every_part(), every_part_form()),
+        ("a set of one instruction", rz_gates(), RZ_GATES_FORM),
+        ("a set of every part", every_part(), EVERY_PART_FORM),
     ] {
         assert_eq!(
-            serde_json::to_value(&set).expect("a set writes its stable form"),
+            serde_json::to_string_pretty(&set).expect("a set writes its stable form"),
             form,
             "{row}"
         );
-        let read: InstructionSet = serde_json::from_value(form).expect("the form reads back");
+        let read: InstructionSet = serde_json::from_str(form).expect("the form reads back");
         assert_eq!(read, set, "{row}");
     }
 }
@@ -373,20 +255,14 @@ fn a_faulty_declaration_is_refused_when_read_naming_its_faults() {
     }
 }
 
-/// A form that is not a set's is refused, naming what is wrong: a Pauli or
-/// a parameter kind that Qodec does not write, or a field the form does
-/// not have, which a newer build's form may hold, so that a set it
-/// extends is never read as another one.
+/// A form that is not a set's is refused, naming what is wrong: a
+/// parameter kind Qodec lacks (`ParameterKind` is plain data, with no test
+/// file of its own), or a struct's field the form does not have, which a
+/// newer build's form may hold, so that a set it extends is never read as
+/// another one.
 #[test]
 fn a_form_that_is_not_a_sets_is_refused_naming_what_is_wrong() {
     for (row, at, field, value, named) in [
-        (
-            "a Pauli that is not Qodec's text",
-            "/instructions/0/meaning/0/operation/rotate",
-            "pauli",
-            json!("W_0"),
-            "W_0",
-        ),
         (
             "a parameter kind Qodec lacks",
             "/instructions/0/parameters/0",
@@ -445,3 +321,334 @@ fn a_form_that_is_not_a_sets_is_refused_naming_what_is_wrong() {
         );
     }
 }
+
+/// `rz_gates`' form, as `to_string_pretty` writes it.
+const RZ_GATES_FORM: &str = r#"{
+  "name": "Gates",
+  "block_types": [
+    [
+      "qubit",
+      1
+    ]
+  ],
+  "instructions": [
+    {
+      "mnemonic": "rz",
+      "inputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "outputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "parameters": [
+        {
+          "name": "theta",
+          "kind": "number"
+        }
+      ],
+      "outcomes": 0,
+      "flags": [],
+      "meaning": [
+        {
+          "operation": {
+            "rotate": {
+              "pauli": "Z_0",
+              "angle": {
+                "parameter": 0
+              }
+            }
+          },
+          "guard": null
+        }
+      ]
+    }
+  ]
+}"#;
+
+/// `every_part`'s form, as `to_string_pretty` writes it.
+const EVERY_PART_FORM: &str = r#"{
+  "name": "Everything",
+  "block_types": [
+    [
+      "qubit",
+      1
+    ],
+    [
+      "carbon",
+      2
+    ]
+  ],
+  "instructions": [
+    {
+      "mnemonic": "h",
+      "inputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "outputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "parameters": [],
+      "outcomes": 0,
+      "flags": [],
+      "meaning": [
+        {
+          "operation": {
+            "clifford": [
+              [
+                "X_0",
+                "Z_0"
+              ],
+              [
+                "Z_0",
+                "X_0"
+              ]
+            ]
+          },
+          "guard": null
+        }
+      ]
+    },
+    {
+      "mnemonic": "t",
+      "inputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "outputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "parameters": [],
+      "outcomes": 0,
+      "flags": [],
+      "meaning": [
+        {
+          "operation": {
+            "rotate": {
+              "pauli": "Z_0",
+              "angle": {
+                "literal": 0.7853981633974483
+              }
+            }
+          },
+          "guard": null
+        }
+      ]
+    },
+    {
+      "mnemonic": "rz",
+      "inputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "outputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "parameters": [
+        {
+          "name": "theta",
+          "kind": "number"
+        }
+      ],
+      "outcomes": 0,
+      "flags": [],
+      "meaning": [
+        {
+          "operation": {
+            "rotate": {
+              "pauli": "Z_0",
+              "angle": {
+                "parameter": 0
+              }
+            }
+          },
+          "guard": null
+        }
+      ]
+    },
+    {
+      "mnemonic": "mpp",
+      "inputs": [
+        {
+          "block_type": "qubit",
+          "variadic": true
+        }
+      ],
+      "outputs": [
+        {
+          "block_type": "qubit",
+          "variadic": true
+        }
+      ],
+      "parameters": [
+        {
+          "name": "p",
+          "kind": "pauli"
+        }
+      ],
+      "outcomes": 1,
+      "flags": [
+        "leak"
+      ],
+      "meaning": [
+        {
+          "operation": {
+            "observe": [
+              {
+                "parameter": 0
+              }
+            ]
+          },
+          "guard": null
+        }
+      ]
+    },
+    {
+      "mnemonic": "prepare",
+      "inputs": [],
+      "outputs": [
+        {
+          "block_type": "carbon",
+          "variadic": false
+        }
+      ],
+      "parameters": [],
+      "outcomes": 0,
+      "flags": [],
+      "meaning": [
+        {
+          "operation": {
+            "stabilize": [
+              "X_0 X_1"
+            ]
+          },
+          "guard": null
+        }
+      ]
+    },
+    {
+      "mnemonic": "measure_correct",
+      "inputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "outputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "parameters": [
+        {
+          "name": "correction",
+          "kind": "bit"
+        }
+      ],
+      "outcomes": 1,
+      "flags": [],
+      "meaning": [
+        {
+          "operation": {
+            "observe": [
+              {
+                "pauli": "Z_0"
+              }
+            ]
+          },
+          "guard": null
+        },
+        {
+          "operation": {
+            "pauli": "X_0"
+          },
+          "guard": {
+            "if": [
+              {
+                "parameter": 0
+              },
+              {
+                "outcome": 0
+              }
+            ]
+          }
+        },
+        {
+          "operation": {
+            "pauli": "-Z_0"
+          },
+          "guard": {
+            "unless": [
+              {
+                "outcome": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "note",
+      "inputs": [],
+      "outputs": [],
+      "parameters": [
+        {
+          "name": "n",
+          "kind": "integer"
+        },
+        {
+          "name": "on",
+          "kind": "boolean"
+        },
+        {
+          "name": "text",
+          "kind": "string"
+        }
+      ],
+      "outcomes": 0,
+      "flags": [],
+      "meaning": null
+    },
+    {
+      "mnemonic": "i",
+      "inputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "outputs": [
+        {
+          "block_type": "qubit",
+          "variadic": false
+        }
+      ],
+      "parameters": [],
+      "outcomes": 0,
+      "flags": [],
+      "meaning": []
+    }
+  ]
+}"#;

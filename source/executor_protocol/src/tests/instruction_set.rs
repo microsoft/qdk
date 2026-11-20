@@ -247,6 +247,7 @@ fn lookups_outside_the_set_give_none() {
 /// the same; any other part of the declaration that differs, an order
 /// included, makes the sets differ.
 #[test]
+#[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn sets_are_equal_exactly_when_their_declarations_are() {
     let qubits = |n: u32| vec![(BlockType::qubit(), n)];
     let qubit_and_carbon = || vec![(BlockType::qubit(), 1), (carbon(), 2)];
@@ -327,6 +328,18 @@ fn sets_are_equal_exactly_when_their_declarations_are() {
             "a parameter's kind",
             gates(vec![h().parameter("p", ParameterKind::Number)]),
             gates(vec![h().parameter("p", ParameterKind::Integer)]),
+            false,
+        ),
+        (
+            "a parameter's name",
+            gates(vec![h().parameter("p", ParameterKind::Number)]),
+            gates(vec![h().parameter("q", ParameterKind::Number)]),
+            false,
+        ),
+        (
+            "an outcome count",
+            gates(vec![mz()]),
+            gates(vec![mz().outcomes(2)]),
             false,
         ),
         (

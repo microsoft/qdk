@@ -35,8 +35,7 @@ impl Parameter {
 }
 
 /// The kind of a parameter, and of the argument that fills it: Qodec's
-/// parameter types. Its stable form is its name, as
-/// [`Display`](fmt::Display) writes it.
+/// parameter types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ParameterKind {
@@ -87,7 +86,8 @@ impl ParameterKind {
     ];
 }
 
-/// Written as its name, as [`Display`](fmt::Display) writes it.
+/// Its stable form is its name, Qodec's, as [`Display`](fmt::Display)
+/// writes it.
 #[cfg(feature = "serde")]
 impl serde::Serialize for ParameterKind {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -95,8 +95,7 @@ impl serde::Serialize for ParameterKind {
     }
 }
 
-/// Read from the name [`Display`](fmt::Display) writes; any other text is
-/// refused.
+/// Any text that is not a kind's name is refused.
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for ParameterKind {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

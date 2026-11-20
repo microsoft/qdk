@@ -2,8 +2,9 @@
 
 For those who declare the instructions a part sends or accepts, and who
 need to know when two parts' sets fit: what a set declares, how a set and
-its instructions are built, and how each `>>` checks the fit. The other
-terms are those of the [README](../README.md#terms).
+its instructions are built, how each `>>` checks the fit, and how a set is
+compared and sent across a process boundary. The other terms are those of
+the [README](../README.md#terms).
 
 ## Terms
 
@@ -58,3 +59,59 @@ instructions do is not checked; it sends its instructions in the
 receiver's opcodes. Otherwise the boundary's faults
 ([`FitFaults`](../src/instruction_set/fit.rs)) name both sets and list
 every mismatch.
+
+## Equality and the stable form
+
+The fit asks whether one set can serve another; equality asks whether
+two sets are the same one, as a part that receives a set across a process
+boundary does to check it runs the set the sender runs. Two sets are
+equal (`==`) when their declarations are: their names, their block types
+(each with its qubits) in order, and their instructions in order, every
+field of each, so that equal sets give each opcode the same instruction.
+A meaning compares in its canonical form, so one written otherwise (a
+Clifford's images in another order) is the same. What a set derives when
+it is built is not compared.
+
+With the crate's `serde` feature (off by default), a set has a stable
+form: its declaration alone, written in a self-describing format, one
+that names fields and variants, such as JSON, and read back through
+`InstructionSet::new`, so a decoded set is checked as a built one is and
+a faulty one is refused, naming the set and its faults. A struct's field
+the form does not have, as a newer build's form may hold, is refused,
+naming it. A format that writes fields and
+variants by position (a binary one) reads back what the same build wrote,
+but its form is not pinned across builds. In JSON, the set `Gates` of one
+instruction, `rz`, rotating its qubit by its parameter `theta`:
+
+```json
+{
+  "name": "Gates",
+  "block_types": [["qubit", 1]],
+  "instructions": [
+    {
+      "mnemonic": "rz",
+      "inputs": [{ "block_type": "qubit", "variadic": false }],
+      "outputs": [{ "block_type": "qubit", "variadic": false }],
+      "parameters": [{ "name": "theta", "kind": "number" }],
+      "outcomes": 0,
+      "flags": [],
+      "meaning": [
+        {
+          "operation": {
+            "rotate": { "pauli": "Z_0", "angle": { "parameter": 0 } }
+          },
+          "guard": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+Steps, guards and parameter kinds are named as Qodec names them, a
+guard's terms by position, a Pauli as Qodec's text, and every other part
+by its Rust name; a meaning is `null` when undeclared. The example is
+copied from the form the [tests](../src/tests/instruction_set/stable_form.rs)
+pin, which is its source: keep the two the same. A literal angle is a
+64-bit float, read back equal only from a format that keeps it bit for bit
+([`Angle`](../src/instruction_set/meaning/angle.rs)).

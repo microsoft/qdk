@@ -66,8 +66,8 @@ use std::hash::{Hash, Hasher};
 /// and is read back through this builder, so a form written by hand is
 /// made canonical and its slips are refused when its set is built, as a
 /// built meaning's are. An instruction's form without a meaning reads as
-/// undeclared, as in Qodec. A meaning written with a slip has no stable
-/// form.
+/// undeclared, and a step's without a guard as unguarded, as in Qodec. A
+/// meaning written with a slip has no stable form.
 #[derive(Clone, Debug, Default, Eq)]
 pub struct Meaning {
     /// `None` when undeclared.
