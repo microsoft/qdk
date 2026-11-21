@@ -791,8 +791,8 @@ where
 /// sets not fitting, it refuses every run; an executor whose lower part
 /// takes 3 shots a run, and a driver joined through a job queue of 3
 /// shots, refuse a run of 4; one whose lower part takes 3 shots and no
-/// `x` refuses a run of 4 with both mismatches, as `on` lists them at a
-/// boundary it sees, not the instructions alone; and an interleaver joined with a decoder
+/// `x` refuses a run of 4 with both mismatches in one `BoundaryMismatch`,
+/// not the instructions alone; and an interleaver joined with a decoder
 /// limiting qubits to 4, under a program on 5, refuses every run, as the
 /// program's 5 qubits pass through the interleaver to the decoder.
 #[test]

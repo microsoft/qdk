@@ -663,28 +663,21 @@ fn a_wrapped_joined_part_requires_what_its_parts_require() {
 /// Faults of each kind, an instruction's and a resource's at one pair
 /// included, with parts named by their types, or, as a part built at run
 /// time is, by what it was built from: each fault names its parts by
-/// those names, in its fields and in its message, beside every mismatch:
-/// the mnemonic of an instruction not accepted, `toffoli`, which nothing
-/// else in the message says, and the amounts of a resource.
+/// those names, in its fields and in its message, beside each mismatch's
+/// own message (what each says is its kind's rule, pinned with it).
 #[test]
 fn a_composition_fault_names_its_parts_and_every_mismatch() {
     let log = Log::default();
     let named = |position, name| PartId::new(position, name);
-    let qubit = BlockType::qubit;
-    let toffoli = InstructionDef::new("toffoli").acts_on([qubit(), qubit(), qubit()]);
-    let toffolis = || {
-        let set = InstructionSet::new("Toffolis", [(qubit(), 1)], [toffoli.clone()]);
-        Program::sending(Vec::new(), set.expect("a valid set"))
-    };
-    let mnemonic = "toffoli".to_owned();
+    let x = instructions(&CoinGates::set(), &no_x()).instructions[0].to_string();
     let nine_qubits = short_qubits(9, 8).capabilities.resources[0].to_string();
     let nine_over_four = short_qubits(9, 4).capabilities.resources[0].to_string();
     let rows = [
         (
             "an instruction",
-            faults(toffolis().on(Bits::new(&log))),
-            vec![(part::<Program>(0), part::<Bits>(1))],
-            vec![&mnemonic],
+            faults(CoinCopy::new().on(Bits::accepting(no_x(), &log))),
+            vec![(part::<CoinCopy>(0), part::<Bits>(1))],
+            vec![&x],
         ),
         (
             "qubits",
@@ -695,12 +688,11 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
         (
             "an instruction and qubits at one pair",
             faults(
-                toffolis()
-                    .with_resources(qubits(9))
-                    .on(Bits::new(&log).with_resources(qubits(8))),
+                program(9, Features::unconstrained())
+                    .on(Bits::accepting(no_x(), &log).with_resources(qubits(8))),
             ),
             vec![(part::<Program>(0), part::<Bits>(1))],
-            vec![&mnemonic, &nine_qubits],
+            vec![&x, &nine_qubits],
         ),
         (
             "parts built at run time",

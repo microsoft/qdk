@@ -16,12 +16,12 @@ A part implements its role's trait, whose rustdoc lists its methods in
 two groups: its declarations, which the joins read when they join the
 parts (the first phase below); and its run methods, which the runner and
 the part above call on each run (the last three). What a part sends,
-accepts and provides must not change once it is joined: the joins fit the
-instruction sets and bind them once, and the verdict of the `on` on what
-the parts provide must hold on every run, whose start reads `provides`
-again. What it requires is a deterministic function of what arrives: the
-`on` that makes a runner checks it with nothing arriving, and each run's
-start calls it again, for what arrives on that run.
+accepts and provides must not change once it is joined: the fits and
+`bind`'s map are made once, from them, and each batch sent to a part is
+checked against what the join read. What it requires is a deterministic
+function of what arrives: the `on` that makes a runner checks it with
+nothing arriving, and each run's start calls it again, for what arrives
+on that run.
 Each method is called at one phase of a chain's life:
 
 | Phase                                       | [`Driver`](../src/roles/driver.rs)                                                                    | [`Adapter`](../src/roles/adapter.rs)                                                                                                        | [`Executor`](../src/roles/executor.rs)                                                             |

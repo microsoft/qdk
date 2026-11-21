@@ -49,9 +49,9 @@ Today the protocol holds:
   [`Driver`](src/roles/driver.rs), [`Adapter`](src/roles/adapter.rs) and
   [`Executor`](src/roles/executor.rs), with what a part of that role is
   responsible for at each time: its declarations, which the joins read
-  when they join the parts, and which must not change after, but for what
-  it requires, a function of what arrives that each run calls again; and
-  its run methods, for each run.
+  when they join the parts, and which must not change after, what it
+  requires being a deterministic function of what arrives, asked again on
+  each run; and its run methods, for each run.
 - **The joins:** [`DriverJoins`](src/composition/driver_joins.rs) and
   [`AdapterJoins`](src/composition/adapter_joins.rs), which every driver
   and every adapter has, join a part with the part below it:

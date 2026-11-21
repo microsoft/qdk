@@ -44,7 +44,8 @@
 //! no further, so a `Composed` refuses the run at `ready` when its halves'
 //! instructions do not fit, rather than running an unbound opcode, or
 //! when what arrives at its lower half does not fit what that half
-//! provides, with every mismatch of that boundary, as `on` lists them.
+//! provides, with every mismatch of that boundary, in one
+//! `BoundaryMismatch`.
 
 mod adapter;
 mod driver;
@@ -74,8 +75,8 @@ pub struct Composed<U, L> {
     lower: L,
     /// The boundary between the halves, as the join's fit gave it, with
     /// what arrives at the lower half on each run; or, when the upper
-    /// half's instructions do not fit the lower half's, what every run
-    /// refuses with at `ready`.
+    /// half's instructions do not fit the lower half's, what each run's
+    /// refusal at `ready` is built from.
     fit: Result<Boundary, UnfitHalves>,
     /// The parts the upper half holds, as it declares them: how far below
     /// this part's position the lower half's is.
@@ -101,9 +102,10 @@ impl<U, L> Composed<U, L> {
     /// Starts a run, at `ready`, of this part at `at`: refuses it if the
     /// halves' instructions do not fit, or if what arrives at the lower
     /// half on this run, `required` of the upper half, does not fit what
-    /// the lower half provides, with every mismatch of the two. Gives the lower half, what arrives
-    /// at it, its position, and the part a refusal from it names, the
-    /// lower half as `on` named it, if that position is known.
+    /// the lower half provides, with every mismatch at their boundary.
+    /// Gives the lower half, what arrives at it, its position, and the
+    /// part a refusal from it names, the lower half as `on` named it, if
+    /// that position is known.
     fn start_run<'p>(
         &mut self,
         required: impl FnOnce(&U) -> Capabilities,
@@ -205,9 +207,9 @@ fn boundary(
 
 /// Halves whose instructions do not fit, as the join found them: each
 /// instruction of the upper half's that does not fit the lower half's,
-/// and what the lower half provides, as the join read it, which what
-/// arrives at it on each run is still checked against, so that a run's
-/// refusal holds every mismatch of the boundary.
+/// and what the lower half provides, as the join read it, against which
+/// each run checks what arrives at the lower half, so that a run's
+/// refusal holds every mismatch at their boundary.
 #[derive(Debug)]
 struct UnfitHalves {
     instructions: Vec<InstructionMismatch>,

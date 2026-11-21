@@ -98,7 +98,7 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
 
     /// Refuses the run if the halves' instructions do not fit, or if what the
     /// driver requires does not fit what the adapter provides, with every
-    /// mismatch of the two; else the adapter first, for what the driver
+    /// mismatch at their boundary; else the adapter first, for what the driver
     /// requires, then the driver. A refusal from the adapter names it, at its
     /// position, if `at` is known.
     async fn ready_at(

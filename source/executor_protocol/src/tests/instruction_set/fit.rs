@@ -397,3 +397,50 @@ fn shape_mismatch_is_reported_before_a_one_sided_meaning() {
     let undeclared = set_of("Gates", 1, vec![gate("h")]);
     assert_eq!(declared.fits(&undeclared), Err(vec![blocks("h")]));
 }
+
+/// A mismatch's message names what is at fault, for whoever builds the
+/// chain and must change a part: the instruction, by its mnemonic, which
+/// nothing else in the message says, with, for readouts, both sides'
+/// counts; and, for one mnemonic, each kind says something of its own, so
+/// the message tells what differs. A formatter that drops the mnemonic or
+/// a count, or says the same for two kinds, fails.
+#[test]
+fn a_mismatch_names_its_instruction_and_what_differs() {
+    let cz = || "cz".to_owned();
+    let rows = [
+        (missing("cz"), vec!["cz"]),
+        (blocks("cz"), vec!["cz"]),
+        (
+            InstructionMismatch::Parameters { mnemonic: cz() },
+            vec!["cz"],
+        ),
+        (
+            InstructionMismatch::Readouts {
+                mnemonic: cz(),
+                sent: (3, 5),
+                accepted: (7, 9),
+            },
+            vec!["cz", "3", "5", "7", "9"],
+        ),
+        (InstructionMismatch::Meaning { mnemonic: cz() }, vec!["cz"]),
+        (InstructionMismatch::OtherSet, vec![]),
+    ];
+    let messages: Vec<String> = rows
+        .iter()
+        .map(|(mismatch, _)| mismatch.to_string())
+        .collect();
+    for ((mismatch, named), message) in rows.iter().zip(&messages) {
+        for word in named {
+            assert!(
+                message.contains(word),
+                "{mismatch:?} names {word}: {message}"
+            );
+        }
+    }
+    for (i, message) in messages.iter().enumerate() {
+        assert!(
+            !messages[i + 1..].contains(message),
+            "two kinds say {message}"
+        );
+    }
+}

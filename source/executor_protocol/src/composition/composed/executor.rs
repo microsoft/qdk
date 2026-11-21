@@ -84,9 +84,9 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
 
     /// Refuses the run if the halves' instructions do not fit, or if what the
     /// adapter requires does not fit what the executor provides, with every
-    /// mismatch of the two; else the executor first, for what the adapter
-    /// requires, then the adapter, for `required`. A refusal from the executor
-    /// names it, at its position, if `at` is known.
+    /// mismatch at their boundary; else the executor first, for what the
+    /// adapter requires, then the adapter, for `required`. A refusal from the
+    /// executor names it, at its position, if `at` is known.
     async fn ready_at(
         &mut self,
         required: &Capabilities,

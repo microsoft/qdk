@@ -104,9 +104,9 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
 
     /// Refuses the run if the halves' instructions do not fit, or if what the
     /// upper part requires does not fit what the lower part provides, with
-    /// every mismatch of the two; else the lower part first, for what the upper
-    /// part requires, then the upper part, for `required`. A refusal from the
-    /// lower part names it, at its position, if `at` is known.
+    /// every mismatch at their boundary; else the lower part first, for what
+    /// the upper part requires, then the upper part, for `required`. A refusal
+    /// from the lower part names it, at its position, if `at` is known.
     async fn ready_at(
         &mut self,
         required: &Capabilities,

@@ -155,9 +155,9 @@ A run's shots, and seeded runs if its seed is fixed, arrive at the
 driver's `requires`, and from it at each part, as the `Runner` checks when
 each run starts. A run of 1000 shots, over bits that take 100, starts
 through a job splitter that requires runs of 100 shots below, whatever run
-arrives, and is refused without it. The case checks only that the run
-starts: its splitter declares the runs of 100 shots, and does not split
-the run (from
+arrives, and is refused without it. The run is taken and gives a record
+per shot, though the case's splitter declares the runs of 100 shots and
+does not split the run (from
 [`src/tests/composition/runner.rs`](../src/tests/composition/runner.rs)):
 
 ```rust
