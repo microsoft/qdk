@@ -23,7 +23,8 @@ A set's instructions act on blocks, and a batch holds them by opcode:
 
 ## Declaring a set
 
-A part states the instructions it sends or accepts as an
+A part states the instructions it sends (`sends`, for a driver or an
+adapter) or accepts (`accepts`, for an adapter or an executor) as an
 [`InstructionSet`](../src/instruction_set.rs), in the model of Qodec, a
 format that describes each level of a quantum error-correcting code as
 data. Its model describes instruction sets in general, at any level of a
@@ -60,4 +61,4 @@ Otherwise the `on` that makes a runner reports each mismatch
 ([`InstructionMismatch`](../src/instruction_set/fit.rs)), with those of the
 resources and features, as [Capabilities and their fit](capabilities.md)
 says; at a boundary inside a part of the user's, which the `on` cannot
-reach, every run is refused with them instead.
+see into, every run is refused with them instead.

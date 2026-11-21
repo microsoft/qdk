@@ -455,11 +455,11 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
 /// bracketing. A row per part a writer meets that requires otherwise: an
 /// interleaver, under a program smaller than its least, over bits too
 /// small or large enough; a reservation of 2 ancillas; a pool drawing
-/// qubits and carbon blocks from qubits; a splitter,
-/// requiring batches of one instruction below any batch; a replayer,
-/// requiring no replay below; a sampler, requiring no seeded runs below
-/// and providing no replay; and a decoder's limit above an ancilla's
-/// reservation, where each part falls short of its own.
+/// qubits and carbon blocks from qubits; a splitter, requiring batches of
+/// one instruction below any batch; a replayer, requiring no replay
+/// below; a sampler, requiring no seeded runs below and providing no
+/// replay; and a decoder's limit above an ancilla's reservation, where
+/// each part falls short of its own.
 #[test]
 #[expect(clippy::too_many_lines, reason = "one row per part a writer meets")]
 fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {

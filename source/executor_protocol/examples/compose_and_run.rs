@@ -54,7 +54,7 @@ fn coin_runner<E: Executor>(
     // `through` joins the driver and the adapter into one driver, and `on`
     // joins that driver and the executor into the runner. The `on` that
     // makes the runner checks that each part accepts the instructions the
-    // part above sends, and that the bits provide what reaches them: the
+    // part above sends, and that the bits provide what arrives at them: the
     // coin's 2 qubits, passed below by the noise, which states nothing. It
     // gives the runner or every fault of the chain.
     let runner = coin.through(BitFlip::new(0.2)).on(bits);

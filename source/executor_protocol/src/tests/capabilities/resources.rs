@@ -28,7 +28,7 @@ fn short_blocks(block_type: BlockType, required: u32, provided: u32) -> Resource
 }
 
 /// What a part's shots, runs and batches reach against what the part
-/// below serves: an amount fits exactly when the provided one covers it,
+/// below provides: an amount fits exactly when the provided one covers it,
 /// or when either side does not state it.
 #[test]
 fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
@@ -69,7 +69,7 @@ fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
                 .with_blocks(carbon(), 0),
             Ok(()),
         ),
-        // A provider that does not state a type serves any count of it.
+        // A provider that does not state a type takes any count of it.
         (
             "a block type the provider does not state",
             Resources::unconstrained()
