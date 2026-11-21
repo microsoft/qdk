@@ -307,12 +307,12 @@ impl StabilizerSimulator {
     /// Records a `Pauli \otimes Pauli`-measurement on the given `q0, q1`.
     fn record_m_joint(
         &mut self,
-        q0: QubitID,
         q1: QubitID,
+        q2: QubitID,
         result_id: ResultID,
         basis: JointMeasurementBasis,
     ) {
-        let measurement = self.measure_joint_qubits(q0, q1, basis);
+        let measurement = self.m_joint_impl(q1, q2, basis);
         self.measurements[result_id] = measurement;
     }
 
@@ -328,37 +328,12 @@ impl StabilizerSimulator {
             self.loss[target] = false;
             return MeasurementResult::Loss;
         }
-
         let observable = match basis {
             MeasurementBasis::X => [paulimer::core::x(target)].into(),
             MeasurementBasis::Y => [paulimer::core::y(target)].into(),
             MeasurementBasis::Z => [paulimer::core::z(target)].into(),
         };
-        let one_probability = self.state.outcome_probability(&observable, true);
-        // Snap numerical residue so deterministic measurements do not consume randomness.
-        let outcome = if one_probability.is_nearly_zero() {
-            false
-        } else if (1.0 - one_probability).is_nearly_zero() {
-            true
-        } else {
-            self.measurement_rng
-                .random_bool(one_probability.clamp(0.0, 1.0))
-        };
-        if outcome {
-            let probability = self.state.project(&observable, true);
-            assert!(
-                !probability.is_nearly_zero(),
-                "sampled a zero-probability measurement outcome"
-            );
-            MeasurementResult::One
-        } else {
-            let zero_probability = self.state.project(&observable, false);
-            assert!(
-                !zero_probability.is_nearly_zero(),
-                "sampled a zero-probability measurement outcome"
-            );
-            MeasurementResult::Zero
-        }
+        self.measure_observable(&observable)
     }
 
     /// Measures a Z observable on the given `target` and reset the qubit to the zero state.
@@ -375,6 +350,30 @@ impl StabilizerSimulator {
         result
     }
 
+    /// Measure a `Pauli \otimes Pauli` observable on the given targets `q0` and `q1`.
+    fn m_joint_impl(
+        &mut self,
+        q1: QubitID,
+        q2: QubitID,
+        basis: JointMeasurementBasis,
+    ) -> MeasurementResult {
+        if self.loss[q1] {
+            self.loss[q1] = false;
+            return MeasurementResult::Loss;
+        }
+        if self.loss[q2] {
+            self.loss[q2] = false;
+            return MeasurementResult::Loss;
+        }
+        let observable = match basis {
+            JointMeasurementBasis::XX => [paulimer::core::x(q1), paulimer::core::x(q2)].into(),
+            JointMeasurementBasis::YY => [paulimer::core::y(q1), paulimer::core::y(q2)].into(),
+            JointMeasurementBasis::ZZ => [paulimer::core::z(q1), paulimer::core::z(q2)].into(),
+            JointMeasurementBasis::ZY => [paulimer::core::z(q1), paulimer::core::y(q2)].into(),
+        };
+        self.measure_observable(&observable)
+    }
+
     fn loss_impl(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.mresetz_impl(target);
@@ -382,29 +381,8 @@ impl StabilizerSimulator {
         }
     }
 
-    /// Measure a `Pauli \otimes Pauli` observable on the given targets `q0` and `q1`.
-    fn measure_joint_qubits(
-        &mut self,
-        q0: QubitID,
-        q1: QubitID,
-        basis: JointMeasurementBasis,
-    ) -> MeasurementResult {
-        if self.loss[q0] {
-            self.loss[q0] = false;
-            return MeasurementResult::Loss;
-        }
-        if self.loss[q1] {
-            self.loss[q1] = false;
-            return MeasurementResult::Loss;
-        }
-
-        let observable = match basis {
-            JointMeasurementBasis::XX => [paulimer::core::x(q0), paulimer::core::x(q1)].into(),
-            JointMeasurementBasis::YY => [paulimer::core::y(q0), paulimer::core::y(q1)].into(),
-            JointMeasurementBasis::ZZ => [paulimer::core::z(q0), paulimer::core::z(q1)].into(),
-            JointMeasurementBasis::ZY => [paulimer::core::z(q0), paulimer::core::y(q1)].into(),
-        };
-        let one_probability = self.state.outcome_probability(&observable, true);
+    fn measure_observable(&mut self, observable: &SparsePauli) -> MeasurementResult {
+        let one_probability = self.state.outcome_probability(observable, true);
         // Snap numerical residue so deterministic measurements do not consume randomness.
         let outcome = if one_probability.is_nearly_zero() {
             false
@@ -415,14 +393,14 @@ impl StabilizerSimulator {
                 .random_bool(one_probability.clamp(0.0, 1.0))
         };
         if outcome {
-            let probability = self.state.project(&observable, true);
+            let probability = self.state.project(observable, true);
             assert!(
                 !probability.is_nearly_zero(),
                 "sampled a zero-probability measurement outcome"
             );
             MeasurementResult::One
         } else {
-            let zero_probability = self.state.project(&observable, false);
+            let zero_probability = self.state.project(observable, false);
             assert!(
                 !zero_probability.is_nearly_zero(),
                 "sampled a zero-probability measurement outcome"
