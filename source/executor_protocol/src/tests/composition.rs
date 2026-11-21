@@ -430,7 +430,7 @@ fn every_part_gets_ready_on_every_run_for_the_largest_requirement_that_reaches_i
             let counted = Rc::new(Cell::new(0));
             let d = Program::new(&[("mz", 4)]);
             let a = Profiler::new(&counted, &log);
-            let e = Bits::new(&log).with_resources(Resources::new());
+            let e = Bits::new(&log).with_resources(Resources::unconstrained());
         },
         |chain, brackets| assert_eq!(
             logged_over_two_runs(chain, &log, "Bits ready"),

@@ -17,8 +17,8 @@ use super::{StatementMismatch, Statements};
 /// `false` that they do not; provided, `true` says the part serves it, and
 /// `false` that it does not.
 ///
-/// Built from [`new`](Statements::new), which states nothing, with the
-/// builders below.
+/// Built from [`unconstrained`](Self::unconstrained), which states
+/// nothing, with the builders below.
 pub type Features = Statements<Feature, bool>;
 
 /// A feature required and not provided: `required` is `true`, and
@@ -27,6 +27,7 @@ pub type FeatureMismatch = StatementMismatch<Feature, bool>;
 
 /// A yes-or-no feature, in the order mismatches are listed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum Feature {
     /// Readout parities, resolved per shot.
     ReadoutParity,
@@ -37,6 +38,15 @@ pub enum Feature {
 }
 
 impl Features {
+    /// No feature stated: required, none used; provided, none said to be
+    /// lacking. What a part leaves unstated, composition cannot refuse a
+    /// chain on: a part that uses readout parities, replay or seeded runs
+    /// is joined with this one all the same.
+    #[must_use]
+    pub const fn unconstrained() -> Self {
+        Self::new()
+    }
+
     /// These features, with readout parities used, or served, as `yes`
     /// says. A checked batch holding one is refused across a boundary
     /// whose required features do not say `true`

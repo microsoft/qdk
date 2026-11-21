@@ -182,20 +182,18 @@ fn run_marked(
     most: Option<u32>,
     mark: Mark,
 ) -> Result<u32, DriveError> {
-    let mut provided = Resources::new().with_blocks(carbon(), 64);
+    let mut provided = Resources::unconstrained().with_blocks(carbon(), 64);
     if let Some(most) = most {
         provided = provided.with_instructions_per_batch(most);
     }
     let driver = Literal {
         instructions,
         stated,
-        requires: Capabilities::new(set.clone())
-            .with_resources(resources)
-            .with_features(features),
+        requires: Capabilities::new(set.clone(), resources, features),
         mark,
     };
     let executor = Zeros {
-        provides: Capabilities::new(set.clone()).with_resources(provided),
+        provides: Capabilities::new(set.clone(), provided, Features::unconstrained()),
     };
     let Ok(mut runner) = driver.on(executor) else {
         panic!("the chain composes");
@@ -235,10 +233,10 @@ fn refusal_of(run: Result<u32, DriveError>) -> Result<u32, ExecuteRefusal> {
 /// Shots of `qubits` qubits and `carbons` blocks, using no readout
 /// parity.
 fn shots_of(qubits: u32, carbons: u32) -> Required {
-    let resources = Resources::new()
+    let resources = Resources::unconstrained()
         .with_qubits(qubits)
         .with_blocks(carbon(), carbons);
-    (resources, Features::new())
+    (resources, Features::unconstrained())
 }
 
 /// The same shots, using readout parities.
@@ -678,7 +676,7 @@ fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
         (
             "`h` on qubit 0, of shots stating no qubits",
             on("h", &[0]),
-            (Resources::new(), Features::new()),
+            (Resources::unconstrained(), Features::unconstrained()),
             beyond("h", 0, 0),
         ),
         (

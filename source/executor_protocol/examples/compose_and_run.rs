@@ -140,7 +140,11 @@ impl CoinCopy {
                 .expect("instructions of CoinGates")
         });
         Self {
-            requires: Capabilities::new(set).with_resources(Resources::new().with_qubits(2)),
+            requires: Capabilities::new(
+                set,
+                Resources::unconstrained().with_qubits(2),
+                Features::unconstrained(),
+            ),
             sequences,
             slots,
             checked: false,
@@ -254,7 +258,11 @@ struct BitFlip {
 impl BitFlip {
     fn new(probability: f64) -> Self {
         Self {
-            capabilities: Capabilities::new(CoinGates::set()),
+            capabilities: Capabilities::new(
+                CoinGates::set(),
+                Resources::unconstrained(),
+                Features::unconstrained(),
+            ),
             probability,
             below: None,
             streams: BTreeMap::new(),
@@ -371,12 +379,10 @@ struct Bits {
 
 impl Bits {
     fn new() -> Self {
-        let resources = Resources::new().with_qubits(64).with_shots(1000);
-        let features = Features::new().with_readout_parity(false);
+        let resources = Resources::unconstrained().with_qubits(64).with_shots(1000);
+        let features = Features::unconstrained().with_readout_parity(false);
         Self {
-            provides: Capabilities::new(CoinGates::set())
-                .with_resources(resources)
-                .with_features(features),
+            provides: Capabilities::new(CoinGates::set(), resources, features),
             qubits: 0,
             shots: BTreeMap::new(),
             checked_batches: 0,

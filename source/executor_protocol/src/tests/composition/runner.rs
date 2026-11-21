@@ -980,7 +980,7 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     // runs of the 4 it requires would, over bits of 4: a run of 10 runs,
     // though the fake sends it through whole.
     let serves_shots =
-        RunProvision::new().with_resources(Resources::new().serving(Resource::Shots));
+        RunProvision::new().with_resources(Resources::unconstrained().serving(Resource::Shots));
     let program = Program::new(&[("mz", 0)])
         .with_resources(qubits(1).with_shots(4))
         .serving_runs(serves_shots);
@@ -1030,7 +1030,7 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
     let bits_without_seeded_runs =
-        || Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
+        || Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
     // An executor without seeded runs.
     let alone = runner(CoinCopy::new().on(bits_without_seeded_runs()));
     refuses_a_seed("the executor alone", alone, 4, &log);

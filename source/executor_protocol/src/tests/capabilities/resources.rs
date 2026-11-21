@@ -10,7 +10,8 @@ use crate::{BlockType, BoundaryCompatible, Features, Resource, ResourceMismatch,
 /// Each amount `required` states above what `provided` states, as
 /// [`Capabilities`](crate::Capabilities)' fit lists them.
 fn fit(required: Resources, provided: &Resources) -> Result<(), Vec<ResourceMismatch>> {
-    let fit = coin(required, Features::new()).fits(&coin(provided.clone(), Features::new()));
+    let fit = coin(required, Features::unconstrained())
+        .fits(&coin(provided.clone(), Features::unconstrained()));
     fit.map(drop).map_err(|mismatch| mismatch.resources)
 }
 
@@ -27,57 +28,63 @@ fn short_blocks(block_type: BlockType, required: u32, provided: u32) -> Resource
 /// or when either side does not state it.
 #[test]
 fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
-    let eight = Resources::new().with_qubits(8);
+    let eight = Resources::unconstrained().with_qubits(8);
     for (row, required, provided, expected) in [
         // A program on 9 qubits, on an executor of 8: the qubits are
         // short, with both counts.
         (
             "more qubits than provided",
-            Resources::new().with_qubits(9),
+            Resources::unconstrained().with_qubits(9),
             &eight,
             Err(vec![short_blocks(BlockType::qubit(), 9, 8)]),
         ),
         // The most is inclusive.
         (
             "as many qubits as provided",
-            Resources::new().with_qubits(8),
+            Resources::unconstrained().with_qubits(8),
             &eight,
             Ok(()),
         ),
         // A provider states 0 for a block type it does not serve.
         (
             "a block type provided 0 times",
-            Resources::new().with_blocks(carbon(), 2),
-            &Resources::new().with_qubits(8).with_blocks(carbon(), 0),
+            Resources::unconstrained().with_blocks(carbon(), 2),
+            &Resources::unconstrained()
+                .with_qubits(8)
+                .with_blocks(carbon(), 0),
             Err(vec![short_blocks(carbon(), 2, 0)]),
         ),
         // A requirement of 0 blocks of a type is no requirement.
         (
             "no block of a type provided 0 times",
-            Resources::new().with_qubits(1).with_blocks(carbon(), 0),
-            &Resources::new().with_qubits(8).with_blocks(carbon(), 0),
+            Resources::unconstrained()
+                .with_qubits(1)
+                .with_blocks(carbon(), 0),
+            &Resources::unconstrained()
+                .with_qubits(8)
+                .with_blocks(carbon(), 0),
             Ok(()),
         ),
         // A provider that does not state a type serves any count of it.
         (
             "a block type the provider does not state",
-            Resources::new()
+            Resources::unconstrained()
                 .with_qubits(u32::MAX)
                 .with_blocks(carbon(), 2),
-            &Resources::new(),
+            &Resources::unconstrained(),
             Ok(()),
         ),
         // A requirement that does not state an amount fits any provision.
         (
             "nothing required",
-            Resources::new(),
-            &Resources::new().with_qubits(0).with_shots(0),
+            Resources::unconstrained(),
+            &Resources::unconstrained().with_qubits(0).with_shots(0),
             Ok(()),
         ),
         (
             "more shots than provided",
-            Resources::new().with_shots(5),
-            &Resources::new().with_shots(4),
+            Resources::unconstrained().with_shots(5),
+            &Resources::unconstrained().with_shots(4),
             Err(vec![ResourceMismatch {
                 key: Resource::Shots,
                 required: 5,
@@ -86,14 +93,14 @@ fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
         ),
         (
             "as many shots as provided",
-            Resources::new().with_shots(4),
-            &Resources::new().with_shots(4),
+            Resources::unconstrained().with_shots(4),
+            &Resources::unconstrained().with_shots(4),
             Ok(()),
         ),
         (
             "more instructions per batch than provided",
-            Resources::new().with_instructions_per_batch(3),
-            &Resources::new().with_instructions_per_batch(2),
+            Resources::unconstrained().with_instructions_per_batch(3),
+            &Resources::unconstrained().with_instructions_per_batch(2),
             Err(vec![ResourceMismatch {
                 key: Resource::InstructionsPerBatch,
                 required: 3,

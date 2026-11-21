@@ -13,8 +13,10 @@ compares them:
 - **Capabilities** ([`Capabilities`](../src/capabilities.rs)): an
   instruction set, amounts ([`Resources`](../src/capabilities/resources.rs))
   and yes-or-no features ([`Features`](../src/capabilities/features.rs)).
-  Only the instruction set is mandatory: resources and features start
-  with nothing stated, so `Capabilities::new(set)` fits any part on them.
+  `Capabilities::new` takes all three. Resources and features start from
+  `Resources::unconstrained()` and `Features::unconstrained()`, which
+  state nothing, so a part that adds nothing to them fits any part on
+  them.
 - **Requirement**: the capabilities a part requires of the parts below
   it: the instructions it sends, and the resources and features its shots
   and runs use. A field it does not state, it does not need.
@@ -56,12 +58,10 @@ and a sender below. For instance, the example's executor, from
 its set on 64 qubits, at most 1000 shots a run, and no readout parity:
 
 ```rust
-let resources = Resources::new().with_qubits(64).with_shots(1000);
-let features = Features::new().with_readout_parity(false);
+let resources = Resources::unconstrained().with_qubits(64).with_shots(1000);
+let features = Features::unconstrained().with_readout_parity(false);
 Self {
-    provides: Capabilities::new(CoinGates::set())
-        .with_resources(resources)
-        .with_features(features),
+    provides: Capabilities::new(CoinGates::set(), resources, features),
 ```
 
 | Kind         | Each field                                                                     | Fits when                                                                         | A mismatch                                                                |
@@ -99,7 +99,7 @@ the program falls short at the decoder, and the ancilla's part at the
 bits; the program's 6 qubits stop at the part that serves them.
 
 ```rust
-let d = program(6, Features::new());
+let d = program(6, Features::unconstrained());
 let c = Stating::restating(4, &log);
 let w = Stating::reserving_an_ancilla(6, &log);
 let e = bits_over(5, &log);
@@ -134,7 +134,7 @@ requires serves a run's shots, so a run of 10 runs (from
 
 ```rust
 let serves_shots =
-    RunProvision::new().with_resources(Resources::new().serving(Resource::Shots));
+    RunProvision::new().with_resources(Resources::unconstrained().serving(Resource::Shots));
 let program = Program::new(&[("mz", 0)])
     .with_resources(qubits(1).with_shots(4))
     .serving_runs(serves_shots);

@@ -93,7 +93,7 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
     let coin = || CoinCopy::new();
     let limited = Bits::new(&log).with_resources(qubits(64).with_shots(4));
     let without_seeded_runs =
-        Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
+        Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
     for (row, error, said) in [
         (
             "too many shots",

@@ -85,8 +85,8 @@ pub(crate) fn run_chain(
     checked: bool,
 ) -> Profile {
     let mut profiler = Profiler::new(match chain {
-        Chain::Limited(most) => Resources::new().with_instructions_per_batch(most),
-        _ => Resources::new(),
+        Chain::Limited(most) => Resources::unconstrained().with_instructions_per_batch(most),
+        _ => Resources::unconstrained(),
     });
     let in_batches =
         ProgramInBatches::new(MixGates::set(), program, slots, QUBITS, batch).checked_if(checked);
@@ -99,7 +99,7 @@ fn send_down<E: Executor>(chain: Chain, in_batches: ProgramInBatches<'_>, execut
     match chain {
         Chain::Direct => {
             // The chain's executor is sent no batch: `Direct` sends past it.
-            let unused = Profiler::new(Resources::new());
+            let unused = Profiler::new(Resources::unconstrained());
             run_once(Direct(in_batches, executor).on(unused))
         }
         Chain::Bare | Chain::Limited(_) => run_once(in_batches.on(executor)),

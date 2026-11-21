@@ -142,9 +142,11 @@ fn flip_on_a_parity() -> Program {
     };
     let mz = on_qubit_0(ParityGates::MZ, smallvec![]);
     let x_if = on_qubit_0(ParityGates::X_IF, smallvec![Argument::recent(1)]);
-    let requires = Capabilities::new(ParityGates::set())
-        .with_resources(qubits(1))
-        .with_features(Features::new().with_readout_parity(true));
+    let requires = Capabilities::new(
+        ParityGates::set(),
+        qubits(1),
+        Features::unconstrained().with_readout_parity(true),
+    );
     Program::sending(vec![mz.clone(), x_if, mz], requires).with_checked_batches()
 }
 

@@ -45,9 +45,11 @@ impl Bits {
     pub(crate) fn providing(set: InstructionSet, log: &Log) -> Self {
         Self {
             opcodes: ["h", "x", "mz"].map(|mnemonic| set.opcode(mnemonic)),
-            provides: Capabilities::new(set)
-                .with_resources(qubits(64))
-                .with_features(Features::new().with_readout_parity(false)),
+            provides: Capabilities::new(
+                set,
+                qubits(64),
+                Features::unconstrained().with_readout_parity(false),
+            ),
             qubits: 0,
             shots: BTreeMap::new(),
             busy: None,
@@ -60,19 +62,21 @@ impl Bits {
 
     /// These bits, providing `resources` in place of their 64 qubits.
     pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
-        self.provides = self.provides.with_resources(resources);
+        let set = self.provides.instructions().clone();
+        self.provides = Capabilities::new(set, resources, self.provides.features().clone());
         self
     }
 
     /// These bits, providing `features` in place of their own.
     pub(crate) fn with_features(mut self, features: Features) -> Self {
-        self.provides = self.provides.with_features(features);
+        let set = self.provides.instructions().clone();
+        self.provides = Capabilities::new(set, self.provides.resources().clone(), features);
         self
     }
 
     /// These bits, resolving readout parities.
     pub(crate) fn resolving_parity(self) -> Self {
-        self.with_features(Features::new().with_readout_parity(true))
+        self.with_features(Features::unconstrained().with_readout_parity(true))
     }
 
     /// These bits, refusing every run in `ready`, for `why`.
@@ -121,9 +125,11 @@ impl Executor for Bits {
         let provided = self.provides.resources().blocks(&BlockType::qubit());
         self.qubits = qubits.max(provided.unwrap_or(0)) as usize;
         if let Some(set) = self.set_once_ready.take() {
-            self.provides = Capabilities::new(set)
-                .with_resources(self.provides.resources().clone())
-                .with_features(self.provides.features().clone());
+            self.provides = Capabilities::new(
+                set,
+                self.provides.resources().clone(),
+                self.provides.features().clone(),
+            );
         }
         match self.busy {
             Some(why) => Err(NotReady::new(why)),

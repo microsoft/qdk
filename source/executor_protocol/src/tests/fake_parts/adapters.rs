@@ -140,7 +140,11 @@ impl Profiler {
     /// feature, which it passes through.
     pub(crate) fn on(set: InstructionSet, instructions: &Rc<Cell<usize>>, log: &Log) -> Self {
         Self {
-            capabilities: Capabilities::new(set),
+            capabilities: Capabilities::new(
+                set,
+                Resources::unconstrained(),
+                Features::unconstrained(),
+            ),
             below: None,
             instructions: Rc::clone(instructions),
             busy: None,
@@ -262,16 +266,22 @@ impl Adapter for Splitter {
     fn provides(&self) -> &Capabilities {
         static ANY_COUNT: OnceLock<Capabilities> = OnceLock::new();
         ANY_COUNT.get_or_init(|| {
-            Capabilities::new(CoinGates::set())
-                .with_resources(Resources::new().serving(Resource::InstructionsPerBatch))
+            Capabilities::new(
+                CoinGates::set(),
+                Resources::unconstrained().serving(Resource::InstructionsPerBatch),
+                Features::unconstrained(),
+            )
         })
     }
 
     fn requires(&self) -> &Capabilities {
         static ONE_EACH: OnceLock<Capabilities> = OnceLock::new();
         ONE_EACH.get_or_init(|| {
-            Capabilities::new(CoinGates::set())
-                .with_resources(Resources::new().with_instructions_per_batch(1))
+            Capabilities::new(
+                CoinGates::set(),
+                Resources::unconstrained().with_instructions_per_batch(1),
+                Features::unconstrained(),
+            )
         })
     }
 
@@ -345,8 +355,12 @@ impl Spread {
     fn stating(self, requires: Resources, serves: Resources) -> Self {
         let qubits = Resource::Blocks(BlockType::qubit());
         Self {
-            requires: Capabilities::new(CoinGates::set()).with_resources(requires),
-            provides: Capabilities::new(CoinGates::set()).with_resources(serves.serving(qubits)),
+            requires: Capabilities::new(CoinGates::set(), requires, Features::unconstrained()),
+            provides: Capabilities::new(
+                CoinGates::set(),
+                serves.serving(qubits),
+                Features::unconstrained(),
+            ),
             ..self
         }
     }
@@ -469,9 +483,7 @@ impl Stating {
         Self::new(
             log,
             coin_capabilities().clone(),
-            Capabilities::new(CoinGates::set())
-                .with_resources(resources)
-                .with_features(features),
+            Capabilities::new(CoinGates::set(), resources, features),
         )
     }
 
@@ -485,24 +497,32 @@ impl Stating {
     /// passes them through, as an interleaver needs the qubits it
     /// interleaves its shots on.
     pub(crate) fn requiring(resources: Resources, log: &Log) -> Self {
-        let requires = Capabilities::new(CoinGates::set()).with_resources(resources);
+        let requires = Capabilities::new(CoinGates::set(), resources, Features::unconstrained());
         Self::new(log, requires, coin_capabilities().clone())
     }
 
     /// A toy job queue that takes at most `most` shots a run, a limit.
     pub(crate) fn queue(most: u32, log: &Log) -> Self {
-        Self::providing(log, Resources::new().with_shots(most), Features::new())
+        Self::providing(
+            log,
+            Resources::unconstrained().with_shots(most),
+            Features::unconstrained(),
+        )
     }
 
     /// A declaration fake of a job splitter: it requires runs of up to
     /// `below` shots and serves runs of up to `above`, but it passes each
     /// run through whole, splitting none.
     pub(crate) fn splitting_runs(below: u32, above: u32, log: &Log) -> Self {
-        let shots = |shots| Capabilities::new(CoinGates::set()).with_resources(shots);
+        let shots = |shots| Capabilities::new(CoinGates::set(), shots, Features::unconstrained());
         Self::new(
             log,
-            shots(Resources::new().with_shots(below)),
-            shots(Resources::new().with_shots(above).serving(Resource::Shots)),
+            shots(Resources::unconstrained().with_shots(below)),
+            shots(
+                Resources::unconstrained()
+                    .with_shots(above)
+                    .serving(Resource::Shots),
+            ),
         )
     }
 
@@ -510,13 +530,16 @@ impl Stating {
     /// its run's seed, from counts it takes below: it requires no seeded
     /// runs below, and serves them above, with no replay.
     pub(crate) fn seeding_itself(log: &Log) -> Self {
-        let stating = |features| Capabilities::new(CoinGates::set()).with_features(features);
+        let stating =
+            |features| Capabilities::new(CoinGates::set(), Resources::unconstrained(), features);
         Self::new(
             log,
-            stating(Features::new().with_seeded_runs(false)),
+            stating(Features::unconstrained().with_seeded_runs(false)),
             stating(
-                (Features::new().with_seeded_runs(true).with_replay(false))
-                    .serving(Feature::SeededRuns),
+                (Features::unconstrained()
+                    .with_seeded_runs(true)
+                    .with_replay(false))
+                .serving(Feature::SeededRuns),
             ),
         )
     }
@@ -526,11 +549,16 @@ impl Stating {
     /// above, stating seeded runs as a limit, which the parts below still
     /// apply, as it does not seed runs itself.
     pub(crate) fn replaying(log: &Log) -> Self {
-        let stating = |features| Capabilities::new(CoinGates::set()).with_features(features);
+        let stating =
+            |features| Capabilities::new(CoinGates::set(), Resources::unconstrained(), features);
         Self::new(
             log,
-            stating(Features::new().with_replay(false)),
-            stating(Features::new().with_replay(true).serving(Feature::Replay)),
+            stating(Features::unconstrained().with_replay(false)),
+            stating(
+                Features::unconstrained()
+                    .with_replay(true)
+                    .serving(Feature::Replay),
+            ),
         )
     }
 
@@ -538,7 +566,7 @@ impl Stating {
     /// afresh; it requires no qubits of its own, so that the qubits below
     /// still bound what it provides.
     pub(crate) fn restating(qubits: u32, log: &Log) -> Self {
-        Self::providing(log, super::qubits(qubits), Features::new())
+        Self::providing(log, super::qubits(qubits), Features::unconstrained())
     }
 
     /// The decoder [`Stating::restating`] makes, providing at most
@@ -547,7 +575,7 @@ impl Stating {
         Self::providing(
             log,
             super::qubits(qubits).with_shots(most_shots),
-            Features::new(),
+            Features::unconstrained(),
         )
     }
 
@@ -555,8 +583,8 @@ impl Stating {
     pub(crate) fn without_seeded_runs(log: &Log) -> Self {
         Self::providing(
             log,
-            Resources::new(),
-            Features::new().with_seeded_runs(false),
+            Resources::unconstrained(),
+            Features::unconstrained().with_seeded_runs(false),
         )
     }
 
@@ -564,8 +592,11 @@ impl Stating {
     /// below, and resolves none above.
     pub(crate) fn lowering_without_parity(log: &Log) -> Self {
         let no_parity = || {
-            Capabilities::new(CoinGates::set())
-                .with_features(Features::new().with_readout_parity(false))
+            Capabilities::new(
+                CoinGates::set(),
+                Resources::unconstrained(),
+                Features::unconstrained().with_readout_parity(false),
+            )
         };
         Self::new(log, no_parity(), no_parity())
     }
@@ -851,8 +882,9 @@ pub(crate) struct ForwardsParity {
 
 impl ForwardsParity {
     pub(crate) fn on(set: InstructionSet, log: &Log) -> Self {
-        let parity = |yes| Features::new().with_readout_parity(yes);
-        let stating = |features| Capabilities::new(set.clone()).with_features(features);
+        let parity = |yes| Features::unconstrained().with_readout_parity(yes);
+        let stating =
+            |features| Capabilities::new(set.clone(), Resources::unconstrained(), features);
         Self {
             requires: stating(parity(false)),
             provides: stating(parity(true).serving(Feature::ReadoutParity)),
@@ -897,10 +929,19 @@ pub(crate) struct ReplaysItself {
 
 impl ReplaysItself {
     pub(crate) fn new(log: &Log) -> Self {
-        let stating = |features| Capabilities::new(CoinGates::set()).with_features(features);
+        let stating =
+            |features| Capabilities::new(CoinGates::set(), Resources::unconstrained(), features);
         Self {
-            requires: stating(Features::new().with_replay(false).with_seeded_runs(true)),
-            provides: stating(Features::new().with_replay(true).serving(Feature::Replay)),
+            requires: stating(
+                Features::unconstrained()
+                    .with_replay(false)
+                    .with_seeded_runs(true),
+            ),
+            provides: stating(
+                Features::unconstrained()
+                    .with_replay(true)
+                    .serving(Feature::Replay),
+            ),
             profiler: Profiler::new(&Rc::new(Cell::new(0)), log),
         }
     }

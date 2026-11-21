@@ -5,8 +5,8 @@
 
 use executor_protocol::prelude::*;
 use executor_protocol::{
-    Arguments, Batch, BatchReadouts, Capabilities, ExecuteError, Instruction, Opcode, OpcodeMap,
-    ReadoutValue, Readouts, Resources, Seed,
+    Arguments, Batch, BatchReadouts, Capabilities, ExecuteError, Features, Instruction, Opcode,
+    OpcodeMap, ReadoutValue, Readouts, Resources, Seed,
 };
 
 use super::{LogicalGates, MixGates, PhysicalGates};
@@ -23,7 +23,11 @@ impl Forward {
         let set = MixGates::set();
         let identity = set.fits(&set).expect("a set fits itself");
         Self {
-            capabilities: Capabilities::new(set),
+            capabilities: Capabilities::new(
+                set,
+                Resources::unconstrained(),
+                Features::unconstrained(),
+            ),
             identity,
         }
     }
@@ -75,11 +79,18 @@ pub(crate) struct Repetition3 {
 impl Repetition3 {
     /// The lowering of `logical_qubits` logical qubits.
     pub(crate) fn new(logical_qubits: u32) -> Self {
-        let qubits = |n| Resources::new().with_qubits(n);
+        let qubits = |n| Resources::unconstrained().with_qubits(n);
         Self {
-            provides: Capabilities::new(LogicalGates::set()).with_resources(qubits(logical_qubits)),
-            requires: Capabilities::new(PhysicalGates::set())
-                .with_resources(qubits(3 * logical_qubits)),
+            provides: Capabilities::new(
+                LogicalGates::set(),
+                qubits(logical_qubits),
+                Features::unconstrained(),
+            ),
+            requires: Capabilities::new(
+                PhysicalGates::set(),
+                qubits(3 * logical_qubits),
+                Features::unconstrained(),
+            ),
             opcodes: [
                 PhysicalGates::RESET,
                 PhysicalGates::X,

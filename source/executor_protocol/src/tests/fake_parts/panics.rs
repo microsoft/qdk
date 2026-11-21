@@ -8,7 +8,8 @@ use std::sync::OnceLock;
 use super::{CoinGates, coin_capabilities, qubits};
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, OpcodeMap, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, OpcodeMap, Seed,
+    ShotSet,
 };
 
 /// When a [`Panics`] part panics.
@@ -33,7 +34,9 @@ impl Driver for Panics {
     /// [`CoinGates`], on 1 qubit.
     fn requires(&self) -> &Capabilities {
         static REQUIRES: OnceLock<Capabilities> = OnceLock::new();
-        REQUIRES.get_or_init(|| Capabilities::new(CoinGates::set()).with_resources(qubits(1)))
+        REQUIRES.get_or_init(|| {
+            Capabilities::new(CoinGates::set(), qubits(1), Features::unconstrained())
+        })
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}

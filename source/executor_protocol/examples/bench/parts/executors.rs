@@ -11,8 +11,8 @@ use std::thread::{self, JoinHandle};
 
 use executor_protocol::prelude::*;
 use executor_protocol::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Instruction, Opcode, ReadoutValue, Resources,
-    Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, Instruction, Opcode, ReadoutValue,
+    Resources, Seed, ShotSet,
 };
 
 use super::{MixGates, PhysicalGates};
@@ -66,7 +66,7 @@ impl Profiler {
     /// A profiler providing `MixGates` and `resources`.
     pub(crate) fn new(resources: Resources) -> Self {
         Self {
-            provides: Capabilities::new(MixGates::set()).with_resources(resources),
+            provides: Capabilities::new(MixGates::set(), resources, Features::unconstrained()),
             profile: Profile::default(),
         }
     }
@@ -159,7 +159,11 @@ pub(crate) struct Sink {
 impl Sink {
     pub(crate) fn new() -> Self {
         Self {
-            provides: Capabilities::new(PhysicalGates::set()),
+            provides: Capabilities::new(
+                PhysicalGates::set(),
+                Resources::unconstrained(),
+                Features::unconstrained(),
+            ),
             seen: 0,
             kinds: BatchKinds::default(),
             record: None,
@@ -257,7 +261,11 @@ impl FromWorker {
             })
         };
         Self {
-            provides: Capabilities::new(MixGates::set()),
+            provides: Capabilities::new(
+                MixGates::set(),
+                Resources::unconstrained(),
+                Features::unconstrained(),
+            ),
             jobs: Some(jobs),
             worker: Some(worker),
             handover,

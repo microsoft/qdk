@@ -25,9 +25,9 @@ pub struct Statements<K, V> {
 }
 
 impl<K: Ord + Clone, V: Ord + Copy> Statements<K, V> {
-    /// Nothing stated.
-    #[must_use]
-    pub const fn new() -> Self {
+    /// Nothing stated: what [`Resources::unconstrained`](super::Resources)
+    /// and [`Features::unconstrained`](super::Features) start from.
+    pub(crate) const fn new() -> Self {
         Self {
             values: BTreeMap::new(),
             served: BTreeSet::new(),
@@ -114,12 +114,6 @@ impl<K: Ord + Clone, V: Ord + Copy> Statements<K, V> {
             values,
             served: self.served.clone(),
         }
-    }
-}
-
-impl<K: Ord + Clone, V: Ord + Copy> Default for Statements<K, V> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -60,9 +60,11 @@ impl<'p> ProgramInBatches<'p> {
             "a count of slots per batch"
         );
         Self {
-            requires: Capabilities::new(set)
-                .with_resources(Resources::new().with_qubits(qubits))
-                .with_features(Features::new().with_readout_parity(true)),
+            requires: Capabilities::new(
+                set,
+                Resources::unconstrained().with_qubits(qubits),
+                Features::unconstrained().with_readout_parity(true),
+            ),
             identity,
             program,
             slots,

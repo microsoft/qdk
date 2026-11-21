@@ -66,7 +66,9 @@ impl Driver for CoinCopy {
     /// [`CoinGates`], on 2 qubits.
     fn requires(&self) -> &Capabilities {
         static REQUIRES: OnceLock<Capabilities> = OnceLock::new();
-        REQUIRES.get_or_init(|| Capabilities::new(CoinGates::set()).with_resources(qubits(2)))
+        REQUIRES.get_or_init(|| {
+            Capabilities::new(CoinGates::set(), qubits(2), Features::unconstrained())
+        })
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -186,7 +188,11 @@ impl Program {
                 })
                 .collect(),
             slots: Vec::new(),
-            requires: Capabilities::new(CoinGates::set()).with_resources(super::qubits(qubits)),
+            requires: Capabilities::new(
+                CoinGates::set(),
+                super::qubits(qubits),
+                Features::unconstrained(),
+            ),
             provides: RunProvision::new(),
             ends_its_shots: true,
             checked: vec![false; texts.len()],
@@ -208,13 +214,15 @@ impl Program {
 
     /// This program, requiring `resources` in place of its own.
     pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
-        self.requires = self.requires.with_resources(resources);
+        let set = self.requires.instructions().clone();
+        self.requires = Capabilities::new(set, resources, self.requires.features().clone());
         self
     }
 
     /// This program, requiring `features` in place of its own.
     pub(crate) fn with_features(mut self, features: Features) -> Self {
-        self.requires = self.requires.with_features(features);
+        let set = self.requires.instructions().clone();
+        self.requires = Capabilities::new(set, self.requires.resources().clone(), features);
         self
     }
 

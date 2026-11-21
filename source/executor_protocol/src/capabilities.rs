@@ -47,9 +47,9 @@ use crate::{BoundaryCompatible, InstructionMismatch, InstructionSet};
 /// states it, down to the first that serves it
 /// ([`Statements::serving`]), as the crate's `docs/capabilities.md` says.
 ///
-/// Built from [`new`](Self::new), with the builders below: a part that
-/// states no resource and no feature writes only its instruction set, and
-/// composes with any part on them.
+/// Built by [`new`](Self::new), from all three: a part that states no
+/// resource and no feature passes [`Resources::unconstrained`] and
+/// [`Features::unconstrained`], and composes with any part on them.
 #[derive(Clone, Debug)]
 pub struct Capabilities {
     instructions: Arc<InstructionSet>,
@@ -57,28 +57,16 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// `instructions`, sent or accepted, with no resource and no feature
-    /// stated.
+    /// `instructions`, sent or accepted, with `resources` and `features`.
     #[must_use]
-    pub fn new(instructions: InstructionSet) -> Self {
+    pub fn new(instructions: InstructionSet, resources: Resources, features: Features) -> Self {
         Self {
             instructions: Arc::new(instructions),
-            kinds: Kinds::new(),
+            kinds: Kinds {
+                resources,
+                features,
+            },
         }
-    }
-
-    /// These capabilities, with `resources` in place of their own.
-    #[must_use]
-    pub fn with_resources(mut self, resources: Resources) -> Self {
-        self.kinds.resources = resources;
-        self
-    }
-
-    /// These capabilities, with `features` in place of their own.
-    #[must_use]
-    pub fn with_features(mut self, features: Features) -> Self {
-        self.kinds.features = features;
-        self
     }
 
     /// The instructions sent, for a requirement, or accepted, for a
@@ -168,8 +156,9 @@ impl BoundaryCompatible for Capabilities {
 
 /// The resources and features a part states: the kinds that follow the
 /// rule of reach, as [`Statements`] says. Making a kind optional, or
-/// adding one, changes this type and its methods alone.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// adding one, changes this type, its methods and the arguments of
+/// [`Capabilities::new`] alone.
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Kinds {
     resources: Resources,
     features: Features,
@@ -179,8 +168,8 @@ impl Kinds {
     /// Nothing stated.
     const fn new() -> Self {
         Self {
-            resources: Resources::new(),
-            features: Features::new(),
+            resources: Resources::unconstrained(),
+            features: Features::unconstrained(),
         }
     }
 

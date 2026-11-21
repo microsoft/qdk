@@ -53,8 +53,8 @@ use std::task::{Context, Poll};
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Instruction, InstructionSet, OpcodeMap,
-    ReadoutValue, Resources, Seed, instruction_set,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, Instruction, InstructionSet,
+    OpcodeMap, ReadoutValue, Resources, Seed, instruction_set,
 };
 
 mod adapters;
@@ -135,12 +135,18 @@ pub(crate) fn coin_gates() -> &'static InstructionSet {
 /// a part that neither needs nor limits any requires and provides.
 pub(crate) fn coin_capabilities() -> &'static Capabilities {
     static CAPABILITIES: OnceLock<Capabilities> = OnceLock::new();
-    CAPABILITIES.get_or_init(|| Capabilities::new(CoinGates::set()))
+    CAPABILITIES.get_or_init(|| {
+        Capabilities::new(
+            CoinGates::set(),
+            Resources::unconstrained(),
+            Features::unconstrained(),
+        )
+    })
 }
 
 /// `n` qubits, and no other resource.
 pub(crate) fn qubits(n: u32) -> Resources {
-    Resources::new().with_qubits(n)
+    Resources::unconstrained().with_qubits(n)
 }
 
 /// `instructions`, rewritten in the receiver's opcodes.

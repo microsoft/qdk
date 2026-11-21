@@ -26,9 +26,7 @@ fn carbon() -> BlockType {
 
 /// Capabilities of [`CoinGates`] stating `resources` and `features`.
 fn coin(resources: Resources, features: Features) -> Capabilities {
-    Capabilities::new(CoinGates::set())
-        .with_resources(resources)
-        .with_features(features)
+    Capabilities::new(CoinGates::set(), resources, features)
 }
 
 /// A driver sending [`ParityGates`] on 9 qubits, 3 carbon blocks, runs of
@@ -36,27 +34,25 @@ fn coin(resources: Resources, features: Features) -> Capabilities {
 /// accepting [`CoinGates`] on 8 qubits and 2 carbon blocks, runs of 5 and
 /// batches of 1, serving no feature.
 fn every_kind_short() -> (Capabilities, Capabilities) {
-    let required = Capabilities::new(ParityGates::set())
-        .with_resources(
-            Resources::new()
-                .with_qubits(9)
-                .with_blocks(carbon(), 3)
-                .with_shots(10)
-                .with_instructions_per_batch(4),
-        )
-        .with_features(
-            Features::new()
-                .with_seeded_runs(true)
-                .with_replay(true)
-                .with_readout_parity(true),
-        );
+    let required = Capabilities::new(
+        ParityGates::set(),
+        Resources::unconstrained()
+            .with_qubits(9)
+            .with_blocks(carbon(), 3)
+            .with_shots(10)
+            .with_instructions_per_batch(4),
+        Features::unconstrained()
+            .with_seeded_runs(true)
+            .with_replay(true)
+            .with_readout_parity(true),
+    );
     let provided = coin(
-        Resources::new()
+        Resources::unconstrained()
             .with_qubits(8)
             .with_blocks(carbon(), 2)
             .with_shots(5)
             .with_instructions_per_batch(1),
-        Features::new()
+        Features::unconstrained()
             .with_readout_parity(false)
             .with_replay(false)
             .with_seeded_runs(false),
@@ -109,15 +105,27 @@ fn every_mismatch_of_each_kind_is_listed_at_once_in_order() {
 /// resource is a mismatch with no instruction listed.
 #[test]
 fn capabilities_fit_only_when_every_kind_fits() {
-    let required =
-        Capabilities::new(CoinGates::set()).with_resources(Resources::new().with_qubits(9));
-    let provided =
-        Capabilities::new(CoinGates::set()).with_resources(Resources::new().with_qubits(8));
+    let required = Capabilities::new(
+        CoinGates::set(),
+        Resources::unconstrained().with_qubits(9),
+        Features::unconstrained(),
+    );
+    let provided = Capabilities::new(
+        CoinGates::set(),
+        Resources::unconstrained().with_qubits(8),
+        Features::unconstrained(),
+    );
     let mismatch = required.fits(&provided).expect_err("9 qubits on 8");
     assert!(mismatch.instructions.is_empty(), "{mismatch:?}");
     assert_eq!(mismatch.resources.len(), 1, "{mismatch:?}");
     assert!(
-        Capabilities::new(CoinGates::set()).fits(&provided).is_ok(),
+        Capabilities::new(
+            CoinGates::set(),
+            Resources::unconstrained(),
+            Features::unconstrained()
+        )
+        .fits(&provided)
+        .is_ok(),
         "nothing stated fits"
     );
 }

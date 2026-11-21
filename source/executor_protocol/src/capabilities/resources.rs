@@ -17,8 +17,8 @@ use crate::BlockType;
 /// needs nor limits it. A checked batch, though, may use no block of a
 /// type the requirement that reaches its boundary does not state.
 ///
-/// Built from [`new`](Statements::new), which states nothing, with the
-/// builders below.
+/// Built from [`unconstrained`](Self::unconstrained), which states
+/// nothing, with the builders below.
 pub type Resources = Statements<Resource, u32>;
 
 /// An amount required above the one provided.
@@ -26,6 +26,7 @@ pub type ResourceMismatch = StatementMismatch<Resource, u32>;
 
 /// What an amount counts, in the order mismatches are listed.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum Resource {
     /// The blocks of a type a shot holds at once.
     Blocks(BlockType),
@@ -36,6 +37,15 @@ pub enum Resource {
 }
 
 impl Resources {
+    /// No amount stated: required, no need of any; provided, no limit on
+    /// any. What a part leaves unstated, composition cannot refuse a chain
+    /// on: a part that needs more blocks, shots or instructions a batch
+    /// than this one holds is joined with it all the same.
+    #[must_use]
+    pub const fn unconstrained() -> Self {
+        Self::new()
+    }
+
     /// These resources, with `n` qubits.
     #[must_use]
     pub fn with_qubits(self, n: u32) -> Self {

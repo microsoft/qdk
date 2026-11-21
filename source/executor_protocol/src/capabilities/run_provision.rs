@@ -14,8 +14,15 @@ use super::{Capabilities, CapabilitiesMismatch, Features, Kinds, Resources};
 ///
 /// Built from [`new`](Self::new), which states nothing, as a driver that
 /// serves nothing of a run does, with the builders below.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunProvision(Kinds);
+
+/// Serves nothing of a run, as [`new`](RunProvision::new).
+impl Default for RunProvision {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RunProvision {
     /// Nothing stated: a run reaches the parts below the driver whole.
@@ -60,8 +67,8 @@ impl RunProvision {
         // Saturates: no provision can state more than `u32::MAX` shots.
         let shots = u32::try_from(shots).unwrap_or(u32::MAX);
         let run = Kinds {
-            resources: Resources::new().with_shots(shots),
-            features: Features::new().with_seeded_runs(seeded),
+            resources: Resources::unconstrained().with_shots(shots),
+            features: Features::unconstrained().with_seeded_runs(seeded),
         };
         run.fit(&self.0)
     }

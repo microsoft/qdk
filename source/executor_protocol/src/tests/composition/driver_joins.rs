@@ -111,7 +111,7 @@ fn program(n: u32, features: Features) -> Program {
 
 /// Readout parities, required or provided.
 fn parity() -> Features {
-    Features::new().with_readout_parity(true)
+    Features::unconstrained().with_readout_parity(true)
 }
 
 /// Bits providing `n` qubits and resolving readout parities.
@@ -222,7 +222,7 @@ fn a_requirement_not_provided_is_a_fault_naming_both_parts() {
         "an encoding",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(7, Features::new());
+            let d = program(7, Features::unconstrained());
             let a = Spread::new(7, &log).built_for(7);
             let e = bits_over(30, &log);
         },
@@ -252,7 +252,7 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         "qubits through a profiler",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(9, Features::new());
+            let d = program(9, Features::unconstrained());
             let a = Profiler::new(&counted, &log);
             let e = bits_over(8, &log);
         },
@@ -278,9 +278,9 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         "seeded runs through a profiler",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(1, Features::new().with_seeded_runs(true));
+            let d = program(1, Features::unconstrained().with_seeded_runs(true));
             let a = Profiler::new(&counted, &log);
-            let e = Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
+            let e = Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
         },
         vec![fault(
             part::<Program>(0),
@@ -294,7 +294,7 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         "qubits through a replayer",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(1, Features::new().with_replay(true));
+            let d = program(1, Features::unconstrained().with_replay(true));
             let a = ReplaysItself::new(&log);
             let e = Bits::new(&log).with_resources(qubits(0));
         },
@@ -306,7 +306,7 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         "qubits through an interleaver",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(5, Features::new());
+            let d = program(5, Features::unconstrained());
             let a = Stating::requiring(qubits(3), &log);
             let e = bits_over(4, &log);
         },
@@ -315,7 +315,7 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
     // A program of runs of 5 shots, then of 12, through a queue of 10, over
     // bits of 3: the program is checked against both, and named at each
     // that falls short.
-    let shots = |n| program(1, Features::new()).with_resources(qubits(1).with_shots(n));
+    let shots = |n| program(1, Features::unconstrained()).with_resources(qubits(1).with_shots(n));
     let bits_of_3_shots = |log: &Log| Bits::new(log).with_resources(qubits(64).with_shots(3));
     faults_in_each_bracketing!(
         "shots through a queue",
@@ -348,7 +348,7 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         "a limit above a part that serves",
         [d, c, w, e] from {
             let log = Log::default();
-            let d = program(6, Features::new());
+            let d = program(6, Features::unconstrained());
             let c = Stating::restating(4, &log);
             let w = Stating::reserving_an_ancilla(6, &log);
             let e = bits_over(5, &log);
@@ -365,7 +365,7 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         "qubits served",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(9, Features::new());
+            let d = program(9, Features::unconstrained());
             let a = Stating::reserving_an_ancilla(9, &log);
             let e = bits_over(8, &log);
         },
@@ -382,7 +382,7 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         "a pool",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(1, Features::new())
+            let d = program(1, Features::unconstrained())
                 .with_resources(qubits(1).with_blocks(Pool::carbon(), 3));
             let a = Pool::new(1, 3, &log);
             let e = Bits::new(&log)
@@ -394,8 +394,10 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
     // A program of batches of 100 instructions, over bits taking 1: through
     // a part that needs batches of one below, the program's 100 reach the
     // bits; through a splitter, which serves any count, they stop there.
-    let batches_of =
-        |n| program(1, Features::new()).with_resources(qubits(1).with_instructions_per_batch(n));
+    let batches_of = |n| {
+        program(1, Features::unconstrained())
+            .with_resources(qubits(1).with_instructions_per_batch(n))
+    };
     let bits_taking_1 =
         |log: &Log| Bits::new(log).with_resources(qubits(64).with_instructions_per_batch(1));
     faults_in_each_bracketing!(
@@ -403,7 +405,7 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         [d, a, e] from {
             let log = Log::default();
             let d = batches_of(100);
-            let a = Stating::requiring(Resources::new().with_instructions_per_batch(1), &log);
+            let a = Stating::requiring(Resources::unconstrained().with_instructions_per_batch(1), &log);
             let e = bits_taking_1(&log);
         },
         vec![fault(
@@ -428,9 +430,9 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         "qubits over an executor stating none",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(5, Features::new());
+            let d = program(5, Features::unconstrained());
             let a = Profiler::new(&counted, &log);
-            let e = Bits::new(&log).with_resources(Resources::new());
+            let e = Bits::new(&log).with_resources(Resources::unconstrained());
         },
         vec![],
     );
@@ -455,7 +457,7 @@ fn a_held_joined_part_keeps_the_reach_of_its_parts() {
     let users = PartId::new(1, "user's adapter");
     assert_eq!(
         faults(
-            program(5, Features::new())
+            program(5, Features::unconstrained())
                 .through(interleaver())
                 .through(decoder())
                 .on(bits_over(4, &log))
@@ -470,7 +472,7 @@ fn a_held_joined_part_keeps_the_reach_of_its_parts() {
     );
     assert_eq!(
         faults(
-            program(5, Features::new())
+            program(5, Features::unconstrained())
                 .through(held(interleaver().through(decoder())))
                 .on(bits_over(4, &log))
         )
@@ -486,7 +488,7 @@ fn a_held_joined_part_keeps_the_reach_of_its_parts() {
     let profiler = || Profiler::new(&counted, &log);
     assert_eq!(
         faults(
-            program(9, Features::new())
+            program(9, Features::unconstrained())
                 .through(ancilla())
                 .through(profiler())
                 .on(bits_over(8, &log))
@@ -501,7 +503,7 @@ fn a_held_joined_part_keeps_the_reach_of_its_parts() {
     );
     assert_eq!(
         faults(
-            program(9, Features::new())
+            program(9, Features::unconstrained())
                 .through(held(ancilla().through(profiler())))
                 .on(bits_over(8, &log))
         )
@@ -521,7 +523,7 @@ fn a_limit_cannot_raise_the_limit_below() {
         "a decoder restating its qubits",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(9, Features::new());
+            let d = program(9, Features::unconstrained());
             let a = Stating::restating(64, &log);
             let e = bits_over(8, &log);
         },
@@ -540,7 +542,7 @@ fn a_limit_cannot_raise_the_limit_below() {
 /// whose shots are not replayable. Bracketed either way.
 #[test]
 fn a_feature_requirement_stops_at_the_part_that_serves_it() {
-    let replay = || Features::new().with_replay(true);
+    let replay = || Features::unconstrained().with_replay(true);
     faults_in_each_bracketing!(
         "a lowering without readout parities",
         [d, a, e] from {
@@ -555,7 +557,7 @@ fn a_feature_requirement_stops_at_the_part_that_serves_it() {
             missing(Feature::ReadoutParity),
         )],
     );
-    let not_replayable = || Features::new().with_replay(false);
+    let not_replayable = || Features::unconstrained().with_replay(false);
     faults_in_each_bracketing!(
         "a replayer over shots not replayable",
         [d, a, e] from {
@@ -639,7 +641,7 @@ fn every_fault_is_listed_by_requirer_then_by_provider() {
         "two short parts",
         [d, a, b, e] from {
             let log = Log::default();
-            let d = program(3, Features::new());
+            let d = program(3, Features::unconstrained());
             let a = Spread::new(3, &log).built_for(1);
             let b = Spread::new(1, &log).built_for(9);
             let e = bits_over(8, &log);
@@ -661,12 +663,12 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
     let profiler = || Profiler::new(&counted, &log);
     let ancilla = || Stating::reserving_an_ancilla(9, &log);
     let without = faults(
-        program(9, Features::new())
+        program(9, Features::unconstrained())
             .through(ancilla())
             .on(bits_over(9, &log)),
     );
     let with = faults(
-        program(9, Features::new())
+        program(9, Features::unconstrained())
             .through(profiler())
             .through(ancilla())
             .through(profiler())
@@ -708,7 +710,7 @@ fn a_joined_part_states_what_its_parts_state_together() {
             capabilities.features().clone(),
         )
     };
-    let no_parity = || Features::new().with_readout_parity(false);
+    let no_parity = || Features::unconstrained().with_readout_parity(false);
     let rows = [
         // The encoding's 14 qubits, as it serves the program's 2, and the
         // program's readout parities.
@@ -726,16 +728,16 @@ fn a_joined_part_states_what_its_parts_state_together() {
                     .built_for(2)
                     .through(Profiler::new(&counted, &log)),
             )),
-            (qubits(14), Features::new()),
+            (qubits(14), Features::unconstrained()),
         ),
         // The program's 5 qubits, larger than the interleaver's 3, which
         // it passes through.
         (
             "a driver through an interleaver",
             read(Driver::requires(
-                &program(5, Features::new()).through(Stating::requiring(qubits(3), &log)),
+                &program(5, Features::unconstrained()).through(Stating::requiring(qubits(3), &log)),
             )),
-            (qubits(5), Features::new()),
+            (qubits(5), Features::unconstrained()),
         ),
         // The queue's 4 shots, beside the bits' 8 qubits and their
         // parities, which the queue does not state.
@@ -777,7 +779,7 @@ fn a_joined_part_states_what_its_parts_state_together() {
             read(Adapter::provides(
                 &Stating::restating(64, &log).through(Stating::queue(4, &log)),
             )),
-            (qubits(64).with_shots(4), Features::new()),
+            (qubits(64).with_shots(4), Features::unconstrained()),
         ),
         // A replayer, which serves replay and limits seeded runs, on bits
         // without seeded runs: neither, as a shot is replayed with its
@@ -785,11 +787,11 @@ fn a_joined_part_states_what_its_parts_state_together() {
         (
             "a replayer on bits without seeded runs",
             read(Executor::provides(&Stating::replaying(&log).on(
-                Bits::new(&log).with_features(Features::new().with_seeded_runs(false)),
+                Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false)),
             ))),
             (
                 qubits(64),
-                (Features::new().with_seeded_runs(false)).serving(Feature::Replay),
+                (Features::unconstrained().with_seeded_runs(false)).serving(Feature::Replay),
             ),
         ),
     ];
@@ -842,7 +844,7 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
 #[test]
 fn two_parts_of_one_type_are_told_apart_by_position() {
     let log = Log::default();
-    let composed = program(1, Features::new())
+    let composed = program(1, Features::unconstrained())
         .through(Spread::new(2, &log).built_for(1))
         .through(Spread::new(2, &log).built_for(1))
         .on(bits_over(64, &log));

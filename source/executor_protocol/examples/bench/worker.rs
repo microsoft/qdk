@@ -53,7 +53,7 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
             received.call_times
         });
         let here = median_call(repeats, || {
-            let mut profiler = Profiler::new(Resources::new());
+            let mut profiler = Profiler::new(Resources::unconstrained());
             let mut in_batches =
                 ProgramInBatches::new(MixGates::set(), program, &slots, QUBITS, batch)
                     .checked_if(checked);

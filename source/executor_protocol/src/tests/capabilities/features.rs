@@ -12,7 +12,8 @@ use crate::{BoundaryCompatible, Executor, Feature, FeatureMismatch, Features, Re
 /// Each feature `required` uses that `provided` states it does not serve,
 /// as [`Capabilities`](crate::Capabilities)' fit lists them.
 fn fit(required: Features, provided: &Features) -> Result<(), Vec<FeatureMismatch>> {
-    let fit = coin(Resources::new(), required).fits(&coin(Resources::new(), provided.clone()));
+    let fit = coin(Resources::unconstrained(), required)
+        .fits(&coin(Resources::unconstrained(), provided.clone()));
     fit.map(drop).map_err(|mismatch| mismatch.features)
 }
 
@@ -30,8 +31,8 @@ fn missing(feature: Feature) -> FeatureMismatch {
 /// provide it; a provider that does not state a feature does not limit it.
 #[test]
 fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
-    let parity = |yes| Features::new().with_readout_parity(yes);
-    let seeded = |yes| Features::new().with_seeded_runs(yes);
+    let parity = |yes| Features::unconstrained().with_readout_parity(yes);
+    let seeded = |yes| Features::unconstrained().with_seeded_runs(yes);
     for (row, required, provided, expected) in [
         (
             "readout parities used, not resolved",
@@ -48,7 +49,7 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
         (
             "readout parities used, not stated below",
             parity(true),
-            Features::new(),
+            Features::unconstrained(),
             Ok(()),
         ),
         (
@@ -59,7 +60,7 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
         ),
         (
             "readout parities not stated, not resolved",
-            Features::new(),
+            Features::unconstrained(),
             parity(false),
             Ok(()),
         ),
@@ -71,14 +72,14 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
         ),
         (
             "replay, not replayable",
-            Features::new().with_replay(true),
-            Features::new().with_replay(false),
+            Features::unconstrained().with_replay(true),
+            Features::unconstrained().with_replay(false),
             Err(vec![missing(Feature::Replay)]),
         ),
         (
             "no replay, not replayable",
-            Features::new().with_replay(false),
-            Features::new().with_replay(false),
+            Features::unconstrained().with_replay(false),
+            Features::unconstrained().with_replay(false),
             Ok(()),
         ),
     ] {
@@ -94,10 +95,10 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
 #[test]
 fn replay_requires_seeded_runs() {
     let log = Log::default();
-    let replay = || Features::new().with_replay(true);
+    let replay = || Features::unconstrained().with_replay(true);
     let replayer_over_unseeded = Executor::provides(
         &Stating::replaying(&log)
-            .on(Bits::new(&log).with_features(Features::new().with_seeded_runs(false))),
+            .on(Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false))),
     )
     .features()
     .clone();
@@ -105,7 +106,7 @@ fn replay_requires_seeded_runs() {
         (
             "replay over runs without seeded runs",
             replay(),
-            Features::new().with_seeded_runs(false),
+            Features::unconstrained().with_seeded_runs(false),
             Err(vec![missing(Feature::Replay), missing(Feature::SeededRuns)]),
         ),
         (
@@ -117,7 +118,9 @@ fn replay_requires_seeded_runs() {
         (
             "no seeded runs, then replay, stated by a provider",
             replay(),
-            Features::new().with_seeded_runs(false).with_replay(true),
+            Features::unconstrained()
+                .with_seeded_runs(false)
+                .with_replay(true),
             Ok(()),
         ),
         (
