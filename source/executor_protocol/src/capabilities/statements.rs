@@ -51,7 +51,7 @@ impl<K: Ord + Clone, V: Ord + Copy> Statements<K, V> {
     }
 
     /// These statements, with `value` for `key`.
-    pub(super) fn with(mut self, key: K, value: V) -> Self {
+    pub(crate) fn with(mut self, key: K, value: V) -> Self {
         self.values.insert(key, value);
         self
     }

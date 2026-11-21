@@ -1,11 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The features a part requires against those the part below provides,
-//! at one boundary: which fit.
+//! What `Features` adds to the one rule of every kind: replay requires
+//! seeded runs.
 
-use crate::prelude::*;
-use crate::tests::fake_parts::{Bits, Log, Program, Stating};
 use crate::{BoundaryCompatible, Capabilities, Feature, FeatureMismatch, Features, Resources};
 
 /// Each feature `required` uses that `provided` states it does not provide,
@@ -27,127 +25,15 @@ fn missing(feature: Feature) -> FeatureMismatch {
     }
 }
 
-/// What a part's shots and runs use against what the part below provides:
-/// a feature fits unless it is used and the provider states it does not
-/// provide it; a provider that does not state a feature does not limit it,
-/// and a feature stated not used requires nothing, even of a provider that
-/// provides it. Each feature has a row of each side of the rule. A fit
-/// refusing any feature both sides state differently fails the rows of a
-/// feature not used over one provided; one reading a provider that states
-/// nothing as one stating `false` fails the rows of a feature used over a
-/// provider stating nothing; one refusing every provision stating `false`
-/// fails the rows of a feature not used over one not provided; and one
-/// refusing a feature both sides state used fails the rows of a feature
-/// used over one provided.
-#[test]
-fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
-    let parity = |yes| Features::unconstrained().with_readout_parity(yes);
-    let seeded = |yes| Features::unconstrained().with_seeded_runs(yes);
-    for (row, required, provided, expected) in [
-        (
-            "readout parities used, not resolved",
-            parity(true),
-            parity(false),
-            Err(vec![missing(Feature::ReadoutParity)]),
-        ),
-        (
-            "readout parities used, resolved",
-            parity(true),
-            parity(true),
-            Ok(()),
-        ),
-        (
-            "readout parities used, not stated below",
-            parity(true),
-            Features::unconstrained(),
-            Ok(()),
-        ),
-        (
-            "readout parities not used, not resolved",
-            parity(false),
-            parity(false),
-            Ok(()),
-        ),
-        (
-            "readout parities not used, resolved",
-            parity(false),
-            parity(true),
-            Ok(()),
-        ),
-        (
-            "readout parities not stated, not resolved",
-            Features::unconstrained(),
-            parity(false),
-            Ok(()),
-        ),
-        (
-            "seeded runs, not provided",
-            seeded(true),
-            seeded(false),
-            Err(vec![missing(Feature::SeededRuns)]),
-        ),
-        ("seeded runs, provided", seeded(true), seeded(true), Ok(())),
-        (
-            "seeded runs, not stated below",
-            seeded(true),
-            Features::unconstrained(),
-            Ok(()),
-        ),
-        (
-            "no seeded runs, provided",
-            seeded(false),
-            seeded(true),
-            Ok(()),
-        ),
-        (
-            "no seeded runs, not provided",
-            seeded(false),
-            seeded(false),
-            Ok(()),
-        ),
-        (
-            "replay, not replayable",
-            Features::unconstrained().with_replay(true),
-            Features::unconstrained().with_replay(false),
-            Err(vec![missing(Feature::Replay)]),
-        ),
-        (
-            "replay, replayable",
-            Features::unconstrained().with_replay(true),
-            Features::unconstrained().with_replay(true),
-            Ok(()),
-        ),
-        (
-            "replay, not stated below",
-            Features::unconstrained().with_replay(true),
-            Features::unconstrained(),
-            Ok(()),
-        ),
-        (
-            "no replay, not replayable",
-            Features::unconstrained().with_replay(false),
-            Features::unconstrained().with_replay(false),
-            Ok(()),
-        ),
-        (
-            "no replay, replayable",
-            Features::unconstrained().with_replay(false),
-            Features::unconstrained().with_replay(true),
-            Ok(()),
-        ),
-    ] {
-        assert_eq!(fit(required, &provided), expected, "{row}");
-    }
-}
-
 /// A shot run again alone runs with its run's seed: a part that states
 /// replay states seeded runs, and one that states seeded runs `false`
 /// states replay `false`, whichever it states last; so replay is not
-/// provided over runs that cannot be seeded, nor through a part that
-/// replays its shots over them, which still requires the seeded runs.
+/// provided over runs that cannot be seeded. A replay builder not stating
+/// seeded runs fails the first row; a seeded-runs builder not clearing
+/// replay, the second; builders letting an earlier statement win, the
+/// last.
 #[test]
 fn replay_requires_seeded_runs() {
-    let log = Log::default();
     let replay = || Features::unconstrained().with_replay(true);
     for (row, required, provided, expected) in [
         (
@@ -173,19 +59,4 @@ fn replay_requires_seeded_runs() {
     ] {
         assert_eq!(fit(required, &provided), expected, "{row}");
     }
-    let through_a_replayer = Program::new(&[("mz", 0)])
-        .with_features(replay())
-        .through(Stating::replaying(&log))
-        .on(Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false)));
-    let Err(faults) = through_a_replayer else {
-        panic!("replay through a replayer over runs without seeded runs is refused");
-    };
-    let [fault] = faults.faults() else {
-        panic!("one boundary does not fit: {faults:?}");
-    };
-    assert_eq!(
-        fault.mismatch.capabilities.features,
-        [missing(Feature::SeededRuns)],
-        "{faults:?}"
-    );
 }

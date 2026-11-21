@@ -397,60 +397,6 @@ impl Adapter for Spread {
     }
 }
 
-/// A toy layout drawing two block types from one pool: each `carbon` block
-/// above takes two qubits below, from the qubits that also hold the
-/// qubits above. It requires, for what arrives, its qubits and two per
-/// carbon block below, and no carbon block. At run time it passes
-/// instructions through, as a [`Spread`] of 1.
-pub(crate) struct Pool(Spread);
-
-impl Pool {
-    pub(crate) fn new(log: &Log) -> Self {
-        Self(Spread::new(1, log))
-    }
-
-    /// The block type it lowers onto qubits.
-    pub(crate) fn carbon() -> BlockType {
-        BlockType::new("carbon")
-    }
-}
-
-impl Adapter for Pool {
-    fn accepts(&self) -> &InstructionSet {
-        coin_gates()
-    }
-
-    fn sends(&self) -> &InstructionSet {
-        coin_gates()
-    }
-
-    fn requires(&self, above: &Capabilities) -> Capabilities {
-        let carbons = (above.resources()).blocks(&Self::carbon()).unwrap_or(0);
-        let qubits = qubits_of(above) + 2 * carbons;
-        (above.clone()).map_resources(|resources| {
-            (resources.with_qubits(qubits)).with_blocks(Self::carbon(), 0)
-        })
-    }
-
-    fn bind(&mut self, below: OpcodeMap) {
-        self.0.bind(below);
-    }
-
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
-        self.0.ready(required).await
-    }
-
-    async fn adapt(
-        &mut self,
-        batches: &[Batch<'_>],
-        seed: Seed,
-        below: &mut impl Executor,
-        readouts: &mut [BatchReadouts],
-    ) -> Result<(), ExecuteError> {
-        self.0.adapt(batches, seed, below, readouts).await
-    }
-}
-
 /// What a [`Stating`] toy requires below, given what arrives.
 type Requiring = Box<dyn Fn(&Capabilities) -> Capabilities>;
 
@@ -537,15 +483,6 @@ impl Stating {
     /// for that many does.
     pub(crate) fn capping(qubits: u32, log: &Log) -> Self {
         Self::providing(log, super::qubits(qubits), Features::unconstrained())
-    }
-
-    /// A toy link to a device whose measurements cannot be seeded.
-    pub(crate) fn without_seeded_runs(log: &Log) -> Self {
-        Self::providing(
-            log,
-            Resources::unconstrained(),
-            Features::unconstrained().with_seeded_runs(false),
-        )
     }
 
     /// A toy lowering that cannot carry readout parities.

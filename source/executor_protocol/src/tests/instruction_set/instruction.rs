@@ -140,15 +140,160 @@ fn variadic_operand_takes_any_positive_number_of_blocks() {
     }
 }
 
+/// Instructions over qubits and a code's `carbon` blocks, for the check of
+/// blocks given twice: `cx`, Stim's `MPP`, and instructions consuming,
+/// making, keeping or coupling blocks of one type or two, few or many.
+fn blocks_of_two_types() -> InstructionSet {
+    let carbon = || BlockType::new("carbon");
+    let qubit = BlockType::qubit;
+    let qubits = || BlockOperand::variadic(BlockType::qubit());
+    InstructionSet::new(
+        "TwoTypes",
+        [(qubit(), 1), (carbon(), 2)],
+        [
+            InstructionDef::new("cx").acts_on([qubit(), qubit()]),
+            InstructionDef::new("mpp").acts_on([qubits()]).outcomes(1),
+            InstructionDef::new("measure_pair").takes([qubit(), qubit()]),
+            InstructionDef::new("prepare_pair").gives([carbon(), carbon()]),
+            InstructionDef::new("encode_beside")
+                .takes([qubit(), carbon()])
+                .gives([carbon(), carbon()]),
+            InstructionDef::new("merge_many")
+                .takes([carbon().into(), qubits()])
+                .gives([carbon()]),
+            InstructionDef::new("split_many")
+                .takes([carbon()])
+                .gives([carbon().into(), qubits()]),
+            InstructionDef::new("couple").acts_on([qubit(), carbon()]),
+            InstructionDef::new("couple_many").acts_on([carbon().into(), qubits()]),
+            InstructionDef::new("measure_mixed").takes([qubit(), carbon()]),
+            InstructionDef::new("prepare_mixed").gives([qubit(), carbon()]),
+            InstructionDef::new("encode_consuming")
+                .takes([qubit(), carbon()])
+                .gives([carbon()]),
+        ],
+    )
+    .expect("a valid set")
+}
+
+/// Within one instruction, a block, a type and an index, is not consumed
+/// twice, made twice, nor made where one survives, for few blocks as for
+/// many; of several given twice, the fault names the one at the earliest
+/// position that repeats a block before it. Blocks of different types, or
+/// one consumed and one made, are different units of the shot's state,
+/// so they may share an index, for few blocks as for many. A check keying
+/// blocks by index alone fails the rows that share one; a check of the
+/// few blocks alone, or of the many alone, fails the rows of the others;
+/// one naming the smallest repeated block fails "qubits 5, 3, 5, 3".
 #[test]
+#[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn block_given_twice_is_refused() {
-    assert_eq!(
-        gates().instruction("cx", [1, 1], &[]),
+    let set = blocks_of_two_types();
+    let repeated = |mnemonic: &str, block| {
         Err(InstructionFault::RepeatedBlock {
-            mnemonic: "cx".into(),
-            block: 1,
+            mnemonic: mnemonic.into(),
+            block,
         })
-    );
+    };
+    let distinct: Vec<u32> = (0..30).rev().collect();
+    let mut with_17_twice = distinct.clone();
+    with_17_twice.push(17);
+    let mut block_0_and_20_qubits = vec![0];
+    block_0_and_20_qubits.extend(0..20);
+    let mut block_0_and_20_qubits_one_twice = block_0_and_20_qubits.clone();
+    block_0_and_20_qubits_one_twice.push(5);
+    let five_and_three_twice = vec![5, 3, 5, 3];
+    let mut many_with_five_and_three_twice = five_and_three_twice.clone();
+    many_with_five_and_three_twice.extend(10..30);
+    for (scene, mnemonic, blocks, expected) in [
+        ("`cx` on qubit 1 twice", "cx", vec![1, 1], repeated("cx", 1)),
+        (
+            "measuring qubit 0 twice in one pair",
+            "measure_pair",
+            vec![0, 0],
+            repeated("measure_pair", 0),
+        ),
+        (
+            "preparing block 0 twice in one pair",
+            "prepare_pair",
+            vec![0, 0],
+            repeated("prepare_pair", 0),
+        ),
+        (
+            "encoding qubit 0 as block 0 beside block 0, which survives",
+            "encode_beside",
+            vec![0, 0],
+            repeated("encode_beside", 0),
+        ),
+        ("`mpp` on 30 distinct qubits", "mpp", distinct, Ok(())),
+        (
+            "`mpp` on 30 qubits, then qubit 17 again",
+            "mpp",
+            with_17_twice,
+            repeated("mpp", 17),
+        ),
+        (
+            "merging 20 qubits, qubit 5 twice, into block 0",
+            "merge_many",
+            block_0_and_20_qubits_one_twice.clone(),
+            repeated("merge_many", 5),
+        ),
+        (
+            "splitting 20 qubits, qubit 5 twice, out of block 0",
+            "split_many",
+            block_0_and_20_qubits_one_twice,
+            repeated("split_many", 5),
+        ),
+        (
+            "`mpp` on qubits 5, 3, 5, 3: block 5, not 3, the smaller",
+            "mpp",
+            five_and_three_twice,
+            repeated("mpp", 5),
+        ),
+        (
+            "`mpp` on qubits 5, 3, 5, 3, then 10 to 29: block 5",
+            "mpp",
+            many_with_five_and_three_twice,
+            repeated("mpp", 5),
+        ),
+        ("coupling qubit 0 to block 0", "couple", vec![0, 0], Ok(())),
+        (
+            "measuring qubit 0 and block 0",
+            "measure_mixed",
+            vec![0, 0],
+            Ok(()),
+        ),
+        (
+            "preparing qubit 0 and block 0",
+            "prepare_mixed",
+            vec![0, 0],
+            Ok(()),
+        ),
+        (
+            "encoding qubit 0 as block 0, consuming block 0",
+            "encode_consuming",
+            vec![0, 0],
+            Ok(()),
+        ),
+        (
+            "coupling block 0 to qubits 0 to 19",
+            "couple_many",
+            block_0_and_20_qubits.clone(),
+            Ok(()),
+        ),
+        (
+            "splitting block 0 into block 0 and qubits 1 to 19",
+            "split_many",
+            block_0_and_20_qubits,
+            Ok(()),
+        ),
+    ] {
+        assert_eq!(
+            set.instruction(mnemonic, blocks, &[]).map(drop),
+            expected,
+            "{scene}"
+        );
+    }
 }
 
 /// The fault names the first parameter missing, not the first given.
@@ -177,18 +322,42 @@ fn argument_of_another_kind_is_refused() {
     );
 }
 
-/// Counts back start at 1, the shot's latest readout, as Stim's `rec[-1]`.
+/// Counts back start at 1, the shot's latest readout, as Stim's `rec[-1]`:
+/// a parity counting back 0 is refused wherever 0 is among its readouts,
+/// held inline or apart, and one counting back from 1 is taken. A check
+/// reading the first readout alone fails "0 second"; one reading the
+/// inline readouts alone fails "0 last of six".
 #[test]
 fn readout_parity_counting_back_zero_is_refused() {
     let set = gates();
-    set.instruction("cond_x", [0], &[("c", Argument::recent(1))])
-        .expect("the latest readout");
-    assert_eq!(
-        set.instruction("cond_x", [0], &[("c", Argument::parity([2, 0], true))]),
-        Err(InstructionFault::ZeroLookback {
-            mnemonic: "cond_x".into(),
-        })
-    );
+    let zero_lookback = Err(InstructionFault::ZeroLookback {
+        mnemonic: "cond_x".into(),
+    });
+    for (scene, parity, expected) in [
+        ("the latest readout", Argument::recent(1), Ok(())),
+        ("0 back, alone", Argument::recent(0), zero_lookback.clone()),
+        (
+            "0 second",
+            Argument::parity([2, 0], true),
+            zero_lookback.clone(),
+        ),
+        (
+            "six readouts, none 0",
+            Argument::parity([1, 2, 3, 4, 5, 6], false),
+            Ok(()),
+        ),
+        (
+            "0 last of six",
+            Argument::parity([1, 2, 3, 4, 5, 0], false),
+            zero_lookback,
+        ),
+    ] {
+        assert_eq!(
+            set.instruction("cond_x", [0], &[("c", parity)]).map(drop),
+            expected,
+            "{scene}"
+        );
+    }
 }
 
 /// `recent(k)` is Stim's `rec[-k]` itself, not its complement: the

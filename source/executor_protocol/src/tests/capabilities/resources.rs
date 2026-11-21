@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The resources a part requires against those the part below provides,
-//! at one boundary: which amounts fit.
+//! What `Resources` adds to the one rule of every kind: blocks keyed by
+//! their type.
 
 use super::carbon;
 use crate::{
@@ -27,91 +27,35 @@ fn short_blocks(block_type: BlockType, required: u32, provided: u32) -> Resource
     }
 }
 
-/// What a part's shots, runs and batches reach against what the part
-/// below provides: an amount fits exactly when the provided one covers it,
-/// or when either side does not state it.
+/// Each block type is a resource of its own, as qubits are one type among
+/// them: a requirement of one type is checked against the provider's count
+/// of that type alone. So a type provided 0 times is short of any blocks
+/// of it, beside qubits that fit; and a type the provider does not state
+/// takes any count of it, beside qubits that are short. A fit reading one
+/// type's count as another's fails the first row; one reading a type the
+/// provider does not state as 0, the second.
 #[test]
-fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
-    let eight = Resources::unconstrained().with_qubits(8);
+fn each_block_type_is_a_resource_of_its_own() {
     for (row, required, provided, expected) in [
-        // A program on 9 qubits, on an executor of 8: the qubits are
-        // short, with both counts.
-        (
-            "more qubits than provided",
-            Resources::unconstrained().with_qubits(9),
-            &eight,
-            Err(vec![short_blocks(BlockType::qubit(), 9, 8)]),
-        ),
-        // The most is inclusive.
-        (
-            "as many qubits as provided",
-            Resources::unconstrained().with_qubits(8),
-            &eight,
-            Ok(()),
-        ),
-        // A provider states 0 for a block type it does not take.
         (
             "a block type provided 0 times",
-            Resources::unconstrained().with_blocks(carbon(), 2),
-            &Resources::unconstrained()
-                .with_qubits(8)
-                .with_blocks(carbon(), 0),
-            Err(vec![short_blocks(carbon(), 2, 0)]),
-        ),
-        // A requirement of 0 blocks of a type is no requirement.
-        (
-            "no block of a type provided 0 times",
             Resources::unconstrained()
                 .with_qubits(1)
-                .with_blocks(carbon(), 0),
-            &Resources::unconstrained()
+                .with_blocks(carbon(), 2),
+            Resources::unconstrained()
                 .with_qubits(8)
                 .with_blocks(carbon(), 0),
-            Ok(()),
+            vec![short_blocks(carbon(), 2, 0)],
         ),
-        // A provider that does not state a type takes any count of it.
         (
             "a block type the provider does not state",
             Resources::unconstrained()
-                .with_qubits(u32::MAX)
+                .with_qubits(9)
                 .with_blocks(carbon(), 2),
-            &Resources::unconstrained(),
-            Ok(()),
-        ),
-        // A requirement that does not state an amount fits any provision.
-        (
-            "nothing required",
-            Resources::unconstrained(),
-            &Resources::unconstrained().with_qubits(0).with_shots(0),
-            Ok(()),
-        ),
-        (
-            "more shots than provided",
-            Resources::unconstrained().with_shots(5),
-            &Resources::unconstrained().with_shots(4),
-            Err(vec![ResourceMismatch {
-                key: Resource::Shots,
-                required: 5,
-                provided: 4,
-            }]),
-        ),
-        (
-            "as many shots as provided",
-            Resources::unconstrained().with_shots(4),
-            &Resources::unconstrained().with_shots(4),
-            Ok(()),
-        ),
-        (
-            "more instructions per batch than provided",
-            Resources::unconstrained().with_instructions_per_batch(3),
-            &Resources::unconstrained().with_instructions_per_batch(2),
-            Err(vec![ResourceMismatch {
-                key: Resource::InstructionsPerBatch,
-                required: 3,
-                provided: 2,
-            }]),
+            Resources::unconstrained().with_qubits(8),
+            vec![short_blocks(BlockType::qubit(), 9, 8)],
         ),
     ] {
-        assert_eq!(fit(required, provided), expected, "{row}");
+        assert_eq!(fit(required, &provided), Err(expected), "{row}");
     }
 }

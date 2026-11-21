@@ -23,13 +23,8 @@ fn carbon() -> BlockType {
 
 /// A device's set over qubits and a code's `carbon` blocks: gates, Stim's
 /// `MPP`, a flagged measurement, an encoding that turns a qubit into a
-/// block, a preparation that makes a block, a gate coupling a qubit to a
-/// block, another coupling a block to many qubits, an `x` run if a
-/// parity of earlier readouts is odd, two encodings of a qubit beside a
-/// block, one keeping that block, one consuming it, and, for the check of
-/// blocks given twice, instructions consuming or making two blocks, of
-/// one type or two, and merging many qubits into a block or splitting
-/// them out of one.
+/// block, a preparation that makes a block, and an `x` run if a parity of
+/// earlier readouts is odd.
 fn device() -> InstructionSet {
     let qubit = || [BlockType::qubit()];
     InstructionSet::new(
@@ -51,28 +46,9 @@ fn device() -> InstructionSet {
                 .takes(qubit())
                 .gives([carbon()]),
             InstructionDef::new("prepare").gives([carbon()]),
-            InstructionDef::new("couple").acts_on([BlockType::qubit(), carbon()]),
-            InstructionDef::new("couple_many")
-                .acts_on([carbon().into(), BlockOperand::variadic(BlockType::qubit())]),
             InstructionDef::new("cond_x")
                 .acts_on(qubit())
                 .parameter("c", ParameterKind::Bit),
-            InstructionDef::new("encode_beside")
-                .takes([BlockType::qubit(), carbon()])
-                .gives([carbon(), carbon()]),
-            InstructionDef::new("encode_consuming")
-                .takes([BlockType::qubit(), carbon()])
-                .gives([carbon()]),
-            InstructionDef::new("measure_pair").takes([BlockType::qubit(), BlockType::qubit()]),
-            InstructionDef::new("measure_mixed").takes([BlockType::qubit(), carbon()]),
-            InstructionDef::new("prepare_pair").gives([carbon(), carbon()]),
-            InstructionDef::new("prepare_mixed").gives([BlockType::qubit(), carbon()]),
-            InstructionDef::new("merge_many")
-                .takes([carbon().into(), BlockOperand::variadic(BlockType::qubit())])
-                .gives([carbon()]),
-            InstructionDef::new("split_many")
-                .takes([carbon()])
-                .gives([carbon().into(), BlockOperand::variadic(BlockType::qubit())]),
         ],
     )
     .expect("a valid set")
@@ -515,18 +491,6 @@ fn an_instruction_its_set_does_not_take_is_refused() {
         ),
         ("`rz` with its angle", vec![rz(&[0.1])], qubit(), Ok(0)),
         (
-            "`rz` with no angle",
-            vec![rz(&[])],
-            qubit(),
-            refused_at(
-                0,
-                InstructionFault::MissingArgument {
-                    mnemonic: "rz".into(),
-                    parameter: "theta".into(),
-                },
-            ),
-        ),
-        (
             "`rz` with two angles",
             vec![rz(&[0.1, 0.2])],
             qubit(),
@@ -605,34 +569,6 @@ fn an_instruction_its_set_does_not_take_is_refused() {
             with_parity(qubit()),
             Ok(0),
         ),
-        (
-            "`cond_x` counting back 0 readouts, as when built by name",
-            vec![cond_x(Argument::recent(0))],
-            with_parity(qubit()),
-            refused_at(
-                0,
-                InstructionFault::ZeroLookback {
-                    mnemonic: "cond_x".into(),
-                },
-            ),
-        ),
-        (
-            "`cond_x` counting back six readouts, none 0",
-            vec![cond_x(Argument::parity([1, 2, 3, 4, 5, 6], false))],
-            with_parity(qubit()),
-            Ok(0),
-        ),
-        (
-            "`cond_x` counting back 0 readouts last of six",
-            vec![cond_x(Argument::parity([1, 2, 3, 4, 5, 0], false))],
-            with_parity(qubit()),
-            refused_at(
-                0,
-                InstructionFault::ZeroLookback {
-                    mnemonic: "cond_x".into(),
-                },
-            ),
-        ),
     ]);
 }
 
@@ -708,139 +644,6 @@ fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
             on("mpp", &[0, 1, 5]),
             shots_of(4, 0),
             beyond("mpp", 5, 4),
-        ),
-    ]);
-}
-
-/// Within one instruction, a block, a type and an index, is not consumed
-/// twice, made twice, nor made where one survives, for few blocks as for
-/// many; of several given twice, the refusal names the one at the
-/// earliest position that repeats a block before it.
-#[test]
-fn a_block_given_twice_by_one_instruction_is_refused() {
-    let set = device();
-    let repeated = |mnemonic: &str, block| {
-        refused_at(
-            0,
-            InstructionFault::RepeatedBlock {
-                mnemonic: mnemonic.into(),
-                block,
-            },
-        )
-    };
-    let on = |mnemonic, blocks: &[u32]| vec![literal(&set, mnemonic, blocks)];
-    let distinct: Vec<u32> = (0..30).rev().collect();
-    let mut with_17_twice = distinct.clone();
-    with_17_twice.push(17);
-    let mut block_0_and_20_qubits_one_twice = vec![0];
-    block_0_and_20_qubits_one_twice.extend(0..20);
-    block_0_and_20_qubits_one_twice.push(5);
-    let five_and_three_twice = [5, 3, 5, 3];
-    let mut many_with_five_and_three_twice = five_and_three_twice.to_vec();
-    many_with_five_and_three_twice.extend(10..30);
-    check_rows(vec![
-        (
-            "measuring qubit 0 twice in one pair",
-            on("measure_pair", &[0, 0]),
-            shots_of(1, 0),
-            repeated("measure_pair", 0),
-        ),
-        (
-            "preparing block 0 twice in one pair",
-            on("prepare_pair", &[0, 0]),
-            shots_of(0, 1),
-            repeated("prepare_pair", 0),
-        ),
-        (
-            "encoding qubit 0 as block 0 beside block 0, which survives",
-            on("encode_beside", &[0, 0]),
-            shots_of(1, 1),
-            repeated("encode_beside", 0),
-        ),
-        (
-            "`mpp` on 30 distinct qubits",
-            on("mpp", &distinct),
-            shots_of(40, 0),
-            Ok(1),
-        ),
-        (
-            "`mpp` on 30 qubits, then qubit 17 again",
-            on("mpp", &with_17_twice),
-            shots_of(40, 0),
-            repeated("mpp", 17),
-        ),
-        (
-            "merging 20 qubits, qubit 5 twice, into block 0",
-            on("merge_many", &block_0_and_20_qubits_one_twice),
-            shots_of(20, 1),
-            repeated("merge_many", 5),
-        ),
-        (
-            "splitting 20 qubits, qubit 5 twice, out of block 0",
-            on("split_many", &block_0_and_20_qubits_one_twice),
-            shots_of(20, 1),
-            repeated("split_many", 5),
-        ),
-        (
-            "`mpp` on qubits 5, 3, 5, 3: block 5, not 3, the smaller",
-            on("mpp", &five_and_three_twice),
-            shots_of(40, 0),
-            repeated("mpp", 5),
-        ),
-        (
-            "`mpp` on qubits 5, 3, 5, 3, then 10 to 29: block 5",
-            on("mpp", &many_with_five_and_three_twice),
-            shots_of(40, 0),
-            repeated("mpp", 5),
-        ),
-    ]);
-}
-
-/// Blocks of different types, or one consumed and one made, are different
-/// units of the shot's state, so they may share an index, for few blocks
-/// as for many.
-#[test]
-fn blocks_of_different_types_or_lives_may_share_an_index() {
-    let set = device();
-    let on = |mnemonic, blocks: &[u32]| vec![literal(&set, mnemonic, blocks)];
-    let mut block_0_and_20_qubits = vec![0];
-    block_0_and_20_qubits.extend(0..20);
-    check_rows(vec![
-        (
-            "coupling qubit 0 to block 0",
-            on("couple", &[0, 0]),
-            shots_of(1, 1),
-            Ok(0),
-        ),
-        (
-            "measuring qubit 0 and block 0",
-            on("measure_mixed", &[0, 0]),
-            shots_of(1, 1),
-            Ok(0),
-        ),
-        (
-            "preparing qubit 0 and block 0",
-            on("prepare_mixed", &[0, 0]),
-            shots_of(1, 1),
-            Ok(0),
-        ),
-        (
-            "encoding qubit 0 as block 0, consuming block 0",
-            on("encode_consuming", &[0, 0]),
-            shots_of(1, 1),
-            Ok(0),
-        ),
-        (
-            "coupling block 0 to qubits 0 to 19",
-            on("couple_many", &block_0_and_20_qubits),
-            shots_of(20, 1),
-            Ok(0),
-        ),
-        (
-            "splitting block 0 into block 0 and qubits 1 to 19",
-            on("split_many", &block_0_and_20_qubits),
-            shots_of(20, 1),
-            Ok(0),
         ),
     ]);
 }

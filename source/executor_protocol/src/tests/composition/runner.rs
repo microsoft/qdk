@@ -25,9 +25,9 @@ use crate::tests::fake_parts::{
     YieldNow, in_each_bracketing, qubits,
 };
 use crate::{
-    BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError, Failure, Feature,
-    FeatureMismatch, Features, ReadoutFailure, ReadoutValue, Resource, ResourceMismatch, RunError,
-    RunRefusal, Runner, ShotConditions, ShotSet,
+    BlockType, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError, Failure,
+    Feature, FeatureMismatch, Features, ReadoutFailure, ReadoutValue, Resource, ResourceMismatch,
+    RunError, RunRefusal, Runner, ShotConditions, ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -790,8 +790,9 @@ where
 /// reason; nothing runs, and no shot is ended on any part. Its halves'
 /// sets not fitting, it refuses every run; an executor whose lower part
 /// takes 3 shots a run, and a driver joined through a job queue of 3
-/// shots, refuse a run of 4, and a driver joined through a link without
-/// seeded runs refuses a seeded run.
+/// shots, refuse a run of 4; and an interleaver joined with a decoder
+/// limiting qubits to 4, under a program on 5, refuses every run, as the
+/// program's 5 qubits pass through the interleaver to the decoder.
 #[test]
 #[expect(clippy::too_many_lines, reason = "one row per role and boundary")]
 fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
@@ -902,24 +903,28 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             },
         ),
         (
-            "a driver through a link without seeded runs",
-            0,
-            "user's driver",
+            "an adapter through a decoder of 4 qubits",
+            1,
+            "user's adapter",
             &capabilities(
-                vec![],
-                vec![FeatureMismatch {
-                    key: Feature::SeededRuns,
-                    required: true,
-                    provided: false,
+                vec![ResourceMismatch {
+                    key: Resource::Blocks(BlockType::qubit()),
+                    required: 5,
+                    provided: 4,
                 }],
+                vec![],
             ),
             {
                 let log = Log::default();
                 let held = Renamed::new(
-                    CoinCopy::new().through(Stating::without_seeded_runs(&log)),
-                    "user's driver",
+                    Stating::interleaving(3, &log).through(Stating::capping(4, &log)),
+                    "user's adapter",
                 );
-                refused_twice(held.on(Bits::new(&log)), &counted, &log)
+                let chain = Program::new(&[("mz", 0)])
+                    .with_resources(qubits(5))
+                    .through(held)
+                    .on(Bits::new(&log).with_resources(qubits(10)));
+                refused_twice(chain, &counted, &log)
             },
         ),
     ];
@@ -1174,17 +1179,17 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
         .unwrap_or_else(|error| panic!("{row}: a run with no seed: {error:?}"));
 }
 
-/// A seeded run arrives at each part below its driver, passed unchanged
-/// by the driver by default, and by each part that does not require
-/// otherwise, in every bracketing: a seeded run on a chain where one of
-/// them states seeded runs `false` is refused before any part is asked
-/// or runs, and a run with no seed runs. So an adapter may take seeded runs
-/// away from a chain, and provide them only by requiring none below, as a
-/// sampler seeding its own draws does.
+/// A seeded run requires seeded runs of the parts below its driver: on an
+/// executor stating seeded runs `false`, alone or under a driver passing
+/// the run below, a seeded run is refused before any part is asked or
+/// runs, and a run with no seed runs. An adapter requiring no seeded runs
+/// below, as a sampler seeding its own draws does, runs a seeded run over
+/// the same executor, in every bracketing. How the run's requirement
+/// passes each part below is the walk's, pinned with shots in
+/// [`a_run_of_more_shots_than_its_chain_provides_is_refused`].
 #[test]
 fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     let log = Log::default();
-    let counted = Rc::new(Cell::new(0));
     let bits_without_seeded_runs =
         || Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
     // An executor without seeded runs.
@@ -1195,39 +1200,6 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     // its features, runs a seeded run.
     let passed = runner(PassesTheRun(CoinCopy::new()).on(bits_without_seeded_runs()));
     refuses_a_seed("a driver passing the run", passed, 4, &log);
-    // Bits without seeded runs, under a decoder that does not state
-    // seeded runs: the bits' `false` still holds.
-    in_each_bracketing!([d, decoder, e] from {
-        let d = CoinCopy::new();
-        let decoder = Stating::capping(64, &log);
-        let e = bits_without_seeded_runs();
-    }, |chain, brackets| {
-        let row = format!("a decoder over bits, {brackets}");
-        refuses_a_seed(&row, runner(chain), 1, &log);
-    });
-    // Bits providing seeded runs under a link without them, under a
-    // profiler.
-    in_each_bracketing!([d, profiler, link, e] from {
-        let d = CoinCopy::new();
-        let profiler = Profiler::new(&counted, &log);
-        let link = Stating::without_seeded_runs(&log);
-        let e = Bits::new(&log);
-    }, |chain, brackets| {
-        let row = format!("a link under a profiler, {brackets}");
-        refuses_a_seed(&row, runner(chain), 2, &log);
-    });
-    // Bits providing seeded runs under a link without them, under a decoder:
-    // the link's, though neither the executor's nor the one the driver
-    // meets, holds.
-    in_each_bracketing!([d, decoder, link, e] from {
-        let d = CoinCopy::new();
-        let decoder = Stating::capping(64, &log);
-        let link = Stating::without_seeded_runs(&log);
-        let e = Bits::new(&log);
-    }, |chain, brackets| {
-        let row = format!("a link under a decoder, {brackets}");
-        refuses_a_seed(&row, runner(chain), 2, &log);
-    });
     // Bits without seeded runs, under a sampler that seeds its own
     // draws: a seeded run runs.
     in_each_bracketing!([d, sampler, e] from {
@@ -1238,22 +1210,4 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
         (runner(chain).run(&ShotSet::ids(0..2), SEED))
             .unwrap_or_else(|error| panic!("a sampler, {brackets}: {error:?}"));
     });
-    // The same, with a profiler between the sampler and the bits, which
-    // passes their lack of seeded runs through; or with the sampler joined
-    // with the driver, wrapped by a part of the user's: a seeded run runs.
-    in_each_bracketing!([d, sampler, profiler, e] from {
-        let d = CoinCopy::new();
-        let sampler = Stating::seeding_itself(&log);
-        let profiler = Profiler::new(&counted, &log);
-        let e = bits_without_seeded_runs();
-    }, |chain, brackets| {
-        (runner(chain).run(&ShotSet::ids(0..2), SEED))
-            .unwrap_or_else(|error| panic!("a sampler over a profiler, {brackets}: {error:?}"));
-    });
-    let wrapped = Renamed::new(
-        CoinCopy::new().through(Stating::seeding_itself(&log)),
-        "user's driver",
-    );
-    (runner(wrapped.on(bits_without_seeded_runs())).run(&ShotSet::ids(0..2), SEED))
-        .unwrap_or_else(|error| panic!("a wrapped sampler: {error:?}"));
 }

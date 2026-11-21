@@ -2,12 +2,13 @@
 // Licensed under the MIT License.
 
 //! What a part requires against what the part below provides, at one
-//! boundary: every mismatch of each kind, at once. The one rule of
-//! `statements.rs`, which every kind follows, is pinned per kind, in
-//! `features.rs` and `resources.rs`.
+//! boundary: every mismatch of each kind, at once. The one rule every kind
+//! follows is pinned once, in `statements.rs`; each kind's file pins only
+//! what that kind adds.
 
 mod features;
 mod resources;
+mod statements;
 
 /// The boundary a run's batches cross.
 mod boundary {
@@ -85,20 +86,51 @@ fn every_mismatch_of_each_kind_is_listed_at_once_in_order() {
     assert_eq!(mismatch, expected);
 }
 
-/// The features fit alone do not make capabilities fit: a short resource
-/// is a mismatch with no feature listed; and stating nothing fits any
-/// provision.
+/// Capabilities fit only when both kinds fit: a resource short alone, or
+/// a feature missing alone, is a mismatch listing it and nothing of the
+/// other kind. A fit reading one kind alone fails the row of the other.
 #[test]
 fn capabilities_fit_only_when_every_kind_fits() {
-    let required = Capabilities::UNCONSTRAINED.map_resources(|r| r.with_qubits(9));
-    let provided = Capabilities::UNCONSTRAINED.map_resources(|r| r.with_qubits(8));
-    let mismatch = required.fits(&provided).expect_err("9 qubits on 8");
-    assert!(mismatch.features.is_empty(), "{mismatch:?}");
-    assert_eq!(mismatch.resources.len(), 1, "{mismatch:?}");
-    assert!(
-        Capabilities::UNCONSTRAINED.fits(&provided).is_ok(),
-        "nothing stated fits"
+    let required = Capabilities::new(
+        Resources::unconstrained().with_qubits(9),
+        Features::unconstrained().with_replay(true),
     );
+    let short_qubits = ResourceMismatch {
+        key: Resource::Blocks(BlockType::qubit()),
+        required: 9,
+        provided: 8,
+    };
+    let no_replay = FeatureMismatch {
+        key: Feature::Replay,
+        required: true,
+        provided: false,
+    };
+    for (row, provided, expected) in [
+        (
+            "a resource short alone",
+            Capabilities::new(
+                Resources::unconstrained().with_qubits(8),
+                Features::unconstrained(),
+            ),
+            CapabilitiesMismatch {
+                resources: vec![short_qubits],
+                ..CapabilitiesMismatch::default()
+            },
+        ),
+        (
+            "a feature missing alone",
+            Capabilities::new(
+                Resources::unconstrained(),
+                Features::unconstrained().with_replay(false),
+            ),
+            CapabilitiesMismatch {
+                features: vec![no_replay],
+                ..CapabilitiesMismatch::default()
+            },
+        ),
+    ] {
+        assert_eq!(required.fits(&provided).map(drop), Err(expected), "{row}");
+    }
 }
 
 /// A mismatch's message names what is at fault, for a user who reads which

@@ -19,10 +19,8 @@
 //!   [`Spread`], an encoding, which may state the qubits it takes and
 //!   requires; [`Stating`], a pass-through with capabilities of its own,
 //!   one toy per constructor: an interleaver, a part reserving ancillas,
-//!   a job splitter, a job queue, a cap on qubits, a link that cannot be
-//!   seeded, a lowering carrying no readout parities, a replayer, and a
-//!   sampler seeding its runs itself;
-//!   [`Pool`], which draws two block types from one pool below;
+//!   a job splitter, a job queue, a cap on qubits, a lowering carrying no
+//!   readout parities, a replayer, and a sampler seeding its runs itself;
 //!   [`Trap`],
 //!   which fails a shot; [`FailsOnce`], which fails, or panics in, one
 //!   `adapt`;

@@ -15,6 +15,7 @@ mod capabilities;
 mod composition;
 mod fake_parts;
 mod instruction_set;
+mod roles;
 mod seed;
 
 use std::alloc::{GlobalAlloc, Layout, System};

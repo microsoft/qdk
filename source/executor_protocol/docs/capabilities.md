@@ -134,13 +134,9 @@ Other cases, each in the same tests:
 | Chain                                                                                | Verdict                                                  |
 | ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
 | a program on 5 qubits, through a logger, over bits of 4                              | refused, naming the program and the bits                 |
-| the same, over bits not stating qubits                                               | composes                                                 |
 | a program on 5 qubits, through the interleaver, over bits of 4                       | refused, naming the program and the bits                 |
-| a program on 3 qubits, through a part reserving 2 ancillas, over bits of 4           | refused, naming the reserving part and the bits          |
 | a program on 5 qubits, through a decoder taking 4, over bits of 10                   | refused, naming the program and the decoder              |
 | a program of runs of 12 shots, through a queue taking 10, over bits taking 3         | refused twice: the program at the queue, and at the bits |
-| a program requiring seeded runs, through a logger, over bits without them            | refused, naming the program and the bits                 |
-| a program of batches of 100 instructions, through a splitter, over bits taking 1     | composes                                                 |
 | a debugger requiring replay, through a replayer, over bits that do not replay        | composes                                                 |
 | a decomposer accepting the program's set and sending another, over bits accepting it | composes: a part is checked below for what it sends      |
 
@@ -176,15 +172,13 @@ its role's public methods has the joined part's top limits checked by the
 interleaver joined with a decoder taking 4 qubits, so wrapped, under a
 program on 5 qubits, composes over bits of 10, and refuses every run
 (from
-[`src/tests/composition/driver_joins.rs`](../src/tests/composition/driver_joins.rs)):
+[`src/tests/composition/runner.rs`](../src/tests/composition/runner.rs)):
 
 ```rust
-let wrapped = |cap| {
-    Renamed::new(
-        Stating::interleaving(3, &log).through(Stating::capping(cap, &log)),
-        "user's adapter",
-    )
-};
+let held = Renamed::new(
+    Stating::interleaving(3, &log).through(Stating::capping(4, &log)),
+    "user's adapter",
+);
 ```
 
 ## Where each statement is checked
