@@ -3,14 +3,40 @@
 
 //! An adapter through an adapter: a [`Composed`] in the adapter's role.
 
-use super::{ChainBelow, Composed};
+use super::{ChainBelow, Composed, DECLARED};
+use crate::capabilities::Forwarding;
 use crate::composition::boundary_crossing::BoundaryCrossing;
-use crate::composition::chain_check::ChainCheck;
 use crate::composition::part_panics::{await_part, end_both};
+use crate::composition::{ChainPosition, DeclaredParts};
 use crate::{
-    Adapter, Batch, BatchReadouts, ExecuteError, Executor, InstructionSet, Needs, NotReady, Offer,
-    OpcodeMap, Seed, ShotSet,
+    Adapter, Batch, BatchReadouts, BoundaryCompatible, Capabilities, ExecuteError, Executor,
+    NotReady, OpcodeMap, Seed, ShotSet,
 };
+
+impl<U: Adapter, L: Adapter> Composed<U, L> {
+    /// `upper` through `lower`: binds `upper` where its requirement fits
+    /// what `lower` provides.
+    pub(crate) fn adapter_through(mut upper: U, lower: L) -> Self {
+        let fit = upper.requires().fits(lower.provides());
+        if let Ok(boundary) = &fit {
+            upper.bind(boundary.opcode_map().clone());
+        }
+        let requires = lower.requires().or(upper.requires());
+        let provides = upper
+            .provides()
+            .stricter(&lower.provides().unanswered(upper.requires()));
+        let mut parts = DeclaredParts::new();
+        upper.declare(&mut parts);
+        let upper_parts = parts.len();
+        Self::new(
+            (upper, upper_parts),
+            lower,
+            fit,
+            Some(requires),
+            Some(provides),
+        )
+    }
+}
 
 /// An adapter through an adapter: an adapter.
 impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
@@ -19,37 +45,25 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
         self.upper.name()
     }
 
-    fn accepts(&self) -> &InstructionSet {
-        self.upper.accepts()
+    /// The upper part's provision, and the stricter of it and the lower
+    /// part's, where the upper part does not require it again.
+    fn provides(&self) -> &Capabilities {
+        self.provides.as_ref().expect(DECLARED)
     }
 
-    fn sends(&self) -> &InstructionSet {
-        self.lower.sends()
-    }
-
-    fn needs_below(&self, above: Needs) -> Needs {
-        self.lower.needs_below(self.upper.needs_below(above))
-    }
-
-    fn offers_above(&self, below: Offer) -> Offer {
-        self.upper.offers_above(self.lower.offers_above(below))
+    /// The lower part's requirement, and the upper part's where the lower
+    /// part does not state it.
+    fn requires(&self) -> &Capabilities {
+        self.requires.as_ref().expect(DECLARED)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         self.lower.bind(below);
     }
 
-    /// Refuses the run if the halves do not fit; else the part below
-    /// first, for the needs that cross to it, as the chain's check found
-    /// them, or as the upper part adapts `above` now; then the upper part
-    /// with `above`. A refusal from below names the part that answered
-    /// it, at its position, if the check found it.
-    async fn ready(&mut self, above: &Needs) -> Result<(), NotReady> {
-        let (lower, needs, part) = self.start_run(|upper| upper.needs_below(above.clone()))?;
-        await_part(lower.ready(needs))
-            .await
-            .map_err(|not_ready| not_ready.answered_by(part))?;
-        await_part(self.upper.ready(above)).await
+    /// As [`ready_at`](Self::ready_at), at a position not known.
+    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        self.ready_at(required, ChainPosition::UNKNOWN)
     }
 
     async fn adapt(
@@ -59,8 +73,11 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
         below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        let (upper, lower, boundary) = self
-            .run_boundary(|lower| (lower.offers_above(below.offers()), lower.accepts().clone()));
+        let (upper, lower, boundary) = self.run_boundary(|lower| {
+            lower
+                .provides()
+                .stricter(&below.provides().unanswered(lower.requires()))
+        });
         let mut rest = ChainBelow {
             adapter: lower,
             below,
@@ -83,32 +100,30 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
         );
     }
 
-    fn check_chain(
+    /// The upper part, then the lower one.
+    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        self.upper.declare(parts);
+        self.lower.declare(parts);
+    }
+
+    /// Refuses the run if the halves do not fit; else the lower part
+    /// first, for the upper part's requirement, and `required` where the
+    /// upper part does not state it; then the upper part, for `required`.
+    /// A refusal from the lower part names it, at its position, if `at`
+    /// is known.
+    async fn ready_at(
         &mut self,
-        above: Needs,
-        below: &mut dyn FnMut(Needs, &mut ChainCheck) -> Offer,
-        chain: &mut ChainCheck,
-    ) -> Offer {
-        let Self {
-            upper,
-            lower,
-            fit_faults,
-            checked_boundary,
-            ..
-        } = self;
-        upper.check_chain(
-            above,
-            &mut |middle, chain| {
-                let receiver = lower.accepts().clone();
-                chain.cross(
-                    checked_boundary,
-                    fit_faults.as_ref(),
-                    middle,
-                    receiver,
-                    |needs, chain| lower.check_chain(needs, below, chain),
-                )
-            },
-            chain,
-        )
+        required: &Capabilities,
+        at: ChainPosition,
+    ) -> Result<(), NotReady> {
+        let (lower, below_required, below, part) = self.start_run(
+            |upper| upper.requires().or(required),
+            |lower| lower.name(),
+            at,
+        )?;
+        await_part(lower.ready_at(below_required, below))
+            .await
+            .map_err(|not_ready| not_ready.answered_by(part))?;
+        await_part(self.upper.ready_at(required, at)).await
     }
 }

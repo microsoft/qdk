@@ -46,7 +46,7 @@ pub(crate) fn bench(size: &Size, checked: bool) {
     let compose = compose_time(size.repeats, || {
         (
             ProgramInBatches::new(LogicalGates::set(), &logical, &by_six, 2, 6),
-            Repetition3::new(),
+            Repetition3::new(2),
             Sink::new(),
         )
     });
@@ -93,7 +93,7 @@ pub(crate) fn bench(size: &Size, checked: bool) {
             let received = run_once(
                 (ProgramInBatches::new(LogicalGates::set(), &logical, &l_slots, 2, batch)
                     .checked_if(checked))
-                .through(Repetition3::new())
+                .through(Repetition3::new(2))
                 .on(&mut sink),
             );
             (sink.seen, sink.kinds, received.values)
@@ -116,7 +116,7 @@ fn lowered(logical: &[Instruction], checked: bool) -> Vec<Instruction> {
     run_once(
         (ProgramInBatches::new(LogicalGates::set(), logical, &whole, 2, logical.len())
             .checked_if(checked))
-        .through(Repetition3::new())
+        .through(Repetition3::new(2))
         .on(&mut recorder),
     );
     recorder.record.expect("a recording sink")

@@ -84,8 +84,8 @@ impl<'a> Batch<'a> {
     /// when it holds an instruction the receiver does not accept (an opcode
     /// beyond its set, or blocks, arguments or a flag `select` that do not
     /// match its instruction), a block beyond the shots' blocks of its type,
-    /// or given twice by one instruction, a readout parity the shots' needs
-    /// do not use, more readout slots than a `u32` counts, or readout slots
+    /// or given twice by one instruction, a readout parity its sender does
+    /// not require, more readout slots than a `u32` counts, or readout slots
     /// other than [`readout_slots`](Self::readout_slots) states.
     ///
     /// An unchecked batch of no more instructions than the receiver takes
@@ -115,10 +115,10 @@ impl<'a> Batch<'a> {
     /// sends that may hold what the receiver does not accept, such as a part
     /// built from a user's description at run time.
     ///
-    /// Checked or not, the chain's fit and admission by the joins, the refusals
-    /// of a run ([`RunRefusal`](crate::RunRefusal)), and the batch's count
-    /// of instructions against the most the receiver takes (an
-    /// [`ExecuteRefusal`](crate::ExecuteRefusal)), are checked.
+    /// Checked or not, the chain's capabilities when it is composed, the
+    /// refusals of a run ([`RunRefusal`](crate::RunRefusal)), and the
+    /// batch's count of instructions against the most the receiver takes
+    /// (an [`ExecuteRefusal`](crate::ExecuteRefusal)), are checked.
     #[must_use]
     pub const fn checked(self) -> Self {
         self.checked_if(true)

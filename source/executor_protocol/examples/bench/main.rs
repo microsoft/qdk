@@ -10,7 +10,7 @@
 //!   users write it. A chain's cost over direct is the protocol's own;
 //! - `checks`: a batch's checks, whether a boundary without them costs
 //!   anything per instruction, building an instruction by name, and the
-//!   count of a batch's instructions against a most offered;
+//!   count of a batch's instructions against a most provided;
 //! - `lowering`: a lowering adapter, each logical instruction sent as
 //!   three physical;
 //! - `worker`: an executor that answers from a worker thread: the time

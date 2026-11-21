@@ -10,10 +10,10 @@
 
 use crate::prelude::*;
 use crate::{
-    Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, DriveError, ExecuteError,
-    ExecuteRefusal, Failure, Instruction, InstructionDef, InstructionFault, InstructionSet, Needs,
-    Offer, Opcode, OpcodeMap, ParameterKind, ReadoutValue, Readouts, RunError, Seed, ShotId,
-    ShotSet,
+    Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, Capabilities, DriveError,
+    ExecuteError, ExecuteRefusal, Failure, Features, Instruction, InstructionDef, InstructionFault,
+    InstructionSet, Opcode, OpcodeMap, ParameterKind, ReadoutValue, Readouts, Resources, RunError,
+    Seed, ShotId, ShotSet,
 };
 use smallvec::smallvec;
 
@@ -87,23 +87,18 @@ type Mark = for<'a> fn(Batch<'a>) -> Batch<'a>;
 /// they cannot be counted). Each shot's record is the readout slots of
 /// the batch's readouts.
 struct Literal {
-    set: InstructionSet,
     instructions: Vec<Instruction>,
     stated: Option<u32>,
-    needs: Needs,
+    requires: Capabilities,
     mark: Mark,
 }
 
 impl Driver for Literal {
-    fn sends(&self) -> &InstructionSet {
-        &self.set
+    fn requires(&self) -> &Capabilities {
+        &self.requires
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
-
-    fn needs(&self) -> Needs {
-        self.needs.clone()
-    }
 
     type Output = u32;
 
@@ -113,9 +108,10 @@ impl Driver for Literal {
         seed: Seed,
         below: &mut impl Executor,
     ) -> Result<Vec<u32>, DriveError> {
+        let set = self.requires.instructions();
         let readout_slots = self
             .stated
-            .unwrap_or_else(|| self.set.readout_slots_of(&self.instructions).unwrap_or(0));
+            .unwrap_or_else(|| set.readout_slots_of(&self.instructions).unwrap_or(0));
         let batches = [(self.mark)(Batch::new(
             shots,
             &self.instructions,
@@ -131,17 +127,12 @@ impl Driver for Literal {
 /// An executor of `set` answering `Zero` for every readout, whatever the
 /// batch.
 struct Zeros {
-    set: InstructionSet,
-    offer: Offer,
+    provides: Capabilities,
 }
 
 impl Executor for Zeros {
-    fn accepts(&self) -> &InstructionSet {
-        &self.set
-    }
-
-    fn offers(&self) -> Offer {
-        self.offer.clone()
+    fn provides(&self) -> &Capabilities {
+        &self.provides
     }
 
     async fn execute(
@@ -159,14 +150,17 @@ impl Executor for Zeros {
     }
 }
 
-/// The run of shots 0 and 1, needing `needs`, each sent `instructions` of
+/// What the shots of a run require beside their instructions.
+type Required = (Resources, Features);
+
+/// The run of shots 0 and 1, requiring `required`, each sent `instructions` of
 /// `set` as one batch, checked if `checked`, over an executor of `set`
 /// taking `most` instructions at most: the readout slots of the readouts
 /// it filled, or the failure.
 fn run(
     set: &InstructionSet,
     instructions: Vec<Instruction>,
-    needs: Needs,
+    required: Required,
     most: Option<u32>,
     checked: bool,
 ) -> Result<u32, DriveError> {
@@ -175,7 +169,7 @@ fn run(
     } else {
         |batch| batch
     };
-    run_marked(set, instructions, None, needs, most, mark)
+    run_marked(set, instructions, None, required, most, mark)
 }
 
 /// As [`run`], with the batch marked by `mark`, stating `stated` readout
@@ -184,24 +178,24 @@ fn run_marked(
     set: &InstructionSet,
     instructions: Vec<Instruction>,
     stated: Option<u32>,
-    needs: Needs,
+    (resources, features): Required,
     most: Option<u32>,
     mark: Mark,
 ) -> Result<u32, DriveError> {
-    let mut offer = Offer::unlimited().max_blocks(carbon(), 64);
+    let mut provided = Resources::new().with_blocks(carbon(), 64);
     if let Some(most) = most {
-        offer = offer.max_instructions(most);
+        provided = provided.with_instructions_per_batch(most);
     }
     let driver = Literal {
-        set: set.clone(),
         instructions,
         stated,
-        needs,
+        requires: Capabilities::new(set.clone())
+            .with_resources(resources)
+            .with_features(features),
         mark,
     };
     let executor = Zeros {
-        set: set.clone(),
-        offer,
+        provides: Capabilities::new(set.clone()).with_resources(provided),
     };
     let Ok(mut runner) = driver.on(executor) else {
         panic!("the chain composes");
@@ -219,11 +213,11 @@ fn run_marked(
 fn checked(
     set: &InstructionSet,
     instructions: Vec<Instruction>,
-    needs: Needs,
+    required: Required,
     most: Option<u32>,
     checked: bool,
 ) -> Result<u32, ExecuteRefusal> {
-    refusal_of(run(set, instructions, needs, most, checked))
+    refusal_of(run(set, instructions, required, most, checked))
 }
 
 /// The readout slots of a run that ran, or the refusal of one refused.
@@ -240,8 +234,16 @@ fn refusal_of(run: Result<u32, DriveError>) -> Result<u32, ExecuteRefusal> {
 
 /// Shots of `qubits` qubits and `carbons` blocks, using no readout
 /// parity.
-fn shots_of(qubits: u32, carbons: u32) -> Needs {
-    Needs::qubits(qubits).blocks(carbon(), carbons)
+fn shots_of(qubits: u32, carbons: u32) -> Required {
+    let resources = Resources::new()
+        .with_qubits(qubits)
+        .with_blocks(carbon(), carbons);
+    (resources, Features::new())
+}
+
+/// The same shots, using readout parities.
+fn with_parity((resources, features): Required) -> Required {
+    (resources, features.with_readout_parity(true))
 }
 
 /// `mnemonic` on `blocks`, with no argument and no flag pattern, as a part
@@ -265,12 +267,12 @@ fn refused_at(at: usize, fault: InstructionFault) -> Result<u32, ExecuteRefusal>
     })
 }
 
-/// A row of a table: a scene, its batch of `device()`, the shots' needs,
-/// and what the check makes of it.
+/// A row of a table: a scene, its batch of `device()`, what its shots
+/// require, and what the check makes of it.
 type Row = (
     &'static str,
     Vec<Instruction>,
-    Needs,
+    Required,
     Result<u32, ExecuteRefusal>,
 );
 
@@ -278,8 +280,12 @@ type Row = (
 /// of instructions.
 fn check_rows(rows: Vec<Row>) {
     let set = device();
-    for (scene, batch, needs, expected) in rows {
-        assert_eq!(checked(&set, batch, needs, None, true), expected, "{scene}");
+    for (scene, batch, required, expected) in rows {
+        assert_eq!(
+            checked(&set, batch, required, None, true),
+            expected,
+            "{scene}"
+        );
     }
 }
 
@@ -305,7 +311,7 @@ fn a_batch_of_more_than_the_receivers_most_instructions_is_refused() {
         (None, 1000, true, Ok(0)),
     ] {
         assert_eq!(
-            checked(&set, h(count), Needs::qubits(1), most, sent_checked),
+            checked(&set, h(count), shots_of(1, 0), most, sent_checked),
             expected,
             "{count} instructions, at most {most:?}, checked: {sent_checked}"
         );
@@ -327,12 +333,12 @@ fn a_batch_is_checked_as_its_last_mark_says() {
     beyond_the_set.opcode = Opcode::__from_macro(99);
     let faults = [
         (
-            "a block beyond the shots' needs",
+            "a block beyond the shots' qubits",
             literal(&set, "h", &[1]),
-            InstructionFault::BlockBeyondNeeds {
+            InstructionFault::BlockBeyondRequired {
                 mnemonic: "h".into(),
                 block: 1,
-                needs: 1,
+                required: 1,
             },
         ),
         (
@@ -361,7 +367,7 @@ fn a_batch_is_checked_as_its_last_mark_says() {
                 &set,
                 vec![instruction.clone()],
                 None,
-                Needs::qubits(1),
+                shots_of(1, 0),
                 None,
                 mark,
             );
@@ -404,7 +410,7 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
         ("1, 2^31, then 2^31 - 1", vec![one, half, rest], 2),
     ] {
         assert_eq!(
-            checked(&set, batch, Needs::qubits(1), None, true),
+            checked(&set, batch, shots_of(1, 0), None, true),
             Err(ExecuteRefusal::TooManyReadoutSlots {
                 shot: ShotId::new(0),
                 batch: 0,
@@ -437,7 +443,7 @@ fn a_checked_batch_stating_other_readout_slots_is_refused() {
             &set,
             batch.clone(),
             Some(stated),
-            Needs::qubits(2),
+            shots_of(2, 0),
             None,
             mark_checked,
         );
@@ -456,7 +462,7 @@ fn first_refused_instruction_is_reported_at_its_position() {
             literal(&set, "h", &[]),
             literal(&set, "h", &[0, 1]),
         ],
-        Needs::qubits(2),
+        shots_of(2, 0),
         refused_at(
             1,
             InstructionFault::WrongBlockCount {
@@ -472,8 +478,8 @@ fn first_refused_instruction_is_reported_at_its_position() {
 /// An instruction its set does not declare, or whose arguments or flag
 /// patterns its instruction does not take, is refused; the same
 /// instruction, with what it takes, runs. A readout parity, even of no
-/// readout, is taken only when the shots' needs use one; a bit known when
-/// written, whatever the needs.
+/// readout, is taken only when the shots require readout parities; a bit
+/// known when written, whatever they require.
 #[test]
 #[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn an_instruction_its_set_does_not_take_is_refused() {
@@ -501,7 +507,7 @@ fn an_instruction_its_set_does_not_take_is_refused() {
         cond_x.arguments = smallvec![argument];
         cond_x
     };
-    let qubit = || Needs::qubits(1);
+    let qubit = || shots_of(1, 0);
     check_rows(vec![
         (
             "an opcode beyond the set",
@@ -574,37 +580,37 @@ fn an_instruction_its_set_does_not_take_is_refused() {
         (
             "`cond_x` on the latest readout",
             vec![cond_x(Argument::recent(1))],
-            qubit().with_readout_parity(),
+            with_parity(qubit()),
             Ok(0),
         ),
         (
-            "`cond_x` on a bit known when written, the needs using no parity",
+            "`cond_x` on a bit known when written, requiring no parity",
             vec![cond_x(Argument::Bit(Bit::Value(true)))],
             qubit(),
             Ok(0),
         ),
         (
-            "`cond_x` on the parity of no readout, the needs using none",
+            "`cond_x` on the parity of no readout, requiring none",
             vec![cond_x(Argument::parity([], true))],
             qubit(),
             refused_at(
                 0,
-                InstructionFault::ParityNotNeeded {
+                InstructionFault::ParityNotRequired {
                     mnemonic: "cond_x".into(),
                     parameter: "c".into(),
                 },
             ),
         ),
         (
-            "`cond_x` on the parity of no readout, the needs using parities",
+            "`cond_x` on the parity of no readout, requiring parities",
             vec![cond_x(Argument::parity([], true))],
-            qubit().with_readout_parity(),
+            with_parity(qubit()),
             Ok(0),
         ),
         (
             "`cond_x` counting back 0 readouts, as when built by name",
             vec![cond_x(Argument::recent(0))],
-            qubit().with_readout_parity(),
+            with_parity(qubit()),
             refused_at(
                 0,
                 InstructionFault::ZeroLookback {
@@ -615,13 +621,13 @@ fn an_instruction_its_set_does_not_take_is_refused() {
         (
             "`cond_x` counting back six readouts, none 0",
             vec![cond_x(Argument::parity([1, 2, 3, 4, 5, 6], false))],
-            qubit().with_readout_parity(),
+            with_parity(qubit()),
             Ok(0),
         ),
         (
             "`cond_x` counting back 0 readouts last of six",
             vec![cond_x(Argument::parity([1, 2, 3, 4, 5, 0], false))],
-            qubit().with_readout_parity(),
+            with_parity(qubit()),
             refused_at(
                 0,
                 InstructionFault::ZeroLookback {
@@ -639,13 +645,13 @@ fn an_instruction_its_set_does_not_take_is_refused() {
 #[test]
 fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
     let set = device();
-    let beyond = |mnemonic: &str, block, needs| {
+    let beyond = |mnemonic: &str, block, required| {
         refused_at(
             0,
-            InstructionFault::BlockBeyondNeeds {
+            InstructionFault::BlockBeyondRequired {
                 mnemonic: mnemonic.into(),
                 block,
-                needs,
+                required,
             },
         )
     };
@@ -676,9 +682,9 @@ fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
             beyond("prepare", 3, 3),
         ),
         (
-            "`prepare` making block 0, of shots needing no block of its type",
+            "`prepare` making block 0, of shots requiring no block of its type",
             on("prepare", &[0]),
-            Needs::qubits(1),
+            shots_of(1, 0),
             beyond("prepare", 0, 0),
         ),
         (

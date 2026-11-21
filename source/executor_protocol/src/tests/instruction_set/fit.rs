@@ -4,6 +4,7 @@
 //! The fit of the instructions one part sends to those the part below
 //! accepts.
 
+use crate::prelude::*;
 use crate::{
     BlockOperand, BlockType, InstructionDef, InstructionMismatch, InstructionSet, Meaning,
     ParameterKind, Pauli,

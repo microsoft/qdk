@@ -12,9 +12,10 @@
 //! sends batches of instructions down; each adapter answers each batch it
 //! receives by sending batches of its own to the part below; the executor
 //! runs them. Users join parts with `through` and `on`, which check at each
-//! join that the parts fit and, once the chain is whole, that each part's
-//! offer serves the driver's needs as they reach it, and make a runner; so
-//! a part writes only its own logic.
+//! join that what the part above requires fits what the part below
+//! provides and, once the chain is whole, that each requirement fits every
+//! part it reaches, and make a runner; so a part writes only its own
+//! logic.
 //!
 //! Each error holds only what can happen where it is returned: a `ready`
 //! says the part is not ready ([`NotReady`]); an `execute` is refused or

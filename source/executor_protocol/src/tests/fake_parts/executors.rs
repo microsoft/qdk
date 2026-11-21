@@ -10,54 +10,69 @@ use std::task::{Poll, Waker};
 use std::thread;
 use std::time::Duration;
 
-use super::{CoinGates, Log, Stream, YieldNow};
+use super::{CoinGates, Log, Stream, YieldNow, qubits};
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, BlockType, ExecuteError, InstructionSet, Needs, NotReady, Offer, Opcode,
-    ReadoutFailure, ReadoutValue, Seed, ShotConditions, ShotId, ShotSet,
+    Batch, BatchReadouts, BlockType, Capabilities, ExecuteError, Features, InstructionSet,
+    NotReady, Opcode, ReadoutFailure, ReadoutValue, Resources, Seed, ShotConditions, ShotId,
+    ShotSet,
 };
 
 /// A toy executor on classical bits: `h` tosses a bit from the shot's
 /// stream, `x` flips it, and `mz` reads it; any other instruction of its
 /// set does nothing.
 pub(crate) struct Bits {
-    set: InstructionSet,
     opcodes: [Option<Opcode>; 3],
-    offer: Offer,
+    provides: Capabilities,
     qubits: usize,
     shots: BTreeMap<ShotId, (Vec<bool>, Stream)>,
     busy: Option<&'static str>,
     loses: bool,
-    /// The set `accepts` answers once ready, if it changes then.
+    panics_ending: bool,
+    /// The set `provides` answers once ready, if it changes then.
     set_once_ready: Option<InstructionSet>,
     log: Log,
 }
 
 impl Bits {
-    /// Bits accepting [`CoinGates`], offering 64 qubits, logging to `log`.
+    /// Bits providing [`CoinGates`] and 64 qubits, and resolving no
+    /// readout parity, logging to `log`.
     pub(crate) fn new(log: &Log) -> Self {
-        Self::accepting(CoinGates::set(), log)
+        Self::providing(CoinGates::set(), log)
     }
 
-    /// Bits accepting `set`, which may lack some of `h`, `x` and `mz`.
-    pub(crate) fn accepting(set: InstructionSet, log: &Log) -> Self {
+    /// Bits providing `set`, which may lack some of `h`, `x` and `mz`.
+    pub(crate) fn providing(set: InstructionSet, log: &Log) -> Self {
         Self {
             opcodes: ["h", "x", "mz"].map(|mnemonic| set.opcode(mnemonic)),
-            set,
-            offer: Offer::unlimited().max_qubits(64).without_readout_parity(),
+            provides: Capabilities::new(set)
+                .with_resources(qubits(64))
+                .with_features(Features::new().with_readout_parity(false)),
             qubits: 0,
             shots: BTreeMap::new(),
             busy: None,
             loses: false,
+            panics_ending: false,
             set_once_ready: None,
             log: log.clone(),
         }
     }
 
-    /// These bits, offering `offer`.
-    pub(crate) fn offering(mut self, offer: Offer) -> Self {
-        self.offer = offer;
+    /// These bits, providing `resources` in place of their 64 qubits.
+    pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
+        self.provides = self.provides.with_resources(resources);
         self
+    }
+
+    /// These bits, providing `features` in place of their own.
+    pub(crate) fn with_features(mut self, features: Features) -> Self {
+        self.provides = self.provides.with_features(features);
+        self
+    }
+
+    /// These bits, resolving readout parities.
+    pub(crate) fn resolving_parity(self) -> Self {
+        self.with_features(Features::new().with_readout_parity(true))
     }
 
     /// These bits, refusing every run in `ready`, for `why`.
@@ -66,10 +81,10 @@ impl Bits {
         self
     }
 
-    /// These bits, answering `set` to `accepts` once ready, while still
-    /// running their own `h`, `x` and `mz`: a part that breaks the rule
-    /// that its set does not change once composed.
-    pub(crate) fn accepting_once_ready(mut self, set: InstructionSet) -> Self {
+    /// These bits, providing `set` once ready, while still running their
+    /// own `h`, `x` and `mz`: a part that breaks the rule that what it
+    /// provides does not change once composed.
+    pub(crate) fn providing_once_ready(mut self, set: InstructionSet) -> Self {
         self.set_once_ready = Some(set);
         self
     }
@@ -80,23 +95,35 @@ impl Bits {
         self.loses = true;
         self
     }
+
+    /// These bits, panicking in every `end_shots`, once they have ended
+    /// the shots and logged it.
+    pub(crate) fn panicking_ending(mut self) -> Self {
+        self.panics_ending = true;
+        self
+    }
 }
 
 impl Executor for Bits {
-    fn accepts(&self) -> &InstructionSet {
-        &self.set
+    fn provides(&self) -> &Capabilities {
+        &self.provides
     }
 
-    fn offers(&self) -> Offer {
-        self.offer.clone()
-    }
-
-    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
-        let qubits = needs.blocks_of(&BlockType::qubit());
+    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
+        let qubits = required
+            .resources()
+            .blocks(&BlockType::qubit())
+            .unwrap_or(0);
         self.log.push(format!("Bits ready for {qubits} qubits"));
-        self.qubits = qubits as usize;
+        // Each shot holds every qubit the bits provide, as a device's
+        // register does, so that an encoding that does not state the
+        // qubits it uses still finds them.
+        let provided = self.provides.resources().blocks(&BlockType::qubit());
+        self.qubits = qubits.max(provided.unwrap_or(0)) as usize;
         if let Some(set) = self.set_once_ready.take() {
-            self.set = set;
+            self.provides = Capabilities::new(set)
+                .with_resources(self.provides.resources().clone())
+                .with_features(self.provides.features().clone());
         }
         match self.busy {
             Some(why) => Err(NotReady::new(why)),
@@ -151,6 +178,7 @@ impl Executor for Bits {
         }
         self.log
             .push(format!("Bits end_shots, holding {}", self.shots.len()));
+        assert!(!self.panics_ending, "end_shots broke");
     }
 }
 
@@ -159,16 +187,12 @@ impl Executor for Bits {
 pub(crate) struct Later<E>(pub(crate) E);
 
 impl<E: Executor> Executor for Later<E> {
-    fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
+    fn provides(&self) -> &Capabilities {
+        self.0.provides()
     }
 
-    fn offers(&self) -> Offer {
-        self.0.offers()
-    }
-
-    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
-        self.0.ready(needs).await
+    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
+        self.0.ready(required).await
     }
 
     async fn execute(
@@ -219,16 +243,12 @@ struct Handover {
 }
 
 impl<E: Executor> Executor for FromThread<E> {
-    fn accepts(&self) -> &InstructionSet {
-        self.inner.accepts()
+    fn provides(&self) -> &Capabilities {
+        self.inner.provides()
     }
 
-    fn offers(&self) -> Offer {
-        self.inner.offers()
-    }
-
-    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
-        self.inner.ready(needs).await
+    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
+        self.inner.ready(required).await
     }
 
     async fn execute(

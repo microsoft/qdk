@@ -5,15 +5,32 @@
 
 use std::panic::resume_unwind;
 
-use super::{ChainBelow, Composed};
+use super::{ChainBelow, Composed, DECLARED};
+use crate::capabilities::Forwarding;
 use crate::composition::boundary_crossing::BoundaryCrossing;
-use crate::composition::chain_check::ChainCheck;
 use crate::composition::part_panics::{PanicEndingShots, await_part, catch_panic};
 use crate::composition::unended_shots::UnendedShots;
+use crate::composition::{ChainPosition, DeclaredParts};
 use crate::{
-    Adapter, DriveError, Driver, Executor, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Seed,
-    ShotSet,
+    Adapter, BoundaryCompatible, Capabilities, DriveError, Driver, Executor, NotReady, OpcodeMap,
+    Seed, ShotSet,
 };
+
+impl<U: Driver, L: Adapter> Composed<U, L> {
+    /// `upper` through `lower`: binds `upper` where its requirement fits
+    /// what `lower` provides.
+    pub(crate) fn driver_through(mut upper: U, lower: L) -> Self {
+        let fit = upper.requires().fits(lower.provides());
+        if let Ok(boundary) = &fit {
+            upper.bind(boundary.opcode_map().clone());
+        }
+        let requires = lower.requires().or(upper.requires());
+        let mut parts = DeclaredParts::new();
+        upper.declare(&mut parts);
+        let upper_parts = parts.len();
+        Self::new((upper, upper_parts), lower, fit, Some(requires), None)
+    }
+}
 
 /// A driver through an adapter: a driver.
 impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
@@ -24,28 +41,19 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         self.upper.name()
     }
 
-    fn sends(&self) -> &InstructionSet {
-        self.lower.sends()
-    }
-
-    fn needs(&self) -> Needs {
-        self.lower.needs_below(self.upper.needs())
+    /// The adapter's requirement, and the driver's where the adapter does
+    /// not state it.
+    fn requires(&self) -> &Capabilities {
+        self.requires.as_ref().expect(DECLARED)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         self.lower.bind(below);
     }
 
-    /// Refuses the run if the halves do not fit; else the part below
-    /// first, for the driver's needs, as the chain's check found them, or
-    /// as the driver states them now; a refusal from below names the part
-    /// that answered it, at its position, if the check found it.
-    async fn ready(&mut self) -> Result<(), NotReady> {
-        let (lower, needs, part) = self.start_run(U::needs)?;
-        await_part(lower.ready(needs))
-            .await
-            .map_err(|not_ready| not_ready.answered_by(part))?;
-        await_part(self.upper.ready()).await
+    /// As [`ready_at`](Self::ready_at), at a position not known.
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+        self.ready_at(ChainPosition::UNKNOWN)
     }
 
     /// The driver's `drive`, on the adapter and the chain below as one
@@ -60,8 +68,11 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         seed: Seed,
         below: &mut impl Executor,
     ) -> Result<Vec<U::Output>, DriveError> {
-        let (upper, lower, boundary) = self
-            .run_boundary(|lower| (lower.offers_above(below.offers()), lower.accepts().clone()));
+        let (upper, lower, boundary) = self.run_boundary(|lower| {
+            lower
+                .provides()
+                .stricter(&below.provides().unanswered(lower.requires()))
+        });
         let mut unended = UnendedShots::new(
             ChainBelow {
                 adapter: lower,
@@ -80,30 +91,21 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         }
     }
 
-    fn check_chain(
-        &mut self,
-        below: &mut dyn FnMut(Needs, &mut ChainCheck) -> Offer,
-        chain: &mut ChainCheck,
-    ) -> Offer {
-        let Self {
-            upper,
-            lower,
-            fit_faults,
-            checked_boundary,
-            ..
-        } = self;
-        upper.check_chain(
-            &mut |middle, chain| {
-                let receiver = lower.accepts().clone();
-                chain.cross(
-                    checked_boundary,
-                    fit_faults.as_ref(),
-                    middle,
-                    receiver,
-                    |needs, chain| lower.check_chain(needs, below, chain),
-                )
-            },
-            chain,
-        )
+    /// The driver, then the adapter.
+    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        self.upper.declare(parts);
+        self.lower.declare(parts);
+    }
+
+    /// Refuses the run if the halves do not fit; else the adapter first,
+    /// for the driver's requirement, then the driver. A refusal from the
+    /// adapter names it, at its position, if `at` is known.
+    async fn ready_at(&mut self, at: ChainPosition) -> Result<(), NotReady> {
+        let (lower, required, below, part) =
+            self.start_run(|upper| upper.requires().clone(), |lower| lower.name(), at)?;
+        await_part(lower.ready_at(required, below))
+            .await
+            .map_err(|not_ready| not_ready.answered_by(part))?;
+        await_part(self.upper.ready_at(at)).await
     }
 }

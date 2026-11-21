@@ -6,7 +6,9 @@
 //!
 //! The roles ([`Driver`], [`Adapter`], [`Executor`]) are what a part
 //! implements; the joins ([`DriverJoins`], [`AdapterJoins`]) give every
-//! part `through` and `on`, which a method call reaches only when its
-//! trait is in scope.
+//! part `through` and `on`, and [`BoundaryCompatible`] gives
+//! [`Capabilities`](crate::Capabilities) and
+//! [`InstructionSet`](crate::InstructionSet) their `fits`, which a method
+//! call reaches only when its trait is in scope.
 
-pub use crate::{Adapter, AdapterJoins, Driver, DriverJoins, Executor};
+pub use crate::{Adapter, AdapterJoins, BoundaryCompatible, Driver, DriverJoins, Executor};

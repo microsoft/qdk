@@ -3,11 +3,12 @@
 
 //! The fake part that panics as a driver or as an executor.
 
-use super::coin_gates;
+use std::sync::OnceLock;
+
+use super::{CoinGates, coin_capabilities, qubits};
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, DriveError, ExecuteError, InstructionSet, Needs, Offer, OpcodeMap, Seed,
-    ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, OpcodeMap, Seed, ShotSet,
 };
 
 /// When a [`Panics`] part panics.
@@ -29,15 +30,13 @@ fn broken<T>() -> T {
 }
 
 impl Driver for Panics {
-    fn sends(&self) -> &InstructionSet {
-        coin_gates()
+    /// [`CoinGates`], on 1 qubit.
+    fn requires(&self) -> &Capabilities {
+        static REQUIRES: OnceLock<Capabilities> = OnceLock::new();
+        REQUIRES.get_or_init(|| Capabilities::new(CoinGates::set()).with_resources(qubits(1)))
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
-
-    fn needs(&self) -> Needs {
-        Needs::qubits(1)
-    }
 
     type Output = ();
 
@@ -56,12 +55,8 @@ impl Driver for Panics {
 }
 
 impl Executor for Panics {
-    fn accepts(&self) -> &InstructionSet {
-        Driver::sends(self)
-    }
-
-    fn offers(&self) -> Offer {
-        Offer::unlimited()
+    fn provides(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
     fn execute(

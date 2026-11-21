@@ -7,7 +7,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::{DriveError, NotReady, PartId};
+use crate::{CapabilitiesMismatch, DriveError, NotReady, PartId};
 
 /// What a run returns to the user when it gives no outputs: it was refused,
 /// and nothing of it ran, or a shot's work broke.
@@ -40,17 +40,12 @@ impl Error for RunError {}
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RunRefusal {
-    /// The run has more shots than a part's offer allows
-    /// ([`Offer::max_shots`](crate::Offer::max_shots)).
-    TooManyShots {
-        /// The run's shots, or `u32::MAX` when it has more.
-        asked: u32,
-        /// The most shots a run may have: the fewest any part offers.
-        most: u32,
-    },
-    /// The run fixes its seed, and the chain is not seedable
-    /// ([`Offer::seedable`](crate::Offer::seedable)).
-    NotSeedable,
+    /// The run requires what the parts below the driver do not provide
+    /// together: more shots than the fewest any provides
+    /// ([`Resources::with_shots`](crate::Resources::with_shots)), or a
+    /// fixed seed where one is not seedable
+    /// ([`Features::with_seeded_runs`](crate::Features::with_seeded_runs)).
+    NotProvided(CapabilitiesMismatch),
     /// A part's `ready` said it cannot take the run now.
     PartNotReady {
         /// The part that refused: the first asked to, bottom up.
@@ -73,10 +68,12 @@ impl RunRefusal {
 impl fmt::Display for RunRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RunRefusal::TooManyShots { asked, most } => {
-                write!(f, "{asked} shots asked, and a run may have at most {most}")
+            RunRefusal::NotProvided(mismatch) => {
+                write!(
+                    f,
+                    "the run requires what the chain does not provide: {mismatch}"
+                )
             }
-            RunRefusal::NotSeedable => f.write_str("a fixed seed, and the chain is not seedable"),
             RunRefusal::PartNotReady { part, not_ready } => write!(f, "{part} is {not_ready}"),
         }
     }

@@ -5,7 +5,7 @@
 //! which includes copying its batches to the worker.
 
 use executor_protocol::prelude::*;
-use executor_protocol::{Instruction, Offer};
+use executor_protocol::{Instruction, Resources};
 
 use crate::Size;
 use crate::parts::{
@@ -53,7 +53,7 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
             received.call_times
         });
         let here = median_call(repeats, || {
-            let mut profiler = Profiler::new(Offer::unlimited());
+            let mut profiler = Profiler::new(Resources::new());
             let mut in_batches =
                 ProgramInBatches::new(MixGates::set(), program, &slots, QUBITS, batch)
                     .checked_if(checked);

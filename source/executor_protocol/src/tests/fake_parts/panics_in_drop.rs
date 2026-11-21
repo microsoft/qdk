@@ -9,8 +9,8 @@ use std::task::{Context, Poll};
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, DriveError, ExecuteError, InstructionSet, Needs, NotReady, Offer,
-    OpcodeMap, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, OpcodeMap, Seed,
+    ShotSet,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
@@ -98,16 +98,12 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
         self.part.name()
     }
 
-    fn sends(&self) -> &InstructionSet {
-        self.part.sends()
+    fn requires(&self) -> &Capabilities {
+        self.part.requires()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         self.part.bind(below);
-    }
-
-    fn needs(&self) -> Needs {
-        self.part.needs()
     }
 
     type Output = P::Output;
@@ -136,28 +132,20 @@ impl<P: Adapter> Adapter for PanicsInDrop<P> {
         self.part.name()
     }
 
-    fn accepts(&self) -> &InstructionSet {
-        self.part.accepts()
+    fn provides(&self) -> &Capabilities {
+        self.part.provides()
     }
 
-    fn sends(&self) -> &InstructionSet {
-        self.part.sends()
+    fn requires(&self) -> &Capabilities {
+        self.part.requires()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         self.part.bind(below);
     }
 
-    fn needs_below(&self, above: Needs) -> Needs {
-        self.part.needs_below(above)
-    }
-
-    fn offers_above(&self, below: Offer) -> Offer {
-        self.part.offers_above(below)
-    }
-
-    fn ready(&mut self, above: &Needs) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.in_ready, self.part.ready(above))
+    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        Self::readying(self.in_ready, self.part.ready(required))
     }
 
     fn adapt(
@@ -185,16 +173,12 @@ impl<P: Executor> Executor for PanicsInDrop<P> {
         self.part.name()
     }
 
-    fn accepts(&self) -> &InstructionSet {
-        self.part.accepts()
+    fn provides(&self) -> &Capabilities {
+        self.part.provides()
     }
 
-    fn offers(&self) -> Offer {
-        self.part.offers()
-    }
-
-    fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.in_ready, self.part.ready(needs))
+    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        Self::readying(self.in_ready, self.part.ready(required))
     }
 
     fn execute(

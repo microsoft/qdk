@@ -8,10 +8,9 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::composition::chain_check::ChainCheck;
+use crate::composition::{ChainPosition, DeclaredParts};
 use crate::{
-    Batch, BatchReadouts, Failure, InstructionFault, InstructionSet, Needs, NotReady, Offer, Seed,
-    ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, Failure, InstructionFault, NotReady, Seed, ShotId, ShotSet,
 };
 
 /// Runs batches of the instructions it accepts on their shots' states.
@@ -22,8 +21,8 @@ use crate::{
 /// batch before the executor runs it, so the executor only fills them,
 /// and the part above indexes its batches, rows and slots.
 /// A batch its sender marked [`checked`](crate::Batch::checked) the
-/// protocol also checks as that method says, against the executor's set
-/// and the needs it was admitted for, so the executor runs only what it
+/// protocol also checks as that method says, against what the executor
+/// provides and what is required of it, so the executor runs only what it
 /// accepts; an unchecked batch, the default, the executor runs as the part
 /// above sends it, once the protocol has checked that it holds no more
 /// instructions than the executor takes.
@@ -32,14 +31,14 @@ use crate::{
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins) and
 /// [`AdapterJoins`](crate::AdapterJoins)) read them once, before any run:
-/// [`name`](Self::name), [`accepts`](Self::accepts) and
-/// [`offers`](Self::offers). It gets no hand-back: it sends nothing, so it
-/// gets no opcode map. A join only decides, from what the parts declare;
-/// what prepares a part to run belongs to each run, which starts with
-/// [`ready`](Self::ready), given the needs the admission checked.
+/// [`name`](Self::name) and [`provides`](Self::provides). It gets no
+/// hand-back: it sends nothing, so it gets no opcode map. A join only
+/// decides, from what the parts declare; what prepares a part to run
+/// belongs to each run, which starts with [`ready`](Self::ready), given
+/// what is required of it.
 ///
-/// Its instruction set and its offer must not change once it is joined:
-/// the fit and the admission are made once, from them.
+/// What it provides must not change once it is joined: the fit is made
+/// once, from it.
 ///
 /// # Run
 ///
@@ -47,7 +46,7 @@ use crate::{
 /// ends its shots ([`end_shots`](Self::end_shots)), and the part above
 /// calls it ([`execute`](Self::execute)).
 pub trait Executor {
-    /// The part's name in messages, such as an admission fault or a
+    /// The part's name in messages, such as a composition fault or a
     /// run's failure; by default its type's, `std::any::type_name`.
     ///
     /// A part overrides it when its type does not say what it is: a part
@@ -66,38 +65,36 @@ pub trait Executor {
         std::any::type_name::<Self>()
     }
 
-    /// The instructions it runs, which the part above must fit. Each
-    /// checked batch it receives is checked against this set as read once,
-    /// by the [`on`](crate::DriverJoins::on) that makes a runner.
-    fn accepts(&self) -> &InstructionSet;
-
-    /// What it can ever serve, such as its most qubits, which the driver's
-    /// needs, as adapted down to it, must fit. The
-    /// [`on`](crate::DriverJoins::on) that makes a runner reads it once,
-    /// and the admission and every check of a run use that answer. Its
-    /// most shots and whether it is seedable bound every run of the chain:
-    /// no adapter above can raise them.
-    fn offers(&self) -> Offer;
+    /// What it provides the part above: the instructions it runs, and what
+    /// it can ever serve, such as its most qubits. What the part above
+    /// requires must fit it, and so must what each part further above
+    /// requires that no adapter between them states again, as
+    /// [`Capabilities`] says. Each checked batch it receives is checked
+    /// against its instructions as read once, by the join. Its most shots
+    /// and whether a run may fix its seed bound every run of the chain: no
+    /// adapter above can raise them.
+    fn provides(&self) -> &Capabilities;
 
     /// Gets this part ready for a run, before anything of the run runs, for
-    /// `needs`, the driver's needs as adapted down to it, as the admission
-    /// checked them against its offer: the blocks of each type a shot holds
-    /// at once, whether its instructions use readout parities, and whether
-    /// a shot is run again alone. It takes what it needs to run, such as a
+    /// `required`, what the part above requires of it, with what parts
+    /// further above require that no adapter between states again: the
+    /// blocks of each type a shot holds at once, whether its instructions
+    /// use readout parities, and whether a shot is run again alone, as far
+    /// as they state them. It takes what it needs to run, such as a
     /// device, or a layout of its blocks; or, when it cannot take a run
     /// now, such as when its device is busy or its resources are not
     /// available, answers [`NotReady`], which refuses the run
     /// ([`RunRefusal::PartNotReady`](crate::RunRefusal::PartNotReady)). By
-    /// default `Ok`. `needs` are the same on every run, so work that
-    /// depends only on them may be done once and kept.
+    /// default `Ok`. `required` is the same on every run of one runner, so
+    /// work that depends only on it may be done once and kept.
     ///
     /// The runner asks the parts in turn, each at most once per run, the
     /// part below first, before the driver starts, and stops at the first
     /// that refuses: no part above it is asked, nor any part when the run
     /// is refused for its shots or its seed, nor a part the run has not
     /// reached when its future is dropped, or is never polled.
-    fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = needs;
+    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = required;
         async { Ok(()) }
     }
 
@@ -118,7 +115,7 @@ pub trait Executor {
     /// the implementer's tests. What `readouts` hold after an error, or
     /// once its future is dropped before it answers, is unspecified: the
     /// caller reads them after an `Ok` only. A shot's state is made at its
-    /// first batch, from the needs it got ready for and, for a
+    /// first batch, from what it got ready for and, for a
     /// replayable executor, [`seed.shot(id)`](Seed::shot), as [`Seed`]
     /// says, and kept until [`end_shots`](Self::end_shots), across any
     /// number of `execute`s, whether or not they read anything: a shot's
@@ -185,29 +182,27 @@ pub trait Executor {
         let _ = shots;
     }
 
-    // Protocol hook: sealed and hidden. Its parameter type, `ChainCheck`
-    // (`src/composition/chain_check.rs`), cannot be named outside this
-    // crate, so no other crate can call or override it. It is in the trait
-    // because Rust cannot specialise a default method: the protocol's
-    // joined parts (`Composed`, in `src/composition/composed/`) override it
-    // to add each inner part's facts, so that a refusal names the inner
-    // part that was short, and the chain's runner names each inner part
-    // by its position. Correctness does not depend on it: a joined part
-    // the check does not reach, such as one inside a part of the user's
-    // that forwards only the public methods, runs the same.
+    // Protocol hooks: sealed and hidden, as `Driver`'s are.
 
-    /// Adds and gives its offer, as this part's, to `chain`, given `above`,
-    /// the needs that reach it, which an executor alone does not read.
-    /// Only the crate overrides it, to add each part it holds, with the
-    /// fit faults of each boundary it holds, top to bottom, and what
-    /// crosses each of them. The [`on`](crate::DriverJoins::on) that makes
-    /// a runner calls it once.
+    /// Adds this part, its name and what it provides, to `parts`. Only the
+    /// crate overrides it, to add each part it holds, top to bottom. The
+    /// [`on`](crate::DriverJoins::on) that makes a runner calls it once.
     #[doc(hidden)]
-    fn check_chain(&mut self, above: Needs, chain: &mut ChainCheck) -> Offer {
-        let _ = above;
-        let offer = self.offers();
-        chain.add_executor_offer(Executor::name(self), &offer);
-        offer
+    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        parts.push(Executor::name(self), None, Some(self.provides()));
+    }
+
+    /// [`ready`](Self::ready), for this part at `at` in its chain. Only
+    /// the crate overrides it, to name a refusal of a part it holds by
+    /// that part's position.
+    #[doc(hidden)]
+    fn ready_at(
+        &mut self,
+        required: &Capabilities,
+        at: ChainPosition,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = at;
+        self.ready(required)
     }
 }
 
@@ -219,16 +214,12 @@ impl<E: Executor + ?Sized> Executor for &mut E {
         (**self).name()
     }
 
-    fn accepts(&self) -> &InstructionSet {
-        (**self).accepts()
+    fn provides(&self) -> &Capabilities {
+        (**self).provides()
     }
 
-    fn offers(&self) -> Offer {
-        (**self).offers()
-    }
-
-    fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {
-        (**self).ready(needs)
+    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        (**self).ready(required)
     }
 
     fn execute(
@@ -244,8 +235,16 @@ impl<E: Executor + ?Sized> Executor for &mut E {
         (**self).end_shots(shots);
     }
 
-    fn check_chain(&mut self, above: Needs, chain: &mut ChainCheck) -> Offer {
-        (**self).check_chain(above, chain)
+    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        (**self).declare(parts);
+    }
+
+    fn ready_at(
+        &mut self,
+        required: &Capabilities,
+        at: ChainPosition,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        (**self).ready_at(required, at)
     }
 }
 
@@ -313,7 +312,8 @@ pub enum ExecuteRefusal {
         fault: InstructionFault,
     },
     /// `batches[batch]` holds more instructions than the receiver's most
-    /// ([`Offer::max_instructions`](crate::Offer::max_instructions)); `shot`
+    /// ([`Resources::instructions_per_batch`](crate::Resources::instructions_per_batch));
+    /// `shot`
     /// is its first. Checked for every batch,
     /// [`checked`](crate::Batch::checked) or not.
     TooManyInstructions {

@@ -11,6 +11,7 @@ mod instruction;
 mod meaning;
 mod pauli;
 
+use crate::BoundaryCompatible;
 use crate::{
     BlockOperand, BlockType, DeclarationFault, Instruction, InstructionDef, InstructionSet, Opcode,
     ParameterKind, instruction_set,

@@ -1,0 +1,31 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! The one relation between the two sides of a boundary:
+//! [`BoundaryCompatible`], whether what the part above requires is
+//! provided by the part below.
+
+/// A statement made in one type on both sides of a boundary: what the part
+/// above requires, and what the part below provides. [`fits`](Self::fits)
+/// checks the first against the second.
+///
+/// Every check between parts is this one relation: an instruction set's
+/// ([`InstructionSet`](crate::InstructionSet)), the resources'
+/// ([`Resources`](crate::Resources)), the features'
+/// ([`Features`](crate::Features)), and the three at once
+/// ([`Capabilities`](crate::Capabilities)), which the joins check at each
+/// boundary of a chain.
+pub trait BoundaryCompatible {
+    /// What the check gives when `provided` serves `self`.
+    type Fit;
+    /// What the check gives when it does not: every shortfall at once.
+    type Mismatch;
+
+    /// Whether `provided`, the part below's statement, serves `self`, the
+    /// part above's.
+    ///
+    /// # Errors
+    ///
+    /// Every way `provided` falls short of `self`.
+    fn fits(&self, provided: &Self) -> Result<Self::Fit, Self::Mismatch>;
+}

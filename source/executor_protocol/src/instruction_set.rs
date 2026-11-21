@@ -52,8 +52,8 @@ mod pauli;
 
 pub use block_operand::BlockOperand;
 pub use block_type::BlockType;
-pub use fit::{FitFaults, InstructionMismatch};
-pub(crate) use instruction::ReceiverNeeds;
+pub use fit::InstructionMismatch;
+pub(crate) use instruction::ReceiverRequirement;
 pub use instruction::{
     Argument, Arguments, Bit, Blocks, Instruction, InstructionFault, ReadoutParity, SelectPattern,
 };

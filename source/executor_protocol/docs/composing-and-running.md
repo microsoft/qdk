@@ -17,29 +17,33 @@ and every adapter has and the [prelude](../src/prelude.rs) brings into
 scope. The parts are joined top to bottom: `through` an adapter, `on` an
 executor. The role of each joined pair follows from its two ends:
 
-| Join                       | Gives                                                                                                                                                 |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `driver.through(adapter)`  | a driver                                                                                                                                              |
-| `adapter.through(adapter)` | an adapter                                                                                                                                            |
-| `adapter.on(executor)`     | an executor                                                                                                                                           |
-| `driver.on(executor)`      | a [`Runner`](../src/composition/runner.rs), or every fault of the chain ([`CompositionFaults`](../src/composition/chain_check/composition_faults.rs)) |
+| Join                       | Gives                                                                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `driver.through(adapter)`  | a driver                                                                                                                                  |
+| `adapter.through(adapter)` | an adapter                                                                                                                                |
+| `adapter.on(executor)`     | an executor                                                                                                                               |
+| `driver.on(executor)`      | a [`Runner`](../src/composition/runner.rs), or every fault of the chain ([`CompositionFaults`](../src/composition/composition_faults.rs)) |
 
 The brackets do not matter: `d.through(a).on(e)` and `d.on(a.on(e))` are
 the same chain, with the same faults and the same readouts. A joined
 part's type cannot be named: it is used by its role alone, and a function
 that returns a runner names it `Runner<impl Driver<Output = O>, E>`. Each
-join checks the fit of the boundary it makes and keeps its faults; the
-`on` that makes a runner also checks the admission and reports every
-fault of the chain at once, top to bottom. When the chain fits and is
-admitted, it gives a runner, which keeps the needs that reach each part,
-for the part to get ready for on every run.
+join fits the boundary it makes and binds its sender where it fits; the
+`on` that makes a runner checks each part's requirement against each
+provision it reaches, as [Capabilities](capabilities.md) says, and
+reports every fault of the chain at once, top to bottom. When the chain
+fits, it gives a runner, and on every run each part gets ready for the
+requirement that reaches it.
 
-A joined part keeps its role's contract through its role's methods alone:
-held inside a part of the user's that forwards only those methods, or lent
-by `&mut` to another chain, it runs the same. The `on` that makes a runner
-cannot reach the parts inside a part of the user's, so a joined part there
-whose own parts do not fit refuses every run at `ready`, with its fit
-faults, rather than running.
+A joined part keeps its role's contract through its role's methods alone.
+Held inside a part of the user's that forwards only those methods, it gives
+the same outputs, gets ready for the same requirement and has its shots
+ended alike; a panic or a refusal inside it is named by the user's part,
+at its position. The `on` that makes a runner cannot reach the parts
+inside a part of the user's, so a joined part there whose own parts do not
+fit refuses every run at `ready`, with their mismatch, rather than
+running. A joined adapter or executor lent by `&mut` to another chain is
+checked again by that chain's `on`.
 
 ## Running shots
 
@@ -68,17 +72,18 @@ what a fault gives. The rules a part keeps, which the protocol does not
 check, are in
 [Writing a part](writing-a-part.md#the-rules-a-part-keeps).
 
-| Check                                                                                                                                                                                   | Where                                                                      | When                                                                            | A fault gives                                                                                                                                                        |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| An instruction set's declaration                                                                                                                                                        | `InstructionSet::new`, `instruction_set!`                                  | when the set is built                                                           | every [`DeclarationFault`](../src/instruction_set.rs) (the `set()` of an `instruction_set!` panics)                                                                  |
-| An instruction built by name                                                                                                                                                            | `InstructionSet::instruction`                                              | when it is built                                                                | the first [`InstructionFault`](../src/instruction_set/instruction.rs)                                                                                                |
-| A shot set: not empty, no shot twice                                                                                                                                                    | `ShotSet::try_ids`, `ShotSet::ids`                                         | when the set is made                                                            | [`ShotSetFault`](../src/batch/shot_set.rs) (`ids` panics)                                                                                                            |
-| The fit of the instructions sent to those accepted                                                                                                                                      | each join                                                                  | when the parts are joined                                                       | [`FitFaults`](../src/instruction_set/fit.rs), one per boundary; inside a part of the user's, a refusal of every run at `ready`                                       |
-| The needs at each boundary against the offer there                                                                                                                                      | the `on` that makes a runner                                               | when the parts are joined                                                       | [`AdmissionFaults`](../src/composition/chain_check/admission.rs), with the fit faults in [`CompositionFaults`](../src/composition/chain_check/composition_faults.rs) |
-| A run's shots against the fewest any part offers, and a fixed seed against whether every part is seedable                                                                               | [`Runner::run_async`](../src/composition/runner.rs), which `run` waits for | each run, before any part is asked                                              | [`RunRefusal`](../src/composition/runner/run_error.rs): `TooManyShots`, `NotSeedable`                                                                                |
-| Whether each part can take a run now                                                                                                                                                    | each part's `ready`, bottom to top                                         | each run, before the driver starts                                              | [`NotReady`](../src/roles/not_ready.rs), as `RunRefusal::PartNotReady`, naming the part                                                                              |
-| A batch's count of instructions against the most its receiver offers                                                                                                                    | every boundary                                                             | each batch, checked or not, before the receiver runs any batch of the `execute` | [`ExecuteRefusal::TooManyInstructions`](../src/roles/executor.rs)                                                                                                    |
-| A batch's instructions against the receiver's set and the shots' needs, and its [readout slots](batches-and-readouts.md#readout-slots): countable in a `u32`, and equal to those stated | every boundary                                                             | each checked batch, before the receiver runs any batch of the `execute`         | [`ExecuteRefusal`](../src/roles/executor.rs): `Instruction`, `TooManyReadoutSlots`, `ReadoutSlotsMisstated`                                                          |
+| Check                                                                                                                                                                                                       | Where                                                                      | When                                                                            | A fault gives                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| A part's role; a joined part's type cannot be named                                                                                                                                                         | the compiler                                                               | when the chain is compiled                                                      | a compile error                                                                                             |
+| An instruction set's declaration                                                                                                                                                                            | `InstructionSet::new`, `instruction_set!`                                  | when the set is built                                                           | every [`DeclarationFault`](../src/instruction_set.rs) (the `set()` of an `instruction_set!` panics)         |
+| An instruction built by name                                                                                                                                                                                | `InstructionSet::instruction`                                              | when it is built                                                                | the first [`InstructionFault`](../src/instruction_set/instruction.rs)                                       |
+| A shot set: not empty, no shot twice                                                                                                                                                                        | `ShotSet::try_ids`, `ShotSet::ids`                                         | when the set is made                                                            | [`ShotSetFault`](../src/batch/shot_set.rs) (`ids` panics)                                                   |
+| Each part's requirement against each provision it reaches: the instructions across each boundary, each resource and feature down to the first part that requires it again ([Capabilities](capabilities.md)) | the `on` that makes a runner                                               | when the parts are joined                                                       | every fault of the chain, [`CompositionFaults`](../src/composition/composition_faults.rs)                   |
+| The same, inside a part of the user's, which the `on` cannot reach                                                                                                                                          | the joined part's `ready`                                                  | each run                                                                        | [`RunRefusal::PartNotReady`](../src/composition/runner/run_error.rs), with the mismatch                     |
+| A run's shots, and a fixed seed, against what the parts below the driver provide                                                                                                                            | [`Runner::run_async`](../src/composition/runner.rs), which `run` waits for | each run, before any part is asked                                              | [`RunRefusal::NotProvided`](../src/composition/runner/run_error.rs)                                         |
+| Whether each part can take a run now                                                                                                                                                                        | each part's `ready`, bottom to top                                         | each run, before the driver starts                                              | [`NotReady`](../src/roles/not_ready.rs), as `RunRefusal::PartNotReady`, naming the part                     |
+| A batch's count of instructions against the instructions per batch provided                                                                                                                                 | every boundary                                                             | each batch, checked or not, before the receiver runs any batch of the `execute` | [`ExecuteRefusal::TooManyInstructions`](../src/roles/executor.rs)                                           |
+| A batch's instructions against the receiver's set and what its sender requires, and its [readout slots](batches-and-readouts.md#readout-slots): countable in a `u32`, and equal to those stated             | every boundary                                                             | each checked batch, before the receiver runs any batch of the `execute`         | [`ExecuteRefusal`](../src/roles/executor.rs): `Instruction`, `TooManyReadoutSlots`, `ReadoutSlotsMisstated` |
 
 ## Failures and panics
 

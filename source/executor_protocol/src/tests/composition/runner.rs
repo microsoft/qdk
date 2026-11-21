@@ -2,11 +2,10 @@
 // Licensed under the MIT License.
 
 //! Running shots on a chain: the records each shot gets, how a run is
-//! awaited, and the parts' refusals. The runner's own refusals are in
-//! `run_limits.rs`, and the failures that end a run in `run_error.rs`.
+//! awaited, and the refusals of a run, the runner's own and the parts'.
+//! The failures that end a run are in `run_error.rs`.
 
 mod run_error;
-mod run_limits;
 mod wait;
 
 use std::cell::{Cell, RefCell};
@@ -18,16 +17,16 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::chain_check::{fit_faults, no_x};
+use super::joins::no_x;
 use crate::prelude::*;
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen,
-    Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Trap, Values, YieldNow,
-    in_each_bracketing,
+    Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow,
+    in_each_bracketing, qubits,
 };
 use crate::{
-    DriveError, Failure, FitFaults, ReadoutFailure, ReadoutValue, RunError, RunRefusal, Runner,
-    ShotConditions, ShotSet,
+    CapabilitiesMismatch, DriveError, Failure, FeatureMismatch, Features, ReadoutFailure,
+    ReadoutValue, ResourceMismatch, RunError, RunRefusal, Runner, ShotConditions, ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -633,8 +632,14 @@ fn calibrating(refusal: &RunRefusal) -> Option<(usize, &str)> {
 /// wherever the brackets go, until one refuses: a part that cannot take a
 /// run refuses it, named by its position and name, with its reason; the
 /// parts below it are asked, those above it are not, and nothing runs: no
-/// shot is ended on any part, as no drive started.
+/// shot is ended on any part, as no drive started. A part refusing inside
+/// a joined part held by a part of a user's, which the chain's check
+/// cannot reach, is named by the user's part, with its own reason.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one scene per place a refusal comes from"
+)]
 fn the_parts_are_asked_bottom_up_until_one_refuses() {
     /// The parts `log` says were asked, in order.
     fn asked(log: &Log) -> Vec<String> {
@@ -664,6 +669,23 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
         "busy bits: the profiler not asked"
     );
     assert_eq!(ended(&log), [] as [String; 0], "busy bits: no shot ended");
+    // Busy bits inside a user's executor: refused naming the user's part.
+    let log = Log::default();
+    let held = Renamed::new(
+        Profiler::new(&counted, &log).on(Bits::new(&log).busy("calibrating")),
+        "user's executor",
+    );
+    let refusal = refused(runner(CoinCopy::new().on(held)).run(&ShotSet::ids(0..4), SEED));
+    assert_eq!(
+        calibrating(&refusal),
+        Some((1, "user's executor")),
+        "held busy bits: {refusal:?}"
+    );
+    assert_eq!(
+        ended(&log),
+        [] as [String; 0],
+        "held busy bits: no shot ended"
+    );
     // A profiler that cannot take a run, between bits and another profiler:
     // the bits below it are asked, and the profiler above it is not.
     let shots = ShotSet::ids(0..2);
@@ -763,11 +785,14 @@ where
 /// the chain's check cannot reach its inner boundary: the chain composes,
 /// as its outer boundaries fit, but the joined part refuses every run, as
 /// a part that cannot take one, named by the user's part's position and
-/// name, with the boundary's fit faults as its reason; nothing runs, and no
+/// name, with the boundary's mismatch as its reason; nothing runs, and no
 /// shot is ended on any part.
 #[test]
 fn a_joined_part_whose_parts_do_not_fit_refuses_every_run() {
-    let fault = fit_faults(&CoinGates::set(), &no_x());
+    let fault = CapabilitiesMismatch {
+        instructions: CoinGates::set().fits(&no_x()).expect_err("no `x`"),
+        ..CapabilitiesMismatch::default()
+    };
     let counted = Rc::new(Cell::new(0));
     let profiler = |set, log: &Log| Profiler::on(set, &counted, log);
     let rows = [
@@ -777,7 +802,7 @@ fn a_joined_part_whose_parts_do_not_fit_refuses_every_run() {
                 CoinCopy::new().through(profiler(no_x(), &log)),
                 "user's driver",
             );
-            refused_twice(held.on(Bits::accepting(no_x(), &log)), &counted, &log)
+            refused_twice(held.on(Bits::providing(no_x(), &log)), &counted, &log)
         }),
         ("an adapter through an adapter", 1, "user's adapter", {
             let log = Log::default();
@@ -788,7 +813,7 @@ fn a_joined_part_whose_parts_do_not_fit_refuses_every_run() {
             refused_twice(
                 CoinCopy::new()
                     .through(held)
-                    .on(Bits::accepting(no_x(), &log)),
+                    .on(Bits::providing(no_x(), &log)),
                 &counted,
                 &log,
             )
@@ -796,7 +821,7 @@ fn a_joined_part_whose_parts_do_not_fit_refuses_every_run() {
         ("an adapter on an executor", 1, "user's executor", {
             let log = Log::default();
             let held = Renamed::new(
-                profiler(CoinGates::set(), &log).on(Bits::accepting(no_x(), &log)),
+                profiler(CoinGates::set(), &log).on(Bits::providing(no_x(), &log)),
                 "user's executor",
             );
             refused_twice(CoinCopy::new().on(held), &counted, &log)
@@ -813,7 +838,7 @@ fn a_joined_part_whose_parts_do_not_fit_refuses_every_run() {
                 "{row}"
             );
             assert_eq!(
-                not_ready.why().downcast_ref::<FitFaults>(),
+                not_ready.why().downcast_ref::<CapabilitiesMismatch>(),
                 Some(&fault),
                 "{row}: {refusal:?}"
             );
@@ -821,4 +846,168 @@ fn a_joined_part_whose_parts_do_not_fit_refuses_every_run() {
         assert_eq!(ran, 0, "{row}: no instruction ran");
         assert_eq!(ended, [] as [String; 0], "{row}: no shot ended");
     }
+}
+
+/// Runs one shot more than `most` on `runner`, refused before any part is
+/// asked or runs, then `most` shots, a record each: a row of
+/// [`a_run_of_more_shots_than_its_chain_provides_is_refused`], named
+/// `row`.
+fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
+    row: &str,
+    mut runner: Runner<D, E>,
+    most: u32,
+    log: &Log,
+) {
+    let asked = bits_asked(log);
+    let ran = log.count("Bits execute");
+    let refusal = refused(runner.run(&ShotSet::ids(0..=most), SEED));
+    let short = ResourceMismatch::Shots {
+        required: most + 1,
+        provided: most,
+    };
+    assert!(
+        matches!(&refusal, RunRefusal::NotProvided(mismatch) if mismatch.resources == [short.clone()]),
+        "{row}: {refusal:?}"
+    );
+    assert_eq!(bits_asked(log), asked, "{row}: no part asked");
+    assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran");
+    let records = runner
+        .run(&ShotSet::ids(0..most), SEED)
+        .unwrap_or_else(|error| panic!("{row}: a run of {most}: {error:?}"));
+    assert_eq!(records.len(), most as usize, "{row}: a record per shot");
+}
+
+/// A chain runs at most the fewest shots any part below its driver
+/// provides, in every bracketing: a run of one more is refused before any
+/// part is asked or runs, and a run of that many runs. So an adapter may
+/// lower the most shots a run may have, but not raise it.
+#[test]
+fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
+    let log = Log::default();
+    let bits = |most| Bits::new(&log).with_resources(qubits(64).with_shots(most));
+    // An executor running 4 shots at most.
+    let alone = runner(CoinCopy::new().on(bits(4)));
+    takes_at_most("the executor alone", alone, 4, &log);
+    // Bits under a job queue of 4 shots at most: the queue's limit holds
+    // wherever the brackets go.
+    in_each_bracketing!([d, queue, e] from {
+        let d = CoinCopy::new();
+        let queue = Stating::queue(4, &log);
+        let e = Bits::new(&log);
+    }, |chain, brackets| {
+        takes_at_most(&format!("under a queue, {brackets}"), runner(chain), 4, &log);
+    });
+    // Bits running 1 shot at most, under a decoder that restates what it
+    // provides with no shot limit, or with a limit of 4: the bits' limit
+    // still holds.
+    in_each_bracketing!([d, decoder, e] from {
+        let d = CoinCopy::new();
+        let decoder = Stating::restating(64, &log);
+        let e = bits(1);
+    }, |chain, brackets| {
+        let row = format!("a decoder with no limit, {brackets}");
+        takes_at_most(&row, runner(chain), 1, &log);
+    });
+    in_each_bracketing!([d, decoder, e] from {
+        let d = CoinCopy::new();
+        let decoder = Stating::restating_most_shots(64, 4, &log);
+        let e = bits(1);
+    }, |chain, brackets| {
+        let row = format!("a decoder raising the limit, {brackets}");
+        takes_at_most(&row, runner(chain), 1, &log);
+    });
+    // Bits running 8 shots at most, under a decoder that provides 4: the
+    // decoder's lower limit holds.
+    in_each_bracketing!([d, decoder, e] from {
+        let d = CoinCopy::new();
+        let decoder = Stating::restating_most_shots(64, 4, &log);
+        let e = bits(8);
+    }, |chain, brackets| {
+        let row = format!("a decoder lowering the limit, {brackets}");
+        takes_at_most(&row, runner(chain), 4, &log);
+    });
+    // Bits running 8 shots at most, under a job queue of 4, under a decoder
+    // with no shot limit: the queue's limit, though neither the executor's
+    // nor the one the driver meets, holds.
+    in_each_bracketing!([d, decoder, queue, e] from {
+        let d = CoinCopy::new();
+        let decoder = Stating::restating(64, &log);
+        let queue = Stating::queue(4, &log);
+        let e = bits(8);
+    }, |chain, brackets| {
+        let row = format!("a queue under a decoder, {brackets}");
+        takes_at_most(&row, runner(chain), 4, &log);
+    });
+}
+
+/// Runs `shots` shots with a seed on `runner`, refused before any part is
+/// asked or runs, then with no seed: a row of
+/// [`a_seeded_run_is_refused_unless_every_part_is_seedable`], named `row`.
+fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
+    row: &str,
+    mut runner: Runner<D, E>,
+    shots: u32,
+    log: &Log,
+) {
+    let shots = ShotSet::ids(0..shots);
+    let asked = bits_asked(log);
+    let ran = log.count("Bits execute");
+    let refusal = refused(runner.run(&shots, SEED));
+    assert!(
+        matches!(&refusal, RunRefusal::NotProvided(mismatch)
+            if mismatch.features == [FeatureMismatch::SeededRuns]),
+        "{row}: {refusal:?}"
+    );
+    assert_eq!(bits_asked(log), asked, "{row}: no part asked");
+    assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran");
+    runner
+        .run(&shots, None)
+        .unwrap_or_else(|error| panic!("{row}: a run with no seed: {error:?}"));
+}
+
+/// A chain is seedable only if every part below its driver is, in every
+/// bracketing: a seeded run on one that is not is refused before any part
+/// is asked or runs, and a run with no seed runs. So an adapter may make a
+/// chain not seedable, but cannot make a chain that is not seedable
+/// seedable.
+#[test]
+fn a_seeded_run_is_refused_unless_every_part_is_seedable() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let unseedable_bits = || Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
+    // An executor that cannot be seeded.
+    let alone = runner(CoinCopy::new().on(unseedable_bits()));
+    refuses_a_seed("the executor alone", alone, 4, &log);
+    // Bits that cannot be seeded, under a decoder that restates what it
+    // provides, stating no seeded runs: the bits' still holds.
+    in_each_bracketing!([d, decoder, e] from {
+        let d = CoinCopy::new();
+        let decoder = Stating::restating(64, &log);
+        let e = unseedable_bits();
+    }, |chain, brackets| {
+        let row = format!("a decoder over bits, {brackets}");
+        refuses_a_seed(&row, runner(chain), 1, &log);
+    });
+    // Seedable bits under a link that cannot be seeded, under a profiler.
+    in_each_bracketing!([d, profiler, link, e] from {
+        let d = CoinCopy::new();
+        let profiler = Profiler::new(&counted, &log);
+        let link = Stating::unseedable(&log);
+        let e = Bits::new(&log);
+    }, |chain, brackets| {
+        let row = format!("a link under a profiler, {brackets}");
+        refuses_a_seed(&row, runner(chain), 2, &log);
+    });
+    // Seedable bits under a link that cannot be seeded, under a decoder:
+    // the link's, though neither the executor's nor the one the driver
+    // meets, holds.
+    in_each_bracketing!([d, decoder, link, e] from {
+        let d = CoinCopy::new();
+        let decoder = Stating::restating(64, &log);
+        let link = Stating::unseedable(&log);
+        let e = Bits::new(&log);
+    }, |chain, brackets| {
+        let row = format!("a link under a decoder, {brackets}");
+        refuses_a_seed(&row, runner(chain), 2, &log);
+    });
 }

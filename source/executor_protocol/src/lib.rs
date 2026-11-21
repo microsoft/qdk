@@ -8,10 +8,10 @@
 //! for, the problem it solves and how, and give its rules.
 
 mod batch;
+mod boundary_compatible;
+mod capabilities;
 mod composition;
 mod instruction_set;
-mod needs;
-mod offer;
 pub mod prelude;
 mod roles;
 mod seed;
@@ -29,18 +29,21 @@ pub use batch::{
     Batch, BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
     ShotId, ShotSet, ShotSetFault,
 };
+pub use boundary_compatible::BoundaryCompatible;
+pub use capabilities::{
+    Boundary, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, ResourceMismatch,
+    Resources,
+};
 pub use composition::{
-    AdapterJoins, AdmissionFaults, CompositionFaults, DriverJoins, PartId, RunError, RunRefusal,
-    Runner, ShortOffer,
+    AdapterJoins, CompositionFault, CompositionFaults, DriverJoins, PartId, RunError, RunRefusal,
+    Runner,
 };
 pub use instruction_set::{
-    Angle, Argument, Arguments, Bit, BlockOperand, BlockType, Blocks, DeclarationFault, FitFaults,
-    Guard, Instruction, InstructionDef, InstructionFault, InstructionMismatch, InstructionSet,
-    Meaning, MeaningFault, Observable, Opcode, OpcodeMap, Parameter, ParameterKind, Pauli,
-    ReadoutParity, SelectPattern,
+    Angle, Argument, Arguments, Bit, BlockOperand, BlockType, Blocks, DeclarationFault, Guard,
+    Instruction, InstructionDef, InstructionFault, InstructionMismatch, InstructionSet, Meaning,
+    MeaningFault, Observable, Opcode, OpcodeMap, Parameter, ParameterKind, Pauli, ReadoutParity,
+    SelectPattern,
 };
-pub use needs::{Needs, UnmetNeed};
-pub use offer::Offer;
 pub use roles::{
     Adapter, DriveError, Driver, ExecuteError, ExecuteRefusal, Executor, Failure, NotReady,
 };

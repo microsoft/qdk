@@ -3,15 +3,15 @@
 
 //! Joining parts with `through` and `on`: each sender writing in its
 //! receiver's opcodes, the laws of the brackets, and what each part gets
-//! ready for and is told on every run, as composition read it. The check
-//! of a chain, its fit and its admission, is in
-//! `composition/chain_check.rs`, running its shots in
+//! ready for on every run. The joins' check of a chain, what each part
+//! requires against what the parts below provide, is in
+//! `composition/joins.rs`, running its shots in
 //! `composition/runner.rs`, the calls across its boundaries in
 //! `composition/boundary_crossing.rs`, and its parts' panics in
 //! `composition/part_panics.rs`.
 
 mod boundary_crossing;
-mod chain_check;
+mod joins;
 mod part_panics;
 mod runner;
 
@@ -21,12 +21,10 @@ use std::rc::Rc;
 
 use crate::prelude::*;
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Profiler, Program, Renamed,
-    Shifting, Splitter, Spread, Trap, Values, in_each_bracketing,
+    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, NamesBelow, Profiler, Program,
+    Renamed, Splitter, Spread, Trap, Values, in_each_bracketing, qubits,
 };
-use crate::{
-    BlockType, CompositionFaults, InstructionDef, InstructionSet, Needs, Offer, Runner, ShotSet,
-};
+use crate::{BlockType, CompositionFaults, InstructionDef, InstructionSet, Runner, ShotSet};
 
 const SEED: u64 = 7;
 
@@ -78,7 +76,7 @@ fn a_sender_writes_in_the_receivers_opcodes() {
     for (mnemonic, opcode) in [("h", CoinGates::H), ("mz", CoinGates::MZ)] {
         assert_ne!(reordered.opcode(mnemonic), Some(opcode), "another order");
     }
-    let composed = CoinCopy::new().on(Bits::accepting(reordered, &log));
+    let composed = CoinCopy::new().on(Bits::providing(reordered, &log));
     assert_eq!(records(composed, &shots), plain(&shots));
 }
 
@@ -178,13 +176,13 @@ where
 /// over bits, each join's result held by a part of a user's that forwards
 /// only its role's public methods, as a user's wrapper does, at one depth
 /// or two, or lent by `&mut` to a chain since dropped first: over a run
-/// that succeeds and one the trap fails, the same results, the same needs
-/// each part gets ready for, and the same shots ended on each part, in the
-/// same order, as the same chain unwrapped. So too for the offer that
-/// crosses the boundary inside the held part: a splitter, which takes
-/// batches of any length, over bits that take one instruction a batch,
-/// under a driver or an adapter sending two; and the offer a part over
-/// bits is told.
+/// that succeeds and one the trap fails, the same results, the same
+/// requirements each part gets ready for, and the same shots ended on each
+/// part, in the same order, as the same chain unwrapped. So too for what
+/// is provided across the boundary inside the held part: a splitter, which
+/// takes batches of any length, over bits that take one instruction a
+/// batch, under a driver or an adapter sending two; and what a part over
+/// bits reads the bits provide.
 #[test]
 #[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
@@ -200,9 +198,9 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
         let log = Log::default();
         Parts {
             d: CoinCopy::new().logging(&log),
-            a: Spread::new(2, &log),
+            a: Spread::new(2, &log).built_for(2),
             b: Trap::on(5).logging(&log),
-            c: Spread::new(3, &log),
+            c: Spread::new(3, &log).built_for(4),
             e: Bits::new(&log),
             log,
         }
@@ -211,7 +209,7 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
         let Parts { log, d, a, b, c, e } = parts();
         two_runs(d.through(a).through(b).through(c).on(e), &log)
     };
-    let one_instruction = || Offer::unlimited().max_qubits(64).max_instructions(1);
+    let one_instruction = || qubits(64).with_instructions_per_batch(1);
     let offer_rows = [
         ("a driver through a splitter", {
             let [log, unwrapped_log] = [Log::default(), Log::default()];
@@ -219,8 +217,8 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
                 CoinCopy::new().through(Splitter::default()),
                 "user's driver",
             );
-            let bits = Bits::new(&log).offering(one_instruction());
-            let unwrapped_bits = Bits::new(&unwrapped_log).offering(one_instruction());
+            let bits = Bits::new(&log).with_resources(one_instruction());
+            let unwrapped_bits = Bits::new(&unwrapped_log).with_resources(one_instruction());
             (
                 two_runs(held.through(Spread::new(1, &log)).on(bits), &log),
                 two_runs(
@@ -238,8 +236,8 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
                 Spread::new(1, &log).through(Splitter::default()),
                 "user's adapter",
             );
-            let bits = Bits::new(&log).offering(one_instruction());
-            let unwrapped_bits = Bits::new(&unwrapped_log).offering(one_instruction());
+            let bits = Bits::new(&log).with_resources(one_instruction());
+            let unwrapped_bits = Bits::new(&unwrapped_log).with_resources(one_instruction());
             (
                 two_runs(CoinCopy::new().through(held).on(bits), &log),
                 two_runs(
@@ -251,19 +249,15 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
                 ),
             )
         }),
-        ("an adapter told the offer of bits", {
+        ("an adapter reading what bits provide", {
             let [log, unwrapped_log] = [Log::default(), Log::default()];
-            let four = || Offer::unlimited().max_qubits(64).max_instructions(4);
-            let held = Renamed::new(
-                Shifting::new(&log).on(Bits::new(&log).offering(four())),
-                "user's executor",
-            );
+            let held = Renamed::new(NamesBelow::new(&log).on(Bits::new(&log)), "user's executor");
             (
                 two_runs(CoinCopy::new().on(held), &log),
                 two_runs(
                     CoinCopy::new()
-                        .through(Shifting::new(&unwrapped_log))
-                        .on(Bits::new(&unwrapped_log).offering(four())),
+                        .through(NamesBelow::new(&unwrapped_log))
+                        .on(Bits::new(&unwrapped_log)),
                     &unwrapped_log,
                 ),
             )
@@ -365,19 +359,19 @@ fn logged_over_two_runs<D: Driver, E: Executor>(
 
 /// Two encodings over bits, in each bracketing the joins make a runner
 /// of, the inner parts of each composed part included, over two runs:
-/// each part gets ready, on every run and bottom up, for the needs that
-/// reach it as the `on` that makes the runner read them. Under a driver of
-/// 2 qubits, they come down as 4, then 12. Under a program stating 1 qubit,
-/// then 3 once ready, which its rule forbids, each part below it still
-/// gets ready for the 1 qubit the admission checked.
+/// each part gets ready, on every run and bottom up, for what the part
+/// above it requires. Under a driver of 2 qubits, through encodings built
+/// for 2 and 4 qubits, they come down as 4, then 12. Under a program of 1
+/// qubit, through two encodings that state no qubits, each part below it
+/// gets ready for the 1 qubit they forward.
 #[test]
-fn every_part_gets_ready_on_every_run_for_the_needs_read_at_composition() {
+fn every_part_gets_ready_on_every_run_for_what_the_part_above_requires() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
             let d = CoinCopy::new().logging(&log);
-            let a = Spread::new(2, &log);
-            let b = Spread::new(3, &log);
+            let a = Spread::new(2, &log).built_for(2);
+            let b = Spread::new(3, &log).built_for(4);
             let e = Bits::new(&log);
         },
         |chain, brackets| assert_eq!(
@@ -395,9 +389,7 @@ fn every_part_gets_ready_on_every_run_for_the_needs_read_at_composition() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = Program::new(&[("mz", 0)])
-                    .needing(Needs::qubits(1))
-                    .needing_once_ready(Needs::qubits(3));
+            let d = Program::new(&[("mz", 0)]);
             let a = Spread::new(1, &log);
             let b = Spread::new(1, &log);
             let e = Bits::new(&log);
@@ -410,42 +402,7 @@ fn every_part_gets_ready_on_every_run_for_the_needs_read_at_composition() {
                 "Spread ready for 1 qubits",
             ]
             .repeat(2),
-            "needs changed once ready, {brackets}"
+            "a requirement forwarded, {brackets}"
         ),
     );
-}
-
-/// Two adapters whose offers narrow from 2 instructions a batch to 1 once
-/// ready, which their rule forbids, over bits, under a program sending
-/// batches of 2, unchecked or checked, in each of the five bracketings,
-/// over two runs: every boundary checks each batch's count of
-/// instructions against the offer the `on` that makes the runner read, and
-/// the upper adapter is told that offer, so each run succeeds alike.
-#[test]
-fn every_boundary_answers_the_offer_read_at_composition() {
-    for checked in [false, true] {
-        in_each_bracketing!(
-            [d, a, b, e] from {
-                let log = Log::default();
-                let program = Program::new(&[("x", 0), ("mz", 0)]);
-                let d = if checked {
-                    program.with_checked_batches()
-                } else {
-                    program
-                };
-                let a = Shifting::new(&log);
-                let b = Shifting::new(&log);
-                let e = Bits::new(&log);
-            },
-            |chain, brackets| assert_eq!(
-                logged_over_two_runs(chain, &log, "is offered"),
-                [
-                    "Shifting is offered Some(2) instructions a batch",
-                    "Shifting is offered None instructions a batch",
-                ]
-                .repeat(2),
-                "{brackets}, checked: {checked}"
-            ),
-        );
-    }
 }

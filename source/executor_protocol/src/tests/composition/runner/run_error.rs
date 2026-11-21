@@ -5,15 +5,14 @@
 //! a part's error or refusal at the shot it names, and what the messages
 //! of a run's errors say. A part's panics are in `part_panics.rs`; that a
 //! failed run's shots are ended top to bottom is in `runner.rs`, beside
-//! the successful run's; the runner's own refusals are in
-//! `run_limits.rs`.
+//! the successful run's and the runner's own refusals.
 
 use crate::prelude::*;
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Trap, coin_gates,
+    Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Trap, coin_capabilities, qubits,
 };
 use crate::{
-    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, InstructionSet, Offer, Seed,
+    Batch, BatchReadouts, Capabilities, ExecuteError, ExecuteRefusal, Failure, Features, Seed,
     ShotId, ShotSet,
 };
 
@@ -40,12 +39,8 @@ struct Refuses {
 }
 
 impl Executor for Refuses {
-    fn accepts(&self) -> &InstructionSet {
-        coin_gates()
-    }
-
-    fn offers(&self) -> Offer {
-        Offer::unlimited()
+    fn provides(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
     async fn execute(
@@ -87,29 +82,26 @@ fn measure() -> Program {
 
 /// The errors of runs refused or failed, as a user reads them: each
 /// message says the run was refused or failed, and names what is at fault
-/// with what is wrong: the shots asked and the most a run may have, the
+/// with what is wrong: the shots required and the most provided, the
 /// fixed seed, the part's reason, the shot and the part's error, the part
 /// that panicked and its message.
 #[test]
 fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
     let log = Log::default();
     let shots = ShotSet::ids(0..8);
-    let bits = |offer: Offer| Bits::new(&log).offering(offer);
     let coin = || CoinCopy::new();
-    let limited = Offer::unlimited().max_qubits(64).max_shots(4);
-    let unseedable = Offer::unlimited().max_qubits(64).not_seedable();
+    let limited = Bits::new(&log).with_resources(qubits(64).with_shots(4));
+    let unseedable = Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
     for (row, error, said) in [
         (
             "too many shots",
-            runner(coin().on(bits(limited))).run(&shots, SEED).map(drop),
-            &["run refused", "8 shots", "at most 4"][..],
+            runner(coin().on(limited)).run(&shots, SEED).map(drop),
+            &["run refused", "8 shots", "4 are provided"][..],
         ),
         (
             "a seed the chain cannot take",
-            runner(coin().on(bits(unseedable)))
-                .run(&shots, SEED)
-                .map(drop),
-            &["run refused", "seed", "not seedable"],
+            runner(coin().on(unseedable)).run(&shots, SEED).map(drop),
+            &["run refused", "seed", "cannot be fixed"],
         ),
         (
             "a part not ready",

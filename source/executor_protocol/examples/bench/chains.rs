@@ -8,7 +8,7 @@
 use std::hint::black_box;
 
 use executor_protocol::prelude::*;
-use executor_protocol::{Instruction, Offer};
+use executor_protocol::{Instruction, Resources};
 
 use crate::Size;
 use crate::parts::{
@@ -70,7 +70,7 @@ pub(crate) enum Chain {
     OneAdapter,
     /// A driver through two adapters, both forwarding, on an executor.
     TwoAdapters,
-    /// `Bare`, with the executor offering `max_instructions` this many.
+    /// `Bare`, with the executor providing this many instructions per batch.
     Limited(u32),
 }
 
@@ -85,8 +85,8 @@ pub(crate) fn run_chain(
     checked: bool,
 ) -> Profile {
     let mut profiler = Profiler::new(match chain {
-        Chain::Limited(most) => Offer::unlimited().max_instructions(most),
-        _ => Offer::unlimited(),
+        Chain::Limited(most) => Resources::new().with_instructions_per_batch(most),
+        _ => Resources::new(),
     });
     let in_batches =
         ProgramInBatches::new(MixGates::set(), program, slots, QUBITS, batch).checked_if(checked);
@@ -99,7 +99,7 @@ fn send_down<E: Executor>(chain: Chain, in_batches: ProgramInBatches<'_>, execut
     match chain {
         Chain::Direct => {
             // The chain's executor is sent no batch: `Direct` sends past it.
-            let unused = Profiler::new(Offer::unlimited());
+            let unused = Profiler::new(Resources::new());
             run_once(Direct(in_batches, executor).on(unused))
         }
         Chain::Bare | Chain::Limited(_) => run_once(in_batches.on(executor)),

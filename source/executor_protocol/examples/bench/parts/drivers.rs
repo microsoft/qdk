@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 
 use executor_protocol::prelude::*;
 use executor_protocol::{
-    Batch, BatchReadouts, CompositionFaults, DriveError, ExecuteError, Instruction, InstructionSet,
-    Needs, OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError, Features,
+    Instruction, InstructionSet, OpcodeMap, ReadoutValue, Readouts, Resources, Runner, Seed,
+    ShotSet,
 };
 
 use crate::workload::SEED;
@@ -20,7 +21,11 @@ use crate::workload::SEED;
 /// `checked`, and returns every readout and, when `timed`, the time of each
 /// call.
 pub(crate) struct ProgramInBatches<'p> {
-    set: InstructionSet,
+    /// Its set, its qubits, and readout parities, which the parity-heavy
+    /// mix's corrections use: a checked batch's corrections are refused
+    /// unless its sender requires them, and the other programs hold none,
+    /// so their checks cost the same.
+    requires: Capabilities,
     /// The map `bind` must get, the set's own: the program goes below as
     /// it is, so every chain gets the same instructions.
     identity: OpcodeMap,
@@ -29,7 +34,6 @@ pub(crate) struct ProgramInBatches<'p> {
     /// [`slots_per_batch`] before a timed run, as a sender knows them where
     /// it writes a batch.
     slots: &'p [u32],
-    qubits: u32,
     batch: usize,
     checked: bool,
     pub(crate) timed: bool,
@@ -56,11 +60,12 @@ impl<'p> ProgramInBatches<'p> {
             "a count of slots per batch"
         );
         Self {
-            set,
+            requires: Capabilities::new(set)
+                .with_resources(Resources::new().with_qubits(qubits))
+                .with_features(Features::new().with_readout_parity(true)),
             identity,
             program,
             slots,
-            qubits,
             batch,
             checked: false,
             timed: false,
@@ -110,20 +115,12 @@ impl<'p> ProgramInBatches<'p> {
 }
 
 impl Driver for ProgramInBatches<'_> {
-    fn sends(&self) -> &InstructionSet {
-        &self.set
+    fn requires(&self) -> &Capabilities {
+        &self.requires
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         assert!(below == self.identity, "the receiver's set is the driver's");
-    }
-
-    /// Its qubits, and readout parities, which the parity-heavy mix's
-    /// corrections use: a checked batch's corrections are refused unless
-    /// the shots' needs use them, and the other programs hold none, so
-    /// their checks cost the same.
-    fn needs(&self) -> Needs {
-        Needs::qubits(self.qubits).with_readout_parity()
     }
 
     type Output = Received;
@@ -159,16 +156,12 @@ pub(crate) fn slots_per_batch(
 pub(crate) struct Direct<'p, E>(pub(crate) ProgramInBatches<'p>, pub(crate) E);
 
 impl<E: Executor> Driver for Direct<'_, E> {
-    fn sends(&self) -> &InstructionSet {
-        self.0.sends()
+    fn requires(&self) -> &Capabilities {
+        self.0.requires()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         self.0.bind(below);
-    }
-
-    fn needs(&self) -> Needs {
-        self.0.needs()
     }
 
     type Output = Received;

@@ -164,7 +164,8 @@ fn dropped_unfinished<D: Driver, E: Executor>(
 /// A run whose future the caller's own panic drops, unfinished, while a
 /// part would panic a second time: in its `end_shots` (coin copies under
 /// a noise, over an adapter that panics ending shots, over bits that
-/// answer later), or in the destructor of its pending future (coin copies
+/// answer later; or coin copies over bits that answer later and panic
+/// ending shots), or in the destructor of its pending future (coin copies
 /// over bits that answer later, whose futures panic once dropped). The
 /// run still ends its shots on the other parts, and drops the part's
 /// panic rather than raising a second one, which would abort, so the
@@ -178,6 +179,9 @@ fn a_run_dropped_by_a_panic_ends_its_shots_and_keeps_that_panic() {
             .through(PanicsEnding::new(&ending))
             .on(Later(Bits::new(&ending))),
     );
+    let executor_ending = Log::default();
+    let mut executor_panics_ending =
+        runner(CoinCopy::new().on(Later(Bits::new(&executor_ending).panicking_ending())));
     let dropping = Log::default();
     let mut panics_in_drop =
         runner(CoinCopy::new().on(PanicsInDrop::new(Later(Bits::new(&dropping)), true)));
@@ -187,6 +191,12 @@ fn a_run_dropped_by_a_panic_ends_its_shots_and_keeps_that_panic() {
             dropped_unfinished(&mut panics_ending, true),
             &ending,
             &["BitFlip end_shots, holding 0", "Bits end_shots, holding 0"][..],
+        ),
+        (
+            "the executor panicking ending shots",
+            dropped_unfinished(&mut executor_panics_ending, true),
+            &executor_ending,
+            &["Bits end_shots, holding 0"][..],
         ),
         (
             "a part's future panicking in its destructor",
@@ -377,16 +387,30 @@ fn names_the_panic<T: Debug>(
 
 /// A driver and an executor that panic, each named as a part built at
 /// run time is, by what it was built from: the failure names the part by
-/// that name, at its position.
+/// that name, at its position. A joined part held by a part of a user's,
+/// which the chain's check cannot reach, with a part inside it that
+/// panics: the failure names the user's part, at its position.
 #[test]
 fn a_panic_names_the_part_by_its_name() {
     let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
     let shots = ShotSet::ids([9, 1]);
     let mut executor = runner(
         Program::new(&[("mz", 0)]).on(Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")),
     );
     let mut driver =
         runner(Renamed::new(Panics(PanicsWhen::Polled), "h2 program").on(Bits::new(&log)));
+    let mut held_executor = runner(Program::new(&[("mz", 0)]).on(Renamed::new(
+        Profiler::new(&counted, &log).on(Panics(PanicsWhen::Polled)),
+        "user's executor",
+    )));
+    let mut held_driver = runner(
+        Renamed::new(
+            Panics(PanicsWhen::Polled).through(Profiler::new(&counted, &log)),
+            "user's driver",
+        )
+        .on(Bits::new(&log)),
+    );
     for (runner_name, error, position, name) in [
         (
             "executor",
@@ -395,6 +419,18 @@ fn a_panic_names_the_part_by_its_name() {
             "qodec runtime",
         ),
         ("driver", failed(driver.run(&shots, SEED)), 0, "h2 program"),
+        (
+            "held executor",
+            failed(held_executor.run(&shots, SEED)),
+            1,
+            "user's executor",
+        ),
+        (
+            "held driver",
+            failed(held_driver.run(&shots, SEED)),
+            0,
+            "user's driver",
+        ),
     ] {
         assert!(
             matches!(

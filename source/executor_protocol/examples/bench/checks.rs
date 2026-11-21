@@ -3,7 +3,7 @@
 
 //! What a batch's checks cost, and a boundary without them; building an
 //! instruction by name; and the count of a batch's instructions against a
-//! most offered.
+//! most provided.
 
 use std::hint::black_box;
 
@@ -18,7 +18,7 @@ use crate::workload::{Draw, build_one};
 /// What a batch's checks cost, and a boundary without them, by
 /// difference, since they run inside the protocol; building an instruction
 /// by name, which checks it too; and the count of a batch's instructions
-/// against a most offered. A boundary without the checks costs per call
+/// against a most provided. A boundary without the checks costs per call
 /// (shaping the readouts, the catch of a panic, one `BoundaryCrossing`
 /// call), which the chains bench's ≫P at batch 1 shows; its row here, at a large batch,
 /// shows that it makes no pass per instruction.
@@ -52,7 +52,7 @@ pub(crate) fn bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
             let limited =
                 time(batch, Chain::Limited(most), checked) - time(batch, Chain::Bare, checked);
             println!(
-                "  max_instructions {most} offered, {kind:>9}, batch {batch:>5} (minus unlimited) {:>6.2} {}",
+                "  max_instructions {most} provided, {kind:>9}, batch {batch:>5} (minus unlimited) {:>6.2} {}",
                 per(limited, n),
                 per_call(limited, n.div_ceil(batch), batch)
             );

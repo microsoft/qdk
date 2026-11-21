@@ -3,11 +3,13 @@
 
 //! The fake drivers.
 
-use super::{CoinGates, Log, Values, coin_gate, coin_gates};
+use std::sync::OnceLock;
+
+use super::{CoinGates, Log, Values, coin_gate, coin_gates, qubits};
 use crate::prelude::*;
 use crate::{
-    Batch, DriveError, Instruction, InstructionSet, Needs, NotReady, OpcodeMap, ReadoutValue,
-    Readouts, Seed, ShotConditions, ShotSet,
+    Batch, Capabilities, DriveError, Features, Instruction, NotReady, OpcodeMap, ReadoutValue,
+    Readouts, Resources, Seed, ShotConditions, ShotSet,
 };
 
 /// A coin tossed on qubit 0, copied onto qubit 1: a toss for every shot in
@@ -61,18 +63,16 @@ impl CoinCopy {
 }
 
 impl Driver for CoinCopy {
-    fn sends(&self) -> &InstructionSet {
-        coin_gates()
+    /// [`CoinGates`], on 2 qubits.
+    fn requires(&self) -> &Capabilities {
+        static REQUIRES: OnceLock<Capabilities> = OnceLock::new();
+        REQUIRES.get_or_init(|| Capabilities::new(CoinGates::set()).with_resources(qubits(2)))
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         for instruction in self.sequences.iter_mut().flatten() {
             instruction.opcode = below.map(instruction.opcode);
         }
-    }
-
-    fn needs(&self) -> Needs {
-        Needs::qubits(2)
     }
 
     type Output = Values;
@@ -141,15 +141,12 @@ impl Driver for CoinCopy {
 /// batches of one `execute`, unchecked unless it is told; each shot's
 /// output is its row and its conditions.
 pub(crate) struct Program {
-    set: InstructionSet,
     sequences: Vec<Vec<Instruction>>,
-    /// Each sequence's readout slots in `set`, counted when it is bound;
-    /// 0 for one beyond `set`, which a checked batch refuses for its
-    /// opcode.
+    /// Each sequence's readout slots in the set it requires, counted when
+    /// it is bound; 0 for one beyond that set, which a checked batch
+    /// refuses for its opcode.
     slots: Vec<u32>,
-    needs: Needs,
-    /// The needs it states once ready, breaking `needs`' rule.
-    needs_once_ready: Option<Needs>,
+    requires: Capabilities,
     /// Whether it ends its shots below once it has their readouts.
     ends_its_shots: bool,
     /// Whether each of its batches is checked, by sequence.
@@ -158,7 +155,7 @@ pub(crate) struct Program {
 
 impl Program {
     /// The instructions `text`, each a mnemonic of [`CoinGates`] and its
-    /// qubit, needing the qubits they name.
+    /// qubit, requiring the qubits they name.
     pub(crate) fn new(text: &[(&str, u32)]) -> Self {
         Self::of(&[text])
     }
@@ -178,7 +175,6 @@ impl Program {
             .max()
             .unwrap_or(0);
         Self {
-            set: CoinGates::set(),
             sequences: texts
                 .iter()
                 .map(|text| {
@@ -188,34 +184,33 @@ impl Program {
                 })
                 .collect(),
             slots: Vec::new(),
-            needs: Needs::qubits(qubits),
-            needs_once_ready: None,
+            requires: Capabilities::new(CoinGates::set()).with_resources(super::qubits(qubits)),
             ends_its_shots: true,
             checked: vec![false; texts.len()],
         }
     }
 
-    /// `instructions` of `set`, as one batch for every shot, needing
-    /// `needs`.
-    pub(crate) fn sending(
-        set: InstructionSet,
-        instructions: Vec<Instruction>,
-        needs: Needs,
-    ) -> Self {
+    /// `instructions`, as one batch for every shot, requiring `requires`,
+    /// whose instructions they are.
+    pub(crate) fn sending(instructions: Vec<Instruction>, requires: Capabilities) -> Self {
         Self {
-            set,
             sequences: vec![instructions],
             slots: Vec::new(),
-            needs,
-            needs_once_ready: None,
+            requires,
             ends_its_shots: true,
             checked: vec![false],
         }
     }
 
-    /// This program, stating `needs` instead.
-    pub(crate) fn needing(mut self, needs: Needs) -> Self {
-        self.needs = needs;
+    /// This program, requiring `resources` in place of its own.
+    pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
+        self.requires = self.requires.with_resources(resources);
+        self
+    }
+
+    /// This program, requiring `features` in place of its own.
+    pub(crate) fn with_features(mut self, features: Features) -> Self {
+        self.requires = self.requires.with_features(features);
         self
     }
 
@@ -239,43 +234,26 @@ impl Program {
         self.ends_its_shots = false;
         self
     }
-
-    /// This program, stating `needs` once ready, which a driver must not
-    /// do.
-    pub(crate) fn needing_once_ready(mut self, needs: Needs) -> Self {
-        self.needs_once_ready = Some(needs);
-        self
-    }
 }
 
 impl Driver for Program {
-    fn sends(&self) -> &InstructionSet {
-        &self.set
+    fn requires(&self) -> &Capabilities {
+        &self.requires
     }
 
     fn bind(&mut self, below: OpcodeMap) {
+        let set = self.requires.instructions();
         self.slots = self
             .sequences
             .iter()
-            .map(|sequence| self.set.readout_slots_of(sequence).unwrap_or(0))
+            .map(|sequence| set.readout_slots_of(sequence).unwrap_or(0))
             .collect();
         for instruction in self.sequences.iter_mut().flatten() {
             instruction.opcode = below.map(instruction.opcode);
         }
     }
 
-    fn needs(&self) -> Needs {
-        self.needs.clone()
-    }
-
     type Output = (Values, ShotConditions);
-
-    async fn ready(&mut self) -> Result<(), NotReady> {
-        if let Some(needs) = self.needs_once_ready.take() {
-            self.needs = needs;
-        }
-        Ok(())
-    }
 
     async fn drive(
         &mut self,

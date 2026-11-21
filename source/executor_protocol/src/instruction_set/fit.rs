@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The first contract between two parts: whether the instructions one
-//! sends fit those the other accepts ([`InstructionSet::fits`]), and, if
-//! they do, the receiver's opcode for each ([`OpcodeMap`]), with which the
-//! sender translates its instructions before sending them; otherwise every
-//! mismatch
-//! ([`InstructionMismatch`], gathered per boundary in [`FitFaults`]).
+//! Whether the instructions one part sends fit those the part below
+//! accepts ([`InstructionSet`]'s
+//! [`fits`](crate::BoundaryCompatible::fits)), and, if they do, the
+//! receiver's opcode for each ([`OpcodeMap`]), with which the sender
+//! translates its instructions before sending them; otherwise every
+//! mismatch ([`InstructionMismatch`]).
 //!
 //! Each sent instruction must be accepted with the same blocks (`in` and
 //! `out`, their types and sizes), parameters (their kinds, in order) and
@@ -21,9 +21,13 @@
 //! refused, though another instruction does the same.
 
 use super::{InstructionDef, InstructionSet, Opcode, OpcodeMap};
+use crate::BoundaryCompatible;
 use std::fmt;
 
-impl InstructionSet {
+impl BoundaryCompatible for InstructionSet {
+    type Fit = OpcodeMap;
+    type Mismatch = Vec<InstructionMismatch>;
+
     /// Whether the instructions of `self`, the set a part sends, fit
     /// `receiver`, the set the part below accepts: the receiver's opcode
     /// for each, or every mismatch.
@@ -53,7 +57,7 @@ impl InstructionSet {
     /// two declares what it does and the other does not; else, both
     /// undeclared under sets of other names,
     /// [`OtherSet`](InstructionMismatch::OtherSet), given once.
-    pub fn fits(&self, receiver: &InstructionSet) -> Result<OpcodeMap, Vec<InstructionMismatch>> {
+    fn fits(&self, receiver: &InstructionSet) -> Result<OpcodeMap, Vec<InstructionMismatch>> {
         let same_name = self.name == receiver.name;
         let mut opcodes = Vec::with_capacity(self.instructions.len());
         let mut by_mnemonic = Vec::new();
@@ -82,9 +86,11 @@ impl InstructionSet {
             Err(mismatches)
         }
     }
+}
 
+impl InstructionSet {
     /// The receiver's opcode for `sent`, an instruction of `self`, as
-    /// [`fits`](Self::fits) matches it, or its mismatches.
+    /// [`fits`](BoundaryCompatible::fits) matches it, or its mismatches.
     fn match_in(
         &self,
         sent: &InstructionDef,
@@ -187,7 +193,7 @@ impl InstructionSet {
 }
 
 /// Why one sent instruction does not fit the receiver: what
-/// [`InstructionSet::fits`] finds.
+/// [`InstructionSet`]'s [`fits`](BoundaryCompatible::fits) finds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InstructionMismatch {
@@ -261,30 +267,6 @@ impl fmt::Display for InstructionMismatch {
         }
     }
 }
-
-/// The mismatches of one boundary of a chain: the set sent, the set
-/// accepted, by their names, and every mismatch between them.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FitFaults {
-    /// The name of the set the part above sends.
-    pub sent: String,
-    /// The name of the set the part below accepts.
-    pub accepted: String,
-    /// Every mismatch between them, in the sent set's order.
-    pub mismatches: Vec<InstructionMismatch>,
-}
-
-impl fmt::Display for FitFaults {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "`{}` does not fit `{}`:", self.sent, self.accepted)?;
-        for mismatch in &self.mismatches {
-            write!(f, " {mismatch};")?;
-        }
-        Ok(())
-    }
-}
-
-impl std::error::Error for FitFaults {}
 
 /// How a sent instruction was matched.
 enum Match {

@@ -5,7 +5,8 @@
 //! down, from which each part that draws, the executor or another, takes
 //! its streams.
 //!
-//! A replayable part ([`Offer::replayable`](crate::Offer::replayable))
+//! A replayable part (one providing
+//! [`Features::with_replay`](crate::Features::with_replay))
 //! draws each shot from streams of its own, so that, on a chain whose parts
 //! are replayable, a shot's records depend only on the chain, the run's
 //! seed and the shot's id: not on the shots run beside it, how its
@@ -22,8 +23,7 @@
 //!   [`shot`](Seed::shot), so it never draws the executor's numbers, and
 //!   inserting it shifts no other part's.
 //!
-//! A part that is not replayable
-//! ([`Offer::not_replayable`](crate::Offer::not_replayable)) still draws
+//! A part that is not replayable (providing replay `false`) still draws
 //! from the run's seed, but may draw a run's shots from one stream, such as
 //! a sampler that draws them in one call.
 //!

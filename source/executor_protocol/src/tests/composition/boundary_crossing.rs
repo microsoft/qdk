@@ -31,12 +31,12 @@ use crate::prelude::*;
 use crate::tests::allocations;
 use crate::tests::fake_parts::{
     Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, NamesBelow, ParityGates, Profiler,
-    Program, Renamed, coin_gate, coin_gates, in_each_bracketing,
+    Program, Renamed, coin_capabilities, coin_gate, coin_gates, in_each_bracketing, qubits,
 };
 use crate::{
-    Argument, Batch, BatchReadouts, CompositionFaults, DriveError, ExecuteError, ExecuteRefusal,
-    Failure, Instruction, InstructionFault, InstructionSet, Needs, NotReady, Offer, OpcodeMap,
-    PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    Argument, Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
+    ExecuteRefusal, Failure, Features, Instruction, InstructionFault, NotReady, OpcodeMap, PartId,
+    ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -133,9 +133,9 @@ fn refused_before_it_runs(row: &str, runs: &[Failed], refusal: &ExecuteRefusal) 
 
 /// Reads qubit 0, flips it if the readout parity of that read is odd,
 /// and reads it again, in [`ParityGates`], written as struct literals, as
-/// a part writes them on its hot path, in one checked batch, with shots
-/// needing `needs`.
-fn flip_on_a_parity(needs: Needs) -> Program {
+/// a part writes them on its hot path, in one checked batch, requiring
+/// one qubit and readout parities.
+fn flip_on_a_parity() -> Program {
     let on_qubit_0 = |opcode, arguments| Instruction {
         opcode,
         blocks: smallvec![0],
@@ -144,96 +144,99 @@ fn flip_on_a_parity(needs: Needs) -> Program {
     };
     let mz = on_qubit_0(ParityGates::MZ, smallvec![]);
     let x_if = on_qubit_0(ParityGates::X_IF, smallvec![Argument::recent(1)]);
-    Program::sending(ParityGates::set(), vec![mz.clone(), x_if, mz], needs).with_checked_batches()
+    let requires = Capabilities::new(ParityGates::set())
+        .with_resources(qubits(1))
+        .with_features(Features::new().with_readout_parity(true));
+    Program::sending(vec![mz.clone(), x_if, mz], requires).with_checked_batches()
 }
 
 /// Each boundary refuses a checked batch its receiver does not take,
 /// typed and naming the batch's first shot, before the receiver runs any
 /// of it or of the other batches of its `execute`, whoever sends it: the
 /// driver, to the executor or to an adapter, or an adapter, in both
-/// bracketings. A row per sender, and one where an adapter's needs below
-/// differ from the driver's, as the needs its batches are checked
+/// bracketings. A row per sender, and one where an adapter's requirement
+/// differs from the driver's, as the requirement its batches are checked
 /// against; the faults a batch may hold are in `batch_limits.rs`.
 #[test]
 fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
-    let beyond_the_needs = |shot, at, block, needs| ExecuteRefusal::Instruction {
+    let beyond_the_required = |shot, at, block, required| ExecuteRefusal::Instruction {
         shot: ShotId::new(shot),
         batch: 0,
         at,
-        fault: InstructionFault::BlockBeyondNeeds {
+        fault: InstructionFault::BlockBeyondRequired {
             mnemonic: "x".to_owned(),
             block,
-            needs,
+            required,
         },
     };
     let parity_refused = ExecuteRefusal::Instruction {
         shot: ShotId::new(5),
         batch: 0,
         at: 1,
-        fault: InstructionFault::ParityNotNeeded {
+        fault: InstructionFault::ParityNotRequired {
             mnemonic: "x_if".to_owned(),
             parameter: "c".to_owned(),
         },
     };
     let rows: [(&str, Vec<Failed>, ExecuteRefusal); 4] = [
-        // An instruction on a qubit beyond the program's needs.
+        // An instruction on a qubit beyond the program's qubits.
         (
-            "the driver's instruction beyond its needs, to the executor",
+            "the driver's instruction beyond its qubits, to the executor",
             failed_with_no_adapter(&ShotSet::ids([4, 2]), |log| {
                 (
                     Program::new(&[("mz", 0), ("x", 5)])
-                        .needing(Needs::qubits(2))
+                        .with_resources(qubits(2))
                         .with_checked_batches(),
                     Bits::new(log),
                 )
             })
             .into(),
-            beyond_the_needs(4, 1, 5, 2),
+            beyond_the_required(4, 1, 5, 2),
         ),
-        // A driver flipping qubit 1 while needing one qubit, through a
+        // A driver flipping qubit 1 while requiring one qubit, through a
         // profiler: refused at the driver's boundary, before the profiler
         // counts any.
         (
-            "the driver's instruction beyond its needs, to an adapter",
+            "the driver's instruction beyond its qubits, to an adapter",
             failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
                 (
                     Program::new(&[("mz", 0), ("x", 1)])
-                        .needing(Needs::qubits(1))
+                        .with_resources(qubits(1))
                         .with_checked_batches(),
                     Profiler::new(counted, log),
                     Bits::new(log),
                 )
             })
             .into(),
-            beyond_the_needs(5, 1, 1, 1),
+            beyond_the_required(5, 1, 1, 1),
         ),
         // A driver flipping and measuring qubit 0, under an adapter that
-        // adds an `x` on qubit 9 while passing the driver's need of one
-        // qubit down: the adapter's batch is refused, naming its third
-        // instruction.
+        // adds an `x` on qubit 99 while forwarding the driver's one qubit,
+        // which it does not state: the adapter's batch is refused, naming
+        // its third instruction.
         (
-            "an adapter's instruction beyond the needs",
+            "an adapter's instruction beyond the qubits it forwards",
             failed_in_both_brackets(&ShotSet::ids([4, 2]), |log, _| {
                 (
                     flip_and_measure(),
-                    Misbehaving::new(Misbehaviour::SendsBeyondTheNeeds),
+                    Misbehaving::new(Misbehaviour::SendsBeyondItsQubits),
                     Bits::new(log),
                 )
             })
             .into(),
-            beyond_the_needs(4, 2, 9, 1),
+            beyond_the_required(4, 2, 99, 1),
         ),
-        // A driver whose needs use readout parities, above an adapter that
-        // says it resolves them, so that its needs below use none, but
-        // passes them down, over an executor that resolves none: the
-        // adapter's batch is refused.
+        // A driver requiring readout parities, above an adapter that says
+        // it resolves them, so that it requires none below, but passes
+        // them down, over an executor that resolves none: the adapter's
+        // batch is refused.
         (
-            "an adapter's readout parity its needs below do not use",
+            "an adapter's readout parity it does not require",
             failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, _| {
                 (
-                    flip_on_a_parity(Needs::qubits(1).with_readout_parity()),
+                    flip_on_a_parity(),
                     ForwardsParity::on(ParityGates::set(), log),
-                    Bits::accepting(ParityGates::set(), log),
+                    Bits::providing(ParityGates::set(), log),
                 )
             })
             .into(),
@@ -245,20 +248,19 @@ fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
     }
 }
 
-/// A driver whose needs use readout parities, through two profilers, over
-/// an executor that resolves them, in each of the five bracketings of
-/// four parts: every boundary passes the parity, and the executor runs it.
+/// A driver requiring readout parities, through two profilers, over an
+/// executor that resolves them, in each of the five bracketings of four
+/// parts: every boundary passes the parity, and the executor runs it.
 #[test]
-fn a_readout_parity_the_needs_use_crosses_every_boundary() {
+fn a_required_readout_parity_crosses_every_boundary() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
-            let d = flip_on_a_parity(Needs::qubits(1).with_readout_parity());
+            let d = flip_on_a_parity();
             let a = Profiler::on(ParityGates::set(), &counted, &log);
             let b = Profiler::on(ParityGates::set(), &counted, &log);
-            let e = Bits::accepting(ParityGates::set(), &log)
-                    .offering(Offer::unlimited().max_qubits(64));
+            let e = Bits::providing(ParityGates::set(), &log).resolving_parity();
         },
         |chain, brackets| {
             runner(chain)
@@ -270,7 +272,7 @@ fn a_readout_parity_the_needs_use_crosses_every_boundary() {
 }
 
 /// A driver flipping and measuring qubit 0 in `CoinGates`, over bits
-/// whose `accepts` answers [`ParityGates`] once ready, in which `x` is
+/// whose `provides` answers [`ParityGates`] once ready, in which `x` is
 /// `x_if` and `mz` is past the set's end, in a checked batch, directly and
 /// through an adapter in both bracketings: each run checks the batch
 /// against the set the `on` that makes the runner read, so it runs and
@@ -280,7 +282,7 @@ fn a_readout_parity_the_needs_use_crosses_every_boundary() {
 fn every_batch_is_checked_against_the_set_read_at_composition() {
     let log = Log::default();
     let names_below = || NamesBelow::new(&log);
-    let bits = || Bits::new(&log).accepting_once_ready(ParityGates::set());
+    let bits = || Bits::new(&log).providing_once_ready(ParityGates::set());
     let shots = ShotSet::ids([5, 3]);
     let runs = [
         runner(flip_and_measure().on(bits())).run(&shots, SEED),
@@ -296,9 +298,9 @@ fn every_batch_is_checked_against_the_set_read_at_composition() {
     let told: Vec<_> = log
         .entries()
         .into_iter()
-        .filter(|entry| entry.starts_with("below accepts: "))
+        .filter(|entry| entry.starts_with("below provides: "))
         .collect();
-    let read_at_composition = format!("below accepts: {}", coin_gates().name());
+    let read_at_composition = format!("below provides: {}", coin_gates().name());
     assert_eq!(told, [read_at_composition.clone(), read_at_composition]);
 }
 
@@ -344,23 +346,26 @@ fn an_adapter_reads_the_name_of_the_part_below() {
 }
 
 /// An adapter of a chain whose one faulty part sends an instruction
-/// beyond the needs: a profiler, or, if it is that part, an adapter
-/// adding an `x` on qubit 9 beyond the one qubit it passes down.
+/// beyond the qubits required: a profiler, or, if it is that part, an
+/// adapter adding an `x` on qubit 99 beyond the one qubit it forwards.
 enum Stage {
     Counts(Profiler),
     Faulty(Misbehaving),
 }
 
 impl Adapter for Stage {
-    fn accepts(&self) -> &InstructionSet {
+    fn provides(&self) -> &Capabilities {
         match self {
-            Self::Counts(profiler) => profiler.accepts(),
-            Self::Faulty(faulty) => faulty.accepts(),
+            Self::Counts(profiler) => Adapter::provides(profiler),
+            Self::Faulty(faulty) => Adapter::provides(faulty),
         }
     }
 
-    fn sends(&self) -> &InstructionSet {
-        self.accepts()
+    fn requires(&self) -> &Capabilities {
+        match self {
+            Self::Counts(profiler) => Adapter::requires(profiler),
+            Self::Faulty(faulty) => Adapter::requires(faulty),
+        }
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -385,8 +390,8 @@ impl Adapter for Stage {
 }
 
 /// The parts of a chain of a driver, up to two adapters and bits, of
-/// which one sends an instruction beyond the needs: the driver, an `x` on
-/// qubit 5 while needing two qubits, if `faulty` is 0, or else the
+/// which one sends an instruction beyond the qubits required: the driver,
+/// an `x` on qubit 99 while requiring two qubits, if `faulty` is 0, or the
 /// adapter at that position. The driver's batches are checked if
 /// `checked`, and each adapter's are if the batch it received is. Each
 /// other adapter counts the instructions it receives, the first into
@@ -410,7 +415,7 @@ impl Parts {
 
     fn d(&self) -> Program {
         let program = if self.faulty == 0 {
-            Program::new(&[("mz", 0), ("x", 5)]).needing(Needs::qubits(2))
+            Program::new(&[("mz", 0), ("x", 99)]).with_resources(qubits(2))
         } else {
             Program::new(&[("x", 0), ("mz", 0)])
         };
@@ -424,7 +429,7 @@ impl Parts {
     /// The adapter at `position`, 1 or 2 from the top.
     fn p(&self, position: usize) -> Stage {
         if self.faulty == position {
-            Stage::Faulty(Misbehaving::new(Misbehaviour::SendsBeyondTheNeeds))
+            Stage::Faulty(Misbehaving::new(Misbehaviour::SendsBeyondItsQubits))
         } else {
             Stage::Counts(Profiler::new(&self.counted[position - 1], &self.log))
         }
@@ -463,7 +468,7 @@ fn each_boundary_checks_its_batch<D: Driver<Output: std::fmt::Debug>, E: Executo
             matches!(
                 error.failure,
                 Failure::Refused(ExecuteRefusal::Instruction {
-                    fault: InstructionFault::BlockBeyondNeeds { .. },
+                    fault: InstructionFault::BlockBeyondRequired { .. },
                     ..
                 })
             ),
@@ -489,7 +494,7 @@ fn each_boundary_checks_its_batch<D: Driver<Output: std::fmt::Debug>, E: Executo
 }
 
 /// A driver, two adapters at most and bits, in every bracketing, with each
-/// part above a boundary sending an instruction beyond the needs in turn:
+/// part above a boundary sending an instruction beyond its qubits in turn:
 /// if the driver's batches are checked, the adapters' are too, and the
 /// faulty batch is refused at the boundary below that part, wherever the
 /// brackets go; batches are unchecked by default.
@@ -516,7 +521,8 @@ fn a_checked_batch_is_checked_at_every_boundary_wherever_the_brackets_go() {
 }
 
 /// Two batches of one `execute`, on shots 4 and 2 a measure of qubit 0,
-/// on shots 9 and 7 a flip of qubit 5 beyond the program's 2 qubits, one
+/// on shots 9 and 7 a flip of qubit 99 beyond the program's 2 qubits and
+/// the bits' 64, one
 /// checked and the other not: each batch is checked as its sender chose.
 /// Checked, the second batch is refused, naming batch 1 and its first
 /// shot, 9; unchecked, after a checked first batch, it reaches the bits,
@@ -527,8 +533,8 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     let log = Log::default();
     let run = |first, second| {
         runner(
-            (Program::halves(&[("mz", 0)], &[("x", 5)])
-                .needing(Needs::qubits(2))
+            (Program::halves(&[("mz", 0)], &[("x", 99)])
+                .with_resources(qubits(2))
                 .with_checked_halves(first, second))
             .on(Bits::new(&log)),
         )
@@ -542,7 +548,7 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
                 shot,
                 batch: 1,
                 at: 0,
-                fault: InstructionFault::BlockBeyondNeeds { .. },
+                fault: InstructionFault::BlockBeyondRequired { .. },
             }) if shot == ShotId::new(9)
         ),
         "the checked second batch: {error:?}"
@@ -559,15 +565,11 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
 struct SendsNothing;
 
 impl Driver for SendsNothing {
-    fn sends(&self) -> &InstructionSet {
-        coin_gates()
+    fn requires(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
-
-    fn needs(&self) -> Needs {
-        Needs::qubits(1)
-    }
 
     type Output = ();
 
@@ -615,15 +617,11 @@ struct MakesAnExecute {
 }
 
 impl Driver for MakesAnExecute {
-    fn sends(&self) -> &InstructionSet {
-        coin_gates()
+    fn requires(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
-
-    fn needs(&self) -> Needs {
-        Needs::qubits(1)
-    }
 
     type Output = ();
 
@@ -649,12 +647,8 @@ impl Driver for MakesAnExecute {
 struct AnswersWhenCalled(Rc<Cell<usize>>);
 
 impl Executor for AnswersWhenCalled {
-    fn accepts(&self) -> &InstructionSet {
-        coin_gates()
-    }
-
-    fn offers(&self) -> Offer {
-        Offer::unlimited()
+    fn provides(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
     fn execute(
@@ -674,12 +668,12 @@ impl Executor for AnswersWhenCalled {
 struct ForwardsWhenCalled(Rc<Cell<usize>>);
 
 impl Adapter for ForwardsWhenCalled {
-    fn accepts(&self) -> &InstructionSet {
-        coin_gates()
+    fn provides(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
-    fn sends(&self) -> &InstructionSet {
-        coin_gates()
+    fn requires(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
@@ -802,18 +796,14 @@ fn readouts_of_other_shapes() -> Readouts {
 }
 
 impl Driver for TwoBatches {
-    fn sends(&self) -> &InstructionSet {
-        coin_gates()
+    fn requires(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         for instruction in self.instructions.iter_mut().flatten() {
             instruction.opcode = below.map(instruction.opcode);
         }
-    }
-
-    fn needs(&self) -> Needs {
-        Needs::qubits(1)
     }
 
     type Output = ();
@@ -871,17 +861,13 @@ fn read_stating<D: Driver, E: Executor>(
 struct RecordsWhatItFinds(Option<Bits>, Rc<RefCell<Vec<BatchReadouts>>>);
 
 impl Executor for RecordsWhatItFinds {
-    fn accepts(&self) -> &InstructionSet {
-        coin_gates()
+    fn provides(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
-    fn offers(&self) -> Offer {
-        Offer::unlimited().max_qubits(64)
-    }
-
-    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
+    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
         match &mut self.0 {
-            Some(bits) => bits.ready(needs).await,
+            Some(bits) => bits.ready(required).await,
             None => Ok(()),
         }
     }
@@ -981,16 +967,12 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
 struct FailsFirst(Bits, bool);
 
 impl Executor for FailsFirst {
-    fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
+    fn provides(&self) -> &Capabilities {
+        Executor::provides(&self.0)
     }
 
-    fn offers(&self) -> Offer {
-        self.0.offers()
-    }
-
-    async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
-        self.0.ready(needs).await
+    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
+        self.0.ready(required).await
     }
 
     async fn execute(
@@ -1024,12 +1006,12 @@ impl Executor for FailsFirst {
 struct RetriesAfterAFailure(Profiler);
 
 impl Adapter for RetriesAfterAFailure {
-    fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
+    fn provides(&self) -> &Capabilities {
+        Adapter::provides(&self.0)
     }
 
-    fn sends(&self) -> &InstructionSet {
-        self.0.sends()
+    fn requires(&self) -> &Capabilities {
+        Adapter::requires(&self.0)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -1075,12 +1057,12 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
 struct PassesTooFewReadouts(Profiler);
 
 impl Adapter for PassesTooFewReadouts {
-    fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
+    fn provides(&self) -> &Capabilities {
+        Adapter::provides(&self.0)
     }
 
-    fn sends(&self) -> &InstructionSet {
-        self.0.sends()
+    fn requires(&self) -> &Capabilities {
+        Adapter::requires(&self.0)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -1176,18 +1158,14 @@ struct RoundsIntoItsReadouts {
 }
 
 impl Driver for RoundsIntoItsReadouts {
-    fn sends(&self) -> &InstructionSet {
-        coin_gates()
+    fn requires(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         for instruction in &mut self.instructions {
             instruction.opcode = below.map(instruction.opcode);
         }
-    }
-
-    fn needs(&self) -> Needs {
-        Needs::qubits(1)
     }
 
     type Output = ();
@@ -1230,12 +1208,8 @@ impl Driver for RoundsIntoItsReadouts {
 struct Zeros;
 
 impl Executor for Zeros {
-    fn accepts(&self) -> &InstructionSet {
-        coin_gates()
-    }
-
-    fn offers(&self) -> Offer {
-        Offer::unlimited()
+    fn provides(&self) -> &Capabilities {
+        coin_capabilities()
     }
 
     async fn execute(

@@ -5,13 +5,11 @@
 //! [`on`](crate::DriverJoins::on) of a driver with an executor makes, and
 //! what a run returns when it gives no outputs, [`RunError`].
 //!
-//! A runner holds a chain that joined: its boundaries fit, and its
-//! executor serves its driver's needs. Each run checks what only a run can:
-//! its shots against the most shots a run may have, and its seed against
-//! whether the chain is seedable, both by every part's offer
-//! ([`RunLimits`]); then it gets every part ready for the needs the
-//! admission checked, or is refused by the first that cannot take a run
-//! now. Then the driver
+//! A runner holds a chain that joined: what each part requires is provided
+//! below it. Each run checks what only a run states: its shots and whether
+//! its seed is fixed, against what the parts below the driver provide
+//! together; then it gets every part ready for what is required of it, or
+//! is refused by the first that cannot take a run now. Then the driver
 //! runs the shots, calling the chain below it as one executor, the readouts
 //! of each of whose batches the protocol shapes from the batch, after
 //! checking every batch's count of instructions, and every batch its sender
@@ -21,23 +19,22 @@
 //! its adapters, and the runner on the executor.
 
 mod run_error;
-mod run_limits;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod wait;
 
 use std::panic::resume_unwind;
-use std::sync::Arc;
 
-use super::boundary_crossing::{Boundary, BoundaryCrossing};
+use super::ChainPosition;
+use super::boundary_crossing::BoundaryCrossing;
 use super::part_panics::{PanicEndingShots, await_part, catch_panic, panic_message};
 use super::unended_shots::UnendedShots;
-use crate::{DriveError, Driver, Executor, Failure, PartId, Seed, ShotSet};
+use crate::{Boundary, Capabilities, DriveError, Driver, Executor, Failure, PartId, Seed, ShotSet};
 
 pub use run_error::{RunError, RunRefusal};
-pub(crate) use run_limits::RunLimits;
 
 /// A driver and an executor, joined by [`on`](crate::DriverJoins::on)
-/// with any adapters between them, and admitted: what runs shots.
+/// with any adapters between them, every part's requirement provided: what
+/// runs shots.
 ///
 /// Its type names the driver and the executor `on` joined. It has no
 /// constructor: only `on` makes one, so that every runner's chain joined.
@@ -46,43 +43,37 @@ pub(crate) use run_limits::RunLimits;
 pub struct Runner<D: Driver, E: Executor> {
     driver: D,
     executor: E,
-    /// The driver's top part, as the chain's check added it: what its panic
-    /// names.
+    /// The driver's top part, as the chain's check named it: what its panic
+    /// and its refusal name.
     driver_part: PartId,
-    /// The boundary between the driver and the executor, as the chain's
-    /// check found it: the executor's top part, which its
-    /// panic in an `execute` names; the needs that reach it, which it gets
-    /// ready for on every run; its offer, which the driver's
-    /// `below.offers()` answers; and the limits of the batches the driver
-    /// sends it.
-    executor_boundary: Arc<Boundary>,
-    /// Each boundary of the chain, as the chain's check found it: held,
-    /// never read, so that each joined part the check reached uses its own
-    /// boundary as long as the runner lives.
-    _boundaries: Vec<Arc<Boundary>>,
-    /// The most shots and whether a seed may be fixed, by every part's
-    /// offer, for each run.
-    limits: RunLimits,
+    /// The boundary between the driver and the executor, as the joins' fit
+    /// found it: what the executor gets ready for on every run, what the
+    /// driver's `below.provides()` answers, the limits of the batches the
+    /// driver sends, and the executor's top part, which its panic in an
+    /// `execute` and its refusal name.
+    boundary: Boundary,
+    /// What the parts below the driver provide together, which each run's
+    /// shots and seed are checked against.
+    provision: Capabilities,
 }
 
 impl<D: Driver, E: Executor> Runner<D, E> {
     /// The runner of `driver`, with its top part as the chain's check
-    /// added it, and `executor`, with `executor_boundary`, the boundary
-    /// between them, `boundaries`, each boundary of the chain, and the run
-    /// `limits` of every part's offer, as the check concluded them.
+    /// named it, and `executor`, with `boundary`, the boundary between
+    /// them, and `provision`, what the parts below the driver provide
+    /// together.
     pub(crate) fn new(
         (driver, driver_part): (D, PartId),
         executor: E,
-        (executor_boundary, boundaries): (Arc<Boundary>, Vec<Arc<Boundary>>),
-        limits: RunLimits,
+        boundary: Boundary,
+        provision: Capabilities,
     ) -> Self {
         Self {
             driver,
             executor,
             driver_part,
-            executor_boundary,
-            _boundaries: boundaries,
-            limits,
+            boundary,
+            provision,
         }
     }
 
@@ -112,11 +103,12 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// that needs unseeded runs to differ across processes there passes its
     /// own seed.
     ///
-    /// A run is refused, and nothing of it runs, when it has more shots
-    /// than a run may have (the fewest any part offers), or a seed while the
-    /// chain is not seedable, before any part is asked; or when a part's
-    /// `ready` refuses it: each part gets ready for the needs the admission
-    /// checked, in turn, the executor first, up to the first that refuses.
+    /// A run is refused, and nothing of it runs, when the parts below the
+    /// driver do not provide it together: more shots than the fewest any
+    /// provides, or a fixed seed where one is not seedable, before any part
+    /// is asked; or when a part's `ready` refuses it: each part gets ready
+    /// for what is required of it, in turn, the executor first, up to the
+    /// first that refuses.
     /// Then the driver runs the shots, and a
     /// failure ends the run with the shot it names, a part's panic
     /// included, as the Panics section says.
@@ -176,37 +168,33 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     ) -> impl Future<Output = Result<Vec<D::Output>, RunError>> {
         let seed = seed.into();
         async move {
-            if let Some(most) = self.limits.max_shots
-                && shots.len() > most as usize
-            {
-                return Err(RunError::Refused(RunRefusal::TooManyShots {
-                    asked: u32::try_from(shots.len()).unwrap_or(u32::MAX),
-                    most,
-                }));
-            }
-            if seed.is_some() && !self.limits.seedable {
-                return Err(RunError::Refused(RunRefusal::NotSeedable));
-            }
-            let executor_boundary = &self.executor_boundary;
-            await_part(self.executor.ready(&executor_boundary.needs))
+            self.provision
+                .admits_run(shots.len(), seed.is_some())
+                .map_err(|mismatch| RunError::Refused(RunRefusal::NotProvided(mismatch)))?;
+            let executor_part = self
+                .boundary
+                .part
+                .as_ref()
+                .expect("the driver's `on` names the part below the boundary");
+            let executor_at = ChainPosition::at(executor_part.position);
+            await_part(
+                self.executor
+                    .ready_at(self.boundary.required(), executor_at),
+            )
+            .await
+            .map_err(|not_ready| {
+                RunError::Refused(RunRefusal::part_not_ready(not_ready, executor_part))
+            })?;
+            await_part(self.driver.ready_at(ChainPosition::at(0)))
                 .await
                 .map_err(|not_ready| {
-                    RunError::Refused(RunRefusal::part_not_ready(
-                        not_ready,
-                        executor_boundary
-                            .part
-                            .as_ref()
-                            .expect("the chain's check names the part below each boundary"),
-                    ))
+                    RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.driver_part))
                 })?;
-            await_part(self.driver.ready()).await.map_err(|not_ready| {
-                RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.driver_part))
-            })?;
             let seed = Seed::new(seed.unwrap_or_else(drawn_seed));
             let unended = UnendedShots::new(&mut self.executor, shots, |executor, shots| {
                 executor.end_shots(shots);
             });
-            let mut below = BoundaryCrossing::new(&mut *unended.part, executor_boundary);
+            let mut below = BoundaryCrossing::new(&mut *unended.part, &self.boundary);
             let driver = &mut self.driver;
             let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
                 Ok(Ok(outputs)) => {

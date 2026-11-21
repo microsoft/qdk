@@ -5,7 +5,8 @@
 //! position gives it.
 //!
 //! Each of its methods answers from the half that faces the same way: what
-//! it accepts from the upper part, what it sends from the lower. At run
+//! it provides from the upper half, what it requires from the lower, each
+//! with what the other half forwards. At run
 //! time, the upper part calls the lower one, with the rest of the chain
 //! below it, as one executor:
 //!
@@ -23,37 +24,35 @@
 //! the same way, whatever the brackets: the boundary inside a `Composed`
 //! here, and the one where the driver meets the executor by the runner.
 //! Each shapes the readouts that cross it, checks every batch's count of
-//! instructions against the most its receiver takes, and checks each
-//! batch its sender marked [`checked`](Batch::checked) against the
-//! receiver's instruction set, the shots' needs and the readout slots the
-//! batch states. It names a panic below it by the part that receives the
-//! calls. The limits and the names are those the
-//! [`on`](crate::DriverJoins::on) that makes the runner found when it
-//! checked the chain, as long as that runner lives, so that the checks and
-//! the names are the same wherever the brackets go; so are the needs that
-//! cross the boundary, which the lower part gets ready for on every run.
+//! instructions against the most its receiver provides for, and checks
+//! each batch its sender marked [`checked`](Batch::checked) against the
+//! receiver's instructions, what is required across and the readout slots
+//! the batch states. It names a panic below it by the part that receives
+//! the calls, at its position, when the run's `ready` gave it one.
+//!
+//! What crosses the boundary is the [`Boundary`] the join's fit gave,
+//! resolved on each run with what the parts that do not state a resource
+//! or a feature forward: what is required, at `ready`, from what the part
+//! above it requires; what is provided, at the run's first call, from what
+//! the chain below provides.
 //!
 //! A `Composed` keeps its role's contract through its public methods
-//! alone, so it runs the same when that check did not reach it, such as
-//! inside a part of the user's that forwards only the role's public
-//! methods: each run then reads its boundary from its halves
-//! as the run starts, the needs at `ready` and the offer at the first
-//! call; a panic or a refusal below it passes up unnamed, and the boundary
-//! above names the part at its position; and a `Composed` whose halves do
-//! not fit refuses the run at `ready`, with the fit faults, rather than
-//! running an unbound opcode.
+//! alone, so it runs the same when the chain's check did not reach it,
+//! such as inside a part of the user's that forwards only the role's
+//! public methods: a panic or a refusal below it then passes up unnamed,
+//! and the boundary above names the part at its position; and a
+//! `Composed` whose halves do not fit refuses the run at `ready`, with
+//! their mismatch, rather than running an unbound opcode.
 
 mod adapter;
 mod driver;
 mod executor;
 
-use std::sync::{Arc, Weak};
-
-use super::boundary_crossing::Boundary;
 use super::part_panics::end_both;
+use super::{ChainPosition, PartId};
 use crate::{
-    Adapter, Batch, BatchReadouts, ExecuteError, Executor, FitFaults, InstructionSet, Needs,
-    NotReady, Offer, PartId, Seed, ShotSet,
+    Adapter, Batch, BatchReadouts, Boundary, Capabilities, CapabilitiesMismatch, ExecuteError,
+    Executor, NotReady, Seed, ShotSet,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
@@ -64,97 +63,111 @@ use crate::{
 /// It is public, because the joins return it, but no public path reaches
 /// it: code outside the crate holds one by its role alone, so that a
 /// join's type, and with it the runner's, is the protocol's to change.
+/// The joins return it, rather than an `impl` of the role, so that its
+/// `Send`, and that of the futures of its methods, follows its halves'.
 pub struct Composed<U, L> {
     upper: U,
     lower: L,
-    /// The faults of the boundary between the halves, when the upper half
-    /// does not fit the lower one, as the join found them: every
-    /// [`on`](crate::DriverJoins::on) that makes a runner of a chain
-    /// holding this part, itself or lent by `&mut`, reports them with every
-    /// other fault of that chain; and every run refuses at `ready` with
-    /// them, for a chain whose check did not reach this part.
-    fit_faults: Option<FitFaults>,
-    /// That boundary, as the last chain's check that reached this part
-    /// found it, held by the runner that check made: alive as long as that
-    /// runner is.
-    checked_boundary: Weak<Boundary>,
-    /// That boundary on this run: the checked one, or one read from the
-    /// halves, once the run's first call reads its offer.
-    boundary: Option<Arc<Boundary>>,
-    /// The needs read from the upper half at `ready`, for a run whose
-    /// boundary is read from the halves, until its first call reads it.
-    run_needs: Option<Needs>,
+    /// The boundary between the halves, as the join's fit gave it, and as
+    /// each run resolves it; or, when the upper half's requirement does
+    /// not fit the lower half's provision, their mismatch, with which
+    /// every run refuses at `ready`.
+    fit: Result<Boundary, CapabilitiesMismatch>,
+    /// What the two halves require together, for the driver's and the
+    /// adapter's roles: the lower half's requirement, and the upper's
+    /// where the lower does not state it.
+    requires: Option<Capabilities>,
+    /// What the two halves provide together, for the adapter's and the
+    /// executor's roles: the upper half's provision, and the stricter of
+    /// it and the lower's, where the upper does not require it again.
+    provides: Option<Capabilities>,
+    /// The parts the upper half holds, as it declares them: how far below
+    /// this part's position the lower half's is.
+    upper_parts: usize,
+    /// Whether this run's boundary has what the chain below provides:
+    /// reset at `ready`, set at the run's first call.
+    provided_on_run: bool,
 }
 
-/// Why a `Composed` has its run's needs at its run's first call.
-const READY_FIRST: &str = "each run gets a part ready before calling it, as its role says";
+/// Why a `Composed` has its boundary at its run's first call.
+const READY_FIRST: &str = "each run gets a part ready before calling it, as its role says, \
+                           and a joined part whose halves do not fit refuses every run then";
+
+/// Why a `Composed` has what it requires or provides together.
+const DECLARED: &str = "the join that made a joined part in this role combines it";
 
 impl<U, L> Composed<U, L> {
-    /// `upper` calling `lower`, with the faults of their boundary, if it
-    /// does not fit.
-    pub(crate) fn new(upper: U, lower: L, fit_faults: Option<FitFaults>) -> Self {
+    /// `upper` calling `lower`, where the upper half's requirement meets
+    /// the lower half's provision as `fit` says, and the halves require
+    /// and provide `requires` and `provides` together; the upper half
+    /// declares `upper_parts` parts.
+    fn new(
+        (upper, upper_parts): (U, usize),
+        lower: L,
+        fit: Result<Boundary, CapabilitiesMismatch>,
+        requires: Option<Capabilities>,
+        provides: Option<Capabilities>,
+    ) -> Self {
         Self {
             upper,
             lower,
-            fit_faults,
-            checked_boundary: Weak::new(),
-            boundary: None,
-            run_needs: None,
+            fit,
+            requires,
+            provides,
+            upper_parts,
+            provided_on_run: true,
         }
     }
 
-    /// Starts a run, at `ready`: refuses it if the halves do not fit, with
-    /// their fit faults; otherwise takes their boundary as the chain's
-    /// check found it, while the runner it made lives, or else the needs
-    /// `needs_below` reads from the upper half, for a boundary read on this
-    /// run. Gives the lower half, the needs it gets ready
-    /// for, and its position in the chain, if the check found it, to name
-    /// its refusal.
+    /// Starts a run, at `ready`, of this part at `at`: refuses it if the
+    /// halves do not fit, with their mismatch; otherwise resolves the
+    /// boundary with `required`, what the lower half is required on this
+    /// run. Gives the lower half, what it gets ready for, its position,
+    /// and the part a refusal from it names, the lower half by `name`, if
+    /// that position is known.
     fn start_run(
         &mut self,
-        needs_below: impl FnOnce(&U) -> Needs,
-    ) -> Result<(&mut L, &Needs, Option<&PartId>), NotReady> {
-        if let Some(faults) = &self.fit_faults {
-            return Err(NotReady::new(faults.clone()));
-        }
+        required: impl FnOnce(&U) -> Capabilities,
+        name: impl FnOnce(&L) -> &str,
+        at: ChainPosition,
+    ) -> Result<(&mut L, &Capabilities, ChainPosition, Option<&PartId>), NotReady> {
         let Self {
             upper,
             lower,
-            checked_boundary,
-            boundary,
-            run_needs,
+            fit,
+            upper_parts,
+            provided_on_run,
             ..
         } = self;
-        // Dropped first: the boundary of the last run, if it was checked,
-        // would otherwise keep alive the check of a runner since dropped.
-        *boundary = None;
-        *boundary = checked_boundary.upgrade();
-        Ok(match boundary {
-            Some(boundary) => (lower, &boundary.needs, boundary.part.as_ref()),
-            None => (lower, run_needs.insert(needs_below(upper)), None),
-        })
+        let boundary = fit
+            .as_mut()
+            .map_err(|mismatch| NotReady::new(mismatch.clone()))?;
+        let below = at.below(*upper_parts);
+        boundary.require(&required(upper));
+        boundary.part = below.part(name(lower));
+        *provided_on_run = false;
+        Ok((lower, boundary.required(), below, boundary.part.as_ref()))
     }
 
-    /// The halves, and their boundary on this run: as
-    /// [`start_run`](Self::start_run) took it, or else read now, at the
-    /// run's first call, from the needs read there, and the offer and the
-    /// receiver's set `read` gives from the lower half.
+    /// The halves, and their boundary on this run, given at the run's
+    /// first call what the chain below provides, as `provided` reads it
+    /// from the lower half.
     fn run_boundary(
         &mut self,
-        read: impl FnOnce(&L) -> (Offer, InstructionSet),
+        provided: impl FnOnce(&L) -> Capabilities,
     ) -> (&mut U, &mut L, &Boundary) {
         let Self {
             upper,
             lower,
-            boundary,
-            run_needs,
+            fit,
+            provided_on_run,
             ..
         } = self;
-        let boundary = boundary.get_or_insert_with(|| {
-            let (offer, receiver) = read(lower);
-            let needs = run_needs.take().expect(READY_FIRST);
-            Arc::new(Boundary::new(None, needs, offer, receiver))
-        });
+        let boundary = fit.as_mut().expect(READY_FIRST);
+        if !*provided_on_run {
+            boundary.provide(&provided(lower));
+            *provided_on_run = true;
+        }
         (upper, lower, boundary)
     }
 }
@@ -174,15 +187,10 @@ impl<A: Adapter, B: Executor> Executor for ChainBelow<'_, A, B> {
         self.adapter.name()
     }
 
-    fn accepts(&self) -> &InstructionSet {
-        self.adapter.accepts()
-    }
-
-    /// What the adapter offers above the chain below. Not asked at run
-    /// time: the boundary crossing the part above calls answers the
-    /// offer kept for the boundary.
-    fn offers(&self) -> Offer {
-        self.adapter.offers_above(self.below.offers())
+    /// The adapter's. Not asked at run time: the boundary crossing the
+    /// part above calls answers what is provided across it.
+    fn provides(&self) -> &Capabilities {
+        self.adapter.provides()
     }
 
     /// The adapter's `adapt`: it keeps [`Executor::execute`]'s rule, doing

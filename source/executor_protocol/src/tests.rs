@@ -11,10 +11,10 @@
 //! in parallel do not disturb its count.
 
 mod batch;
+mod capabilities;
 mod composition;
 mod fake_parts;
 mod instruction_set;
-mod needs;
 mod seed;
 
 use std::alloc::{GlobalAlloc, Layout, System};

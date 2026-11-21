@@ -7,10 +7,9 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::composition::chain_check::ChainCheck;
+use crate::composition::{ChainPosition, DeclaredParts};
 use crate::{
-    ExecuteError, Executor, Failure, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Seed,
-    ShotId, ShotSet,
+    Capabilities, ExecuteError, Executor, Failure, NotReady, OpcodeMap, Seed, ShotId, ShotSet,
 };
 
 /// Calls the part below with batches of the instructions it sends, each
@@ -28,15 +27,15 @@ use crate::{
 /// # Declarations
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins)) read them once, before
-/// any run: [`name`](Self::name), [`sends`](Self::sends) and
-/// [`needs`](Self::needs). The join to the part below hands back what it
-/// made of them: [`bind`](Self::bind) gets the fit's opcode map. A join
-/// only decides, from what the parts declare; what prepares a part to run
-/// belongs to each run.
+/// any run: [`name`](Self::name) and [`requires`](Self::requires). The
+/// join to the part below hands back what it made of them:
+/// [`bind`](Self::bind) gets the fit's opcode map. A join only decides,
+/// from what the parts declare; what prepares a part to run belongs to
+/// each run.
 ///
-/// Its instruction set and its needs must not change once it is joined:
-/// the fit, `bind`'s map and the admission are made once, from them, and
-/// each part below gets ready, on every run, for the needs read then.
+/// What it requires must not change once it is joined: the fit and
+/// `bind`'s map are made once, from it, and each part below gets ready, on
+/// every run, for the requirement read then.
 ///
 /// # Run
 ///
@@ -53,14 +52,11 @@ pub trait Driver {
         std::any::type_name::<Self>()
     }
 
-    /// The instructions it sends, which must fit the part below.
-    fn sends(&self) -> &InstructionSet;
-
-    /// What its shots need of the chain below, such as their qubits, which
-    /// the offer below it must meet, and, adapted by each adapter, the
-    /// offer of each part further below. The
-    /// [`on`](crate::DriverJoins::on) that makes a runner reads it once.
-    fn needs(&self) -> Needs;
+    /// What it requires of the part below: the instructions it sends, and
+    /// what its shots use, such as their qubits. The part below must
+    /// provide it, and each part further below what no adapter between
+    /// them states again, as [`Capabilities`] says.
+    fn requires(&self) -> &Capabilities;
 
     /// Receives, once, the translation of its opcodes into the part
     /// below's. An opcode is an instruction's place in its set, and the
@@ -73,8 +69,8 @@ pub trait Driver {
     /// it sends.
     fn bind(&mut self, below: OpcodeMap);
 
-    /// As [`Executor::ready`], asked last; a driver knows its own needs,
-    /// so it gets none.
+    /// As [`Executor::ready`], asked last; a driver knows what it
+    /// requires, so it is given nothing.
     fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
         async { Ok(()) }
     }
@@ -88,7 +84,7 @@ pub trait Driver {
     /// Each batch it sends below holds only shots of `shots`: a rule the
     /// driver keeps, which the protocol does not check. A shot outside them
     /// is not counted against the most shots a run may have
-    /// ([`Offer::max_shots`](crate::Offer::max_shots)), and the runner
+    /// ([`Resources::with_shots`](crate::Resources::with_shots)), and the runner
     /// does not end it, so a part may carry its state into a later run,
     /// which then does not repeat with its seed.
     ///
@@ -118,31 +114,33 @@ pub trait Driver {
         below: &mut impl Executor,
     ) -> impl Future<Output = Result<Vec<Self::Output>, DriveError>>;
 
-    // Protocol hook: sealed and hidden. Its parameter type, `ChainCheck`
-    // (`src/composition/chain_check.rs`), cannot be named outside this
-    // crate, so no other crate can call or override it. It is in the trait
-    // because Rust cannot specialise a default method: the protocol's
-    // joined parts (`Composed`, in `src/composition/composed/`) override
-    // it to add each inner part's facts, so that a refusal names the inner
-    // part that was short, and the chain's runner names each inner part
-    // by its position. Correctness does not depend on it: a joined part
-    // the check does not reach, such as one inside a part of the user's
-    // that forwards only the public methods, runs the same.
+    // Protocol hooks: sealed and hidden. Their parameter types,
+    // `DeclaredParts` and `ChainPosition` (`src/composition/`), cannot be
+    // named outside this crate, so no other crate can call or override
+    // them. They are in the trait because Rust cannot specialise a default
+    // method: the protocol's joined parts (`Composed`, in
+    // `src/composition/composed/`) override them, to declare each inner
+    // part, so that a composition fault names the inner part that is
+    // short, and to name an inner part's refusal by its position.
+    // Correctness does not depend on them: a joined part they do not
+    // reach, such as one inside a part of the user's that forwards only
+    // the public methods, runs the same.
 
-    /// Adds its needs, as this part's, to `chain`, then has the chain
-    /// `below` add its facts for them, and gives the offer that reaches it
-    /// from below. Only the crate overrides it, to add each part it holds,
-    /// with the fit faults of each boundary it holds, top to bottom. The
+    /// Adds this part, its name and what it requires, to `parts`. Only the
+    /// crate overrides it, to add each part it holds, top to bottom. The
     /// [`on`](crate::DriverJoins::on) that makes a runner calls it once.
     #[doc(hidden)]
-    fn check_chain(
-        &mut self,
-        below: &mut dyn FnMut(Needs, &mut ChainCheck) -> Offer,
-        chain: &mut ChainCheck,
-    ) -> Offer {
-        let needs = self.needs();
-        chain.add_needs(Driver::name(self), &needs);
-        below(needs, chain)
+    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        parts.push(Driver::name(self), Some(self.requires()), None);
+    }
+
+    /// [`ready`](Self::ready), for this part at `at` in its chain. Only
+    /// the crate overrides it, to name a refusal of a part it holds by
+    /// that part's position.
+    #[doc(hidden)]
+    fn ready_at(&mut self, at: ChainPosition) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = at;
+        self.ready()
     }
 }
 

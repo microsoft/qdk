@@ -11,50 +11,44 @@
 //! calling the joins on them: `driver.through(adapter).on(executor)`. A
 //! joined part's type cannot be named: it is used by its role alone.
 //!
-//! Each join checks that the instructions sent fit those accepted, and
-//! keeps the faults of each boundary that does not, so that the join that
-//! makes a runner, checking the whole chain (`chain_check`), reports every
-//! fault of the chain at once: each boundary's, and the admission's, at
-//! each boundary the needs of the part above against the offer of the part
-//! below ([`CompositionFaults`]). A joined part that check cannot reach,
-//! inside a part of the user's that forwards only its role's public
-//! methods, refuses every run at `ready` with its faults instead. A
-//! chain that joins is then a runner, which gets every part ready for
-//! its needs on each run, and the protocol shapes the readouts crossing
-//! its boundaries, checks every batch's count of instructions, and each
-//! batch its sender marked [`checked`](crate::Batch::checked), so a part
-//! writes only its own logic. A part has a place only in a chain, so what
-//! names it there ([`PartId`]), the call across each boundary
-//! (`boundary_crossing`) and the catching of a part's panics
-//! (`part_panics`) belong to composition too.
+//! Each join checks that what the part above requires fits what the part
+//! below provides ([`BoundaryCompatible::fits`]), and keeps the
+//! [`Boundary`](crate::Boundary) where they meet, or the
+//! mismatch. The join that makes a runner then checks the whole chain, as
+//! its parts declare themselves (`declared_parts`): each requirement
+//! against the part below, and what the part below does not require again
+//! against each part further below, and reports every fault at once
+//! ([`CompositionFaults`]). A joined part that check cannot reach, inside
+//! a part of the user's that forwards only its role's public methods,
+//! refuses every run at `ready` with its mismatch instead. A chain that
+//! joins is then a runner, which gets every part ready on each run, and
+//! the protocol shapes the readouts crossing its boundaries, checks every
+//! batch's count of instructions, and each batch its sender marked
+//! [`checked`](crate::Batch::checked), so a part writes only its own
+//! logic. A part has a place only in a chain, so what names it there
+//! ([`PartId`]), the call across each boundary (`boundary_crossing`) and
+//! the catching of a part's panics (`part_panics`) belong to composition
+//! too.
 //!
 //! The joins, and the role each gives, are in the crate's
 //! `docs/composing-and-running.md`.
+//!
+//! [`BoundaryCompatible::fits`]: crate::BoundaryCompatible::fits
 
 mod adapter_joins;
 mod boundary_crossing;
-pub(crate) mod chain_check;
 mod composed;
+mod composition_faults;
+mod declared_parts;
 mod driver_joins;
 mod part_id;
 mod part_panics;
 pub(crate) mod runner;
 mod unended_shots;
 
-use crate::{FitFaults, InstructionSet, OpcodeMap};
-
 pub use adapter_joins::AdapterJoins;
-pub use chain_check::{AdmissionFaults, CompositionFaults, ShortOffer};
+pub use composition_faults::{CompositionFault, CompositionFaults};
+pub use declared_parts::DeclaredParts;
 pub use driver_joins::DriverJoins;
-pub use part_id::PartId;
+pub use part_id::{ChainPosition, PartId};
 pub use runner::{RunError, RunRefusal, Runner};
-
-/// The receiver's opcode for each instruction `sent`, or the boundary's
-/// fault, naming both sets.
-fn fit(sent: &InstructionSet, accepted: &InstructionSet) -> Result<OpcodeMap, FitFaults> {
-    sent.fits(accepted).map_err(|mismatches| FitFaults {
-        sent: sent.name().to_owned(),
-        accepted: accepted.name().to_owned(),
-        mismatches,
-    })
-}

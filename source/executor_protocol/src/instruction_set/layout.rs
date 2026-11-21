@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 
 use super::{
     BlockType, DeclarationFault, Instruction, InstructionDef, InstructionFault, ParameterKind,
-    instruction::{Argument, Bit, ReceiverNeeds},
+    instruction::{Argument, Bit, ReceiverRequirement},
 };
 
 /// What an instruction's check compares, derived from its declaration.
@@ -137,19 +137,20 @@ impl Layout {
         })
     }
 
-    /// Checks `instruction`, of `def`, against this layout, and, given its
-    /// shots' `needs`, each block's index against their blocks of its type
-    /// and each readout parity against whether they use any; the
+    /// Checks `instruction`, of `def`, against this layout, and, given what
+    /// its shots require, `required`, each block's index against their
+    /// blocks of its type and each readout parity against whether they
+    /// use any; the
     /// first fault: a block count other than the layout's (or, for a
     /// variadic operand, below its least), a block beyond the shot's, a
     /// block given twice, an argument missing, extra or of another kind, a
-    /// readout parity counting back 0 or not in the needs, a select of
+    /// readout parity counting back 0 or not required, a select of
     /// no patterns, or a flag pattern over flags it lacks.
     pub(crate) fn check(
         &self,
         def: &InstructionDef,
         instruction: &Instruction,
-        needs: Option<&ReceiverNeeds>,
+        required: Option<&ReceiverRequirement>,
     ) -> Result<(), InstructionFault> {
         let mnemonic = || def.mnemonic.clone();
         let blocks = &instruction.blocks;
@@ -162,15 +163,15 @@ impl Layout {
                 variadic: self.variadic,
             });
         }
-        if let Some(ReceiverNeeds { blocks_of, .. }) = needs {
+        if let Some(ReceiverRequirement { blocks_of, .. }) = required {
             for (position, &block) in blocks.iter().enumerate() {
                 for block_type in self.slot(position).types() {
-                    let needs = blocks_of[block_type as usize];
-                    if block >= needs {
-                        return Err(InstructionFault::BlockBeyondNeeds {
+                    let required = blocks_of[block_type as usize];
+                    if block >= required {
+                        return Err(InstructionFault::BlockBeyondRequired {
                             mnemonic: mnemonic(),
                             block,
-                            needs,
+                            required,
                         });
                     }
                 }
@@ -211,8 +212,8 @@ impl Layout {
                         mnemonic: mnemonic(),
                     });
                 }
-                if needs.is_some_and(|needs| !needs.readout_parity) {
-                    return Err(InstructionFault::ParityNotNeeded {
+                if required.is_some_and(|required| !required.readout_parity) {
+                    return Err(InstructionFault::ParityNotRequired {
                         mnemonic: mnemonic(),
                         parameter: def.parameters[position].name.clone(),
                     });

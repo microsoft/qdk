@@ -26,11 +26,11 @@ use super::{InstructionSet, Opcode, ParameterKind};
 use smallvec::SmallVec;
 use std::fmt;
 
-/// The shots' needs as they reach a receiver, as an instruction's check
-/// reads them: their blocks of each of the receiver's block types, and
-/// whether they may hold readout parities.
+/// What the shots require of a receiver, as an instruction's check reads
+/// it: their blocks of each of the receiver's block types, and whether
+/// they may hold readout parities.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ReceiverNeeds {
+pub(crate) struct ReceiverRequirement {
     /// The shot's blocks of each of the set's block types, in the set's
     /// order.
     pub(crate) blocks_of: Vec<u32>,
@@ -142,20 +142,21 @@ impl InstructionSet {
         Ok(instruction)
     }
 
-    /// Checks `instruction` against this set, and, given its shots'
-    /// `needs`, its blocks and readout parities against them: its readout
-    /// slots (its outcomes, then its flags), or the first fault.
+    /// Checks `instruction` against this set, and, given what its shots
+    /// require, `required`, its blocks and readout parities against it:
+    /// its readout slots (its outcomes, then its flags), or the first
+    /// fault.
     pub(crate) fn check(
         &self,
         instruction: &Instruction,
-        needs: Option<&ReceiverNeeds>,
+        required: Option<&ReceiverRequirement>,
     ) -> Result<u32, InstructionFault> {
         let index = instruction.opcode.index();
         let (Some(def), Some(layout)) = (self.instructions.get(index), self.layouts.get(index))
         else {
             return Err(InstructionFault::UnknownOpcode(instruction.opcode));
         };
-        layout.check(def, instruction, needs)?;
+        layout.check(def, instruction, required)?;
         Ok(layout.readout_slots())
     }
 }
@@ -186,15 +187,15 @@ pub enum InstructionFault {
         /// Whether it has a variadic operand.
         variadic: bool,
     },
-    /// At an `execute`: a block at or past `needs`, the shot's blocks of
-    /// its type.
-    BlockBeyondNeeds {
+    /// At an `execute`: a block at or past `required`, the shot's blocks of
+    /// its type, as required across the boundary.
+    BlockBeyondRequired {
         /// The instruction's mnemonic.
         mnemonic: String,
         /// The block, from 0.
         block: u32,
-        /// The shot's blocks of its type.
-        needs: u32,
+        /// The shot's blocks of its type, as required.
+        required: u32,
     },
     /// Both: one block twice, as `cx [0, 0]`, before the instruction or
     /// after it (a block turned into another type, given the index of a
@@ -286,12 +287,11 @@ pub enum InstructionFault {
         /// The instruction's mnemonic.
         mnemonic: String,
     },
-    /// At an `execute`: a readout parity for this parameter, sent to shots
-    /// whose needs, as they reach the receiver, use none
-    /// ([`Needs::uses_readout_parity`](crate::Needs::uses_readout_parity)),
-    /// so that the admission did not check that the receiver resolves
-    /// them.
-    ParityNotNeeded {
+    /// At an `execute`: a readout parity for this parameter, sent across a
+    /// boundary whose required features do not state readout parities
+    /// ([`Features::with_readout_parity`](crate::Features::with_readout_parity)),
+    /// so that no fit checked that the receiver resolves them.
+    ParityNotRequired {
         /// The instruction's mnemonic.
         mnemonic: String,
         /// The parameter's name.
@@ -299,7 +299,8 @@ pub enum InstructionFault {
     },
     /// An executor's own rule beyond the set, in its words: a batch sampler
     /// refusing a measurement before the batch's end; an argument out of
-    /// its range. A rule an offer can state goes in the offer instead.
+    /// its range. A rule its provided capabilities can state goes there
+    /// instead.
     Unsupported {
         /// The instruction's mnemonic.
         mnemonic: String,
@@ -330,13 +331,13 @@ impl fmt::Display for InstructionFault {
                     "`{mnemonic}` takes {least}{expected} {blocks}, given {got}"
                 )
             }
-            InstructionFault::BlockBeyondNeeds {
+            InstructionFault::BlockBeyondRequired {
                 mnemonic,
                 block,
-                needs,
+                required,
             } => write!(
                 f,
-                "`{mnemonic}` acts on block {block}, beyond the shot's {needs} of its type"
+                "`{mnemonic}` acts on block {block}, beyond the {required} of its type required"
             ),
             InstructionFault::RepeatedBlock { mnemonic, block } => {
                 write!(f, "`{mnemonic}` is given block {block} twice")
@@ -398,13 +399,13 @@ impl fmt::Display for InstructionFault {
             InstructionFault::ZeroLookback { mnemonic } => {
                 write!(f, "`{mnemonic}` counts back 0 readouts; the latest is 1")
             }
-            InstructionFault::ParityNotNeeded {
+            InstructionFault::ParityNotRequired {
                 mnemonic,
                 parameter,
             } => write!(
                 f,
                 "`{mnemonic}` is given a readout parity for `{parameter}`, \
-                 but its shots' needs use none"
+                 and readout parities are not required"
             ),
             InstructionFault::Unsupported { mnemonic, reason } => {
                 write!(f, "`{mnemonic}` is not supported: {reason}")

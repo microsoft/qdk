@@ -6,15 +6,13 @@
 //!
 //! So that no part checks what it is sent, nor shapes the readouts it
 //! fills: each call across a boundary of a chain goes through a boundary
-//! crossing, built anew for it, both inside a joined part
-//! (`composed`) and where the runner's driver meets its executor; the
-//! limits it applies were read by the [`on`](crate::DriverJoins::on) that
-//! made the runner, or, inside a joined part that `on`'s check did not
-//! reach (one held by a part of the user's), on the run. It takes the
-//! batches in order, and
-//! for each, refuses it if it holds more instructions than the receiver
-//! takes ([`ExecuteRefusal::TooManyInstructions`]), checked or not, or,
-//! for a batch its sender marked [`checked`](Batch::checked), makes the
+//! crossing, built anew for it, both inside a joined part (`composed`)
+//! and where the runner's driver meets its executor, with the
+//! [`Boundary`] the joins' fit found there, as the run resolved it. It
+//! takes the batches in order, and for each, refuses it if it holds more
+//! instructions than the receiver takes
+//! ([`ExecuteRefusal::TooManyInstructions`]), checked or not, or, for a
+//! batch its sender marked [`checked`](Batch::checked), makes the
 //! refusals [`Batch::checked`] lists; then shapes its readouts from it, a
 //! row per shot of a value per readout slot its sender stated, so that the
 //! receiver only fills them and the part above indexes them without a
@@ -22,36 +20,28 @@
 //! refused batch ends the `execute` before the receiver runs any batch;
 //! the readouts are then unspecified, as after any error. It makes a
 //! failure of the receiver's panic, naming the receiver at its position
-//! (where a panic unwinds: on wasm32, it aborts); where the check did not
-//! reach it, its position is not known, so it lets the panic pass up to
-//! the boundary above, which names the part at its own position. What
-//! crosses the boundary, and the limits it checks batches against, are in
-//! `boundary` and `batch_limits`.
-
-mod batch_limits;
-mod boundary;
-
-pub(crate) use boundary::Boundary;
+//! (where a panic unwinds: on wasm32, it aborts); where its position is
+//! not known, it lets the panic pass up to the boundary above, which names
+//! the part at its own position.
 
 use std::panic::resume_unwind;
 
 use super::part_panics::{catch_panic, panic_message};
+use crate::capabilities::BatchFault;
 use crate::{
-    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Executor, Failure, InstructionSet, Offer,
+    Batch, BatchReadouts, Boundary, Capabilities, ExecuteError, ExecuteRefusal, Executor, Failure,
     Seed, ShotId, ShotSet,
 };
-use batch_limits::{BatchFault, BatchLimits};
 
-/// A call across a boundary to `inner`, its receiver, with what crosses
-/// the boundary as the chain's check found it, or as read on the run: each
-/// batch is checked against its batch limits, which hold the receiver's
-/// set as read then and its most instructions: the count of every batch,
+/// A call across a boundary to `inner`, its receiver, with the boundary
+/// as the joins' fit found it and the run resolved it: each batch is
+/// checked against what is provided across it, the count of every batch,
 /// and the instructions of each checked one. The readouts of each batch
 /// are shaped from the batch.
 pub(crate) struct BoundaryCrossing<'a, E> {
     inner: &'a mut E,
     /// The boundary: the part that receives `inner`'s calls, if known,
-    /// which a panic of `inner` names, the offer that crosses it and the
+    /// which a panic of `inner` names, what is provided across it and the
     /// batch limits.
     boundary: &'a Boundary,
 }
@@ -69,18 +59,12 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
         self.inner.name()
     }
 
-    /// The receiver's set as read with the boundary, which the batch
-    /// limits hold and every checked batch is checked against, not the
-    /// receiver's answer now: a receiver whose set changes later gets
-    /// checked batches checked against the set read then, not the new one.
-    fn accepts(&self) -> &InstructionSet {
-        self.boundary.batch_limits.set()
-    }
-
-    /// The offer read with the boundary, which the admission checked when
-    /// the chain's check found it, not the receiver's answer now.
-    fn offers(&self) -> Offer {
-        self.boundary.offer.clone()
+    /// What is provided across the boundary, as the joins' fit found it
+    /// and the run resolved it, not the receiver's answer now: a receiver
+    /// whose set changes later gets checked batches checked against the
+    /// set read at composition.
+    fn provides(&self) -> &Capabilities {
+        self.boundary.provided()
     }
 
     /// Takes `batches` in order: refuses a batch that holds more
@@ -116,7 +100,11 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
             if batch.is_checked() {
                 self.boundary
                     .batch_limits
-                    .check(batch.instructions, batch.readout_slots())
+                    .check(
+                        self.boundary.provided().instructions(),
+                        batch.instructions,
+                        batch.readout_slots(),
+                    )
                     .map_err(refused)?;
             }
             batch_readouts.shape(batch.shots.len(), batch.readout_slots());

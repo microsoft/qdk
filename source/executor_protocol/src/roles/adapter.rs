@@ -4,10 +4,9 @@
 //! The adapter's role, [`Adapter`]: a part between a driver and an
 //! executor.
 
-use crate::composition::chain_check::ChainCheck;
+use crate::composition::{ChainPosition, DeclaredParts};
 use crate::{
-    Batch, BatchReadouts, ExecuteError, Executor, InstructionSet, Needs, NotReady, Offer,
-    OpcodeMap, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, NotReady, OpcodeMap, Seed, ShotSet,
 };
 
 /// Answers each `execute` it receives, in the instructions it accepts, by
@@ -25,18 +24,15 @@ use crate::{
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins) and
 /// [`AdapterJoins`](crate::AdapterJoins)) read them once, before any run:
-/// [`name`](Self::name), [`accepts`](Self::accepts),
-/// [`sends`](Self::sends), and, written only by an adapter that changes
-/// what the chain needs or offers, [`needs_below`](Self::needs_below) and
-/// [`offers_above`](Self::offers_above). The join to the part below hands
-/// back what it made of them: [`bind`](Self::bind) gets the fit's opcode
-/// map. A join only decides, from what the parts declare; what prepares a
-/// part to run belongs to each run.
+/// [`name`](Self::name), [`provides`](Self::provides) and
+/// [`requires`](Self::requires). The join to the part below hands back
+/// what it made of them: [`bind`](Self::bind) gets the fit's opcode map.
+/// A join only decides, from what the parts declare; what prepares a part
+/// to run belongs to each run.
 ///
-/// Its instruction sets, the needs it passes below and its offer above
-/// must not change once it is joined: the fit, `bind`'s map and the
-/// admission are made once, from them, and each part gets ready, on every
-/// run, for the needs read then.
+/// What it provides and requires must not change once it is joined: the
+/// fits and `bind`'s map are made once, from them, and each part gets
+/// ready, on every run, for the requirements read then.
 ///
 /// # Run
 ///
@@ -49,68 +45,18 @@ pub trait Adapter {
         std::any::type_name::<Self>()
     }
 
-    /// The instructions it receives, which the part above must fit. Each
-    /// checked batch it receives is checked against this set as read once,
-    /// by the [`on`](crate::DriverJoins::on) that makes a runner.
-    fn accepts(&self) -> &InstructionSet;
+    /// What it provides the part above: the instructions it receives, and
+    /// each resource and feature it serves itself. A resource or a feature
+    /// it does not state is what the part below provides, forwarded, as
+    /// [`Capabilities`] says: an adapter states only what it changes, such
+    /// as a decoder's most logical qubits, or replay it does itself.
+    fn provides(&self) -> &Capabilities;
 
-    /// The instructions it sends below, which must fit the part below.
-    fn sends(&self) -> &InstructionSet;
-
-    /// What it needs below to serve `above`, the needs of the part above
-    /// it; by default the same.
-    ///
-    /// Its answer is enough: when this adapter can serve `above` at all, an
-    /// offer below that meets exactly this answer lets it serve them, so
-    /// its [`offers_above`](Self::offers_above) of that offer meets
-    /// `above`. It states every block it takes below, such as a decoder's
-    /// workspace qubits, and passes a need for replay down unless it
-    /// replays its shots itself, and then offers replay above
-    /// ([`offers_above`](Self::offers_above)), which meets the need only
-    /// where that offer is seedable too. The verdict of the admission
-    /// never depends on this rule, but which parts a refusal names does: an
-    /// adapter that asks for less than it needs may be named in a refusal
-    /// another part causes.
-    ///
-    /// The [`on`](crate::DriverJoins::on) that makes a runner reads it
-    /// once.
-    fn needs_below(&self, above: Needs) -> Needs {
-        above
-    }
-
-    /// What it offers above, given what is offered `below`; by default the
-    /// same. The admission checks the needs of the part above against it,
-    /// and each batch the part above sends it is checked against its most
-    /// instructions. Where an offer cannot be exact, such as for two block
-    /// types drawn from one pool below, the admission still checks what
-    /// [`needs_below`](Self::needs_below) passes down against the
-    /// executor's own offer.
-    ///
-    /// Its most shots and whether a run may fix its seed can lower the
-    /// run's limits, such as for a job queue, but never raise them: each
-    /// run is checked against the fewest shots any part offers, and may fix
-    /// its seed only when every part is seedable. So, for a run, an offer
-    /// restated from `Offer::unlimited()` keeps the shots and seedability
-    /// of the parts below. But it claims replay, which is checked at each
-    /// boundary against this offer, its seedability included: an adapter
-    /// that does not replay its shots itself keeps `below.replayable`.
-    ///
-    /// A refusal names this adapter when it is short on its own: when its
-    /// answer for an offer below that meets exactly what `needs_below`
-    /// asks, as [`ShortOffer::offered`](crate::ShortOffer::offered) says,
-    /// does not meet the needs of the part above, such as readout parities
-    /// it cannot lower, or more qubits than its decoder takes. Or, by a
-    /// fallback, when that answer meets them, but its answer for the real
-    /// offer below does not, while the real offer below meets what
-    /// `needs_below` asks. So an adapter that only passes a shortage below
-    /// up is not named. The [`on`](crate::DriverJoins::on) that makes a
-    /// runner asks it for both answers.
-    ///
-    /// The [`on`](crate::DriverJoins::on) that makes a runner reads it
-    /// once, and the admission and every check of a run use that answer.
-    fn offers_above(&self, below: Offer) -> Offer {
-        below
-    }
+    /// What it requires of the part below: the instructions it sends, and
+    /// each resource and feature it uses itself, such as a code's physical
+    /// qubits. A resource or a feature it does not state is what the part
+    /// above requires, forwarded, as [`Capabilities`] says.
+    fn requires(&self) -> &Capabilities;
 
     /// Receives, once, the translation of the opcodes it sends into the
     /// part below's. An opcode is an instruction's place in its set, and
@@ -122,11 +68,10 @@ pub trait Adapter {
     /// translate each instruction it forwards or adds.
     fn bind(&mut self, below: OpcodeMap);
 
-    /// As [`Executor::ready`], for `above`, the needs of the part above it,
-    /// as the admission checked them, such as for a layout of its logical
-    /// qubits.
-    fn ready(&mut self, above: &Needs) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = above;
+    /// As [`Executor::ready`], for `required`, what the part above
+    /// requires of it, such as for a layout of its logical qubits.
+    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = required;
         async { Ok(()) }
     }
 
@@ -178,39 +123,32 @@ pub trait Adapter {
         let _ = shots;
     }
 
-    // Protocol hook: sealed and hidden. Its parameter type, `ChainCheck`
-    // (`src/composition/chain_check.rs`), cannot be named outside this
-    // crate, so no other crate can call or override it. It is in the trait
-    // because Rust cannot specialise a default method: the protocol's
-    // joined parts (`Composed`, in `src/composition/composed/`) override it
-    // to add each inner part's facts, so that a refusal names the inner
-    // part that was short, and the chain's runner names each inner part
-    // by its position. Correctness does not depend on it: a joined part
-    // the check does not reach, such as one inside a part of the user's
-    // that forwards only the public methods, runs the same.
+    // Protocol hooks: sealed and hidden, as `Driver`'s are.
 
-    /// Adds its needs below, given `above`, as this part's, to `chain`; has
-    /// the chain `below` add its facts for them; and adds and gives its
-    /// offer above, given the offer that comes back. Only the crate
-    /// overrides it, to add each part it holds, with the fit faults of
-    /// each boundary it holds, top to bottom, and what crosses each of
-    /// them. The [`on`](crate::DriverJoins::on) that makes a runner calls
-    /// it once.
+    /// Adds this part, its name, what it requires and what it provides, to
+    /// `parts`. Only the crate overrides it, to add each part it holds,
+    /// top to bottom. The [`on`](crate::DriverJoins::on) that makes a
+    /// runner calls it once.
     #[doc(hidden)]
-    fn check_chain(
+    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        parts.push(
+            Adapter::name(self),
+            Some(self.requires()),
+            Some(self.provides()),
+        );
+    }
+
+    /// [`ready`](Self::ready), for this part at `at` in its chain. Only
+    /// the crate overrides it, to name a refusal of a part it holds by
+    /// that part's position.
+    #[doc(hidden)]
+    fn ready_at(
         &mut self,
-        above: Needs,
-        below: &mut dyn FnMut(Needs, &mut ChainCheck) -> Offer,
-        chain: &mut ChainCheck,
-    ) -> Offer {
-        let needs_below = self.needs_below(above);
-        chain.add_needs(Adapter::name(self), &needs_below);
-        let offer_below = below(needs_below, chain);
-        let offer_above = self.offers_above(offer_below.clone());
-        chain.add_adapter_offer(Adapter::name(self), &offer_above, &offer_below, |exactly| {
-            self.offers_above(exactly)
-        });
-        offer_above
+        required: &Capabilities,
+        at: ChainPosition,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = at;
+        self.ready(required)
     }
 }
 
@@ -222,28 +160,20 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
         (**self).name()
     }
 
-    fn accepts(&self) -> &InstructionSet {
-        (**self).accepts()
+    fn provides(&self) -> &Capabilities {
+        (**self).provides()
     }
 
-    fn sends(&self) -> &InstructionSet {
-        (**self).sends()
-    }
-
-    fn needs_below(&self, above: Needs) -> Needs {
-        (**self).needs_below(above)
-    }
-
-    fn offers_above(&self, below: Offer) -> Offer {
-        (**self).offers_above(below)
+    fn requires(&self) -> &Capabilities {
+        (**self).requires()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
         (**self).bind(below);
     }
 
-    fn ready(&mut self, above: &Needs) -> impl Future<Output = Result<(), NotReady>> {
-        (**self).ready(above)
+    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        (**self).ready(required)
     }
 
     fn adapt(
@@ -260,12 +190,15 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
         (**self).end_shots(shots);
     }
 
-    fn check_chain(
+    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        (**self).declare(parts);
+    }
+
+    fn ready_at(
         &mut self,
-        above: Needs,
-        below: &mut dyn FnMut(Needs, &mut ChainCheck) -> Offer,
-        chain: &mut ChainCheck,
-    ) -> Offer {
-        (**self).check_chain(above, below, chain)
+        required: &Capabilities,
+        at: ChainPosition,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        (**self).ready_at(required, at)
     }
 }
