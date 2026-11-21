@@ -7,21 +7,19 @@
 //!
 //! - Drivers: [`CoinCopy`], which branches on a readout; [`Program`],
 //!   one batch for every shot, or one for each half of them, in
-//!   [`CoinGates`] or another set, such as [`ParityGates`], which may say
-//!   it serves a run's shots; and [`HidesRunProvision`], a user's driver
-//!   that does not forward what the driver it holds serves of a run.
+//!   [`CoinGates`] or another set, such as [`ParityGates`], requiring the
+//!   run's shots and seed.
 //! - Executors: [`Bits`], and executors that answer later ([`Later`]) or
 //!   from a thread ([`FromThread`]).
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
 //!   [`NamesBelow`], which logs the names of the part below and its set;
-//!   [`Spread`], an encoding, which may state the qubits it requires and
-//!   serves; [`Stating`], a pass-through with capabilities of its own,
-//!   one toy per constructor: a part reserving an ancilla, a job queue
-//!   limiting a run's shots, a job splitter serving them, a sampler
-//!   serving seeded runs, a replayer serving replay, an interleaver
-//!   needing resources below, a decoder restating its qubits, a link that
-//!   cannot be seeded, and a lowering carrying no readout parities;
+//!   [`Spread`], an encoding, which may state the qubits it takes and
+//!   requires; [`Stating`], a pass-through with capabilities of its own,
+//!   one toy per constructor: an interleaver, a part reserving ancillas,
+//!   a job splitter, a job queue, a cap on qubits, a link that cannot be
+//!   seeded, a lowering carrying no readout parities, a replayer, and a
+//!   sampler seeding its runs itself;
 //!   [`Pool`], which draws two block types from one pool below;
 //!   [`Trap`],
 //!   which fails a shot; [`FailsOnce`], which fails, or panics in, one
@@ -31,8 +29,7 @@
 //!   [`Impatient`], which stops waiting for its first answer from below;
 //!   [`Misbehaving`], which breaks the protocol's rules;
 //!   [`ForwardsParity`], which passes readout parities down while it
-//!   requires none below; [`ReplaysItself`], which requires no replay
-//!   below and seeded runs, and serves replay.
+//!   requires none below.
 //! - Driver and executor: [`Panics`], which panics in `drive` and in
 //!   `execute`.
 //! - Any role: [`Renamed`], a part with a name other than its type's;
@@ -53,8 +50,8 @@ use std::task::{Context, Poll};
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Features, Instruction, InstructionSet,
-    OpcodeMap, ReadoutValue, Resources, Seed, instruction_set,
+    Batch, BatchReadouts, ExecuteError, Instruction, InstructionSet, OpcodeMap, ReadoutValue,
+    Resources, Seed, instruction_set,
 };
 
 mod adapters;
@@ -74,7 +71,7 @@ pub(crate) use renamed::Renamed;
 pub(crate) use sees_seeds::SeesSeeds;
 
 instruction_set! {
-    /// QIR's `h`, `x` and `mz`: what every fake part requires and provides,
+    /// QIR's `h`, `x` and `mz`: what every fake part accepts and sends,
     /// unless a test gives it another set.
     pub(crate) CoinGates { H = h(qubit), X = x(qubit), MZ = mz(qubit) -> 1 outcome }
 }
@@ -129,19 +126,6 @@ impl Stream {
 pub(crate) fn coin_gates() -> &'static InstructionSet {
     static SET: OnceLock<InstructionSet> = OnceLock::new();
     SET.get_or_init(CoinGates::set)
-}
-
-/// [`CoinGates`]' capabilities, stating no resource and no feature: what
-/// a part that neither needs nor limits any requires and provides.
-pub(crate) fn coin_capabilities() -> &'static Capabilities {
-    static CAPABILITIES: OnceLock<Capabilities> = OnceLock::new();
-    CAPABILITIES.get_or_init(|| {
-        Capabilities::new(
-            CoinGates::set(),
-            Resources::unconstrained(),
-            Features::unconstrained(),
-        )
-    })
 }
 
 /// `n` qubits, and no other resource.

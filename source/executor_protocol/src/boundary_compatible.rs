@@ -15,13 +15,13 @@
 /// boundary of a chain, and whose fit compares their
 /// [`Resources`](crate::Resources) and [`Features`](crate::Features) too.
 pub trait BoundaryCompatible {
-    /// What the check gives when `provided` serves `self`.
+    /// What the check gives when `self` fits `provided`.
     type Fit;
     /// What the check gives when it does not: every shortfall at once.
     type Mismatch;
 
-    /// Whether `provided`, the part below's statement, serves `self`, the
-    /// part above's.
+    /// Whether `self`, the part above's statement, fits `provided`, the
+    /// part below's.
     ///
     /// # Errors
     ///

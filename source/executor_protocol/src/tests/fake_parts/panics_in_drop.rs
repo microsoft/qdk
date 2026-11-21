@@ -9,8 +9,8 @@ use std::task::{Context, Poll};
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, OpcodeMap,
-    RunProvision, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, InstructionSet, NotReady,
+    OpcodeMap, Seed, ShotSet,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
@@ -98,12 +98,12 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
         self.part.name()
     }
 
-    fn requires(&self) -> &Capabilities {
-        self.part.requires()
+    fn sends(&self) -> &InstructionSet {
+        self.part.sends()
     }
 
-    fn provides(&self) -> &RunProvision {
-        self.part.provides()
+    fn requires(&self, run: &Capabilities) -> Capabilities {
+        self.part.requires(run)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -112,8 +112,8 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
 
     type Output = P::Output;
 
-    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.in_ready, self.part.ready())
+    fn ready(&mut self, run: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        Self::readying(self.in_ready, self.part.ready(run))
     }
 
     fn drive(
@@ -136,12 +136,20 @@ impl<P: Adapter> Adapter for PanicsInDrop<P> {
         self.part.name()
     }
 
+    fn accepts(&self) -> &InstructionSet {
+        self.part.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.part.sends()
+    }
+
     fn provides(&self) -> &Capabilities {
         self.part.provides()
     }
 
-    fn requires(&self) -> &Capabilities {
-        self.part.requires()
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        self.part.requires(above)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -175,6 +183,10 @@ impl<P: Adapter> Adapter for PanicsInDrop<P> {
 impl<P: Executor> Executor for PanicsInDrop<P> {
     fn name(&self) -> &str {
         self.part.name()
+    }
+
+    fn accepts(&self) -> &InstructionSet {
+        self.part.accepts()
     }
 
     fn provides(&self) -> &Capabilities {

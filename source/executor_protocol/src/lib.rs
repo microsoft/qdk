@@ -31,12 +31,14 @@ pub use batch::{
     ShotId, ShotSet, ShotSetFault,
 };
 pub use boundary_compatible::BoundaryCompatible;
+pub(crate) use capabilities::Boundary;
 pub use capabilities::{
-    BatchFault, Boundary, Capabilities, CapabilitiesMismatch, Feature, FeatureMismatch, Features,
-    Resource, ResourceMismatch, Resources, RunProvision, StatementMismatch, Statements,
+    BatchFault, Capabilities, CapabilitiesMismatch, Feature, FeatureMismatch, Features, Resource,
+    ResourceMismatch, Resources, StatementMismatch, Statements,
 };
 pub use composition::{
-    AdapterJoins, CompositionFault, CompositionFaults, DriverJoins, RunError, RunRefusal, Runner,
+    AdapterJoins, BoundaryMismatch, CompositionFault, CompositionFaults, DriverJoins, RunError,
+    RunRefusal, Runner,
 };
 pub use instruction_set::{
     Angle, Argument, Arguments, Bit, BlockOperand, BlockType, Blocks, DeclarationFault, Guard,

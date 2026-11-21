@@ -7,7 +7,8 @@
 use crate::composition::DeclaredParts;
 use crate::part_id::ChainPosition;
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, NotReady, OpcodeMap, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
+    OpcodeMap, Seed, ShotSet,
 };
 
 /// Answers each `execute` it receives, in the instructions it accepts, by
@@ -25,17 +26,17 @@ use crate::{
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins) and
 /// [`AdapterJoins`](crate::AdapterJoins)) read them before any run:
-/// [`name`](Self::name), [`provides`](Self::provides) and
+/// [`name`](Self::name), [`accepts`](Self::accepts),
+/// [`sends`](Self::sends), [`provides`](Self::provides) and
 /// [`requires`](Self::requires). The join to the part below hands back
 /// what it made of them: [`bind`](Self::bind) gets the fit's opcode map.
 /// A join only decides, from what the parts declare; what prepares a part
 /// to run belongs to each run.
 ///
-/// What it provides and requires must not change once it is joined: the
-/// fits and `bind`'s map are made once, from them, each part gets ready,
-/// on every run, for the requirements read then, and a joined part reads
-/// their resources and features again on each run, for its boundaries
-/// and a joined driver's check of the run.
+/// What it accepts, sends and provides must not change once it is joined:
+/// the fits and `bind`'s map are made once, from them, and each batch
+/// sent to it is checked against what the join read. What it requires is
+/// asked again on each run, of what arrives then.
 ///
 /// # Run
 ///
@@ -48,22 +49,41 @@ pub trait Adapter {
         std::any::type_name::<Self>()
     }
 
-    /// What it provides the part above: the instructions it receives, and
-    /// each resource and feature it limits or serves. A limit passes the
-    /// requirement from above through to the parts below, which are
-    /// checked against it too, such as a job queue's most shots; one it
-    /// serves stops it there, such as an encoding's logical qubits, or
-    /// replay it does itself, as [`Capabilities`] says. One it does not
-    /// state neither needs nor limits anything: the requirement passes it.
-    /// An adapter states only what it changes.
-    fn provides(&self) -> &Capabilities;
+    /// The instructions it receives: what the part above sends must fit
+    /// them.
+    fn accepts(&self) -> &InstructionSet;
 
-    /// What it requires of the part below: the instructions it sends, and
-    /// each resource and feature it uses itself, such as a code's physical
-    /// qubits. It is checked against the part below, and against each part
-    /// further below that states it, down to the first that serves it, as
-    /// [`Capabilities`] says; one it does not state, it does not need.
-    fn requires(&self) -> &Capabilities;
+    /// The instructions it sends: the part below must accept them.
+    fn sends(&self) -> &InstructionSet;
+
+    /// Its fixed limits on what arrives from above, such as a job queue's
+    /// most shots, or an encoding's most logical qubits: what arrives must
+    /// fit them, as [`Capabilities`] says.
+    ///
+    /// By default [`Capabilities::UNCONSTRAINED`]: it states no limit.
+    /// Stating its real limits is the writer's job: an adapter that does
+    /// not lets `on` accept a chain that sends it more than it can take,
+    /// which then fails as it runs.
+    fn provides(&self) -> &Capabilities {
+        &crate::capabilities::UNCONSTRAINED
+    }
+
+    /// What it requires of the part below, given `above`, what arrives
+    /// from the part above: such as a code's physical qubits for the
+    /// logical qubits that arrive, or a job queue's batches of at most 100
+    /// shots whatever a run's shots.
+    ///
+    /// By default `above` itself: it passes what arrives below unchanged.
+    /// Stating what it changes is the writer's job: an adapter that adds
+    /// qubits, and does not say so, lets `on` accept a chain whose
+    /// executor cannot hold them, which then fails as it runs.
+    ///
+    /// It is deterministic, and monotone: given a smaller `above`, one
+    /// that fits a larger, it requires no more. The checks rely on both,
+    /// and the protocol does not check them.
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        above.clone()
+    }
 
     /// Receives, once, the translation of the opcodes it sends into the
     /// part below's. An opcode is an instruction's place in its set, and
@@ -75,8 +95,8 @@ pub trait Adapter {
     /// translate each instruction it forwards or adds.
     fn bind(&mut self, below: OpcodeMap);
 
-    /// As [`Executor::ready`], for `required`, what the part above
-    /// requires of it, such as for a layout of its logical qubits.
+    /// As [`Executor::ready`], for `required`, what arrives from the part
+    /// above, such as for a layout of its logical qubits.
     fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
         let _ = required;
         async { Ok(()) }
@@ -132,17 +152,18 @@ pub trait Adapter {
 
     // Protocol hooks: sealed and hidden, as `Driver`'s are.
 
-    /// Adds this part, its name, what it requires and what it provides, to
-    /// `parts`. Only the crate overrides it, to add each part it holds,
-    /// top to bottom. The [`on`](crate::DriverJoins::on) that makes a
-    /// runner calls it once.
+    /// Adds this part to `parts`, given `above`, what arrives at it, and
+    /// gives what it requires of the part below. Only the crate overrides
+    /// it, to add each part it holds, top to bottom. The
+    /// [`on`](crate::DriverJoins::on) that makes a runner calls it, and
+    /// the runner on each run.
     #[doc(hidden)]
-    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
-        parts.push(
-            Adapter::name(self),
-            Some(self.requires()),
-            Some(self.provides()),
-        );
+    fn declare<'a>(&'a self, above: &Capabilities, parts: &mut DeclaredParts<'a>) -> Capabilities {
+        parts.push(Adapter::name(self));
+        parts.receive(self.accepts(), self.provides(), above);
+        let required = self.requires(above);
+        parts.send(self.sends(), &required);
+        required
     }
 
     /// [`ready`](Self::ready), for this part at `at` in its chain. Only
@@ -167,12 +188,20 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
         (**self).name()
     }
 
+    fn accepts(&self) -> &InstructionSet {
+        (**self).accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        (**self).sends()
+    }
+
     fn provides(&self) -> &Capabilities {
         (**self).provides()
     }
 
-    fn requires(&self) -> &Capabilities {
-        (**self).requires()
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        (**self).requires(above)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -197,8 +226,8 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
         (**self).end_shots(shots);
     }
 
-    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
-        (**self).declare(parts);
+    fn declare<'a>(&'a self, above: &Capabilities, parts: &mut DeclaredParts<'a>) -> Capabilities {
+        (**self).declare(above, parts)
     }
 
     fn ready_at(

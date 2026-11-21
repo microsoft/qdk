@@ -15,7 +15,7 @@ use crate::BlockType;
 /// Required, each is the most the part's shots, runs or batches reach;
 /// provided, the most the part takes. A part that states none neither
 /// needs nor limits it. A checked batch, though, may use no block of a
-/// type the requirement that reaches its boundary does not state.
+/// type the requirement arriving at its receiver does not state.
 ///
 /// Built from [`unconstrained`](Self::unconstrained), which states
 /// nothing, with the builders below.
@@ -53,7 +53,7 @@ impl Resources {
     }
 
     /// These resources, with `n` blocks of `block_type`. A provider states
-    /// 0 for a type it does not serve.
+    /// 0 for a type it does not take.
     #[must_use]
     pub fn with_blocks(self, block_type: BlockType, n: u32) -> Self {
         self.with(Resource::Blocks(block_type), n)

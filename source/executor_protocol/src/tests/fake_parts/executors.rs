@@ -23,30 +23,31 @@ use crate::{
 /// set does nothing.
 pub(crate) struct Bits {
     opcodes: [Option<Opcode>; 3],
+    accepts: InstructionSet,
     provides: Capabilities,
     qubits: usize,
     shots: BTreeMap<ShotId, (Vec<bool>, Stream)>,
     busy: Option<&'static str>,
     loses: bool,
     panics_ending: bool,
-    /// The set `provides` answers once ready, if it changes then.
+    /// The set `accepts` answers once ready, if it changes then.
     set_once_ready: Option<InstructionSet>,
     log: Log,
 }
 
 impl Bits {
-    /// Bits providing [`CoinGates`] and 64 qubits, and resolving no
-    /// readout parity, logging to `log`.
+    /// Bits accepting [`CoinGates`], providing 64 qubits, and resolving
+    /// no readout parity, logging to `log`.
     pub(crate) fn new(log: &Log) -> Self {
-        Self::providing(CoinGates::set(), log)
+        Self::accepting(CoinGates::set(), log)
     }
 
-    /// Bits providing `set`, which may lack some of `h`, `x` and `mz`.
-    pub(crate) fn providing(set: InstructionSet, log: &Log) -> Self {
+    /// Bits accepting `set`, which may lack some of `h`, `x` and `mz`.
+    pub(crate) fn accepting(set: InstructionSet, log: &Log) -> Self {
         Self {
             opcodes: ["h", "x", "mz"].map(|mnemonic| set.opcode(mnemonic)),
+            accepts: set,
             provides: Capabilities::new(
-                set,
                 qubits(64),
                 Features::unconstrained().with_readout_parity(false),
             ),
@@ -62,15 +63,13 @@ impl Bits {
 
     /// These bits, providing `resources` in place of their 64 qubits.
     pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
-        let set = self.provides.instructions().clone();
-        self.provides = Capabilities::new(set, resources, self.provides.features().clone());
+        self.provides = self.provides.map_resources(|_| resources);
         self
     }
 
     /// These bits, providing `features` in place of their own.
     pub(crate) fn with_features(mut self, features: Features) -> Self {
-        let set = self.provides.instructions().clone();
-        self.provides = Capabilities::new(set, self.provides.resources().clone(), features);
+        self.provides = self.provides.map_features(|_| features);
         self
     }
 
@@ -85,10 +84,10 @@ impl Bits {
         self
     }
 
-    /// These bits, providing `set` once ready, while still running their
+    /// These bits, accepting `set` once ready, while still running their
     /// own `h`, `x` and `mz`: a part that breaks the rule that what it
-    /// provides does not change once composed.
-    pub(crate) fn providing_once_ready(mut self, set: InstructionSet) -> Self {
+    /// accepts does not change once composed.
+    pub(crate) fn accepting_once_ready(mut self, set: InstructionSet) -> Self {
         self.set_once_ready = Some(set);
         self
     }
@@ -109,6 +108,10 @@ impl Bits {
 }
 
 impl Executor for Bits {
+    fn accepts(&self) -> &InstructionSet {
+        &self.accepts
+    }
+
     fn provides(&self) -> &Capabilities {
         &self.provides
     }
@@ -125,11 +128,7 @@ impl Executor for Bits {
         let provided = self.provides.resources().blocks(&BlockType::qubit());
         self.qubits = qubits.max(provided.unwrap_or(0)) as usize;
         if let Some(set) = self.set_once_ready.take() {
-            self.provides = Capabilities::new(
-                set,
-                self.provides.resources().clone(),
-                self.provides.features().clone(),
-            );
+            self.accepts = set;
         }
         match self.busy {
             Some(why) => Err(NotReady::new(why)),
@@ -193,6 +192,10 @@ impl Executor for Bits {
 pub(crate) struct Later<E>(pub(crate) E);
 
 impl<E: Executor> Executor for Later<E> {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
     fn provides(&self) -> &Capabilities {
         self.0.provides()
     }
@@ -249,6 +252,10 @@ struct Handover {
 }
 
 impl<E: Executor> Executor for FromThread<E> {
+    fn accepts(&self) -> &InstructionSet {
+        self.inner.accepts()
+    }
+
     fn provides(&self) -> &Capabilities {
         self.inner.provides()
     }

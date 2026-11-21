@@ -9,11 +9,10 @@
 
 use crate::prelude::*;
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, HidesRunProvision, Log, Panics, PanicsWhen, Program, Renamed, Stating, Trap,
-    coin_capabilities, qubits,
+    Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Stating, Trap, coin_gates, qubits,
 };
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, ExecuteRefusal, Failure, Features, Seed,
+    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, Features, InstructionSet, Seed,
     ShotId, ShotSet,
 };
 
@@ -40,8 +39,8 @@ struct Refuses {
 }
 
 impl Executor for Refuses {
-    fn provides(&self) -> &Capabilities {
-        coin_capabilities()
+    fn accepts(&self) -> &InstructionSet {
+        coin_gates()
     }
 
     async fn execute(
@@ -122,17 +121,13 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
             &["run failed", "shot 5", "the program trapped"],
         ),
         (
-            "too many shots for a held joined driver's adapter",
-            runner(HidesRunProvision(coin().through(Stating::queue(4, &log))).on(Bits::new(&log)))
-                .run(&shots, SEED)
-                .map(drop),
-            &[
-                "run failed",
-                "shot 0",
-                "adapters",
-                "8 required",
-                "4 provided",
-            ],
+            "too many shots for a wrapped joined driver's adapter",
+            runner(
+                Renamed::new(coin().through(Stating::queue(4, &log)), "coin").on(Bits::new(&log)),
+            )
+            .run(&shots, SEED)
+            .map(drop),
+            &["run refused", "not ready", "8 required", "4 provided"],
         ),
         (
             "a part panicking",

@@ -8,7 +8,7 @@
 //! fills: each call across a boundary of a chain goes through a boundary
 //! crossing, built anew for it, both inside a joined part (`composed`)
 //! and where the runner's driver meets its executor, with the
-//! [`Boundary`] the joins' fit found there, as the run resolved it. It
+//! [`Boundary`] the joins' fit found there, with what arrives on the run. It
 //! takes the batches in order, and for each, refuses it if it holds more
 //! instructions than the receiver takes
 //! ([`BatchFault::TooManyInstructions`]), checked or not, or, for a
@@ -29,19 +29,19 @@ use std::panic::resume_unwind;
 use super::part_panics::{catch_panic, panic_message};
 use crate::{
     Batch, BatchFault, BatchReadouts, Boundary, Capabilities, ExecuteError, ExecuteRefusal,
-    Executor, Failure, Seed, ShotSet,
+    Executor, Failure, InstructionSet, Seed, ShotSet,
 };
 
 /// A call across a boundary to `inner`, its receiver, with the boundary
-/// as the joins' fit found it and the run resolved it: each batch is
-/// checked against what is provided across it, the count of every batch,
-/// and the instructions of each checked one. The readouts of each batch
-/// are shaped from the batch.
+/// as the joins' fit found it, with what arrives on the run: each batch
+/// is checked against what is accepted and provided across it, the count
+/// of every batch, and the instructions of each checked one. The readouts
+/// of each batch are shaped from the batch.
 pub(crate) struct BoundaryCrossing<'a, E> {
     inner: &'a mut E,
     /// The boundary: the part that receives `inner`'s calls, if known,
-    /// which a panic of `inner` names, what is provided across it and the
-    /// batch limits.
+    /// which a panic of `inner` names, what is accepted and provided across
+    /// it, and the batch limits.
     boundary: &'a Boundary,
 }
 
@@ -58,10 +58,14 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
         self.inner.name()
     }
 
-    /// What is provided across the boundary, as the joins' fit found it
-    /// and the run resolved it, not the receiver's answer now: a receiver
-    /// whose set changes later gets checked batches checked against the
-    /// set read at composition.
+    /// What is accepted across the boundary, as the joins' fit read it,
+    /// not the receiver's answer now: a receiver whose set changes later
+    /// gets checked batches checked against the set read at composition.
+    fn accepts(&self) -> &InstructionSet {
+        &self.boundary.accepted
+    }
+
+    /// What is provided across the boundary, as the joins' fit read it.
     fn provides(&self) -> &Capabilities {
         &self.boundary.provided
     }
@@ -100,7 +104,7 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
                 self.boundary
                     .batch_limits
                     .check(
-                        self.boundary.provided.instructions(),
+                        &self.boundary.accepted,
                         batch.instructions,
                         batch.readout_slots(),
                     )

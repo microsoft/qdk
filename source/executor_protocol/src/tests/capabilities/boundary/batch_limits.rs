@@ -89,13 +89,18 @@ type Mark = for<'a> fn(Batch<'a>) -> Batch<'a>;
 struct Literal {
     instructions: Vec<Instruction>,
     stated: Option<u32>,
+    sends: InstructionSet,
     requires: Capabilities,
     mark: Mark,
 }
 
 impl Driver for Literal {
-    fn requires(&self) -> &Capabilities {
-        &self.requires
+    fn sends(&self) -> &InstructionSet {
+        &self.sends
+    }
+
+    fn requires(&self, _run: &Capabilities) -> Capabilities {
+        self.requires.clone()
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
@@ -108,7 +113,7 @@ impl Driver for Literal {
         seed: Seed,
         below: &mut impl Executor,
     ) -> Result<Vec<u32>, DriveError> {
-        let set = self.requires.instructions();
+        let set = &self.sends;
         let readout_slots = self
             .stated
             .unwrap_or_else(|| set.readout_slots_of(&self.instructions).unwrap_or(0));
@@ -127,10 +132,15 @@ impl Driver for Literal {
 /// An executor of `set` answering `Zero` for every readout, whatever the
 /// batch.
 struct Zeros {
+    accepts: InstructionSet,
     provides: Capabilities,
 }
 
 impl Executor for Zeros {
+    fn accepts(&self) -> &InstructionSet {
+        &self.accepts
+    }
+
     fn provides(&self) -> &Capabilities {
         &self.provides
     }
@@ -189,11 +199,13 @@ fn run_marked(
     let driver = Literal {
         instructions,
         stated,
-        requires: Capabilities::new(set.clone(), resources, features),
+        sends: set.clone(),
+        requires: Capabilities::new(resources, features),
         mark,
     };
     let executor = Zeros {
-        provides: Capabilities::new(set.clone(), provided, Features::unconstrained()),
+        accepts: set.clone(),
+        provides: Capabilities::new(provided, Features::unconstrained()),
     };
     let Ok(mut runner) = driver.on(executor) else {
         panic!("the chain composes");

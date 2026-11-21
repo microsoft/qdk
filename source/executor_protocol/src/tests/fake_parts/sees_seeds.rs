@@ -7,8 +7,8 @@
 use crate::prelude::*;
 use crate::tests::fake_parts::Log;
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, OpcodeMap,
-    RunProvision, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, InstructionSet, NotReady,
+    OpcodeMap, Seed, ShotId, ShotSet,
 };
 
 /// `part`, which logs `"{label} got seed {stream}"` for each `drive`,
@@ -40,12 +40,12 @@ impl<P> SeesSeeds<P> {
 }
 
 impl<P: Driver> Driver for SeesSeeds<P> {
-    fn requires(&self) -> &Capabilities {
-        self.part.requires()
+    fn sends(&self) -> &InstructionSet {
+        self.part.sends()
     }
 
-    fn provides(&self) -> &RunProvision {
-        self.part.provides()
+    fn requires(&self, run: &Capabilities) -> Capabilities {
+        self.part.requires(run)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -54,8 +54,8 @@ impl<P: Driver> Driver for SeesSeeds<P> {
 
     type Output = P::Output;
 
-    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
-        self.part.ready()
+    fn ready(&mut self, run: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        self.part.ready(run)
     }
 
     fn drive(
@@ -70,12 +70,20 @@ impl<P: Driver> Driver for SeesSeeds<P> {
 }
 
 impl<P: Adapter> Adapter for SeesSeeds<P> {
+    fn accepts(&self) -> &InstructionSet {
+        self.part.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.part.sends()
+    }
+
     fn provides(&self) -> &Capabilities {
         self.part.provides()
     }
 
-    fn requires(&self) -> &Capabilities {
-        self.part.requires()
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        self.part.requires(above)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -103,6 +111,10 @@ impl<P: Adapter> Adapter for SeesSeeds<P> {
 }
 
 impl<P: Executor> Executor for SeesSeeds<P> {
+    fn accepts(&self) -> &InstructionSet {
+        self.part.accepts()
+    }
+
     fn provides(&self) -> &Capabilities {
         self.part.provides()
     }

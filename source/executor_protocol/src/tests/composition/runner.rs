@@ -20,14 +20,14 @@ use std::time::{Duration, Instant};
 use super::driver_joins::no_x;
 use crate::prelude::*;
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, HidesRunProvision, Later, Log,
-    Panics, PanicsWhen, Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap,
-    Values, YieldNow, in_each_bracketing, qubits,
+    BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen,
+    Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow,
+    in_each_bracketing, qubits,
 };
 use crate::{
-    CapabilitiesMismatch, DriveError, Failure, Feature, FeatureMismatch, Features, ReadoutFailure,
-    ReadoutValue, Resource, ResourceMismatch, Resources, RunError, RunProvision, RunRefusal,
-    Runner, ShotConditions, ShotId, ShotSet,
+    BoundaryMismatch, CapabilitiesMismatch, DriveError, Failure, Feature, FeatureMismatch,
+    Features, ReadoutFailure, ReadoutValue, Resource, ResourceMismatch, RunError, RunRefusal,
+    Runner, ShotConditions, ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -781,54 +781,126 @@ where
     (refusals, counted.get(), ended(log))
 }
 
-/// A part of each role joined from two whose sets do not fit, held by a
-/// part of a user's that forwards only its role's public methods, where
-/// the chain's check cannot reach its inner boundary: the chain composes,
-/// as its outer boundaries fit, but the joined part refuses every run, as
-/// a part that cannot take one, named by the user's part's position and
-/// name, with the boundary's mismatch as its reason; nothing runs, and no
-/// shot is ended on any part.
+/// A part of each role joined from two parts, wrapped by a part of a
+/// user's that forwards only its role's public methods, where the chain's
+/// check cannot reach its inner boundary: the chain composes, as its outer
+/// boundaries fit, but the joined part refuses each run its inner boundary
+/// does not take, at `ready`, as a part that cannot take it, named by the
+/// user's part's position and name, with the boundary's mismatch as its
+/// reason; nothing runs, and no shot is ended on any part. Its halves'
+/// sets not fitting, it refuses every run; a driver joined through a job
+/// queue of 3 shots refuses a run of 4, and one joined through a link
+/// without seeded runs a seeded run.
 #[test]
-fn a_joined_part_whose_parts_do_not_fit_refuses_every_run() {
-    let fault = CapabilitiesMismatch {
+#[expect(clippy::too_many_lines, reason = "one row per role and boundary")]
+fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
+    let no_x_fault = BoundaryMismatch {
         instructions: CoinGates::set().fits(&no_x()).expect_err("no `x`"),
-        ..CapabilitiesMismatch::default()
+        ..BoundaryMismatch::default()
+    };
+    let capabilities = |resources, features| BoundaryMismatch {
+        capabilities: CapabilitiesMismatch {
+            resources,
+            features,
+            ..CapabilitiesMismatch::default()
+        },
+        ..BoundaryMismatch::default()
     };
     let counted = Rc::new(Cell::new(0));
     let profiler = |set, log: &Log| Profiler::on(set, &counted, log);
     let rows = [
-        ("a driver through an adapter", 0, "user's driver", {
-            let log = Log::default();
-            let held = Renamed::new(
-                CoinCopy::new().through(profiler(no_x(), &log)),
-                "user's driver",
-            );
-            refused_twice(held.on(Bits::providing(no_x(), &log)), &counted, &log)
-        }),
-        ("an adapter through an adapter", 1, "user's adapter", {
-            let log = Log::default();
-            let held = Renamed::new(
-                profiler(CoinGates::set(), &log).through(profiler(no_x(), &log)),
-                "user's adapter",
-            );
-            refused_twice(
-                CoinCopy::new()
-                    .through(held)
-                    .on(Bits::providing(no_x(), &log)),
-                &counted,
-                &log,
-            )
-        }),
-        ("an adapter on an executor", 1, "user's executor", {
-            let log = Log::default();
-            let held = Renamed::new(
-                profiler(CoinGates::set(), &log).on(Bits::providing(no_x(), &log)),
-                "user's executor",
-            );
-            refused_twice(CoinCopy::new().on(held), &counted, &log)
-        }),
+        (
+            "a driver through an adapter",
+            0,
+            "user's driver",
+            &no_x_fault,
+            {
+                let log = Log::default();
+                let held = Renamed::new(
+                    CoinCopy::new().through(profiler(no_x(), &log)),
+                    "user's driver",
+                );
+                refused_twice(held.on(Bits::accepting(no_x(), &log)), &counted, &log)
+            },
+        ),
+        (
+            "an adapter through an adapter",
+            1,
+            "user's adapter",
+            &no_x_fault,
+            {
+                let log = Log::default();
+                let held = Renamed::new(
+                    profiler(CoinGates::set(), &log).through(profiler(no_x(), &log)),
+                    "user's adapter",
+                );
+                refused_twice(
+                    CoinCopy::new()
+                        .through(held)
+                        .on(Bits::accepting(no_x(), &log)),
+                    &counted,
+                    &log,
+                )
+            },
+        ),
+        (
+            "an adapter on an executor",
+            1,
+            "user's executor",
+            &no_x_fault,
+            {
+                let log = Log::default();
+                let held = Renamed::new(
+                    profiler(CoinGates::set(), &log).on(Bits::accepting(no_x(), &log)),
+                    "user's executor",
+                );
+                refused_twice(CoinCopy::new().on(held), &counted, &log)
+            },
+        ),
+        (
+            "a driver through a queue of 3 shots",
+            0,
+            "user's driver",
+            &capabilities(
+                vec![ResourceMismatch {
+                    key: Resource::Shots,
+                    required: 4,
+                    provided: 3,
+                }],
+                vec![],
+            ),
+            {
+                let log = Log::default();
+                let held = Renamed::new(
+                    CoinCopy::new().through(Stating::queue(3, &log)),
+                    "user's driver",
+                );
+                refused_twice(held.on(Bits::new(&log)), &counted, &log)
+            },
+        ),
+        (
+            "a driver through a link without seeded runs",
+            0,
+            "user's driver",
+            &capabilities(
+                vec![],
+                vec![FeatureMismatch {
+                    key: Feature::SeededRuns,
+                    required: true,
+                    provided: false,
+                }],
+            ),
+            {
+                let log = Log::default();
+                let held = Renamed::new(
+                    CoinCopy::new().through(Stating::without_seeded_runs(&log)),
+                    "user's driver",
+                );
+                refused_twice(held.on(Bits::new(&log)), &counted, &log)
+            },
+        ),
     ];
-    for (row, position, name, (refusals, ran, ended)) in rows {
+    for (row, position, name, fault, (refusals, ran, ended)) in rows {
         for refusal in refusals {
             let RunRefusal::PartNotReady { part, not_ready } = &refusal else {
                 panic!("{row}: a part's refusal, not {refusal:?}");
@@ -839,13 +911,25 @@ fn a_joined_part_whose_parts_do_not_fit_refuses_every_run() {
                 "{row}"
             );
             assert_eq!(
-                not_ready.why().downcast_ref::<CapabilitiesMismatch>(),
-                Some(&fault),
+                not_ready.why().downcast_ref::<BoundaryMismatch>(),
+                Some(fault),
                 "{row}: {refusal:?}"
             );
         }
         assert_eq!(ran, 0, "{row}: no instruction ran");
         assert_eq!(ended, [] as [String; 0], "{row}: no shot ended");
+    }
+}
+
+/// The capabilities of the one fault `refusal` lists, if it lists one
+/// fault of what arrives at a part.
+fn the_one_fault(refusal: &RunRefusal) -> Option<&CapabilitiesMismatch> {
+    match refusal {
+        RunRefusal::NotProvided(faults) => match &faults[..] {
+            [fault] => Some(&fault.mismatch.capabilities),
+            _ => None,
+        },
+        RunRefusal::PartNotReady { .. } => None,
     }
 }
 
@@ -867,8 +951,9 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
         required: most + 1,
         provided: most,
     };
-    assert!(
-        matches!(&refusal, RunRefusal::NotProvided(mismatch) if mismatch.resources == [short.clone()]),
+    assert_eq!(
+        the_one_fault(&refusal).map(|mismatch| &mismatch.resources[..]),
+        Some(&[short][..]),
         "{row}: {refusal:?}"
     );
     assert_eq!(bits_asked(log), asked, "{row}: no part asked");
@@ -879,118 +964,99 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     assert_eq!(records.len(), most as usize, "{row}: a record per shot");
 }
 
-/// A run's shots reach each part below its driver that limits them, down
-/// to the first that serves them, so a chain runs at most the fewest of
-/// those. In every bracketing, a run of one more is refused before any part
-/// is asked or runs, and a run of that many runs, a joined driver held by
-/// a user's part included. So an adapter may lower the most shots a run
-/// may have, and raise it only by serving them; a driver that serves them,
-/// splitting a run into runs the parts below take, runs any.
+/// A run's shots arrive at each part below its driver, passed unchanged
+/// by each part that does not require otherwise, so a chain runs at most
+/// the fewest the parts they arrive at take. In every bracketing, a run of
+/// one more is refused before any part is asked or runs, and a run of that
+/// many runs. So an adapter may lower the most shots a run may have, and
+/// raise it only by requiring fewer below, as a job splitter does, which
+/// then runs any.
 #[test]
 fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     let log = Log::default();
-    let counted = Rc::new(Cell::new(0));
     let bits = |most| Bits::new(&log).with_resources(qubits(64).with_shots(most));
     // An executor running 4 shots at most.
     let alone = runner(CoinCopy::new().on(bits(4)));
     takes_at_most("the executor alone", alone, 4, &log);
-    // Bits under a job queue of 4 shots at most: the queue's limit holds
-    // wherever the brackets go.
-    in_each_bracketing!([d, queue, e] from {
-        let d = CoinCopy::new();
-        let queue = Stating::queue(4, &log);
-        let e = Bits::new(&log);
-    }, |chain, brackets| {
-        takes_at_most(&format!("under a queue, {brackets}"), runner(chain), 4, &log);
-    });
-    // Bits running 1 shot at most, under a decoder that restates what it
-    // provides with no shot limit, or with a limit of 4: the bits' limit
-    // still holds.
+    // Bits under a job queue of 4 shots at most: the fewer of the two
+    // holds, wherever the brackets go.
+    for (bits_most, most) in [(None, 4), (Some(8), 4), (Some(1), 1)] {
+        in_each_bracketing!([d, queue, e] from {
+            let d = CoinCopy::new();
+            let queue = Stating::queue(4, &log);
+            let e = bits_most.map_or_else(|| Bits::new(&log), bits);
+        }, |chain, brackets| {
+            let row = format!("under a queue, over bits of {bits_most:?}, {brackets}");
+            takes_at_most(&row, runner(chain), most, &log);
+        });
+    }
+    // Bits running 1 shot at most, under a decoder that states no shot
+    // limit: the bits' limit still holds.
     in_each_bracketing!([d, decoder, e] from {
         let d = CoinCopy::new();
-        let decoder = Stating::restating(64, &log);
+        let decoder = Stating::capping(64, &log);
         let e = bits(1);
     }, |chain, brackets| {
         let row = format!("a decoder with no limit, {brackets}");
         takes_at_most(&row, runner(chain), 1, &log);
-    });
-    in_each_bracketing!([d, decoder, e] from {
-        let d = CoinCopy::new();
-        let decoder = Stating::restating_most_shots(64, 4, &log);
-        let e = bits(1);
-    }, |chain, brackets| {
-        let row = format!("a decoder raising the limit, {brackets}");
-        takes_at_most(&row, runner(chain), 1, &log);
-    });
-    // Bits running 8 shots at most, under a decoder that provides 4: the
-    // decoder's lower limit holds.
-    in_each_bracketing!([d, decoder, e] from {
-        let d = CoinCopy::new();
-        let decoder = Stating::restating_most_shots(64, 4, &log);
-        let e = bits(8);
-    }, |chain, brackets| {
-        let row = format!("a decoder lowering the limit, {brackets}");
-        takes_at_most(&row, runner(chain), 4, &log);
     });
     // Bits running 8 shots at most, under a job queue of 4, under a decoder
     // with no shot limit: the queue's limit, though neither the executor's
     // nor the one the driver meets, holds.
     in_each_bracketing!([d, decoder, queue, e] from {
         let d = CoinCopy::new();
-        let decoder = Stating::restating(64, &log);
+        let decoder = Stating::capping(64, &log);
         let queue = Stating::queue(4, &log);
         let e = bits(8);
     }, |chain, brackets| {
         let row = format!("a queue under a decoder, {brackets}");
         takes_at_most(&row, runner(chain), 4, &log);
     });
-    // Bits running 4 shots at most, under a splitter's declaration fake,
-    // requiring runs of 4 and providing runs of 100: the splitter's limit
-    // is the one checked, though the fake sends each run through whole.
+}
+
+/// A job splitter, requiring runs of 100 shots below whatever run arrives,
+/// over bits running 100 at most, directly or under a profiler, in every
+/// bracketing, or joined with the driver and wrapped by a part of a
+/// user's: a run of 1000 runs, a record per shot, though the fake sends it
+/// through whole; without the splitter, the same run is refused.
+#[test]
+fn a_part_requiring_fewer_shots_below_runs_more_than_the_parts_below_take() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let bits = || Bits::new(&log).with_resources(qubits(64).with_shots(100));
+    let shots = ShotSet::ids(0..1000);
+    let runs_all = |records: Result<Vec<Values>, RunError>, row: &str| {
+        let records = records.unwrap_or_else(|error| panic!("{row}: {error:?}"));
+        assert_eq!(records.len(), 1000, "{row}: a record per shot");
+    };
     in_each_bracketing!([d, splitter, e] from {
         let d = CoinCopy::new();
-        let splitter = Stating::splitting_runs(4, 100, &log);
-        let e = bits(4);
+        let splitter = Stating::splitting_runs(100, &log);
+        let e = bits();
     }, |chain, brackets| {
-        let row = format!("a splitter, {brackets}");
-        takes_at_most(&row, runner(chain), 100, &log);
+        runs_all(runner(chain).run(&shots, SEED), &format!("a splitter, {brackets}"));
     });
-    // Bits running 1 shot at most, under a profiler, under a splitter
-    // serving runs of 4: the splitter's provision holds, though the bits
-    // below the profiler limit runs to fewer.
     in_each_bracketing!([d, splitter, profiler, e] from {
         let d = CoinCopy::new();
-        let splitter = Stating::splitting_runs(1, 4, &log);
+        let splitter = Stating::splitting_runs(100, &log);
         let profiler = Profiler::new(&counted, &log);
-        let e = bits(1);
+        let e = bits();
     }, |chain, brackets| {
         let row = format!("a splitter over a profiler, {brackets}");
-        takes_at_most(&row, runner(chain), 4, &log);
+        runs_all(runner(chain).run(&shots, SEED), &row);
     });
-    // A driver joined through a queue of 4, or through a splitter taking
-    // runs of 4 over bits of 1, held by a part of the user's: the limit the
-    // joined driver's adapters provide together holds, as unheld.
-    let held = |driver| Renamed::new(driver, "user's driver");
-    let queue = runner(held(CoinCopy::new().through(Stating::queue(4, &log))).on(Bits::new(&log)));
-    takes_at_most("a held queue", queue, 4, &log);
-    let splitter = Stating::splitting_runs(1, 4, &log);
-    let splitter = runner(held(CoinCopy::new().through(splitter)).on(bits(1)));
-    takes_at_most("a held splitter over bits of 1", splitter, 4, &log);
-    // A program serving a run's shots, as a driver splitting a run into
-    // runs of the 4 it requires would, over bits of 4: a run of 10 runs,
-    // though the fake sends it through whole.
-    let serves_shots =
-        RunProvision::new().with_resources(Resources::unconstrained().serving(Resource::Shots));
-    let program = Program::new(&[("mz", 0)])
-        .with_resources(qubits(1).with_shots(4))
-        .serving_runs(serves_shots);
-    let records = runner(program.on(bits(4)))
-        .run(&ShotSet::ids(0..10), SEED)
-        .expect("a driver serving a run's shots runs any");
-    assert_eq!(
-        records.len(),
-        10,
-        "a driver serving shots: a record per shot"
+    let wrapped = Renamed::new(
+        CoinCopy::new().through(Stating::splitting_runs(100, &log)),
+        "user's driver",
+    );
+    runs_all(
+        runner(wrapped.on(bits())).run(&shots, SEED),
+        "a wrapped splitter",
+    );
+    let refusal = refused(runner(CoinCopy::new().on(bits())).run(&shots, SEED));
+    assert!(
+        the_one_fault(&refusal).is_some_and(|mismatch| mismatch.resources.len() == 1),
+        "without the splitter: {refusal:?}"
     );
 }
 
@@ -1008,9 +1074,14 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     let asked = bits_asked(log);
     let ran = log.count("Bits execute");
     let refusal = refused(runner.run(&shots, SEED));
-    assert!(
-        matches!(&refusal, RunRefusal::NotProvided(mismatch)
-            if mismatch.features == [FeatureMismatch { key: Feature::SeededRuns, required: true, provided: false }]),
+    let not_seeded = FeatureMismatch {
+        key: Feature::SeededRuns,
+        required: true,
+        provided: false,
+    };
+    assert_eq!(
+        the_one_fault(&refusal).map(|mismatch| &mismatch.features[..]),
+        Some(&[not_seeded][..]),
         "{row}: {refusal:?}"
     );
     assert_eq!(bits_asked(log), asked, "{row}: no part asked");
@@ -1020,11 +1091,12 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
         .unwrap_or_else(|error| panic!("{row}: a run with no seed: {error:?}"));
 }
 
-/// A seeded run reaches each part below its driver that states seeded runs,
-/// down to the first that serves them, in every bracketing: a seeded run
-/// on a chain where one of them states none is refused before any part is
-/// asked or runs, and a run with no seed runs. So an adapter may take
-/// seeded runs away from a chain, and provide them only by serving them.
+/// A seeded run arrives at each part below its driver, passed unchanged
+/// by each part that does not require otherwise, in every bracketing: a
+/// seeded run on a chain where one of them states no seeded runs is
+/// refused before any part is asked or runs, and a run with no seed runs.
+/// So an adapter may take seeded runs away from a chain, and provide them
+/// only by requiring none below, as a sampler seeding its own draws does.
 #[test]
 fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     let log = Log::default();
@@ -1034,11 +1106,11 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     // An executor without seeded runs.
     let alone = runner(CoinCopy::new().on(bits_without_seeded_runs()));
     refuses_a_seed("the executor alone", alone, 4, &log);
-    // Bits without seeded runs, under a decoder that restates what it
-    // provides, stating no seeded runs: the bits' still holds.
+    // Bits without seeded runs, under a decoder that states no seeded
+    // runs: the bits' still holds.
     in_each_bracketing!([d, decoder, e] from {
         let d = CoinCopy::new();
-        let decoder = Stating::restating(64, &log);
+        let decoder = Stating::capping(64, &log);
         let e = bits_without_seeded_runs();
     }, |chain, brackets| {
         let row = format!("a decoder over bits, {brackets}");
@@ -1060,7 +1132,7 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     // meets, holds.
     in_each_bracketing!([d, decoder, link, e] from {
         let d = CoinCopy::new();
-        let decoder = Stating::restating(64, &log);
+        let decoder = Stating::capping(64, &log);
         let link = Stating::without_seeded_runs(&log);
         let e = Bits::new(&log);
     }, |chain, brackets| {
@@ -1079,7 +1151,7 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     });
     // The same, with a profiler between the sampler and the bits, which
     // passes their lack of seeded runs through; or with the sampler joined
-    // with the driver, held by a part of the user's: a seeded run runs.
+    // with the driver, wrapped by a part of the user's: a seeded run runs.
     in_each_bracketing!([d, sampler, profiler, e] from {
         let d = CoinCopy::new();
         let sampler = Stating::seeding_itself(&log);
@@ -1089,118 +1161,10 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
         (runner(chain).run(&ShotSet::ids(0..2), SEED))
             .unwrap_or_else(|error| panic!("a sampler over a profiler, {brackets}: {error:?}"));
     });
-    let held = Renamed::new(
+    let wrapped = Renamed::new(
         CoinCopy::new().through(Stating::seeding_itself(&log)),
         "user's driver",
     );
-    (runner(held.on(bits_without_seeded_runs())).run(&ShotSet::ids(0..2), SEED))
-        .unwrap_or_else(|error| panic!("a held sampler: {error:?}"));
-    // A driver joined through a link without seeded runs, held by a part
-    // of the user's: the link's lack holds, as unheld.
-    let held = Renamed::new(
-        CoinCopy::new().through(Stating::without_seeded_runs(&log)),
-        "user's driver",
-    );
-    refuses_a_seed("a held link", runner(held.on(Bits::new(&log))), 2, &log);
-}
-
-/// Runs `shots` shots with `seed` on `runner`, which fails at its first
-/// shot with `mismatch`, nothing running below and the bits' shots ended
-/// once; then `taken` shots with `taken_seed`, which run: a row of
-/// [`a_held_joined_driver_fails_a_run_its_adapters_do_not_provide`],
-/// named `row`.
-fn fails_unprovided<D: Driver<Output: std::fmt::Debug>, E: Executor>(
-    row: &str,
-    mut runner: Runner<D, E>,
-    ((shots, seed), (taken, taken_seed)): ((u32, Option<u64>), (u32, Option<u64>)),
-    mismatch: &CapabilitiesMismatch,
-    log: &Log,
-) {
-    let ran = log.count("Bits execute");
-    let ends = ended(log).len();
-    let error = failed(runner.run(&ShotSet::ids(0..shots), seed));
-    assert_eq!(error.shot, ShotId::new(0), "{row}: the run's first shot");
-    assert!(
-        matches!(&error.failure, Failure::NotProvided(why) if why == mismatch),
-        "{row}: {error:?}"
-    );
-    assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran below");
-    assert_eq!(
-        ended(log)[ends..],
-        ["Bits end_shots, holding 0"],
-        "{row}: ended once"
-    );
-    let records = runner
-        .run(&ShotSet::ids(0..taken), taken_seed)
-        .unwrap_or_else(|error| panic!("{row}: a run it provides: {error:?}"));
-    assert_eq!(records.len(), taken as usize, "{row}: a record per shot");
-}
-
-/// A driver joined through a job queue of 4 shots at most, through a link
-/// without seeded runs, or through a splitter taking runs of 4 over a
-/// queue of 1, held by a part of the user's that does not forward what the
-/// joined driver provides a run, so that the runner cannot see the
-/// adapters' limits: a run of 5 shots, or a seeded run, fails at its first
-/// shot with the mismatch of what the adapters provide together, in each
-/// bracketing, as the joined driver checks it, nothing running below and
-/// the executor's shots ended once, by the runner; a run the adapters
-/// provide runs, as on the same chain unwrapped.
-#[test]
-fn a_held_joined_driver_fails_a_run_its_adapters_do_not_provide() {
-    fn held<D: Driver>(driver: D) -> HidesRunProvision<D> {
-        HidesRunProvision(driver)
-    }
-    let log = Log::default();
-    let five_shots = CapabilitiesMismatch {
-        resources: vec![ResourceMismatch {
-            key: Resource::Shots,
-            required: 5,
-            provided: 4,
-        }],
-        ..CapabilitiesMismatch::default()
-    };
-    let shots = ((5, Some(SEED)), (4, Some(SEED)));
-    fails_unprovided(
-        "through a queue of 4 shots",
-        runner(held(CoinCopy::new().through(Stating::queue(4, &log))).on(Bits::new(&log))),
-        shots,
-        &five_shots,
-        &log,
-    );
-    fails_unprovided(
-        "through a link without seeded runs",
-        runner(
-            held(CoinCopy::new().through(Stating::without_seeded_runs(&log))).on(Bits::new(&log)),
-        ),
-        ((2, Some(SEED)), (2, None)),
-        &CapabilitiesMismatch {
-            features: vec![FeatureMismatch {
-                key: Feature::SeededRuns,
-                required: true,
-                provided: false,
-            }],
-            ..CapabilitiesMismatch::default()
-        },
-        &log,
-    );
-    let splitter = || Stating::splitting_runs(1, 4, &log);
-    let queue_of_one = || Stating::queue(1, &log);
-    fails_unprovided(
-        "through a splitter, then a queue of 1",
-        runner(
-            held(CoinCopy::new().through(splitter()).through(queue_of_one())).on(Bits::new(&log)),
-        ),
-        shots,
-        &five_shots,
-        &log,
-    );
-    fails_unprovided(
-        "through a splitter over a queue of 1",
-        runner(
-            held(CoinCopy::new().through(splitter().through(queue_of_one()))).on(Bits::new(&log)),
-        ),
-        shots,
-        &five_shots,
-        &log,
-    );
+    (runner(wrapped.on(bits_without_seeded_runs())).run(&ShotSet::ids(0..2), SEED))
+        .unwrap_or_else(|error| panic!("a wrapped sampler: {error:?}"));
 }

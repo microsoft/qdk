@@ -40,14 +40,9 @@ use crate::ShotId;
 ///
 /// Only the runner makes one, from the run's seed, so that every part of a
 /// run draws from that seed. It holds the run's seed after one `SplitMix64`
-/// step, or, once derived, that value plus the key's id in its high half;
-/// and whether the run's seed was fixed, rather than drawn, which a joined
-/// driver checks against the seeded runs its adapters provide.
+/// step, or, once derived, that value plus the key's id in its high half.
 #[derive(Clone, Copy, Debug)]
-pub struct Seed {
-    value: u64,
-    fixed: bool,
-}
+pub struct Seed(u64);
 
 impl Seed {
     /// Shot `shot`'s stream: what a part seeds its generator for that shot
@@ -67,7 +62,7 @@ impl Seed {
     /// alone and as a chain's executor.
     #[must_use]
     pub const fn shot(self, shot: ShotId) -> u64 {
-        splitmix(self.value ^ shot.get() as u64)
+        splitmix(self.0 ^ shot.get() as u64)
     }
 
     /// The seed of a part that draws under `key`, a name of its own such as
@@ -87,24 +82,13 @@ impl Seed {
     /// a seed derived twice may be another key's, or the run's own.
     #[must_use]
     pub const fn derive(self, key: &str) -> Self {
-        Self {
-            value: self.value.wrapping_add((key_id(key) as u64) << 32),
-            ..self
-        }
+        Self(self.0.wrapping_add((key_id(key) as u64) << 32))
     }
 
-    /// The seed of a run with seed `seed`, fixed by the run or drawn for
-    /// it, as the runner gives it to the driver.
-    pub(crate) const fn new(seed: u64, fixed: bool) -> Self {
-        Self {
-            value: splitmix(seed),
-            fixed,
-        }
-    }
-
-    /// Whether the run's seed was fixed, rather than drawn for it.
-    pub(crate) const fn is_fixed(self) -> bool {
-        self.fixed
+    /// The seed of a run with seed `seed`, as the runner gives it to the
+    /// driver.
+    pub(crate) const fn new(seed: u64) -> Self {
+        Self(splitmix(seed))
     }
 }
 

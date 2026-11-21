@@ -11,7 +11,7 @@ use crate::{Seed, ShotId};
 
 /// Shot `shot`'s stream in a run seeded with `seed`.
 fn stream(seed: u64, shot: u32) -> u64 {
-    Seed::new(seed, true).shot(ShotId::new(shot))
+    Seed::new(seed).shot(ShotId::new(shot))
 }
 
 /// A shot's stream is fixed by the run's seed and the shot's id, the same on
@@ -49,7 +49,7 @@ fn shots_have_distinct_streams() {
 /// `"(BpV!"`, whose FNV-1a hash folds to 0.
 #[test]
 fn derived_streams_are_apart_from_the_runs_and_other_keys() {
-    let run = Seed::new(7, true);
+    let run = Seed::new(7);
     let keys = ["bit_flip", "readout", "", "(BpV!"];
     let mut seen = BTreeSet::new();
     for shot in 0..1 << 12 {
@@ -72,7 +72,7 @@ fn derived_streams_are_apart_from_the_runs_and_other_keys() {
 // and `SplitMix64`, from their published constants.
 #[test]
 fn derived_streams_are_fixed_by_seed_and_key() {
-    let derived = |seed, key, shot| Seed::new(seed, true).derive(key).shot(ShotId::new(shot));
+    let derived = |seed, key, shot| Seed::new(seed).derive(key).shot(ShotId::new(shot));
     assert_eq!(derived(7, "bit_flip", 3), 11_403_248_577_888_900_587);
     assert_eq!(derived(7, "readout", 3), 2_618_841_840_799_957_620);
     assert_eq!(derived(0, "", 0), 9_623_513_680_988_388_014);

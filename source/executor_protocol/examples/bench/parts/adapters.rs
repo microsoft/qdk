@@ -5,8 +5,8 @@
 
 use executor_protocol::prelude::*;
 use executor_protocol::{
-    Arguments, Batch, BatchReadouts, Capabilities, ExecuteError, Features, Instruction, Opcode,
-    OpcodeMap, ReadoutValue, Readouts, Resources, Seed,
+    Arguments, Batch, BatchReadouts, BlockType, Capabilities, ExecuteError, Features, Instruction,
+    InstructionSet, Opcode, OpcodeMap, ReadoutValue, Readouts, Resources, Seed,
 };
 
 use super::{LogicalGates, MixGates, PhysicalGates};
@@ -14,7 +14,7 @@ use super::{LogicalGates, MixGates, PhysicalGates};
 /// An adapter that forwards every batch as it is: the cost of a boundary.
 /// It states only its instructions: it neither needs nor limits the rest.
 pub(crate) struct Forward {
-    capabilities: Capabilities,
+    set: InstructionSet,
     identity: OpcodeMap,
 }
 
@@ -22,24 +22,17 @@ impl Forward {
     pub(crate) fn new() -> Self {
         let set = MixGates::set();
         let identity = set.fits(&set).expect("a set fits itself");
-        Self {
-            capabilities: Capabilities::new(
-                set,
-                Resources::unconstrained(),
-                Features::unconstrained(),
-            ),
-            identity,
-        }
+        Self { set, identity }
     }
 }
 
 impl Adapter for Forward {
-    fn provides(&self) -> &Capabilities {
-        &self.capabilities
+    fn accepts(&self) -> &InstructionSet {
+        &self.set
     }
 
-    fn requires(&self) -> &Capabilities {
-        &self.capabilities
+    fn sends(&self) -> &InstructionSet {
+        &self.set
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -63,11 +56,12 @@ impl Adapter for Forward {
 /// A toy lowering: the repetition code of three, each logical qubit `q` the
 /// physical qubits `3q`, `3q + 1` and `3q + 2`, each logical instruction the
 /// same physical one on each, and a logical readout the majority of three.
-/// Built for a count of logical qubits, it provides them and requires three
-/// times as many physical ones.
+/// Built for a count of logical qubits, it takes at most that many, and
+/// requires three physical qubits for each logical qubit that arrives.
 pub(crate) struct Repetition3 {
+    accepts: InstructionSet,
+    sends: InstructionSet,
     provides: Capabilities,
-    requires: Capabilities,
     /// The physical opcodes, in the receiver's, from `bind`.
     opcodes: [Opcode; 4],
     /// Each batch's physical instructions, kept to reuse their memory.
@@ -79,16 +73,11 @@ pub(crate) struct Repetition3 {
 impl Repetition3 {
     /// The lowering of `logical_qubits` logical qubits.
     pub(crate) fn new(logical_qubits: u32) -> Self {
-        let qubits = |n| Resources::unconstrained().with_qubits(n);
         Self {
+            accepts: LogicalGates::set(),
+            sends: PhysicalGates::set(),
             provides: Capabilities::new(
-                LogicalGates::set(),
-                qubits(logical_qubits),
-                Features::unconstrained(),
-            ),
-            requires: Capabilities::new(
-                PhysicalGates::set(),
-                qubits(3 * logical_qubits),
+                Resources::unconstrained().with_qubits(logical_qubits),
                 Features::unconstrained(),
             ),
             opcodes: [
@@ -104,12 +93,25 @@ impl Repetition3 {
 }
 
 impl Adapter for Repetition3 {
+    fn accepts(&self) -> &InstructionSet {
+        &self.accepts
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        &self.sends
+    }
+
     fn provides(&self) -> &Capabilities {
         &self.provides
     }
 
-    fn requires(&self) -> &Capabilities {
-        &self.requires
+    /// What arrives, on three physical qubits for each logical one.
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        let logical = (above.resources()).blocks(&BlockType::qubit());
+        (above.clone()).map_resources(|resources| match logical {
+            Some(logical) => resources.with_qubits(3 * logical),
+            None => resources,
+        })
     }
 
     fn bind(&mut self, below: OpcodeMap) {

@@ -5,10 +5,10 @@
 //! position gives it.
 //!
 //! Each of its methods answers from the half that faces the same way: what
-//! it provides from the upper half, over the lower's; what it requires
-//! from the lower half, with what of the upper's reaches past it. At run
-//! time, the upper part calls the lower one, with the rest of the chain
-//! below it, as one executor:
+//! it accepts and provides from the upper half; what it sends from the
+//! lower half; what it requires given what arrives, from the lower half
+//! given what the upper half requires. At run time, the upper part calls
+//! the lower one, with the rest of the chain below it, as one executor:
 //!
 //! ```text
 //! d.through(a).drive(shots, seed, below)
@@ -26,39 +26,37 @@
 //! Each shapes the readouts that cross it, checks every batch's count of
 //! instructions against the most its receiver provides for, and checks
 //! each batch its sender marked [`checked`](Batch::checked) against the
-//! receiver's instructions, what is required across and the readout slots
-//! the batch states. It names a panic below it by the part that receives
-//! the calls, at its position and by the name the runner's `on` read, when
+//! receiver's instructions, what arrives at it and the readout slots the
+//! batch states. It names a panic below it by the part that receives the
+//! calls, at its position and by the name the runner's `on` read, when
 //! the run's `ready` gave it one.
 //!
 //! What crosses the boundary is the [`Boundary`] the join's fit gave,
-//! resolved on each run with the resources and features that reach it:
-//! what is required, at `ready`, from what reaches the lower half from
-//! above; what is provided, at the run's first call, from the lower half's
-//! provision over the chain below's.
+//! with, on each run, what arrives at the lower half, which `ready` gets
+//! from what the upper half requires.
 //!
 //! A `Composed` keeps its role's contract through its public methods
 //! alone, so it gives the same outputs when the chain's check did not
 //! reach it, such as inside a part of the user's that forwards only the
 //! role's public methods: a panic or a refusal below it then passes up
-//! unnamed, and the boundary above names the part at its position; a
-//! `Composed` whose halves do not fit refuses the run at `ready`, with
-//! their mismatch, rather than running an unbound opcode. A joined driver
-//! also fails a run its own parts do not provide, by the runner's rule,
-//! before its driver runs anything, for a part holding it that does not
-//! forward what it provides a run, where the runner would have refused
-//! it.
+//! unnamed, and the boundary above names the part at its position. Such a
+//! part provides what its upper half provides, and the chain's checks see
+//! no further, so a `Composed` refuses the run at `ready` when its halves
+//! do not fit, with their mismatch, rather than running an unbound opcode,
+//! and when what arrives at its lower half does not fit what that half
+//! provides.
 
 mod adapter;
 mod driver;
 mod executor;
 
+use super::BoundaryMismatch;
 use super::part_panics::end_both;
 use crate::PartId;
 use crate::part_id::ChainPosition;
 use crate::{
-    Adapter, Batch, BatchReadouts, Boundary, Capabilities, CapabilitiesMismatch, ExecuteError,
-    Executor, NotReady, RunProvision, Seed, ShotSet,
+    Adapter, Batch, BatchReadouts, Boundary, BoundaryCompatible, Capabilities, ExecuteError,
+    Executor, InstructionSet, NotReady, Seed, ShotSet,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
@@ -74,66 +72,42 @@ use crate::{
 pub struct Composed<U, L> {
     upper: U,
     lower: L,
-    /// The boundary between the halves, as the join's fit gave it, and as
-    /// each run resolves it; or, when the upper half's requirement does
-    /// not fit the lower half's provision, their mismatch, with which
-    /// every run refuses at `ready`.
-    fit: Result<Boundary, CapabilitiesMismatch>,
-    /// What the two halves require together, for the driver's and the
-    /// adapter's roles: the lower half's requirement, with what of the
-    /// upper's reaches past the lower half.
-    requires: Option<Capabilities>,
-    /// What the two halves provide together, for the adapter's and the
-    /// executor's roles: the upper half's provision over the lower's.
-    provides: Option<Capabilities>,
-    /// What the two halves provide a run together, for the driver's role:
-    /// the upper half's over the lower half's provision.
-    run_provides: Option<RunProvision>,
+    /// The boundary between the halves, as the join's fit gave it, with
+    /// what arrives at the lower half on each run; or, when the upper
+    /// half's instructions do not fit the lower half's, their mismatch,
+    /// with which every run refuses at `ready`.
+    fit: Result<Boundary, BoundaryMismatch>,
     /// The parts the upper half holds, as it declares them: how far below
     /// this part's position the lower half's is.
     upper_parts: usize,
-    /// Whether this run's boundary has what the chain below provides:
-    /// reset at `ready`, set at the run's first call.
-    provided_on_run: bool,
 }
 
-/// Why a `Composed` has its boundary at its run's first call.
+/// Why a `Composed` has its boundary at its run's calls.
 const READY_FIRST: &str = "each run gets a part ready before calling it, as its role says, \
                            and a joined part whose halves do not fit refuses every run then";
 
-/// Why a `Composed` has what it requires or provides together.
-const DECLARED: &str = "the join that made a joined part in this role combines it";
-
 impl<U, L> Composed<U, L> {
-    /// `upper` calling `lower`, where the upper half's requirement meets
-    /// the lower half's provision as `fit` says, and the halves require
-    /// and provide `requires` and `provides` together; the upper half
-    /// declares `upper_parts` parts.
+    /// `upper` calling `lower`, where they meet as `fit` says; the upper
+    /// half declares `upper_parts` parts.
     fn new(
         (upper, upper_parts): (U, usize),
         lower: L,
-        fit: Result<Boundary, CapabilitiesMismatch>,
-        requires: Option<Capabilities>,
-        provides: Option<Capabilities>,
+        fit: Result<Boundary, BoundaryMismatch>,
     ) -> Self {
         Self {
             upper,
             lower,
             fit,
-            requires,
-            provides,
-            run_provides: None,
             upper_parts,
-            provided_on_run: true,
         }
     }
 
     /// Starts a run, at `ready`, of this part at `at`: refuses it if the
-    /// halves do not fit, with their mismatch; otherwise resolves the
-    /// boundary with `required`, what the lower half is required on this
-    /// run. Gives the lower half, what it gets ready for, its position,
-    /// and the part a refusal from it names, the lower half as `on` named
-    /// it, if that position is known.
+    /// halves do not fit, or if what arrives at the lower half on this
+    /// run, `required` of the upper half, does not fit what the lower half
+    /// provides, with their mismatch. Gives the lower half, what arrives
+    /// at it, its position, and the part a refusal from it names, the
+    /// lower half as `on` named it, if that position is known.
     fn start_run<'p>(
         &mut self,
         required: impl FnOnce(&U) -> Capabilities,
@@ -144,39 +118,26 @@ impl<U, L> Composed<U, L> {
             lower,
             fit,
             upper_parts,
-            provided_on_run,
-            ..
         } = self;
         let boundary = fit
             .as_mut()
             .map_err(|mismatch| NotReady::new(mismatch.clone()))?;
+        boundary.require(required(upper));
+        (boundary.required.fits(&boundary.provided)).map_err(|capabilities| {
+            NotReady::new(BoundaryMismatch {
+                capabilities,
+                ..BoundaryMismatch::default()
+            })
+        })?;
         let below = at.below(*upper_parts);
-        boundary.require(&required(upper));
         boundary.part = below.part().cloned();
-        *provided_on_run = false;
         Ok((lower, &boundary.required, below, boundary.part.as_ref()))
     }
 
-    /// The halves, and their boundary on this run, given at the run's
-    /// first call what the chain below provides, as `provided` reads it
-    /// from the lower half.
-    fn run_boundary(
-        &mut self,
-        provided: impl FnOnce(&L) -> Capabilities,
-    ) -> (&mut U, &mut L, &Boundary) {
-        let Self {
-            upper,
-            lower,
-            fit,
-            provided_on_run,
-            ..
-        } = self;
-        let boundary = fit.as_mut().expect(READY_FIRST);
-        if !*provided_on_run {
-            boundary.provide(&provided(lower));
-            *provided_on_run = true;
-        }
-        (upper, lower, boundary)
+    /// The halves, and their boundary on this run.
+    fn halves(&mut self) -> (&mut U, &mut L, &Boundary) {
+        let boundary = self.fit.as_ref().expect(READY_FIRST);
+        (&mut self.upper, &mut self.lower, boundary)
     }
 }
 
@@ -193,6 +154,12 @@ impl<A: Adapter, B: Executor> Executor for ChainBelow<'_, A, B> {
     /// The adapter's, which receives its calls.
     fn name(&self) -> &str {
         self.adapter.name()
+    }
+
+    /// The adapter's. Not asked at run time: the boundary crossing the
+    /// part above calls answers what is accepted across it.
+    fn accepts(&self) -> &InstructionSet {
+        self.adapter.accepts()
     }
 
     /// The adapter's. Not asked at run time: the boundary crossing the
@@ -223,4 +190,17 @@ impl<A: Adapter, B: Executor> Executor for ChainBelow<'_, A, B> {
             || self.below.end_shots(shots),
         );
     }
+}
+
+/// Where a part sending `sends` meets one that accepts `accepted` and
+/// provides `provided`, or the instructions that do not fit.
+fn boundary(
+    sends: &InstructionSet,
+    accepted: &InstructionSet,
+    provided: &Capabilities,
+) -> Result<Boundary, BoundaryMismatch> {
+    (Boundary::fit(sends, accepted, provided)).map_err(|instructions| BoundaryMismatch {
+        instructions,
+        ..BoundaryMismatch::default()
+    })
 }

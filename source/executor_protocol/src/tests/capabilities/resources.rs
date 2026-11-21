@@ -4,14 +4,18 @@
 //! The resources a part requires against those the part below provides,
 //! at one boundary: which amounts fit.
 
-use super::{carbon, coin};
-use crate::{BlockType, BoundaryCompatible, Features, Resource, ResourceMismatch, Resources};
+use super::carbon;
+use crate::{
+    BlockType, BoundaryCompatible, Capabilities, Features, Resource, ResourceMismatch, Resources,
+};
 
 /// Each amount `required` states above what `provided` states, as
 /// [`Capabilities`](crate::Capabilities)' fit lists them.
 fn fit(required: Resources, provided: &Resources) -> Result<(), Vec<ResourceMismatch>> {
-    let fit = coin(required, Features::unconstrained())
-        .fits(&coin(provided.clone(), Features::unconstrained()));
+    let fit = Capabilities::new(required, Features::unconstrained()).fits(&Capabilities::new(
+        provided.clone(),
+        Features::unconstrained(),
+    ));
     fit.map(drop).map_err(|mismatch| mismatch.resources)
 }
 

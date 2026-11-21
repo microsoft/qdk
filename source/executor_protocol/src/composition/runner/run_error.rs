@@ -7,7 +7,8 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::{CapabilitiesMismatch, DriveError, NotReady, PartId};
+use super::super::CompositionFault;
+use crate::{DriveError, NotReady, PartId};
 
 /// What a run returns to the user when it gives no outputs: it was refused,
 /// and nothing of it ran, or a shot's work broke.
@@ -40,16 +41,13 @@ impl Error for RunError {}
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RunRefusal {
-    /// The run requires what the driver and the parts below it do not
-    /// provide: more shots than the fewest stated down to the first part
-    /// that serves shots
-    /// ([`Resources::with_shots`](crate::Resources::with_shots)), or a fixed
-    /// seed where one of those parts states no seeded runs
-    /// ([`Features::with_seeded_runs`](crate::Features::with_seeded_runs)). A
-    /// joined driver held by a part of the user's that does not forward
-    /// what it provides a run fails such a run instead
-    /// ([`Failure::NotProvided`](crate::Failure::NotProvided)).
-    NotProvided(CapabilitiesMismatch),
+    /// A part does not provide what arrives at it from the run, such as
+    /// more shots than it takes, or a fixed seed where it states no seeded
+    /// runs: each such fault, as
+    /// [`CompositionFaults::faults`](crate::CompositionFaults::faults)
+    /// orders them, each part named as the `on` that made the runner named
+    /// it.
+    NotProvided(Vec<CompositionFault>),
     /// A part's `ready` said it cannot take the run now.
     PartNotReady {
         /// The part that refused: the first asked to, bottom up.
@@ -72,11 +70,15 @@ impl RunRefusal {
 impl fmt::Display for RunRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RunRefusal::NotProvided(mismatch) => {
-                write!(
-                    f,
-                    "the run requires what the chain does not provide: {mismatch}"
-                )
+            RunRefusal::NotProvided(faults) => {
+                f.write_str("the chain does not provide the run: ")?;
+                for (i, fault) in faults.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str("; ")?;
+                    }
+                    write!(f, "{fault}")?;
+                }
+                Ok(())
             }
             RunRefusal::PartNotReady { part, not_ready } => write!(f, "{part} is {not_ready}"),
         }

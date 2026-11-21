@@ -12,22 +12,26 @@ use crate::{Adapter, Executor};
 /// [`on`](Self::on) an executor, which gives an executor. Every adapter
 /// has them.
 ///
-/// Each join checks that what the adapter requires fits what the part
-/// below provides, and binds them where they fit ([`Adapter::bind`]); a
-/// boundary that does not fit is reported, with every other fault of the
-/// chain, by the [`on`](crate::DriverJoins::on) that makes the runner.
+/// Each join checks that the instructions the adapter sends fit those the
+/// part below accepts, and binds them where they fit ([`Adapter::bind`]);
+/// a boundary that does not fit is reported, with every other fault of
+/// the chain, by the [`on`](crate::DriverJoins::on) that makes the runner.
 pub trait AdapterJoins: Adapter + Sized {
-    /// This adapter calling `below`, as one adapter: it provides this
-    /// adapter's provision over `below`'s, and requires what `below`
-    /// requires with what this adapter requires that reaches past `below`,
-    /// as [`Capabilities`](crate::Capabilities) says.
+    /// This adapter calling `below`, as one adapter: it accepts and
+    /// provides what this adapter accepts and provides, sends what `below`
+    /// sends, and requires what `below` requires given what this adapter
+    /// requires. What arrives at `below` is checked against what it
+    /// provides when the joined adapter gets ready, or, seen from the
+    /// chain, by the walk of [`on`](crate::DriverJoins::on).
     fn through<L: Adapter>(self, below: L) -> Composed<Self, L> {
         Composed::adapter_through(self, below)
     }
 
-    /// This adapter calling `executor`, as one executor: it provides this
-    /// adapter's provision over `executor`'s, as
-    /// [`Capabilities`](crate::Capabilities) says.
+    /// This adapter calling `executor`, as one executor: it accepts and
+    /// provides what this adapter accepts and provides. What arrives at
+    /// `executor` is checked against what it provides when the joined
+    /// executor gets ready, or, seen from the chain, by the walk of
+    /// [`on`](crate::DriverJoins::on).
     fn on<E: Executor>(self, executor: E) -> Composed<Self, E> {
         Composed::adapter_on(self, executor)
     }

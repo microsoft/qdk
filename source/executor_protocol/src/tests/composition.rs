@@ -78,7 +78,7 @@ fn a_sender_writes_in_the_receivers_opcodes() {
     for (mnemonic, opcode) in [("h", CoinGates::H), ("mz", CoinGates::MZ)] {
         assert_ne!(reordered.opcode(mnemonic), Some(opcode), "another order");
     }
-    let composed = CoinCopy::new().on(Bits::providing(reordered, &log));
+    let composed = CoinCopy::new().on(Bits::accepting(reordered, &log));
     assert_eq!(records(composed, &shots), plain(&shots));
 }
 
@@ -361,16 +361,17 @@ fn logged_over_two_runs<D: Driver, E: Executor>(
 
 /// Parts over bits, in each bracketing the joins make a runner of, the
 /// inner parts of each composed part included, over two runs: each part
-/// gets ready, on every run and bottom up, for the largest requirement
-/// that reaches it. Under a driver of 2 qubits, through encodings built
-/// for 2 and 4 qubits, which serve them, they come down as 4, then 12.
-/// Under a program of 1 qubit, through two encodings that state no qubits,
-/// each part below it gets ready for the program's 1 qubit, which passes
-/// them. Under a program of 5 qubits, the bits get ready for 5 through an
-/// interleaver needing 3, and over bits that state no qubits; and for 30
+/// gets ready, on every run and bottom up, for what arrives at it, which
+/// each part above makes of what arrives at that part. Under a driver of
+/// 2 qubits, through encodings of 2 and 3, they come down as 4, then 12.
+/// Under a program of 1 qubit, through two encodings that state nothing,
+/// each part below it gets ready for the program's 1 qubit, which they
+/// pass. Through an interleaver running each shot on 3 qubits at least,
+/// the bits get ready for a program's 5 qubits, or for 3 under a program
+/// of 2; over bits that state no qubits, for the program's 5; and for 30
 /// through an encoding of 3 built for 10, under a program of 10.
 #[test]
-fn every_part_gets_ready_on_every_run_for_the_largest_requirement_that_reaches_it() {
+fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
@@ -411,19 +412,22 @@ fn every_part_gets_ready_on_every_run_for_the_largest_requirement_that_reaches_i
         ),
     );
     let ready_for = |qubits| vec![format!("Bits ready for {qubits} qubits"); 2];
-    in_each_bracketing!(
-        [d, a, e] from {
-            let log = Log::default();
-            let d = Program::new(&[("mz", 4)]);
-            let a = Stating::requiring(qubits(3), &log);
-            let e = Bits::new(&log).with_resources(qubits(6));
-        },
-        |chain, brackets| assert_eq!(
-            logged_over_two_runs(chain, &log, "Bits ready"),
-            ready_for(5),
-            "through an interleaver, {brackets}"
-        ),
-    );
+    for (program, ready) in [(4, 5), (1, 3)] {
+        in_each_bracketing!(
+            [d, a, e] from {
+                let log = Log::default();
+                let d = Program::new(&[("mz", program)]);
+                let a = Stating::interleaving(3, &log);
+                let e = Bits::new(&log).with_resources(qubits(6));
+            },
+            |chain, brackets| assert_eq!(
+                logged_over_two_runs(chain, &log, "Bits ready"),
+                ready_for(ready),
+                "through an interleaver, under {} qubits, {brackets}",
+                program + 1
+            ),
+        );
+    }
     in_each_bracketing!(
         [d, a, e] from {
             let log = Log::default();
@@ -475,10 +479,12 @@ fn a_joined_part_gets_ready_for_what_each_chain_it_is_lent_to_requires() {
 
 /// Two adapters joined, kept across devices: lent to a chain over bits
 /// that take 2 instructions a batch, then to one over bits that take 1,
-/// the upper adapter is told, on each run, what that run's bits provide,
-/// through the lower adapter, which states no count.
+/// each adapter reads, on each run, what the part directly below it
+/// provides: the lower one, that run's bits; the upper one, the lower
+/// adapter's own limits, which state no count, never the bits' through
+/// it.
 #[test]
-fn a_joined_adapter_is_told_what_each_chain_it_is_lent_to_provides() {
+fn an_adapter_reads_what_the_part_directly_below_provides_in_each_chain_it_is_lent_to() {
     let log = Log::default();
     let mut lent = NamesBelow::new(&log).through(NamesBelow::new(&log));
     for most in [2, 1] {
@@ -489,6 +495,9 @@ fn a_joined_adapter_is_told_what_each_chain_it_is_lent_to_provides() {
     let told: Vec<_> = (log.entries().into_iter())
         .filter(|entry| entry.starts_with("below takes"))
         .collect();
-    let takes = |most| format!("below takes Some({most}) a batch");
-    assert_eq!(told, [takes(2), takes(2), takes(1), takes(1)]);
+    let takes = |most: Option<u32>| format!("below takes {most:?} a batch");
+    assert_eq!(
+        told,
+        [takes(None), takes(Some(2)), takes(None), takes(Some(1))]
+    );
 }

@@ -29,12 +29,13 @@ use crate::prelude::*;
 use crate::tests::allocations;
 use crate::tests::fake_parts::{
     Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, NamesBelow, ParityGates, Profiler,
-    Program, Renamed, coin_capabilities, coin_gate, coin_gates, in_each_bracketing, qubits,
+    Program, Renamed, coin_gate, coin_gates, in_each_bracketing, qubits,
 };
 use crate::{
     Argument, Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError,
-    ExecuteError, ExecuteRefusal, Failure, Features, Instruction, InstructionFault, NotReady,
-    OpcodeMap, PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    ExecuteError, ExecuteRefusal, Failure, Features, Instruction, InstructionFault, InstructionSet,
+    NotReady, OpcodeMap, PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId,
+    ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -142,12 +143,10 @@ fn flip_on_a_parity() -> Program {
     };
     let mz = on_qubit_0(ParityGates::MZ, smallvec![]);
     let x_if = on_qubit_0(ParityGates::X_IF, smallvec![Argument::recent(1)]);
-    let requires = Capabilities::new(
-        ParityGates::set(),
-        qubits(1),
-        Features::unconstrained().with_readout_parity(true),
-    );
-    Program::sending(vec![mz.clone(), x_if, mz], requires).with_checked_batches()
+    Program::sending(vec![mz.clone(), x_if, mz], ParityGates::set())
+        .with_resources(qubits(1))
+        .with_features(Features::unconstrained().with_readout_parity(true))
+        .with_checked_batches()
 }
 
 /// Each boundary refuses a checked batch its receiver does not take,
@@ -241,7 +240,7 @@ fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
                 (
                     flip_on_a_parity(),
                     ForwardsParity::on(ParityGates::set(), log),
-                    Bits::providing(ParityGates::set(), log),
+                    Bits::accepting(ParityGates::set(), log),
                 )
             })
             .into(),
@@ -265,7 +264,7 @@ fn a_required_readout_parity_crosses_every_boundary() {
             let d = flip_on_a_parity();
             let a = Profiler::on(ParityGates::set(), &counted, &log);
             let b = Profiler::on(ParityGates::set(), &counted, &log);
-            let e = Bits::providing(ParityGates::set(), &log).resolving_parity();
+            let e = Bits::accepting(ParityGates::set(), &log).resolving_parity();
         },
         |chain, brackets| {
             runner(chain)
@@ -287,7 +286,7 @@ fn a_required_readout_parity_crosses_every_boundary() {
 fn every_batch_is_checked_against_the_set_read_at_composition() {
     let log = Log::default();
     let names_below = || NamesBelow::new(&log);
-    let bits = || Bits::new(&log).providing_once_ready(ParityGates::set());
+    let bits = || Bits::new(&log).accepting_once_ready(ParityGates::set());
     let shots = ShotSet::ids([5, 3]);
     let runs = [
         runner(flip_and_measure().on(bits())).run(&shots, SEED),
@@ -303,9 +302,9 @@ fn every_batch_is_checked_against_the_set_read_at_composition() {
     let told: Vec<_> = log
         .entries()
         .into_iter()
-        .filter(|entry| entry.starts_with("below provides: "))
+        .filter(|entry| entry.starts_with("below accepts: "))
         .collect();
-    let read_at_composition = format!("below provides: {}", coin_gates().name());
+    let read_at_composition = format!("below accepts: {}", coin_gates().name());
     assert_eq!(told, [read_at_composition.clone(), read_at_composition]);
 }
 
@@ -359,17 +358,24 @@ enum Stage {
 }
 
 impl Adapter for Stage {
-    fn provides(&self) -> &Capabilities {
+    fn accepts(&self) -> &InstructionSet {
         match self {
-            Self::Counts(profiler) => Adapter::provides(profiler),
-            Self::Faulty(faulty) => Adapter::provides(faulty),
+            Self::Counts(profiler) => Adapter::accepts(profiler),
+            Self::Faulty(faulty) => Adapter::accepts(faulty),
         }
     }
 
-    fn requires(&self) -> &Capabilities {
+    fn sends(&self) -> &InstructionSet {
         match self {
-            Self::Counts(profiler) => Adapter::requires(profiler),
-            Self::Faulty(faulty) => Adapter::requires(faulty),
+            Self::Counts(profiler) => profiler.sends(),
+            Self::Faulty(faulty) => faulty.sends(),
+        }
+    }
+
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        match self {
+            Self::Counts(profiler) => Adapter::requires(profiler, above),
+            Self::Faulty(faulty) => Adapter::requires(faulty, above),
         }
     }
 
@@ -575,8 +581,8 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
 struct SendsNothing;
 
 impl Driver for SendsNothing {
-    fn requires(&self) -> &Capabilities {
-        coin_capabilities()
+    fn sends(&self) -> &InstructionSet {
+        coin_gates()
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
@@ -627,8 +633,8 @@ struct MakesAnExecute {
 }
 
 impl Driver for MakesAnExecute {
-    fn requires(&self) -> &Capabilities {
-        coin_capabilities()
+    fn sends(&self) -> &InstructionSet {
+        coin_gates()
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
@@ -657,8 +663,8 @@ impl Driver for MakesAnExecute {
 struct AnswersWhenCalled(Rc<Cell<usize>>);
 
 impl Executor for AnswersWhenCalled {
-    fn provides(&self) -> &Capabilities {
-        coin_capabilities()
+    fn accepts(&self) -> &InstructionSet {
+        coin_gates()
     }
 
     fn execute(
@@ -678,12 +684,12 @@ impl Executor for AnswersWhenCalled {
 struct ForwardsWhenCalled(Rc<Cell<usize>>);
 
 impl Adapter for ForwardsWhenCalled {
-    fn provides(&self) -> &Capabilities {
-        coin_capabilities()
+    fn accepts(&self) -> &InstructionSet {
+        coin_gates()
     }
 
-    fn requires(&self) -> &Capabilities {
-        coin_capabilities()
+    fn sends(&self) -> &InstructionSet {
+        coin_gates()
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
@@ -806,8 +812,8 @@ fn readouts_of_other_shapes() -> Readouts {
 }
 
 impl Driver for TwoBatches {
-    fn requires(&self) -> &Capabilities {
-        coin_capabilities()
+    fn sends(&self) -> &InstructionSet {
+        coin_gates()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -871,8 +877,8 @@ fn read_stating<D: Driver, E: Executor>(
 struct RecordsWhatItFinds(Option<Bits>, Rc<RefCell<Vec<BatchReadouts>>>);
 
 impl Executor for RecordsWhatItFinds {
-    fn provides(&self) -> &Capabilities {
-        coin_capabilities()
+    fn accepts(&self) -> &InstructionSet {
+        coin_gates()
     }
 
     async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
@@ -977,6 +983,10 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
 struct FailsFirst(Bits, bool);
 
 impl Executor for FailsFirst {
+    fn accepts(&self) -> &InstructionSet {
+        Executor::accepts(&self.0)
+    }
+
     fn provides(&self) -> &Capabilities {
         Executor::provides(&self.0)
     }
@@ -1016,12 +1026,20 @@ impl Executor for FailsFirst {
 struct RetriesAfterAFailure(Profiler);
 
 impl Adapter for RetriesAfterAFailure {
+    fn accepts(&self) -> &InstructionSet {
+        Adapter::accepts(&self.0)
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
     fn provides(&self) -> &Capabilities {
         Adapter::provides(&self.0)
     }
 
-    fn requires(&self) -> &Capabilities {
-        Adapter::requires(&self.0)
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        Adapter::requires(&self.0, above)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -1067,12 +1085,20 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
 struct PassesTooFewReadouts(Profiler);
 
 impl Adapter for PassesTooFewReadouts {
+    fn accepts(&self) -> &InstructionSet {
+        Adapter::accepts(&self.0)
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
     fn provides(&self) -> &Capabilities {
         Adapter::provides(&self.0)
     }
 
-    fn requires(&self) -> &Capabilities {
-        Adapter::requires(&self.0)
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        Adapter::requires(&self.0, above)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -1168,8 +1194,8 @@ struct RoundsIntoItsReadouts {
 }
 
 impl Driver for RoundsIntoItsReadouts {
-    fn requires(&self) -> &Capabilities {
-        coin_capabilities()
+    fn sends(&self) -> &InstructionSet {
+        coin_gates()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -1218,8 +1244,8 @@ impl Driver for RoundsIntoItsReadouts {
 struct Zeros;
 
 impl Executor for Zeros {
-    fn provides(&self) -> &Capabilities {
-        coin_capabilities()
+    fn accepts(&self) -> &InstructionSet {
+        coin_gates()
     }
 
     async fn execute(

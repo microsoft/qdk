@@ -3,36 +3,28 @@
 
 //! An adapter through an adapter: a [`Composed`] in the adapter's role.
 
-use super::{ChainBelow, Composed, DECLARED};
+use super::{ChainBelow, Composed, boundary};
 use crate::composition::DeclaredParts;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
 use crate::part_id::ChainPosition;
 use crate::{
-    Adapter, Batch, BatchReadouts, BoundaryCompatible, Capabilities, ExecuteError, Executor,
-    NotReady, OpcodeMap, Seed, ShotSet,
+    Adapter, Batch, BatchReadouts, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
+    OpcodeMap, Seed, ShotSet,
 };
 
 impl<U: Adapter, L: Adapter> Composed<U, L> {
-    /// `upper` through `lower`: binds `upper` where its requirement fits
-    /// what `lower` provides.
+    /// `upper` through `lower`: binds `upper` where its instructions fit
+    /// those `lower` accepts.
     pub(crate) fn adapter_through(mut upper: U, lower: L) -> Self {
-        let fit = upper.requires().fits(lower.provides());
+        let fit = boundary(upper.sends(), lower.accepts(), lower.provides());
         if let Ok(boundary) = &fit {
             upper.bind(boundary.opcode_map().clone());
         }
-        let requires = (upper.requires()).past(lower.requires(), lower.provides());
-        let provides = upper.provides().over(lower.provides());
-        let mut parts = DeclaredParts::new();
-        upper.declare(&mut parts);
+        let mut parts = DeclaredParts::checking();
+        upper.declare(&Capabilities::UNCONSTRAINED, &mut parts);
         let upper_parts = parts.len();
-        Self::new(
-            (upper, upper_parts),
-            lower,
-            fit,
-            Some(requires),
-            Some(provides),
-        )
+        Self::new((upper, upper_parts), lower, fit)
     }
 }
 
@@ -43,15 +35,25 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
         self.upper.name()
     }
 
-    /// The upper part's provision, over the lower part's.
-    fn provides(&self) -> &Capabilities {
-        self.provides.as_ref().expect(DECLARED)
+    /// The upper part's.
+    fn accepts(&self) -> &InstructionSet {
+        self.upper.accepts()
     }
 
-    /// The lower part's requirement, with what of the upper part's reaches
-    /// past the lower part.
-    fn requires(&self) -> &Capabilities {
-        self.requires.as_ref().expect(DECLARED)
+    /// The lower part's.
+    fn sends(&self) -> &InstructionSet {
+        self.lower.sends()
+    }
+
+    /// The upper part's: what arrives at the lower part is checked against
+    /// what it provides when the joined part gets ready.
+    fn provides(&self) -> &Capabilities {
+        self.upper.provides()
+    }
+
+    /// What the lower part requires, given what the upper part requires.
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        self.lower.requires(&self.upper.requires(above))
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -70,8 +72,7 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
         below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        let (upper, lower, boundary) =
-            self.run_boundary(|lower| lower.provides().over(below.provides()));
+        let (upper, lower, boundary) = self.halves();
         let mut rest = ChainBelow {
             adapter: lower,
             below,
@@ -94,27 +95,25 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
         );
     }
 
-    /// The upper part, then the lower one.
-    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
-        self.upper.declare(parts);
-        self.lower.declare(parts);
+    /// The upper part, then the lower one, given what the upper part
+    /// requires.
+    fn declare<'a>(&'a self, above: &Capabilities, parts: &mut DeclaredParts<'a>) -> Capabilities {
+        let required = self.upper.declare(above, parts);
+        self.lower.declare(&required, parts)
     }
 
-    /// Refuses the run if the halves do not fit; else the lower part
-    /// first, for what reaches it: the upper part's requirement, and what
-    /// of `required` the upper part does not serve; then the upper part,
-    /// for `required`.
-    /// A refusal from the lower part names it, at its position, if `at`
-    /// is known.
+    /// Refuses the run if the halves do not fit, or if what the upper part
+    /// requires does not fit what the lower part provides; else the lower
+    /// part first, for what the upper part requires, then the upper part,
+    /// for `required`. A refusal from the lower part names it, at its
+    /// position, if `at` is known.
     async fn ready_at(
         &mut self,
         required: &Capabilities,
         at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
-        let (lower, below_required, below, part) = self.start_run(
-            |upper| required.past(upper.requires(), upper.provides()),
-            at,
-        )?;
+        let (lower, below_required, below, part) =
+            self.start_run(|upper| upper.requires(required), at)?;
         await_part(lower.ready_at(below_required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;

@@ -11,8 +11,8 @@ use std::thread::{self, JoinHandle};
 
 use executor_protocol::prelude::*;
 use executor_protocol::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Features, Instruction, Opcode, ReadoutValue,
-    Resources, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, Instruction, InstructionSet,
+    Opcode, ReadoutValue, Resources, Seed, ShotSet,
 };
 
 use super::{MixGates, PhysicalGates};
@@ -22,6 +22,7 @@ use crate::workload::MIX;
 /// the kinds of batches: as cheap an executor as one that reads every
 /// instruction can be.
 pub(crate) struct Profiler {
+    accepts: InstructionSet,
     provides: Capabilities,
     pub(crate) profile: Profile,
 }
@@ -63,10 +64,11 @@ impl BatchKinds {
 }
 
 impl Profiler {
-    /// A profiler providing `MixGates` and `resources`.
+    /// A profiler accepting `MixGates` and providing `resources`.
     pub(crate) fn new(resources: Resources) -> Self {
         Self {
-            provides: Capabilities::new(MixGates::set(), resources, Features::unconstrained()),
+            accepts: MixGates::set(),
+            provides: Capabilities::new(resources, Features::unconstrained()),
             profile: Profile::default(),
         }
     }
@@ -125,6 +127,10 @@ const _: () = {
 };
 
 impl Executor for Profiler {
+    fn accepts(&self) -> &InstructionSet {
+        &self.accepts
+    }
+
     fn provides(&self) -> &Capabilities {
         &self.provides
     }
@@ -149,7 +155,7 @@ impl Executor for Profiler {
 /// stream get the same readouts; it notes the kinds of batches it gets, and
 /// may record the stream.
 pub(crate) struct Sink {
-    provides: Capabilities,
+    accepts: InstructionSet,
     /// The instructions seen so far.
     pub(crate) seen: u64,
     pub(crate) kinds: BatchKinds,
@@ -159,11 +165,7 @@ pub(crate) struct Sink {
 impl Sink {
     pub(crate) fn new() -> Self {
         Self {
-            provides: Capabilities::new(
-                PhysicalGates::set(),
-                Resources::unconstrained(),
-                Features::unconstrained(),
-            ),
+            accepts: PhysicalGates::set(),
             seen: 0,
             kinds: BatchKinds::default(),
             record: None,
@@ -179,8 +181,8 @@ impl Sink {
 }
 
 impl Executor for Sink {
-    fn provides(&self) -> &Capabilities {
-        &self.provides
+    fn accepts(&self) -> &InstructionSet {
+        &self.accepts
     }
 
     async fn execute(
@@ -217,7 +219,7 @@ impl Executor for Sink {
 /// An executor of `MixGates` whose worker thread counts each batch, from a
 /// copy, and hands its readouts back, waking the run's waker.
 pub(crate) struct FromWorker {
-    provides: Capabilities,
+    accepts: InstructionSet,
     /// Each `execute`'s batches, copied, to the worker; closed by `finish`.
     jobs: Option<mpsc::Sender<Job>>,
     worker: Option<JoinHandle<Profile>>,
@@ -261,11 +263,7 @@ impl FromWorker {
             })
         };
         Self {
-            provides: Capabilities::new(
-                MixGates::set(),
-                Resources::unconstrained(),
-                Features::unconstrained(),
-            ),
+            accepts: MixGates::set(),
             jobs: Some(jobs),
             worker: Some(worker),
             handover,
@@ -281,8 +279,8 @@ impl FromWorker {
 }
 
 impl Executor for FromWorker {
-    fn provides(&self) -> &Capabilities {
-        &self.provides
+    fn accepts(&self) -> &InstructionSet {
+        &self.accepts
     }
 
     async fn execute(

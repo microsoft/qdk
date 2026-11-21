@@ -21,10 +21,12 @@ use crate::workload::SEED;
 /// `checked`, and returns every readout and, when `timed`, the time of each
 /// call.
 pub(crate) struct ProgramInBatches<'p> {
-    /// Its set, its qubits, and readout parities, which the parity-heavy
-    /// mix's corrections use: a checked batch's corrections are refused
-    /// unless its sender requires them, and the other programs hold none,
-    /// so their checks cost the same.
+    /// The set its program is written in.
+    sends: InstructionSet,
+    /// Its qubits, and readout parities, which the parity-heavy mix's
+    /// corrections use: a checked batch's corrections are refused unless
+    /// its sender requires them, and the other programs hold none, so
+    /// their checks cost the same.
     requires: Capabilities,
     /// The map `bind` must get, the set's own: the program goes below as
     /// it is, so every chain gets the same instructions.
@@ -60,8 +62,8 @@ impl<'p> ProgramInBatches<'p> {
             "a count of slots per batch"
         );
         Self {
+            sends: set,
             requires: Capabilities::new(
-                set,
                 Resources::unconstrained().with_qubits(qubits),
                 Features::unconstrained().with_readout_parity(true),
             ),
@@ -117,8 +119,14 @@ impl<'p> ProgramInBatches<'p> {
 }
 
 impl Driver for ProgramInBatches<'_> {
-    fn requires(&self) -> &Capabilities {
-        &self.requires
+    fn sends(&self) -> &InstructionSet {
+        &self.sends
+    }
+
+    /// Its qubits and readout parities, whatever the run: the bench's runs
+    /// are of one shot, unseeded, which every executor takes.
+    fn requires(&self, _run: &Capabilities) -> Capabilities {
+        self.requires.clone()
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -158,8 +166,12 @@ pub(crate) fn slots_per_batch(
 pub(crate) struct Direct<'p, E>(pub(crate) ProgramInBatches<'p>, pub(crate) E);
 
 impl<E: Executor> Driver for Direct<'_, E> {
-    fn requires(&self) -> &Capabilities {
-        self.0.requires()
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn requires(&self, run: &Capabilities) -> Capabilities {
+        self.0.requires(run)
     }
 
     fn bind(&mut self, below: OpcodeMap) {

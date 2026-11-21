@@ -7,80 +7,69 @@
 
 use super::composed::Composed;
 use super::{CompositionFaults, DeclaredParts};
-use crate::{Adapter, BoundaryCompatible, Driver, Executor, Runner};
+use crate::capabilities::Boundary;
+use crate::{Adapter, Capabilities, Driver, Executor, Runner};
 
 /// The joins of a driver with the part below it: [`through`](Self::through)
 /// an adapter, which gives a driver, and [`on`](Self::on) an executor,
 /// which gives the [`Runner`] of the whole chain. Every driver has them.
 ///
-/// Each join checks that what the driver requires fits what the part below
-/// provides, and binds them where they fit ([`Driver::bind`]); a boundary
-/// that does not fit is reported, with every other fault of the chain, by
-/// the `on` that makes the runner.
+/// Each join checks that the instructions the driver sends fit those the
+/// part below accepts, and binds them where they fit ([`Driver::bind`]); a
+/// boundary that does not fit is reported, with every other fault of the
+/// chain, by the `on` that makes the runner.
 pub trait DriverJoins: Driver + Sized {
-    /// This driver calling `adapter`, as one driver: it requires what
-    /// `adapter` requires, and what of this driver's requirement reaches
-    /// past `adapter`; it provides a run what this driver provides it, over
-    /// what `adapter` provides.
+    /// This driver calling `adapter`, as one driver: it sends what
+    /// `adapter` sends, and requires what `adapter` requires given what
+    /// this driver requires.
     fn through<A: Adapter>(self, adapter: A) -> Composed<Self, A> {
         Composed::driver_through(self, adapter)
     }
 
     /// The runner of this driver calling `executor`, or every fault of the
     /// chain it can see: the parts inside a part of the user's, which it
-    /// cannot see into, are checked on each run instead, as the crate's
-    /// README says ("Composing and running a chain").
+    /// cannot see into, are checked when they get ready instead, as the
+    /// crate's README says ("Composing and running a chain").
     ///
     /// Checks the chain it sees, part by part, whatever the brackets of the
-    /// joins: what each part requires against what the part below it
-    /// provides, and each resource and feature it requires against each
-    /// part further below that states it, down to the first that serves it.
-    /// On any fault, every such fault, top to bottom, with the same parts'
-    /// positions and mismatches in every bracketing, and the same names
-    /// where each part's name stays the same through composition, `bind`
-    /// included. Otherwise the
-    /// runner, which checks each run against what the driver provides a
-    /// run over the parts below it, by the same rule: a run's shots reach,
-    /// for instance, every part below down to the first that serves them,
-    /// so that a part that limits them lowers the most a run may have, and
-    /// only one that serves them raises it. What each part requires and
-    /// provides is read at the joins and at this `on`, for the checks and
-    /// the runner's boundary, and each part's name is read here, for the
-    /// refusals and panics that name it; a joined part reads its parts'
-    /// resources and features again on each run, for the boundary between
-    /// its halves, whose instructions stay those of its join, and a joined
-    /// driver for its check of the run.
+    /// joins: the instructions each part sends against those the part below
+    /// accepts, and what arrives at each part against what it provides,
+    /// starting from a run that requires nothing. What arrives at a part is
+    /// what the part above requires given what arrived there
+    /// ([`Driver::requires`], [`Adapter::requires`]). On any fault, every
+    /// such fault, top to bottom, with the same parts' positions and
+    /// mismatches in every bracketing, and the same names where each
+    /// part's name stays the same through composition, `bind` included.
+    /// Otherwise the runner, which walks the chain the same way on each
+    /// run, from what the run requires. What each part accepts, sends and
+    /// provides is read at the joins and at this `on`, and each part's
+    /// name is read here, for the refusals and panics that name it; what
+    /// each part requires is asked on each run.
     ///
     /// # Errors
     ///
-    /// [`CompositionFaults`] when a part's requirement is not provided.
+    /// [`CompositionFaults`] when a part does not accept the instructions
+    /// the part above sends, or does not provide what arrives at it.
     fn on<E: Executor>(mut self, executor: E) -> Result<Runner<Self, E>, CompositionFaults> {
-        let mut parts = DeclaredParts::new();
-        self.declare(&mut parts);
-        let provision = self.provides().over(executor.provides());
+        let mut parts = DeclaredParts::listing_faults();
+        let required = self.declare(&Capabilities::UNCONSTRAINED, &mut parts);
         let executor_at = parts.len();
-        executor.declare(&mut parts);
-        let faults = parts.faults();
-        if !faults.is_empty() {
-            return Err(CompositionFaults { faults });
+        executor.declare(&required, &mut parts);
+        let ids = parts.ids();
+        if !parts.fit() {
+            return Err(CompositionFaults {
+                faults: parts.faults(&ids),
+            });
         }
-        let parts = parts.ids();
-        // The whole chain's fit finds no fault the part-by-part check
-        // misses: the joined driver requires, key by key, the largest
-        // requirement that reaches past its lowest part, and the joined
-        // executor provides the smallest provision down to the first part
-        // that serves it, which are what that check compares; and both
-        // check the instructions between adjacent parts.
-        let mut boundary = (self.requires().fits(executor.provides()))
-            .expect("the chain fits where each part fits what it reaches");
+        let mut boundary = Boundary::fit(self.sends(), executor.accepts(), executor.provides())
+            .expect("the chain fits where each part accepts what the part above sends");
         self.bind(boundary.opcode_map().clone());
-        boundary.part = Some(parts[executor_at].clone());
+        boundary.part = Some(ids[executor_at].clone());
         Ok(Runner {
             driver: self,
             executor,
-            parts,
+            parts: ids,
             boundary,
-            provision,
         })
     }
 }

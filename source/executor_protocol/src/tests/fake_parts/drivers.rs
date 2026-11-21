@@ -3,13 +3,11 @@
 
 //! The fake drivers.
 
-use std::sync::OnceLock;
-
-use super::{CoinGates, Log, Values, coin_gate, coin_gates, qubits};
+use super::{CoinGates, Log, Values, coin_gate, coin_gates};
 use crate::prelude::*;
 use crate::{
-    Batch, Capabilities, DriveError, Features, Instruction, NotReady, OpcodeMap, ReadoutValue,
-    Readouts, Resources, RunProvision, Seed, ShotConditions, ShotSet,
+    Batch, Capabilities, DriveError, Feature, Features, Instruction, InstructionSet, NotReady,
+    OpcodeMap, ReadoutValue, Readouts, Resource, Resources, Seed, ShotConditions, ShotSet,
 };
 
 /// A coin tossed on qubit 0, copied onto qubit 1: a toss for every shot in
@@ -63,12 +61,14 @@ impl CoinCopy {
 }
 
 impl Driver for CoinCopy {
-    /// [`CoinGates`], on 2 qubits.
-    fn requires(&self) -> &Capabilities {
-        static REQUIRES: OnceLock<Capabilities> = OnceLock::new();
-        REQUIRES.get_or_init(|| {
-            Capabilities::new(CoinGates::set(), qubits(2), Features::unconstrained())
-        })
+    fn sends(&self) -> &InstructionSet {
+        coin_gates()
+    }
+
+    /// The run's, on 2 qubits.
+    fn requires(&self, run: &Capabilities) -> Capabilities {
+        run.clone()
+            .map_resources(|resources| resources.with_qubits(2))
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -79,7 +79,7 @@ impl Driver for CoinCopy {
 
     type Output = Values;
 
-    async fn ready(&mut self) -> Result<(), NotReady> {
+    async fn ready(&mut self, _run: &Capabilities) -> Result<(), NotReady> {
         if let Some(log) = &self.log {
             log.push("CoinCopy ready");
         }
@@ -144,13 +144,14 @@ impl Driver for CoinCopy {
 /// output is its row and its conditions.
 pub(crate) struct Program {
     sequences: Vec<Vec<Instruction>>,
-    /// Each sequence's readout slots in the set it requires, counted when
-    /// it is bound; 0 for one beyond that set, which a checked batch
-    /// refuses for its opcode.
+    /// Each sequence's readout slots in the set it sends, counted when it
+    /// is bound; 0 for one beyond that set, which a checked batch refuses
+    /// for its opcode.
     slots: Vec<u32>,
-    requires: Capabilities,
-    /// What of a run it serves itself: nothing, unless it is told.
-    provides: RunProvision,
+    sends: InstructionSet,
+    /// What it requires besides the run's shots and seed.
+    resources: Resources,
+    features: Features,
     /// Whether it ends its shots below once it has their readouts.
     ends_its_shots: bool,
     /// Whether each of its batches is checked, by sequence.
@@ -188,25 +189,23 @@ impl Program {
                 })
                 .collect(),
             slots: Vec::new(),
-            requires: Capabilities::new(
-                CoinGates::set(),
-                super::qubits(qubits),
-                Features::unconstrained(),
-            ),
-            provides: RunProvision::new(),
+            sends: CoinGates::set(),
+            resources: super::qubits(qubits),
+            features: Features::unconstrained(),
             ends_its_shots: true,
             checked: vec![false; texts.len()],
         }
     }
 
-    /// `instructions`, as one batch for every shot, requiring `requires`,
-    /// whose instructions they are.
-    pub(crate) fn sending(instructions: Vec<Instruction>, requires: Capabilities) -> Self {
+    /// `instructions`, as one batch for every shot, in `sends`, requiring
+    /// nothing besides the run's shots and seed.
+    pub(crate) fn sending(instructions: Vec<Instruction>, sends: InstructionSet) -> Self {
         Self {
             sequences: vec![instructions],
             slots: Vec::new(),
-            requires,
-            provides: RunProvision::new(),
+            sends,
+            resources: Resources::unconstrained(),
+            features: Features::unconstrained(),
             ends_its_shots: true,
             checked: vec![false],
         }
@@ -214,23 +213,13 @@ impl Program {
 
     /// This program, requiring `resources` in place of its own.
     pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
-        let set = self.requires.instructions().clone();
-        self.requires = Capabilities::new(set, resources, self.requires.features().clone());
+        self.resources = resources;
         self
     }
 
     /// This program, requiring `features` in place of its own.
     pub(crate) fn with_features(mut self, features: Features) -> Self {
-        let set = self.requires.instructions().clone();
-        self.requires = Capabilities::new(set, self.requires.resources().clone(), features);
-        self
-    }
-
-    /// This program, saying it serves `provides` of each run, as one that
-    /// splits each run into runs the parts below take would; it passes
-    /// each run below whole, splitting none.
-    pub(crate) fn serving_runs(mut self, provides: RunProvision) -> Self {
-        self.provides = provides;
+        self.features = features;
         self
     }
 
@@ -257,16 +246,26 @@ impl Program {
 }
 
 impl Driver for Program {
-    fn requires(&self) -> &Capabilities {
-        &self.requires
+    fn sends(&self) -> &InstructionSet {
+        &self.sends
     }
 
-    fn provides(&self) -> &RunProvision {
-        &self.provides
+    /// Its own resources and features, with the run's shots, and seeded
+    /// runs if the run's seed is fixed.
+    fn requires(&self, run: &Capabilities) -> Capabilities {
+        let mut resources = self.resources.clone();
+        if let Some(shots) = run.resources().get(&Resource::Shots) {
+            resources = resources.with_shots(shots);
+        }
+        let mut features = self.features.clone();
+        if run.features().get(&Feature::SeededRuns) == Some(true) {
+            features = features.with_seeded_runs(true);
+        }
+        Capabilities::new(resources, features)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
-        let set = self.requires.instructions();
+        let set = &self.sends;
         self.slots = self
             .sequences
             .iter()
@@ -314,36 +313,5 @@ impl Driver for Program {
             .iter()
             .flat_map(|rows| (0..rows.shots()).map(|i| (rows.row(i).to_vec(), rows.conditions(i))))
             .collect())
-    }
-}
-
-/// A user's driver holding `driver`, which forwards every method of its
-/// role but [`provides`](Driver::provides), as one written before the
-/// method existed: it says it serves nothing of a run, whatever `driver`
-/// serves or limits.
-pub(crate) struct HidesRunProvision<D>(pub(crate) D);
-
-impl<D: Driver> Driver for HidesRunProvision<D> {
-    fn requires(&self) -> &Capabilities {
-        self.0.requires()
-    }
-
-    fn bind(&mut self, below: OpcodeMap) {
-        self.0.bind(below);
-    }
-
-    type Output = D::Output;
-
-    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
-        self.0.ready()
-    }
-
-    fn drive(
-        &mut self,
-        shots: &ShotSet,
-        seed: Seed,
-        below: &mut impl Executor,
-    ) -> impl Future<Output = Result<Vec<D::Output>, DriveError>> {
-        self.0.drive(shots, seed, below)
     }
 }

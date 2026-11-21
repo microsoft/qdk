@@ -36,11 +36,16 @@ pub(crate) struct BatchLimits {
 
 impl BatchLimits {
     /// The limits of the batches sent across a boundary where `required`
-    /// meets `provided`: the most instructions per batch provided; the
-    /// blocks required of each block type provided, in its set's order;
-    /// and whether readout parities are required.
-    pub(crate) fn new(required: &Capabilities, provided: &Capabilities) -> Self {
-        let blocks_of = (provided.instructions().block_types())
+    /// arrives at a part that provides `provided` and accepts `accepted`:
+    /// the most instructions per batch provided; the blocks required of
+    /// each block type accepted, in its set's order; and whether readout
+    /// parities are required.
+    pub(crate) fn new(
+        required: &Capabilities,
+        provided: &Capabilities,
+        accepted: &InstructionSet,
+    ) -> Self {
+        let blocks_of = (accepted.block_types())
             .map(|block_type| required.resources().blocks(block_type).unwrap_or(0))
             .collect();
         let readout_parity = required.features().get(&Feature::ReadoutParity);

@@ -10,12 +10,9 @@ use std::fmt;
 use crate::composition::DeclaredParts;
 use crate::part_id::ChainPosition;
 use crate::{
-    Capabilities, ExecuteError, Executor, Failure, NotReady, OpcodeMap, RunProvision, Seed, ShotId,
-    ShotSet,
+    Capabilities, ExecuteError, Executor, Failure, InstructionSet, NotReady, OpcodeMap, Seed,
+    ShotId, ShotSet,
 };
-
-/// What a driver that serves nothing of a run provides it.
-static SERVES_NO_RUN: RunProvision = RunProvision::new();
 
 /// Calls the part below with batches of the instructions it sends, each
 /// with its shots, and the seed, and makes each shot's output from the
@@ -32,24 +29,22 @@ static SERVES_NO_RUN: RunProvision = RunProvision::new();
 /// # Declarations
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins)) read them before any
-/// run: [`name`](Self::name), [`requires`](Self::requires) and
-/// [`provides`](Self::provides). The join to the part below hands back
+/// run: [`name`](Self::name), [`sends`](Self::sends) and
+/// [`requires`](Self::requires). The join to the part below hands back
 /// what it made of them: [`bind`](Self::bind) gets the fit's opcode map.
 /// A join only decides, from what the parts declare; what prepares a part
 /// to run belongs to each run.
 ///
-/// What it requires and provides must not change once it is joined: the
-/// fit and `bind`'s map are made once, from what it requires, each part
-/// below gets ready, on every run, for the requirement read then, and a
-/// joined driver reads what it provides again on each run, to check the
-/// run.
+/// What it sends must not change once it is joined: the fit and `bind`'s
+/// map are made once, from it. What it requires is asked again on each
+/// run, of that run.
 ///
 /// # Run
 ///
 /// On every run of the runner that
-/// [`on`](crate::DriverJoins::on) makes, the runner gets it ready
-/// ([`ready`](Self::ready)), then runs the shots on it
-/// ([`drive`](Self::drive)).
+/// [`on`](crate::DriverJoins::on) makes, the runner checks what the run
+/// requires down the chain, gets it ready ([`ready`](Self::ready)), then
+/// runs the shots on it ([`drive`](Self::drive)).
 pub trait Driver {
     /// What a run gives for each shot.
     type Output;
@@ -59,21 +54,28 @@ pub trait Driver {
         std::any::type_name::<Self>()
     }
 
-    /// What it requires of the part below: the instructions it sends, and
-    /// what its shots use, such as their qubits. The part below must
-    /// provide it, and each part further below that states a resource or a
-    /// feature of it, down to the first that serves it, as
-    /// [`Capabilities`] says.
-    fn requires(&self) -> &Capabilities;
+    /// The instructions it sends: the part below must accept them.
+    fn sends(&self) -> &InstructionSet;
 
-    /// What it provides the run it drives: what of a run it serves itself,
-    /// such as the shots of a driver that splits each run into runs of the
-    /// shots the parts below take, as [`RunProvision`] says. A run's shots,
-    /// and a fixed seed, are checked against it, then against each part
-    /// below that states them, down to the first that serves them. By
-    /// default it states nothing: the run reaches the parts below whole.
-    fn provides(&self) -> &RunProvision {
-        &SERVES_NO_RUN
+    /// What it requires of the parts below on a run that requires `run`:
+    /// the run's shots, and seeded runs when its seed is fixed, which the
+    /// runner states. The part below must provide it, and it passes down
+    /// the chain, each part below requiring of the next what it requires
+    /// given what arrives, as [`Capabilities`] says.
+    ///
+    /// By default `run` itself: the driver passes the run below and states
+    /// nothing of its own. Stating what its shots use, such as their
+    /// qubits, is the writer's job: a driver that does not lets `on`
+    /// accept a chain whose executor cannot hold its shots, which then
+    /// fails as it runs. A driver that handles part of a run itself, such
+    /// as one that splits each run into runs of the shots the parts below
+    /// take, states what it passes below instead.
+    ///
+    /// It is deterministic, and monotone: given a smaller `run`, one that
+    /// fits a larger, it requires no more. The checks rely on both, and
+    /// the protocol does not check them.
+    fn requires(&self, run: &Capabilities) -> Capabilities {
+        run.clone()
     }
 
     /// Receives, once, the translation of its opcodes into the part
@@ -87,9 +89,10 @@ pub trait Driver {
     /// it sends.
     fn bind(&mut self, below: OpcodeMap);
 
-    /// As [`Executor::ready`], asked last; a driver knows what it
-    /// requires, so it is given nothing.
-    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+    /// As [`Executor::ready`], asked last, for `run`, what the run
+    /// requires, as [`requires`](Self::requires) gets it.
+    fn ready(&mut self, run: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = run;
         async { Ok(()) }
     }
 
@@ -141,25 +144,34 @@ pub trait Driver {
     // names the inner part that is short; and to name an inner part's refusal
     // by its position. Correctness does not depend on them: a
     // joined part they do not reach, such as one inside a part of the user's
-    // that forwards only the public methods, checks its inner parts itself (its
-    // halves' fit at `ready`, a joined driver's run as it drives), and gives
-    // the same outputs; only how a fault is reported differs.
+    // that forwards only the public methods, checks its inner parts itself at
+    // `ready` (its halves' fit, and what arrives at each), and gives the same
+    // outputs; only when and how a fault is reported differs.
 
-    /// Adds this part, its name and what it requires, to `parts`. Only the
-    /// crate overrides it, to add each part it holds, top to bottom. The
-    /// [`on`](crate::DriverJoins::on) that makes a runner calls it once.
+    /// Adds this part to `parts`, for a run that requires `run`, and gives
+    /// what it requires of the part below. Only the crate overrides it, to
+    /// add each part it holds, top to bottom. The
+    /// [`on`](crate::DriverJoins::on) that makes a runner calls it, and
+    /// the runner on each run.
     #[doc(hidden)]
-    fn declare<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
-        parts.push(Driver::name(self), Some(self.requires()), None);
+    fn declare<'a>(&'a self, run: &Capabilities, parts: &mut DeclaredParts<'a>) -> Capabilities {
+        parts.push(Driver::name(self));
+        let required = self.requires(run);
+        parts.send(self.sends(), &required);
+        required
     }
 
     /// [`ready`](Self::ready), for this part at `at` in its chain. Only
     /// the crate overrides it, to name a refusal of a part it holds by
     /// that part's position.
     #[doc(hidden)]
-    fn ready_at(&mut self, at: ChainPosition<'_>) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready_at(
+        &mut self,
+        run: &Capabilities,
+        at: ChainPosition<'_>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = at;
-        self.ready()
+        self.ready(run)
     }
 }
 

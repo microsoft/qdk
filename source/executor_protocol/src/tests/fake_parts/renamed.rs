@@ -5,8 +5,8 @@
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, OpcodeMap,
-    RunProvision, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, InstructionSet, NotReady,
+    OpcodeMap, Seed, ShotSet,
 };
 
 /// `part`, named `name`, as a part built at run time is named by what it
@@ -41,12 +41,12 @@ impl<P: Driver> Driver for Renamed<P> {
         self.name
     }
 
-    fn requires(&self) -> &Capabilities {
-        self.part.requires()
+    fn sends(&self) -> &InstructionSet {
+        self.part.sends()
     }
 
-    fn provides(&self) -> &RunProvision {
-        self.part.provides()
+    fn requires(&self, run: &Capabilities) -> Capabilities {
+        self.part.requires(run)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -55,9 +55,9 @@ impl<P: Driver> Driver for Renamed<P> {
 
     type Output = P::Output;
 
-    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(&mut self, run: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
         self.name = self.name_once_ready;
-        self.part.ready()
+        self.part.ready(run)
     }
 
     fn drive(
@@ -75,12 +75,20 @@ impl<P: Adapter> Adapter for Renamed<P> {
         self.name
     }
 
+    fn accepts(&self) -> &InstructionSet {
+        self.part.accepts()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        self.part.sends()
+    }
+
     fn provides(&self) -> &Capabilities {
         self.part.provides()
     }
 
-    fn requires(&self) -> &Capabilities {
-        self.part.requires()
+    fn requires(&self, above: &Capabilities) -> Capabilities {
+        self.part.requires(above)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -110,6 +118,10 @@ impl<P: Adapter> Adapter for Renamed<P> {
 impl<P: Executor> Executor for Renamed<P> {
     fn name(&self) -> &str {
         self.name
+    }
+
+    fn accepts(&self) -> &InstructionSet {
+        self.part.accepts()
     }
 
     fn provides(&self) -> &Capabilities {

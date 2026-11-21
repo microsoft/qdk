@@ -1,25 +1,28 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The check of a chain by the `on` that makes its runner: what each part
-//! requires against what the part below it provides, and against each part
-//! further below its requirement reaches, wherever the brackets go; and
-//! what a joined part requires and provides.
+//! The check of a chain by the `on` that makes its runner, wherever the
+//! brackets go: the instructions each part sends against those the part
+//! below accepts; what arrives at each part, what the part above requires
+//! of what arrives there, against what it provides; and what a joined
+//! part requires and provides.
 
 use std::any::type_name;
 use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::prelude::*;
+use crate::tests::composition::runner::refused;
 use crate::tests::composition::{faults, plain, records};
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, CoinGates, Log, Pool, Profiler, Program, Renamed, ReplaysItself, Splitter,
-    Spread, Stating, in_each_bracketing, qubits,
+    Bits, CoinCopy, CoinGates, Log, Pool, Profiler, Program, Renamed, Splitter, Spread, Stating,
+    in_each_bracketing, qubits,
 };
 use crate::{
-    BlockType, Capabilities, CapabilitiesMismatch, CompositionFault, CompositionFaults, Feature,
-    FeatureMismatch, Features, InstructionDef, InstructionSet, PartId, Resource, ResourceMismatch,
-    Resources, ShotSet,
+    Batch, BatchReadouts, BlockType, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
+    CompositionFault, CompositionFaults, ExecuteError, Feature, FeatureMismatch, Features,
+    InstructionDef, InstructionSet, OpcodeMap, PartId, Resource, ResourceMismatch, Resources,
+    RunRefusal, Seed, ShotSet,
 };
 
 /// The instructions of [`CoinGates`] but `missing`, as the set `name`.
@@ -57,7 +60,7 @@ fn part<P>(position: usize) -> PartId {
 
 /// The fault of the part `requirer` against the part `provider`, which
 /// falls short by `mismatch`.
-fn fault(requirer: PartId, provider: PartId, mismatch: CapabilitiesMismatch) -> CompositionFault {
+fn fault(requirer: PartId, provider: PartId, mismatch: BoundaryMismatch) -> CompositionFault {
     CompositionFault {
         requirer,
         provider,
@@ -66,40 +69,48 @@ fn fault(requirer: PartId, provider: PartId, mismatch: CapabilitiesMismatch) -> 
 }
 
 /// The mismatch of the instructions `sent` against `accepted`.
-fn instructions(sent: &InstructionSet, accepted: &InstructionSet) -> CapabilitiesMismatch {
-    CapabilitiesMismatch {
+fn instructions(sent: &InstructionSet, accepted: &InstructionSet) -> BoundaryMismatch {
+    BoundaryMismatch {
         instructions: sent.fits(accepted).expect_err("sets that do not fit"),
-        ..CapabilitiesMismatch::default()
+        ..BoundaryMismatch::default()
+    }
+}
+
+/// The mismatch of `capabilities` alone.
+fn capabilities(capabilities: CapabilitiesMismatch) -> BoundaryMismatch {
+    BoundaryMismatch {
+        capabilities,
+        ..BoundaryMismatch::default()
     }
 }
 
 /// The mismatch of `required` of `key` against `provided`.
-fn short(key: Resource, required: u32, provided: u32) -> CapabilitiesMismatch {
-    CapabilitiesMismatch {
+fn short(key: Resource, required: u32, provided: u32) -> BoundaryMismatch {
+    capabilities(CapabilitiesMismatch {
         resources: vec![ResourceMismatch {
             key,
             required,
             provided,
         }],
         ..CapabilitiesMismatch::default()
-    }
+    })
 }
 
 /// The mismatch of `required` qubits against `provided`.
-fn short_qubits(required: u32, provided: u32) -> CapabilitiesMismatch {
+fn short_qubits(required: u32, provided: u32) -> BoundaryMismatch {
     short(Resource::Blocks(BlockType::qubit()), required, provided)
 }
 
 /// The mismatch of `feature`, required and not provided.
-fn missing(feature: Feature) -> CapabilitiesMismatch {
-    CapabilitiesMismatch {
+fn missing(feature: Feature) -> BoundaryMismatch {
+    capabilities(CapabilitiesMismatch {
         features: vec![FeatureMismatch {
             key: feature,
             required: true,
             provided: false,
         }],
         ..CapabilitiesMismatch::default()
-    }
+    })
 }
 
 /// The program measuring qubit 0, requiring `n` qubits and `features`.
@@ -174,7 +185,7 @@ fn every_boundary_that_does_not_fit_is_a_fault_of_the_chain() {
             let d = CoinCopy::new();
             let a = Profiler::on(no_x(), &counted, &log);
             let b = Profiler::on(no_mz(), &counted, &log);
-            let e = Bits::providing(no_h(), &log);
+            let e = Bits::accepting(no_h(), &log);
         },
         expected(),
     );
@@ -182,7 +193,7 @@ fn every_boundary_that_does_not_fit_is_a_fault_of_the_chain() {
     let profiler = |set| Profiler::on(set, &counted, &log);
     let mut lent_executor = profiler(no_x())
         .through(profiler(no_mz()))
-        .on(Bits::providing(no_h(), &log));
+        .on(Bits::accepting(no_h(), &log));
     let mut lent_adapter = profiler(no_x()).through(profiler(no_mz()));
     for chain in ["first", "second"] {
         assert_eq!(
@@ -194,7 +205,7 @@ fn every_boundary_that_does_not_fit_is_a_fault_of_the_chain() {
             faults(
                 CoinCopy::new()
                     .through(&mut lent_adapter)
-                    .on(Bits::providing(no_h(), &log))
+                    .on(Bits::accepting(no_h(), &log))
             )
             .faults(),
             expected(),
@@ -230,38 +241,106 @@ fn a_requirement_not_provided_is_a_fault_naming_both_parts() {
     );
 }
 
-// --------------------------------------------------------------- reach
-
-/// A requirement reaches each part below it that states its resource or
-/// feature, down to and including the first that serves it, and is checked
-/// against each, in each bracketing; a part that states nothing of it
-/// passes it through. A row per part a writer meets: a profiler, which
-/// states nothing; a replayer, which states features, not qubits; an
-/// interleaver, which needs qubits below for its own work, and passes them
-/// through; a job queue, which limits a run's shots; a decoder restating
-/// its qubits as a limit, above an ancilla's reservation, which serves the
-/// qubits it lowers; a pool, which serves the qubits and carbon blocks it
-/// draws; a part that needs batches of one instruction below, passing the
-/// count through, and a splitter, which serves any count.
+/// A part is checked below for the instructions it sends, not for those
+/// it accepts: a decomposer accepting [`CoinGates`] and sending them
+/// without `x`, as it writes each `x` in other gates, composes over bits
+/// that accept no `x`, and is named, not the driver, over bits that accept
+/// no `mz`, in each bracketing.
 #[test]
-#[expect(clippy::too_many_lines, reason = "one row per part a writer meets")]
-fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
-    let counted = Rc::new(Cell::new(0));
-    // A program on 9 qubits, through a profiler, over bits providing 8.
+fn a_part_is_checked_below_for_the_instructions_it_sends() {
     faults_in_each_bracketing!(
-        "qubits through a profiler",
+        "a decomposer over what it sends",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(9, Features::unconstrained());
-            let a = Profiler::new(&counted, &log);
-            let e = bits_over(8, &log);
+            let d = CoinCopy::new();
+            let a = Decomposer(no_x());
+            let e = Bits::accepting(no_x(), &log);
         },
-        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(9, 8))],
+        vec![],
     );
-    // A program using readout parities, or seeded runs, through a
-    // profiler, over bits that provide neither.
     faults_in_each_bracketing!(
-        "readout parities through a profiler",
+        "a decomposer over less than it sends",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = CoinCopy::new();
+            let a = Decomposer(no_x());
+            let e = Bits::accepting(no_mz(), &log);
+        },
+        vec![fault(
+            part::<Decomposer>(1),
+            part::<Bits>(2),
+            instructions(&no_x(), &no_mz()),
+        )],
+    );
+}
+
+/// A declaration fake of a decomposer: it accepts [`CoinGates`] and sends
+/// the set it holds. It is never run.
+struct Decomposer(InstructionSet);
+
+impl Adapter for Decomposer {
+    fn accepts(&self) -> &InstructionSet {
+        crate::tests::fake_parts::coin_gates()
+    }
+
+    fn sends(&self) -> &InstructionSet {
+        &self.0
+    }
+
+    fn bind(&mut self, _below: OpcodeMap) {}
+
+    async fn adapt(
+        &mut self,
+        _batches: &[Batch<'_>],
+        _seed: Seed,
+        _below: &mut impl Executor,
+        _readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        unreachable!("a declaration fake is never run")
+    }
+}
+
+// ------------------------------------------------------- what arrives
+
+/// A value a part passes below unchanged arrives at each part below it,
+/// down to the executor, and is checked against what each provides, in
+/// each bracketing, a fault naming the part that first required it. A row
+/// per part a writer meets that passes it: a logger, which states
+/// nothing; an interleaver, under a program larger than its least; a
+/// decoder's fixed limit on qubits, and a job queue's on shots, each over
+/// a smaller limit below; a lowering without readout parities; a
+/// replayer, which passes the seeded runs replay states. And one where
+/// nothing limits it: an executor stating nothing.
+#[test]
+#[expect(clippy::too_many_lines, reason = "one row per part a writer meets")]
+fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requirer() {
+    let counted = Rc::new(Cell::new(0));
+    faults_in_each_bracketing!(
+        "qubits through a logger",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(5, Features::unconstrained());
+            let a = Profiler::new(&counted, &log);
+            let e = bits_over(4, &log);
+        },
+        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(5, 4))],
+    );
+    faults_in_each_bracketing!(
+        "seeded runs through a logger",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(1, Features::unconstrained().with_seeded_runs(true));
+            let a = Profiler::new(&counted, &log);
+            let e = Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
+        },
+        vec![fault(
+            part::<Program>(0),
+            part::<Bits>(2),
+            missing(Feature::SeededRuns),
+        )],
+    );
+    faults_in_each_bracketing!(
+        "readout parities through a logger",
         [d, a, e] from {
             let log = Log::default();
             let d = program(1, parity());
@@ -275,46 +354,35 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
         )],
     );
     faults_in_each_bracketing!(
-        "seeded runs through a profiler",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = program(1, Features::unconstrained().with_seeded_runs(true));
-            let a = Profiler::new(&counted, &log);
-            let e = Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
-        },
-        vec![fault(
-            part::<Program>(0),
-            part::<Bits>(2),
-            missing(Feature::SeededRuns),
-        )],
-    );
-    // A debugger on 1 qubit, through an adapter replaying its shots
-    // itself, over bits of none.
-    faults_in_each_bracketing!(
-        "qubits through a replayer",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = program(1, Features::unconstrained().with_replay(true));
-            let a = ReplaysItself::new(&log);
-            let e = Bits::new(&log).with_resources(qubits(0));
-        },
-        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(1, 0))],
-    );
-    // A program on 5 qubits, through an interleaver needing 3, over bits
-    // providing 4: the program's 5 reach the bits.
-    faults_in_each_bracketing!(
-        "qubits through an interleaver",
+        "qubits through an interleaver, more than its least",
         [d, a, e] from {
             let log = Log::default();
             let d = program(5, Features::unconstrained());
-            let a = Stating::requiring(qubits(3), &log);
+            let a = Stating::interleaving(3, &log);
             let e = bits_over(4, &log);
         },
         vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(5, 4))],
     );
-    // A program of runs of 5 shots, then of 12, through a queue of 10, over
-    // bits of 3: the program is checked against both, and named at each
-    // that falls short.
+    faults_in_each_bracketing!(
+        "qubits over a decoder's limit",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(5, Features::unconstrained());
+            let a = Stating::capping(4, &log);
+            let e = bits_over(10, &log);
+        },
+        vec![fault(part::<Program>(0), part::<Stating>(1), short_qubits(5, 4))],
+    );
+    faults_in_each_bracketing!(
+        "qubits through a decoder's larger limit",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(9, Features::unconstrained());
+            let a = Stating::capping(64, &log);
+            let e = bits_over(8, &log);
+        },
+        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(9, 8))],
+    );
     let shots = |n| program(1, Features::unconstrained()).with_resources(qubits(1).with_shots(n));
     let bits_of_3_shots = |log: &Log| Bits::new(log).with_resources(qubits(64).with_shots(3));
     faults_in_each_bracketing!(
@@ -340,209 +408,6 @@ fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
             fault(part::<Program>(0), part::<Bits>(2), short(Resource::Shots, 12, 3)),
         ],
     );
-    // A program on 6 qubits, through a decoder limiting them to 4, then a
-    // part reserving an ancilla, which serves 6 and requires 7, over bits
-    // of 5: the program falls short at the decoder, not past the ancilla's
-    // reservation, which falls short at the bits.
-    faults_in_each_bracketing!(
-        "a limit above a part that serves",
-        [d, c, w, e] from {
-            let log = Log::default();
-            let d = program(6, Features::unconstrained());
-            let c = Stating::restating(4, &log);
-            let w = Stating::reserving_an_ancilla(6, &log);
-            let e = bits_over(5, &log);
-        },
-        vec![
-            fault(part::<Program>(0), part::<Stating>(1), short_qubits(6, 4)),
-            fault(part::<Stating>(2), part::<Bits>(3), short_qubits(7, 5)),
-        ],
-    );
-    // A program on 9 qubits, through a part reserving an ancilla, which
-    // requires 10, over bits providing 8: the part is named, not the
-    // program, whose qubits it serves.
-    faults_in_each_bracketing!(
-        "qubits served",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = program(9, Features::unconstrained());
-            let a = Stating::reserving_an_ancilla(9, &log);
-            let e = bits_over(8, &log);
-        },
-        vec![fault(
-            part::<Stating>(1),
-            part::<Bits>(2),
-            short_qubits(10, 8),
-        )],
-    );
-    // 1 qubit and 3 carbon blocks, drawn from one pool of 7 qubits, over 5
-    // qubits and no carbon block: the pool is named for its 7 qubits; the
-    // carbon blocks, which the pool serves, are not checked below it.
-    faults_in_each_bracketing!(
-        "a pool",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = program(1, Features::unconstrained())
-                .with_resources(qubits(1).with_blocks(Pool::carbon(), 3));
-            let a = Pool::new(1, 3, &log);
-            let e = Bits::new(&log)
-                .with_resources(qubits(5).with_blocks(Pool::carbon(), 0))
-                .resolving_parity();
-        },
-        vec![fault(part::<Pool>(1), part::<Bits>(2), short_qubits(7, 5))],
-    );
-    // A program of batches of 100 instructions, over bits taking 1: through
-    // a part that needs batches of one below, the program's 100 reach the
-    // bits; through a splitter, which serves any count, they stop there.
-    let batches_of = |n| {
-        program(1, Features::unconstrained())
-            .with_resources(qubits(1).with_instructions_per_batch(n))
-    };
-    let bits_taking_1 =
-        |log: &Log| Bits::new(log).with_resources(qubits(64).with_instructions_per_batch(1));
-    faults_in_each_bracketing!(
-        "instructions a batch past a part that requires them",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = batches_of(100);
-            let a = Stating::requiring(Resources::unconstrained().with_instructions_per_batch(1), &log);
-            let e = bits_taking_1(&log);
-        },
-        vec![fault(
-            part::<Program>(0),
-            part::<Bits>(2),
-            short(Resource::InstructionsPerBatch, 100, 1),
-        )],
-    );
-    faults_in_each_bracketing!(
-        "instructions a batch through a splitter",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = batches_of(100);
-            let a = Splitter::default();
-            let e = bits_taking_1(&log);
-        },
-        vec![],
-    );
-    // A program on 5 qubits, through a profiler, over bits that state no
-    // qubits: nothing limits them.
-    faults_in_each_bracketing!(
-        "qubits over an executor stating none",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = program(5, Features::unconstrained());
-            let a = Profiler::new(&counted, &log);
-            let e = Bits::new(&log).with_resources(Resources::unconstrained());
-        },
-        vec![],
-    );
-}
-
-/// A part of a user's holding an interleaver needing 3 qubits joined with
-/// a decoder limiting them to 10, between a program on 5 qubits and bits
-/// of 4: the program's qubits reach the bits through it, as they do
-/// through the two parts unheld; and one holding an ancilla's reservation
-/// joined with a profiler, under a program on 9 qubits, over bits of 8:
-/// the program's qubits stop at it, as they stop at the reservation
-/// unheld. A joined part keeps its parts' reach when held.
-#[test]
-fn a_held_joined_part_keeps_the_reach_of_its_parts() {
-    fn held<A: Adapter>(part: A) -> Renamed<A> {
-        Renamed::new(part, "user's adapter")
-    }
-    let log = Log::default();
-    let counted = Rc::new(Cell::new(0));
-    let interleaver = || Stating::requiring(qubits(3), &log);
-    let decoder = || Stating::restating(10, &log);
-    let users = PartId::new(1, "user's adapter");
-    assert_eq!(
-        faults(
-            program(5, Features::unconstrained())
-                .through(interleaver())
-                .through(decoder())
-                .on(bits_over(4, &log))
-        )
-        .faults(),
-        [fault(
-            part::<Program>(0),
-            part::<Bits>(3),
-            short_qubits(5, 4)
-        )],
-        "an interleaver and a decoder"
-    );
-    assert_eq!(
-        faults(
-            program(5, Features::unconstrained())
-                .through(held(interleaver().through(decoder())))
-                .on(bits_over(4, &log))
-        )
-        .faults(),
-        [fault(
-            part::<Program>(0),
-            part::<Bits>(2),
-            short_qubits(5, 4)
-        )],
-        "the two held"
-    );
-    let ancilla = || Stating::reserving_an_ancilla(9, &log);
-    let profiler = || Profiler::new(&counted, &log);
-    assert_eq!(
-        faults(
-            program(9, Features::unconstrained())
-                .through(ancilla())
-                .through(profiler())
-                .on(bits_over(8, &log))
-        )
-        .faults(),
-        [fault(
-            part::<Stating>(1),
-            part::<Bits>(3),
-            short_qubits(10, 8)
-        )],
-        "an ancilla's reservation and a profiler"
-    );
-    assert_eq!(
-        faults(
-            program(9, Features::unconstrained())
-                .through(held(ancilla().through(profiler())))
-                .on(bits_over(8, &log))
-        )
-        .faults(),
-        [fault(users, part::<Bits>(2), short_qubits(10, 8))],
-        "the two held"
-    );
-}
-
-/// A limit passes a requirement through, and cannot raise the limit below:
-/// a decoder restating 64 qubits, requiring none, over bits of 8, under a
-/// program on 9: the program's qubits are checked against the bits too,
-/// in each bracketing.
-#[test]
-fn a_limit_cannot_raise_the_limit_below() {
-    faults_in_each_bracketing!(
-        "a decoder restating its qubits",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = program(9, Features::unconstrained());
-            let a = Stating::restating(64, &log);
-            let e = bits_over(8, &log);
-        },
-        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(9, 8))],
-    );
-}
-
-/// A feature's requirement stops at the part that serves it, and passes a
-/// part that limits it. A lowering that cannot carry readout parities, over
-/// bits that resolve them, refuses a program using them; an adapter
-/// replaying its shots itself serves a debugger replay over bits whose
-/// shots are not replayable, but the seeded runs that replay states pass
-/// it, as they pass its own requirement of them, to bits without them; a
-/// sampler drawing a run's shots together serves seeded runs, but limits
-/// replay to none, so a debugger's replay falls short there and at bits
-/// whose shots are not replayable. Bracketed either way.
-#[test]
-fn a_feature_requirement_stops_at_the_part_that_serves_it() {
-    let replay = || Features::unconstrained().with_replay(true);
     faults_in_each_bracketing!(
         "a lowering without readout parities",
         [d, a, e] from {
@@ -557,37 +422,137 @@ fn a_feature_requirement_stops_at_the_part_that_serves_it() {
             missing(Feature::ReadoutParity),
         )],
     );
+    let replay = || Features::unconstrained().with_replay(true);
+    let not_replayable = || Features::unconstrained().with_replay(false);
+    faults_in_each_bracketing!(
+        "seeded runs through a replayer",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(1, replay());
+            let a = Stating::replaying(&log);
+            let e = Bits::new(&log).with_features(not_replayable().with_seeded_runs(false));
+        },
+        vec![fault(
+            part::<Program>(0),
+            part::<Bits>(2),
+            missing(Feature::SeededRuns),
+        )],
+    );
+    faults_in_each_bracketing!(
+        "qubits over an executor stating none",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(5, Features::unconstrained());
+            let a = Profiler::new(&counted, &log);
+            let e = Bits::new(&log).with_resources(Resources::unconstrained());
+        },
+        vec![],
+    );
+}
+
+/// What a part requires below, given what arrives at it, is what arrives
+/// at the part below, checked there, a fault naming that part, in each
+/// bracketing. A row per part a writer meets that requires otherwise: an
+/// interleaver, under a program smaller than its least, over bits too
+/// small or large enough; a reservation of 2 ancillas; a pool drawing
+/// qubits and carbon blocks from qubits; a splitter,
+/// requiring batches of one instruction below any batch; a replayer,
+/// requiring no replay below; a sampler, requiring no seeded runs below
+/// and providing no replay; and a decoder's limit above an ancilla's
+/// reservation, where each part falls short of its own.
+#[test]
+#[expect(clippy::too_many_lines, reason = "one row per part a writer meets")]
+fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
+    for (bits, expected) in [
+        (
+            2,
+            vec![fault(
+                part::<Stating>(1),
+                part::<Bits>(2),
+                short_qubits(3, 2),
+            )],
+        ),
+        (4, vec![]),
+    ] {
+        faults_in_each_bracketing!(
+            format!("an interleaver of 3 over {bits} qubits, under 2"),
+            [d, a, e] from {
+                let log = Log::default();
+                let d = program(2, Features::unconstrained());
+                let a = Stating::interleaving(3, &log);
+                let e = bits_over(bits, &log);
+            },
+            expected.clone(),
+        );
+    }
+    faults_in_each_bracketing!(
+        "ancillas",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(3, Features::unconstrained());
+            let a = Stating::reserving_ancillas(2, &log);
+            let e = bits_over(4, &log);
+        },
+        vec![fault(part::<Stating>(1), part::<Bits>(2), short_qubits(5, 4))],
+    );
+    // 1 qubit and 3 carbon blocks, drawn from one pool of 7 qubits, over 5
+    // qubits and no carbon block: the pool is named for its 7 qubits; it
+    // requires no carbon block.
+    faults_in_each_bracketing!(
+        "a pool",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(1, Features::unconstrained())
+                .with_resources(qubits(1).with_blocks(Pool::carbon(), 3));
+            let a = Pool::new(&log);
+            let e = Bits::new(&log)
+                .with_resources(qubits(5).with_blocks(Pool::carbon(), 0))
+                .resolving_parity();
+        },
+        vec![fault(part::<Pool>(1), part::<Bits>(2), short_qubits(7, 5))],
+    );
+    let batches_of = |n| {
+        program(1, Features::unconstrained())
+            .with_resources(qubits(1).with_instructions_per_batch(n))
+    };
+    let bits_taking = |most, log: &Log| {
+        Bits::new(log).with_resources(qubits(64).with_instructions_per_batch(most))
+    };
+    faults_in_each_bracketing!(
+        "a splitter over batches of one",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = batches_of(100);
+            let a = Splitter::default();
+            let e = bits_taking(1, &log);
+        },
+        vec![],
+    );
+    faults_in_each_bracketing!(
+        "a splitter over no batch",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = batches_of(100);
+            let a = Splitter::default();
+            let e = bits_taking(0, &log);
+        },
+        vec![fault(
+            part::<Splitter>(1),
+            part::<Bits>(2),
+            short(Resource::InstructionsPerBatch, 1, 0),
+        )],
+    );
+    let replay = || Features::unconstrained().with_replay(true);
     let not_replayable = || Features::unconstrained().with_replay(false);
     faults_in_each_bracketing!(
         "a replayer over shots not replayable",
         [d, a, e] from {
             let log = Log::default();
             let d = program(1, replay());
-            let a = ReplaysItself::new(&log);
+            let a = Stating::replaying(&log);
             let e = Bits::new(&log).with_features(not_replayable());
         },
         vec![],
-    );
-    faults_in_each_bracketing!(
-        "no seeded runs below a replayer",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = program(1, replay());
-            let a = ReplaysItself::new(&log);
-            let e = Bits::new(&log).with_features(not_replayable().with_seeded_runs(false));
-        },
-        vec![
-            fault(
-                part::<Program>(0),
-                part::<Bits>(2),
-                missing(Feature::SeededRuns),
-            ),
-            fault(
-                part::<ReplaysItself>(1),
-                part::<Bits>(2),
-                missing(Feature::SeededRuns),
-            ),
-        ],
     );
     faults_in_each_bracketing!(
         "a sampler over shots not replayable",
@@ -597,17 +562,24 @@ fn a_feature_requirement_stops_at_the_part_that_serves_it() {
             let a = Stating::seeding_itself(&log);
             let e = Bits::new(&log).with_features(not_replayable());
         },
+        vec![fault(
+            part::<Program>(0),
+            part::<Stating>(1),
+            missing(Feature::Replay),
+        )],
+    );
+    faults_in_each_bracketing!(
+        "a decoder's limit above an ancilla's reservation",
+        [d, c, a, e] from {
+            let log = Log::default();
+            let d = program(6, Features::unconstrained());
+            let c = Stating::capping(4, &log);
+            let a = Stating::reserving_ancillas(1, &log);
+            let e = bits_over(5, &log);
+        },
         vec![
-            fault(
-                part::<Program>(0),
-                part::<Stating>(1),
-                missing(Feature::Replay),
-            ),
-            fault(
-                part::<Program>(0),
-                part::<Bits>(2),
-                missing(Feature::Replay),
-            ),
+            fault(part::<Program>(0), part::<Stating>(1), short_qubits(6, 4)),
+            fault(part::<Stating>(2), part::<Bits>(3), short_qubits(7, 5)),
         ],
     );
 }
@@ -616,8 +588,8 @@ fn a_feature_requirement_stops_at_the_part_that_serves_it() {
 /// requirer top to bottom, then by its provider. 9 qubits and readout
 /// parities, through a lowering without parities, over bits of 8 qubits:
 /// the parities at the lowering and the qubits at the bits, both the
-/// program's; then an encoding built for 1 qubit under one built for 3,
-/// which requires 9.
+/// program's; then an encoding built for 1 qubit, whose 9 qubits pass one
+/// built for 9 unchanged to bits of 8.
 #[test]
 fn every_fault_is_listed_by_requirer_then_by_provider() {
     faults_in_each_bracketing!(
@@ -648,20 +620,20 @@ fn every_fault_is_listed_by_requirer_then_by_provider() {
         },
         vec![
             fault(part::<Program>(0), part::<Spread>(1), short_qubits(3, 1)),
-            fault(part::<Spread>(2), part::<Bits>(3), short_qubits(9, 8)),
+            fault(part::<Spread>(1), part::<Bits>(3), short_qubits(9, 8)),
         ],
     );
 }
 
-/// The ancilla's reservation over too few qubits, then the same with a
-/// profiler above and below it: the same parts named, with the same
+/// The reservation of an ancilla over too few qubits, then the same with
+/// a profiler above and below it: the same parts named, with the same
 /// mismatch, at the positions the profilers shift.
 #[test]
 fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
     let profiler = || Profiler::new(&counted, &log);
-    let ancilla = || Stating::reserving_an_ancilla(9, &log);
+    let ancilla = || Stating::reserving_ancillas(1, &log);
     let without = faults(
         program(9, Features::unconstrained())
             .through(ancilla())
@@ -694,14 +666,14 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
 
 // ---------------------------------------------------------- the joined
 
-/// A joined part, as the chain above it reads it: it requires what its
-/// lowest part requires, and what its upper parts require that reaches
-/// past it, the larger where both state it; it provides its top part's
-/// provision over the parts below it, the smaller where both state it, down
-/// to the first part that serves it, and served if one of its parts
-/// serves it; and no replay where it provides no seeded runs.
+/// A joined part, as its public methods state it: it requires what its
+/// lower part requires of what its upper part requires of what arrives;
+/// and it provides what its top part provides, as the inputs its parts
+/// take together are not one value. Its inner limits are checked part by
+/// part, by the chain's check (see
+/// [`a_joined_part_is_checked_part_by_part_in_every_bracketing`]).
 #[test]
-fn a_joined_part_states_what_its_parts_state_together() {
+fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_parts_limits() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
     let read = |capabilities: &Capabilities| {
@@ -710,94 +682,129 @@ fn a_joined_part_states_what_its_parts_state_together() {
             capabilities.features().clone(),
         )
     };
-    let no_parity = || Features::unconstrained().with_readout_parity(false);
+    let two_qubits = Capabilities::UNCONSTRAINED.map_resources(|_| qubits(2));
     let rows = [
-        // The encoding's 14 qubits, as it serves the program's 2, and the
-        // program's readout parities.
+        // The encoding's 14 qubits for the program's 2, and the program's
+        // readout parities.
         (
             "a driver through an encoding",
-            read(Driver::requires(
+            read(&Driver::requires(
                 &program(2, parity()).through(Spread::new(7, &log).built_for(2)),
+                &Capabilities::UNCONSTRAINED,
             )),
             (qubits(14), parity()),
         ),
         (
-            "an encoding through a profiler",
-            read(Adapter::requires(
+            "an encoding through a profiler, requiring",
+            read(&Adapter::requires(
                 &Spread::new(7, &log)
                     .built_for(2)
                     .through(Profiler::new(&counted, &log)),
+                &two_qubits,
             )),
             (qubits(14), Features::unconstrained()),
         ),
-        // The program's 5 qubits, larger than the interleaver's 3, which
-        // it passes through.
+        (
+            "a profiler through an encoding, providing",
+            read(Adapter::provides(
+                &Profiler::new(&counted, &log).through(Spread::new(7, &log).built_for(2)),
+            )),
+            (Resources::unconstrained(), Features::unconstrained()),
+        ),
+        // The interleaver's least, for a program smaller than it.
         (
             "a driver through an interleaver",
-            read(Driver::requires(
-                &program(5, Features::unconstrained()).through(Stating::requiring(qubits(3), &log)),
+            read(&Driver::requires(
+                &program(2, Features::unconstrained()).through(Stating::interleaving(3, &log)),
+                &Capabilities::UNCONSTRAINED,
             )),
-            (qubits(5), Features::unconstrained()),
+            (qubits(3), Features::unconstrained()),
         ),
-        // The queue's 4 shots, beside the bits' 8 qubits and their
-        // parities, which the queue does not state.
+        // The queue's 4 shots, not the bits' 8 qubits.
         (
             "a queue on bits",
             read(Executor::provides(
                 &Stating::queue(4, &log)
                     .on(Bits::new(&log).with_resources(qubits(8).with_shots(8))),
             )),
-            (qubits(8).with_shots(4), no_parity()),
-        ),
-        // The ancilla's 9 qubits, served, not the bits' 64; and the bits'
-        // parities.
-        (
-            "an ancilla's reservation on bits",
-            read(Executor::provides(
-                &Stating::reserving_an_ancilla(9, &log).on(Bits::new(&log)),
-            )),
             (
-                qubits(9).serving(Resource::Blocks(BlockType::qubit())),
-                no_parity(),
+                Resources::unconstrained().with_shots(4),
+                Features::unconstrained(),
             ),
         ),
-        // Any count of instructions a batch, served, not the bits' 1.
-        (
-            "a splitter on bits",
-            read(Executor::provides(&Splitter::default().on(
-                Bits::new(&log).with_resources(qubits(64).with_instructions_per_batch(1)),
-            ))),
-            (
-                qubits(64).serving(Resource::InstructionsPerBatch),
-                no_parity(),
-            ),
-        ),
-        // A decoder restating 64 qubits over a queue of 4 shots: the
-        // decoder's qubits and the queue's shots.
+        // The decoder's 64 qubits, not the queue's 4 shots.
         (
             "a decoder through a queue",
             read(Adapter::provides(
-                &Stating::restating(64, &log).through(Stating::queue(4, &log)),
+                &Stating::capping(64, &log).through(Stating::queue(4, &log)),
             )),
-            (qubits(64).with_shots(4), Features::unconstrained()),
-        ),
-        // A replayer, which serves replay and limits seeded runs, on bits
-        // without seeded runs: neither, as a shot is replayed with its
-        // run's seed; replay stays served, a stop.
-        (
-            "a replayer on bits without seeded runs",
-            read(Executor::provides(&Stating::replaying(&log).on(
-                Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false)),
-            ))),
-            (
-                qubits(64),
-                (Features::unconstrained().with_seeded_runs(false)).serving(Feature::Replay),
-            ),
+            (qubits(64), Features::unconstrained()),
         ),
     ];
     for (row, read, (resources, features)) in rows {
         assert_eq!(read, (resources, features), "{row}");
     }
+}
+
+/// An interleaver of 3 joined with a decoder limiting qubits to 10,
+/// between a program on 5 qubits and bits of 4, in every bracketing: the
+/// program's qubits reach the bits through both, as through the two parts
+/// unjoined. Wrapped by a part of a user's that forwards only its role's
+/// public methods, the joined part still passes them, as its `requires`
+/// composes its parts'; but its decoder's limit of 4, under the program's
+/// 5, is past what the chain's check sees through it: the chain composes,
+/// and the joined part refuses every run at `ready`, naming the user's
+/// part, with the mismatch.
+#[test]
+fn a_joined_part_is_checked_part_by_part_in_every_bracketing() {
+    faults_in_each_bracketing!(
+        "an interleaver and a decoder",
+        [d, i, c, e] from {
+            let log = Log::default();
+            let d = program(5, Features::unconstrained());
+            let i = Stating::interleaving(3, &log);
+            let c = Stating::capping(10, &log);
+            let e = bits_over(4, &log);
+        },
+        vec![fault(part::<Program>(0), part::<Bits>(3), short_qubits(5, 4))],
+    );
+    let log = Log::default();
+    let wrapped = |cap| {
+        Renamed::new(
+            Stating::interleaving(3, &log).through(Stating::capping(cap, &log)),
+            "user's adapter",
+        )
+    };
+    assert_eq!(
+        faults(
+            program(5, Features::unconstrained())
+                .through(wrapped(10))
+                .on(bits_over(4, &log))
+        )
+        .faults(),
+        [fault(
+            part::<Program>(0),
+            part::<Bits>(2),
+            short_qubits(5, 4)
+        )],
+        "the two wrapped, over bits of 4"
+    );
+    let Ok(mut runner) = program(5, Features::unconstrained())
+        .through(wrapped(4))
+        .on(bits_over(10, &log))
+    else {
+        panic!("a wrapped decoder's limit is past the chain's check");
+    };
+    let refusal = refused(runner.run(&ShotSet::ids(0..2), None));
+    let RunRefusal::PartNotReady { part, not_ready } = &refusal else {
+        panic!("the wrapped part refuses: {refusal:?}");
+    };
+    assert_eq!(*part, PartId::new(1, "user's adapter"), "{refusal:?}");
+    assert_eq!(
+        not_ready.why().downcast_ref::<BoundaryMismatch>(),
+        Some(&short_qubits(5, 4)),
+        "{refusal:?}"
+    );
 }
 
 // ----------------------------------------------------------- the message
@@ -831,8 +838,8 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
         "`h2 program` (part 0)",
         "`parity-free lowering` (part 1)",
         "`qodec runtime` (part 2)",
-        &missing(Feature::ReadoutParity).features[0].to_string(),
-        &short_qubits(9, 8).resources[0].to_string(),
+        &missing(Feature::ReadoutParity).capabilities.features[0].to_string(),
+        &short_qubits(9, 8).capabilities.resources[0].to_string(),
     ] {
         assert!(message.contains(said), "{said}: {message}");
     }
