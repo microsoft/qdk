@@ -135,13 +135,13 @@ fn calls_to_other_callables() {
                 0 = SubProgram name=Main location=(2-40)
                 1 = SubProgram name=Foo location=(2-138)
                 2 = SubProgram name=H location=(1-111345)
-                3 = SubProgram name=MResetZ location=(1-184683)
+                3 = SubProgram name=MResetZ location=(1-184529)
             dbg_locations:
                 [1]: scope=0 location=(2-99)
                 [2]: scope=1 location=(2-179) inlined_at=1
                 [3]: scope=2 location=(1-111417) inlined_at=2
                 [4]: scope=0 location=(2-115)
-                [5]: scope=3 location=(1-184732) inlined_at=4"#]],
+                [5]: scope=3 location=(1-184578) inlined_at=4"#]],
     );
 }
 
@@ -187,27 +187,27 @@ fn classical_for_loop() {
                 0 = SubProgram name=Main location=(2-40)
                 1 = LexicalBlockFile location=(2-99) discriminator=1
                 2 = SubProgram name=Foo location=(2-156)
-                3 = SubProgram name=X location=(1-136422)
-                4 = SubProgram name=Y location=(1-137644)
+                3 = SubProgram name=X location=(1-136268)
+                4 = SubProgram name=Y location=(1-137490)
                 5 = LexicalBlockFile location=(2-99) discriminator=2
                 6 = LexicalBlockFile location=(2-99) discriminator=3
             dbg_locations:
                 [1]: scope=0 location=(2-99)
                 [2]: scope=1 location=(2-127) inlined_at=1
                 [3]: scope=2 location=(2-197) inlined_at=2
-                [4]: scope=3 location=(1-136494) inlined_at=3
+                [4]: scope=3 location=(1-136340) inlined_at=3
                 [5]: scope=2 location=(2-211) inlined_at=2
-                [6]: scope=4 location=(1-137716) inlined_at=5
+                [6]: scope=4 location=(1-137562) inlined_at=5
                 [7]: scope=5 location=(2-127) inlined_at=1
                 [8]: scope=2 location=(2-197) inlined_at=7
-                [9]: scope=3 location=(1-136494) inlined_at=8
+                [9]: scope=3 location=(1-136340) inlined_at=8
                 [10]: scope=2 location=(2-211) inlined_at=7
-                [11]: scope=4 location=(1-137716) inlined_at=10
+                [11]: scope=4 location=(1-137562) inlined_at=10
                 [12]: scope=6 location=(2-127) inlined_at=1
                 [13]: scope=2 location=(2-197) inlined_at=12
-                [14]: scope=3 location=(1-136494) inlined_at=13
+                [14]: scope=3 location=(1-136340) inlined_at=13
                 [15]: scope=2 location=(2-211) inlined_at=12
-                [16]: scope=4 location=(1-137716) inlined_at=15"#]],
+                [16]: scope=4 location=(1-137562) inlined_at=15"#]],
     );
 }
 
@@ -274,7 +274,7 @@ fn nested_classical_for_loop() {
                 5 = LexicalBlockFile location=(2-101) discriminator=1
                 6 = LexicalBlockFile location=(2-129) discriminator=1
                 7 = SubProgram name=Foo location=(2-208)
-                8 = SubProgram name=X location=(1-136422)
+                8 = SubProgram name=X location=(1-136268)
                 9 = LexicalBlockFile location=(2-129) discriminator=2
                 10 = LexicalBlockFile location=(2-129) discriminator=3
                 11 = LexicalBlockFile location=(2-101) discriminator=2
@@ -284,33 +284,33 @@ fn nested_classical_for_loop() {
                 [6]: scope=5 location=(2-129) inlined_at=5
                 [7]: scope=6 location=(2-161) inlined_at=6
                 [8]: scope=7 location=(2-249) inlined_at=7
-                [9]: scope=8 location=(1-136494) inlined_at=8
+                [9]: scope=8 location=(1-136340) inlined_at=8
                 [10]: scope=9 location=(2-161) inlined_at=6
                 [11]: scope=7 location=(2-249) inlined_at=10
-                [12]: scope=8 location=(1-136494) inlined_at=11
+                [12]: scope=8 location=(1-136340) inlined_at=11
                 [13]: scope=10 location=(2-161) inlined_at=6
                 [14]: scope=7 location=(2-249) inlined_at=13
-                [15]: scope=8 location=(1-136494) inlined_at=14
+                [15]: scope=8 location=(1-136340) inlined_at=14
                 [16]: scope=11 location=(2-129) inlined_at=5
                 [17]: scope=6 location=(2-161) inlined_at=16
                 [18]: scope=7 location=(2-249) inlined_at=17
-                [19]: scope=8 location=(1-136494) inlined_at=18
+                [19]: scope=8 location=(1-136340) inlined_at=18
                 [20]: scope=9 location=(2-161) inlined_at=16
                 [21]: scope=7 location=(2-249) inlined_at=20
-                [22]: scope=8 location=(1-136494) inlined_at=21
+                [22]: scope=8 location=(1-136340) inlined_at=21
                 [23]: scope=10 location=(2-161) inlined_at=16
                 [24]: scope=7 location=(2-249) inlined_at=23
-                [25]: scope=8 location=(1-136494) inlined_at=24
+                [25]: scope=8 location=(1-136340) inlined_at=24
                 [26]: scope=12 location=(2-129) inlined_at=5
                 [27]: scope=6 location=(2-161) inlined_at=26
                 [28]: scope=7 location=(2-249) inlined_at=27
-                [29]: scope=8 location=(1-136494) inlined_at=28
+                [29]: scope=8 location=(1-136340) inlined_at=28
                 [30]: scope=9 location=(2-161) inlined_at=26
                 [31]: scope=7 location=(2-249) inlined_at=30
-                [32]: scope=8 location=(1-136494) inlined_at=31
+                [32]: scope=8 location=(1-136340) inlined_at=31
                 [33]: scope=10 location=(2-161) inlined_at=26
                 [34]: scope=7 location=(2-249) inlined_at=33
-                [35]: scope=8 location=(1-136494) inlined_at=34"#]],
+                [35]: scope=8 location=(1-136340) inlined_at=34"#]],
     );
 }
 
@@ -388,18 +388,18 @@ fn result_comparison_to_literal() {
                 0 = SubProgram name=Main location=(2-22)
                 1 = SubProgram name=H location=(1-111345)
                 2 = SubProgram name=M location=(1-113054)
-                3 = SubProgram name=X location=(1-136422)
-                4 = SubProgram name=Reset location=(1-119722)
+                3 = SubProgram name=X location=(1-136268)
+                4 = SubProgram name=Reset location=(1-119568)
             dbg_locations:
                 [1]: scope=0 location=(2-86)
                 [2]: scope=1 location=(1-111417) inlined_at=1
                 [3]: scope=0 location=(2-110)
                 [4]: scope=2 location=(1-113096) inlined_at=3
                 [5]: scope=0 location=(2-154)
-                [6]: scope=3 location=(1-136494) inlined_at=5
+                [6]: scope=3 location=(1-136340) inlined_at=5
                 [7]: scope=0 location=(2-125)
                 [8]: scope=0 location=(2-179)
-                [9]: scope=4 location=(1-119766) inlined_at=8"#]],
+                [9]: scope=4 location=(1-119612) inlined_at=8"#]],
     );
 }
 
@@ -451,17 +451,17 @@ fn if_else() {
                 0 = SubProgram name=Main location=(2-22)
                 1 = SubProgram name=H location=(1-111345)
                 2 = SubProgram name=M location=(1-113054)
-                3 = SubProgram name=X location=(1-136422)
-                4 = SubProgram name=Y location=(1-137644)
+                3 = SubProgram name=X location=(1-136268)
+                4 = SubProgram name=Y location=(1-137490)
             dbg_locations:
                 [2]: scope=0 location=(2-112)
                 [3]: scope=1 location=(1-111417) inlined_at=2
                 [4]: scope=0 location=(2-135)
                 [5]: scope=2 location=(1-113096) inlined_at=4
                 [6]: scope=0 location=(2-176)
-                [7]: scope=3 location=(1-136494) inlined_at=6
+                [7]: scope=3 location=(1-136340) inlined_at=6
                 [8]: scope=0 location=(2-212)
-                [9]: scope=4 location=(1-137716) inlined_at=8
+                [9]: scope=4 location=(1-137562) inlined_at=8
                 [10]: scope=0 location=(2-150)
                 [11]: scope=0 location=(2-246)
                 [12]: scope=2 location=(1-113096) inlined_at=11"#]],
