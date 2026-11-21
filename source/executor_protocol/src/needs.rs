@@ -4,8 +4,9 @@
 //! What a chain's shots need of the executor that runs them, [`Needs`],
 //! and each need an offer does not meet ([`UnmetNeed`]).
 //!
-//! A driver states its needs once, before any shot runs, so that the `>>`
-//! that makes a runner refuses an executor too small for them, and every
+//! A driver states its needs once, before any shot runs, so that the
+//! [`on`](crate::DriverJoins::on) that makes a runner refuses an executor
+//! too small for them, and every
 //! part gets ready for them on each run: an adapter adapts them for the
 //! part below it, such as a code turning one logical qubit into seven
 //! physical ones, and the executor sizes each shot's state from what
@@ -20,11 +21,11 @@ use crate::{BlockType, Offer};
 /// once, whether its instructions use readout parities, and whether a shot
 /// is run again alone.
 ///
-/// A driver states it ([`DriverSetup::needs`](crate::DriverSetup::needs));
+/// A driver states it ([`Driver::needs`](crate::Driver::needs));
 /// each adapter adapts it for the part below
-/// ([`AdapterSetup::needs_below`](crate::AdapterSetup::needs_below)); and
+/// ([`Adapter::needs_below`](crate::Adapter::needs_below)); and
 /// the executor gets ready for what reaches it
-/// ([`Execute::ready`](crate::Execute::ready)). A shot's block indices
+/// ([`Executor::ready`](crate::Executor::ready)). A shot's block indices
 /// of each type stay below its count here, which each `execute` checks for
 /// a [`checked`](crate::Batch::checked) batch. Its `Default` needs nothing.
 ///

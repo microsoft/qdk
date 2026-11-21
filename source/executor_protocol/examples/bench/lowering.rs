@@ -8,7 +8,8 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use executor_protocol::{Adapter, Driver, Executor, Instruction, ReadoutValue};
+use executor_protocol::prelude::*;
+use executor_protocol::{Instruction, ReadoutValue};
 
 use crate::Size;
 use crate::parts::{
@@ -44,15 +45,9 @@ pub(crate) fn bench(size: &Size, checked: bool) {
     let by_six = slots_per_batch(&LogicalGates::set(), &logical, 6);
     let compose = compose_time(size.repeats, || {
         (
-            Driver::new(ProgramInBatches::new(
-                LogicalGates::set(),
-                &logical,
-                &by_six,
-                2,
-                6,
-            )),
-            Adapter::new(Repetition3::new()),
-            Executor::new(Sink::new()),
+            ProgramInBatches::new(LogicalGates::set(), &logical, &by_six, 2, 6),
+            Repetition3::new(),
+            Sink::new(),
         )
     });
     println!(
@@ -87,21 +82,19 @@ pub(crate) fn bench(size: &Size, checked: bool) {
         let bare = best(size.repeats, &direct_answer, || {
             let mut sink = Sink::new();
             let received = run_once(
-                Driver::new(
-                    ProgramInBatches::new(PhysicalGates::set(), &physical, &p_slots, 6, 3 * batch)
-                        .checked_if(checked),
-                ) >> Executor::new(&mut sink),
+                (ProgramInBatches::new(PhysicalGates::set(), &physical, &p_slots, 6, 3 * batch)
+                    .checked_if(checked))
+                .on(&mut sink),
             );
             (sink.seen, sink.kinds, received.values)
         });
         let lowered = best(size.repeats, &lowered_answer, || {
             let mut sink = Sink::new();
             let received = run_once(
-                Driver::new(
-                    ProgramInBatches::new(LogicalGates::set(), &logical, &l_slots, 2, batch)
-                        .checked_if(checked),
-                ) >> Adapter::new(Repetition3::new())
-                    >> Executor::new(&mut sink),
+                (ProgramInBatches::new(LogicalGates::set(), &logical, &l_slots, 2, batch)
+                    .checked_if(checked))
+                .through(Repetition3::new())
+                .on(&mut sink),
             );
             (sink.seen, sink.kinds, received.values)
         });
@@ -121,31 +114,26 @@ fn lowered(logical: &[Instruction], checked: bool) -> Vec<Instruction> {
     let mut recorder = Sink::recording();
     let whole = slots_per_batch(&LogicalGates::set(), logical, logical.len());
     run_once(
-        Driver::new(
-            ProgramInBatches::new(LogicalGates::set(), logical, &whole, 2, logical.len())
-                .checked_if(checked),
-        ) >> Adapter::new(Repetition3::new())
-            >> Executor::new(&mut recorder),
+        (ProgramInBatches::new(LogicalGates::set(), logical, &whole, 2, logical.len())
+            .checked_if(checked))
+        .through(Repetition3::new())
+        .on(&mut recorder),
     );
     recorder.record.expect("a recording sink")
 }
 
 /// The best time, in seconds, of `repeats` compositions of the three parts
-/// `parts` builds, after an untimed one: only the `>>`s are timed, not
+/// `parts` builds, after an untimed one: only the joins are timed, not
 /// building the parts.
 fn compose_time<'p>(
     repeats: usize,
-    mut parts: impl FnMut() -> (
-        Driver<ProgramInBatches<'p>>,
-        Adapter<Repetition3>,
-        Executor<Sink>,
-    ),
+    mut parts: impl FnMut() -> (ProgramInBatches<'p>, Repetition3, Sink),
 ) -> f64 {
     (0..=repeats)
         .map(|_| {
             let (driver, adapter, executor) = parts();
             let start = Instant::now();
-            let chain = black_box(driver >> adapter >> executor);
+            let chain = black_box(driver.through(adapter).on(executor));
             let elapsed = start.elapsed().as_secs_f64();
             chain.map(drop).expect("the chain composes");
             elapsed
@@ -168,8 +156,7 @@ fn sink_direct(
     let in_batches =
         ProgramInBatches::new(PhysicalGates::set(), physical, slots, 6, batch).checked_if(checked);
     // No boundary sees a batch: `Direct` sends past the chain.
-    let received =
-        run_once(Driver::new(Direct(in_batches, &mut sink)) >> Executor::new(Sink::new()));
+    let received = run_once(Direct(in_batches, &mut sink).on(Sink::new()));
     (sink.seen, sink.kinds, received.values)
 }
 

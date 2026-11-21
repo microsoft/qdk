@@ -135,7 +135,7 @@ where
 /// process: its payload is then dropped.
 ///
 /// So that a panic unwinds through the protocol's own futures, such as a
-/// composition's, holding no live future of a part, whose destructor
+/// joined part's, holding no live future of a part, whose destructor
 /// could panic a second time while the first unwinds, and so abort the
 /// process. Every future of a part the protocol awaits is awaited through
 /// this, [`catch_panic`]'s included. A panic leaves it as it would leave

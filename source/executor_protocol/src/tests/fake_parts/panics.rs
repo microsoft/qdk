@@ -4,9 +4,10 @@
 //! The fake part that panics as a driver or as an executor.
 
 use super::coin_gates;
+use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Drive, DriveError, DriverSetup, Execute, ExecuteError, ExecutorSetup,
-    InstructionSet, Needs, Offer, OpcodeMap, Seed, ShotSet,
+    Batch, BatchReadouts, DriveError, ExecuteError, InstructionSet, Needs, Offer, OpcodeMap, Seed,
+    ShotSet,
 };
 
 /// When a [`Panics`] part panics.
@@ -27,7 +28,7 @@ fn broken<T>() -> T {
     panic!("the part broke while it was polled")
 }
 
-impl DriverSetup for Panics {
+impl Driver for Panics {
     fn sends(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -37,16 +38,14 @@ impl DriverSetup for Panics {
     fn needs(&self) -> Needs {
         Needs::qubits(1)
     }
-}
 
-impl Drive for Panics {
     type Output = ();
 
     fn drive(
         &mut self,
         _shots: &ShotSet,
         _seed: Seed,
-        _below: &mut impl Execute,
+        _below: &mut impl Executor,
     ) -> impl Future<Output = Result<Vec<()>, DriveError>> {
         assert!(
             matches!(self.0, PanicsWhen::Polled),
@@ -56,17 +55,15 @@ impl Drive for Panics {
     }
 }
 
-impl ExecutorSetup for Panics {
+impl Executor for Panics {
     fn accepts(&self) -> &InstructionSet {
-        DriverSetup::sends(self)
+        Driver::sends(self)
     }
 
     fn offers(&self) -> Offer {
         Offer::unlimited()
     }
-}
 
-impl Execute for Panics {
     fn execute(
         &mut self,
         _batches: &[Batch<'_>],

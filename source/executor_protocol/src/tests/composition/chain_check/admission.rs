@@ -1,21 +1,23 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The admission of a chain by `>>`: at every boundary, what the shots
-//! need against what the part below offers, wherever the brackets go.
+//! The admission of a chain by the `on` that makes its runner: at every
+//! boundary, what the shots need against what the part below offers,
+//! wherever the brackets go.
 
 use std::any::type_name;
 use std::cell::Cell;
 use std::rc::Rc;
 
+use crate::prelude::*;
 use crate::tests::composition::{faults, plain, records};
 use crate::tests::fake_parts::{
     Bits, CoinCopy, Log, Offering, Pool, Profiler, Program, Renamed, ReplaysItself, Spread,
     in_each_bracketing,
 };
 use crate::{
-    Adapter, AdapterSetup, AdmissionFaults, BlockType, Composed, CompositionFaults, Drive, Driver,
-    Execute, Executor, ExecutorSetup, Needs, Offer, PartId, Runner, ShortOffer, ShotSet, UnmetNeed,
+    AdmissionFaults, BlockType, CompositionFaults, Needs, Offer, PartId, Runner, ShortOffer,
+    ShotSet, UnmetNeed,
 };
 
 /// The qubits `needed` where `offered` allow fewer.
@@ -58,7 +60,7 @@ fn parts(short_offers: &[ShortOffer]) -> Vec<PartId> {
 
 /// The admission faults of the chain `composed` gave, which must not be
 /// admitted.
-fn admission<D: Drive, E: Execute>(
+fn admission<D: Driver, E: Executor>(
     composed: Result<Runner<D, E>, CompositionFaults>,
 ) -> AdmissionFaults {
     faults(composed)
@@ -90,21 +92,21 @@ macro_rules! short_offers_in_each_bracketing {
 fn a_program_within_the_offer_runs_unchanged() {
     let log = Log::default();
     let shots = ShotSet::ids(0..32);
-    let exact = Driver::new(CoinCopy::new())
-        >> Executor::new(Bits::new(&log).offering(Offer::unlimited().max_qubits(2)));
+    let exact = CoinCopy::new().on(Bits::new(&log).offering(Offer::unlimited().max_qubits(2)));
     assert_eq!(records(exact, &shots), plain(&shots));
 }
 
 /// A program on 7 qubits, through an encoding of 7 qubits per qubit, over
-/// 30 qubits: the `>>` fails, naming the bits' offer of 30 for 49 qubits,
+/// 30 qubits: the `on` fails, naming the bits' offer of 30 for 49 qubits,
 /// and each part's needs and offer.
 #[test]
 fn an_unmet_need_is_a_fault_naming_the_short_part_and_each_parts_needs_and_offer() {
     let log = Log::default();
     let offer = Offer::unlimited().max_qubits(30);
-    let composed = Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(7)))
-        >> Adapter::new(Spread::new(7, &log))
-        >> Executor::new(Bits::new(&log).offering(offer.clone()));
+    let composed = Program::new(&[("mz", 0)])
+        .needing(Needs::qubits(7))
+        .through(Spread::new(7, &log))
+        .on(Bits::new(&log).offering(offer.clone()));
     let faults = faults(composed);
     assert_eq!(faults.fit(), []);
     let admission = faults.admission().expect("an unmet need");
@@ -140,10 +142,10 @@ fn an_unmet_need_is_a_fault_naming_the_short_part_and_each_parts_needs_and_offer
 fn offers_go_up_through_adapters() {
     let log = Log::default();
     let eleven = Offer::unlimited().max_qubits(11);
-    let composed = Driver::new(CoinCopy::new())
-        >> Adapter::new(Spread::new(2, &log))
-        >> Adapter::new(Spread::new(3, &log))
-        >> Executor::new(Bits::new(&log).offering(eleven.clone()));
+    let composed = CoinCopy::new()
+        .through(Spread::new(2, &log))
+        .through(Spread::new(3, &log))
+        .on(Bits::new(&log).offering(eleven.clone()));
     assert_eq!(
         admission(composed).offers_by_part,
         [
@@ -162,10 +164,9 @@ fn offers_go_up_through_adapters() {
 #[test]
 fn a_part_that_only_passes_a_shortage_up_is_not_named() {
     let counted = Rc::new(Cell::new(0));
-    let program = |needs: Needs| Driver::new(Program::new(&[("mz", 0)]).needing(needs));
-    let over = |qubits: u32, log: &Log| {
-        Executor::new(Bits::new(log).offering(Offer::unlimited().max_qubits(qubits)))
-    };
+    let program = |needs: Needs| Program::new(&[("mz", 0)]).needing(needs);
+    let over =
+        |qubits: u32, log: &Log| Bits::new(log).offering(Offer::unlimited().max_qubits(qubits));
     // A program on 7 qubits, through an encoding of 7 qubits per qubit,
     // over 30 qubits: the encoding's 4 for 7 only passes the bits' 30 for
     // 49 up; given the 49 it needs below, it would offer 7.
@@ -174,7 +175,7 @@ fn a_part_that_only_passes_a_shortage_up_is_not_named() {
         [d, a, e] from {
             let log = Log::default();
             let d = program(Needs::qubits(7));
-            let a = Adapter::new(Spread::new(7, &log));
+            let a = Spread::new(7, &log);
             let e = over(30, &log);
         },
         vec![short_offer::<Bits>(
@@ -191,7 +192,7 @@ fn a_part_that_only_passes_a_shortage_up_is_not_named() {
         [d, a, e] from {
             let log = Log::default();
             let d = program(Needs::qubits(9));
-            let a = Adapter::new(Profiler::new(&counted, &log));
+            let a = Profiler::new(&counted, &log);
             let e = over(8, &log);
         },
         vec![short_offer::<Bits>(
@@ -210,7 +211,7 @@ fn a_part_that_only_passes_a_shortage_up_is_not_named() {
         [d, a, e] from {
             let log = Log::default();
             let d = program(Needs::qubits(1).blocks(Pool::carbon(), 3));
-            let a = Adapter::new(Pool::new(&log));
+            let a = Pool::new(&log);
             let e = over(5, &log);
         },
         vec![short_offer::<Bits>(
@@ -237,9 +238,9 @@ fn the_fallback_names_no_adapter_over_a_short_part() {
         "an executor short of readout parities",
         [d, a, e] from {
             let log = Log::default();
-            let d = Driver::new(Program::new(&[("mz", 0)]).needing(parities.clone()));
-            let a = Adapter::new(Offering::contrary(&log));
-            let e = Executor::new(Bits::new(&log).offering(no_parity.clone()));
+            let d = Program::new(&[("mz", 0)]).needing(parities.clone());
+            let a = Offering::contrary(&log);
+            let e = Bits::new(&log).offering(no_parity.clone());
         },
         vec![short_offer::<Bits>(
             2,
@@ -257,10 +258,9 @@ fn the_fallback_names_no_adapter_over_a_short_part() {
 #[test]
 #[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn the_fault_names_each_part_short_on_its_own() {
-    let program = |needs: Needs| Driver::new(Program::new(&[("mz", 0)]).needing(needs));
-    let over = |qubits: u32, log: &Log| {
-        Executor::new(Bits::new(log).offering(Offer::unlimited().max_qubits(qubits)))
-    };
+    let program = |needs: Needs| Program::new(&[("mz", 0)]).needing(needs);
+    let over =
+        |qubits: u32, log: &Log| Bits::new(log).offering(Offer::unlimited().max_qubits(qubits));
     let parities = Needs::qubits(1).with_readout_parity();
     let nine_and_parities = Needs::qubits(9).with_readout_parity();
     // An adapter's offer given exactly what it needs below, when that is
@@ -281,7 +281,7 @@ fn the_fault_names_each_part_short_on_its_own() {
         [d, a, e] from {
             let log = Log::default();
             let d = program(Needs::qubits(3));
-            let a = Adapter::new(Offering::capped(7, 1, &log));
+            let a = Offering::capped(7, 1, &log);
             let e = over(20, &log);
         },
         vec![
@@ -299,7 +299,7 @@ fn the_fault_names_each_part_short_on_its_own() {
         [d, a, e] from {
             let log = Log::default();
             let d = program(Needs::qubits(3));
-            let a = Adapter::new(Offering::capped(7, 1, &log));
+            let a = Offering::capped(7, 1, &log);
             let e = over(21, &log);
         },
         vec![capped()],
@@ -314,7 +314,7 @@ fn the_fault_names_each_part_short_on_its_own() {
         [d, a, e] from {
             let log = Log::default();
             let d = program(Needs::qubits(3));
-            let a = Adapter::new(Offering::contrary(&log));
+            let a = Offering::contrary(&log);
             let e = over(20, &log);
         },
         vec![short_offer::<Offering>(
@@ -328,7 +328,7 @@ fn the_fault_names_each_part_short_on_its_own() {
     // an unmet need, though the qubits fit. Two parts, so one bracketing.
     let log = Log::default();
     assert_eq!(
-        admission(program(parities.clone()) >> Executor::new(Bits::new(&log))).short_offers,
+        admission(program(parities.clone()).on(Bits::new(&log))).short_offers,
         [short_offer::<Bits>(
             1,
             parities.clone(),
@@ -346,8 +346,8 @@ fn the_fault_names_each_part_short_on_its_own() {
         [d, a, e] from {
             let log = Log::default();
             let d = program(parities.clone());
-            let a = Adapter::new(Offering::lowering_without_parity(&log));
-            let e = Executor::new(Bits::new(&log).offering(Offer::unlimited()));
+            let a = Offering::lowering_without_parity(&log);
+            let e = Bits::new(&log).offering(Offer::unlimited());
         },
         vec![short_offer::<Offering>(
             1,
@@ -365,7 +365,7 @@ fn the_fault_names_each_part_short_on_its_own() {
         [d, a, e] from {
             let log = Log::default();
             let d = program(nine_and_parities.clone());
-            let a = Adapter::new(Offering::lowering_without_parity(&log));
+            let a = Offering::lowering_without_parity(&log);
             let e = over(8, &log);
         },
         vec![
@@ -394,9 +394,9 @@ fn the_fault_names_each_part_short_on_its_own() {
 fn a_part_short_only_on_its_own_does_not_refuse_its_chain() {
     let log = Log::default();
     let shots = ShotSet::ids(0..32);
-    let composed = Driver::new(CoinCopy::new())
-        >> Adapter::new(Offering::workspace(&log))
-        >> Executor::new(Bits::new(&log).offering(Offer::unlimited().max_qubits(20)));
+    let composed = CoinCopy::new()
+        .through(Offering::workspace(&log))
+        .on(Bits::new(&log).offering(Offer::unlimited().max_qubits(20)));
     assert_eq!(records(composed, &shots), plain(&shots));
 }
 
@@ -407,12 +407,18 @@ fn a_part_short_only_on_its_own_does_not_refuse_its_chain() {
 fn inserting_a_profiler_changes_only_the_positions_of_the_short_offers() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
-    let program = || Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(3)));
-    let profiler = || Adapter::new(Profiler::new(&counted, &log));
-    let capped = || Adapter::new(Offering::capped(7, 1, &log));
-    let bits = || Executor::new(Bits::new(&log).offering(Offer::unlimited().max_qubits(20)));
-    let without = admission(program() >> capped() >> bits());
-    let with = admission(program() >> profiler() >> capped() >> profiler() >> bits());
+    let program = || Program::new(&[("mz", 0)]).needing(Needs::qubits(3));
+    let profiler = || Profiler::new(&counted, &log);
+    let capped = || Offering::capped(7, 1, &log);
+    let bits = || Bits::new(&log).offering(Offer::unlimited().max_qubits(20));
+    let without = admission(program().through(capped()).on(bits()));
+    let with = admission(
+        program()
+            .through(profiler())
+            .through(capped())
+            .through(profiler())
+            .on(bits()),
+    );
     assert_eq!(
         parts(&with.short_offers),
         [part::<Bits>(4), part::<Offering>(2)]
@@ -429,7 +435,7 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_short_offers() {
 
 /// An encoding of 7 qubits per qubit over a part reserving an ancilla,
 /// over 100 qubits, whose offers do not commute: 14 qubits in this order,
-/// 13 swapped. Each part `>>` makes of them, in each bracketing, offers
+/// 13 swapped. Each part the joins make of them, in each bracketing, offers
 /// what the admission reads at the boundary above it, whether it is an
 /// executor or an adapter over the bits: each adapter's offer applied to
 /// the offer below it, the lower adapter's first.
@@ -440,10 +446,11 @@ fn a_composed_part_offers_what_the_admission_reads_above_it() {
     let ancilla = || Offering::reserving_an_ancilla(&log);
     let bits = || Bits::new(&log).offering(Offer::unlimited().max_qubits(100));
     let read = admission(
-        Driver::new(Program::new(&[("mz", 0)]).needing(Needs::qubits(15)))
-            >> Adapter::new(encoding())
-            >> Adapter::new(ancilla())
-            >> Executor::new(bits()),
+        Program::new(&[("mz", 0)])
+            .needing(Needs::qubits(15))
+            .through(encoding())
+            .through(ancilla())
+            .on(bits()),
     )
     .offers_by_part;
     let [_, (_, above_the_bits), (_, above_both)] = read.as_slice() else {
@@ -456,23 +463,23 @@ fn a_composed_part_offers_what_the_admission_reads_above_it() {
     );
     for (row, offered, read) in [
         (
-            "ancilla >> bits",
-            Composed::new(ancilla(), bits()).offers(),
+            "ancilla.on(bits)",
+            ancilla().on(bits()).offers(),
             above_the_bits,
         ),
         (
-            "encoding >> (ancilla >> bits)",
-            Composed::new(encoding(), Composed::new(ancilla(), bits())).offers(),
+            "encoding.on(ancilla.on(bits))",
+            encoding().on(ancilla().on(bits())).offers(),
             above_both,
         ),
         (
-            "(encoding >> ancilla) >> bits",
-            Composed::new(Composed::new(encoding(), ancilla()), bits()).offers(),
+            "encoding.through(ancilla).on(bits)",
+            encoding().through(ancilla()).on(bits()).offers(),
             above_both,
         ),
         (
-            "encoding >> ancilla, over the bits",
-            Composed::new(encoding(), ancilla()).offers_above(bits().offers()),
+            "encoding.through(ancilla), over the bits",
+            encoding().through(ancilla()).offers_above(bits().offers()),
             above_both,
         ),
     ] {
@@ -510,13 +517,13 @@ fn a_need_passes_through_an_adapter_that_adapts_neither_needs_nor_offers() {
             UnmetNeed::Replayable,
         ),
     ] {
-        let program = || Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()));
-        let profiler = || Adapter::new(Profiler::new(&counted, &log));
-        let without = || Executor::new(Bits::new(&log).offering(short.clone()));
-        let with = || Executor::new(Bits::new(&log).offering(Offer::unlimited()));
+        let program = || Program::new(&[("mz", 0)]).needing(needs.clone());
+        let profiler = || Profiler::new(&counted, &log);
+        let without = || Bits::new(&log).offering(short.clone());
+        let with = || Bits::new(&log).offering(Offer::unlimited());
         let refused = [
-            admission((program() >> profiler()) >> without()),
-            admission(program() >> (profiler() >> without())),
+            admission(program().through(profiler()).on(without())),
+            admission(program().on(profiler().on(without()))),
         ];
         for admission in refused {
             assert_eq!(
@@ -546,11 +553,11 @@ fn a_need_passes_through_an_adapter_that_adapts_neither_needs_nor_offers() {
                 "{row}"
             );
         }
-        assert!(((program() >> profiler()) >> with()).is_ok(), "{row}: left");
         assert!(
-            (program() >> (profiler() >> with())).is_ok(),
-            "{row}: right"
+            program().through(profiler()).on(with()).is_ok(),
+            "{row}: left"
         );
+        assert!(program().on(profiler().on(with())).is_ok(), "{row}: right");
     }
 }
 
@@ -562,11 +569,11 @@ fn a_need_passes_through_an_adapter_that_adapts_neither_needs_nor_offers() {
 fn an_adapter_that_replays_its_shots_itself_needs_no_replayable_part_below() {
     let log = Log::default();
     let needs = Needs::qubits(1).with_replay();
-    let program = || Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()));
-    let replaying = || Adapter::new(ReplaysItself::new(&log));
-    let bits = || Executor::new(Bits::new(&log).offering(Offer::unlimited().not_replayable()));
-    assert!(((program() >> replaying()) >> bits()).is_ok(), "left");
-    assert!((program() >> (replaying() >> bits())).is_ok(), "right");
+    let program = || Program::new(&[("mz", 0)]).needing(needs.clone());
+    let replaying = || ReplaysItself::new(&log);
+    let bits = || Bits::new(&log).offering(Offer::unlimited().not_replayable());
+    assert!(program().through(replaying()).on(bits()).is_ok(), "left");
+    assert!(program().on(replaying().on(bits())).is_ok(), "right");
 }
 
 /// A debugger running a shot again alone, through an adapter that replays
@@ -621,12 +628,12 @@ fn an_adapter_that_replays_its_shots_itself_needs_seedable_parts_below() {
             )],
         ),
     ] {
-        let program = || Driver::new(Program::new(&[("mz", 0)]).needing(needs.clone()));
-        let replaying = || Adapter::new(ReplaysItself::new(&log));
-        let bits = || Executor::new(Bits::new(&log).offering(bits.clone()));
+        let program = || Program::new(&[("mz", 0)]).needing(needs.clone());
+        let replaying = || ReplaysItself::new(&log);
+        let bits = || Bits::new(&log).offering(bits.clone());
         for admission in [
-            admission((program() >> replaying()) >> bits()),
-            admission(program() >> (replaying() >> bits())),
+            admission(program().through(replaying()).on(bits())),
+            admission(program().on(replaying().on(bits()))),
         ] {
             assert_eq!(admission.short_offers, short, "{row}");
         }
@@ -644,8 +651,9 @@ fn an_admission_fault_says_which_part_and_every_unmet_need() {
         .without_readout_parity()
         .not_replayable();
     let needs = Needs::qubits(9).with_readout_parity().with_replay();
-    let composed = Driver::new(Program::new(&[("mz", 0)]).needing(needs))
-        >> Executor::new(Bits::new(&log).offering(offer));
+    let composed = Program::new(&[("mz", 0)])
+        .needing(needs)
+        .on(Bits::new(&log).offering(offer));
     let message = admission(composed).to_string();
     assert!(message.contains(&part::<Bits>(1).to_string()), "{message}");
     for unmet in [
@@ -664,13 +672,15 @@ fn an_admission_fault_says_which_part_and_every_unmet_need() {
 fn an_admission_fault_names_each_part_by_its_name() {
     let log = Log::default();
     let needs = Needs::qubits(9).with_readout_parity();
-    let composed = Driver::new(Renamed::new(
+    let composed = Renamed::new(
         Program::new(&[("mz", 0)]).needing(needs.clone()),
         "h2 program",
-    )) >> Adapter::new(Renamed::new(
+    )
+    .through(Renamed::new(
         Offering::lowering_without_parity(&log),
         "parity-free lowering",
-    )) >> Executor::new(Renamed::new(
+    ))
+    .on(Renamed::new(
         Bits::new(&log).offering(Offer::unlimited().max_qubits(8)),
         "qodec runtime",
     ));
@@ -709,10 +719,11 @@ fn an_admission_fault_names_each_part_by_its_name() {
 fn two_parts_of_one_type_are_told_apart_by_position() {
     let log = Log::default();
     let needs = Needs::qubits(1).with_readout_parity();
-    let composed = Driver::new(Program::new(&[("mz", 0)]).needing(needs))
-        >> Adapter::new(Offering::lowering_without_parity(&log))
-        >> Adapter::new(Offering::lowering_without_parity(&log))
-        >> Executor::new(Bits::new(&log).offering(Offer::unlimited()));
+    let composed = Program::new(&[("mz", 0)])
+        .needing(needs)
+        .through(Offering::lowering_without_parity(&log))
+        .through(Offering::lowering_without_parity(&log))
+        .on(Bits::new(&log).offering(Offer::unlimited()));
     let admission = admission(composed);
     assert_eq!(
         parts(&admission.short_offers),

@@ -18,13 +18,14 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::prelude::*;
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen, Profiler,
     Program, SeesSeeds, Splitter, Spread, Trap, Values, YieldNow, in_each_bracketing,
 };
 use crate::{
-    Adapter, Drive, DriveError, Driver, Execute, Executor, Failure, ReadoutFailure, ReadoutValue,
-    RunError, RunRefusal, Runner, ShotConditions, ShotSet,
+    DriveError, Failure, ReadoutFailure, ReadoutValue, RunError, RunRefusal, Runner,
+    ShotConditions, ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -33,7 +34,7 @@ pub(super) const SEED: u64 = 7;
 const PATIENT: Duration = Duration::from_secs(20);
 
 /// The runner of the chain `composed` gave, which must compose.
-pub(super) fn runner<D: Drive, E: Execute>(
+pub(super) fn runner<D: Driver, E: Executor>(
     composed: Result<Runner<D, E>, crate::CompositionFaults>,
 ) -> Runner<D, E> {
     let Ok(runner) = composed else {
@@ -44,7 +45,7 @@ pub(super) fn runner<D: Drive, E: Execute>(
 
 /// [`CoinCopy`] on bits alone.
 fn coin_copy(log: &Log) -> Runner<CoinCopy, Bits> {
-    runner(Driver::new(CoinCopy::new()) >> Executor::new(Bits::new(log)))
+    runner(CoinCopy::new().on(Bits::new(log)))
 }
 
 /// The records of `shots` on [`CoinCopy`] on bits alone.
@@ -102,8 +103,8 @@ fn every_part_gets_the_runs_seed_unchanged() {
     /// The seed a driver alone over bits gets in a run on `seed`.
     fn runs_seed(seed: u64) -> String {
         let log = Log::default();
-        let driver = Driver::new(SeesSeeds::new(CoinCopy::new(), "driver", &log));
-        runner(driver >> Executor::new(Bits::new(&log)))
+        let driver = SeesSeeds::new(CoinCopy::new(), "driver", &log);
+        runner(driver.on(Bits::new(&log)))
             .run(&ShotSet::ids([0]), seed)
             .expect("the run succeeds");
         seen(&log).swap_remove(0).1
@@ -113,10 +114,10 @@ fn every_part_gets_the_runs_seed_unchanged() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = Driver::new(SeesSeeds::new(CoinCopy::new(), "driver", &log));
-            let a = Adapter::new(SeesSeeds::new(BitFlip::new(0.3, &log), "noise", &log));
-            let b = Adapter::new(SeesSeeds::new(Splitter::default(), "splitter", &log));
-            let e = Executor::new(SeesSeeds::new(Bits::new(&log), "bits", &log));
+            let d = SeesSeeds::new(CoinCopy::new(), "driver", &log);
+            let a = SeesSeeds::new(BitFlip::new(0.3, &log), "noise", &log);
+            let b = SeesSeeds::new(Splitter::default(), "splitter", &log);
+            let e = SeesSeeds::new(Bits::new(&log), "bits", &log);
         },
         |chain, brackets| {
             let mut runner = runner(chain);
@@ -145,10 +146,9 @@ fn every_part_gets_the_runs_seed_unchanged() {
 #[test]
 fn a_shots_values_are_in_the_order_it_read_them() {
     let text = [("x", 1), ("mz", 0), ("mz", 1), ("x", 0), ("mz", 0)];
-    let records =
-        runner(Driver::new(Program::new(&text)) >> Executor::new(Bits::new(&Log::default())))
-            .run(&ShotSet::ids(0..4), SEED)
-            .expect("the run succeeds");
+    let records = runner(Program::new(&text).on(Bits::new(&Log::default())))
+        .run(&ShotSet::ids(0..4), SEED)
+        .expect("the run succeeds");
     let expected = (
         vec![ReadoutValue::Zero, ReadoutValue::One, ReadoutValue::One],
         ShotConditions::NONE,
@@ -165,35 +165,34 @@ fn a_shots_values_are_in_the_order_it_read_them() {
 #[test]
 fn an_adapter_that_changes_no_instructions_effect_changes_no_record() {
     /// Checks the records of `driver` through each adapter.
-    fn unchanged<D: Drive<Output: PartialEq + std::fmt::Debug>>(
+    fn unchanged<D: Driver<Output: PartialEq + std::fmt::Debug>>(
         row: &str,
-        driver: impl Fn() -> Driver<D>,
+        driver: impl Fn() -> D,
     ) {
         let log = Log::default();
         let counted = Rc::new(Cell::new(0));
         let shots = ShotSet::ids(0..32);
-        let bits = || Executor::new(Bits::new(&log));
-        let expected = runner(driver() >> bits())
+        let bits = || Bits::new(&log);
+        let expected = runner(driver().on(bits()))
             .run(&shots, SEED)
             .expect("the run succeeds");
         for (adapter, run) in [
             (
                 "a profiler",
-                runner(driver() >> Adapter::new(Profiler::new(&counted, &log)) >> bits())
+                runner(driver().through(Profiler::new(&counted, &log)).on(bits()))
                     .run(&shots, SEED),
             ),
             (
                 "a splitter",
-                runner(driver() >> Adapter::new(Splitter::default()) >> bits()).run(&shots, SEED),
+                runner(driver().through(Splitter::default()).on(bits())).run(&shots, SEED),
             ),
             (
                 "a noise of 0",
-                runner(driver() >> Adapter::new(BitFlip::new(0.0, &log)) >> bits())
-                    .run(&shots, SEED),
+                runner(driver().through(BitFlip::new(0.0, &log)).on(bits())).run(&shots, SEED),
             ),
             (
                 "a toy encoding",
-                runner(driver() >> Adapter::new(Spread::new(3, &log)) >> bits()).run(&shots, SEED),
+                runner(driver().through(Spread::new(3, &log)).on(bits())).run(&shots, SEED),
             ),
         ] {
             assert_eq!(
@@ -203,15 +202,9 @@ fn an_adapter_that_changes_no_instructions_effect_changes_no_record() {
             );
         }
     }
-    unchanged("coin copies", || Driver::new(CoinCopy::new()));
+    unchanged("coin copies", CoinCopy::new);
     unchanged("a program", || {
-        Driver::new(Program::new(&[
-            ("x", 1),
-            ("mz", 0),
-            ("mz", 1),
-            ("x", 0),
-            ("mz", 0),
-        ]))
+        Program::new(&[("x", 1), ("mz", 0), ("mz", 1), ("x", 0), ("mz", 0)])
     });
 }
 
@@ -237,10 +230,10 @@ fn a_lost_value_and_a_rejected_shot_reach_the_driver() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
     let mut runner = runner(
-        Driver::new(Program::new(&[("mz", 0)]))
-            >> Adapter::new(BitFlip::new(0.0, &log))
-            >> Adapter::new(Profiler::new(&counted, &log))
-            >> Executor::new(Bits::new(&log).losing()),
+        Program::new(&[("mz", 0)])
+            .through(BitFlip::new(0.0, &log))
+            .through(Profiler::new(&counted, &log))
+            .on(Bits::new(&log).losing()),
     );
     let records = runner
         .run(&ShotSet::ids(0..3), SEED)
@@ -274,10 +267,10 @@ fn a_runs_shots_are_ended_on_every_part_top_to_bottom() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = Driver::new(CoinCopy::new());
-            let a = Adapter::new(BitFlip::new(0.3, &log));
-            let b = Adapter::new(Trap::on(5).logging(&log));
-            let e = Executor::new(Bits::new(&log));
+            let d = CoinCopy::new();
+            let a = BitFlip::new(0.3, &log);
+            let b = Trap::on(5).logging(&log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let mut runner = runner(chain);
@@ -301,10 +294,10 @@ fn a_runs_shots_are_ended_on_every_part_top_to_bottom() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = Driver::new(Program::new(&[("mz", 0)]).not_ending());
-            let a = Adapter::new(BitFlip::new(0.3, &log));
-            let b = Adapter::new(Trap::on(99).logging(&log));
-            let e = Executor::new(Bits::new(&log));
+            let d = Program::new(&[("mz", 0)]).not_ending();
+            let a = BitFlip::new(0.3, &log);
+            let b = Trap::on(99).logging(&log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let records = runner(chain)
@@ -321,9 +314,9 @@ fn a_runs_shots_are_ended_on_every_part_top_to_bottom() {
     in_each_bracketing!(
         [d, a, e] from {
             let log = Log::default();
-            let d = Driver::new(CoinCopy::new());
-            let a = Adapter::new(BitFlip::new(0.3, &log));
-            let e = Executor::new(Bits::new(&log));
+            let d = CoinCopy::new();
+            let a = BitFlip::new(0.3, &log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             runner(chain)
@@ -364,10 +357,8 @@ fn spin<F: Future>(future: F) -> F::Output {
 fn a_run_awaited_elsewhere_gives_the_records_of_run() {
     let log = Log::default();
     let shots = ShotSet::ids(0..16);
-    let mut runner = runner(
-        Driver::new(CoinCopy::new())
-            >> Executor::new(FromThread::new(Bits::new(&log), Duration::from_millis(5))),
-    );
+    let mut runner =
+        runner(CoinCopy::new().on(FromThread::new(Bits::new(&log), Duration::from_millis(5))));
     assert_eq!(
         spin(runner.run_async(&shots, SEED)).expect("the run succeeds"),
         plain(&shots)
@@ -464,8 +455,7 @@ fn two_tasks_on_one_thread() {
     let bits_log = Log::default();
     let (go, gate) = mpsc::channel::<()>();
     let mut runner = runner(
-        Driver::new(CoinCopy::new())
-            >> Executor::new(FromThread::new(Bits::new(&bits_log), Duration::ZERO).gated(gate)),
+        CoinCopy::new().on(FromThread::new(Bits::new(&bits_log), Duration::ZERO).gated(gate)),
     );
     let shots = ShotSet::ids(0..4);
     let expected = plain(&shots);
@@ -516,7 +506,7 @@ fn two_tasks_on_one_thread() {
 #[test]
 fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
     /// Polls `runner`'s run of `shots` twice, then drops it unfinished.
-    fn drop_unfinished<D: Drive, E: Execute>(
+    fn drop_unfinished<D: Driver, E: Executor>(
         runner: &mut Runner<D, E>,
         shots: &ShotSet,
         log: &Log,
@@ -531,22 +521,25 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
         assert_eq!(log.count("Bits execute"), 1, "one execute before the drop");
     }
     let shots = ShotSet::ids(0..16);
-    let noise = |log: &Log| Adapter::new(BitFlip::new(0.3, log));
-    let coin_copy = || Driver::new(CoinCopy::new());
-    let new_chain =
-        runner(coin_copy() >> noise(&Log::default()) >> Executor::new(Bits::new(&Log::default())))
-            .run(&shots, SEED)
-            .expect("the run succeeds");
+    let noise = |log: &Log| BitFlip::new(0.3, log);
+    let coin_copy = || CoinCopy::new();
+    let new_chain = runner(
+        coin_copy()
+            .through(noise(&Log::default()))
+            .on(Bits::new(&Log::default())),
+    )
+    .run(&shots, SEED)
+    .expect("the run succeeds");
     let mut reruns = Vec::new();
     let log = Log::default();
-    let mut left = runner((coin_copy() >> noise(&log)) >> Executor::new(Later(Bits::new(&log))));
+    let mut left = runner(coin_copy().through(noise(&log)).on(Later(Bits::new(&log))));
     drop_unfinished(&mut left, &shots, &log);
     reruns.push((
         "dropped, the noise with the driver".to_owned(),
         left.run(&shots, SEED),
     ));
     let log = Log::default();
-    let mut right = runner(coin_copy() >> (noise(&log) >> Executor::new(Later(Bits::new(&log)))));
+    let mut right = runner(coin_copy().on(noise(&log).on(Later(Bits::new(&log)))));
     drop_unfinished(&mut right, &shots, &log);
     reruns.push((
         "dropped, the noise with the bits".to_owned(),
@@ -554,11 +547,11 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
     ));
     for (ended, panics) in [("failed", false), ("panicked", true)] {
         let fails_once = || {
-            Adapter::new(if panics {
+            if panics {
                 FailsOnce::panicking()
             } else {
                 FailsOnce::new()
-            })
+            }
         };
         let as_expected = |failure: &Failure| {
             if panics {
@@ -569,16 +562,17 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
         };
         let log = Log::default();
         let mut left = runner(
-            ((coin_copy() >> noise(&log)) >> fails_once()) >> Executor::new(Bits::new(&log)),
+            coin_copy()
+                .through(noise(&log))
+                .through(fails_once())
+                .on(Bits::new(&log)),
         );
         let first = failed(left.run(&shots, SEED));
         assert!(as_expected(&first.failure), "{ended}: {first:?}");
         let row = format!("{ended}, the noise with the driver");
         reruns.push((row, left.run(&shots, SEED)));
         let log = Log::default();
-        let mut right = runner(
-            coin_copy() >> (noise(&log) >> (fails_once() >> Executor::new(Bits::new(&log)))),
-        );
+        let mut right = runner(coin_copy().on(noise(&log).on(fails_once().on(Bits::new(&log)))));
         let first = failed(right.run(&shots, SEED));
         assert!(as_expected(&first.failure), "{ended}: {first:?}");
         reruns.push((
@@ -599,14 +593,14 @@ fn is_send<T: Send>(_: &T) {}
 #[test]
 fn a_runs_future_is_send_when_every_part_and_its_future_are() {
     let shots = ShotSet::ids(0..2);
-    let driver = || Driver::new(Panics(PanicsWhen::Polled));
-    let splitter = || Adapter::new(Splitter::default());
-    let executor = || Executor::new(Panics(PanicsWhen::Polled));
-    let mut joined = runner(driver() >> executor());
+    let driver = || Panics(PanicsWhen::Polled);
+    let splitter = || Splitter::default();
+    let executor = || Panics(PanicsWhen::Polled);
+    let mut joined = runner(driver().on(executor()));
     is_send(&joined.run_async(&shots, SEED));
-    let mut left = runner((driver() >> splitter()) >> executor());
+    let mut left = runner(driver().through(splitter()).on(executor()));
     is_send(&left.run_async(&shots, SEED));
-    let mut right = runner(driver() >> (splitter() >> executor()));
+    let mut right = runner(driver().on(splitter().on(executor())));
     is_send(&right.run_async(&shots, SEED));
 }
 
@@ -652,9 +646,9 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
     // profiler above them is not asked.
     let log = Log::default();
     let mut busy = runner(
-        Driver::new(CoinCopy::new())
-            >> Adapter::new(Profiler::new(&counted, &log))
-            >> Executor::new(Bits::new(&log).busy("calibrating")),
+        CoinCopy::new()
+            .through(Profiler::new(&counted, &log))
+            .on(Bits::new(&log).busy("calibrating")),
     );
     let refusal = refused(busy.run(&ShotSet::ids(0..4), SEED));
     assert_eq!(
@@ -674,10 +668,10 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
     in_each_bracketing!([d, above, refusing, bits] from {
         let log = Log::default();
         let refusing_log = Log::default();
-        let d = Driver::new(CoinCopy::new());
-        let above = Adapter::new(Profiler::new(&counted, &log));
-        let refusing = Adapter::new(Profiler::new(&counted, &refusing_log).busy("calibrating"));
-        let bits = Executor::new(Bits::new(&log));
+        let d = CoinCopy::new();
+        let above = Profiler::new(&counted, &log);
+        let refusing = Profiler::new(&counted, &refusing_log).busy("calibrating");
+        let bits = Bits::new(&log);
     }, |chain, brackets| {
         let refusal = refused(runner(chain).run(&shots, SEED));
         assert_eq!(
@@ -702,9 +696,10 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
     let log = Log::default();
     let refusal = refused(
         runner(
-            Driver::new(CoinCopy::new().busy("calibrating"))
-                >> Adapter::new(Profiler::new(&counted, &log))
-                >> Executor::new(Bits::new(&log)),
+            CoinCopy::new()
+                .busy("calibrating")
+                .through(Profiler::new(&counted, &log))
+                .on(Bits::new(&log)),
         )
         .run(&shots, SEED),
     );
@@ -721,10 +716,10 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
     assert_eq!(ended(&log), [] as [String; 0], "busy driver: no shot ended");
     assert_eq!(counted.get(), 0, "nothing ran");
     // Every part takes the run: each is asked, bottom up.
-    let program = || Driver::new(Program::new(&[("mz", 0)]));
+    let program = || Program::new(&[("mz", 0)]);
     let log = Log::default();
-    let profiler = Adapter::new(Profiler::new(&counted, &log));
-    runner((program() >> profiler) >> Executor::new(Bits::new(&log)))
+    let profiler = Profiler::new(&counted, &log);
+    runner(program().through(profiler).on(Bits::new(&log)))
         .run(&shots, SEED)
         .expect("the run succeeds");
     assert_eq!(
@@ -733,8 +728,8 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
         "the profiler with the driver"
     );
     let log = Log::default();
-    let profiler = Adapter::new(Profiler::new(&counted, &log));
-    runner(program() >> (profiler >> Executor::new(Bits::new(&log))))
+    let profiler = Profiler::new(&counted, &log);
+    runner(program().on(profiler.on(Bits::new(&log))))
         .run(&shots, SEED)
         .expect("the run succeeds");
     assert_eq!(

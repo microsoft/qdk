@@ -46,7 +46,7 @@ pub use shot_conditions::ShotConditions;
 /// One batch's readouts: a row per shot, in its shot set's order, of one
 /// [`ReadoutValue`] per readout slot, and each shot's conditions. An
 /// `execute` fills one per batch, shaped by the protocol from the batch,
-/// as [`Execute::execute`](crate::Execute::execute) says.
+/// as [`Executor::execute`](crate::Executor::execute) says.
 ///
 /// Every row has exactly one value per readout slot it was shaped with;
 /// slot k is the same readout on every shot; and a lost value is

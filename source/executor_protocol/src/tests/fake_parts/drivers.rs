@@ -4,9 +4,10 @@
 //! The fake drivers.
 
 use super::{CoinGates, Log, Values, coin_gate, coin_gates};
+use crate::prelude::*;
 use crate::{
-    Batch, Drive, DriveError, DriverSetup, Execute, Instruction, InstructionSet, Needs, NotReady,
-    OpcodeMap, ReadoutValue, Readouts, Seed, ShotConditions, ShotSet,
+    Batch, DriveError, Instruction, InstructionSet, Needs, NotReady, OpcodeMap, ReadoutValue,
+    Readouts, Seed, ShotConditions, ShotSet,
 };
 
 /// A coin tossed on qubit 0, copied onto qubit 1: a toss for every shot in
@@ -59,7 +60,7 @@ impl CoinCopy {
     }
 }
 
-impl DriverSetup for CoinCopy {
+impl Driver for CoinCopy {
     fn sends(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -73,9 +74,7 @@ impl DriverSetup for CoinCopy {
     fn needs(&self) -> Needs {
         Needs::qubits(2)
     }
-}
 
-impl Drive for CoinCopy {
     type Output = Values;
 
     async fn ready(&mut self) -> Result<(), NotReady> {
@@ -92,7 +91,7 @@ impl Drive for CoinCopy {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> Result<Vec<Values>, DriveError> {
         let mut tossed = Readouts::new();
         let toss = [Batch::new(shots, &self.sequences[0], self.slots[0])];
@@ -249,7 +248,7 @@ impl Program {
     }
 }
 
-impl DriverSetup for Program {
+impl Driver for Program {
     fn sends(&self) -> &InstructionSet {
         &self.set
     }
@@ -268,9 +267,7 @@ impl DriverSetup for Program {
     fn needs(&self) -> Needs {
         self.needs.clone()
     }
-}
 
-impl Drive for Program {
     type Output = (Values, ShotConditions);
 
     async fn ready(&mut self) -> Result<(), NotReady> {
@@ -284,7 +281,7 @@ impl Drive for Program {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> Result<Vec<Self::Output>, DriveError> {
         let parts: Vec<ShotSet> = if let [_] = self.sequences.as_slice() {
             vec![shots.clone()]

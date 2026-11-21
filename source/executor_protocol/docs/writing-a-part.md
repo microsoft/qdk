@@ -5,43 +5,43 @@ role's methods do at each phase of a chain's life, an executor in full,
 the rules a part keeps that the protocol does not check, and how a part
 draws from the run's seed, or says it cannot replay a shot. What crosses
 a boundary is in
-[Batches and readouts](batches-and-readouts.md); what `>>` checks of a
-part, in [Instruction sets and their fit](instruction-sets.md) and
+[Batches and readouts](batches-and-readouts.md); what the joins check of
+a part, in [Instruction sets and their fit](instruction-sets.md) and
 [Needs, offers and the admission](admission.md). The terms are those of
 the [README](../README.md#terms).
 
 ## The roles' methods, phase by phase
 
-A part implements its role's two traits: a setup trait, whose methods
-`>>` calls when it composes the chain (the first two phases below), and
-a run-time trait, whose methods the runner calls on each run (the last
-three). Each method is called at one phase of a chain's life:
+A part implements its role's trait, whose rustdoc lists its methods in
+two groups: its declarations, which the joins read when they join the
+parts (the first two phases below), and its run methods, which the runner
+and the part above call on each run (the last three). Each method is
+called at one phase of a chain's life:
 
-| Phase                                       | [`DriverSetup`](../src/roles/driver_setup.rs) and [`Drive`](../src/roles/drive.rs), the driver        | [`AdapterSetup`](../src/roles/adapter_setup.rs) and [`Adapt`](../src/roles/adapt.rs), an adapter                                            | [`ExecutorSetup`](../src/roles/executor_setup.rs) and [`Execute`](../src/roles/execute.rs), the executor |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Each `>>`: the fit                          | `sends`, and `bind`, which takes the receiver's opcodes                                               | `accepts`, `sends`, and `bind`                                                                                                              | `accepts`                                                                                                |
-| The `>>` that makes a runner: the admission | `needs`                                                                                               | `needs_below` and `offers_above`, which adapt the needs passed down and the offer passed up, unchanged by default                           | `offers`                                                                                                 |
-| Each run, before any shot                   | `ready()`, asked last: a driver knows its own needs                                                   | `ready(above)`, for the needs of the part above, asked after the parts below it                                                             | `ready(needs)`, for the needs that reach it, asked first                                                 |
-| The run                                     | `drive(shots, seed, below)`: calls `below.execute` until each shot ends, and gives each shot's output | `adapt(batches, seed, below, readouts)`: answers each `execute` by calling `below.execute` as often as it needs, and maps the readouts back | `execute(batches, seed, readouts)`: runs each batch on its shots' states, and fills their readouts       |
-| Once the run ends                           | nothing: the runner ends the shots below, and a driver may end a shot earlier                         | `end_shots`, called top to bottom, which frees the shots' state, and never passes the end below                                             | `end_shots`, called last, which frees the shots' state                                                   |
+| Phase                                       | [`Driver`](../src/roles/driver.rs)                                                                    | [`Adapter`](../src/roles/adapter.rs)                                                                                                        | [`Executor`](../src/roles/executor.rs)                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Each join: the fit                          | `sends`, and `bind`, which takes the receiver's opcodes                                               | `accepts`, `sends`, and `bind`                                                                                                              | `accepts`                                                                                          |
+| The `on` that makes a runner: the admission | `needs`                                                                                               | `needs_below` and `offers_above`, which adapt the needs passed down and the offer passed up, unchanged by default                           | `offers`                                                                                           |
+| Each run, before any shot                   | `ready()`, asked last: a driver knows its own needs                                                   | `ready(above)`, for the needs of the part above, asked after the parts below it                                                             | `ready(needs)`, for the needs that reach it, asked first                                           |
+| The run                                     | `drive(shots, seed, below)`: calls `below.execute` until each shot ends, and gives each shot's output | `adapt(batches, seed, below, readouts)`: answers each `execute` by calling `below.execute` as often as it needs, and maps the readouts back | `execute(batches, seed, readouts)`: runs each batch on its shots' states, and fills their readouts |
+| Once the run ends                           | nothing: the runner ends the shots below, and a driver may end a shot earlier                         | `end_shots`, called top to bottom, which frees the shots' state, and never passes the end below                                             | `end_shots`, called last, which frees the shots' state                                             |
 
-Each setup trait also has `name`, the part's name in messages, by default
+Each role's trait also has `name`, the part's name in messages, by default
 its type's.
 
 ## An executor, in full
 
 The executor of
 [`examples/compose_and_run.rs`](../examples/compose_and_run.rs), `Bits`,
-implements [`ExecutorSetup`](../src/roles/executor_setup.rs) and
-[`Execute`](../src/roles/execute.rs). `CoinGates` is the
+implements [`Executor`](../src/roles/executor.rs). `CoinGates` is the
 example's instruction set, and `Stream` a shot's random stream, both in
 the file; `without_readout_parity` says it cannot resolve an argument that
 is the parity of the shot's earlier readouts, which the coin never sends;
 and only the example's test reads its counts of checked and unchecked
 batches, as an executor need not count them:
 
-```rust
-impl ExecutorSetup for Bits {
+````rust
+impl Executor for Bits {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -52,9 +52,7 @@ impl ExecutorSetup for Bits {
             .max_shots(1000)
             .without_readout_parity()
     }
-}
 
-impl Execute for Bits {
     async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
         self.qubits = needs.blocks_of(&BlockType::qubit()) as usize;
         Ok(())
@@ -104,8 +102,7 @@ impl Execute for Bits {
             self.shots.remove(&id);
         }
     }
-}
-```
+}```
 
 `Bits` never waits, yet writes `async fn execute`, so that its work runs
 when the future is polled ([the rules](#the-rules-a-part-keeps)).
@@ -122,7 +119,7 @@ row and its conditions back.
 The protocol does not check these; the rustdoc of each role, and of
 [`Seed`](../src/seed.rs) for the seeds, states them:
 
-- its instruction sets, needs and offer do not change once it is composed,
+- its instruction sets, needs and offer do not change once it is joined,
   since the fit and the admission rely on those contracts staying the
   same, as do the needs each part gets ready for on every run;
 - a part that calls `execute` puts a shot in at most one of its batches,
@@ -167,3 +164,4 @@ as [Needs, offers and the admission](admission.md#needs-and-offers) says.
 For example, a tensor-network sampler draws a run's shots from one
 stream, to draw them in one call rather than one call per shot: a shot
 run again alone draws other readouts.
+````

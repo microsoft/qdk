@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Two parts as one: [`Composed`], what `>>` builds, in the role its
+//! Two parts as one: `Composed`, what a join builds, in the role its
 //! position gives it.
 //!
 //! Each of its methods answers from the half that faces the same way: what
@@ -10,11 +10,11 @@
 //! below it, as one executor:
 //!
 //! ```text
-//! (d >> a).drive(shots, seed, below)
-//!     is d.drive(shots, seed, a >> below);
-//! (u >> l).adapt(batches, seed, below, readouts)
-//!     is u.adapt(batches, seed, l >> below, readouts);
-//! (a >> e).execute(batches, seed, readouts)
+//! d.through(a).drive(shots, seed, below)
+//!     is d.drive(shots, seed, a.on(below));
+//! u.through(l).adapt(batches, seed, below, readouts)
+//!     is u.adapt(batches, seed, l.on(below), readouts);
+//! a.on(e).execute(batches, seed, readouts)
 //!     is a.adapt(batches, seed, e, readouts).
 //! ```
 //!
@@ -27,63 +27,57 @@
 //! batch its sender marked [`checked`](Batch::checked) against the
 //! receiver's instruction set, the shots' needs and the readout slots the
 //! batch states. It names a panic below it by the part that receives the
-//! calls. The limits and the names are kept when the `>>` that makes the
-//! runner reads every part's set, needs and offer, so that the checks and
-//! the names are the same wherever the brackets go. So are the needs that
-//! cross the boundary, which the lower part gets ready for on every run.
+//! calls. The limits and the names are kept when the
+//! [`on`](crate::DriverJoins::on) that makes the runner checks the chain,
+//! so that the checks and the names are the same wherever the brackets go.
+//! So are the needs that cross the boundary, which the lower part gets
+//! ready for on every run.
 
-mod adapt;
-mod drive;
-mod execute;
+mod adapter;
+mod driver;
+mod executor;
 
-use super::boundary_crossing::BatchLimits;
+use super::boundary_crossing::Crossing;
 use super::part_panics::end_both;
 use crate::{
-    Adapt, AdapterSetup, Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup,
-    InstructionSet, Needs, Offer, PartId, Seed, ShotSet,
+    Adapter, Batch, BatchReadouts, ExecuteError, Executor, FitFaults, InstructionSet, Offer, Seed,
+    ShotSet,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
-/// executor, as three of the four joins of [`Compose`](crate::Compose)
-/// give.
+/// executor, as [`DriverJoins::through`](crate::DriverJoins::through),
+/// [`AdapterJoins::through`](crate::AdapterJoins::through) and
+/// [`AdapterJoins::on`](crate::AdapterJoins::on) give.
 ///
-/// It is public because it appears in a chain's type, such as
-/// `Runner<Composed<D, A>, E>`, but only `>>` builds one.
+/// It is public, because the joins return it, but no public path reaches
+/// it: code outside the crate holds one by its role alone, so that a
+/// join's type, and with it the runner's, is the protocol's to change.
 pub struct Composed<U, L> {
     upper: U,
     lower: L,
-    /// The lower half's top part, the one that receives its calls, as the
-    /// `>>` that makes the runner lists it: what a panic of the lower half
-    /// names, and what its refusal to get ready names when no part inside
-    /// it was named.
-    below_part: Option<PartId>,
-    /// The needs crossing the boundary between the halves, the upper
-    /// half's adapted down to it, kept when the `>>` that makes the runner
-    /// reads every part's needs: what the lower half gets ready for on
-    /// every run.
-    below_needs: Option<Needs>,
-    /// The offer crossing that boundary, the lower half's with the chain
-    /// below it, kept when the `>>` that makes the runner reads every
-    /// part's offer.
-    below_offer: Option<Offer>,
-    /// The limits of the batches crossing that boundary, from the lower
-    /// half's set, that offer and those needs, kept at the same time.
-    batch_limits: Option<BatchLimits>,
+    /// The faults of the boundary between the halves, when the upper half
+    /// does not fit the lower one, as the join found them: the
+    /// [`on`](crate::DriverJoins::on) that makes the runner reports them
+    /// with every other fault of the chain.
+    fit_faults: Option<FitFaults>,
+    /// What crosses that boundary, kept when the
+    /// [`on`](crate::DriverJoins::on) that makes the runner checks the
+    /// chain.
+    crossing: Option<Crossing>,
 }
 
-/// Why each of a `Composed`'s kept values is there once it runs.
-const KEPT: &str = "kept by the `>>` that makes its runner";
+/// Why a `Composed`'s crossing is there once it runs.
+const KEPT: &str = "kept by the `on` that makes its runner";
 
 impl<U, L> Composed<U, L> {
-    /// `upper` calling `lower`.
-    pub(crate) fn new(upper: U, lower: L) -> Self {
+    /// `upper` calling `lower`, with the faults of their boundary, if it
+    /// does not fit.
+    pub(crate) fn new(upper: U, lower: L, fit_faults: Option<FitFaults>) -> Self {
         Self {
             upper,
             lower,
-            below_part: None,
-            below_needs: None,
-            below_offer: None,
-            batch_limits: None,
+            fit_faults,
+            crossing: None,
         }
     }
 }
@@ -97,7 +91,7 @@ struct ChainBelow<'a, A, B> {
     below: &'a mut B,
 }
 
-impl<A: AdapterSetup, B: ExecutorSetup> ExecutorSetup for ChainBelow<'_, A, B> {
+impl<A: Adapter, B: Executor> Executor for ChainBelow<'_, A, B> {
     /// The adapter's, which receives its calls.
     fn name(&self) -> &str {
         self.adapter.name()
@@ -113,10 +107,8 @@ impl<A: AdapterSetup, B: ExecutorSetup> ExecutorSetup for ChainBelow<'_, A, B> {
     fn offers(&self) -> Offer {
         self.adapter.offers_above(self.below.offers())
     }
-}
 
-impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
-    /// The adapter's `adapt`: it keeps [`Execute::execute`]'s rule, doing
+    /// The adapter's `adapt`: it keeps [`Executor::execute`]'s rule, doing
     /// its work only once polled, when the adapter's `adapt` does, and
     /// either way it is reached only through a boundary crossing, which
     /// calls it only once its own future is polled.
@@ -138,34 +130,4 @@ impl<A: Adapt, B: Execute> Execute for ChainBelow<'_, A, B> {
             || self.below.end_shots(shots),
         );
     }
-}
-
-/// The lower half's top part, the offer and the batch limits a `Composed`
-/// keeps for its boundary.
-fn kept<'a>(
-    part: Option<&'a PartId>,
-    offer: Option<&'a Offer>,
-    batch_limits: Option<&'a BatchLimits>,
-) -> (&'a PartId, &'a Offer, &'a BatchLimits) {
-    (
-        part.expect(KEPT),
-        offer.expect(KEPT),
-        batch_limits.expect(KEPT),
-    )
-}
-
-/// The limits of the batches sent across a boundary to a receiver of
-/// `receiver`'s instructions, with the offer `offer` kept for it, for
-/// `below_needs`, the needs crossing it, which the `>>` that makes the
-/// runner keeps before it reads the offers.
-fn limits_below(
-    offer: &Offer,
-    receiver: &InstructionSet,
-    below_needs: Option<&Needs>,
-) -> BatchLimits {
-    BatchLimits::new(
-        receiver,
-        offer,
-        below_needs.expect("kept by `needs_by_part`, called before `offers_by_part`"),
-    )
 }

@@ -9,9 +9,10 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::task::{Poll, Waker};
 use std::thread::{self, JoinHandle};
 
+use executor_protocol::prelude::*;
 use executor_protocol::{
-    Batch, BatchReadouts, Execute, ExecuteError, ExecutorSetup, Instruction, InstructionSet, Offer,
-    Opcode, ReadoutValue, Seed, ShotSet,
+    Batch, BatchReadouts, ExecuteError, Instruction, InstructionSet, Offer, Opcode, ReadoutValue,
+    Seed, ShotSet,
 };
 
 use super::{MixGates, PhysicalGates};
@@ -124,7 +125,7 @@ const _: () = {
     }
 };
 
-impl ExecutorSetup for Profiler {
+impl Executor for Profiler {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -132,9 +133,7 @@ impl ExecutorSetup for Profiler {
     fn offers(&self) -> Offer {
         self.offer.clone()
     }
-}
 
-impl Execute for Profiler {
     async fn execute(
         &mut self,
         batches: &[Batch<'_>],
@@ -180,7 +179,7 @@ impl Sink {
     }
 }
 
-impl ExecutorSetup for Sink {
+impl Executor for Sink {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -188,9 +187,7 @@ impl ExecutorSetup for Sink {
     fn offers(&self) -> Offer {
         Offer::unlimited()
     }
-}
 
-impl Execute for Sink {
     async fn execute(
         &mut self,
         batches: &[Batch<'_>],
@@ -284,7 +281,7 @@ impl FromWorker {
     }
 }
 
-impl ExecutorSetup for FromWorker {
+impl Executor for FromWorker {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -292,9 +289,7 @@ impl ExecutorSetup for FromWorker {
     fn offers(&self) -> Offer {
         Offer::unlimited()
     }
-}
 
-impl Execute for FromWorker {
     async fn execute(
         &mut self,
         batches: &[Batch<'_>],

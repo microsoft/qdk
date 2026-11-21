@@ -10,16 +10,17 @@ use std::fmt;
 ///
 /// The position tells apart two parts of one name, such as two encodings
 /// of one type; the name is what the part answers, as each role answers
-/// it ([`DriverSetup::name`](crate::DriverSetup::name),
-/// [`AdapterSetup::name`](crate::AdapterSetup::name),
-/// [`ExecutorSetup::name`](crate::ExecutorSetup::name)), when the `>>` that
-/// makes a runner reads it.
+/// it ([`Driver::name`](crate::Driver::name),
+/// [`Adapter::name`](crate::Adapter::name),
+/// [`Executor::name`](crate::Executor::name)), when the
+/// [`on`](crate::DriverJoins::on) that makes a runner reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PartId {
     /// Its position in the chain, top down: 0 is the driver, then each
-    /// adapter, and the executor last, whatever the brackets of the `>>`s.
-    /// A message writes it as it is, so `d >> a >> e` has parts 0 to 2.
+    /// adapter, and the executor last, whatever the brackets of the joins.
+    /// A message writes it as it is, so `d.through(a).on(e)` has parts 0
+    /// to 2.
     pub position: usize,
     /// Its name.
     pub name: String,

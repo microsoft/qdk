@@ -3,12 +3,13 @@
 
 //! What an executor can ever serve: its [`Offer`].
 //!
-//! An executor states its offer once, so that the `>>` that makes a runner
+//! An executor states its offer once, so that the
+//! [`on`](crate::DriverJoins::on) that makes a runner
 //! compares it with the driver's needs, as they reach the executor, before
 //! any shot runs, and the protocol keeps its limits for each run and each
 //! `execute`, so that no part checks them itself. An adapter adapts the
 //! offer for the part above it, as it adapts the needs for the part below,
-//! and the `>>` compares its offer with the needs that reach it too. A
+//! and the `on` compares its offer with the needs that reach it too. A
 //! run's most shots and whether it may fix its seed are those every part's
 //! offer meets: an adapter can lower them, never raise them.
 
@@ -24,7 +25,7 @@ use crate::BlockType;
 /// Built from [`unlimited`](Self::unlimited), also its `Default`, with the
 /// builders below, since a struct literal is refused outside the crate.
 /// Where each limit is checked: the blocks, the readout parities and the
-/// replay, with the seed it needs, by the `>>` that makes a runner, against
+/// replay, with the seed it needs, by the `on` that makes a runner, against
 /// the needs that reach each part; the shots and the seed by the runner, at
 /// each run, against every part's offer; the instructions at each
 /// `execute`, against every batch's count, checked or not.

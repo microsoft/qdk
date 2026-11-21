@@ -8,11 +8,12 @@
 //! a part writes them on its hot path, sent by a driver straight to an
 //! executor.
 
+use crate::prelude::*;
 use crate::{
-    Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, Drive, DriveError, Driver,
-    DriverSetup, Execute, ExecuteError, ExecuteRefusal, Executor, ExecutorSetup, Failure,
-    Instruction, InstructionDef, InstructionFault, InstructionSet, Needs, Offer, Opcode, OpcodeMap,
-    ParameterKind, ReadoutValue, Readouts, RunError, Seed, ShotId, ShotSet,
+    Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, DriveError, ExecuteError,
+    ExecuteRefusal, Failure, Instruction, InstructionDef, InstructionFault, InstructionSet, Needs,
+    Offer, Opcode, OpcodeMap, ParameterKind, ReadoutValue, Readouts, RunError, Seed, ShotId,
+    ShotSet,
 };
 use smallvec::smallvec;
 
@@ -93,7 +94,7 @@ struct Literal {
     mark: Mark,
 }
 
-impl DriverSetup for Literal {
+impl Driver for Literal {
     fn sends(&self) -> &InstructionSet {
         &self.set
     }
@@ -103,16 +104,14 @@ impl DriverSetup for Literal {
     fn needs(&self) -> Needs {
         self.needs.clone()
     }
-}
 
-impl Drive for Literal {
     type Output = u32;
 
     async fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> Result<Vec<u32>, DriveError> {
         let readout_slots = self
             .stated
@@ -136,7 +135,7 @@ struct Zeros {
     offer: Offer,
 }
 
-impl ExecutorSetup for Zeros {
+impl Executor for Zeros {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -144,9 +143,7 @@ impl ExecutorSetup for Zeros {
     fn offers(&self) -> Offer {
         self.offer.clone()
     }
-}
 
-impl Execute for Zeros {
     async fn execute(
         &mut self,
         _batches: &[Batch<'_>],
@@ -195,18 +192,18 @@ fn run_marked(
     if let Some(most) = most {
         offer = offer.max_instructions(most);
     }
-    let driver = Driver::new(Literal {
+    let driver = Literal {
         set: set.clone(),
         instructions,
         stated,
         needs,
         mark,
-    });
-    let executor = Executor::new(Zeros {
+    };
+    let executor = Zeros {
         set: set.clone(),
         offer,
-    });
-    let Ok(mut runner) = driver >> executor else {
+    };
+    let Ok(mut runner) = driver.on(executor) else {
         panic!("the chain composes");
     };
     match runner.run(&ShotSet::ids(0..2), 7) {

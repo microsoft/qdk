@@ -7,10 +7,10 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
+use executor_protocol::prelude::*;
 use executor_protocol::{
-    Batch, BatchReadouts, CompositionFaults, Drive, DriveError, DriverSetup, Execute, ExecuteError,
-    ExecutorSetup, Instruction, InstructionSet, Needs, OpcodeMap, ReadoutValue, Readouts, Runner,
-    Seed, ShotSet,
+    Batch, BatchReadouts, CompositionFaults, DriveError, ExecuteError, Instruction, InstructionSet,
+    Needs, OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShotSet,
 };
 
 use crate::workload::SEED;
@@ -78,7 +78,7 @@ impl<'p> ProgramInBatches<'p> {
     /// the readout slots the batch states, and only where the shape changes.
     async fn send(
         &self,
-        target: &mut impl Execute,
+        target: &mut impl Executor,
         shots: &ShotSet,
         seed: Seed,
         shapes_itself: bool,
@@ -109,7 +109,7 @@ impl<'p> ProgramInBatches<'p> {
     }
 }
 
-impl DriverSetup for ProgramInBatches<'_> {
+impl Driver for ProgramInBatches<'_> {
     fn sends(&self) -> &InstructionSet {
         &self.set
     }
@@ -125,16 +125,14 @@ impl DriverSetup for ProgramInBatches<'_> {
     fn needs(&self) -> Needs {
         Needs::qubits(self.qubits).with_readout_parity()
     }
-}
 
-impl Drive for ProgramInBatches<'_> {
     type Output = Received;
 
     async fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> Result<Vec<Received>, DriveError> {
         let received = self.send(below, shots, seed, false).await?;
         Ok(vec![received])
@@ -160,7 +158,7 @@ pub(crate) fn slots_per_batch(
 /// driver, because only a run gives a seed to call `execute` with.
 pub(crate) struct Direct<'p, E>(pub(crate) ProgramInBatches<'p>, pub(crate) E);
 
-impl<E: ExecutorSetup> DriverSetup for Direct<'_, E> {
+impl<E: Executor> Driver for Direct<'_, E> {
     fn sends(&self) -> &InstructionSet {
         self.0.sends()
     }
@@ -172,16 +170,14 @@ impl<E: ExecutorSetup> DriverSetup for Direct<'_, E> {
     fn needs(&self) -> Needs {
         self.0.needs()
     }
-}
 
-impl<E: Execute> Drive for Direct<'_, E> {
     type Output = Received;
 
     async fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        _chain: &mut impl Execute,
+        _chain: &mut impl Executor,
     ) -> Result<Vec<Received>, DriveError> {
         let Self(in_batches, executor) = self;
         let received = in_batches.send(executor, shots, seed, true).await?;
@@ -193,7 +189,7 @@ impl<E: Execute> Drive for Direct<'_, E> {
 }
 
 /// Runs the composed chain on one shot, and returns its driver's output.
-pub(crate) fn run_once<D: Drive<Output = Received>, E: Execute>(
+pub(crate) fn run_once<D: Driver<Output = Received>, E: Executor>(
     chain: Result<Runner<D, E>, CompositionFaults>,
 ) -> Received {
     let mut runner = chain.expect("the chain composes");

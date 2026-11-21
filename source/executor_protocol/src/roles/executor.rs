@@ -1,22 +1,23 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The executor's role at run time, [`Execute`], and what an `execute`
-//! returns when it does not answer: [`ExecuteError`], with
-//! [`ExecuteRefusal`] when nothing of it ran.
+//! The executor's role, [`Executor`], and what an `execute` returns when
+//! it does not answer: [`ExecuteError`], with [`ExecuteRefusal`] when
+//! nothing of it ran.
 
 use std::error::Error;
 use std::fmt;
 
+use crate::composition::chain_check::ChainCheck;
 use crate::{
-    Batch, BatchReadouts, ExecutorSetup, Failure, InstructionFault, Needs, NotReady, Seed, ShotId,
-    ShotSet,
+    Batch, BatchReadouts, Failure, InstructionFault, InstructionSet, Needs, NotReady, Offer, Seed,
+    ShotId, ShotSet,
 };
 
 /// Runs batches of the instructions it accepts on their shots' states.
 ///
 /// It is the part at the bottom of a chain, and the part a driver or an
-/// adapter calls below it: the rest of the chain, composed, is one executor
+/// adapter calls below it: the rest of the chain, joined, is one executor
 /// to the part above. The protocol shapes each batch's readouts from the
 /// batch before the executor runs it, so the executor only fills them,
 /// and the part above indexes its batches, rows and slots.
@@ -27,10 +28,55 @@ use crate::{
 /// above sends it, once the protocol has checked that it holds no more
 /// instructions than the executor takes.
 ///
-/// This is the executor at run time: on every run, the runner gets it
-/// ready ([`ready`](Self::ready)) and ends its shots, and the part above
-/// calls it, once `>>` has set it up as an [`ExecutorSetup`].
-pub trait Execute: ExecutorSetup {
+/// # Declarations
+///
+/// The joins ([`DriverJoins`](crate::DriverJoins) and
+/// [`AdapterJoins`](crate::AdapterJoins)) read them once, before any run:
+/// [`name`](Self::name), [`accepts`](Self::accepts) and
+/// [`offers`](Self::offers). It gets no hand-back: it sends nothing, so it
+/// gets no opcode map. A join only decides, from what the parts declare;
+/// what prepares a part to run belongs to each run, which starts with
+/// [`ready`](Self::ready), given the needs the admission checked.
+///
+/// Its instruction set and its offer must not change once it is joined:
+/// the fit and the admission are made once, from them.
+///
+/// # Run
+///
+/// On every run, the runner gets it ready ([`ready`](Self::ready)) and
+/// ends its shots ([`end_shots`](Self::end_shots)), and the part above
+/// calls it ([`execute`](Self::execute)).
+pub trait Executor {
+    /// The part's name in messages, such as an admission fault or a
+    /// run's failure; by default its type's, `std::any::type_name`.
+    ///
+    /// A part overrides it when its type does not say what it is: a part
+    /// built at run time, such as a runtime made from an instruction set's
+    /// description, has one Rust type for every configuration; and the
+    /// default's text is a module path, whose format the standard library
+    /// does not guarantee. Two parts of one name are told apart by their
+    /// position ([`PartId`](crate::PartId)). Parts joined by
+    /// [`through`](crate::AdapterJoins::through) or
+    /// [`on`](crate::AdapterJoins::on) answer the name of their top part,
+    /// the one that receives their calls. The protocol's messages use the
+    /// name read by the [`on`](crate::DriverJoins::on) that makes a runner.
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
+
+    /// The instructions it runs, which the part above must fit. Each
+    /// checked batch it receives is checked against this set as read once,
+    /// by the [`on`](crate::DriverJoins::on) that makes a runner.
+    fn accepts(&self) -> &InstructionSet;
+
+    /// What it can ever serve, such as its most qubits, which the driver's
+    /// needs, as adapted down to it, must fit. The
+    /// [`on`](crate::DriverJoins::on) that makes a runner reads it once,
+    /// and the admission and every check of a run use that answer. Its
+    /// most shots and whether it is seedable bound every run of the chain:
+    /// no adapter above can raise them.
+    fn offers(&self) -> Offer;
+
     /// Gets this part ready for a run, before anything of the run runs, for
     /// `needs`, the driver's needs as adapted down to it, as the admission
     /// checked them against its offer: the blocks of each type a shot holds
@@ -136,9 +182,44 @@ pub trait Execute: ExecutorSetup {
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }
+
+    // Protocol hook: sealed and hidden. Its parameter type, `ChainCheck`
+    // (`src/composition/chain_check.rs`), cannot be named outside this
+    // crate, so no other crate can call or override it. It is in the trait
+    // because Rust cannot specialise a default method: the protocol's
+    // joined parts (`Composed`, in `src/composition/composed/`) override it
+    // to add each inner part's facts, so that a refusal names the inner
+    // part that was short, and to keep the needs and the offer that cross
+    // each inner boundary.
+
+    /// Adds and gives its offer, as this part's, to `chain`, given `above`,
+    /// the needs that reach it, which an executor alone does not read.
+    /// Only the crate overrides it, to add each part it holds, with the
+    /// fit faults of each boundary it holds, top to bottom, and to keep the
+    /// needs and the offer that cross each of them. The
+    /// [`on`](crate::DriverJoins::on) that makes a runner calls it once.
+    #[doc(hidden)]
+    fn check_chain(&mut self, above: Needs, chain: &mut ChainCheck) -> Offer {
+        let _ = above;
+        let offer = self.offers();
+        chain.add_executor_offer(Executor::name(self), &offer);
+        offer
+    }
 }
 
-impl<E: Execute + ?Sized> Execute for &mut E {
+impl<E: Executor + ?Sized> Executor for &mut E {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+
+    fn accepts(&self) -> &InstructionSet {
+        (**self).accepts()
+    }
+
+    fn offers(&self) -> Offer {
+        (**self).offers()
+    }
+
     fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {
         (**self).ready(needs)
     }
@@ -154,6 +235,10 @@ impl<E: Execute + ?Sized> Execute for &mut E {
 
     fn end_shots(&mut self, shots: &ShotSet) {
         (**self).end_shots(shots);
+    }
+
+    fn check_chain(&mut self, above: Needs, chain: &mut ChainCheck) -> Offer {
+        (**self).check_chain(above, chain)
     }
 }
 
@@ -201,7 +286,7 @@ impl Error for ExecuteError {}
 /// the shot refusals, since only it knows which shots it holds:
 /// [`ShotNotHeld`](Self::ShotNotHeld) and
 /// [`EarlierFailure`](Self::EarlierFailure). They share one type because
-/// the boundary is itself an [`Execute`] to the part above, which gets
+/// the boundary is itself an [`Executor`] to the part above, which gets
 /// either kind from the `execute` it calls.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]

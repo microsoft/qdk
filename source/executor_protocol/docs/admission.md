@@ -2,7 +2,7 @@
 
 For those who state a part's needs or offer, write an adapter that adapts
 them, or read an admission's refusal: what the needs and an offer are,
-how the `>>` that makes a runner checks them, and what a refusal names.
+how the `on` that makes a runner checks them, and what a refusal names.
 The terms are those of the [README](../README.md#terms).
 
 ## Needs and offers
@@ -43,12 +43,12 @@ chain and names it.
 
 ## The admission
 
-The `>>` that makes a runner checks, at every boundary, the needs that
+The `on` that makes a runner checks, at every boundary, the needs that
 reach it against the offer there, and refuses the chain when any falls
 short ([`UnmetNeed`](../src/needs.rs)). The refusal
-([`AdmissionFaults`](../src/composition/admission.rs)) lists each part's needs and
+([`AdmissionFaults`](../src/composition/chain_check/admission.rs)) lists each part's needs and
 offer, and names the parts it finds short
-([`ShortOffer`](../src/composition/admission.rs)), each by its position and its name
+([`ShortOffer`](../src/composition/chain_check/admission.rs)), each by its position and its name
 ([`PartId`](../src/composition/part_id.rs)); an adapter that only
 passes a shortage up, such as a profiler, is not named. Which parts a
-refusal names is in [`composition/admission.rs`](../src/composition/admission.rs).
+refusal names is in [`composition/chain_check/admission.rs`](../src/composition/chain_check/admission.rs).

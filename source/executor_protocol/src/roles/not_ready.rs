@@ -17,7 +17,7 @@ use crate::PartId;
 #[derive(Debug)]
 pub struct NotReady {
     why: Box<dyn Error + Send + Sync>,
-    /// The part that answered it, once the composition holding that part
+    /// The part that answered it, once the joined part holding that part
     /// has named it; the runner names the top parts.
     part: Option<PartId>,
 }
@@ -38,7 +38,7 @@ impl NotReady {
     }
 
     /// Names `part`, the top part of the half that answered it, as the
-    /// part that did, unless a composition inside that half already named
+    /// part that did, unless a joined part inside that half already named
     /// a part below its top.
     pub(crate) fn answered_by(mut self, part: &PartId) -> Self {
         self.part.get_or_insert_with(|| part.clone());

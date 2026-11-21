@@ -11,10 +11,10 @@ use std::rc::Rc;
 use std::task::Poll;
 
 use super::{CoinGates, Log, Stream, bound, coin_gate, coin_gates, forward, mapped};
+use crate::prelude::*;
 use crate::{
-    Adapt, AdapterSetup, Batch, BatchReadouts, BlockType, Execute, ExecuteError, Failure,
-    Instruction, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Readouts, Seed, ShotId,
-    ShotSet,
+    Batch, BatchReadouts, BlockType, ExecuteError, Failure, Instruction, InstructionSet, Needs,
+    NotReady, Offer, OpcodeMap, Readouts, Seed, ShotId, ShotSet,
 };
 
 /// A toy bit-flip noise: after each `x`, another `x` with probability
@@ -38,7 +38,7 @@ impl BitFlip {
     }
 }
 
-impl AdapterSetup for BitFlip {
+impl Adapter for BitFlip {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -50,14 +50,12 @@ impl AdapterSetup for BitFlip {
     fn bind(&mut self, below: OpcodeMap) {
         self.below = Some(below);
     }
-}
 
-impl Adapt for BitFlip {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
@@ -151,7 +149,7 @@ impl Profiler {
     }
 }
 
-impl AdapterSetup for Profiler {
+impl Adapter for Profiler {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -163,9 +161,7 @@ impl AdapterSetup for Profiler {
     fn bind(&mut self, below: OpcodeMap) {
         self.below = Some(below);
     }
-}
 
-impl Adapt for Profiler {
     async fn ready(&mut self, _above: &Needs) -> Result<(), NotReady> {
         self.log.push("Profiler ready");
         match self.busy {
@@ -178,7 +174,7 @@ impl Adapt for Profiler {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let count: usize = batches.iter().map(|batch| batch.instructions.len()).sum();
@@ -209,7 +205,7 @@ impl NamesBelow {
     }
 }
 
-impl AdapterSetup for NamesBelow {
+impl Adapter for NamesBelow {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -221,14 +217,12 @@ impl AdapterSetup for NamesBelow {
     fn bind(&mut self, below: OpcodeMap) {
         self.below = Some(below);
     }
-}
 
-impl Adapt for NamesBelow {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.log.push(format!("below: {}", below.name()));
@@ -250,7 +244,7 @@ pub(crate) struct Splitter {
     below: Option<OpcodeMap>,
 }
 
-impl AdapterSetup for Splitter {
+impl Adapter for Splitter {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -262,14 +256,12 @@ impl AdapterSetup for Splitter {
     fn bind(&mut self, below: OpcodeMap) {
         self.below = Some(below);
     }
-}
 
-impl Adapt for Splitter {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
@@ -314,7 +306,7 @@ impl Spread {
     }
 }
 
-impl AdapterSetup for Spread {
+impl Adapter for Spread {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -341,9 +333,7 @@ impl AdapterSetup for Spread {
         }
         above
     }
-}
 
-impl Adapt for Spread {
     async fn ready(&mut self, above: &Needs) -> Result<(), NotReady> {
         let qubits = above.blocks_of(&BlockType::qubit());
         self.log.push(format!("Spread ready for {qubits} qubits"));
@@ -354,7 +344,7 @@ impl Adapt for Spread {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
@@ -389,7 +379,7 @@ impl Pool {
     }
 }
 
-impl AdapterSetup for Pool {
+impl Adapter for Pool {
     fn accepts(&self) -> &InstructionSet {
         self.0.accepts()
     }
@@ -418,14 +408,12 @@ impl AdapterSetup for Pool {
         above.max_blocks.insert(Self::carbon(), carbon);
         above
     }
-}
 
-impl Adapt for Pool {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await
@@ -475,7 +463,7 @@ impl Offering {
 
     /// A toy decoder that takes a workspace from the qubits below without
     /// asking for it in its needs below, which
-    /// [`AdapterSetup::needs_below`]'s rule forbids: it offers 1 qubit above
+    /// [`Adapter::needs_below`]'s rule forbids: it offers 1 qubit above
     /// over at most 10 below, and every qubit below over more, and needs
     /// below what reaches it. So given exactly what it needs below, it is
     /// short on its own, while over more qubits it is not.
@@ -537,7 +525,7 @@ impl Offering {
     }
 }
 
-impl AdapterSetup for Offering {
+impl Adapter for Offering {
     fn accepts(&self) -> &InstructionSet {
         self.spread.accepts()
     }
@@ -557,14 +545,12 @@ impl AdapterSetup for Offering {
     fn offers_above(&self, below: Offer) -> Offer {
         (self.offer)(self.spread.offers_above(below))
     }
-}
 
-impl Adapt for Offering {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.spread.adapt(batches, seed, below, readouts).await
@@ -583,7 +569,7 @@ impl Impatient {
     }
 }
 
-impl AdapterSetup for Impatient {
+impl Adapter for Impatient {
     fn accepts(&self) -> &InstructionSet {
         self.0.accepts()
     }
@@ -595,14 +581,12 @@ impl AdapterSetup for Impatient {
     fn bind(&mut self, below: OpcodeMap) {
         self.0.bind(below);
     }
-}
 
-impl Adapt for Impatient {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         {
@@ -644,7 +628,7 @@ impl Trap {
     }
 }
 
-impl AdapterSetup for Trap {
+impl Adapter for Trap {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -656,14 +640,12 @@ impl AdapterSetup for Trap {
     fn bind(&mut self, below: OpcodeMap) {
         self.below = Some(below);
     }
-}
 
-impl Adapt for Trap {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         if batches
@@ -716,7 +698,7 @@ impl FailsOnce {
     }
 }
 
-impl AdapterSetup for FailsOnce {
+impl Adapter for FailsOnce {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -728,14 +710,12 @@ impl AdapterSetup for FailsOnce {
     fn bind(&mut self, below: OpcodeMap) {
         self.below = Some(below);
     }
-}
 
-impl Adapt for FailsOnce {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.adapts += 1;
@@ -782,7 +762,7 @@ impl Misbehaving {
     }
 }
 
-impl AdapterSetup for Misbehaving {
+impl Adapter for Misbehaving {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -794,14 +774,12 @@ impl AdapterSetup for Misbehaving {
     fn bind(&mut self, below: OpcodeMap) {
         self.below = Some(below);
     }
-}
 
-impl Adapt for Misbehaving {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         match self.misbehaviour {
@@ -835,7 +813,7 @@ impl ForwardsParity {
     }
 }
 
-impl AdapterSetup for ForwardsParity {
+impl Adapter for ForwardsParity {
     fn accepts(&self) -> &InstructionSet {
         self.0.accepts()
     }
@@ -861,14 +839,12 @@ impl AdapterSetup for ForwardsParity {
             ..below
         }
     }
-}
 
-impl Adapt for ForwardsParity {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await
@@ -887,7 +863,7 @@ impl ReplaysItself {
     }
 }
 
-impl AdapterSetup for ReplaysItself {
+impl Adapter for ReplaysItself {
     fn accepts(&self) -> &InstructionSet {
         self.0.accepts()
     }
@@ -913,14 +889,12 @@ impl AdapterSetup for ReplaysItself {
             ..below
         }
     }
-}
 
-impl Adapt for ReplaysItself {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await
@@ -928,7 +902,7 @@ impl Adapt for ReplaysItself {
 }
 
 /// An adapter whose offer narrows once it is ready, which
-/// [`AdapterSetup::offers_above`]'s rule forbids, as a lowering that picks
+/// [`Adapter::offers_above`]'s rule forbids, as a lowering that picks
 /// its encoding then: at most 2 instructions a batch before, 1 after. At
 /// each `adapt` it logs the most instructions the part below says it takes,
 /// and passes instructions through, as a [`Spread`] of 1.
@@ -948,7 +922,7 @@ impl Shifting {
     }
 }
 
-impl AdapterSetup for Shifting {
+impl Adapter for Shifting {
     fn accepts(&self) -> &InstructionSet {
         self.pass_through.accepts()
     }
@@ -964,9 +938,7 @@ impl AdapterSetup for Shifting {
     fn offers_above(&self, below: Offer) -> Offer {
         below.max_instructions(if self.ready { 1 } else { 2 })
     }
-}
 
-impl Adapt for Shifting {
     async fn ready(&mut self, _above: &Needs) -> Result<(), NotReady> {
         self.ready = true;
         Ok(())
@@ -976,7 +948,7 @@ impl Adapt for Shifting {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let most = below.offers().max_instructions;
@@ -1025,7 +997,7 @@ impl PanicsEnding {
     }
 }
 
-impl AdapterSetup for PanicsEnding {
+impl Adapter for PanicsEnding {
     fn accepts(&self) -> &InstructionSet {
         self.pass_through.accepts()
     }
@@ -1037,14 +1009,12 @@ impl AdapterSetup for PanicsEnding {
     fn bind(&mut self, below: OpcodeMap) {
         self.pass_through.bind(below);
     }
-}
 
-impl Adapt for PanicsEnding {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.pass_through
@@ -1072,7 +1042,7 @@ impl EndsBelow {
     }
 }
 
-impl AdapterSetup for EndsBelow {
+impl Adapter for EndsBelow {
     fn accepts(&self) -> &InstructionSet {
         self.0.accepts()
     }
@@ -1084,14 +1054,12 @@ impl AdapterSetup for EndsBelow {
     fn bind(&mut self, below: OpcodeMap) {
         self.0.bind(below);
     }
-}
 
-impl Adapt for EndsBelow {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await?;

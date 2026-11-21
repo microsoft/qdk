@@ -6,10 +6,10 @@
 //!
 //! So that no part checks what it is sent, nor shapes the readouts it
 //! fills: each call across a boundary of a chain goes through a boundary
-//! crossing, built anew for it, both inside a
-//! [`Composed`](crate::Composed) and where the runner's driver meets its
-//! executor; the limits it applies were read by the `>>` that made the
-//! runner. It takes the batches in order, and
+//! crossing, built anew for it, both inside a joined part
+//! (`composed`) and where the runner's driver meets its executor; the
+//! limits it applies were read by the [`on`](crate::DriverJoins::on) that
+//! made the runner. It takes the batches in order, and
 //! for each, refuses it if it holds more instructions than the receiver
 //! takes ([`ExecuteRefusal::TooManyInstructions`]), checked or not, or,
 //! for a batch its sender marked [`checked`](Batch::checked), makes the
@@ -20,76 +20,61 @@
 //! refused batch ends the `execute` before the receiver runs any batch;
 //! the readouts are then unspecified, as after any error. It makes a
 //! failure of the receiver's panic (where a panic unwinds: on wasm32, it
-//! aborts). The limits it checks batches against are in `batch_limits`.
+//! aborts). What crosses the boundary, and the limits it checks batches
+//! against, are in `crossing` and `batch_limits`.
 
 mod batch_limits;
+mod crossing;
 
-pub(crate) use batch_limits::BatchLimits;
+pub(crate) use crossing::Crossing;
 
 use super::part_panics::catch_panic;
 use crate::{
-    Batch, BatchReadouts, Execute, ExecuteError, ExecuteRefusal, ExecutorSetup, Failure,
-    InstructionSet, Offer, PartId, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Executor, Failure, InstructionSet, Offer,
+    Seed, ShotId, ShotSet,
 };
-use batch_limits::BatchFault;
+use batch_limits::{BatchFault, BatchLimits};
 
-/// A call across a boundary to `inner`, its receiver, with each batch
-/// checked against `batch_limits`, which hold the receiver's set as the
-/// `>>` that makes the runner read it and its most instructions: the count
-/// of every batch, and the instructions of each checked one. The readouts
-/// of each batch are shaped from the batch.
+/// A call across a boundary to `inner`, its receiver, with what crosses
+/// the boundary as the `on` that makes the runner checked it: each batch
+/// is checked against its batch limits, which hold the receiver's set as
+/// read then and its most instructions: the count of every batch, and the
+/// instructions of each checked one. The readouts of each batch are shaped
+/// from the batch.
 pub(crate) struct BoundaryCrossing<'a, E> {
     inner: &'a mut E,
-    /// The part that receives `inner`'s calls, as the admission listed it:
-    /// what a panic of `inner` names.
-    part: &'a PartId,
-    /// The offer that crosses the boundary, as the `>>` that makes the
-    /// runner read it.
-    offer: &'a Offer,
-    batch_limits: &'a BatchLimits,
+    /// What crosses the boundary: the part that receives `inner`'s calls,
+    /// which a panic of `inner` names, its offer and the batch limits.
+    crossing: &'a Crossing,
 }
 
-impl<'a, E: Execute> BoundaryCrossing<'a, E> {
-    /// `inner`, whose calls `part` receives, and whose offer was `offer`
-    /// when the `>>` that makes the runner read it, with its batches
-    /// checked against `batch_limits`, built for it from that offer.
-    pub(crate) fn new(
-        inner: &'a mut E,
-        part: &'a PartId,
-        offer: &'a Offer,
-        batch_limits: &'a BatchLimits,
-    ) -> Self {
-        Self {
-            inner,
-            part,
-            offer,
-            batch_limits,
-        }
+impl<'a, E: Executor> BoundaryCrossing<'a, E> {
+    /// `inner`, with what `crossing` says crosses the boundary down to it.
+    pub(crate) fn new(inner: &'a mut E, crossing: &'a Crossing) -> Self {
+        Self { inner, crossing }
     }
 }
 
-impl<E: ExecutorSetup> ExecutorSetup for BoundaryCrossing<'_, E> {
+impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
     /// The receiver's.
     fn name(&self) -> &str {
         self.inner.name()
     }
 
-    /// The receiver's set as the `>>` that makes the runner read it, which
-    /// `batch_limits` holds and every checked batch is checked against, not
+    /// The receiver's set as the `on` that makes the runner read it, which
+    /// the batch limits hold and every checked batch is checked against, not
     /// the receiver's answer now: a receiver whose set changes later gets
     /// checked batches checked against the set read then, not the new one.
     fn accepts(&self) -> &InstructionSet {
-        self.batch_limits.set()
+        self.crossing.batch_limits.set()
     }
 
-    /// The offer the `>>` that makes the runner read, which the admission
-    /// checked and `batch_limits` holds, not the receiver's answer now.
+    /// The offer the `on` that makes the runner read, which the admission
+    /// checked and the crossing holds, not the receiver's answer now.
     fn offers(&self) -> Offer {
-        self.offer.clone()
+        self.crossing.offer.clone()
     }
-}
 
-impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
     /// Takes `batches` in order: refuses a batch that holds more
     /// instructions than the receiver takes, or a checked batch that is
     /// refused, ending the `execute` before the receiver runs any batch,
@@ -114,11 +99,13 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
         for (index, (batch, batch_readouts)) in batches.iter().zip(readouts.iter_mut()).enumerate()
         {
             let refused = |fault| ExecuteError::Refused(refusal(index, batch, fault));
-            self.batch_limits
+            self.crossing
+                .batch_limits
                 .check_count(batch.instructions)
                 .map_err(refused)?;
             if batch.is_checked() {
-                self.batch_limits
+                self.crossing
+                    .batch_limits
                     .check(batch.instructions, batch.readout_slots())
                     .map_err(refused)?;
             }
@@ -129,7 +116,7 @@ impl<E: Execute> Execute for BoundaryCrossing<'_, E> {
             Err(message) => Err(ExecuteError::Failed {
                 shot: first_shot(first.shots),
                 failure: Failure::Panicked {
-                    part: self.part.clone(),
+                    part: self.crossing.part.clone(),
                     message,
                 },
             }),

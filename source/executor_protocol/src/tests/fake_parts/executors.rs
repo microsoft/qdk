@@ -11,9 +11,10 @@ use std::thread;
 use std::time::Duration;
 
 use super::{CoinGates, Log, Stream, YieldNow};
+use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, BlockType, Execute, ExecuteError, ExecutorSetup, InstructionSet, Needs,
-    NotReady, Offer, Opcode, ReadoutFailure, ReadoutValue, Seed, ShotConditions, ShotId, ShotSet,
+    Batch, BatchReadouts, BlockType, ExecuteError, InstructionSet, Needs, NotReady, Offer, Opcode,
+    ReadoutFailure, ReadoutValue, Seed, ShotConditions, ShotId, ShotSet,
 };
 
 /// A toy executor on classical bits: `h` tosses a bit from the shot's
@@ -81,7 +82,7 @@ impl Bits {
     }
 }
 
-impl ExecutorSetup for Bits {
+impl Executor for Bits {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -89,9 +90,7 @@ impl ExecutorSetup for Bits {
     fn offers(&self) -> Offer {
         self.offer.clone()
     }
-}
 
-impl Execute for Bits {
     async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
         let qubits = needs.blocks_of(&BlockType::qubit());
         self.log.push(format!("Bits ready for {qubits} qubits"));
@@ -159,7 +158,7 @@ impl Execute for Bits {
 /// once, as a device's that answers later.
 pub(crate) struct Later<E>(pub(crate) E);
 
-impl<E: ExecutorSetup> ExecutorSetup for Later<E> {
+impl<E: Executor> Executor for Later<E> {
     fn accepts(&self) -> &InstructionSet {
         self.0.accepts()
     }
@@ -167,9 +166,7 @@ impl<E: ExecutorSetup> ExecutorSetup for Later<E> {
     fn offers(&self) -> Offer {
         self.0.offers()
     }
-}
 
-impl<E: Execute> Execute for Later<E> {
     async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
         self.0.ready(needs).await
     }
@@ -221,7 +218,7 @@ struct Handover {
     waker: Option<Waker>,
 }
 
-impl<E: ExecutorSetup> ExecutorSetup for FromThread<E> {
+impl<E: Executor> Executor for FromThread<E> {
     fn accepts(&self) -> &InstructionSet {
         self.inner.accepts()
     }
@@ -229,9 +226,7 @@ impl<E: ExecutorSetup> ExecutorSetup for FromThread<E> {
     fn offers(&self) -> Offer {
         self.inner.offers()
     }
-}
 
-impl<E: Execute> Execute for FromThread<E> {
     async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
         self.inner.ready(needs).await
     }

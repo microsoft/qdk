@@ -1,9 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Three toy parts, one of each role, composed with `>>` and run: a driver
-//! that tosses a coin and copies it onto a second qubit, an adapter that
-//! adds bit-flip noise, and an executor whose qubits are classical bits.
+//! Three toy parts, one of each role, joined with `through` and `on` and
+//! run: a driver that tosses a coin and copies it onto a second qubit, an
+//! adapter that adds bit-flip noise, and an executor whose qubits are
+//! classical bits.
 //!
 //! It prints each shot's two values, runs two of the shots again to show
 //! that a shot's values, noise included, are the same each time the chain
@@ -23,11 +24,11 @@
 
 use std::collections::BTreeMap;
 
+use executor_protocol::prelude::*;
 use executor_protocol::{
-    Adapt, Adapter, AdapterSetup, Batch, BatchReadouts, BlockType, Composed, Drive, DriveError,
-    Driver, DriverSetup, Execute, ExecuteError, Executor, ExecutorSetup, Instruction,
-    InstructionSet, Needs, NotReady, Offer, OpcodeMap, ReadoutValue, Readouts, Runner, Seed,
-    ShotId, ShotSet, instruction_set,
+    Batch, BatchReadouts, BlockType, DriveError, ExecuteError, Instruction, InstructionSet, Needs,
+    NotReady, Offer, OpcodeMap, ReadoutValue, Readouts, Runner, Seed, ShotId, ShotSet,
+    instruction_set,
 };
 
 instruction_set! {
@@ -40,20 +41,22 @@ const SEED: u64 = 1;
 
 // ------------------------------------------------------------------ the run
 
-/// The three parts, composed: `coin`, under 20% bit-flip noise, on `bits`
+/// The three parts, joined: `coin`, under 20% bit-flip noise, on `bits`
 /// (a [`Bits`], or a borrow of one, to read what it counted after a run).
 ///
 /// After each run, the runner ends every shot of the run on every part, so
 /// the parts free its state and a rerun with the same seed starts it
 /// afresh; the driver need not end them.
-fn coin_runner<E: Execute>(coin: CoinCopy, bits: E) -> Runner<Composed<CoinCopy, BitFlip>, E> {
-    // Each part is wrapped in the role it plays (`Driver`, `Adapter`,
-    // `Executor`), which `>>` needs to pick the join. `>>` joins the driver
-    // and the adapter into one driver, a `Composed`. Each `>>` checks that
-    // what is sent across it fits what is accepted; the last one, onto the
-    // executor, also checks that the executor offers what the driver
-    // needs, and gives the runner or every fault of the chain.
-    let runner = Driver::new(coin) >> Adapter::new(BitFlip::new(0.2)) >> Executor::new(bits);
+fn coin_runner<E: Executor>(
+    coin: CoinCopy,
+    bits: E,
+) -> Runner<impl Driver<Output = Vec<ReadoutValue>>, E> {
+    // `through` joins the driver and the adapter into one driver, and `on`
+    // joins that driver and the executor into the runner. Each join checks
+    // that what is sent across it fits what is accepted; the `on` that
+    // makes the runner also checks that the executor offers what the
+    // driver needs, and gives the runner or every fault of the chain.
+    let runner = coin.through(BitFlip::new(0.2)).on(bits);
     runner.expect("the parts compose: they all send and accept CoinGates")
 }
 
@@ -153,7 +156,7 @@ impl CoinCopy {
     }
 }
 
-impl DriverSetup for CoinCopy {
+impl Driver for CoinCopy {
     fn sends(&self) -> &InstructionSet {
         &self.set
     }
@@ -168,16 +171,14 @@ impl DriverSetup for CoinCopy {
     fn needs(&self) -> Needs {
         Needs::qubits(2)
     }
-}
 
-impl Drive for CoinCopy {
     type Output = Vec<ReadoutValue>;
 
     async fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> Result<Vec<Vec<ReadoutValue>>, DriveError> {
         // First, every shot tosses its coin. Unchecked by default, as a
         // sender that trusts the chain sends; `.checked()` asks every
@@ -264,7 +265,7 @@ impl BitFlip {
     }
 }
 
-impl AdapterSetup for BitFlip {
+impl Adapter for BitFlip {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -276,17 +277,15 @@ impl AdapterSetup for BitFlip {
     fn bind(&mut self, below: OpcodeMap) {
         self.below = Some(below);
     }
-}
 
-impl Adapt for BitFlip {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        let map = self.below.as_ref().expect("`>>` binds before any run");
+        let map = self.below.as_ref().expect("the join binds before any run");
         // Apart from the executor's streams, which draw from `seed` itself.
         let own = seed.derive("bit_flip");
         let mut sent: Vec<(ShotSet, Vec<Instruction>, u32, bool)> = Vec::new();
@@ -321,7 +320,7 @@ impl Adapt for BitFlip {
         let one_each: Vec<Batch<'_>> = sent
             .iter()
             .map(|(shots, instructions, slots, checked)| {
-                // Checked if the batch it came from was, as `Adapt`'s rule
+                // Checked if the batch it came from was, as `Adapter`'s rule
                 // says; an `x` adds no readout slot.
                 Batch::new(shots, instructions, *slots).checked_if(*checked)
             })
@@ -383,7 +382,7 @@ impl Bits {
     }
 }
 
-impl ExecutorSetup for Bits {
+impl Executor for Bits {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -394,9 +393,7 @@ impl ExecutorSetup for Bits {
             .max_shots(1000)
             .without_readout_parity()
     }
-}
 
-impl Execute for Bits {
     async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
         self.qubits = needs.blocks_of(&BlockType::qubit()) as usize;
         Ok(())

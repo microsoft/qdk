@@ -4,11 +4,11 @@
 //! A fake part of any role that logs the seed of each call it gets:
 //! [`SeesSeeds`].
 
+use crate::prelude::*;
 use crate::tests::fake_parts::Log;
 use crate::{
-    Adapt, AdapterSetup, Batch, BatchReadouts, Drive, DriveError, DriverSetup, Execute,
-    ExecuteError, ExecutorSetup, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Seed, ShotId,
-    ShotSet,
+    Batch, BatchReadouts, DriveError, ExecuteError, InstructionSet, Needs, NotReady, Offer,
+    OpcodeMap, Seed, ShotId, ShotSet,
 };
 
 /// `part`, which logs `"{label} got seed {stream}"` for each `drive`,
@@ -39,7 +39,7 @@ impl<P> SeesSeeds<P> {
     }
 }
 
-impl<P: DriverSetup> DriverSetup for SeesSeeds<P> {
+impl<P: Driver> Driver for SeesSeeds<P> {
     fn sends(&self) -> &InstructionSet {
         self.part.sends()
     }
@@ -51,9 +51,7 @@ impl<P: DriverSetup> DriverSetup for SeesSeeds<P> {
     fn needs(&self) -> Needs {
         self.part.needs()
     }
-}
 
-impl<P: Drive> Drive for SeesSeeds<P> {
     type Output = P::Output;
 
     fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
@@ -64,14 +62,14 @@ impl<P: Drive> Drive for SeesSeeds<P> {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> impl Future<Output = Result<Vec<P::Output>, DriveError>> {
         self.saw(seed);
         self.part.drive(shots, seed, below)
     }
 }
 
-impl<P: AdapterSetup> AdapterSetup for SeesSeeds<P> {
+impl<P: Adapter> Adapter for SeesSeeds<P> {
     fn accepts(&self) -> &InstructionSet {
         self.part.accepts()
     }
@@ -91,9 +89,7 @@ impl<P: AdapterSetup> AdapterSetup for SeesSeeds<P> {
     fn offers_above(&self, below: Offer) -> Offer {
         self.part.offers_above(below)
     }
-}
 
-impl<P: Adapt> Adapt for SeesSeeds<P> {
     fn ready(&mut self, above: &Needs) -> impl Future<Output = Result<(), NotReady>> {
         self.part.ready(above)
     }
@@ -102,7 +98,7 @@ impl<P: Adapt> Adapt for SeesSeeds<P> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.saw(seed);
@@ -114,7 +110,7 @@ impl<P: Adapt> Adapt for SeesSeeds<P> {
     }
 }
 
-impl<P: ExecutorSetup> ExecutorSetup for SeesSeeds<P> {
+impl<P: Executor> Executor for SeesSeeds<P> {
     fn accepts(&self) -> &InstructionSet {
         self.part.accepts()
     }
@@ -122,9 +118,7 @@ impl<P: ExecutorSetup> ExecutorSetup for SeesSeeds<P> {
     fn offers(&self) -> Offer {
         self.part.offers()
     }
-}
 
-impl<P: Execute> Execute for SeesSeeds<P> {
     fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {
         self.part.ready(needs)
     }

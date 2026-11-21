@@ -3,9 +3,10 @@
 
 //! The bench's adapters: one that forwards, and a toy lowering.
 
+use executor_protocol::prelude::*;
 use executor_protocol::{
-    Adapt, AdapterSetup, Arguments, Batch, BatchReadouts, BlockType, Execute, ExecuteError,
-    Instruction, InstructionSet, Needs, Offer, Opcode, OpcodeMap, ReadoutValue, Readouts, Seed,
+    Arguments, Batch, BatchReadouts, BlockType, ExecuteError, Instruction, InstructionSet, Needs,
+    Offer, Opcode, OpcodeMap, ReadoutValue, Readouts, Seed,
 };
 
 use super::{LogicalGates, MixGates, PhysicalGates};
@@ -24,7 +25,7 @@ impl Forward {
     }
 }
 
-impl AdapterSetup for Forward {
+impl Adapter for Forward {
     fn accepts(&self) -> &InstructionSet {
         &self.set
     }
@@ -39,14 +40,12 @@ impl AdapterSetup for Forward {
             "the receiver's set is the adapter's"
         );
     }
-}
 
-impl Adapt for Forward {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         below.execute(batches, seed, readouts).await
@@ -84,7 +83,7 @@ impl Repetition3 {
     }
 }
 
-impl AdapterSetup for Repetition3 {
+impl Adapter for Repetition3 {
     fn accepts(&self) -> &InstructionSet {
         &self.logical
     }
@@ -112,14 +111,12 @@ impl AdapterSetup for Repetition3 {
         above.max_instructions = above.max_instructions.map(|most| most / 3);
         above
     }
-}
 
-impl Adapt for Repetition3 {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.lowered.resize_with(batches.len(), Vec::new);
@@ -129,7 +126,7 @@ impl Adapt for Repetition3 {
                 lower(instruction, self.opcodes, lowered);
             }
         }
-        // Each checked if the batch it lowers was, as `Adapt`'s rule says,
+        // Each checked if the batch it lowers was, as `Adapter`'s rule says,
         // reading three times its readout slots: each readout is lowered to
         // three.
         let sent: Vec<Batch<'_>> = batches

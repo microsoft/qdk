@@ -25,7 +25,7 @@ use crate::Instruction;
 /// order, of a value per readout slot of `instructions`, as many as the
 /// sender states ([`readout_slots`](Self::readout_slots)).
 /// How the batches of one `execute` relate, such as a shot in at most one
-/// of them, is said on [`Execute::execute`](crate::Execute::execute).
+/// of them, is said on [`Executor::execute`](crate::Executor::execute).
 ///
 /// [`new`](Self::new) makes a batch, unchecked; its fields are public to
 /// read, its readout slots are read by
@@ -115,7 +115,7 @@ impl<'a> Batch<'a> {
     /// sends that may hold what the receiver does not accept, such as a part
     /// built from a user's description at run time.
     ///
-    /// Checked or not, the chain's fit and admission by `>>`, the refusals
+    /// Checked or not, the chain's fit and admission by the joins, the refusals
     /// of a run ([`RunRefusal`](crate::RunRefusal)), and the batch's count
     /// of instructions against the most the receiver takes (an
     /// [`ExecuteRefusal`](crate::ExecuteRefusal)), are checked.
@@ -127,8 +127,8 @@ impl<'a> Batch<'a> {
     /// This batch, [`checked`](Self::checked) if `on`, unchecked if not:
     /// what an adapter calls on each batch it sends with the
     /// [`is_checked`](Self::is_checked) of the batch it adapts, as
-    /// [`Adapt::adapt`](crate::Adapt::adapt)'s rule asks, so that the checks
-    /// its sender chose reach every boundary below.
+    /// [`Adapter::adapt`](crate::Adapter::adapt)'s rule asks, so that the
+    /// checks its sender chose reach every boundary below.
     #[must_use]
     pub const fn checked_if(mut self, on: bool) -> Self {
         self.checked = on;

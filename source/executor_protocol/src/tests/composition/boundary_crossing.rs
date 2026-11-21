@@ -27,16 +27,16 @@ use std::task::Poll;
 use smallvec::smallvec;
 
 use super::runner::{SEED, failed, runner};
+use crate::prelude::*;
 use crate::tests::allocations;
 use crate::tests::fake_parts::{
     Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, NamesBelow, ParityGates, Profiler,
     Program, Renamed, coin_gate, coin_gates, in_each_bracketing,
 };
 use crate::{
-    Adapt, Adapter, AdapterSetup, Argument, Batch, BatchReadouts, CompositionFaults, Drive,
-    DriveError, Driver, DriverSetup, Execute, ExecuteError, ExecuteRefusal, Executor,
-    ExecutorSetup, Failure, Instruction, InstructionFault, InstructionSet, Needs, NotReady, Offer,
-    OpcodeMap, PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    Argument, Batch, BatchReadouts, CompositionFaults, DriveError, ExecuteError, ExecuteRefusal,
+    Failure, Instruction, InstructionFault, InstructionSet, Needs, NotReady, Offer, OpcodeMap,
+    PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -53,16 +53,16 @@ struct Failed {
 /// The failures of the run of `shots` on the chain `parts` makes, with the
 /// adapter bracketed with the driver, then with the executor; each
 /// bracketing gets new parts, a new log and a new count.
-fn failed_in_both_brackets<D: Drive<Output: std::fmt::Debug>, A: Adapt, E: Execute>(
+fn failed_in_both_brackets<D: Driver<Output: std::fmt::Debug>, A: Adapter, E: Executor>(
     shots: &ShotSet,
-    parts: impl Fn(&Log, &Rc<Cell<usize>>) -> (Driver<D>, Adapter<A>, Executor<E>),
+    parts: impl Fn(&Log, &Rc<Cell<usize>>) -> (D, A, E),
 ) -> [Failed; 2] {
     let new = || (Log::default(), Rc::new(Cell::new(0)));
     let (log, counted) = new();
     let (driver, adapter, executor) = parts(&log, &counted);
     let left = Failed {
         brackets: "the adapter with the driver",
-        error: failed_run((driver >> adapter) >> executor, shots),
+        error: failed_run(driver.through(adapter).on(executor), shots),
         log,
         counted,
     };
@@ -70,7 +70,7 @@ fn failed_in_both_brackets<D: Drive<Output: std::fmt::Debug>, A: Adapt, E: Execu
     let (driver, adapter, executor) = parts(&log, &counted);
     let right = Failed {
         brackets: "the adapter with the executor",
-        error: failed_run(driver >> (adapter >> executor), shots),
+        error: failed_run(driver.on(adapter.on(executor)), shots),
         log,
         counted,
     };
@@ -78,7 +78,7 @@ fn failed_in_both_brackets<D: Drive<Output: std::fmt::Debug>, A: Adapt, E: Execu
 }
 
 /// The failure of the run of `shots` on the chain `composed` makes.
-fn failed_run<D: Drive<Output: std::fmt::Debug>, E: Execute>(
+fn failed_run<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     composed: Result<Runner<D, E>, CompositionFaults>,
     shots: &ShotSet,
 ) -> DriveError {
@@ -87,22 +87,22 @@ fn failed_run<D: Drive<Output: std::fmt::Debug>, E: Execute>(
 
 /// Measures qubit 0 after flipping it: one checked batch of two
 /// instructions, needing one qubit.
-fn flip_and_measure() -> Driver<Program> {
-    Driver::new(Program::new(&[("x", 0), ("mz", 0)]).with_checked_batches())
+fn flip_and_measure() -> Program {
+    Program::new(&[("x", 0), ("mz", 0)]).with_checked_batches()
 }
 
 /// The failure of the run of `shots` on the chain `parts` makes, a driver
 /// over an executor: a [`Failed`] with no adapter, so with no profiler,
 /// whose count stays 0.
-fn failed_with_no_adapter<D: Drive<Output: std::fmt::Debug>, E: Execute>(
+fn failed_with_no_adapter<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     shots: &ShotSet,
-    parts: impl Fn(&Log) -> (Driver<D>, Executor<E>),
+    parts: impl Fn(&Log) -> (D, E),
 ) -> [Failed; 1] {
     let log = Log::default();
     let (driver, executor) = parts(&log);
     [Failed {
         brackets: "no adapter",
-        error: failed_run(driver >> executor, shots),
+        error: failed_run(driver.on(executor), shots),
         log,
         counted: Rc::new(Cell::new(0)),
     }]
@@ -135,7 +135,7 @@ fn refused_before_it_runs(row: &str, runs: &[Failed], refusal: &ExecuteRefusal) 
 /// and reads it again, in [`ParityGates`], written as struct literals, as
 /// a part writes them on its hot path, in one checked batch, with shots
 /// needing `needs`.
-fn flip_on_a_parity(needs: Needs) -> Driver<Program> {
+fn flip_on_a_parity(needs: Needs) -> Program {
     let on_qubit_0 = |opcode, arguments| Instruction {
         opcode,
         blocks: smallvec![0],
@@ -144,10 +144,7 @@ fn flip_on_a_parity(needs: Needs) -> Driver<Program> {
     };
     let mz = on_qubit_0(ParityGates::MZ, smallvec![]);
     let x_if = on_qubit_0(ParityGates::X_IF, smallvec![Argument::recent(1)]);
-    Driver::new(
-        Program::sending(ParityGates::set(), vec![mz.clone(), x_if, mz], needs)
-            .with_checked_batches(),
-    )
+    Program::sending(ParityGates::set(), vec![mz.clone(), x_if, mz], needs).with_checked_batches()
 }
 
 /// Each boundary refuses a checked batch its receiver does not take,
@@ -184,12 +181,10 @@ fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
             "the driver's instruction beyond its needs, to the executor",
             failed_with_no_adapter(&ShotSet::ids([4, 2]), |log| {
                 (
-                    Driver::new(
-                        Program::new(&[("mz", 0), ("x", 5)])
-                            .needing(Needs::qubits(2))
-                            .with_checked_batches(),
-                    ),
-                    Executor::new(Bits::new(log)),
+                    Program::new(&[("mz", 0), ("x", 5)])
+                        .needing(Needs::qubits(2))
+                        .with_checked_batches(),
+                    Bits::new(log),
                 )
             })
             .into(),
@@ -202,13 +197,11 @@ fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
             "the driver's instruction beyond its needs, to an adapter",
             failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
                 (
-                    Driver::new(
-                        Program::new(&[("mz", 0), ("x", 1)])
-                            .needing(Needs::qubits(1))
-                            .with_checked_batches(),
-                    ),
-                    Adapter::new(Profiler::new(counted, log)),
-                    Executor::new(Bits::new(log)),
+                    Program::new(&[("mz", 0), ("x", 1)])
+                        .needing(Needs::qubits(1))
+                        .with_checked_batches(),
+                    Profiler::new(counted, log),
+                    Bits::new(log),
                 )
             })
             .into(),
@@ -223,8 +216,8 @@ fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
             failed_in_both_brackets(&ShotSet::ids([4, 2]), |log, _| {
                 (
                     flip_and_measure(),
-                    Adapter::new(Misbehaving::new(Misbehaviour::SendsBeyondTheNeeds)),
-                    Executor::new(Bits::new(log)),
+                    Misbehaving::new(Misbehaviour::SendsBeyondTheNeeds),
+                    Bits::new(log),
                 )
             })
             .into(),
@@ -239,8 +232,8 @@ fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
             failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, _| {
                 (
                     flip_on_a_parity(Needs::qubits(1).with_readout_parity()),
-                    Adapter::new(ForwardsParity::on(ParityGates::set(), log)),
-                    Executor::new(Bits::accepting(ParityGates::set(), log)),
+                    ForwardsParity::on(ParityGates::set(), log),
+                    Bits::accepting(ParityGates::set(), log),
                 )
             })
             .into(),
@@ -262,12 +255,10 @@ fn a_readout_parity_the_needs_use_crosses_every_boundary() {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
             let d = flip_on_a_parity(Needs::qubits(1).with_readout_parity());
-            let a = Adapter::new(Profiler::on(ParityGates::set(), &counted, &log));
-            let b = Adapter::new(Profiler::on(ParityGates::set(), &counted, &log));
-            let e = Executor::new(
-                Bits::accepting(ParityGates::set(), &log)
-                    .offering(Offer::unlimited().max_qubits(64)),
-            );
+            let a = Profiler::on(ParityGates::set(), &counted, &log);
+            let b = Profiler::on(ParityGates::set(), &counted, &log);
+            let e = Bits::accepting(ParityGates::set(), &log)
+                    .offering(Offer::unlimited().max_qubits(64));
         },
         |chain, brackets| {
             runner(chain)
@@ -282,18 +273,19 @@ fn a_readout_parity_the_needs_use_crosses_every_boundary() {
 /// whose `accepts` answers [`ParityGates`] once ready, in which `x` is
 /// `x_if` and `mz` is past the set's end, in a checked batch, directly and
 /// through an adapter in both bracketings: each run checks the batch
-/// against the set the `>>` that makes the runner read, so it runs and
-/// reads 1.
+/// against the set the `on` that makes the runner read, so it runs and
+/// reads 1, and the adapter, reading the set of the part below, is told
+/// that set too.
 #[test]
 fn every_batch_is_checked_against_the_set_read_at_composition() {
     let log = Log::default();
-    let names_below = || Adapter::new(NamesBelow::new(&log));
-    let bits = || Executor::new(Bits::new(&log).accepting_once_ready(ParityGates::set()));
+    let names_below = || NamesBelow::new(&log);
+    let bits = || Bits::new(&log).accepting_once_ready(ParityGates::set());
     let shots = ShotSet::ids([5, 3]);
     let runs = [
-        runner(flip_and_measure() >> bits()).run(&shots, SEED),
-        runner((flip_and_measure() >> names_below()) >> bits()).run(&shots, SEED),
-        runner(flip_and_measure() >> (names_below() >> bits())).run(&shots, SEED),
+        runner(flip_and_measure().on(bits())).run(&shots, SEED),
+        runner(flip_and_measure().through(names_below()).on(bits())).run(&shots, SEED),
+        runner(flip_and_measure().on(names_below().on(bits()))).run(&shots, SEED),
     ];
     for (i, run) in runs.into_iter().enumerate() {
         let records = run.unwrap_or_else(|error| panic!("bracketing {i}: {error:?}"));
@@ -301,6 +293,13 @@ fn every_batch_is_checked_against_the_set_read_at_composition() {
         assert_eq!(records, [ones.clone(), ones], "bracketing {i}");
     }
     assert_eq!(log.count("Bits execute"), 3, "each bracketing ran it");
+    let told: Vec<_> = log
+        .entries()
+        .into_iter()
+        .filter(|entry| entry.starts_with("below accepts: "))
+        .collect();
+    let read_at_composition = format!("below accepts: {}", coin_gates().name());
+    assert_eq!(told, [read_at_composition.clone(), read_at_composition]);
 }
 
 /// An adapter that reads the name of the part below it, over an executor
@@ -319,9 +318,9 @@ fn an_adapter_reads_the_name_of_the_part_below() {
     in_each_bracketing!(
         [d, n, e] from {
             let log = Log::default();
-            let d = Driver::new(Program::new(&[("mz", 0)]));
-            let n = Adapter::new(NamesBelow::new(&log));
-            let e = Executor::new(Renamed::new(Bits::new(&log), "qodec runtime"));
+            let d = Program::new(&[("mz", 0)]);
+            let n = NamesBelow::new(&log);
+            let e = Renamed::new(Bits::new(&log), "qodec runtime");
         },
         |chain, brackets| {
             runner(chain).run(&shots, SEED).expect("a run");
@@ -332,10 +331,10 @@ fn an_adapter_reads_the_name_of_the_part_below() {
         [d, n, p, e] from {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
-            let d = Driver::new(Program::new(&[("mz", 0)]));
-            let n = Adapter::new(NamesBelow::new(&log));
-            let p = Adapter::new(Renamed::new(Profiler::new(&counted, &log), "profiler"));
-            let e = Executor::new(Renamed::new(Bits::new(&log), "qodec runtime"));
+            let d = Program::new(&[("mz", 0)]);
+            let n = NamesBelow::new(&log);
+            let p = Renamed::new(Profiler::new(&counted, &log), "profiler");
+            let e = Renamed::new(Bits::new(&log), "qodec runtime");
         },
         |chain, brackets| {
             runner(chain).run(&shots, SEED).expect("a run");
@@ -352,7 +351,7 @@ enum Stage {
     Faulty(Misbehaving),
 }
 
-impl AdapterSetup for Stage {
+impl Adapter for Stage {
     fn accepts(&self) -> &InstructionSet {
         match self {
             Self::Counts(profiler) => profiler.accepts(),
@@ -370,14 +369,12 @@ impl AdapterSetup for Stage {
             Self::Faulty(faulty) => faulty.bind(below),
         }
     }
-}
 
-impl Adapt for Stage {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         match self {
@@ -411,30 +408,30 @@ impl Parts {
         }
     }
 
-    fn d(&self) -> Driver<Program> {
+    fn d(&self) -> Program {
         let program = if self.faulty == 0 {
             Program::new(&[("mz", 0), ("x", 5)]).needing(Needs::qubits(2))
         } else {
             Program::new(&[("x", 0), ("mz", 0)])
         };
-        Driver::new(if self.checked {
+        if self.checked {
             program.with_checked_batches()
         } else {
             program
-        })
+        }
     }
 
     /// The adapter at `position`, 1 or 2 from the top.
-    fn p(&self, position: usize) -> Adapter<Stage> {
-        Adapter::new(if self.faulty == position {
+    fn p(&self, position: usize) -> Stage {
+        if self.faulty == position {
             Stage::Faulty(Misbehaving::new(Misbehaviour::SendsBeyondTheNeeds))
         } else {
             Stage::Counts(Profiler::new(&self.counted[position - 1], &self.log))
-        })
+        }
     }
 
-    fn e(&self) -> Executor<Bits> {
-        Executor::new(Bits::new(&self.log))
+    fn e(&self) -> Bits {
+        Bits::new(&self.log)
     }
 
     /// What the part below the faulty one received: the instructions the
@@ -453,7 +450,7 @@ impl Parts {
 /// checked, the faulty batch is refused, and the part below receives
 /// nothing; if not, as by default, it reaches the bits, which panic on
 /// it.
-fn each_boundary_checks_its_batch<D: Drive<Output: std::fmt::Debug>, E: Execute>(
+fn each_boundary_checks_its_batch<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     brackets: &str,
     adapters: usize,
     chain: impl Fn(&Parts) -> Result<Runner<D, E>, CompositionFaults>,
@@ -498,23 +495,23 @@ fn each_boundary_checks_its_batch<D: Drive<Output: std::fmt::Debug>, E: Execute>
 /// brackets go; batches are unchecked by default.
 #[test]
 fn a_checked_batch_is_checked_at_every_boundary_wherever_the_brackets_go() {
-    each_boundary_checks_its_batch("d>>e", 0, |c| c.d() >> c.e());
-    each_boundary_checks_its_batch("(d>>p)>>e", 1, |c| (c.d() >> c.p(1)) >> c.e());
-    each_boundary_checks_its_batch("d>>(p>>e)", 1, |c| c.d() >> (c.p(1) >> c.e()));
-    each_boundary_checks_its_batch("((d>>p)>>p)>>e", 2, |c| {
-        ((c.d() >> c.p(1)) >> c.p(2)) >> c.e()
+    each_boundary_checks_its_batch("d.on(e)", 0, |c| c.d().on(c.e()));
+    each_boundary_checks_its_batch("d.through(p).on(e)", 1, |c| c.d().through(c.p(1)).on(c.e()));
+    each_boundary_checks_its_batch("d.on(p.on(e))", 1, |c| c.d().on(c.p(1).on(c.e())));
+    each_boundary_checks_its_batch("d.through(p).through(p).on(e)", 2, |c| {
+        c.d().through(c.p(1)).through(c.p(2)).on(c.e())
     });
-    each_boundary_checks_its_batch("d>>(p>>(p>>e))", 2, |c| {
-        c.d() >> (c.p(1) >> (c.p(2) >> c.e()))
+    each_boundary_checks_its_batch("d.on(p.on(p.on(e)))", 2, |c| {
+        c.d().on(c.p(1).on(c.p(2).on(c.e())))
     });
-    each_boundary_checks_its_batch("(d>>(p>>p))>>e", 2, |c| {
-        (c.d() >> (c.p(1) >> c.p(2))) >> c.e()
+    each_boundary_checks_its_batch("d.through(p.through(p)).on(e)", 2, |c| {
+        c.d().through(c.p(1).through(c.p(2))).on(c.e())
     });
-    each_boundary_checks_its_batch("d>>((p>>p)>>e)", 2, |c| {
-        c.d() >> ((c.p(1) >> c.p(2)) >> c.e())
+    each_boundary_checks_its_batch("d.on(p.through(p).on(e))", 2, |c| {
+        c.d().on(c.p(1).through(c.p(2)).on(c.e()))
     });
-    each_boundary_checks_its_batch("(d>>p)>>(p>>e)", 2, |c| {
-        (c.d() >> c.p(1)) >> (c.p(2) >> c.e())
+    each_boundary_checks_its_batch("d.through(p).on(p.on(e))", 2, |c| {
+        c.d().through(c.p(1)).on(c.p(2).on(c.e()))
     });
 }
 
@@ -530,11 +527,10 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     let log = Log::default();
     let run = |first, second| {
         runner(
-            Driver::new(
-                Program::halves(&[("mz", 0)], &[("x", 5)])
-                    .needing(Needs::qubits(2))
-                    .with_checked_halves(first, second),
-            ) >> Executor::new(Bits::new(&log)),
+            (Program::halves(&[("mz", 0)], &[("x", 5)])
+                .needing(Needs::qubits(2))
+                .with_checked_halves(first, second))
+            .on(Bits::new(&log)),
         )
         .run(&shots, SEED)
     };
@@ -562,7 +558,7 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
 /// A driver making one `execute` of no batches, with no readouts.
 struct SendsNothing;
 
-impl DriverSetup for SendsNothing {
+impl Driver for SendsNothing {
     fn sends(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -572,16 +568,14 @@ impl DriverSetup for SendsNothing {
     fn needs(&self) -> Needs {
         Needs::qubits(1)
     }
-}
 
-impl Drive for SendsNothing {
     type Output = ();
 
     async fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> Result<Vec<()>, DriveError> {
         let mut kept = Readouts::new();
         below.execute(&[], seed, kept.readouts_for(&[])).await?;
@@ -596,16 +590,16 @@ impl Drive for SendsNothing {
 #[test]
 fn an_execute_of_no_batches_reaches_no_part_below() {
     let executed = Rc::new(Cell::new(0));
-    runner(Driver::new(SendsNothing) >> Executor::new(AnswersWhenCalled(Rc::clone(&executed))))
+    runner(SendsNothing.on(AnswersWhenCalled(Rc::clone(&executed))))
         .run(&ShotSet::ids(0..2), SEED)
         .expect("the run succeeds");
     assert_eq!(executed.get(), 0, "no adapter");
 
     let adapted = Rc::new(Cell::new(0));
     in_each_bracketing!([d, a, e] from {
-        let d = Driver::new(SendsNothing);
-        let a = Adapter::new(ForwardsWhenCalled(Rc::clone(&adapted)));
-        let e = Executor::new(AnswersWhenCalled(Rc::clone(&executed)));
+        let d = SendsNothing;
+        let a = ForwardsWhenCalled(Rc::clone(&adapted));
+        let e = AnswersWhenCalled(Rc::clone(&executed));
     }, |chain, brackets| {
         runner(chain)
             .run(&ShotSet::ids(0..2), SEED)
@@ -620,7 +614,7 @@ struct MakesAnExecute {
     awaits: bool,
 }
 
-impl DriverSetup for MakesAnExecute {
+impl Driver for MakesAnExecute {
     fn sends(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -630,16 +624,14 @@ impl DriverSetup for MakesAnExecute {
     fn needs(&self) -> Needs {
         Needs::qubits(1)
     }
-}
 
-impl Drive for MakesAnExecute {
     type Output = ();
 
     async fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> Result<Vec<()>, DriveError> {
         let batches = [Batch::new(shots, &[], 0)];
         let mut kept = Readouts::new();
@@ -656,7 +648,7 @@ impl Drive for MakesAnExecute {
 /// counts its calls.
 struct AnswersWhenCalled(Rc<Cell<usize>>);
 
-impl ExecutorSetup for AnswersWhenCalled {
+impl Executor for AnswersWhenCalled {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -664,9 +656,7 @@ impl ExecutorSetup for AnswersWhenCalled {
     fn offers(&self) -> Offer {
         Offer::unlimited()
     }
-}
 
-impl Execute for AnswersWhenCalled {
     fn execute(
         &mut self,
         _batches: &[Batch<'_>],
@@ -683,7 +673,7 @@ impl Execute for AnswersWhenCalled {
 /// counts its calls.
 struct ForwardsWhenCalled(Rc<Cell<usize>>);
 
-impl AdapterSetup for ForwardsWhenCalled {
+impl Adapter for ForwardsWhenCalled {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -693,14 +683,12 @@ impl AdapterSetup for ForwardsWhenCalled {
     }
 
     fn bind(&mut self, _below: OpcodeMap) {}
-}
 
-impl Adapt for ForwardsWhenCalled {
     fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.0.set(self.0.get() + 1);
@@ -718,20 +706,17 @@ impl Adapt for ForwardsWhenCalled {
 fn a_boundary_calls_its_receiver_only_once_its_execute_is_polled() {
     for (awaits, calls) in [(false, 0), (true, 1)] {
         let called = Rc::new(Cell::new(0));
-        runner(
-            Driver::new(MakesAnExecute { awaits })
-                >> Executor::new(AnswersWhenCalled(Rc::clone(&called))),
-        )
-        .run(&ShotSet::ids(0..2), SEED)
-        .expect("the run succeeds");
+        runner((MakesAnExecute { awaits }).on(AnswersWhenCalled(Rc::clone(&called))))
+            .run(&ShotSet::ids(0..2), SEED)
+            .expect("the run succeeds");
         assert_eq!(called.get(), calls, "awaits: {awaits}");
 
         let adapted = Rc::new(Cell::new(0));
         let executed = Rc::new(Cell::new(0));
         in_each_bracketing!([d, a, e] from {
-            let d = Driver::new(MakesAnExecute { awaits });
-            let a = Adapter::new(ForwardsWhenCalled(Rc::clone(&adapted)));
-            let e = Executor::new(AnswersWhenCalled(Rc::clone(&executed)));
+            let d = MakesAnExecute { awaits };
+            let a = ForwardsWhenCalled(Rc::clone(&adapted));
+            let e = AnswersWhenCalled(Rc::clone(&executed));
         }, |chain, brackets| {
             adapted.set(0);
             executed.set(0);
@@ -816,7 +801,7 @@ fn readouts_of_other_shapes() -> Readouts {
     readouts
 }
 
-impl DriverSetup for TwoBatches {
+impl Driver for TwoBatches {
     fn sends(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -830,16 +815,14 @@ impl DriverSetup for TwoBatches {
     fn needs(&self) -> Needs {
         Needs::qubits(1)
     }
-}
 
-impl Drive for TwoBatches {
     type Output = ();
 
     async fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> Result<Vec<()>, DriveError> {
         let parts = [
             shots.select(&[0, 1]).expect("shots 0 and 1"),
@@ -863,20 +846,20 @@ impl Drive for TwoBatches {
 }
 
 /// What a [`TwoBatches`] read on the chain `below` composes it into.
-fn read_on<D: Drive, E: Execute>(
-    below: impl FnOnce(Driver<TwoBatches>) -> Result<Runner<D, E>, CompositionFaults>,
+fn read_on<D: Driver, E: Executor>(
+    below: impl FnOnce(TwoBatches) -> Result<Runner<D, E>, CompositionFaults>,
 ) -> Vec<BatchReadouts> {
     read_stating([2, 0], below)
 }
 
 /// What a [`TwoBatches`] stating `stated` readout slots read on the chain
 /// `below` composes it into.
-fn read_stating<D: Drive, E: Execute>(
+fn read_stating<D: Driver, E: Executor>(
     stated: [u32; 2],
-    below: impl FnOnce(Driver<TwoBatches>) -> Result<Runner<D, E>, CompositionFaults>,
+    below: impl FnOnce(TwoBatches) -> Result<Runner<D, E>, CompositionFaults>,
 ) -> Vec<BatchReadouts> {
     let read = Rc::new(RefCell::new(None));
-    runner(below(Driver::new(TwoBatches::new(&read).stating(stated))))
+    runner(below(TwoBatches::new(&read).stating(stated)))
         .run(&ShotSet::ids(0..3), SEED)
         .expect("a run");
     read.take().expect("the driver read its readouts")
@@ -887,7 +870,7 @@ fn read_stating<D: Drive, E: Execute>(
 /// are.
 struct RecordsWhatItFinds(Option<Bits>, Rc<RefCell<Vec<BatchReadouts>>>);
 
-impl ExecutorSetup for RecordsWhatItFinds {
+impl Executor for RecordsWhatItFinds {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -895,9 +878,7 @@ impl ExecutorSetup for RecordsWhatItFinds {
     fn offers(&self) -> Offer {
         Offer::unlimited().max_qubits(64)
     }
-}
 
-impl Execute for RecordsWhatItFinds {
     async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
         match &mut self.0 {
             Some(bits) => bits.ready(needs).await,
@@ -943,48 +924,48 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
     let found: [Rc<RefCell<Vec<BatchReadouts>>>; 6] = Default::default();
     let executor = |row: usize, writes: bool| {
         let bits = writes.then(|| Bits::new(&log));
-        Executor::new(RecordsWhatItFinds(bits, Rc::clone(&found[row])))
+        RecordsWhatItFinds(bits, Rc::clone(&found[row]))
     };
-    let profiler = || Adapter::new(Profiler::new(&counted, &log));
+    let profiler = || Profiler::new(&counted, &log);
     for (chain, read, found, shaped, expected) in [
         (
             "directly under the driver",
-            read_on(|driver| driver >> executor(0, true)),
+            read_on(|driver| driver.on(executor(0, true))),
             &found[0],
             &shaped,
             &filled,
         ),
         (
             "directly under the driver, writing nothing",
-            read_on(|driver| driver >> executor(1, false)),
+            read_on(|driver| driver.on(executor(1, false))),
             &found[1],
             &shaped,
             &shaped,
         ),
         (
             "below a profiler with the driver",
-            read_on(|driver| (driver >> profiler()) >> executor(2, true)),
+            read_on(|driver| driver.through(profiler()).on(executor(2, true))),
             &found[2],
             &shaped,
             &filled,
         ),
         (
             "below a profiler with the executor",
-            read_on(|driver| driver >> (profiler() >> executor(3, true))),
+            read_on(|driver| driver.on(profiler().on(executor(3, true)))),
             &found[3],
             &shaped,
             &filled,
         ),
         (
             "stating 1 readout slot of 2 read, writing nothing",
-            read_stating([1, 0], |driver| driver >> executor(4, false)),
+            read_stating([1, 0], |driver| driver.on(executor(4, false))),
             &found[4],
             &stating_fewer,
             &stating_fewer,
         ),
         (
             "stating 3 readout slots of 2 read, writing nothing",
-            read_stating([3, 0], |driver| driver >> executor(5, false)),
+            read_stating([3, 0], |driver| driver.on(executor(5, false))),
             &found[5],
             &stating_more,
             &stating_more,
@@ -999,7 +980,7 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
 /// every shot and fails.
 struct FailsFirst(Bits, bool);
 
-impl ExecutorSetup for FailsFirst {
+impl Executor for FailsFirst {
     fn accepts(&self) -> &InstructionSet {
         self.0.accepts()
     }
@@ -1007,9 +988,7 @@ impl ExecutorSetup for FailsFirst {
     fn offers(&self) -> Offer {
         self.0.offers()
     }
-}
 
-impl Execute for FailsFirst {
     async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
         self.0.ready(needs).await
     }
@@ -1044,7 +1023,7 @@ impl Execute for FailsFirst {
 /// with the same readouts, as an adapter recovering from a failure would.
 struct RetriesAfterAFailure(Profiler);
 
-impl AdapterSetup for RetriesAfterAFailure {
+impl Adapter for RetriesAfterAFailure {
     fn accepts(&self) -> &InstructionSet {
         self.0.accepts()
     }
@@ -1056,14 +1035,12 @@ impl AdapterSetup for RetriesAfterAFailure {
     fn bind(&mut self, below: OpcodeMap) {
         self.0.bind(below);
     }
-}
 
-impl Adapt for RetriesAfterAFailure {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         if self.0.adapt(batches, seed, below, readouts).await.is_ok() {
@@ -1083,8 +1060,8 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
     let counted = Rc::default();
     let read = read_on(|driver| {
         driver
-            >> Adapter::new(RetriesAfterAFailure(Profiler::new(&counted, &log)))
-            >> Executor::new(FailsFirst(Bits::new(&log), true))
+            .through(RetriesAfterAFailure(Profiler::new(&counted, &log)))
+            .on(FailsFirst(Bits::new(&log), true))
     });
     let mut expected = vec![BatchReadouts::new(2, 2), BatchReadouts::new(1, 0)];
     for position in 0..2 {
@@ -1097,7 +1074,7 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
 /// first.
 struct PassesTooFewReadouts(Profiler);
 
-impl AdapterSetup for PassesTooFewReadouts {
+impl Adapter for PassesTooFewReadouts {
     fn accepts(&self) -> &InstructionSet {
         self.0.accepts()
     }
@@ -1109,14 +1086,12 @@ impl AdapterSetup for PassesTooFewReadouts {
     fn bind(&mut self, below: OpcodeMap) {
         self.0.bind(below);
     }
-}
 
-impl Adapt for PassesTooFewReadouts {
     async fn adapt(
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, &mut readouts[1..]).await
@@ -1136,8 +1111,9 @@ fn readouts_not_one_per_batch_fail_the_run_naming_the_caller() {
         (
             "the driver, for two batches",
             runner(
-                Driver::new(TwoBatches::new(&read).passing(Passes::FewerThanBatches))
-                    >> Executor::new(Bits::new(&log)),
+                TwoBatches::new(&read)
+                    .passing(Passes::FewerThanBatches)
+                    .on(Bits::new(&log)),
             )
             .run(&ShotSet::ids(0..3), SEED),
             PartId::new(0, type_name::<TwoBatches>()),
@@ -1145,28 +1121,28 @@ fn readouts_not_one_per_batch_fail_the_run_naming_the_caller() {
         (
             "the driver, for no batch",
             runner(
-                Driver::new(TwoBatches::new(&read).passing(Passes::WithoutBatches))
-                    >> Executor::new(Bits::new(&log)),
+                TwoBatches::new(&read)
+                    .passing(Passes::WithoutBatches)
+                    .on(Bits::new(&log)),
             )
             .run(&ShotSet::ids(0..3), SEED),
             PartId::new(0, type_name::<TwoBatches>()),
         ),
         (
-            "an adapter, in (d >> a) >> e",
+            "an adapter, in d.through(a).on(e)",
             runner(
-                Driver::new(TwoBatches::new(&read))
-                    >> Adapter::new(PassesTooFewReadouts(Profiler::new(&counted, &log)))
-                    >> Executor::new(Bits::new(&log)),
+                TwoBatches::new(&read)
+                    .through(PassesTooFewReadouts(Profiler::new(&counted, &log)))
+                    .on(Bits::new(&log)),
             )
             .run(&ShotSet::ids(0..3), SEED),
             PartId::new(1, type_name::<PassesTooFewReadouts>()),
         ),
         (
-            "an adapter, in d >> (a >> e)",
+            "an adapter, in d.on(a.on(e))",
             runner(
-                Driver::new(TwoBatches::new(&read))
-                    >> (Adapter::new(PassesTooFewReadouts(Profiler::new(&counted, &log)))
-                        >> Executor::new(Bits::new(&log))),
+                TwoBatches::new(&read)
+                    .on(PassesTooFewReadouts(Profiler::new(&counted, &log)).on(Bits::new(&log))),
             )
             .run(&ShotSet::ids(0..3), SEED),
             PartId::new(1, type_name::<PassesTooFewReadouts>()),
@@ -1199,7 +1175,7 @@ struct RoundsIntoItsReadouts {
     allocated: Rc<Cell<Option<usize>>>,
 }
 
-impl DriverSetup for RoundsIntoItsReadouts {
+impl Driver for RoundsIntoItsReadouts {
     fn sends(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -1213,16 +1189,14 @@ impl DriverSetup for RoundsIntoItsReadouts {
     fn needs(&self) -> Needs {
         Needs::qubits(1)
     }
-}
 
-impl Drive for RoundsIntoItsReadouts {
     type Output = ();
 
     async fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> Result<Vec<()>, DriveError> {
         let each = (0..shots.len())
             .map(|at| shots.select(&[at]).expect("a shot of the run"))
@@ -1255,7 +1229,7 @@ impl Drive for RoundsIntoItsReadouts {
 /// writing `Zero` in every slot of every row, and allocating nothing.
 struct Zeros;
 
-impl ExecutorSetup for Zeros {
+impl Executor for Zeros {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -1263,9 +1237,7 @@ impl ExecutorSetup for Zeros {
     fn offers(&self) -> Offer {
         Offer::unlimited()
     }
-}
 
-impl Execute for Zeros {
     async fn execute(
         &mut self,
         _batches: &[Batch<'_>],
@@ -1289,10 +1261,11 @@ impl Execute for Zeros {
 fn a_round_of_unchecked_batches_into_readouts_kept_allocates_nothing() {
     let allocated = Rc::new(Cell::new(None));
     runner(
-        Driver::new(RoundsIntoItsReadouts {
+        (RoundsIntoItsReadouts {
             instructions: vec![coin_gate("mz", 0)],
             allocated: Rc::clone(&allocated),
-        }) >> Executor::new(Zeros),
+        })
+        .on(Zeros),
     )
     .run(&ShotSet::ids(0..5), SEED)
     .expect("a run");

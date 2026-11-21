@@ -62,7 +62,7 @@ pub enum RunRefusal {
 
 impl RunRefusal {
     /// The refusal of `not_ready`, answered by the chain whose top part is
-    /// `top`: it names the part a composition in that chain named, or
+    /// `top`: it names the part a joined part in that chain named, or
     /// `top`.
     pub(crate) fn part_not_ready(mut not_ready: NotReady, top: &PartId) -> Self {
         let part = not_ready.take_part().unwrap_or_else(|| top.clone());

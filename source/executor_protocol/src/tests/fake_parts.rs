@@ -48,9 +48,10 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 use std::task::{Context, Poll};
 
+use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Execute, ExecuteError, Instruction, InstructionSet, OpcodeMap,
-    ReadoutValue, Seed, instruction_set,
+    Batch, BatchReadouts, ExecuteError, Instruction, InstructionSet, OpcodeMap, ReadoutValue, Seed,
+    instruction_set,
 };
 
 mod adapters;
@@ -146,7 +147,7 @@ fn mapped(map: &OpcodeMap, instructions: &[Instruction]) -> Vec<Instruction> {
 async fn forward(
     batches: &[Batch<'_>],
     seed: Seed,
-    below: &mut impl Execute,
+    below: &mut impl Executor,
     readouts: &mut [BatchReadouts],
     rewrite: impl FnMut(&Batch<'_>) -> Vec<Instruction>,
 ) -> Result<(), ExecuteError> {
@@ -162,9 +163,9 @@ async fn forward(
     below.execute(&below_batches, seed, readouts).await
 }
 
-/// The receiver's opcodes, given by `>>`'s `bind`.
+/// The receiver's opcodes, given by the join's `bind`.
 fn bound(map: Option<&OpcodeMap>) -> &OpcodeMap {
-    map.expect("`>>` binds before any `execute`")
+    map.expect("the join binds before any `execute`")
 }
 
 /// The instruction `mnemonic` of [`CoinGates`] on `qubit`.
@@ -178,11 +179,12 @@ pub(crate) fn coin_gate(mnemonic: &str, qubit: u32) -> Instruction {
 pub(crate) type Values = Vec<ReadoutValue>;
 
 /// Runs `$check` on the chain of the parts `[$d, …, $e]`, top to bottom,
-/// in each bracketing `>>` makes of them: 2 for three parts, 5 for four
-/// and 14 for five. Each bracketing runs `$setup`, a block of statements
-/// that binds the parts, afresh, so it gets new parts (and a new log, if
-/// `$setup` makes one); `$check` reads the chain `>>` makes as `$chain`,
-/// and the bracketing, written out, as `$brackets`, for its messages.
+/// in each bracketing `through` and `on` make of them: 2 for three parts,
+/// 5 for four and 14 for five. Each bracketing runs `$setup`, a block of
+/// statements that binds the parts, afresh, so it gets new parts (and a
+/// new log, if `$setup` makes one); `$check` reads the chain the joins
+/// make as `$chain`, and the bracketing, written out, as `$brackets`, for
+/// its messages.
 macro_rules! in_each_bracketing {
     (
         [$d:ident, $a:ident, $e:ident] from $setup:tt,
@@ -190,8 +192,8 @@ macro_rules! in_each_bracketing {
     ) => {
         $crate::tests::fake_parts::in_each_bracketing!(
             @each $setup $chain $brackets $check;
-            ($d >> $a) >> $e,
-            $d >> ($a >> $e),
+            $d.through($a).on($e),
+            $d.on($a.on($e)),
         )
     };
     (
@@ -200,11 +202,11 @@ macro_rules! in_each_bracketing {
     ) => {
         $crate::tests::fake_parts::in_each_bracketing!(
             @each $setup $chain $brackets $check;
-            (($d >> $a) >> $b) >> $e,
-            ($d >> $a) >> ($b >> $e),
-            $d >> ($a >> ($b >> $e)),
-            $d >> (($a >> $b) >> $e),
-            ($d >> ($a >> $b)) >> $e,
+            $d.through($a).through($b).on($e),
+            $d.through($a).on($b.on($e)),
+            $d.on($a.on($b.on($e))),
+            $d.on($a.through($b).on($e)),
+            $d.through($a.through($b)).on($e),
         )
     };
     (
@@ -213,20 +215,20 @@ macro_rules! in_each_bracketing {
     ) => {
         $crate::tests::fake_parts::in_each_bracketing!(
             @each $setup $chain $brackets $check;
-            $d >> ((($a >> $b) >> $c) >> $e),
-            $d >> (($a >> ($b >> $c)) >> $e),
-            $d >> (($a >> $b) >> ($c >> $e)),
-            $d >> ($a >> (($b >> $c) >> $e)),
-            $d >> ($a >> ($b >> ($c >> $e))),
-            ($d >> $a) >> (($b >> $c) >> $e),
-            ($d >> $a) >> ($b >> ($c >> $e)),
-            (($d >> $a) >> $b) >> ($c >> $e),
-            ($d >> ($a >> $b)) >> ($c >> $e),
-            ((($d >> $a) >> $b) >> $c) >> $e,
-            (($d >> ($a >> $b)) >> $c) >> $e,
-            (($d >> $a) >> ($b >> $c)) >> $e,
-            ($d >> (($a >> $b) >> $c)) >> $e,
-            ($d >> ($a >> ($b >> $c))) >> $e,
+            $d.on($a.through($b).through($c).on($e)),
+            $d.on($a.through($b.through($c)).on($e)),
+            $d.on($a.through($b).on($c.on($e))),
+            $d.on($a.on($b.through($c).on($e))),
+            $d.on($a.on($b.on($c.on($e)))),
+            $d.through($a).on($b.through($c).on($e)),
+            $d.through($a).on($b.on($c.on($e))),
+            $d.through($a).through($b).on($c.on($e)),
+            $d.through($a.through($b)).on($c.on($e)),
+            $d.through($a).through($b).through($c).on($e),
+            $d.through($a.through($b)).through($c).on($e),
+            $d.through($a).through($b.through($c)).on($e),
+            $d.through($a.through($b).through($c)).on($e),
+            $d.through($a.through($b.through($c))).on($e),
         )
     };
     (@each $setup:tt $chain:ident $brackets:ident $check:tt; $bracketing:expr, $($rest:expr,)*) => {

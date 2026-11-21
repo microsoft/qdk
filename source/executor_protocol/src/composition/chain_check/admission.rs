@@ -2,12 +2,13 @@
 // Licensed under the MIT License.
 
 //! The admission: whether a chain can serve its driver's shots, decided
-//! once, by the `>>` that makes a runner, before any shot runs.
+//! once, by the [`on`](crate::DriverJoins::on) that makes a runner, before
+//! any shot runs.
 //!
 //! A driver states what its shots [`Needs`], an executor what it can ever
 //! serve, its [`Offer`], and each adapter between them adapts
 //! both: the needs for the part below it, the offer for the part above.
-//! The `>>` checks every boundary of the chain: the needs of the part above
+//! The `on` checks every boundary of the chain: the needs of the part above
 //! it, as the adapters above adapt them, against the offer of the part
 //! below, as the adapters below adapt it ([`Needs::fit`]). It refuses the
 //! chain when any of them falls short.
@@ -35,7 +36,7 @@
 //! The verdict comes from the boundaries alone: the chain is refused when
 //! the needs at a boundary exceed the offer there, whichever parts the
 //! refusal names. An adapter that asks below less than it needs, against
-//! [`AdapterSetup::needs_below`](crate::AdapterSetup::needs_below)'s rule,
+//! [`Adapter::needs_below`](crate::Adapter::needs_below)'s rule,
 //! may be short on its own though every boundary fits: it refuses no
 //! chain, but a refusal another part causes may name it.
 //!
@@ -49,20 +50,18 @@
 //! The crate's `docs/admission.md` gives the needs, the offers and the
 //! admission as a part's writer and a chain's composer see them.
 
-pub(crate) mod by_part;
-
 use std::fmt;
 
 use crate::{Needs, Offer, PartId, UnmetNeed};
-use by_part::ByPart;
 
-/// Why the `>>` that makes a runner refused its chain's admission: each
-/// part short on its own, and each part's needs and offer, so that a user
-/// sees which part asks too much or offers too little.
+/// Why the [`on`](crate::DriverJoins::on) that makes a runner refused its
+/// chain's admission: each part short on its own, and each part's needs
+/// and offer, so that a user sees which part asks too much or offers too
+/// little.
 ///
 /// Each part is named by its position in the chain and its name
 /// ([`PartId`]). Every field is the same whatever the brackets of the
-/// `>>`s. Its message names each part short on its own and every need it
+/// joins. Its message names each part short on its own and every need it
 /// falls short of; each part's needs and offer are in the fields only.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -82,17 +81,17 @@ pub struct AdmissionFaults {
 }
 
 impl AdmissionFaults {
-    /// The faults of the chain whose parts' needs and offers `by_part`
-    /// lists, if an offer falls short at a boundary, the needs of the part
-    /// above against the offer of the part below: each part short on its
-    /// own, by its own offer, or by the fallback ([`ShortOffer::offered`]).
-    pub(crate) fn of(by_part: ByPart) -> Option<Self> {
-        let ByPart {
-            needs,
-            offers,
-            own_offers,
-            ..
-        } = by_part;
+    /// The faults of the chain whose parts' `needs`, top to bottom, and
+    /// `offers`, bottom to top, are given, with each offering part's
+    /// `own_offers`, if an offer falls short at a boundary, the needs of
+    /// the part above against the offer of the part below: each part short
+    /// on its own, by its own offer, or by the fallback
+    /// ([`ShortOffer::offered`]).
+    pub(super) fn of(
+        needs: Vec<(PartId, Needs)>,
+        offers: Vec<(PartId, Offer)>,
+        own_offers: &[Offer],
+    ) -> Option<Self> {
         debug_assert_eq!(
             needs.len(),
             offers.len(),
@@ -102,7 +101,7 @@ impl AdmissionFaults {
         let mut short_offers = Vec::new();
         let mut below_fits = true;
         for (((part, offered), own), (_, needed)) in
-            offers.iter().zip(&own_offers).zip(needs.iter().rev())
+            offers.iter().zip(own_offers).zip(needs.iter().rev())
         {
             let fit = needed.fit(offered);
             refused |= fit.is_err();
@@ -161,7 +160,7 @@ pub struct ShortOffer {
     /// The offer that falls short. For the executor, its offer. For an
     /// adapter, its offer on its own: its offer given exactly what it needs
     /// below
-    /// ([`AdapterSetup::offers_above`](crate::AdapterSetup::offers_above)),
+    /// ([`Adapter::offers_above`](crate::Adapter::offers_above)),
     /// the real offer below with each block type it needs below at its count
     /// and no other, readout parities resolved only if it uses them below,
     /// shots replayable only if it needs replay below, and seedable if it

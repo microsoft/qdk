@@ -13,7 +13,7 @@
 //! so that the driver sees every condition raised on the shot, at any
 //! level. A row reports the conditions raised on its shot in that
 //! `execute` only, since each `execute` gets its rows clear
-//! ([`Execute::execute`](crate::Execute::execute)): a driver that runs a
+//! ([`Executor::execute`](crate::Executor::execute)): a driver that runs a
 //! shot over several calls merges each call's conditions into the shot's,
 //! by union, as a part above merges its own with those below. This type has
 //! no operation that clears a condition, so a union keeps every one raised.

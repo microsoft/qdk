@@ -36,8 +36,8 @@ one executor to it, and the protocol carries each call across each
 boundary, with its checks and the shaping of its readouts, so that a part
 writes only its own logic. Its roles, batches and readouts are abstractions
 shared by every part, so a developer learns one model for every tool.
-Since `>>` joins any parts that fit, a part is reused in every chain it
-fits and maintained in one place. It adds little cost: a chain's calls are
+Since any parts that fit can be joined, a part is reused in every chain
+it fits and maintained in one place. It adds little cost: a chain's calls are
 direct, and one `execute` carries many instructions on many shots. And it
 is extensible, so that more can be built on it: a new part joins a chain
 without changing any other, and the protocol grows by adding methods with
@@ -45,25 +45,22 @@ defaults, so that parts written before keep working.
 
 Today the protocol holds:
 
-- **The roles:** driving, adapting and executing, two traits each, with
-  what a part of that role is responsible for at each time: a setup trait,
-  [`DriverSetup`](src/roles/driver_setup.rs),
-  [`AdapterSetup`](src/roles/adapter_setup.rs) or
-  [`ExecutorSetup`](src/roles/executor_setup.rs), for when `>>` composes
-  the chain; and a run-time trait, [`Drive`](src/roles/drive.rs),
-  [`Adapt`](src/roles/adapt.rs) or [`Execute`](src/roles/execute.rs), for
-  each run.
-- **The composable parts:** [`Driver`, `Adapter` and
-  `Executor`](src/composition.rs), which wrap a part in the role it plays,
-  so that `>>` can join it. Any implementation of a role gets composition,
-  and the guarantees below, for free, with no code of its own.
-- **Composition with `>>`** ([`Compose`](src/composition.rs)):
-  (`Driver >> Adapter`) is a `Driver`; (`Adapter >> Adapter`) is an
-  `Adapter`; (`Adapter >> Executor`) is an `Executor`, each a composition
-  ([`Composed`](src/composition/composed.rs)); and (`Driver >> Executor`)
-  is a [`Runner`](src/composition/runner.rs), which runs shots. So reusable parts mix
-  and match: a stack of adapters, or a noise model over a simulator, is a
-  composition, ready to join others as one part would.
+- **The roles:** driving, adapting and executing, one trait each,
+  [`Driver`](src/roles/driver.rs), [`Adapter`](src/roles/adapter.rs) and
+  [`Executor`](src/roles/executor.rs), with what a part of that role is
+  responsible for at each time: its declarations, which the joins read
+  once, when they join the parts; and its run methods, for each run.
+- **The joins:** [`DriverJoins`](src/composition/driver_joins.rs) and
+  [`AdapterJoins`](src/composition/adapter_joins.rs), which every driver
+  and every adapter has, join a part with the part below it:
+  `driver.through(adapter)` is a driver; `adapter.through(adapter)` is an
+  adapter; `adapter.on(executor)` is an executor; and
+  `driver.on(executor)` is a [`Runner`](src/composition/runner.rs), which
+  runs shots. So reusable parts mix and match: a stack of adapters, or a
+  noise model over a simulator, is a joined part, ready to join others as
+  one part would. Any implementation of a role gets the joins, and the
+  guarantees below, for free, with no code of its own; the
+  [prelude](src/prelude.rs) brings the roles and the joins into scope.
 - **Instruction sets:** each part declares the instructions it sends or
   accepts as an [`InstructionSet`](src/instruction_set.rs). Each
   instruction's declaration, an
@@ -73,7 +70,7 @@ Today the protocol holds:
   readouts and what it does ([`Meaning`](src/instruction_set/meaning.rs)).
   An [`Instruction`](src/instruction_set/instruction.rs) gives its
   [`Opcode`](src/instruction_set/opcode.rs), its blocks and its
-  [`Argument`](src/instruction_set/instruction/argument.rs)s; a `>>`
+  [`Argument`](src/instruction_set/instruction/argument.rs)s; each join
   binds a sender to its receiver's opcodes
   ([`OpcodeMap`](src/instruction_set/opcode_map.rs)).
 - **Needs and offers:** the driver states what its shots need of the
@@ -93,20 +90,20 @@ Today the protocol holds:
   the next.
 - **Refusals and failures:** a refusal says that nothing ran, so the call
   may be corrected and sent again
-  ([`ExecuteRefusal`](src/roles/execute.rs),
+  ([`ExecuteRefusal`](src/roles/executor.rs),
   [`RunRefusal`](src/composition/runner/run_error.rs)); a
   [`Failure`](src/roles/failure.rs) names the
   shot whose work broke. They pass up the chain as
-  [`ExecuteError`](src/roles/execute.rs),
-  [`DriveError`](src/roles/drive.rs) and then
+  [`ExecuteError`](src/roles/executor.rs),
+  [`DriveError`](src/roles/driver.rs) and then
   [`RunError`](src/composition/runner/run_error.rs).
-- **Guarantees at composition:** each `>>` checks that the instructions the
+- **Guarantees at composition:** each join checks that the instructions the
   part above sends fit those the part below accepts
-  ([`FitFaults`](src/instruction_set/fit.rs)). The `>>` that makes a
+  ([`FitFaults`](src/instruction_set/fit.rs)). The `on` that makes a
   runner also checks that, at every boundary, the needs that reach it fit
-  the offer there ([`AdmissionFaults`](src/composition/admission.rs)). A chain that
+  the offer there ([`AdmissionFaults`](src/composition/chain_check/admission.rs)). A chain that
   fails either check is refused with every fault at once
-  ([`CompositionFaults`](src/composition/composition_faults.rs)): a fit's
+  ([`CompositionFaults`](src/composition/chain_check/composition_faults.rs)): a fit's
   by the names of its instruction sets, the admission's by part
   ([`PartId`](src/composition/part_id.rs)), before any shot runs.
 - **Guarantees at run time:** the `Runner` carries each call down the
@@ -148,19 +145,21 @@ boundaries; the rest of this README, and the pages of [`docs/`](docs), use
 them as defined here.
 
 - **Role**: what a part does in a chain: drive, adapt or execute. Each role
-  is two traits: a setup trait and a run-time trait.
+  is one trait: its declarations, which the joins read, and its run
+  methods, which each run calls.
 - **Part**: a chain's unit, as a link is a chain's: a value of a type that
   implements one role.
 - **Chain**: parts from a driver on top, through any number of adapters, to
-  an executor at the bottom, joined by `>>`; joining them gives a
+  an executor at the bottom, joined by `through` and `on`; joining them
+  gives a
   [`Runner`](src/composition/runner.rs).
-- **Composition**: joining parts with `>>`, the only way to make a chain.
-  A driver joined with an executor is a chain, a
+- **Composition**: joining parts with `through` and `on`, the only way to
+  make a chain. A driver joined `on` an executor is a chain, a
   [`Runner`](src/composition/runner.rs); any other join, such as
-  (`Adapter >> Adapter`) or (`Adapter >> Executor`), falls short of one
-  and gives a [`Composed`](src/composition/composed.rs). A composed part
-  plays the role of its ends and joins others as one part would, while
-  its parts keep their own positions and boundaries in the chain.
+  `adapter.through(adapter)` or `adapter.on(executor)`, falls short of one
+  and gives a joined part, whose type cannot be named. A joined part plays
+  the role of its ends and joins others as one part would, while its parts
+  keep their own positions and boundaries in the chain.
 - **Boundary**: where two consecutive parts of a chain meet; the part
   above calls the part below across it.
 - **Shot**: one execution of the program, named by a
@@ -194,31 +193,32 @@ them as defined here.
   alone, as a debugger does, gives its readouts back (_replayable_: a
   sampler that draws a run's shots from one random stream, in one call,
   is not).
-- **Fit**: the check, by each `>>`, that every instruction the part above
+- **Fit**: the check, by each join, that every instruction the part above
   sends is accepted below, with the same blocks, parameters and readouts.
-- **Admission**: the check, by the `>>` that makes a runner, that at every
+- **Admission**: the check, by the `on` that makes a runner, that at every
   boundary the needs that reach it fit the offer there.
 
 ## Composing and running a chain
 
-Users wrap each part in its role's type and join the parts with `>>`, top
-to bottom. A chain then has two times, each calling one of each part's
-two traits:
+Users join the parts top to bottom, `through` each adapter and `on` the
+executor. A chain then has two times, each calling its own methods of
+each part's trait:
 
-- **Setup**, once, when `>>` composes the chain: each `>>` checks the fit
-  of the boundary it makes and, where it fits, binds the part above to the
-  opcodes of the part below (`bind`); the one that joins a driver with an executor
-  also checks the admission, and gives a [`Runner`](src/composition/runner.rs), or
-  every fault of the chain. Setup only decides, from what the parts
-  declare; what prepares a part to run belongs to each run.
+- **Setup**, once, when the parts are joined: each join checks the fit of
+  the boundary it makes and, where it fits, binds the part above to the
+  opcodes of the part below (`bind`); the `on` that joins a driver with an
+  executor also checks the admission, and gives a
+  [`Runner`](src/composition/runner.rs), or every fault of the chain.
+  Setup only decides, from what the parts declare; what prepares a part to
+  run belongs to each run.
 - **Each run**, each time [`Runner::run`](src/composition/runner.rs) runs a
   [`ShotSet`](src/batch/shot_set.rs) with a seed: the run checks its shots and
   its seed against the parts' offers, gets each part `ready` for the
   needs the admission checked, or is refused by the first that cannot
   take a run now, lets the driver send its batches down the chain (`drive`, then
   each `adapt`, then `execute`), and, once it ends, ends its shots on
-  every part. It gives the driver's outputs, one per shot by `Drive`'s
-  rule, or a [`RunError`](src/composition/runner/run_error.rs).
+  every part. It gives the driver's outputs, one per shot by
+  `Driver::drive`'s rule, or a [`RunError`](src/composition/runner/run_error.rs).
 
 A run's calls:
 
@@ -233,7 +233,7 @@ sequenceDiagram
   Note over R: no more shots than every part offers, a fixed seed only if every part is seedable
   R->>E: ready(needs)
   R->>A: ready(above)
-  Note over R,A: the runner reaches an adapter through the composition that holds it
+  Note over R,A: the runner reaches an adapter through the joined part that holds it
   R->>D: ready
   R->>D: drive(shots, seed, below)
   loop until each shot ends
@@ -262,21 +262,23 @@ executor whose qubits are classical bits. Copied from
 writes the three parts and the helpers `SEED` and `text`; its tests run it.
 `BitFlip::new(0.2)` undoes each `x` with probability 0.2:
 
-```rust
-/// The three parts, composed: `coin`, under 20% bit-flip noise, on `bits`
+````rust
+/// The three parts, joined: `coin`, under 20% bit-flip noise, on `bits`
 /// (a [`Bits`], or a borrow of one, to read what it counted after a run).
 ///
 /// After each run, the runner ends every shot of the run on every part, so
 /// the parts free its state and a rerun with the same seed starts it
 /// afresh; the driver need not end them.
-fn coin_runner<E: Execute>(coin: CoinCopy, bits: E) -> Runner<Composed<CoinCopy, BitFlip>, E> {
-    // Each part is wrapped in the role it plays (`Driver`, `Adapter`,
-    // `Executor`), which `>>` needs to pick the join. `>>` joins the driver
-    // and the adapter into one driver, a `Composed`. Each `>>` checks that
-    // what is sent across it fits what is accepted; the last one, onto the
-    // executor, also checks that the executor offers what the driver
-    // needs, and gives the runner or every fault of the chain.
-    let runner = Driver::new(coin) >> Adapter::new(BitFlip::new(0.2)) >> Executor::new(bits);
+fn coin_runner<E: Executor>(
+    coin: CoinCopy,
+    bits: E,
+) -> Runner<impl Driver<Output = Vec<ReadoutValue>>, E> {
+    // `through` joins the driver and the adapter into one driver, and `on`
+    // joins that driver and the executor into the runner. Each join checks
+    // that what is sent across it fits what is accepted; the `on` that
+    // makes the runner also checks that the executor offers what the
+    // driver needs, and gives the runner or every fault of the chain.
+    let runner = coin.through(BitFlip::new(0.2)).on(bits);
     runner.expect("the parts compose: they all send and accept CoinGates")
 }
 
@@ -311,8 +313,7 @@ fn main() {
         .run(&ShotSet::ids(0..2000), SEED)
         .expect_err("Bits runs at most 1000 shots");
     println!("\n2000 shots: {refused}");
-}
-```
+}```
 
 Run it with `cargo run -p executor_protocol --example compose_and_run`.
 
@@ -333,7 +334,7 @@ mechanics and edge cases.
   and offers, replay included, how an adapter adapts both, and what a
   refusal names.
 - [Composing and running a chain](docs/composing-and-running.md): the
-  joins of `>>`, a run's steps, seeds, where and when each check runs, and
+  joins and the role each gives, a run's steps, seeds, where and when each check runs, and
   failures and panics.
 
 ## Planned extensions
@@ -349,8 +350,8 @@ unchanged; a part that overrides it streams.
 The crate's tests are in [`src/tests/`](src/tests), filed by the module
 whose behaviour they check, in a tree that follows [`src/`](src). They run
 chains of small parts written for them, in
-[`src/tests/fake_parts/`](src/tests/fake_parts). Where the brackets of `>>`
-could change a result (the readouts, the faults, the admission's verdict),
+[`src/tests/fake_parts/`](src/tests/fake_parts). Where the bracketing of the
+joins could change a result (the readouts, the faults, the admission's verdict),
 the tests compare a chain's bracketings. Both examples run as tests:
 [`examples/compose_and_run.rs`](examples/compose_and_run.rs), and
 [`examples/bench`](examples/bench/main.rs), which times the protocol's cost
@@ -359,7 +360,7 @@ against a driver that calls its executor directly.
 ```text
 cargo test -p executor_protocol
 cargo run --release -p executor_protocol --example bench
-```
+````
 
 ## Platforms
 

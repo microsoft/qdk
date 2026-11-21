@@ -1,15 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Why the `>>` that makes a runner refused its chain:
-//! [`CompositionFaults`], every fault of the chain at once.
+//! Why the [`on`](crate::DriverJoins::on) that makes a runner refused its
+//! chain: [`CompositionFaults`], every fault of the chain at once.
 
 use std::error::Error;
 use std::fmt;
 
 use crate::{AdmissionFaults, FitFaults};
 
-/// Every fault of a chain, reported at once by the `>>` that makes its
+/// Every fault of a chain, reported at once by the
+/// [`on`](crate::DriverJoins::on) that makes its
 /// runner, before any shot runs: each boundary whose instructions do not
 /// fit, top to bottom, and the admission's faults, if a part's offer does
 /// not meet the driver's needs as they reach it.

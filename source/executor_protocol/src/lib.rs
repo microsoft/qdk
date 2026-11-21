@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The executor protocol: parts that compose with `>>` into a chain that
-//! runs shots.
+//! The executor protocol: parts joined with `through` and `on` into a
+//! chain that runs shots.
 //!
 //! The crate's `README.md` and its `docs/` pages say what the protocol is
 //! for, the problem it solves and how, and give its rules.
@@ -12,6 +12,7 @@ mod composition;
 mod instruction_set;
 mod needs;
 mod offer;
+pub mod prelude;
 mod roles;
 mod seed;
 
@@ -29,8 +30,8 @@ pub use batch::{
     ShotId, ShotSet, ShotSetFault,
 };
 pub use composition::{
-    Adapter, AdmissionFaults, Compose, Composed, CompositionFaults, Driver, Executor, PartId,
-    RunError, RunRefusal, Runner, ShortOffer,
+    AdapterJoins, AdmissionFaults, CompositionFaults, DriverJoins, PartId, RunError, RunRefusal,
+    Runner, ShortOffer,
 };
 pub use instruction_set::{
     Angle, Argument, Arguments, Bit, BlockOperand, BlockType, Blocks, DeclarationFault, FitFaults,
@@ -41,7 +42,6 @@ pub use instruction_set::{
 pub use needs::{Needs, UnmetNeed};
 pub use offer::Offer;
 pub use roles::{
-    Adapt, AdapterSetup, Drive, DriveError, DriverSetup, Execute, ExecuteError, ExecuteRefusal,
-    ExecutorSetup, Failure, NotReady,
+    Adapter, DriveError, Driver, ExecuteError, ExecuteRefusal, Executor, Failure, NotReady,
 };
 pub use seed::Seed;

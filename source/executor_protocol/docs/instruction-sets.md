@@ -2,7 +2,7 @@
 
 For those who declare the instructions a part sends or accepts, and who
 need to know when two parts' sets fit: what a set declares, how a set and
-its instructions are built, and how each `>>` checks the fit. The other
+its instructions are built, and how each join checks the fit. The other
 terms are those of the [README](../README.md#terms).
 
 ## Terms
@@ -46,7 +46,7 @@ a part's hot path, as a struct literal with those opcodes
 
 ## The fit
 
-Each `>>` checks that every instruction the part above sends is accepted
+Each join checks that every instruction the part above sends is accepted
 below, with the same blocks, parameters and readouts: matched by what the
 two instructions declare they do, or, where neither declares it, by
 mnemonic between sets of one name, and refused otherwise; the rules, and

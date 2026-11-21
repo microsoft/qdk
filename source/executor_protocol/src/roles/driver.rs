@@ -1,13 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The driver's role at run time, [`Drive`], and what a `drive` returns
-//! when it gives no outputs: [`DriveError`].
+//! The driver's role, [`Driver`], and what a `drive` returns when it gives
+//! no outputs: [`DriveError`].
 
 use std::error::Error;
 use std::fmt;
 
-use crate::{DriverSetup, Execute, ExecuteError, Failure, NotReady, Seed, ShotId, ShotSet};
+use crate::composition::chain_check::ChainCheck;
+use crate::{
+    ExecuteError, Executor, Failure, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Seed,
+    ShotId, ShotSet,
+};
 
 /// Calls the part below with batches of the instructions it sends, each
 /// with its shots, and the seed, and makes each shot's output from the
@@ -21,15 +25,56 @@ use crate::{DriverSetup, Execute, ExecuteError, Failure, NotReady, Seed, ShotId,
 /// It is the part at the top of a chain, and the one a runner runs shots
 /// on.
 ///
-/// This is the driver at run time: the runner calls it on every run,
-/// starting with [`ready`](Self::ready), once `>>` has set it up as a
-/// [`DriverSetup`].
-pub trait Drive: DriverSetup {
+/// # Declarations
+///
+/// The joins ([`DriverJoins`](crate::DriverJoins)) read them once, before
+/// any run: [`name`](Self::name), [`sends`](Self::sends) and
+/// [`needs`](Self::needs). The join to the part below hands back what it
+/// made of them: [`bind`](Self::bind) gets the fit's opcode map. A join
+/// only decides, from what the parts declare; what prepares a part to run
+/// belongs to each run.
+///
+/// Its instruction set and its needs must not change once it is joined:
+/// the fit, `bind`'s map and the admission are made once, from them, and
+/// each part below gets ready, on every run, for the needs read then.
+///
+/// # Run
+///
+/// On every run of the runner that
+/// [`on`](crate::DriverJoins::on) makes, the runner gets it ready
+/// ([`ready`](Self::ready)), then runs the shots on it
+/// ([`drive`](Self::drive)).
+pub trait Driver {
     /// What a run gives for each shot.
     type Output;
 
-    /// As [`Execute::ready`], asked last; a driver knows its own needs, so
-    /// it gets none.
+    /// As [`Executor::name`].
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
+
+    /// The instructions it sends, which must fit the part below.
+    fn sends(&self) -> &InstructionSet;
+
+    /// What its shots need of the chain below, such as their qubits, which
+    /// the offer below it must meet, and, adapted by each adapter, the
+    /// offer of each part further below. The
+    /// [`on`](crate::DriverJoins::on) that makes a runner reads it once.
+    fn needs(&self) -> Needs;
+
+    /// Receives, once, the translation of its opcodes into the part
+    /// below's. An opcode is an instruction's place in its set, and the
+    /// part below may number the same instructions differently, so every
+    /// instruction it sends must carry the receiver's opcode,
+    /// `below.map(opcode)`: an untranslated one names whatever instruction
+    /// the receiver has at that place. The join to the part below calls it
+    /// once, after the fit and before any run; a driver rewrites its
+    /// prebuilt instructions then, or keeps the map to translate each one
+    /// it sends.
+    fn bind(&mut self, below: OpcodeMap);
+
+    /// As [`Executor::ready`], asked last; a driver knows its own needs,
+    /// so it gets none.
     fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
         async { Ok(()) }
     }
@@ -52,7 +97,7 @@ pub trait Drive: DriverSetup {
     ///
     /// Once `drive` returns, fails or panics, or its run's future is
     /// dropped, the runner ends every shot of `shots` on every part below
-    /// ([`Execute::end_shots`]), so a driver need not end them. It may end
+    /// ([`Executor::end_shots`]), so a driver need not end them. It may end
     /// a shot below as soon as that shot ends, to free its state early; the
     /// runner's second end of it does nothing. A part's panic in an end the
     /// driver calls fails the run naming the driver (and in one an adapter
@@ -63,22 +108,42 @@ pub trait Drive: DriverSetup {
     /// A `drive` does its work, calling `below` included, when its future is
     /// first polled, not when it is called, as Rust's futures do by
     /// convention (an `async fn drive`'s does), and as
-    /// [`Execute::execute`] asks of an `execute`: a future dropped before
+    /// [`Executor::execute`] asks of an `execute`: a future dropped before
     /// its first poll has then sent nothing below. It is a rule for
     /// implementers, which the protocol does not check.
     fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> impl Future<Output = Result<Vec<Self::Output>, DriveError>>;
 
-    // Protocol hook: sealed and hidden. Its parameter type, `EndedRun`,
+    // Protocol hooks: sealed and hidden. Their parameter types,
+    // `ChainCheck` (`src/composition/chain_check.rs`) and `EndedRun`,
     // cannot be named outside this crate, so no other crate can call or
-    // override it. It is in the trait because Rust cannot specialise a
-    // default method: the protocol's composed parts (`Composed`, in
-    // `src/composition/composed/`) override it to end each inner adapter's
-    // shots.
+    // override them. They are in the trait because Rust cannot specialise
+    // a default method: the protocol's joined parts (`Composed`, in
+    // `src/composition/composed/`) override them, `check_chain` to add
+    // each inner part's facts, so that a refusal names the inner part that
+    // was short, and to keep the needs and the offer that cross each inner
+    // boundary, and `end_run` to end each inner adapter's shots.
+
+    /// Adds its needs, as this part's, to `chain`, then has the chain
+    /// `below` add its facts for them, and gives the offer that reaches it
+    /// from below. Only the crate overrides it, to add each part it holds,
+    /// with the fit faults of each boundary it holds, top to bottom, and
+    /// to keep the needs and the offer that cross each of them. The
+    /// [`on`](crate::DriverJoins::on) that makes a runner calls it once.
+    #[doc(hidden)]
+    fn check_chain(
+        &mut self,
+        below: &mut dyn FnMut(Needs, &mut ChainCheck) -> Offer,
+        chain: &mut ChainCheck,
+    ) -> Offer {
+        let needs = self.needs();
+        chain.add_needs(Driver::name(self), &needs);
+        below(needs, chain)
+    }
 
     /// Ends the shots of `run`, which ended, on each adapter it holds, top
     /// to bottom; by default it holds none. The runner calls it after every
@@ -91,7 +156,7 @@ pub trait Drive: DriverSetup {
 }
 
 /// A run whose `drive` started and ended, as the runner tells
-/// [`Drive::end_run`]: its shots.
+/// [`Driver::end_run`]: its shots.
 ///
 /// Code outside the crate cannot name it, because this module is private:
 /// so only the crate overrides that method, and every part a driver holds

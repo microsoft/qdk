@@ -13,18 +13,17 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 use std::task::{Context, Waker};
 
+use crate::prelude::*;
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, EndsBelow, Impatient, Later, Log, Misbehaving, Misbehaviour, Panics,
     PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Renamed, in_each_bracketing,
 };
-use crate::{
-    Adapter, Drive, Driver, Execute, Executor, Failure, PartId, RunError, Runner, ShotId, ShotSet,
-};
+use crate::{Failure, PartId, RunError, Runner, ShotId, ShotSet};
 
 use super::runner::{SEED, failed, runner};
 
 /// The panic `runner`'s run of shots 0 to 7 raises, which it must.
-fn raised<D: Drive, E: Execute>(runner: &mut Runner<D, E>) -> Box<dyn Any + Send> {
+fn raised<D: Driver, E: Executor>(runner: &mut Runner<D, E>) -> Box<dyn Any + Send> {
     catch_unwind(AssertUnwindSafe(|| {
         runner
             .run(&ShotSet::ids(0..8), SEED)
@@ -43,10 +42,10 @@ fn a_panic_ending_shots_ends_every_other_part_then_leaves_the_run() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = Driver::new(CoinCopy::new());
-            let a = Adapter::new(PanicsEnding::new(&log));
-            let b = Adapter::new(BitFlip::new(0.3, &log));
-            let e = Executor::new(Bits::new(&log));
+            let d = CoinCopy::new();
+            let a = PanicsEnding::new(&log);
+            let b = BitFlip::new(0.3, &log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let panic = raised(&mut runner(chain));
@@ -88,10 +87,10 @@ fn a_panic_ending_shots_is_named_as_the_part_that_ended_them() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = Driver::new(CoinCopy::new());
-            let a = Adapter::new(PanicsEnding::once(&log));
-            let b = Adapter::new(BitFlip::new(0.3, &log));
-            let e = Executor::new(Bits::new(&log));
+            let d = CoinCopy::new();
+            let a = PanicsEnding::once(&log);
+            let b = BitFlip::new(0.3, &log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let row = format!("ended by the driver, {brackets}");
@@ -102,10 +101,10 @@ fn a_panic_ending_shots_is_named_as_the_part_that_ended_them() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = Driver::new(Program::new(&[("mz", 0)]).not_ending());
-            let a = Adapter::new(EndsBelow::new(&log));
-            let b = Adapter::new(PanicsEnding::once(&log));
-            let e = Executor::new(Bits::new(&log));
+            let d = Program::new(&[("mz", 0)]).not_ending();
+            let a = EndsBelow::new(&log);
+            let b = PanicsEnding::once(&log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let row = format!("ended by an adapter, {brackets}");
@@ -124,10 +123,10 @@ fn a_panic_ending_shots_the_runner_ends_is_raised_from_the_run() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = Driver::new(Program::new(&[("mz", 0)]).not_ending());
-            let a = Adapter::new(PanicsEnding::once(&log));
-            let b = Adapter::new(BitFlip::new(0.3, &log));
-            let e = Executor::new(Bits::new(&log));
+            let d = Program::new(&[("mz", 0)]).not_ending();
+            let a = PanicsEnding::once(&log);
+            let b = BitFlip::new(0.3, &log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let panic = raised(&mut runner(chain));
@@ -145,7 +144,7 @@ fn a_panic_ending_shots_the_runner_ends_is_raised_from_the_run() {
 /// The run of shots 0 to 7 on `runner`, whose future is dropped once its
 /// first poll leaves it pending, by the caller's own panic if
 /// `by_a_panic`: the panic that leaves the drop, which it must.
-fn dropped_unfinished<D: Drive, E: Execute>(
+fn dropped_unfinished<D: Driver, E: Executor>(
     runner: &mut Runner<D, E>,
     by_a_panic: bool,
 ) -> Box<dyn Any + Send> {
@@ -174,16 +173,14 @@ fn dropped_unfinished<D: Drive, E: Execute>(
 fn a_run_dropped_by_a_panic_ends_its_shots_and_keeps_that_panic() {
     let ending = Log::default();
     let mut panics_ending = runner(
-        Driver::new(CoinCopy::new())
-            >> Adapter::new(BitFlip::new(0.3, &ending))
-            >> Adapter::new(PanicsEnding::new(&ending))
-            >> Executor::new(Later(Bits::new(&ending))),
+        CoinCopy::new()
+            .through(BitFlip::new(0.3, &ending))
+            .through(PanicsEnding::new(&ending))
+            .on(Later(Bits::new(&ending))),
     );
     let dropping = Log::default();
-    let mut panics_in_drop = runner(
-        Driver::new(CoinCopy::new())
-            >> Executor::new(PanicsInDrop::new(Later(Bits::new(&dropping)), true)),
-    );
+    let mut panics_in_drop =
+        runner(CoinCopy::new().on(PanicsInDrop::new(Later(Bits::new(&dropping)), true)));
     for (row, panic, log, ended) in [
         (
             "a part panicking ending shots",
@@ -219,15 +216,13 @@ fn a_run_dropped_by_a_panic_ends_its_shots_and_keeps_that_panic() {
 fn a_run_dropped_unfinished_raises_a_parts_panic_from_the_drop() {
     let ending = Log::default();
     let mut panics_ending = runner(
-        Driver::new(CoinCopy::new())
-            >> Adapter::new(PanicsEnding::new(&ending))
-            >> Executor::new(Later(Bits::new(&ending))),
+        CoinCopy::new()
+            .through(PanicsEnding::new(&ending))
+            .on(Later(Bits::new(&ending))),
     );
     let dropping = Log::default();
-    let mut panics_in_drop = runner(
-        Driver::new(CoinCopy::new())
-            >> Executor::new(PanicsInDrop::new(Later(Bits::new(&dropping)), true)),
-    );
+    let mut panics_in_drop =
+        runner(CoinCopy::new().on(PanicsInDrop::new(Later(Bits::new(&dropping)), true)));
     for (row, panic, log, message) in [
         (
             "a part panicking ending shots",
@@ -255,10 +250,10 @@ fn of_two_panics_ending_shots_the_first_is_raised() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = Driver::new(CoinCopy::new());
-            let a = Adapter::new(PanicsEnding::saying("first", &log));
-            let b = Adapter::new(PanicsEnding::saying("second", &log));
-            let e = Executor::new(Bits::new(&log));
+            let d = CoinCopy::new();
+            let a = PanicsEnding::saying("first", &log);
+            let b = PanicsEnding::saying("second", &log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let panic = raised(&mut runner(chain));
@@ -276,7 +271,7 @@ fn of_two_panics_ending_shots_the_first_is_raised() {
 #[test]
 fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
     let shots = ShotSet::ids([3, 1]);
-    let program = || Driver::new(Program::new(&[("mz", 0)]));
+    let program = || Program::new(&[("mz", 0)]);
     let panics = PartId::new(1, type_name::<Panics>());
     let polled = Some("the part broke while it was polled");
     for (when, message) in [
@@ -286,11 +281,10 @@ fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
         ),
         (PanicsWhen::Polled, polled),
     ] {
-        let run = runner(program() >> Executor::new(Panics(when))).run(&shots, SEED);
+        let run = runner(program().on(Panics(when))).run(&shots, SEED);
         names_the_panic("an executor", run, &panics, message);
         let log = Log::default();
-        let run =
-            runner(Driver::new(Panics(when)) >> Executor::new(Bits::new(&log))).run(&shots, SEED);
+        let run = runner(Panics(when).on(Bits::new(&log))).run(&shots, SEED);
         let driver = PartId::new(0, type_name::<Panics>());
         names_the_panic("a driver", run, &driver, message);
     }
@@ -300,8 +294,8 @@ fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
             let d = program();
-            let a = Adapter::new(Profiler::new(&counted, &log));
-            let e = Executor::new(Panics(PanicsWhen::Polled));
+            let a = Profiler::new(&counted, &log);
+            let e = Panics(PanicsWhen::Polled);
         },
         |chain, brackets| {
             let row = format!("an executor below a profiler, {brackets}");
@@ -313,9 +307,9 @@ fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
         [d, a, e] from {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
-            let d = Driver::new(Panics(PanicsWhen::Polled));
-            let a = Adapter::new(Profiler::new(&counted, &log));
-            let e = Executor::new(Bits::new(&log));
+            let d = Panics(PanicsWhen::Polled);
+            let a = Profiler::new(&counted, &log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let row = format!("a driver above a profiler, {brackets}");
@@ -336,8 +330,8 @@ fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
             [d, a, e] from {
                 let log = Log::default();
                 let d = program();
-                let a = Adapter::new(Misbehaving::new(misbehaviour));
-                let e = Executor::new(Bits::new(&log));
+                let a = Misbehaving::new(misbehaviour);
+                let e = Bits::new(&log);
             },
             |chain, brackets| {
                 let row = format!("an adapter panicking with {what}, {brackets}");
@@ -350,9 +344,9 @@ fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
             let d = program();
-            let a = Adapter::new(Misbehaving::new(Misbehaviour::PanicsWithAString));
-            let b = Adapter::new(Profiler::new(&counted, &log));
-            let e = Executor::new(Bits::new(&log));
+            let a = Misbehaving::new(Misbehaviour::PanicsWithAString);
+            let b = Profiler::new(&counted, &log);
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let row = format!("an adapter above a profiler, {brackets}");
@@ -389,13 +383,10 @@ fn a_panic_names_the_part_by_its_name() {
     let log = Log::default();
     let shots = ShotSet::ids([9, 1]);
     let mut executor = runner(
-        Driver::new(Program::new(&[("mz", 0)]))
-            >> Executor::new(Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")),
+        Program::new(&[("mz", 0)]).on(Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")),
     );
-    let mut driver = runner(
-        Driver::new(Renamed::new(Panics(PanicsWhen::Polled), "h2 program"))
-            >> Executor::new(Bits::new(&log)),
-    );
+    let mut driver =
+        runner(Renamed::new(Panics(PanicsWhen::Polled), "h2 program").on(Bits::new(&log)));
     for (runner_name, error, position, name) in [
         (
             "executor",
@@ -424,13 +415,13 @@ fn a_panic_tells_two_parts_of_one_name_apart_by_position() {
         [d, a, b, e] from {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
-            let d = Driver::new(Program::new(&[("mz", 0)]));
-            let a = Adapter::new(Renamed::new(Profiler::new(&counted, &log), "decoder"));
-            let b = Adapter::new(Renamed::new(
+            let d = Program::new(&[("mz", 0)]);
+            let a = Renamed::new(Profiler::new(&counted, &log), "decoder");
+            let b = Renamed::new(
                 Misbehaving::new(Misbehaviour::PanicsWithAString),
                 "decoder",
-            ));
-            let e = Executor::new(Bits::new(&log));
+            );
+            let e = Bits::new(&log);
         },
         |chain, brackets| {
             let error = failed(runner(chain).run(&ShotSet::ids([3, 1]), SEED));
@@ -453,9 +444,9 @@ fn a_run_failed_by_a_drivers_panic_ends_its_shots() {
         in_each_bracketing!(
             [d, a, e] from {
                 let log = Log::default();
-                let d = Driver::new(Panics(when));
-                let a = Adapter::new(BitFlip::new(0.0, &log));
-                let e = Executor::new(Bits::new(&log));
+                let d = Panics(when);
+                let a = BitFlip::new(0.0, &log);
+                let e = Bits::new(&log);
             },
             |chain, brackets| {
                 failed(runner(chain).run(&ShotSet::ids([9, 1]), SEED));
@@ -469,10 +460,10 @@ fn a_run_failed_by_a_drivers_panic_ends_its_shots() {
 /// A program, over a profiler, over a noise, over bits, each a part whose
 /// futures may panic once dropped.
 type DropChain = (
-    Driver<PanicsInDrop<Program>>,
-    Adapter<PanicsInDrop<Profiler>>,
-    Adapter<PanicsInDrop<BitFlip>>,
-    Executor<PanicsInDrop<Bits>>,
+    PanicsInDrop<Program>,
+    PanicsInDrop<Profiler>,
+    PanicsInDrop<BitFlip>,
+    PanicsInDrop<Bits>,
 );
 
 /// The parts of a [`DropChain`], whose part at position `armed` panics in
@@ -480,10 +471,10 @@ type DropChain = (
 fn drop_chain(armed: usize, log: &Log) -> DropChain {
     let counted = Rc::new(Cell::new(0));
     (
-        Driver::new(PanicsInDrop::new(Program::new(&[("mz", 0)]), armed == 0)),
-        Adapter::new(PanicsInDrop::new(Profiler::new(&counted, log), armed == 1)),
-        Adapter::new(PanicsInDrop::new(BitFlip::new(0.0, log), armed == 2)),
-        Executor::new(PanicsInDrop::new(Bits::new(log), armed == 3)),
+        PanicsInDrop::new(Program::new(&[("mz", 0)]), armed == 0),
+        PanicsInDrop::new(Profiler::new(&counted, log), armed == 1),
+        PanicsInDrop::new(BitFlip::new(0.0, log), armed == 2),
+        PanicsInDrop::new(Bits::new(log), armed == 3),
     )
 }
 
@@ -533,9 +524,9 @@ fn a_panic_dropping_a_future_a_part_above_stopped_waiting_for_names_that_part() 
     in_each_bracketing!(
         [d, a, e] from {
             let log = Log::default();
-            let d = Driver::new(Program::new(&[("mz", 0)]));
-            let a = Adapter::new(Impatient::new(&log));
-            let e = Executor::new(PanicsInDrop::new(Later(Bits::new(&log)), true));
+            let d = Program::new(&[("mz", 0)]);
+            let a = Impatient::new(&log);
+            let e = PanicsInDrop::new(Later(Bits::new(&log)), true);
         },
         |chain, brackets| {
             let error = failed(runner(chain).run(&ShotSet::ids([3, 1]), SEED));
@@ -555,11 +546,11 @@ fn a_panic_dropping_a_future_a_part_above_stopped_waiting_for_names_that_part() 
 /// A program, over a profiler, over two noises, over bits, each a part
 /// whose futures may panic when polled, and again when dropped.
 type CompoundChain = (
-    Driver<PanicsInDrop<Program>>,
-    Adapter<PanicsInDrop<Profiler>>,
-    Adapter<PanicsInDrop<BitFlip>>,
-    Adapter<PanicsInDrop<BitFlip>>,
-    Executor<PanicsInDrop<Bits>>,
+    PanicsInDrop<Program>,
+    PanicsInDrop<Profiler>,
+    PanicsInDrop<BitFlip>,
+    PanicsInDrop<BitFlip>,
+    PanicsInDrop<Bits>,
 );
 
 /// The parts of a [`CompoundChain`], whose part at position `armed`
@@ -567,17 +558,11 @@ type CompoundChain = (
 fn compound_chain(armed: usize, log: &Log) -> CompoundChain {
     let counted = Rc::new(Cell::new(0));
     (
-        Driver::new(PanicsInDrop::polled_too(
-            Program::new(&[("mz", 0)]),
-            armed == 0,
-        )),
-        Adapter::new(PanicsInDrop::polled_too(
-            Profiler::new(&counted, log),
-            armed == 1,
-        )),
-        Adapter::new(PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 2)),
-        Adapter::new(PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 3)),
-        Executor::new(PanicsInDrop::polled_too(Bits::new(log), armed == 4)),
+        PanicsInDrop::polled_too(Program::new(&[("mz", 0)]), armed == 0),
+        PanicsInDrop::polled_too(Profiler::new(&counted, log), armed == 1),
+        PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 2),
+        PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 3),
+        PanicsInDrop::polled_too(Bits::new(log), armed == 4),
     )
 }
 
@@ -629,13 +614,13 @@ fn a_panic_in_ready_polled_then_dropped_is_raised_with_its_first_message() {
         in_each_bracketing!(
             [d, a, b, e] from {
                 let log = Log::default();
-                let d = Driver::new(PanicsInDrop::in_ready(
+                let d = PanicsInDrop::in_ready(
                     Program::new(&[("mz", 0)]),
                     armed == 0,
-                ));
-                let a = Adapter::new(PanicsInDrop::in_ready(BitFlip::new(0.0, &log), armed == 1));
-                let b = Adapter::new(PanicsInDrop::in_ready(BitFlip::new(0.0, &log), armed == 2));
-                let e = Executor::new(PanicsInDrop::in_ready(Bits::new(&log), armed == 3));
+                );
+                let a = PanicsInDrop::in_ready(BitFlip::new(0.0, &log), armed == 1);
+                let b = PanicsInDrop::in_ready(BitFlip::new(0.0, &log), armed == 2);
+                let e = PanicsInDrop::in_ready(Bits::new(&log), armed == 3);
             },
             |chain, brackets| {
                 let mut runner = runner(chain);

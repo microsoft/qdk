@@ -7,7 +7,8 @@
 
 use std::hint::black_box;
 
-use executor_protocol::{Adapter, Driver, Execute, Executor, Instruction, Offer};
+use executor_protocol::prelude::*;
+use executor_protocol::{Instruction, Offer};
 
 use crate::Size;
 use crate::parts::{
@@ -63,11 +64,11 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
 pub(crate) enum Chain {
     /// The driver calls the executor itself, past the protocol: the baseline.
     Direct,
-    /// `Driver >> Executor`: one boundary.
+    /// A driver on an executor: one boundary.
     Bare,
-    /// `Driver >> Adapter >> Executor`, an adapter that forwards.
+    /// A driver through an adapter that forwards, on an executor.
     OneAdapter,
-    /// `Driver >> Adapter >> Adapter >> Executor`, both forwarding.
+    /// A driver through two adapters, both forwarding, on an executor.
     TwoAdapters,
     /// `Bare`, with the executor offering `max_instructions` this many.
     Limited(u32),
@@ -94,24 +95,20 @@ pub(crate) fn run_chain(
 }
 
 /// Runs `in_batches` down `chain`, over `executor`.
-fn send_down<E: Execute>(chain: Chain, in_batches: ProgramInBatches<'_>, executor: E) -> Received {
+fn send_down<E: Executor>(chain: Chain, in_batches: ProgramInBatches<'_>, executor: E) -> Received {
     match chain {
         Chain::Direct => {
             // The chain's executor is sent no batch: `Direct` sends past it.
             let unused = Profiler::new(Offer::unlimited());
-            run_once(Driver::new(Direct(in_batches, executor)) >> Executor::new(unused))
+            run_once(Direct(in_batches, executor).on(unused))
         }
-        Chain::Bare | Chain::Limited(_) => {
-            run_once(Driver::new(in_batches) >> Executor::new(executor))
-        }
-        Chain::OneAdapter => run_once(
-            Driver::new(in_batches) >> Adapter::new(Forward::new()) >> Executor::new(executor),
-        ),
+        Chain::Bare | Chain::Limited(_) => run_once(in_batches.on(executor)),
+        Chain::OneAdapter => run_once(in_batches.through(Forward::new()).on(executor)),
         Chain::TwoAdapters => run_once(
-            Driver::new(in_batches)
-                >> Adapter::new(Forward::new())
-                >> Adapter::new(Forward::new())
-                >> Executor::new(executor),
+            in_batches
+                .through(Forward::new())
+                .through(Forward::new())
+                .on(executor),
         ),
     }
 }

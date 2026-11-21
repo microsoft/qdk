@@ -7,9 +7,10 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use crate::prelude::*;
 use crate::{
-    Adapt, AdapterSetup, Batch, BatchReadouts, Drive, DriveError, DriverSetup, Execute,
-    ExecuteError, ExecutorSetup, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Seed, ShotSet,
+    Batch, BatchReadouts, DriveError, ExecuteError, InstructionSet, Needs, NotReady, Offer,
+    OpcodeMap, Seed, ShotSet,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
@@ -92,7 +93,7 @@ impl<F> Drop for Dropping<F> {
     }
 }
 
-impl<P: DriverSetup> DriverSetup for PanicsInDrop<P> {
+impl<P: Driver> Driver for PanicsInDrop<P> {
     fn name(&self) -> &str {
         self.part.name()
     }
@@ -108,9 +109,7 @@ impl<P: DriverSetup> DriverSetup for PanicsInDrop<P> {
     fn needs(&self) -> Needs {
         self.part.needs()
     }
-}
 
-impl<P: Drive> Drive for PanicsInDrop<P> {
     type Output = P::Output;
 
     fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
@@ -121,7 +120,7 @@ impl<P: Drive> Drive for PanicsInDrop<P> {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
     ) -> impl Future<Output = Result<Vec<P::Output>, DriveError>> {
         let future = self.part.drive(shots, seed, below);
         Dropping {
@@ -132,7 +131,7 @@ impl<P: Drive> Drive for PanicsInDrop<P> {
     }
 }
 
-impl<P: AdapterSetup> AdapterSetup for PanicsInDrop<P> {
+impl<P: Adapter> Adapter for PanicsInDrop<P> {
     fn name(&self) -> &str {
         self.part.name()
     }
@@ -156,9 +155,7 @@ impl<P: AdapterSetup> AdapterSetup for PanicsInDrop<P> {
     fn offers_above(&self, below: Offer) -> Offer {
         self.part.offers_above(below)
     }
-}
 
-impl<P: Adapt> Adapt for PanicsInDrop<P> {
     fn ready(&mut self, above: &Needs) -> impl Future<Output = Result<(), NotReady>> {
         Self::readying(self.in_ready, self.part.ready(above))
     }
@@ -167,7 +164,7 @@ impl<P: Adapt> Adapt for PanicsInDrop<P> {
         &mut self,
         batches: &[Batch<'_>],
         seed: Seed,
-        below: &mut impl Execute,
+        below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         let future = self.part.adapt(batches, seed, below, readouts);
@@ -183,7 +180,7 @@ impl<P: Adapt> Adapt for PanicsInDrop<P> {
     }
 }
 
-impl<P: ExecutorSetup> ExecutorSetup for PanicsInDrop<P> {
+impl<P: Executor> Executor for PanicsInDrop<P> {
     fn name(&self) -> &str {
         self.part.name()
     }
@@ -195,9 +192,7 @@ impl<P: ExecutorSetup> ExecutorSetup for PanicsInDrop<P> {
     fn offers(&self) -> Offer {
         self.part.offers()
     }
-}
 
-impl<P: Execute> Execute for PanicsInDrop<P> {
     fn ready(&mut self, needs: &Needs) -> impl Future<Output = Result<(), NotReady>> {
         Self::readying(self.in_ready, self.part.ready(needs))
     }

@@ -8,15 +8,16 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use crate::prelude::*;
 use crate::tests::fake_parts::{Bits, CoinCopy, Log, Offering, Profiler, in_each_bracketing};
-use crate::{Adapter, Drive, Driver, Execute, Executor, Offer, RunRefusal, Runner, ShotSet};
+use crate::{Offer, RunRefusal, Runner, ShotSet};
 
 use super::{SEED, bits_asked, refused, runner};
 
 /// Runs one shot more than `most` on `runner`, refused before any part is
 /// asked or runs, then `most` shots, a record each: a row of
 /// [`a_run_of_more_shots_than_its_chain_takes_is_refused`], named `row`.
-fn takes_at_most<D: Drive<Output: std::fmt::Debug>, E: Execute>(
+fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     row: &str,
     mut runner: Runner<D, E>,
     most: u32,
@@ -46,33 +47,33 @@ fn a_run_of_more_shots_than_its_chain_takes_is_refused() {
     let log = Log::default();
     let bits = |most| {
         let offer = Offer::unlimited().max_qubits(64).max_shots(most);
-        Executor::new(Bits::new(&log).offering(offer))
+        Bits::new(&log).offering(offer)
     };
     // An executor running 4 shots at most.
-    let alone = runner(Driver::new(CoinCopy::new()) >> bits(4));
+    let alone = runner(CoinCopy::new().on(bits(4)));
     takes_at_most("the executor alone", alone, 4, &log);
     // Bits under a job queue of 4 shots at most: the queue's limit holds
     // wherever the brackets go.
     in_each_bracketing!([d, queue, e] from {
-        let d = Driver::new(CoinCopy::new());
-        let queue = Adapter::new(Offering::queue(4, &log));
-        let e = Executor::new(Bits::new(&log));
+        let d = CoinCopy::new();
+        let queue = Offering::queue(4, &log);
+        let e = Bits::new(&log);
     }, |chain, brackets| {
         takes_at_most(&format!("under a queue, {brackets}"), runner(chain), 4, &log);
     });
     // Bits running 1 shot at most, under a decoder that restates its offer
     // with no shot limit, or with a limit of 4: the bits' limit still holds.
     in_each_bracketing!([d, decoder, e] from {
-        let d = Driver::new(CoinCopy::new());
-        let decoder = Adapter::new(Offering::restating(64, &log));
+        let d = CoinCopy::new();
+        let decoder = Offering::restating(64, &log);
         let e = bits(1);
     }, |chain, brackets| {
         let row = format!("a decoder with no limit, {brackets}");
         takes_at_most(&row, runner(chain), 1, &log);
     });
     in_each_bracketing!([d, decoder, e] from {
-        let d = Driver::new(CoinCopy::new());
-        let decoder = Adapter::new(Offering::restating_most_shots(64, 4, &log));
+        let d = CoinCopy::new();
+        let decoder = Offering::restating_most_shots(64, 4, &log);
         let e = bits(1);
     }, |chain, brackets| {
         let row = format!("a decoder raising the limit, {brackets}");
@@ -81,8 +82,8 @@ fn a_run_of_more_shots_than_its_chain_takes_is_refused() {
     // Bits running 8 shots at most, under a decoder that restates its offer
     // with a limit of 4: the decoder's lower limit holds.
     in_each_bracketing!([d, decoder, e] from {
-        let d = Driver::new(CoinCopy::new());
-        let decoder = Adapter::new(Offering::restating_most_shots(64, 4, &log));
+        let d = CoinCopy::new();
+        let decoder = Offering::restating_most_shots(64, 4, &log);
         let e = bits(8);
     }, |chain, brackets| {
         let row = format!("a decoder lowering the limit, {brackets}");
@@ -92,9 +93,9 @@ fn a_run_of_more_shots_than_its_chain_takes_is_refused() {
     // that restates its offer with no shot limit: the queue's limit, though
     // neither the executor's nor the one reaching the driver, holds.
     in_each_bracketing!([d, decoder, queue, e] from {
-        let d = Driver::new(CoinCopy::new());
-        let decoder = Adapter::new(Offering::restating(64, &log));
-        let queue = Adapter::new(Offering::queue(4, &log));
+        let d = CoinCopy::new();
+        let decoder = Offering::restating(64, &log);
+        let queue = Offering::queue(4, &log);
         let e = bits(8);
     }, |chain, brackets| {
         let row = format!("a queue under a decoder, {brackets}");
@@ -105,7 +106,7 @@ fn a_run_of_more_shots_than_its_chain_takes_is_refused() {
 /// Runs `shots` shots with a seed on `runner`, refused before any part is
 /// asked or runs, then with no seed: a row of
 /// [`a_seeded_run_is_refused_unless_every_part_is_seedable`], named `row`.
-fn refuses_a_seed<D: Drive<Output: std::fmt::Debug>, E: Execute>(
+fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     row: &str,
     mut runner: Runner<D, E>,
     shots: u32,
@@ -136,16 +137,16 @@ fn a_seeded_run_is_refused_unless_every_part_is_seedable() {
     let counted = Rc::new(Cell::new(0));
     let unseedable_bits = || {
         let offer = Offer::unlimited().max_qubits(64).not_seedable();
-        Executor::new(Bits::new(&log).offering(offer))
+        Bits::new(&log).offering(offer)
     };
     // An executor that cannot be seeded.
-    let alone = runner(Driver::new(CoinCopy::new()) >> unseedable_bits());
+    let alone = runner(CoinCopy::new().on(unseedable_bits()));
     refuses_a_seed("the executor alone", alone, 4, &log);
     // Bits that cannot be seeded, under a decoder that restates its offer
     // as seedable: the bits' seedability still holds.
     in_each_bracketing!([d, decoder, e] from {
-        let d = Driver::new(CoinCopy::new());
-        let decoder = Adapter::new(Offering::restating(64, &log));
+        let d = CoinCopy::new();
+        let decoder = Offering::restating(64, &log);
         let e = unseedable_bits();
     }, |chain, brackets| {
         let row = format!("a decoder over bits, {brackets}");
@@ -153,10 +154,10 @@ fn a_seeded_run_is_refused_unless_every_part_is_seedable() {
     });
     // Seedable bits under a link that cannot be seeded, under a profiler.
     in_each_bracketing!([d, profiler, link, e] from {
-        let d = Driver::new(CoinCopy::new());
-        let profiler = Adapter::new(Profiler::new(&counted, &log));
-        let link = Adapter::new(Offering::unseedable(&log));
-        let e = Executor::new(Bits::new(&log));
+        let d = CoinCopy::new();
+        let profiler = Profiler::new(&counted, &log);
+        let link = Offering::unseedable(&log);
+        let e = Bits::new(&log);
     }, |chain, brackets| {
         let row = format!("a link under a profiler, {brackets}");
         refuses_a_seed(&row, runner(chain), 2, &log);
@@ -165,10 +166,10 @@ fn a_seeded_run_is_refused_unless_every_part_is_seedable() {
     // that restates its offer as seedable: the link's seedability, though
     // neither the executor's nor the one reaching the driver, holds.
     in_each_bracketing!([d, decoder, link, e] from {
-        let d = Driver::new(CoinCopy::new());
-        let decoder = Adapter::new(Offering::restating(64, &log));
-        let link = Adapter::new(Offering::unseedable(&log));
-        let e = Executor::new(Bits::new(&log));
+        let d = CoinCopy::new();
+        let decoder = Offering::restating(64, &log);
+        let link = Offering::unseedable(&log);
+        let e = Bits::new(&log);
     }, |chain, brackets| {
         let row = format!("a link under a decoder, {brackets}");
         refuses_a_seed(&row, runner(chain), 2, &log);

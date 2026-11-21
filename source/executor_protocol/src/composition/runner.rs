@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Running shots on a chain: the [`Runner`], which only the `>>` of a
-//! driver with an executor makes, and what a run returns when it gives no
-//! outputs, [`RunError`].
+//! Running shots on a chain: the [`Runner`], which only the
+//! [`on`](crate::DriverJoins::on) of a driver with an executor makes, and
+//! what a run returns when it gives no outputs, [`RunError`].
 //!
-//! A runner holds a chain that composed: its boundaries fit, and its
+//! A runner holds a chain that joined: its boundaries fit, and its
 //! executor serves its driver's needs. Each run checks what only a run can:
 //! its shots against the most shots a run may have, and its seed against
 //! whether the chain is seedable, both by every part's offer
@@ -24,62 +24,56 @@ mod run_limits;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod wait;
 
-use super::boundary_crossing::{BatchLimits, BoundaryCrossing};
+use super::boundary_crossing::{BoundaryCrossing, Crossing};
 use super::part_panics::{await_part, catch_panic, end_both};
 use crate::roles::EndedRun;
-use crate::{Drive, DriveError, Execute, Failure, Needs, Offer, PartId, Seed, ShotSet};
+use crate::{DriveError, Driver, Executor, Failure, PartId, Seed, ShotSet};
 
 pub use run_error::{RunError, RunRefusal};
 pub(crate) use run_limits::RunLimits;
 
-/// A driver and an executor, composed by `>>` with any adapters between
-/// them, and admitted: what runs shots.
+/// A driver and an executor, joined by [`on`](crate::DriverJoins::on)
+/// with any adapters between them, and admitted: what runs shots.
 ///
-/// Its type names the two parts the last `>>` joined, such as
-/// `Runner<Composed<D, A>, E>`. It has no constructor: only `Driver >>
-/// Executor` makes one, so that every runner's chain composed.
-pub struct Runner<D: Drive, E: Execute> {
+/// Its type names the driver and the executor `on` joined. It has no
+/// constructor: only `on` makes one, so that every runner's chain joined.
+/// A joined part's type cannot be named, so code that keeps the runner of
+/// a chain with adapters is generic over its type.
+pub struct Runner<D: Driver, E: Executor> {
     driver: D,
     executor: E,
-    /// The driver's top part, as the admission listed it: what its panic
+    /// The driver's top part, as the chain's check added it: what its panic
     /// names.
     driver_part: PartId,
-    /// The executor's top part, as the admission listed it: what its panic
-    /// in an `execute` names.
-    executor_part: PartId,
+    /// What crosses the boundary between the driver and the executor, as
+    /// the chain's check found it: the executor's top part, which its
+    /// panic in an `execute` names; the needs that reach it, which it gets
+    /// ready for on every run; its offer, which the driver's
+    /// `below.offers()` answers; and the limits of the batches the driver
+    /// sends it.
+    crossing: Crossing,
     /// The most shots and whether a seed may be fixed, by every part's
     /// offer, for each run.
     limits: RunLimits,
-    /// The needs that reach the executor, as the admission checked them:
-    /// what it gets ready for on every run.
-    executor_needs: Needs,
-    /// The executor's offer, which the driver's `below.offers()` answers.
-    executor_offer: Offer,
-    /// The limits of the batches the driver sends the executor.
-    batch_limits: BatchLimits,
 }
 
-impl<D: Drive, E: Execute> Runner<D, E> {
-    /// The runner of `driver` and `executor`, composed and admitted, each
-    /// with its top part as the admission listed it, with the run `limits`
-    /// of every part's offer, and `executor_needs` and `executor_offer`,
-    /// all as the admission read them.
+impl<D: Driver, E: Executor> Runner<D, E> {
+    /// The runner of `driver`, with its top part as the chain's check
+    /// added it, and `executor`, with what `crossing` says crosses the
+    /// boundary between them, and the run `limits` of every part's offer,
+    /// as the check concluded them.
     pub(crate) fn new(
         (driver, driver_part): (D, PartId),
-        (executor, executor_part): (E, PartId),
+        executor: E,
+        crossing: Crossing,
         limits: RunLimits,
-        (executor_needs, executor_offer): (Needs, Offer),
-        batch_limits: BatchLimits,
     ) -> Self {
         Self {
             driver,
             executor,
             driver_part,
-            executor_part,
+            crossing,
             limits,
-            executor_needs,
-            executor_offer,
-            batch_limits,
         }
     }
 
@@ -99,7 +93,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
 
     /// Runs `shots` with `seed`, as a future, for a caller that is already
     /// async: the driver's outputs, as it gives them, which
-    /// [`Drive::drive`]'s rule makes one per shot, in the order of `shots`;
+    /// [`Driver::drive`]'s rule makes one per shot, in the order of `shots`;
     /// the runner does not check their count or order.
     ///
     /// A `Some` seed gives the same outputs each time. `None` draws a seed
@@ -184,10 +178,10 @@ impl<D: Drive, E: Execute> Runner<D, E> {
             if seed.is_some() && !self.limits.seedable {
                 return Err(RunError::Refused(RunRefusal::NotSeedable));
             }
-            await_part(self.executor.ready(&self.executor_needs))
+            await_part(self.executor.ready(&self.crossing.needs))
                 .await
                 .map_err(|not_ready| {
-                    RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.executor_part))
+                    RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.crossing.part))
                 })?;
             await_part(self.driver.ready()).await.map_err(|not_ready| {
                 RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.driver_part))
@@ -198,12 +192,7 @@ impl<D: Drive, E: Execute> Runner<D, E> {
                 executor: &mut self.executor,
                 shots,
             };
-            let mut below = BoundaryCrossing::new(
-                &mut *unended.executor,
-                &self.executor_part,
-                &self.executor_offer,
-                &self.batch_limits,
-            );
+            let mut below = BoundaryCrossing::new(&mut *unended.executor, &self.crossing);
             let driver = &mut *unended.driver;
             let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
                 Ok(Ok(outputs)) => {
@@ -227,16 +216,16 @@ impl<D: Drive, E: Execute> Runner<D, E> {
 
 /// The shots of a run whose `drive` started, which any part may hold:
 /// dropped once the run ends, whether it gave outputs, failed, or its
-/// future was dropped, it ends them on every part, as [`Drive::end_run`]
+/// future was dropped, it ends them on every part, as [`Driver::end_run`]
 /// says, then on the executor. One end for the three, so that freeing a
 /// run's shots never depends on the driver.
-struct UnendedShots<'a, D: Drive, E: Execute> {
+struct UnendedShots<'a, D: Driver, E: Executor> {
     driver: &'a mut D,
     executor: &'a mut E,
     shots: &'a ShotSet,
 }
 
-impl<D: Drive, E: Execute> Drop for UnendedShots<'_, D, E> {
+impl<D: Driver, E: Executor> Drop for UnendedShots<'_, D, E> {
     fn drop(&mut self) {
         let shots = self.shots;
         end_both(

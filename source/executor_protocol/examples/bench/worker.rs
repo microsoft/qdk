@@ -4,7 +4,8 @@
 //! An executor that answers from a worker thread: the time of a call,
 //! which includes copying its batches to the worker.
 
-use executor_protocol::{Driver, Executor, Instruction, Offer};
+use executor_protocol::prelude::*;
+use executor_protocol::{Instruction, Offer};
 
 use crate::Size;
 use crate::parts::{
@@ -47,7 +48,7 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
                 ProgramInBatches::new(MixGates::set(), program, &slots, QUBITS, batch)
                     .checked_if(checked);
             in_batches.timed = true;
-            let received = run_once(Driver::new(in_batches) >> Executor::new(&mut worker));
+            let received = run_once(in_batches.on(&mut worker));
             assert_eq!(worker.finish(), expected, "the worker counted the program");
             received.call_times
         });
@@ -57,7 +58,7 @@ pub(crate) fn bench(size: &Size, program: &[Instruction], checked: bool) {
                 ProgramInBatches::new(MixGates::set(), program, &slots, QUBITS, batch)
                     .checked_if(checked);
             in_batches.timed = true;
-            let received = run_once(Driver::new(in_batches) >> Executor::new(&mut profiler));
+            let received = run_once(in_batches.on(&mut profiler));
             assert_eq!(
                 profiler.profile, expected,
                 "the profiler counted the program"

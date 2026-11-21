@@ -26,7 +26,7 @@ use crate::{Instruction, InstructionFault, InstructionSet, Needs, Offer};
 #[derive(Clone, Debug)]
 pub(crate) struct BatchLimits {
     /// The receiver's set, as read when the limits were built, by the
-    /// `>>` that makes the runner, whatever the receiver answers later.
+    /// `on` that makes the runner, whatever the receiver answers later.
     set: InstructionSet,
     /// The most instructions one batch may hold, if the receiver says.
     max_instructions: Option<u32>,
@@ -40,15 +40,16 @@ impl BatchLimits {
     /// whose offer is `offer`, by a part whose shots need `needs`: the
     /// receiver's most instructions, the blocks of each of its block types,
     /// and whether readout parities may be sent.
-    pub(crate) fn new(receiver: &InstructionSet, offer: &Offer, needs: &Needs) -> Self {
+    pub(crate) fn new(receiver: InstructionSet, offer: &Offer, needs: &Needs) -> Self {
+        let blocks_of = receiver
+            .block_types()
+            .map(|block_type| needs.blocks_of(block_type))
+            .collect();
         Self {
-            set: receiver.clone(),
+            set: receiver,
             max_instructions: offer.max_instructions,
             needs: ReceiverNeeds {
-                blocks_of: receiver
-                    .block_types()
-                    .map(|block_type| needs.blocks_of(block_type))
-                    .collect(),
+                blocks_of,
                 readout_parity: needs.uses_readout_parity,
             },
         }

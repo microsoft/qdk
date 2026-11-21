@@ -8,12 +8,13 @@
 //! the successful run's; the runner's own refusals are in
 //! `run_limits.rs`.
 
+use crate::prelude::*;
 use crate::tests::fake_parts::{
     Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Trap, coin_gates,
 };
 use crate::{
-    Adapter, Batch, BatchReadouts, Driver, Execute, ExecuteError, ExecuteRefusal, Executor,
-    ExecutorSetup, Failure, InstructionSet, Offer, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, InstructionSet, Offer, Seed,
+    ShotId, ShotSet,
 };
 
 use super::{SEED, failed, runner};
@@ -23,9 +24,7 @@ use super::{SEED, failed, runner};
 #[test]
 fn a_failing_shot_ends_the_run_naming_it() {
     let log = Log::default();
-    let mut runner = runner(
-        Driver::new(CoinCopy::new()) >> Adapter::new(Trap::on(5)) >> Executor::new(Bits::new(&log)),
-    );
+    let mut runner = runner(CoinCopy::new().through(Trap::on(5)).on(Bits::new(&log)));
     let error = failed(runner.run(&ShotSet::ids(0..8), SEED));
     assert_eq!(error.shot, ShotId::new(5));
     assert!(
@@ -40,7 +39,7 @@ struct Refuses {
     refusal: ExecuteRefusal,
 }
 
-impl ExecutorSetup for Refuses {
+impl Executor for Refuses {
     fn accepts(&self) -> &InstructionSet {
         coin_gates()
     }
@@ -48,9 +47,7 @@ impl ExecutorSetup for Refuses {
     fn offers(&self) -> Offer {
         Offer::unlimited()
     }
-}
 
-impl Execute for Refuses {
     async fn execute(
         &mut self,
         _batches: &[Batch<'_>],
@@ -71,12 +68,9 @@ fn a_refused_shot_ends_the_run_naming_it() {
         ExecuteRefusal::EarlierFailure(shot),
         ExecuteRefusal::ShotNotHeld(shot),
     ] {
-        let mut runner = runner(
-            measure()
-                >> Executor::new(Refuses {
-                    refusal: refusal.clone(),
-                }),
-        );
+        let mut runner = runner(measure().on(Refuses {
+            refusal: refusal.clone(),
+        }));
         let error = failed(runner.run(&ShotSet::ids(0..4), SEED));
         assert_eq!(error.shot, shot, "{refusal:?}");
         assert!(
@@ -87,8 +81,8 @@ fn a_refused_shot_ends_the_run_naming_it() {
 }
 
 /// The program measuring qubit 0 in one batch.
-fn measure() -> Driver<Program> {
-    Driver::new(Program::new(&[("mz", 0)]))
+fn measure() -> Program {
+    Program::new(&[("mz", 0)])
 }
 
 /// The errors of runs refused or failed, as a user reads them: each
@@ -100,45 +94,42 @@ fn measure() -> Driver<Program> {
 fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
     let log = Log::default();
     let shots = ShotSet::ids(0..8);
-    let bits = |offer: Offer| Executor::new(Bits::new(&log).offering(offer));
-    let coin = || Driver::new(CoinCopy::new());
+    let bits = |offer: Offer| Bits::new(&log).offering(offer);
+    let coin = || CoinCopy::new();
     let limited = Offer::unlimited().max_qubits(64).max_shots(4);
     let unseedable = Offer::unlimited().max_qubits(64).not_seedable();
     for (row, error, said) in [
         (
             "too many shots",
-            runner(coin() >> bits(limited)).run(&shots, SEED).map(drop),
+            runner(coin().on(bits(limited))).run(&shots, SEED).map(drop),
             &["run refused", "8 shots", "at most 4"][..],
         ),
         (
             "a seed the chain cannot take",
-            runner(coin() >> bits(unseedable))
+            runner(coin().on(bits(unseedable)))
                 .run(&shots, SEED)
                 .map(drop),
             &["run refused", "seed", "not seedable"],
         ),
         (
             "a part not ready",
-            runner(coin() >> Executor::new(Bits::new(&log).busy("calibrating")))
+            runner(coin().on(Bits::new(&log).busy("calibrating")))
                 .run(&shots, SEED)
                 .map(drop),
             &["run refused", "(part 1) is not ready: calibrating"],
         ),
         (
             "a shot failing",
-            runner(coin() >> Adapter::new(Trap::on(5)) >> Executor::new(Bits::new(&log)))
+            runner(coin().through(Trap::on(5)).on(Bits::new(&log)))
                 .run(&shots, SEED)
                 .map(drop),
             &["run failed", "shot 5", "the program trapped"],
         ),
         (
             "a part panicking",
-            runner(
-                measure()
-                    >> Executor::new(Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")),
-            )
-            .run(&shots, SEED)
-            .map(drop),
+            runner(measure().on(Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")))
+                .run(&shots, SEED)
+                .map(drop),
             &[
                 "run failed",
                 "`qodec runtime` (part 1) panicked",

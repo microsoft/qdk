@@ -8,9 +8,9 @@ use super::Opcode;
 
 /// The receiver's opcode for each opcode of the sending set: an opcode
 /// is an instruction's place in its set, and the part below may number
-/// the same instructions differently. `>>` makes it once, at the fit, and
-/// hands it to the sender's `bind`; the sender translates every
-/// instruction it sends with it.
+/// the same instructions differently. The join of the two parts makes it
+/// once, at the fit, and hands it to the sender's `bind`; the sender
+/// translates every instruction it sends with it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpcodeMap {
     /// Indexed by the sent opcode.
