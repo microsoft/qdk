@@ -275,25 +275,26 @@ fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() 
         vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(1, 0))],
     );
     // A program on 9 qubits, through a part reserving an ancilla, which
-    // requires 10, over bits providing 9: the part is named, not the
-    // program, whose qubits it states again.
+    // requires 10, over bits providing 8: the part is named, not the
+    // program, whose qubits, also short, it states again.
     faults_in_each_bracketing!(
         "qubits stated again",
         [d, a, e] from {
             let log = Log::default();
             let d = program(9, Features::new());
             let a = Stating::reserving_an_ancilla(9, &log);
-            let e = bits_over(9, &log);
+            let e = bits_over(8, &log);
         },
         vec![fault(
             part::<Stating>(1),
             part::<Bits>(2),
-            short_qubits(10, 9),
+            short_qubits(10, 8),
         )],
     );
     // 1 qubit and 3 carbon blocks, drawn from one pool of 7 qubits, over 5
-    // qubits: the pool is named for its 7 qubits; the carbon blocks, which
-    // the pool requires again, as none, are not checked below it.
+    // qubits and no carbon block: the pool is named for its 7 qubits; the
+    // carbon blocks, which the pool requires again, as none, are not
+    // checked below it.
     faults_in_each_bracketing!(
         "a pool",
         [d, a, e] from {
@@ -301,7 +302,9 @@ fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() 
             let d = program(1, Features::new())
                 .with_resources(qubits(1).with_blocks(Pool::carbon(), 3));
             let a = Pool::new(1, 3, &log);
-            let e = bits_over(5, &log);
+            let e = Bits::new(&log)
+                .with_resources(qubits(5).with_blocks(Pool::carbon(), 0))
+                .resolving_parity();
         },
         vec![fault(part::<Pool>(1), part::<Bits>(2), short_qubits(7, 5))],
     );

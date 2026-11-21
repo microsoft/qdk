@@ -212,8 +212,8 @@ impl Forwarding for Capabilities {
 
 /// Every way a provision falls short of a requirement: each instruction
 /// that does not fit, each resource provided short, and each feature
-/// required and not provided. In one a failed fit returns, at least one is
-/// not empty.
+/// required and not provided. In the mismatch a failed fit returns, at
+/// least one list is not empty.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CapabilitiesMismatch {
