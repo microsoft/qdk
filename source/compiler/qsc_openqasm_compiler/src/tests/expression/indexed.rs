@@ -301,8 +301,8 @@ fn indexed_const_angle() {
         &expect![[r#"
             import Std.OpenQASM.Intrinsic.*;
             let a = new Std.OpenQASM.Angle.Angle {
-                Value = 4503599627370496,
-                Size = 53
+                Value = 8,
+                Size = 4
             };
             let b = Zero;
         "#]],
@@ -338,8 +338,8 @@ fn indexed_const_angle_with_step() {
         &expect![[r#"
             import Std.OpenQASM.Intrinsic.*;
             let a = new Std.OpenQASM.Angle.Angle {
-                Value = 4503599627370496,
-                Size = 53
+                Value = 8,
+                Size = 4
             };
             let b = [Zero, Zero];
         "#]],

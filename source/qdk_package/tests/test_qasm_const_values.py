@@ -125,16 +125,17 @@ def test_a_non_constant_expression_has_no_constant_value() -> None:
 def test_an_angle_constant_carries_radians_and_its_fixed_point_pair() -> None:
     value = _initializer_constant("const angle v = pi/2;")
     assert math.isclose(value.radians, math.pi / 2, rel_tol=1e-12)
-    # The analyzer folds at full float precision regardless of the declared width.
+    # An angle with no declared width folds at full float precision.
     assert value.size == 53
     assert value.value == 1 << (value.size - 2)
 
 
-def test_the_declared_angle_width_is_on_the_type_not_the_value() -> None:
+def test_an_angle_constant_folds_at_its_declared_width() -> None:
     program = _analyze("OPENQASM 3.0;\nconst angle[4] v = pi/2;\n")
     initializer = program.statements[-1].init_expr
     assert initializer.ty.size == 4
-    assert initializer.const_value.size == 53
+    assert initializer.const_value.size == 4
+    assert initializer.const_value.value == 4
 
 
 def test_angle_radians_are_computed_from_the_fixed_point_pair() -> None:
