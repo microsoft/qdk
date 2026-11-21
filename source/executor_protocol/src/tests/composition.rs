@@ -406,3 +406,43 @@ fn every_part_gets_ready_on_every_run_for_what_the_part_above_requires() {
         ),
     );
 }
+
+/// One device's stack, an encoding on bits, kept across programs: lent to
+/// a program of 1 qubit, then to one of 3, each run gets the bits ready
+/// for what that run's program requires, forwarded through the encoding,
+/// which states no qubits.
+#[test]
+fn a_joined_part_gets_ready_for_what_each_chain_it_is_lent_to_requires() {
+    let log = Log::default();
+    let mut lent = Spread::new(1, &log).on(Bits::new(&log));
+    for program in [Program::new(&[("mz", 0)]), Program::new(&[("mz", 2)])] {
+        records(program.on(&mut lent), &ShotSet::ids(0..1));
+    }
+    let ready: Vec<_> = (log.entries().into_iter())
+        .filter(|entry| entry.starts_with("Bits ready"))
+        .collect();
+    assert_eq!(
+        ready,
+        ["Bits ready for 1 qubits", "Bits ready for 3 qubits"]
+    );
+}
+
+/// Two adapters joined, kept across devices: lent to a chain over bits
+/// that take 2 instructions a batch, then to one over bits that take 1,
+/// the upper adapter is told, on each run, what that run's bits provide,
+/// forwarded through the lower adapter, which states no count.
+#[test]
+fn a_joined_adapter_is_told_what_each_chain_it_is_lent_to_provides() {
+    let log = Log::default();
+    let mut lent = NamesBelow::new(&log).through(NamesBelow::new(&log));
+    for most in [2, 1] {
+        let bits = Bits::new(&log).with_resources(qubits(1).with_instructions_per_batch(most));
+        let program = Program::new(&[("mz", 0)]);
+        records(program.through(&mut lent).on(bits), &ShotSet::ids(0..1));
+    }
+    let told: Vec<_> = (log.entries().into_iter())
+        .filter(|entry| entry.starts_with("below takes"))
+        .collect();
+    let takes = |most| format!("below takes Some({most}) a batch");
+    assert_eq!(told, [takes(2), takes(2), takes(1), takes(1)]);
+}

@@ -18,7 +18,7 @@ use super::{
 use crate::prelude::*;
 use crate::{
     Batch, BatchReadouts, BlockType, Capabilities, ExecuteError, Failure, Features, Instruction,
-    InstructionSet, NotReady, OpcodeMap, Readouts, Resources, Seed, ShotId, ShotSet,
+    InstructionSet, NotReady, OpcodeMap, Readouts, Resource, Resources, Seed, ShotId, ShotSet,
 };
 
 /// A toy bit-flip noise: after each `x`, another `x` with probability
@@ -195,7 +195,10 @@ impl Adapter for Profiler {
 /// An adapter that passes each batch down unchanged, logging first the
 /// name of the part below as `below: <name>`, as an adapter naming the
 /// part below in its own errors would read it, then the name of the set
-/// the part below provides as `below provides: <set>`.
+/// the part below provides as `below provides: <set>`, and the most
+/// instructions a batch it provides for as `below takes <most> a batch`
+/// (`None` when it states none). It states no resource, so it forwards
+/// what the part below provides.
 pub(crate) struct NamesBelow {
     below: Option<OpcodeMap>,
     log: Log,
@@ -235,6 +238,8 @@ impl Adapter for NamesBelow {
             "below provides: {}",
             below.provides().instructions().name()
         ));
+        let most = (below.provides().resources()).get(&Resource::InstructionsPerBatch);
+        self.log.push(format!("below takes {most:?} a batch"));
         let map = bound(self.below.as_ref());
         forward(batches, seed, below, readouts, |batch| {
             mapped(map, batch.instructions)
