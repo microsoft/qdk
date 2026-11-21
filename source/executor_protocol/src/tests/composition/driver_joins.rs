@@ -54,13 +54,17 @@ fn no_h() -> InstructionSet {
 }
 
 /// The part of type `P` at `position`, named by its type.
-fn part<P>(position: usize) -> PartId {
+pub(super) fn part<P>(position: usize) -> PartId {
     PartId::new(position, type_name::<P>())
 }
 
 /// The fault of the part `requirer` against the part `provider`, which
 /// falls short by `mismatch`.
-fn fault(requirer: PartId, provider: PartId, mismatch: BoundaryMismatch) -> CompositionFault {
+pub(super) fn fault(
+    requirer: PartId,
+    provider: PartId,
+    mismatch: BoundaryMismatch,
+) -> CompositionFault {
     CompositionFault {
         requirer,
         provider,
@@ -85,7 +89,7 @@ fn capabilities(capabilities: CapabilitiesMismatch) -> BoundaryMismatch {
 }
 
 /// The mismatch of `required` of `key` against `provided`.
-fn short(key: Resource, required: u32, provided: u32) -> BoundaryMismatch {
+pub(super) fn short(key: Resource, required: u32, provided: u32) -> BoundaryMismatch {
     capabilities(CapabilitiesMismatch {
         resources: vec![ResourceMismatch {
             key,
@@ -662,6 +666,42 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
             short_qubits(10, 9)
         )]
     );
+}
+
+// ---------------------------------------------------------- the joined
+
+/// A chain's faults as a user reads them: a part whose instruction the
+/// part below does not accept sends what that part does not accept, and
+/// a part whose requirement arrives at one that does not provide it
+/// requires what that part does not provide; each names both parts and
+/// what falls short.
+#[test]
+fn a_chains_fault_says_what_falls_short_and_names_both_parts() {
+    let log = Log::default();
+    for (row, message, said) in [
+        (
+            "an instruction",
+            faults(CoinCopy::new().on(Bits::accepting(no_x(), &log))).to_string(),
+            &[
+                "CoinCopy` (part 0) sends",
+                "Bits` (part 1) does not accept",
+                "`x`",
+            ][..],
+        ),
+        (
+            "qubits",
+            faults(program(9, Features::unconstrained()).on(bits_over(8, &log))).to_string(),
+            &[
+                "Program` (part 0) requires",
+                "Bits` (part 1) does not provide",
+                "9 required",
+            ],
+        ),
+    ] {
+        for part in said {
+            assert!(message.contains(part), "{row}: {message:?} says {part:?}");
+        }
+    }
 }
 
 // ---------------------------------------------------------- the joined

@@ -17,7 +17,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::driver_joins::no_x;
+use super::driver_joins::{fault, no_x, part, short};
 use crate::prelude::*;
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen,
@@ -25,9 +25,9 @@ use crate::tests::fake_parts::{
     in_each_bracketing, qubits,
 };
 use crate::{
-    BoundaryMismatch, CapabilitiesMismatch, DriveError, Failure, Feature, FeatureMismatch,
-    Features, ReadoutFailure, ReadoutValue, Resource, ResourceMismatch, RunError, RunRefusal,
-    Runner, ShotConditions, ShotSet,
+    BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError, Failure, Feature,
+    FeatureMismatch, Features, ReadoutFailure, ReadoutValue, Resource, ResourceMismatch, RunError,
+    RunRefusal, Runner, ShotConditions, ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -1058,6 +1058,61 @@ fn a_part_requiring_fewer_shots_below_runs_more_than_the_parts_below_take() {
         the_one_fault(&refusal).is_some_and(|mismatch| mismatch.resources.len() == 1),
         "without the splitter: {refusal:?}"
     );
+}
+
+/// The faults a run's refusal lists, if it lists what arrives at a part
+/// that does not provide it.
+fn faults_listed(refusal: RunRefusal) -> Vec<CompositionFault> {
+    match refusal {
+        RunRefusal::NotProvided(faults) => faults,
+        RunRefusal::PartNotReady { .. } => panic!("faults listed, not {refusal:?}"),
+    }
+}
+
+/// A run of 3 shots through a job queue of 2, then a repetition running
+/// each shot twice, over bits running 4 at most: the refusal lists both
+/// faults, top to bottom, each naming the part whose requirement arrives
+/// and the part that does not provide it, as `on` names them: the program
+/// against the queue, and the repetition against the bits. So in every
+/// bracketing, and with a profiler above the queue, which shifts only the
+/// positions. A refusal keeping only the first fault, always naming the
+/// driver as the requirer or the executor as the provider, or numbering
+/// positions without the parts inside joined parts, lists others.
+#[test]
+fn a_refused_run_names_each_part_whose_requirement_is_not_provided_and_its_provider() {
+    let shots_short = |required, provided| short(Resource::Shots, required, provided);
+    let bits = |log: &Log| Bits::new(log).with_resources(qubits(64).with_shots(4));
+    let refusal_of = |shots: Result<Vec<_>, RunError>| faults_listed(refused(shots));
+    in_each_bracketing!([d, queue, repetition, e] from {
+        let log = Log::default();
+        let d = Program::new(&[("mz", 0)]);
+        let queue = Stating::queue(2, &log);
+        let repetition = Stating::repeating_shots(2, &log);
+        let e = bits(&log);
+    }, |chain, brackets| assert_eq!(
+        refusal_of(runner(chain).run(&ShotSet::ids(0..3), SEED)),
+        [
+            fault(part::<Program>(0), part::<Stating>(1), shots_short(3, 2)),
+            fault(part::<Stating>(2), part::<Bits>(3), shots_short(6, 4)),
+        ],
+        "{brackets}"
+    ));
+    in_each_bracketing!([d, profiler, queue, repetition, e] from {
+        let log = Log::default();
+        let counted = Rc::new(Cell::new(0));
+        let d = Program::new(&[("mz", 0)]);
+        let profiler = Profiler::new(&counted, &log);
+        let queue = Stating::queue(2, &log);
+        let repetition = Stating::repeating_shots(2, &log);
+        let e = bits(&log);
+    }, |chain, brackets| assert_eq!(
+        refusal_of(runner(chain).run(&ShotSet::ids(0..3), SEED)),
+        [
+            fault(part::<Program>(0), part::<Stating>(2), shots_short(3, 2)),
+            fault(part::<Stating>(3), part::<Bits>(4), shots_short(6, 4)),
+        ],
+        "with a profiler, {brackets}"
+    ));
 }
 
 /// Runs `shots` shots with a seed on `runner`, refused before any part is

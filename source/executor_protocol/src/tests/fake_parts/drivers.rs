@@ -17,7 +17,7 @@ pub(crate) struct CoinCopy {
     sequences: [Vec<Instruction>; 3],
     /// Each sequence's readout slots.
     slots: [u32; 3],
-    /// Where it logs that it gets ready, if anywhere.
+    /// Where it logs that it gets ready, and for what, if anywhere.
     log: Option<Log>,
     /// Why it refuses every run in `ready`, if it does.
     busy: Option<&'static str>,
@@ -43,12 +43,18 @@ impl CoinCopy {
         }
     }
 
-    /// This driver, logging to `log` when it gets ready.
+    /// This driver, logging to `log` when it gets ready, as
+    /// [`ready_for`](Self::ready_for) the run it gets.
     pub(crate) fn logging(self, log: &Log) -> Self {
         Self {
             log: Some(log.clone()),
             ..self
         }
+    }
+
+    /// What it logs when it gets ready for a run that requires `run`.
+    pub(crate) fn ready_for(run: &Capabilities) -> String {
+        format!("CoinCopy ready for {run:?}")
     }
 
     /// This driver, refusing every run in `ready`, for `why`.
@@ -79,9 +85,9 @@ impl Driver for CoinCopy {
 
     type Output = Values;
 
-    async fn ready(&mut self, _run: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, run: &Capabilities) -> Result<(), NotReady> {
         if let Some(log) = &self.log {
-            log.push("CoinCopy ready");
+            log.push(Self::ready_for(run));
         }
         match self.busy {
             Some(why) => Err(NotReady::new(why)),

@@ -82,9 +82,10 @@ fn measure() -> Program {
 
 /// The errors of runs refused or failed, as a user reads them: each
 /// message says the run was refused or failed, and names what is at fault
-/// with what is wrong: the shots required and the most provided, the
-/// fixed seed, the part's reason, the shot and the part's error, the part
-/// that panicked and its message.
+/// with what is wrong: each part whose requirement is not provided and
+/// the part that does not provide it, with the shots required and the
+/// most provided, the fixed seed, the part's reason, the shot and the
+/// part's error, the part that panicked and its message.
 #[test]
 fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
     let log = Log::default();
@@ -98,6 +99,26 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
             "too many shots",
             runner(coin().on(limited)).run(&shots, SEED).map(drop),
             &["run refused", "shots", "8 required", "4 provided"][..],
+        ),
+        (
+            "too many shots for two parts",
+            runner(
+                measure()
+                    .through(Stating::queue(4, &log))
+                    .through(Stating::repeating_shots(2, &log))
+                    .on(Bits::new(&log).with_resources(qubits(64).with_shots(8))),
+            )
+            .run(&shots, SEED)
+            .map(drop),
+            &[
+                "run refused",
+                "Program` (part 0)",
+                "Stating` (part 1)",
+                "8 required",
+                "Stating` (part 2)",
+                "Bits` (part 3)",
+                "16 required",
+            ],
         ),
         (
             "a seed the chain cannot take",

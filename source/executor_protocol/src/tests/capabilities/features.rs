@@ -8,7 +8,7 @@ use crate::prelude::*;
 use crate::tests::fake_parts::{Bits, Log, Program, Stating};
 use crate::{BoundaryCompatible, Capabilities, Feature, FeatureMismatch, Features, Resources};
 
-/// Each feature `required` uses that `provided` states it does not serve,
+/// Each feature `required` uses that `provided` states it does not provide,
 /// as [`Capabilities`](crate::Capabilities)' fit lists them.
 fn fit(required: Features, provided: &Features) -> Result<(), Vec<FeatureMismatch>> {
     let fit = Capabilities::new(Resources::unconstrained(), required).fits(&Capabilities::new(

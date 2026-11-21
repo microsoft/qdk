@@ -25,7 +25,8 @@ use crate::tests::fake_parts::{
     Renamed, Splitter, Spread, Stating, Trap, Values, in_each_bracketing, qubits,
 };
 use crate::{
-    BlockType, CompositionFaults, InstructionDef, InstructionSet, Resources, Runner, ShotSet,
+    BlockType, Capabilities, CompositionFaults, Features, InstructionDef, InstructionSet,
+    Resources, Runner, ShotSet,
 };
 
 const SEED: u64 = 7;
@@ -383,12 +384,16 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
         |chain, brackets| assert_eq!(
             logged_over_two_runs(chain, &log, "ready"),
             [
-                "Bits ready for 12 qubits",
-                "Spread ready for 4 qubits",
-                "Spread ready for 2 qubits",
-                "CoinCopy ready",
+                "Bits ready for 12 qubits".to_owned(),
+                "Spread ready for 4 qubits".to_owned(),
+                "Spread ready for 2 qubits".to_owned(),
+                CoinCopy::ready_for(&run_of(4, true)),
             ]
-            .repeat(2),
+            .iter()
+            .cycle()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>(),
             "two encodings, {brackets}"
         ),
     );
@@ -455,6 +460,78 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
             "through an encoding, {brackets}"
         ),
     );
+}
+
+/// What a run of `shots` shots requires, as its driver gets it: that many
+/// shots, and seeded runs if `seeded`, its seed being fixed.
+fn run_of(shots: u32, seeded: bool) -> Capabilities {
+    let features = Features::unconstrained();
+    Capabilities::new(
+        Resources::unconstrained().with_shots(shots),
+        if seeded {
+            features.with_seeded_runs(true)
+        } else {
+            features
+        },
+    )
+}
+
+/// What a logging [`CoinCopy`] at the top of `composed`, which must
+/// compose, logs that it gets ready for, on a run of 3 shots with `seed`.
+fn driver_ready_for<D: Driver, E: Executor>(
+    composed: Result<Runner<D, E>, CompositionFaults>,
+    log: &Log,
+    seed: Option<u64>,
+) -> Vec<String> {
+    let Ok(mut runner) = composed else {
+        panic!("the chain composes");
+    };
+    runner
+        .run(&ShotSet::ids(0..3), seed)
+        .expect("the run succeeds");
+    log.entries()
+        .into_iter()
+        .filter(|entry| entry.starts_with("CoinCopy ready"))
+        .collect()
+}
+
+/// A coin copy through an encoding of 2 built for its 2 qubits, over bits,
+/// on a run of 3 shots, seeded or not: the driver gets ready for its run,
+/// what the run requires, however it is joined or wrapped: alone at the
+/// top, joined with the encoding, and so joined and held by a part of a
+/// user's. Neither for what it requires below (the run on 2 qubits) nor
+/// for what the encoding does (on 4), nor for nothing stated, as a runner
+/// or a joined driver readying it with one of those would.
+#[test]
+fn a_driver_gets_ready_for_its_run_however_it_is_joined_or_wrapped() {
+    for seed in [Some(SEED), None] {
+        let expected = [CoinCopy::ready_for(&run_of(3, seed.is_some()))];
+        in_each_bracketing!(
+            [d, a, e] from {
+                let log = Log::default();
+                let d = CoinCopy::new().logging(&log);
+                let a = Spread::new(2, &log).built_for(2);
+                let e = Bits::new(&log);
+            },
+            |chain, brackets| assert_eq!(
+                driver_ready_for(chain, &log, seed),
+                expected,
+                "{brackets}, seed {seed:?}"
+            ),
+        );
+        let log = Log::default();
+        let held = Renamed::new(
+            CoinCopy::new()
+                .logging(&log)
+                .through(Spread::new(2, &log).built_for(2)),
+            "user's driver",
+        );
+        assert_eq!(
+            driver_ready_for(held.on(Bits::new(&log)), &log, seed),
+            expected,
+            "held by a part of a user's, seed {seed:?}"
+        );
+    }
 }
 
 /// One device's stack, an encoding on bits, kept across programs: lent to

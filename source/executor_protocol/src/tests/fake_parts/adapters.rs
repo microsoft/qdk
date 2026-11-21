@@ -509,6 +509,19 @@ impl Stating {
         })
     }
 
+    /// A toy repetition, running each shot `times` times below: it
+    /// requires `times` as many shots below as arrive, and states none if
+    /// none arrive. A declaration fake: it passes each run below as it is.
+    pub(crate) fn repeating_shots(times: u32, log: &Log) -> Self {
+        Self::new(log, Capabilities::UNCONSTRAINED, move |above| {
+            match above.resources().get(&Resource::Shots) {
+                Some(shots) => (above.clone())
+                    .map_resources(|resources| resources.with_shots(shots.saturating_mul(times))),
+                None => above.clone(),
+            }
+        })
+    }
+
     /// A toy job queue that takes at most `most` shots a run.
     pub(crate) fn queue(most: u32, log: &Log) -> Self {
         Self::providing(

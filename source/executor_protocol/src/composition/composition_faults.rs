@@ -45,29 +45,48 @@ impl fmt::Display for CompositionFaults {
 
 impl Error for CompositionFaults {}
 
-/// One part whose requirement a part below it does not provide: the part
-/// below it, for instructions, or the part the requirement arrives at,
-/// passed down unchanged by the parts between them.
+/// One part whose instructions the part below it does not accept, or
+/// whose requirement a part below it does not provide: the part the
+/// requirement arrives at, passed down unchanged by the parts between
+/// them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CompositionFault {
-    /// The part whose requirement is not provided: for a value that
-    /// passed parts unchanged, the first part that required it.
+    /// The part whose instructions are not accepted, or whose requirement
+    /// is not provided: for a value that passed parts unchanged, the
+    /// first part that required it.
     pub requirer: PartId,
-    /// The part that does not provide it.
+    /// The part that does not accept or provide it.
     pub provider: PartId,
     /// What it falls short of.
     pub mismatch: BoundaryMismatch,
 }
 
-/// `` `d` (part 0) requires what `e` (part 2) does not provide: … ``.
+/// `` `d` (part 0) sends what `a` (part 1) does not accept: … ``, for
+/// instructions, `` `d` (part 0) requires what `e` (part 2) does not
+/// provide: … ``, for resources and features, or both, joined by `; and`.
 impl fmt::Display for CompositionFault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} requires what {} does not provide: {}",
-            self.requirer, self.provider, self.mismatch
-        )
+        let BoundaryMismatch {
+            instructions,
+            capabilities,
+        } = &self.mismatch;
+        write!(f, "{}", self.requirer)?;
+        if !instructions.is_empty() {
+            write!(f, " sends what {} does not accept: ", self.provider)?;
+            write_joined(f, instructions)?;
+        }
+        if !capabilities.is_empty() {
+            if !instructions.is_empty() {
+                f.write_str("; and")?;
+            }
+            write!(
+                f,
+                " requires what {} does not provide: {capabilities}",
+                self.provider
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -87,12 +106,7 @@ pub struct BoundaryMismatch {
 /// Each mismatch, the instructions first, joined by `; `.
 impl fmt::Display for BoundaryMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, mismatch) in self.instructions.iter().enumerate() {
-            if i > 0 {
-                f.write_str("; ")?;
-            }
-            write!(f, "{mismatch}")?;
-        }
+        write_joined(f, &self.instructions)?;
         if !self.capabilities.is_empty() {
             if !self.instructions.is_empty() {
                 f.write_str("; ")?;
@@ -104,3 +118,14 @@ impl fmt::Display for BoundaryMismatch {
 }
 
 impl Error for BoundaryMismatch {}
+
+/// Each instruction mismatch of `instructions`, joined by `; `.
+fn write_joined(f: &mut fmt::Formatter<'_>, instructions: &[InstructionMismatch]) -> fmt::Result {
+    for (i, mismatch) in instructions.iter().enumerate() {
+        if i > 0 {
+            f.write_str("; ")?;
+        }
+        write!(f, "{mismatch}")?;
+    }
+    Ok(())
+}

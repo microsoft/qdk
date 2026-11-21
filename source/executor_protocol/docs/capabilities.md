@@ -20,7 +20,9 @@ three defaults:
 
 What a part leaves unstated, composition cannot refuse a chain on: a
 driver that does not state its qubits composes over an executor too small
-for them, and fails as it runs.
+for them, and fails as it runs. Its checked batches that use a block are
+refused, though, as a checked batch may use only the blocks stated in
+what arrives at its receiver ([The rule](#the-rule)).
 
 ## Terms
 

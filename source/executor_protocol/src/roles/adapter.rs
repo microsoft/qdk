@@ -65,7 +65,7 @@ pub trait Adapter {
     /// not lets `on` accept a chain that sends it more than it can take,
     /// which then fails as it runs.
     fn provides(&self) -> &Capabilities {
-        &crate::capabilities::UNCONSTRAINED
+        &crate::capabilities::NO_LIMITS
     }
 
     /// What it requires of the part below, given `above`, what arrives

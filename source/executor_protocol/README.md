@@ -241,7 +241,8 @@ each part's trait:
   gets each part `ready` for what arrives at it, or is refused by the
   first that cannot take a run now, lets the driver send its batches down
   the chain (`drive`, then each `adapt`, then `execute`), and, once it
-  ends, ends its shots on every part. It gives the driver's outputs, one per shot by `Driver::drive`'s rule, or a
+  ends, ends its shots on every part. It gives the driver's outputs, one
+  per shot by `Driver::drive`'s rule, or a
   [`RunError`](src/composition/runner/run_error.rs).
 
 A run's calls:

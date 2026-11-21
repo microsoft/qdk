@@ -49,7 +49,7 @@ fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
             &eight,
             Ok(()),
         ),
-        // A provider states 0 for a block type it does not serve.
+        // A provider states 0 for a block type it does not take.
         (
             "a block type provided 0 times",
             Resources::unconstrained().with_blocks(carbon(), 2),

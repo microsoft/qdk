@@ -27,9 +27,9 @@ use std::fmt;
 
 use crate::BoundaryCompatible;
 
-/// What a run, or a part, requires of the parts below it, or what a part
-/// provides the parts above it: amounts, such as a shot's qubits, and
-/// yes-or-no features, such as seeded runs.
+/// What a run, or a part, requires of the parts below it, or a part's
+/// fixed limits on what arrives at it: amounts, such as a shot's qubits,
+/// and yes-or-no features, such as seeded runs.
 ///
 /// A requirement flows down the chain: the runner states a run's
 /// ([`Driver::requires`](crate::Driver::requires) gets it), and each part
@@ -51,10 +51,10 @@ pub struct Capabilities {
     features: Features,
 }
 
-/// [`Capabilities::UNCONSTRAINED`] as a `'static` place, which the roles'
-/// default `provides` lends: a constant holding a map is not promoted to
-/// one, as a map has drop glue.
-pub(crate) static UNCONSTRAINED: Capabilities = Capabilities::UNCONSTRAINED;
+/// No limits: [`Capabilities::UNCONSTRAINED`] as a `'static` place, which
+/// the roles' default `provides` lends, as a constant holding a map is not
+/// promoted to one (a map has drop glue).
+pub(crate) static NO_LIMITS: Capabilities = Capabilities::UNCONSTRAINED;
 
 impl Capabilities {
     /// No resource and no feature stated: required, no need; provided, no

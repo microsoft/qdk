@@ -126,9 +126,10 @@ The protocol does not check these; the rustdoc of each role, and of
 [`Seed`](../src/seed.rs) for the seeds, states them:
 
 - what it accepts, sends and provides does not change once it is joined,
-  and its `requires` gives the same for the same input, since the fits
-  rely on those statements staying the same, as does the requirement each
-  part gets ready for on every run;
+  since the fits rely on those statements staying the same;
+- its `requires` gives the same for the same input, and no more for a
+  smaller one ([The rule](capabilities.md#the-rule)), since the fits rely
+  on both, as does the requirement each part gets ready for on every run;
 - a part that calls `execute` puts a shot in at most one of its batches,
   and only shots it was given: the run's, for a driver, those of the
   batches it got, for an adapter;

@@ -83,7 +83,7 @@ pub trait Executor {
     /// not lets `on` accept a chain it cannot run, which then fails as it
     /// runs.
     fn provides(&self) -> &Capabilities {
-        &crate::capabilities::UNCONSTRAINED
+        &crate::capabilities::NO_LIMITS
     }
 
     /// Gets this part ready for a run, before anything of the run runs, for
