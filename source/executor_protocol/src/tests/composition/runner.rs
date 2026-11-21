@@ -21,8 +21,8 @@ use super::driver_joins::{fault, no_x, part, short};
 use crate::prelude::*;
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen,
-    Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow,
-    in_each_bracketing, qubits,
+    PassesTheRun, Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values,
+    YieldNow, in_each_bracketing, qubits,
 };
 use crate::{
     BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError, Failure, Feature,
@@ -988,12 +988,12 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
 }
 
 /// A run's shots arrive at each part below its driver, passed unchanged
-/// by each part that does not require otherwise, so a chain runs at most
-/// the fewest the parts they arrive at take. In every bracketing, a run of
-/// one more is refused before any part is asked or runs, and a run of that
-/// many runs. So an adapter may lower the most shots a run may have, and
-/// raise it only by requiring fewer below, as a job splitter does, which
-/// then runs any.
+/// by the driver by default, and by each part that does not require
+/// otherwise, so a chain runs at most the fewest the parts they arrive at
+/// take. In every bracketing, a run of one more is refused before any part
+/// is asked or runs, and a run of that many runs. So an adapter may lower
+/// the most shots a run may have, and raise it only by requiring fewer
+/// below, as a job splitter does, which then runs any.
 #[test]
 fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     let log = Log::default();
@@ -1001,6 +1001,11 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     // An executor running 4 shots at most.
     let alone = runner(CoinCopy::new().on(bits(4)));
     takes_at_most("the executor alone", alone, 4, &log);
+    // The same, under a driver keeping the default `requires`, which
+    // passes the run below: a default stating nothing, or the run without
+    // its shots, runs a run of 5.
+    let passed = runner(PassesTheRun(CoinCopy::new()).on(bits(4)));
+    takes_at_most("a driver passing the run", passed, 4, &log);
     // Bits under a job queue of 4 shots at most: the fewer of the two
     // holds, wherever the brackets go.
     for (bits_most, most) in [(None, 4), (Some(8), 4), (Some(1), 1)] {
@@ -1170,11 +1175,12 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
 }
 
 /// A seeded run arrives at each part below its driver, passed unchanged
-/// by each part that does not require otherwise, in every bracketing: a
-/// seeded run on a chain where one of them states no seeded runs is
-/// refused before any part is asked or runs, and a run with no seed runs.
-/// So an adapter may take seeded runs away from a chain, and provide them
-/// only by requiring none below, as a sampler seeding its own draws does.
+/// by the driver by default, and by each part that does not require
+/// otherwise, in every bracketing: a seeded run on a chain where one of
+/// them states no seeded runs is refused before any part is asked or
+/// runs, and a run with no seed runs. So an adapter may take seeded runs
+/// away from a chain, and provide them only by requiring none below, as a
+/// sampler seeding its own draws does.
 #[test]
 fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     let log = Log::default();
@@ -1184,6 +1190,11 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     // An executor without seeded runs.
     let alone = runner(CoinCopy::new().on(bits_without_seeded_runs()));
     refuses_a_seed("the executor alone", alone, 4, &log);
+    // The same, under a driver keeping the default `requires`, which
+    // passes the run below: a default stating nothing, or the run without
+    // its features, runs a seeded run.
+    let passed = runner(PassesTheRun(CoinCopy::new()).on(bits_without_seeded_runs()));
+    refuses_a_seed("a driver passing the run", passed, 4, &log);
     // Bits without seeded runs, under a decoder that states no seeded
     // runs: the bits' still holds.
     in_each_bracketing!([d, decoder, e] from {

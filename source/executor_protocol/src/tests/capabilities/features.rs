@@ -29,7 +29,10 @@ fn missing(feature: Feature) -> FeatureMismatch {
 
 /// What a part's shots and runs use against what the part below provides:
 /// a feature fits unless it is used and the provider states it does not
-/// provide it; a provider that does not state a feature does not limit it.
+/// provide it; a provider that does not state a feature does not limit it,
+/// and a feature stated not used requires nothing, even of a provider that
+/// provides it. A fit refusing any feature both sides state differently
+/// fails the rows of a feature not used over one provided.
 #[test]
 fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
     let parity = |yes| Features::unconstrained().with_readout_parity(yes);
@@ -60,6 +63,12 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
             Ok(()),
         ),
         (
+            "readout parities not used, resolved",
+            parity(false),
+            parity(true),
+            Ok(()),
+        ),
+        (
             "readout parities not stated, not resolved",
             Features::unconstrained(),
             parity(false),
@@ -81,6 +90,12 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
             "no replay, not replayable",
             Features::unconstrained().with_replay(false),
             Features::unconstrained().with_replay(false),
+            Ok(()),
+        ),
+        (
+            "no replay, replayable",
+            Features::unconstrained().with_replay(false),
+            Features::unconstrained().with_replay(true),
             Ok(()),
         ),
     ] {

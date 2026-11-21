@@ -45,10 +45,9 @@ impl fmt::Display for CompositionFaults {
 
 impl Error for CompositionFaults {}
 
-/// One part whose instructions the part below it does not accept, or
-/// whose requirement a part below it does not provide: the part the
-/// requirement arrives at, passed down unchanged by the parts between
-/// them.
+/// One part whose instructions the part directly below does not accept,
+/// or whose requirement, passed down unchanged by the parts between, a
+/// part below it does not provide.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CompositionFault {

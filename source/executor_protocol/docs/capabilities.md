@@ -144,8 +144,8 @@ Other cases, each in the same tests:
 | a debugger requiring replay, through a replayer, over bits that do not replay        | composes                                                 |
 | a decomposer accepting the program's set and sending another, over bits accepting it | composes: a part is checked below for what it sends      |
 
-A run's shots, and a fixed seed, arrive at the driver's `requires`, and
-from it at each part, as the `Runner` checks when each run starts. A job
+A run's shots, and seeded runs if its seed is fixed, arrive at the
+driver's `requires`, and from it at each part, as the `Runner` checks when each run starts. A job
 splitter requiring runs of 100 shots below, whatever run arrives, runs
 1000 shots over bits that take 100, and the same run is refused without it
 (from
@@ -193,6 +193,6 @@ let wrapped = |cap| {
 | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | what arrives at each part against its provision                                                                  | the `on` that makes a runner           | [`CompositionFaults`](../src/composition/composition_faults.rs): each requiring part and the part that falls short, by position and name |
 | a joined part's halves, and what arrives at its lower part, inside a part of the user's the `on` cannot see into | each run, by the joined part's `ready` | [`RunRefusal::PartNotReady`](../src/composition/runner/run_error.rs), with the mismatch                                                  |
-| what a run's shots and a fixed seed make arrive at each part, against its provision                              | each run, before any part is asked     | [`RunRefusal::NotProvided`](../src/composition/runner/run_error.rs), with every fault                                                    |
+| what a run's shots, and seeded runs if its seed is fixed, make arrive at each part, against its provision        | each run, before any part is asked     | [`RunRefusal::NotProvided`](../src/composition/runner/run_error.rs), with every fault                                                    |
 | a batch's count of instructions against the instructions per batch its receiver provides                         | each batch, at every boundary          | [`BatchFault::TooManyInstructions`](../src/capabilities/boundary/batch_limits.rs)                                                        |
 | a checked batch's blocks and readout parities against what arrives at its receiver                               | each checked batch, at every boundary  | [`BatchFault::Instruction`](../src/capabilities/boundary/batch_limits.rs)                                                                |

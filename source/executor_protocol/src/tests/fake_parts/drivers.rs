@@ -144,6 +144,35 @@ impl Driver for CoinCopy {
     }
 }
 
+/// `D`, keeping the default `requires`: it passes the run below as it
+/// arrives, stating nothing of its own; it does as `D` does otherwise.
+pub(crate) struct PassesTheRun<D>(pub(crate) D);
+
+impl<D: Driver> Driver for PassesTheRun<D> {
+    fn sends(&self) -> &InstructionSet {
+        self.0.sends()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    type Output = D::Output;
+
+    fn ready(&mut self, run: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        self.0.ready(run)
+    }
+
+    fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Executor,
+    ) -> impl Future<Output = Result<Vec<D::Output>, DriveError>> {
+        self.0.drive(shots, seed, below)
+    }
+}
+
 /// A driver that sends its instructions to every shot, as one batch of one
 /// `execute`, or its two sequences to each half of the shots, as two
 /// batches of one `execute`, unchecked unless it is told; each shot's
@@ -155,7 +184,7 @@ pub(crate) struct Program {
     /// for its opcode.
     slots: Vec<u32>,
     sends: InstructionSet,
-    /// What it requires besides the run's shots and seed.
+    /// What it requires besides the run's shots and seeded runs.
     resources: Resources,
     features: Features,
     /// Whether it ends its shots below once it has their readouts.
@@ -204,7 +233,7 @@ impl Program {
     }
 
     /// `instructions`, as one batch for every shot, in `sends`, requiring
-    /// nothing besides the run's shots and seed.
+    /// nothing besides the run's shots and seeded runs.
     pub(crate) fn sending(instructions: Vec<Instruction>, sends: InstructionSet) -> Self {
         Self {
             sequences: vec![instructions],

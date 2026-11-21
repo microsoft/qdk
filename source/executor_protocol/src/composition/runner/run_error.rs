@@ -42,8 +42,8 @@ impl Error for RunError {}
 #[non_exhaustive]
 pub enum RunRefusal {
     /// A part does not provide what arrives at it from the run, such as
-    /// more shots than it takes, or a fixed seed where it states no seeded
-    /// runs: each such fault, as
+    /// more shots than it takes, or seeded runs, from a fixed seed, where
+    /// it states none: each such fault, as
     /// [`CompositionFaults::faults`](crate::CompositionFaults::faults)
     /// orders them, each part named as the `on` that made the runner named
     /// it.

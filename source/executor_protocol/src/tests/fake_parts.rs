@@ -8,7 +8,8 @@
 //! - Drivers: [`CoinCopy`], which branches on a readout; [`Program`],
 //!   one batch for every shot, or one for each half of them, in
 //!   [`CoinGates`] or another set, such as [`ParityGates`], requiring the
-//!   run's shots and seed.
+//!   run's shots, and seeded runs if its seed is fixed; [`PassesTheRun`],
+//!   which keeps the default `requires`.
 //! - Executors: [`Bits`], and executors that answer later ([`Later`]) or
 //!   from a thread ([`FromThread`]).
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;

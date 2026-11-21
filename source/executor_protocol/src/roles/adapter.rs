@@ -70,8 +70,8 @@ pub trait Adapter {
 
     /// What it requires of the part below, given `above`, what arrives
     /// from the part above: such as a code's physical qubits for the
-    /// logical qubits that arrive, or a job queue's batches of at most 100
-    /// shots whatever a run's shots.
+    /// logical qubits that arrive, or a job splitter's runs of at most 100
+    /// shots, whatever run arrives.
     ///
     /// By default `above` itself: it passes what arrives below unchanged.
     /// Stating what it changes is the writer's job: an adapter that adds

@@ -237,7 +237,8 @@ each part's trait:
   belongs to each run.
 - **Each run**, each time [`Runner::run`](src/composition/runner.rs) runs a
   [`ShotSet`](src/batch/shot_set.rs) with a seed: the run checks what its
-  shots and its seed make arrive at each part against what it provides,
+  shots, and seeded runs if its seed is fixed, make arrive at each part
+  against what it provides,
   gets each part `ready` for what arrives at it, or is refused by the
   first that cannot take a run now, lets the driver send its batches down
   the chain (`drive`, then each `adapt`, then `execute`), and, once it
@@ -255,7 +256,7 @@ sequenceDiagram
   participant A as Adapter
   participant E as Executor
   C->>R: run(shots, seed)
-  Note over R: what the run's shots and seed make arrive at each part, against its provision
+  Note over R: what the run's shots, and seeded runs if its seed is fixed, make arrive at each part, against its provision
   R->>E: ready(required)
   R->>A: ready(required)
   Note over R,A: the runner reaches an adapter through the joined part that holds it
@@ -281,7 +282,7 @@ Each contract is checked as early as what it reads is known:
 | A part's role; a joined part's type cannot be named                                                                                                  | by the compiler                                      |
 | The instructions each part sends against those the part below accepts, and what arrives at each part against its provision; every fault of the chain | by the `on` that makes a runner, when it joins       |
 | The same, inside a joined part held by a part of the user's, which the `on` cannot see into                                                          | by the joined part's `ready`, which refuses each run |
-| What a run's shots and seed make arrive at each part, against its provision                                                                          | at the run's start, before any part is asked         |
+| What a run's shots, and seeded runs if its seed is fixed, make arrive at each part, against its provision                                            | at the run's start, before any part is asked         |
 | A batch's count of instructions; a checked batch's blocks, parity and readouts                                                                       | at each boundary, on each call                       |
 
 How each join's role follows from its two ends, what a run asks of each
