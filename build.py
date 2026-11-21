@@ -324,6 +324,9 @@ def run_python_checks():
     step_end()
 
     step_start("Running pyright checks")
+    # Disable the pyright wrapper's unnecessary GitHub update check.
+    # Nice to have locally; important for network isolation in pipelines.
+    env["PYRIGHT_PYTHON_IGNORE_WARNINGS"] = "1"
     run(
         [
             python_bin,
