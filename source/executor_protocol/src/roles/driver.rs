@@ -10,8 +10,12 @@ use std::fmt;
 use crate::composition::DeclaredParts;
 use crate::part_id::ChainPosition;
 use crate::{
-    Capabilities, ExecuteError, Executor, Failure, NotReady, OpcodeMap, Seed, ShotId, ShotSet,
+    Capabilities, ExecuteError, Executor, Failure, NotReady, OpcodeMap, RunProvision, Seed, ShotId,
+    ShotSet,
 };
+
+/// What a driver that serves nothing of a run provides it.
+static SERVES_NO_RUN: RunProvision = RunProvision::new();
 
 /// Calls the part below with batches of the instructions it sends, each
 /// with its shots, and the seed, and makes each shot's output from the
@@ -28,16 +32,17 @@ use crate::{
 /// # Declarations
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins)) read them before any
-/// run: [`name`](Self::name) and [`requires`](Self::requires). The
-/// join to the part below hands back what it made of them:
-/// [`bind`](Self::bind) gets the fit's opcode map. A join only decides,
-/// from what the parts declare; what prepares a part to run belongs to
-/// each run.
+/// run: [`name`](Self::name), [`requires`](Self::requires) and
+/// [`provides`](Self::provides). The join to the part below hands back
+/// what it made of them: [`bind`](Self::bind) gets the fit's opcode map.
+/// A join only decides, from what the parts declare; what prepares a part
+/// to run belongs to each run.
 ///
-/// What it requires must not change once it is joined: the fit and
-/// `bind`'s map are made once, from it, each part below gets ready, on
-/// every run, for the requirement read then, and a joined driver reads it
-/// again on each run, to check the run.
+/// What it requires and provides must not change once it is joined: the
+/// fit and `bind`'s map are made once, from what it requires, each part
+/// below gets ready, on every run, for the requirement read then, and a
+/// joined driver reads what it provides again on each run, to check the
+/// run.
 ///
 /// # Run
 ///
@@ -56,11 +61,20 @@ pub trait Driver {
 
     /// What it requires of the part below: the instructions it sends, and
     /// what its shots use, such as their qubits. The part below must
-    /// provide it, and each part further below what no adapter between
-    /// them states again, as [`Capabilities`] says. A field it states, it
-    /// serves itself, as an adapter that requires it does: a run's shots,
-    /// and a fixed seed, are not checked against what is provided of it.
+    /// provide it, and each part further below that states a resource or a
+    /// feature of it, down to the first that serves it, as
+    /// [`Capabilities`] says.
     fn requires(&self) -> &Capabilities;
+
+    /// What it provides the run it drives: what of a run it serves itself,
+    /// such as the shots of a driver that splits each run into runs of the
+    /// shots the parts below take, as [`RunProvision`] says. A run's shots,
+    /// and a fixed seed, are checked against it, then against each part
+    /// below that states them, down to the first that serves them. By
+    /// default it states nothing: the run reaches the parts below whole.
+    fn provides(&self) -> &RunProvision {
+        &SERVES_NO_RUN
+    }
 
     /// Receives, once, the translation of its opcodes into the part
     /// below's. An opcode is an instruction's place in its set, and the
@@ -124,9 +138,8 @@ pub trait Driver {
     // They are in the trait because Rust cannot specialise a default method:
     // the protocol's joined parts (`Composed`, in `src/composition/composed/`)
     // override them, to declare each inner part, so that a composition fault
-    // names the inner part that is short, and a run is refused before any part
-    // is asked when an inner part does not provide it; and to name an inner
-    // part's refusal by its position. Correctness does not depend on them: a
+    // names the inner part that is short; and to name an inner part's refusal
+    // by its position. Correctness does not depend on them: a
     // joined part they do not reach, such as one inside a part of the user's
     // that forwards only the public methods, checks its inner parts itself (its
     // halves' fit at `ready`, a joined driver's run as it drives), and gives

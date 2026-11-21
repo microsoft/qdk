@@ -19,12 +19,12 @@ joined part reads some of them again on each run; and its run methods,
 which the runner and the part above call on each run (the last three).
 Each method is called at one phase of a chain's life:
 
-| Phase                                       | [`Driver`](../src/roles/driver.rs)                                                                    | [`Adapter`](../src/roles/adapter.rs)                                                                                                        | [`Executor`](../src/roles/executor.rs)                                                             |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Each join, and the `on` that makes a runner | `requires`, and `bind`, which takes the receiver's opcodes                                            | `provides`, `requires`, and `bind`; what it does not state is forwarded                                                                     | `provides`                                                                                         |
-| Each run, before any shot                   | `ready()`, asked last: a driver knows its own requirement                                             | `ready(required)`, for the requirement that reaches it from above, asked after the parts below it                                           | `ready(required)`, for the requirement that reaches it, asked first                                |
-| The run                                     | `drive(shots, seed, below)`: calls `below.execute` until each shot ends, and gives each shot's output | `adapt(batches, seed, below, readouts)`: answers each `execute` by calling `below.execute` as often as it needs, and maps the readouts back | `execute(batches, seed, readouts)`: runs each batch on its shots' states, and fills their readouts |
-| Once the run ends                           | nothing: the protocol ends the shots below, and a driver may end a shot earlier                       | `end_shots`, called top to bottom, which frees the shots' state, and never passes the end below                                             | `end_shots`, called last, which frees the shots' state                                             |
+| Phase                                       | [`Driver`](../src/roles/driver.rs)                                                                                   | [`Adapter`](../src/roles/adapter.rs)                                                                                                        | [`Executor`](../src/roles/executor.rs)                                                             |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Each join, and the `on` that makes a runner | `requires`, `provides` (what of a run it serves, nothing by default), and `bind`, which takes the receiver's opcodes | `provides`, `requires`, and `bind`; a field it does not state, it neither needs nor limits                                                  | `provides`                                                                                         |
+| Each run, before any shot                   | `ready()`, asked last: a driver knows its own requirement                                                            | `ready(required)`, for the requirement that reaches it from above, asked after the parts below it                                           | `ready(required)`, for the requirement that reaches it, asked first                                |
+| The run                                     | `drive(shots, seed, below)`: calls `below.execute` until each shot ends, and gives each shot's output                | `adapt(batches, seed, below, readouts)`: answers each `execute` by calling `below.execute` as often as it needs, and maps the readouts back | `execute(batches, seed, readouts)`: runs each batch on its shots' states, and fills their readouts |
+| Once the run ends                           | nothing: the protocol ends the shots below, and a driver may end a shot earlier                                      | `end_shots`, called top to bottom, which frees the shots' state, and never passes the end below                                             | `end_shots`, called last, which frees the shots' state                                             |
 
 Each role's trait also has `name`, the part's name in messages, by default
 its type's.
@@ -130,7 +130,9 @@ The protocol does not check these; the rustdoc of each role, and of
 - shots are independent: an executor may run an `execute`'s batches in any
   order, or at once, and may share work between shots, such as one state
   for shots whose instructions are equal so far, as long as each shot's
-  readouts are those it would get run alone; it leaves untouched every
+  readouts are drawn as they would be run alone: at a fixed seed, the same
+  values, where it provides replay; from one stream for the run's shots,
+  where it does not, as [Seeds](#seeds) says; it leaves untouched every
   shot that is in none of the batches;
 - an executor, and an adapter, writes every value of the readouts it
   answers, and keeps their shape;
@@ -163,10 +165,9 @@ A part whose draws for a shot depend on the shots run beside it provides
 replay `false` (`Features::with_replay`), so that the `on` that makes a
 runner refuses it where a requirement of replay reaches it, such as that
 of a driver that runs a shot again alone, as
-[Capabilities and their fit](capabilities.md#forwarding) says.
-For example, a tensor-network sampler draws a run's shots from one
+[Capabilities and their fit](capabilities.md#how-far-a-requirement-reaches)
+says. For example, a tensor-network sampler draws a run's shots from one
 stream, to draw them in one call rather than one call per shot: a shot
-run again alone draws other readouts. It provides replay `false` even when
-it requires no seeded runs below, as such a sampler may: that requirement
-states replay `false` too, so no requirement of replay from above reaches
-the parts below it, and only what it provides answers one.
+run again alone draws other readouts. Its replay `false` is a limit: a
+requirement of replay from above is refused at it, and still reaches the
+parts below it, which are checked too.

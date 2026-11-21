@@ -5,8 +5,8 @@
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, OpcodeMap, Seed,
-    ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, OpcodeMap,
+    RunProvision, Seed, ShotSet,
 };
 
 /// `part`, named `name`, as a part built at run time is named by what it
@@ -43,6 +43,10 @@ impl<P: Driver> Driver for Renamed<P> {
 
     fn requires(&self) -> &Capabilities {
         self.part.requires()
+    }
+
+    fn provides(&self) -> &RunProvision {
+        self.part.provides()
     }
 
     fn bind(&mut self, below: OpcodeMap) {

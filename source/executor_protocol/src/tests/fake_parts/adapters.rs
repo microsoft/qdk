@@ -17,8 +17,9 @@ use super::{
 };
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, BlockType, Capabilities, ExecuteError, Failure, Features, Instruction,
-    InstructionSet, NotReady, OpcodeMap, Readouts, Resource, Resources, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, BlockType, Capabilities, ExecuteError, Failure, Feature, Features,
+    Instruction, InstructionSet, NotReady, OpcodeMap, Readouts, Resource, Resources, Seed, ShotId,
+    ShotSet,
 };
 
 /// A toy bit-flip noise: after each `x`, another `x` with probability
@@ -136,7 +137,7 @@ impl Profiler {
     }
 
     /// A profiler requiring and providing `set`, and no resource or
-    /// feature, which it forwards.
+    /// feature, which it passes through.
     pub(crate) fn on(set: InstructionSet, instructions: &Rc<Cell<usize>>, log: &Log) -> Self {
         Self {
             capabilities: Capabilities::new(set),
@@ -197,8 +198,8 @@ impl Adapter for Profiler {
 /// part below in its own errors would read it, then the name of the set
 /// the part below provides as `below provides: <set>`, and the most
 /// instructions a batch it provides for as `below takes <most> a batch`
-/// (`None` when it states none). It states no resource, so it forwards
-/// what the part below provides.
+/// (`None` when it states none). It states no resource, so the part above
+/// gets what the part below provides.
 pub(crate) struct NamesBelow {
     below: Option<OpcodeMap>,
     log: Log,
@@ -251,7 +252,7 @@ impl Adapter for NamesBelow {
 /// An adapter that sends each instruction of a batch as a batch of its
 /// own, one `execute` each, as a stepping debugger does, and joins their
 /// readouts into those of the batch it got; so it requires batches of one
-/// instruction below, and provides any count above.
+/// instruction below, and serves any count above.
 #[derive(Default)]
 pub(crate) struct Splitter {
     below: Option<OpcodeMap>,
@@ -259,7 +260,11 @@ pub(crate) struct Splitter {
 
 impl Adapter for Splitter {
     fn provides(&self) -> &Capabilities {
-        coin_capabilities()
+        static ANY_COUNT: OnceLock<Capabilities> = OnceLock::new();
+        ANY_COUNT.get_or_init(|| {
+            Capabilities::new(CoinGates::set())
+                .with_resources(Resources::new().serving(Resource::InstructionsPerBatch))
+        })
     }
 
     fn requires(&self) -> &Capabilities {
@@ -306,7 +311,8 @@ impl Adapter for Splitter {
 
 /// A toy encoding: each qubit above is `k` qubits below, of which it uses
 /// the first. Made by [`new`](Self::new), it states no qubits, which it
-/// forwards; [`built_for`](Self::built_for) states them.
+/// passes through; [`built_for`](Self::built_for) states them, and serves
+/// those it provides.
 pub(crate) struct Spread {
     k: u32,
     requires: Capabilities,
@@ -327,18 +333,20 @@ impl Spread {
     }
 
     /// This encoding, built for `n` qubits above: it requires `k * n`
-    /// qubits below, and provides `n`.
+    /// qubits below, and serves `n`.
     pub(crate) fn built_for(self, n: u32) -> Self {
         let k = self.k;
         self.stating(qubits(k * n), qubits(n))
     }
 
-    /// This encoding, requiring `requires` and providing `provides`, with
-    /// no feature stated.
-    fn stating(self, requires: Resources, provides: Resources) -> Self {
+    /// This encoding, requiring `requires` and serving `serves`, with no
+    /// feature stated: it lowers the blocks it serves onto those it
+    /// requires.
+    fn stating(self, requires: Resources, serves: Resources) -> Self {
+        let qubits = Resource::Blocks(BlockType::qubit());
         Self {
             requires: Capabilities::new(CoinGates::set()).with_resources(requires),
-            provides: Capabilities::new(CoinGates::set()).with_resources(provides),
+            provides: Capabilities::new(CoinGates::set()).with_resources(serves.serving(qubits)),
             ..self
         }
     }
@@ -398,16 +406,19 @@ impl Adapter for Spread {
 /// above takes two qubits below, from the qubits that also hold the
 /// qubits above. Built for `qubits` qubits and `carbons` carbon blocks
 /// above, it requires `qubits + 2 * carbons` qubits below, and no carbon
-/// block, and provides what it was built for. At run time it passes
+/// block, and serves what it was built for. At run time it passes
 /// instructions through, as a [`Spread`] of 1.
 pub(crate) struct Pool(Spread);
 
 impl Pool {
     pub(crate) fn new(qubits: u32, carbons: u32, log: &Log) -> Self {
-        Self(Spread::new(1, log).stating(
-            super::qubits(qubits + 2 * carbons).with_blocks(Self::carbon(), 0),
-            super::qubits(qubits).with_blocks(Self::carbon(), carbons),
-        ))
+        Self(
+            Spread::new(1, log).stating(
+                super::qubits(qubits + 2 * carbons).with_blocks(Self::carbon(), 0),
+                (super::qubits(qubits).with_blocks(Self::carbon(), carbons))
+                    .serving(Resource::Blocks(Self::carbon())),
+            ),
+        )
     }
 
     /// The block type it lowers onto qubits.
@@ -441,7 +452,7 @@ impl Adapter for Pool {
 }
 
 /// An adapter that states capabilities of its own, one toy per
-/// constructor, and forwards what it does not state. At run time it
+/// constructor, and passes through what it does not state. At run time it
 /// passes instructions through, as a [`Spread`] of 1.
 pub(crate) struct Stating(Spread);
 
@@ -465,49 +476,61 @@ impl Stating {
     }
 
     /// A toy part reserving one qubit below as an ancilla, built for `n`
-    /// qubits above: it requires `n + 1` qubits below, and provides `n`.
+    /// qubits above: it requires `n + 1` qubits below, and serves `n`.
     pub(crate) fn reserving_an_ancilla(n: u32, log: &Log) -> Self {
         Self(Spread::new(1, log).stating(qubits(n + 1), qubits(n)))
     }
 
-    /// A toy job queue that takes at most `most` shots a run.
+    /// A toy part that needs `resources` below for its own work, and
+    /// passes them through, as an interleaver needs the qubits it
+    /// interleaves its shots on.
+    pub(crate) fn requiring(resources: Resources, log: &Log) -> Self {
+        let requires = Capabilities::new(CoinGates::set()).with_resources(resources);
+        Self::new(log, requires, coin_capabilities().clone())
+    }
+
+    /// A toy job queue that takes at most `most` shots a run, a limit.
     pub(crate) fn queue(most: u32, log: &Log) -> Self {
         Self::providing(log, Resources::new().with_shots(most), Features::new())
     }
 
     /// A declaration fake of a job splitter: it requires runs of up to
-    /// `below` shots and provides runs of up to `above`, so it requires the
-    /// shots again, serving them itself, but it passes each run through
-    /// whole, splitting none.
+    /// `below` shots and serves runs of up to `above`, but it passes each
+    /// run through whole, splitting none.
     pub(crate) fn splitting_runs(below: u32, above: u32, log: &Log) -> Self {
-        let shots = |most| {
-            Capabilities::new(CoinGates::set()).with_resources(Resources::new().with_shots(most))
-        };
-        Self::new(log, shots(below), shots(above))
+        let shots = |shots| Capabilities::new(CoinGates::set()).with_resources(shots);
+        Self::new(
+            log,
+            shots(Resources::new().with_shots(below)),
+            shots(Resources::new().with_shots(above).serving(Resource::Shots)),
+        )
     }
 
     /// A toy sampler that says it draws its shots' readouts together with
     /// its run's seed, from counts it takes below: it requires no seeded
-    /// runs below, and provides them above, with no replay.
+    /// runs below, and serves them above, with no replay.
     pub(crate) fn seeding_itself(log: &Log) -> Self {
         let stating = |features| Capabilities::new(CoinGates::set()).with_features(features);
         Self::new(
             log,
             stating(Features::new().with_seeded_runs(false)),
-            stating(Features::new().with_seeded_runs(true).with_replay(false)),
+            stating(
+                (Features::new().with_seeded_runs(true).with_replay(false))
+                    .serving(Feature::SeededRuns),
+            ),
         )
     }
 
     /// A toy replayer that runs a shot again by sending it below again,
-    /// with its run's seed: it requires no replay below, and provides
-    /// replay above, stating seeded runs, while it forwards whether the
-    /// parts below serve seeded runs, as it does not require them.
+    /// with its run's seed: it requires no replay below, and serves replay
+    /// above, stating seeded runs as a limit, which the parts below still
+    /// apply, as it does not seed runs itself.
     pub(crate) fn replaying(log: &Log) -> Self {
         let stating = |features| Capabilities::new(CoinGates::set()).with_features(features);
         Self::new(
             log,
             stating(Features::new().with_replay(false)),
-            stating(Features::new().with_replay(true)),
+            stating(Features::new().with_replay(true).serving(Feature::Replay)),
         )
     }
 
@@ -753,7 +776,7 @@ impl Adapter for FailsOnce {
 #[derive(Clone, Copy)]
 pub(crate) enum Misbehaviour {
     /// Adds an `x` on qubit 99 to each batch, beyond the qubits it
-    /// forwards unchanged.
+    /// passes through unchanged.
     SendsBeyondItsQubits,
     /// Panics with a formatted message, a `String`.
     PanicsWithAString,
@@ -817,7 +840,7 @@ impl Adapter for Misbehaving {
 }
 
 /// An adapter that says it resolves readout parities itself, as a decoder
-/// would, so that it requires none below and provides them above, but
+/// would, so that it requires none below and serves them above, but
 /// passes every batch down as it came, readout parities included: a
 /// [`Profiler`] of `set` otherwise.
 pub(crate) struct ForwardsParity {
@@ -828,12 +851,11 @@ pub(crate) struct ForwardsParity {
 
 impl ForwardsParity {
     pub(crate) fn on(set: InstructionSet, log: &Log) -> Self {
-        let parity = |yes| {
-            Capabilities::new(set.clone()).with_features(Features::new().with_readout_parity(yes))
-        };
+        let parity = |yes| Features::new().with_readout_parity(yes);
+        let stating = |features| Capabilities::new(set.clone()).with_features(features);
         Self {
-            requires: parity(false),
-            provides: parity(true),
+            requires: stating(parity(false)),
+            provides: stating(parity(true).serving(Feature::ReadoutParity)),
             profiler: Profiler::on(set, &Rc::new(Cell::new(0)), log),
         }
     }
@@ -866,7 +888,7 @@ impl Adapter for ForwardsParity {
 /// An adapter that says it replays its shots itself, as one that keeps each
 /// shot's readouts would: it runs no shot again below, but replays with
 /// its run's seed, so it requires seeded runs and no replay below, and
-/// provides replay above: a [`Profiler`] otherwise.
+/// serves replay above: a [`Profiler`] otherwise.
 pub(crate) struct ReplaysItself {
     profiler: Profiler,
     requires: Capabilities,
@@ -878,7 +900,7 @@ impl ReplaysItself {
         let stating = |features| Capabilities::new(CoinGates::set()).with_features(features);
         Self {
             requires: stating(Features::new().with_replay(false).with_seeded_runs(true)),
-            provides: stating(Features::new().with_replay(true)),
+            provides: stating(Features::new().with_replay(true).serving(Feature::Replay)),
             profiler: Profiler::new(&Rc::new(Cell::new(0)), log),
         }
     }

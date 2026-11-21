@@ -5,20 +5,24 @@
 //! the tests compose between them, on a toy whose shot state is classical
 //! bits, written in QIR's `h`, `x` and `mz`.
 //!
-//! - Drivers: [`CoinCopy`], which branches on a readout, and [`Program`],
+//! - Drivers: [`CoinCopy`], which branches on a readout; [`Program`],
 //!   one batch for every shot, or one for each half of them, in
-//!   [`CoinGates`] or another set, such as [`ParityGates`].
+//!   [`CoinGates`] or another set, such as [`ParityGates`], which may say
+//!   it serves a run's shots; and [`HidesRunProvision`], a user's driver
+//!   that does not forward what the driver it holds serves of a run.
 //! - Executors: [`Bits`], and executors that answer later ([`Later`]) or
 //!   from a thread ([`FromThread`]).
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
 //!   [`NamesBelow`], which logs the names of the part below and its set;
 //!   [`Spread`], an encoding, which may state the qubits it requires and
-//!   provides; [`Stating`], a pass-through with capabilities of its own,
+//!   serves; [`Stating`], a pass-through with capabilities of its own,
 //!   one toy per constructor: a part reserving an ancilla, a job queue
-//!   providing at most so many shots, a decoder restating its qubits, a
-//!   link that cannot be seeded, and a lowering carrying no readout
-//!   parities; [`Pool`], which draws two block types from one pool below;
+//!   limiting a run's shots, a job splitter serving them, a sampler
+//!   serving seeded runs, a replayer serving replay, an interleaver
+//!   needing resources below, a decoder restating its qubits, a link that
+//!   cannot be seeded, and a lowering carrying no readout parities;
+//!   [`Pool`], which draws two block types from one pool below;
 //!   [`Trap`],
 //!   which fails a shot; [`FailsOnce`], which fails, or panics in, one
 //!   `adapt`;
@@ -28,7 +32,7 @@
 //!   [`Misbehaving`], which breaks the protocol's rules;
 //!   [`ForwardsParity`], which passes readout parities down while it
 //!   requires none below; [`ReplaysItself`], which requires no replay
-//!   below and seeded runs, and provides replay.
+//!   below and seeded runs, and serves replay.
 //! - Driver and executor: [`Panics`], which panics in `drive` and in
 //!   `execute`.
 //! - Any role: [`Renamed`], a part with a name other than its type's;
@@ -128,7 +132,7 @@ pub(crate) fn coin_gates() -> &'static InstructionSet {
 }
 
 /// [`CoinGates`]' capabilities, stating no resource and no feature: what
-/// a part that forwards every resource and feature requires and provides.
+/// a part that neither needs nor limits any requires and provides.
 pub(crate) fn coin_capabilities() -> &'static Capabilities {
     static CAPABILITIES: OnceLock<Capabilities> = OnceLock::new();
     CAPABILITIES.get_or_init(|| Capabilities::new(CoinGates::set()))

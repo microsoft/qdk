@@ -3,12 +3,10 @@
 
 //! The parts of a chain as they declare themselves, top to bottom
 //! ([`DeclaredParts`]): what the [`on`](crate::DriverJoins::on) that makes
-//! a runner checks the whole chain with, what bounds each run, and what
-//! names each part.
+//! a runner checks the whole chain with, and what names each part.
 
 use super::CompositionFault;
 use crate::PartId;
-use crate::capabilities::Forwarding;
 use crate::{BoundaryCompatible, Capabilities};
 
 /// The parts of a chain, top to bottom, each with its name and what it
@@ -19,10 +17,6 @@ use crate::{BoundaryCompatible, Capabilities};
 pub struct DeclaredParts<'a> {
     parts: Vec<DeclaredPart<'a>>,
 }
-
-/// Why a run's provision is found: the parts it is asked of start with a
-/// driver.
-const CHAIN: &str = "a run's parts start with a driver";
 
 /// One part, as it declares itself: a driver requires, an executor
 /// provides, and an adapter does both.
@@ -60,21 +54,21 @@ impl<'a> DeclaredParts<'a> {
 
     /// Every fault of the chain, by its requirer top to bottom: what each
     /// part requires against what the part below it provides, all of it;
-    /// then each resource and feature the part below does not require
-    /// again, which it forwards, against each part further below, until a
-    /// part requires it again.
+    /// then each resource and feature that part does not serve, which the
+    /// requirement reaches, against each part further below, down to the
+    /// first that serves it.
     pub(crate) fn faults(&self) -> Vec<CompositionFault> {
         let mut faults = Vec::new();
         for (at, requirer) in self.parts.iter().enumerate() {
-            let Some(mut forwarded) = requirer.requires.cloned() else {
+            let Some(mut reaching) = requirer.requires.cloned() else {
                 continue;
             };
             for (below, provider) in self.parts.iter().enumerate().skip(at + 1) {
                 let provided = (provider.provides).expect("each part below the driver provides");
                 let fit = if below == at + 1 {
-                    forwarded.fits(provided).map(drop)
+                    reaching.fits(provided).map(drop)
                 } else {
-                    forwarded.kinds_fit(provided)
+                    reaching.kinds_fit(provided)
                 };
                 if let Err(mismatch) = fit {
                     faults.push(CompositionFault {
@@ -83,31 +77,10 @@ impl<'a> DeclaredParts<'a> {
                         mismatch,
                     });
                 }
-                let Some(answered) = provider.requires else {
-                    break;
-                };
-                forwarded = forwarded.unanswered(answered);
+                reaching = reaching.not_served_by(provided);
             }
         }
         faults
-    }
-
-    /// What a run of these parts, a driver above its adapters, is
-    /// bounded by, over `below`, the provision of the parts below them:
-    /// `below`, then each adapter's provision above it, the stricter where
-    /// two state a resource or a feature, through each adapter that does
-    /// not require it again; less each field the driver requires, which it
-    /// serves itself, as an adapter does. The runner checks each run
-    /// against it, and so does a joined driver, against its own parts, so
-    /// that both give the same verdict.
-    pub(crate) fn run_provision(&self, below: &Capabilities) -> Capabilities {
-        let (driver, adapters) = self.parts.split_first().expect(CHAIN);
-        let provision = adapters.iter().rev().fold(below.clone(), |below, adapter| {
-            let declared = adapter.provides.zip(adapter.requires);
-            let (provided, required) = declared.expect("an adapter declares both sides");
-            provided.stricter_through(required, &below)
-        });
-        provision.unanswered(driver.requires.expect("a driver requires"))
     }
 
     /// Each part, by its position and name, top to bottom.

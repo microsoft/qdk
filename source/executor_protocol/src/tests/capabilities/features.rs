@@ -25,11 +25,11 @@ fn missing(feature: Feature) -> FeatureMismatch {
     }
 }
 
-/// What a part's shots and runs use against what the part below serves:
+/// What a part's shots and runs use against what the part below provides:
 /// a feature fits unless it is used and the provider states it does not
-/// serve it; a provider that does not state a feature serves it.
+/// provide it; a provider that does not state a feature does not limit it.
 #[test]
-fn a_required_feature_fits_unless_the_provider_states_it_does_not_serve_it() {
+fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
     let parity = |yes| Features::new().with_readout_parity(yes);
     let seeded = |yes| Features::new().with_seeded_runs(yes);
     for (row, required, provided, expected) in [
@@ -89,8 +89,8 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_serve_it() {
 /// A shot run again alone runs with its run's seed: a part that states
 /// replay states seeded runs, and one that states runs that cannot be
 /// seeded states no replay, whichever it states last; so replay is not
-/// served over runs that cannot be seeded, nor by a part that replays its
-/// shots joined over them.
+/// provided over runs that cannot be seeded, nor by a part that replays
+/// its shots joined over them.
 #[test]
 fn replay_requires_seeded_runs() {
     let log = Log::default();

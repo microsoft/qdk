@@ -71,18 +71,17 @@ pub trait Executor {
     /// What it provides the part above: the instructions it runs, and what
     /// it can ever serve, such as its most qubits. What the part above
     /// requires must fit it, and so must what each part further above
-    /// requires that no adapter between them states again, as
-    /// [`Capabilities`] says. Each checked batch it receives is checked
-    /// against its instructions as read by the `on` that made the runner,
-    /// or by the join that made the joined part it is in. Its most shots
-    /// and whether a run may fix its seed bound every run of the chain,
-    /// unless a part above, an adapter or the driver, requires them again,
-    /// serving them itself.
+    /// requires that no part between them serves, as [`Capabilities`]
+    /// says. Each checked batch it receives is checked against its
+    /// instructions as read by the `on` that made the runner, or by the
+    /// join that made the joined part it is in. Its most shots and whether
+    /// a run may fix its seed bound every run of the chain, unless a part
+    /// above, an adapter or the driver, serves them.
     fn provides(&self) -> &Capabilities;
 
     /// Gets this part ready for a run, before anything of the run runs, for
-    /// `required`, what the part above requires of it, with what parts further
-    /// above require that no adapter between states again: each
+    /// `required`, the largest of what the part above requires of it and
+    /// what parts further above require that no part between serves: each
     /// [`Resource`](crate::Resource) and [`Feature`](crate::Feature) they
     /// state, such as the blocks of each type a shot holds at once, the most
     /// shots of a run, or whether a shot is run again alone. It takes what it
@@ -140,7 +139,9 @@ pub trait Executor {
     /// - shots are independent, so the executor may run the batches in any
     ///   order, or at once, and may share work between shots, such as one
     ///   state for shots whose instructions are equal so far, as long as
-    ///   each shot's readouts are those it would get run alone;
+    ///   each shot's readouts are drawn as they would be run alone: at a
+    ///   fixed seed, the same values, where it provides replay; from one
+    ///   stream for the run's shots, where it does not, as [`Seed`] says;
     /// - the executor leaves a shot in no batch untouched.
     ///
     /// The protocol does not check the first rule, which the caller keeps:

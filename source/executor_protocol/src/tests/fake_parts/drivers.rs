@@ -9,7 +9,7 @@ use super::{CoinGates, Log, Values, coin_gate, coin_gates, qubits};
 use crate::prelude::*;
 use crate::{
     Batch, Capabilities, DriveError, Features, Instruction, NotReady, OpcodeMap, ReadoutValue,
-    Readouts, Resources, Seed, ShotConditions, ShotSet,
+    Readouts, Resources, RunProvision, Seed, ShotConditions, ShotSet,
 };
 
 /// A coin tossed on qubit 0, copied onto qubit 1: a toss for every shot in
@@ -147,6 +147,8 @@ pub(crate) struct Program {
     /// refuses for its opcode.
     slots: Vec<u32>,
     requires: Capabilities,
+    /// What of a run it serves itself: nothing, unless it is told.
+    provides: RunProvision,
     /// Whether it ends its shots below once it has their readouts.
     ends_its_shots: bool,
     /// Whether each of its batches is checked, by sequence.
@@ -185,6 +187,7 @@ impl Program {
                 .collect(),
             slots: Vec::new(),
             requires: Capabilities::new(CoinGates::set()).with_resources(super::qubits(qubits)),
+            provides: RunProvision::new(),
             ends_its_shots: true,
             checked: vec![false; texts.len()],
         }
@@ -197,6 +200,7 @@ impl Program {
             sequences: vec![instructions],
             slots: Vec::new(),
             requires,
+            provides: RunProvision::new(),
             ends_its_shots: true,
             checked: vec![false],
         }
@@ -211,6 +215,14 @@ impl Program {
     /// This program, requiring `features` in place of its own.
     pub(crate) fn with_features(mut self, features: Features) -> Self {
         self.requires = self.requires.with_features(features);
+        self
+    }
+
+    /// This program, saying it serves `provides` of each run, as one that
+    /// splits each run into runs the parts below take would; it passes
+    /// each run below whole, splitting none.
+    pub(crate) fn serving_runs(mut self, provides: RunProvision) -> Self {
+        self.provides = provides;
         self
     }
 
@@ -239,6 +251,10 @@ impl Program {
 impl Driver for Program {
     fn requires(&self) -> &Capabilities {
         &self.requires
+    }
+
+    fn provides(&self) -> &RunProvision {
+        &self.provides
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -290,5 +306,36 @@ impl Driver for Program {
             .iter()
             .flat_map(|rows| (0..rows.shots()).map(|i| (rows.row(i).to_vec(), rows.conditions(i))))
             .collect())
+    }
+}
+
+/// A user's driver holding `driver`, which forwards every method of its
+/// role but [`provides`](Driver::provides), as one written before the
+/// method existed: it says it serves nothing of a run, whatever `driver`
+/// serves or limits.
+pub(crate) struct HidesRunProvision<D>(pub(crate) D);
+
+impl<D: Driver> Driver for HidesRunProvision<D> {
+    fn requires(&self) -> &Capabilities {
+        self.0.requires()
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.0.bind(below);
+    }
+
+    type Output = D::Output;
+
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+        self.0.ready()
+    }
+
+    fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Executor,
+    ) -> impl Future<Output = Result<Vec<D::Output>, DriveError>> {
+        self.0.drive(shots, seed, below)
     }
 }

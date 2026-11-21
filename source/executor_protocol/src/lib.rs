@@ -33,7 +33,7 @@ pub use batch::{
 pub use boundary_compatible::BoundaryCompatible;
 pub use capabilities::{
     BatchFault, Boundary, Capabilities, CapabilitiesMismatch, Feature, FeatureMismatch, Features,
-    Resource, ResourceMismatch, Resources, StatementMismatch, Statements,
+    Resource, ResourceMismatch, Resources, RunProvision, StatementMismatch, Statements,
 };
 pub use composition::{
     AdapterJoins, CompositionFault, CompositionFaults, DriverJoins, RunError, RunRefusal, Runner,

@@ -6,7 +6,6 @@
 use std::panic::resume_unwind;
 
 use super::{ChainBelow, Composed, DECLARED};
-use crate::capabilities::Forwarding;
 use crate::composition::DeclaredParts;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{PanicEndingShots, await_part, catch_panic};
@@ -14,7 +13,7 @@ use crate::composition::unended_shots::UnendedShots;
 use crate::part_id::ChainPosition;
 use crate::{
     Adapter, BoundaryCompatible, Capabilities, DriveError, Driver, Executor, Failure, NotReady,
-    OpcodeMap, Seed, ShotSet,
+    OpcodeMap, RunProvision, Seed, ShotSet,
 };
 
 impl<U: Driver, L: Adapter> Composed<U, L> {
@@ -25,11 +24,14 @@ impl<U: Driver, L: Adapter> Composed<U, L> {
         if let Ok(boundary) = &fit {
             upper.bind(boundary.opcode_map().clone());
         }
-        let requires = lower.requires().or(upper.requires());
+        let requires = (upper.requires()).past(lower.requires(), lower.provides());
+        let run_provides = upper.provides().over(lower.provides());
         let mut parts = DeclaredParts::new();
         upper.declare(&mut parts);
         let upper_parts = parts.len();
-        Self::new((upper, upper_parts), lower, fit, Some(requires), None)
+        let mut joined = Self::new((upper, upper_parts), lower, fit, Some(requires), None);
+        joined.run_provides = Some(run_provides);
+        joined
     }
 }
 
@@ -42,10 +44,15 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         self.upper.name()
     }
 
-    /// The adapter's requirement, and the driver's where the adapter does
-    /// not state it.
+    /// The adapter's requirement, with what of the driver's reaches past
+    /// the adapter.
     fn requires(&self) -> &Capabilities {
         self.requires.as_ref().expect(DECLARED)
+    }
+
+    /// The driver's, over the adapter's provision.
+    fn provides(&self) -> &RunProvision {
+        self.run_provides.as_ref().expect(DECLARED)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -58,9 +65,9 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
     }
 
     /// The driver's `drive`, on the adapter and the chain below as one
-    /// executor, if the run's shots, and its seed if fixed, fit what its
-    /// parts below its top driver provide over the chain below, by the
-    /// rule the runner checks a run with; else the run's first shot fails
+    /// executor, if the run's shots, and its seed if fixed, fit what it
+    /// provides a run over the chain below, by the rule the runner checks a
+    /// run with; else the run's first shot fails
     /// with [`Failure::NotProvided`], and the driver runs nothing. The
     /// runner's check comes first and gives the same verdict, unless a part
     /// of the user's holds this driver. Then ends the run's shots on the
@@ -74,12 +81,9 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         seed: Seed,
         below: &mut impl Executor,
     ) -> Result<Vec<U::Output>, DriveError> {
-        let mut parts = DeclaredParts::new();
-        self.declare(&mut parts);
-        let provision = parts.run_provision(below.provides());
-        let (upper, lower, boundary) = self.run_boundary(|lower| {
-            (lower.provides()).stricter_through(lower.requires(), below.provides())
-        });
+        let provision = Driver::provides(self).over(below.provides());
+        let (upper, lower, boundary) =
+            self.run_boundary(|lower| lower.provides().over(below.provides()));
         let mut unended = UnendedShots::new(
             ChainBelow {
                 adapter: lower,

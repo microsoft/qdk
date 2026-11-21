@@ -16,8 +16,8 @@
 //! [`Boundary`](crate::Boundary) where they meet, or the
 //! mismatch. The join that makes a runner then checks the whole chain, as
 //! its parts declare themselves (`declared_parts`): each requirement
-//! against the part below, and what the part below does not require again
-//! against each part further below, and reports every fault at once
+//! against the part below, and against each part further below it reaches,
+//! down to the first that serves it, and reports every fault at once
 //! ([`CompositionFaults`]). A joined part that check cannot reach, inside
 //! a part of the user's that forwards only its role's public methods,
 //! refuses every run at `ready` with its mismatch instead. A chain that

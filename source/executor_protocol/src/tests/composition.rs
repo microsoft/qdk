@@ -22,9 +22,11 @@ use std::rc::Rc;
 use crate::prelude::*;
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, NamesBelow, Profiler, Program,
-    Renamed, Splitter, Spread, Trap, Values, in_each_bracketing, qubits,
+    Renamed, Splitter, Spread, Stating, Trap, Values, in_each_bracketing, qubits,
 };
-use crate::{BlockType, CompositionFaults, InstructionDef, InstructionSet, Runner, ShotSet};
+use crate::{
+    BlockType, CompositionFaults, InstructionDef, InstructionSet, Resources, Runner, ShotSet,
+};
 
 const SEED: u64 = 7;
 
@@ -357,15 +359,18 @@ fn logged_over_two_runs<D: Driver, E: Executor>(
         .collect()
 }
 
-/// Two encodings over bits, in each bracketing the joins make a runner
-/// of, the inner parts of each composed part included, over two runs:
-/// each part gets ready, on every run and bottom up, for what the part
-/// above it requires. Under a driver of 2 qubits, through encodings built
-/// for 2 and 4 qubits, they come down as 4, then 12. Under a program of 1
-/// qubit, through two encodings that state no qubits, each part below it
-/// gets ready for the 1 qubit they forward.
+/// Parts over bits, in each bracketing the joins make a runner of, the
+/// inner parts of each composed part included, over two runs: each part
+/// gets ready, on every run and bottom up, for the largest requirement
+/// that reaches it. Under a driver of 2 qubits, through encodings built
+/// for 2 and 4 qubits, which serve them, they come down as 4, then 12.
+/// Under a program of 1 qubit, through two encodings that state no qubits,
+/// each part below it gets ready for the program's 1 qubit, which passes
+/// them. Under a program of 5 qubits, the bits get ready for 5 through an
+/// interleaver needing 3, and over bits that state no qubits; and for 30
+/// through an encoding of 3 built for 10, under a program of 10.
 #[test]
-fn every_part_gets_ready_on_every_run_for_what_the_part_above_requires() {
+fn every_part_gets_ready_on_every_run_for_the_largest_requirement_that_reaches_it() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
@@ -402,15 +407,56 @@ fn every_part_gets_ready_on_every_run_for_what_the_part_above_requires() {
                 "Spread ready for 1 qubits",
             ]
             .repeat(2),
-            "a requirement forwarded, {brackets}"
+            "a requirement passing two encodings, {brackets}"
+        ),
+    );
+    let ready_for = |qubits| vec![format!("Bits ready for {qubits} qubits"); 2];
+    in_each_bracketing!(
+        [d, a, e] from {
+            let log = Log::default();
+            let d = Program::new(&[("mz", 4)]);
+            let a = Stating::requiring(qubits(3), &log);
+            let e = Bits::new(&log).with_resources(qubits(6));
+        },
+        |chain, brackets| assert_eq!(
+            logged_over_two_runs(chain, &log, "Bits ready"),
+            ready_for(5),
+            "through an interleaver, {brackets}"
+        ),
+    );
+    in_each_bracketing!(
+        [d, a, e] from {
+            let log = Log::default();
+            let counted = Rc::new(Cell::new(0));
+            let d = Program::new(&[("mz", 4)]);
+            let a = Profiler::new(&counted, &log);
+            let e = Bits::new(&log).with_resources(Resources::new());
+        },
+        |chain, brackets| assert_eq!(
+            logged_over_two_runs(chain, &log, "Bits ready"),
+            ready_for(5),
+            "over bits stating none, {brackets}"
+        ),
+    );
+    in_each_bracketing!(
+        [d, a, e] from {
+            let log = Log::default();
+            let d = Program::new(&[("mz", 9)]);
+            let a = Spread::new(3, &log).built_for(10);
+            let e = Bits::new(&log).with_resources(qubits(40));
+        },
+        |chain, brackets| assert_eq!(
+            logged_over_two_runs(chain, &log, "Bits ready"),
+            ready_for(30),
+            "through an encoding, {brackets}"
         ),
     );
 }
 
 /// One device's stack, an encoding on bits, kept across programs: lent to
 /// a program of 1 qubit, then to one of 3, each run gets the bits ready
-/// for what that run's program requires, forwarded through the encoding,
-/// which states no qubits.
+/// for what that run's program requires, which passes the encoding, as it
+/// states no qubits.
 #[test]
 fn a_joined_part_gets_ready_for_what_each_chain_it_is_lent_to_requires() {
     let log = Log::default();
@@ -430,7 +476,7 @@ fn a_joined_part_gets_ready_for_what_each_chain_it_is_lent_to_requires() {
 /// Two adapters joined, kept across devices: lent to a chain over bits
 /// that take 2 instructions a batch, then to one over bits that take 1,
 /// the upper adapter is told, on each run, what that run's bits provide,
-/// forwarded through the lower adapter, which states no count.
+/// through the lower adapter, which states no count.
 #[test]
 fn a_joined_adapter_is_told_what_each_chain_it_is_lent_to_provides() {
     let log = Log::default();

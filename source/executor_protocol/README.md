@@ -70,8 +70,9 @@ Today the protocol holds:
   qubits and shots, and [`Features`](src/capabilities/features.rs), such as
   whether a run may fix its seed and whether a shot replays. A driver
   states what it requires, an executor what it provides, and an adapter
-  both, stating only what it changes: what it leaves unstated is forwarded
-  from the parts around it.
+  both, each stating only what it does with each field: a field left
+  unstated it neither needs nor limits, a limit it passes through to the
+  parts below, and a field it serves it handles itself.
 - **Instruction sets:** each part states the instructions it sends or
   accepts as an [`InstructionSet`](src/instruction_set.rs). Each
   instruction's declaration, an
@@ -105,13 +106,18 @@ Today the protocol holds:
 - **Guarantees at composition:** the `on` that makes a runner checks that
   each part's requirement fits each provision it reaches, the instructions
   across each boundary, and each resource and feature down to the first
-  part that requires it again. A chain that fails is refused with every
-  fault at once
+  part that serves it. A chain that fails is refused with every fault the
+  `on` can see at once
   ([`CompositionFaults`](src/composition/composition_faults.rs)), each
   naming the requiring part and the part that falls short
-  ([`PartId`](src/part_id.rs)), before any shot runs.
+  ([`PartId`](src/part_id.rs)), before any shot runs; inside a part of the
+  user's, which the `on` cannot see into, the checks run on each run, as
+  the table in [Composing and running a chain](#composing-and-running-a-chain)
+  says.
 - **Guarantees at run time:** the `Runner` checks each run's shots and
-  seed against what the chain provides, and carries each call down the
+  seed against what the chain provides, down to the first part that
+  serves them (a joined driver inside a part of the user's checks its own
+  parts as it drives), and carries each call down the
   chain, checking each batch (its count always, its instructions when its
   sender marks it checked) and shaping its readouts. It ends each run's
   shots on every part. A part's panic in `drive`, `adapt` or `execute`
@@ -185,8 +191,11 @@ them as defined here.
   whether a shot run again alone, as a debugger does, gives its readouts
   back (_replay_: a sampler that draws a run's shots from one random
   stream, in one call, does not).
-- **Forwarded**: a resource or a feature a part does not state; the
-  statement of the part next to it stands for it.
+- **Limit** and **served**: the two kinds of provision of a resource or a
+  feature. A limit the part passes through, and the parts below still
+  apply; a field served the part handles itself, so what is below does
+  not bound it. A requirement reaches every provision below it, down to
+  the first part that serves the field.
 - **Instruction set** ([`InstructionSet`](src/instruction_set.rs)): a
   named list of the instructions a part sends or accepts, each declared
   with its mnemonic, the blocks it acts on (qubits, or blocks of an
@@ -219,13 +228,15 @@ each part's trait:
 - **Setup**, once, when the parts are joined: each join fits the boundary it
   makes and, where it fits, binds the part above to the opcodes of the part
   below (`bind`); the `on` that joins a driver with an executor checks the
-  fit of every requirement in the chain, and gives a
-  [`Runner`](src/composition/runner.rs), or every fault of the chain. Setup
+  fit of every requirement in the chain it can see, and gives a
+  [`Runner`](src/composition/runner.rs), or every fault it found (a part
+  of the user's is checked on each run, as the table below says). Setup
   only decides, from what the parts declare; what prepares a part to run
   belongs to each run.
 - **Each run**, each time [`Runner::run`](src/composition/runner.rs) runs a
   [`ShotSet`](src/batch/shot_set.rs) with a seed: the run checks its shots and
-  its seed against what the chain provides, gets each part `ready` for the
+  its seed against what the chain provides, down to the first part that
+  serves them, gets each part `ready` for the
   requirement that reaches it, or is refused by the first that cannot take a
   run now, lets the driver send its batches down the chain (`drive`, then
   each `adapt`, then `execute`), and, once it ends, ends its shots on every
@@ -243,7 +254,7 @@ sequenceDiagram
   participant A as Adapter
   participant E as Executor
   C->>R: run(shots, seed)
-  Note over R: the run's shots and seed against what the chain provides
+  Note over R: the run's shots and seed against the provisions they reach
   R->>E: ready(required)
   R->>A: ready(required)
   Note over R,A: the runner reaches an adapter through the joined part that holds it
@@ -264,14 +275,14 @@ sequenceDiagram
 
 Each contract is checked as early as what it reads is known:
 
-| Contract                                                                                                     | Checked                                                |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
-| A part's role; a joined part's type cannot be named                                                          | by the compiler                                        |
-| Each requirement against each provision it reaches; every fault of the chain                                 | by the `on` that makes a runner, when it joins         |
-| Each requirement against each provision it reaches, inside a part of the user's, which the `on` cannot reach | by the joined part's `ready`, which refuses each run   |
-| A run's shots and seed against what the chain provides                                                       | at the run's start, before any part is asked           |
-| A run's shots and seed against what a joined driver's adapters provide, inside a part of the user's          | by the joined driver as it drives, which fails the run |
-| A batch's count of instructions; a checked batch's blocks, parity and readouts                               | at each boundary, on each call                         |
+| Contract                                                                                                                                          | Checked                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| A part's role; a joined part's type cannot be named                                                                                               | by the compiler                                        |
+| Each requirement against each provision it reaches; every fault of the chain                                                                      | by the `on` that makes a runner, when it joins         |
+| Each requirement against each provision it reaches, inside a part of the user's, which the `on` cannot reach                                      | by the joined part's `ready`, which refuses each run   |
+| A run's shots and seed against each provision they reach, the driver's own first                                                                  | at the run's start, before any part is asked           |
+| A run's shots and seed against what a joined driver's adapters provide, inside a part of the user's that does not forward the driver's `provides` | by the joined driver as it drives, which fails the run |
+| A batch's count of instructions; a checked batch's blocks, parity and readouts                                                                    | at each boundary, on each call                         |
 
 How each join's role follows from its two ends, what a run asks of each
 part, what is checked where and when, and how a run fails are in
@@ -300,8 +311,8 @@ fn coin_runner<E: Executor>(
     // `through` joins the driver and the adapter into one driver, and `on`
     // joins that driver and the executor into the runner. The `on` that
     // makes the runner checks that each part provides what the part above
-    // requires, the noise's own statement forwarding the coin's 2 qubits
-    // to the bits, and gives the runner or every fault of the chain.
+    // requires, the coin's 2 qubits reaching past the noise, which states
+    // none, to the bits, and gives the runner or every fault of the chain.
     let runner = coin.through(BitFlip::new(0.2)).on(bits);
     runner.expect("the parts compose: the bits provide what the coin requires")
 }
@@ -356,8 +367,8 @@ mechanics and edge cases.
 - [Instruction sets and their fit](docs/instruction-sets.md): what a set
   declares, how it is built, and when two sets fit.
 - [Capabilities and their fit](docs/capabilities.md): what a part
-  requires and provides, replay included, what an adapter forwards, and
-  where each statement is checked.
+  requires and provides, replay included, how far each requirement
+  reaches, and where each statement is checked.
 - [Composing and running a chain](docs/composing-and-running.md): the joins and
   the role each gives, a run's steps, seeds, where and when each check runs, and
   failures and panics.

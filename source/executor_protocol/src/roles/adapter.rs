@@ -49,19 +49,20 @@ pub trait Adapter {
     }
 
     /// What it provides the part above: the instructions it receives, and
-    /// each resource and feature it serves itself. A resource or a feature
-    /// it states in neither its provision nor its requirement is what the
-    /// part below provides, forwarded, as [`Capabilities`] says; one it
-    /// requires is not forwarded, as the adapter serves it itself: the
-    /// part above is checked against its provision of it alone, or nothing.
-    /// An adapter states only what it changes, such as a decoder's most
-    /// logical qubits, or replay it does itself.
+    /// each resource and feature it limits or serves. A limit passes the
+    /// requirement from above through to the parts below, which are
+    /// checked against it too, such as a job queue's most shots; one it
+    /// serves stops it there, such as an encoding's logical qubits, or
+    /// replay it does itself, as [`Capabilities`] says. One it does not
+    /// state neither needs nor limits anything: the requirement passes it.
+    /// An adapter states only what it changes.
     fn provides(&self) -> &Capabilities;
 
     /// What it requires of the part below: the instructions it sends, and
     /// each resource and feature it uses itself, such as a code's physical
-    /// qubits. A resource or a feature it does not state is what the part
-    /// above requires, forwarded, as [`Capabilities`] says.
+    /// qubits. It is checked against the part below, and against each part
+    /// further below that states it, down to the first that serves it, as
+    /// [`Capabilities`] says; one it does not state, it does not need.
     fn requires(&self) -> &Capabilities;
 
     /// Receives, once, the translation of the opcodes it sends into the

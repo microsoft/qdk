@@ -4,7 +4,6 @@
 //! An adapter on an executor: a [`Composed`] in the executor's role.
 
 use super::{Composed, DECLARED};
-use crate::capabilities::Forwarding;
 use crate::composition::DeclaredParts;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
@@ -22,7 +21,7 @@ impl<U: Adapter, L: Executor> Composed<U, L> {
         if let Ok(boundary) = &fit {
             upper.bind(boundary.opcode_map().clone());
         }
-        let provides = (upper.provides()).stricter_through(upper.requires(), lower.provides());
+        let provides = upper.provides().over(lower.provides());
         let mut parts = DeclaredParts::new();
         upper.declare(&mut parts);
         let upper_parts = parts.len();
@@ -37,8 +36,7 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
         self.upper.name()
     }
 
-    /// The adapter's provision, and the stricter of it and the executor's,
-    /// where the adapter does not require it again.
+    /// The adapter's provision, over the executor's.
     fn provides(&self) -> &Capabilities {
         self.provides.as_ref().expect(DECLARED)
     }
@@ -80,16 +78,19 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
     }
 
     /// Refuses the run if the halves do not fit; else the executor first,
-    /// for the adapter's requirement, and `required` where the adapter does
-    /// not state it; then the adapter, for `required`. A refusal from the
+    /// for what reaches it: the adapter's requirement, and what of
+    /// `required` the adapter does not serve; then the adapter, for
+    /// `required`. A refusal from the
     /// executor names it, at its position, if `at` is known.
     async fn ready_at(
         &mut self,
         required: &Capabilities,
         at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
-        let (lower, below_required, below, part) =
-            self.start_run(|upper| upper.requires().or(required), at)?;
+        let (lower, below_required, below, part) = self.start_run(
+            |upper| required.past(upper.requires(), upper.provides()),
+            at,
+        )?;
         await_part(lower.ready_at(below_required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;

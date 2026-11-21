@@ -7,8 +7,8 @@
 //!
 //! A runner holds a chain that joined: what each part requires is provided
 //! below it. Each run checks what only a run states: its shots and whether
-//! its seed is fixed, against what the parts below the driver provide
-//! together, less what the driver requires, which it serves itself; then it
+//! its seed is fixed, against what the driver provides a run over what the
+//! parts below it provide, down to the first part that serves each; then it
 //! gets every part ready for what is required of it, or is refused by the first
 //! that cannot take a run now. Then the driver runs the shots, calling the
 //! chain below it as one executor, the readouts of each of whose batches the
@@ -29,7 +29,7 @@ use super::boundary_crossing::BoundaryCrossing;
 use super::part_panics::{PanicEndingShots, await_part, catch_panic, panic_message};
 use super::unended_shots::UnendedShots;
 use crate::part_id::ChainPosition;
-use crate::{Boundary, Capabilities, DriveError, Driver, Executor, Failure, PartId, Seed, ShotSet};
+use crate::{Boundary, DriveError, Driver, Executor, Failure, PartId, RunProvision, Seed, ShotSet};
 
 pub use run_error::{RunError, RunRefusal};
 
@@ -53,10 +53,9 @@ pub struct Runner<D: Driver, E: Executor> {
     /// driver sends, and the executor's top part, which its panic in an
     /// `execute` and its refusal name.
     pub(super) boundary: Boundary,
-    /// What the parts below the driver provide together, less what the
-    /// driver requires, which each run's shots and seed are checked
-    /// against.
-    pub(super) provision: Capabilities,
+    /// What the driver provides a run, over what the parts below it
+    /// provide: what each run's shots and seed are checked against.
+    pub(super) provision: RunProvision,
 }
 
 impl<D: Driver, E: Executor> Runner<D, E> {
@@ -86,19 +85,17 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// that needs unseeded runs to differ across processes there passes its
     /// own seed.
     ///
-    /// A run is refused, and nothing of it runs, when the parts below the
-    /// driver do not provide it together: more shots than the fewest of
-    /// those down to the first adapter that requires shots again, which
-    /// serves them itself, or a fixed seed where seeded runs are not
-    /// provided, before any part is asked; a field the driver requires, it
-    /// serves itself, as such an adapter does, so the run is not checked
-    /// against it. Or when a part's `ready` refuses it: each part gets
+    /// A run is refused, and nothing of it runs, when the chain does not
+    /// provide it: more shots than the fewest stated from the driver
+    /// ([`Driver::provides`]) down to the first part that serves shots, or
+    /// a fixed seed where one of those parts states no seeded runs, before
+    /// any part is asked. Or when a part's `ready` refuses it: each part gets
     /// ready for what is required of it, in turn, the executor first, up to
-    /// the first that refuses. The parts inside a part of the user's are
-    /// out of the runner's sight: a joined driver checks each run against
-    /// its own parts by the same rule as it drives, so the verdict does not
-    /// depend on the brackets, and there fails one they do not provide
-    /// ([`Failure::NotProvided`]). Then the driver
+    /// the first that refuses. A joined driver also checks each run against
+    /// its own parts by the same rule as it drives, and fails one they do
+    /// not provide ([`Failure::NotProvided`]): a run reaches it so only
+    /// inside a part of the user's that does not forward what it provides
+    /// a run. Then the driver
     /// runs the shots, and a failure ends the run with the shot it names, a
     /// part's panic included, as the Panics section says.
     ///

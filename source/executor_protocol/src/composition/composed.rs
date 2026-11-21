@@ -5,9 +5,10 @@
 //! position gives it.
 //!
 //! Each of its methods answers from the half that faces the same way: what
-//! it provides from the upper half, what it requires from the lower, each
-//! with what the other half forwards. At run time, the upper part calls the
-//! lower one, with the rest of the chain below it, as one executor:
+//! it provides from the upper half, over the lower's; what it requires
+//! from the lower half, with what of the upper's reaches past it. At run
+//! time, the upper part calls the lower one, with the rest of the chain
+//! below it, as one executor:
 //!
 //! ```text
 //! d.through(a).drive(shots, seed, below)
@@ -31,10 +32,10 @@
 //! the run's `ready` gave it one.
 //!
 //! What crosses the boundary is the [`Boundary`] the join's fit gave,
-//! resolved on each run with what the parts that do not state a resource
-//! or a feature forward: what is required, at `ready`, from what the part
-//! above it requires; what is provided, at the run's first call, from what
-//! the chain below provides.
+//! resolved on each run with the resources and features that reach it:
+//! what is required, at `ready`, from what reaches the lower half from
+//! above; what is provided, at the run's first call, from the lower half's
+//! provision over the chain below's.
 //!
 //! A `Composed` keeps its role's contract through its public methods
 //! alone, so it gives the same outputs when the chain's check did not
@@ -42,9 +43,10 @@
 //! role's public methods: a panic or a refusal below it then passes up
 //! unnamed, and the boundary above names the part at its position; a
 //! `Composed` whose halves do not fit refuses the run at `ready`, with
-//! their mismatch, rather than running an unbound opcode; and a joined
-//! driver fails a run its own parts do not provide, by the runner's rule,
-//! before its driver runs anything, where the runner would have refused
+//! their mismatch, rather than running an unbound opcode. A joined driver
+//! also fails a run its own parts do not provide, by the runner's rule,
+//! before its driver runs anything, for a part holding it that does not
+//! forward what it provides a run, where the runner would have refused
 //! it.
 
 mod adapter;
@@ -56,7 +58,7 @@ use crate::PartId;
 use crate::part_id::ChainPosition;
 use crate::{
     Adapter, Batch, BatchReadouts, Boundary, Capabilities, CapabilitiesMismatch, ExecuteError,
-    Executor, NotReady, Seed, ShotSet,
+    Executor, NotReady, RunProvision, Seed, ShotSet,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
@@ -78,13 +80,15 @@ pub struct Composed<U, L> {
     /// every run refuses at `ready`.
     fit: Result<Boundary, CapabilitiesMismatch>,
     /// What the two halves require together, for the driver's and the
-    /// adapter's roles: the lower half's requirement, and the upper's
-    /// where the lower does not state it.
+    /// adapter's roles: the lower half's requirement, with what of the
+    /// upper's reaches past the lower half.
     requires: Option<Capabilities>,
     /// What the two halves provide together, for the adapter's and the
-    /// executor's roles: the upper half's provision, and the stricter of
-    /// it and the lower's, where the upper does not require it again.
+    /// executor's roles: the upper half's provision over the lower's.
     provides: Option<Capabilities>,
+    /// What the two halves provide a run together, for the driver's role:
+    /// the upper half's over the lower half's provision.
+    run_provides: Option<RunProvision>,
     /// The parts the upper half holds, as it declares them: how far below
     /// this part's position the lower half's is.
     upper_parts: usize,
@@ -118,6 +122,7 @@ impl<U, L> Composed<U, L> {
             fit,
             requires,
             provides,
+            run_provides: None,
             upper_parts,
             provided_on_run: true,
         }

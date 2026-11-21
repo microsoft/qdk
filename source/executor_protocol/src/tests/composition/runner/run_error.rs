@@ -9,8 +9,8 @@
 
 use crate::prelude::*;
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Stating, Trap, coin_capabilities,
-    qubits,
+    Bits, CoinCopy, HidesRunProvision, Log, Panics, PanicsWhen, Program, Renamed, Stating, Trap,
+    coin_capabilities, qubits,
 };
 use crate::{
     Batch, BatchReadouts, Capabilities, ExecuteError, ExecuteRefusal, Failure, Features, Seed,
@@ -123,12 +123,9 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
         ),
         (
             "too many shots for a held joined driver's adapter",
-            runner(
-                Renamed::new(coin().through(Stating::queue(4, &log)), "user's driver")
-                    .on(Bits::new(&log)),
-            )
-            .run(&shots, SEED)
-            .map(drop),
+            runner(HidesRunProvision(coin().through(Stating::queue(4, &log))).on(Bits::new(&log)))
+                .run(&shots, SEED)
+                .map(drop),
             &[
                 "run failed",
                 "shot 0",

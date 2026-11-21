@@ -19,31 +19,37 @@ use crate::{Adapter, BoundaryCompatible, Driver, Executor, Runner};
 /// the `on` that makes the runner.
 pub trait DriverJoins: Driver + Sized {
     /// This driver calling `adapter`, as one driver: it requires what
-    /// `adapter` requires, and what this driver requires that `adapter`
-    /// does not state.
+    /// `adapter` requires, and what of this driver's requirement reaches
+    /// past `adapter`; it provides a run what this driver provides it, over
+    /// what `adapter` provides.
     fn through<A: Adapter>(self, adapter: A) -> Composed<Self, A> {
         Composed::driver_through(self, adapter)
     }
 
     /// The runner of this driver calling `executor`, or every fault of the
-    /// chain.
+    /// chain it can see: the parts inside a part of the user's, which it
+    /// cannot see into, are checked on each run instead, as the crate's
+    /// README says ("Composing and running a chain").
     ///
-    /// Checks the whole chain, part by part, whatever the brackets of the
-    /// joins: what each part requires against what the part below it provides,
-    /// and each resource and feature the part below does not require again,
-    /// which it forwards, against each part further below, until a part
-    /// requires it again. On any fault, every fault of the chain, top to
-    /// bottom. Otherwise the runner, which bounds each run by what the parts
-    /// below the driver provide together, such as the fewest shots of those
-    /// down to the first adapter that requires shots again, so that an adapter
-    /// may lower a bound, and raise it only by requiring it again, serving it
-    /// itself, as the driver serves a field it requires. What each part
-    /// requires and provides is read at the joins and at this `on`, for the
-    /// checks and the runner's boundary, and each part's name is read here,
-    /// for the refusals and panics that name it; a joined part reads its
-    /// parts' resources and features again on each run, for the boundary
-    /// between its halves, whose instructions stay those of its join, and a
-    /// joined driver for its check of the run.
+    /// Checks the chain it sees, part by part, whatever the brackets of the
+    /// joins: what each part requires against what the part below it
+    /// provides, and each resource and feature it requires against each
+    /// part further below that states it, down to the first that serves it.
+    /// On any fault, every such fault, top to bottom, with the same parts'
+    /// positions and mismatches in every bracketing, and the same names
+    /// where each part's name stays the same through composition, `bind`
+    /// included. Otherwise the
+    /// runner, which checks each run against what the driver provides a
+    /// run over the parts below it, by the same rule: a run's shots reach,
+    /// for instance, every part below down to the first that serves them,
+    /// so that a part that limits them lowers the most a run may have, and
+    /// only one that serves them raises it. What each part requires and
+    /// provides is read at the joins and at this `on`, for the checks and
+    /// the runner's boundary, and each part's name is read here, for the
+    /// refusals and panics that name it; a joined part reads its parts'
+    /// resources and features again on each run, for the boundary between
+    /// its halves, whose instructions stay those of its join, and a joined
+    /// driver for its check of the run.
     ///
     /// # Errors
     ///
@@ -51,7 +57,7 @@ pub trait DriverJoins: Driver + Sized {
     fn on<E: Executor>(mut self, executor: E) -> Result<Runner<Self, E>, CompositionFaults> {
         let mut parts = DeclaredParts::new();
         self.declare(&mut parts);
-        let provision = parts.run_provision(executor.provides());
+        let provision = self.provides().over(executor.provides());
         let executor_at = parts.len();
         executor.declare(&mut parts);
         let faults = parts.faults();
@@ -60,12 +66,11 @@ pub trait DriverJoins: Driver + Sized {
         }
         let parts = parts.ids();
         // The whole chain's fit finds no fault the part-by-part check
-        // misses: the joined driver requires its lowest part's
-        // requirement, else the one above, key by key, and the joined
-        // executor provides its top part's provision, the stricter of it
-        // and the one below where the top part does not require it again,
-        // which are what that check compares; and both check the
-        // instructions between adjacent parts.
+        // misses: the joined driver requires, key by key, the largest
+        // requirement that reaches past its lowest part, and the joined
+        // executor provides the smallest provision down to the first part
+        // that serves it, which are what that check compares; and both
+        // check the instructions between adjacent parts.
         let mut boundary = (self.requires().fits(executor.provides()))
             .expect("the chain fits where each part fits what it reaches");
         self.bind(boundary.opcode_map().clone());

@@ -12,7 +12,7 @@ use executor_protocol::{
 use super::{LogicalGates, MixGates, PhysicalGates};
 
 /// An adapter that forwards every batch as it is: the cost of a boundary.
-/// It states only its instructions, so the chain forwards the rest.
+/// It states only its instructions: it neither needs nor limits the rest.
 pub(crate) struct Forward {
     capabilities: Capabilities,
     identity: OpcodeMap,

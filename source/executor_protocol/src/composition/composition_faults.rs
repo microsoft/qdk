@@ -45,8 +45,8 @@ impl fmt::Display for CompositionFaults {
 impl Error for CompositionFaults {}
 
 /// One part whose requirement a part below it does not provide: the part
-/// below it, or, for what no adapter between them states again, a part
-/// further below.
+/// below it, or a part further below that the requirement reaches, as no
+/// part between them serves it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CompositionFault {

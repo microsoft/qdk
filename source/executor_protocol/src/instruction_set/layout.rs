@@ -114,8 +114,10 @@ impl Layout {
                 flags: def.flags.len(),
             });
         }
-        let readout_slots = flags.and_then(|flags| def.outcomes.checked_add(flags));
-        if flags.is_some() && readout_slots.is_none() {
+        let readout_slots = u32::try_from(def.flags.len())
+            .ok()
+            .and_then(|flags| def.outcomes.checked_add(flags));
+        if readout_slots.is_none() {
             faults.push(DeclarationFault::TooManyReadoutSlots {
                 mnemonic: mnemonic(),
                 outcomes: def.outcomes,

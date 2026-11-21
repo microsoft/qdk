@@ -17,17 +17,17 @@ use crate::{Adapter, Executor};
 /// boundary that does not fit is reported, with every other fault of the
 /// chain, by the [`on`](crate::DriverJoins::on) that makes the runner.
 pub trait AdapterJoins: Adapter + Sized {
-    /// This adapter calling `below`, as one adapter: it provides what this
-    /// adapter provides, and requires what `below` requires, each with
-    /// what the other forwards, as [`Capabilities`](crate::Capabilities)
-    /// says.
+    /// This adapter calling `below`, as one adapter: it provides this
+    /// adapter's provision over `below`'s, and requires what `below`
+    /// requires with what this adapter requires that reaches past `below`,
+    /// as [`Capabilities`](crate::Capabilities) says.
     fn through<L: Adapter>(self, below: L) -> Composed<Self, L> {
         Composed::adapter_through(self, below)
     }
 
-    /// This adapter calling `executor`, as one executor: it provides what
-    /// this adapter provides, with what `executor` provides that this
-    /// adapter forwards.
+    /// This adapter calling `executor`, as one executor: it provides this
+    /// adapter's provision over `executor`'s, as
+    /// [`Capabilities`](crate::Capabilities) says.
     fn on<E: Executor>(self, executor: E) -> Composed<Self, E> {
         Composed::adapter_on(self, executor)
     }

@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 //! The check of a chain by the `on` that makes its runner: what each part
-//! requires against what the part below it provides, and what it forwards
-//! against the parts further below, wherever the brackets go; and what a
-//! joined part requires and provides.
+//! requires against what the part below it provides, and against each part
+//! further below its requirement reaches, wherever the brackets go; and
+//! what a joined part requires and provides.
 
 use std::any::type_name;
 use std::cell::Cell;
@@ -13,12 +13,13 @@ use std::rc::Rc;
 use crate::prelude::*;
 use crate::tests::composition::{faults, plain, records};
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, CoinGates, Log, Pool, Profiler, Program, Renamed, ReplaysItself, Spread,
-    Stating, in_each_bracketing, qubits,
+    Bits, CoinCopy, CoinGates, Log, Pool, Profiler, Program, Renamed, ReplaysItself, Splitter,
+    Spread, Stating, in_each_bracketing, qubits,
 };
 use crate::{
-    BlockType, Capabilities, CapabilitiesMismatch, CompositionFault, Feature, FeatureMismatch,
-    Features, InstructionDef, InstructionSet, PartId, Resource, ResourceMismatch, ShotSet,
+    BlockType, Capabilities, CapabilitiesMismatch, CompositionFault, CompositionFaults, Feature,
+    FeatureMismatch, Features, InstructionDef, InstructionSet, PartId, Resource, ResourceMismatch,
+    Resources, ShotSet,
 };
 
 /// The instructions of [`CoinGates`] but `missing`, as the set `name`.
@@ -72,16 +73,21 @@ fn instructions(sent: &InstructionSet, accepted: &InstructionSet) -> Capabilitie
     }
 }
 
-/// The mismatch of `required` qubits against `provided`.
-fn short_qubits(required: u32, provided: u32) -> CapabilitiesMismatch {
+/// The mismatch of `required` of `key` against `provided`.
+fn short(key: Resource, required: u32, provided: u32) -> CapabilitiesMismatch {
     CapabilitiesMismatch {
         resources: vec![ResourceMismatch {
-            key: Resource::Blocks(BlockType::qubit()),
+            key,
             required,
             provided,
         }],
         ..CapabilitiesMismatch::default()
     }
+}
+
+/// The mismatch of `required` qubits against `provided`.
+fn short_qubits(required: u32, provided: u32) -> CapabilitiesMismatch {
+    short(Resource::Blocks(BlockType::qubit()), required, provided)
 }
 
 /// The mismatch of `feature`, required and not provided.
@@ -114,15 +120,15 @@ fn bits_over(n: u32, log: &Log) -> Bits {
 }
 
 /// Checks, in each bracketing of the parts `$setup` binds, that the
-/// chain's faults are `$expected`, as the row `$row`.
+/// chain's faults are `$expected`, as the row `$row`: none if it composes.
 macro_rules! faults_in_each_bracketing {
     ($row:expr, [$($part:ident),+] from $setup:tt, $expected:expr $(,)?) => {
         let expected: Vec<CompositionFault> = $expected;
         in_each_bracketing!(
             [$($part),+] from $setup,
             |chain, brackets| assert_eq!(
-                faults(chain).faults(),
-                expected,
+                chain.err().as_ref().map_or(&[][..], CompositionFaults::faults),
+                expected.as_slice(),
                 "{}, {brackets}",
                 $row
             ),
@@ -224,16 +230,22 @@ fn a_requirement_not_provided_is_a_fault_naming_both_parts() {
     );
 }
 
-// --------------------------------------------------------- forwarding
+// --------------------------------------------------------------- reach
 
-/// What an adapter does not state, it forwards: the requirement of the
-/// part above it is checked against the parts below it, down to the first
-/// that states it again, which is checked in its place, in each
-/// bracketing. A profiler states nothing; an adapter replaying its shots
-/// itself states features, not qubits; a pool states the qubits it draws;
-/// an ancilla's reservation states the qubits it needs.
+/// A requirement reaches each part below it that states its resource or
+/// feature, down to and including the first that serves it, and is checked
+/// against each, in each bracketing; a part that states nothing of it
+/// passes it through. A row per part a writer meets: a profiler, which
+/// states nothing; a replayer, which states features, not qubits; an
+/// interleaver, which needs qubits below for its own work, and passes them
+/// through; a job queue, which limits a run's shots; a decoder restating
+/// its qubits as a limit, above an ancilla's reservation, which serves the
+/// qubits it lowers; a pool, which serves the qubits and carbon blocks it
+/// draws; a part that needs batches of one instruction below, passing the
+/// count through, and a splitter, which serves any count.
 #[test]
-fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() {
+#[expect(clippy::too_many_lines, reason = "one row per part a writer meets")]
+fn a_requirement_reaches_each_part_below_down_to_the_first_that_serves_it() {
     let counted = Rc::new(Cell::new(0));
     // A program on 9 qubits, through a profiler, over bits providing 8.
     faults_in_each_bracketing!(
@@ -246,8 +258,8 @@ fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() 
         },
         vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(9, 8))],
     );
-    // A program using readout parities, through a profiler, over bits
-    // that resolve none.
+    // A program using readout parities, or seeded runs, through a
+    // profiler, over bits that provide neither.
     faults_in_each_bracketing!(
         "readout parities through a profiler",
         [d, a, e] from {
@@ -262,6 +274,20 @@ fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() 
             missing(Feature::ReadoutParity),
         )],
     );
+    faults_in_each_bracketing!(
+        "seeded runs through a profiler",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(1, Features::new().with_seeded_runs(true));
+            let a = Profiler::new(&counted, &log);
+            let e = Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
+        },
+        vec![fault(
+            part::<Program>(0),
+            part::<Bits>(2),
+            missing(Feature::SeededRuns),
+        )],
+    );
     // A debugger on 1 qubit, through an adapter replaying its shots
     // itself, over bits of none.
     faults_in_each_bracketing!(
@@ -274,11 +300,69 @@ fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() 
         },
         vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(1, 0))],
     );
+    // A program on 5 qubits, through an interleaver needing 3, over bits
+    // providing 4: the program's 5 reach the bits.
+    faults_in_each_bracketing!(
+        "qubits through an interleaver",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(5, Features::new());
+            let a = Stating::requiring(qubits(3), &log);
+            let e = bits_over(4, &log);
+        },
+        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(5, 4))],
+    );
+    // A program of runs of 5 shots, then of 12, through a queue of 10, over
+    // bits of 3: the program is checked against both, and named at each
+    // that falls short.
+    let shots = |n| program(1, Features::new()).with_resources(qubits(1).with_shots(n));
+    let bits_of_3_shots = |log: &Log| Bits::new(log).with_resources(qubits(64).with_shots(3));
+    faults_in_each_bracketing!(
+        "shots through a queue",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = shots(5);
+            let a = Stating::queue(10, &log);
+            let e = bits_of_3_shots(&log);
+        },
+        vec![fault(part::<Program>(0), part::<Bits>(2), short(Resource::Shots, 5, 3))],
+    );
+    faults_in_each_bracketing!(
+        "shots short at a queue and below it",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = shots(12);
+            let a = Stating::queue(10, &log);
+            let e = bits_of_3_shots(&log);
+        },
+        vec![
+            fault(part::<Program>(0), part::<Stating>(1), short(Resource::Shots, 12, 10)),
+            fault(part::<Program>(0), part::<Bits>(2), short(Resource::Shots, 12, 3)),
+        ],
+    );
+    // A program on 6 qubits, through a decoder limiting them to 4, then a
+    // part reserving an ancilla, which serves 6 and requires 7, over bits
+    // of 5: the program falls short at the decoder, not past the ancilla's
+    // reservation, which falls short at the bits.
+    faults_in_each_bracketing!(
+        "a limit above a part that serves",
+        [d, c, w, e] from {
+            let log = Log::default();
+            let d = program(6, Features::new());
+            let c = Stating::restating(4, &log);
+            let w = Stating::reserving_an_ancilla(6, &log);
+            let e = bits_over(5, &log);
+        },
+        vec![
+            fault(part::<Program>(0), part::<Stating>(1), short_qubits(6, 4)),
+            fault(part::<Stating>(2), part::<Bits>(3), short_qubits(7, 5)),
+        ],
+    );
     // A program on 9 qubits, through a part reserving an ancilla, which
     // requires 10, over bits providing 8: the part is named, not the
-    // program, whose qubits, also short, it states again.
+    // program, whose qubits it serves.
     faults_in_each_bracketing!(
-        "qubits stated again",
+        "qubits served",
         [d, a, e] from {
             let log = Log::default();
             let d = program(9, Features::new());
@@ -293,8 +377,7 @@ fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() 
     );
     // 1 qubit and 3 carbon blocks, drawn from one pool of 7 qubits, over 5
     // qubits and no carbon block: the pool is named for its 7 qubits; the
-    // carbon blocks, which the pool requires again, as none, are not
-    // checked below it.
+    // carbon blocks, which the pool serves, are not checked below it.
     faults_in_each_bracketing!(
         "a pool",
         [d, a, e] from {
@@ -308,14 +391,132 @@ fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() 
         },
         vec![fault(part::<Pool>(1), part::<Bits>(2), short_qubits(7, 5))],
     );
+    // A program of batches of 100 instructions, over bits taking 1: through
+    // a part that needs batches of one below, the program's 100 reach the
+    // bits; through a splitter, which serves any count, they stop there.
+    let batches_of =
+        |n| program(1, Features::new()).with_resources(qubits(1).with_instructions_per_batch(n));
+    let bits_taking_1 =
+        |log: &Log| Bits::new(log).with_resources(qubits(64).with_instructions_per_batch(1));
+    faults_in_each_bracketing!(
+        "instructions a batch past a part that requires them",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = batches_of(100);
+            let a = Stating::requiring(Resources::new().with_instructions_per_batch(1), &log);
+            let e = bits_taking_1(&log);
+        },
+        vec![fault(
+            part::<Program>(0),
+            part::<Bits>(2),
+            short(Resource::InstructionsPerBatch, 100, 1),
+        )],
+    );
+    faults_in_each_bracketing!(
+        "instructions a batch through a splitter",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = batches_of(100);
+            let a = Splitter::default();
+            let e = bits_taking_1(&log);
+        },
+        vec![],
+    );
+    // A program on 5 qubits, through a profiler, over bits that state no
+    // qubits: nothing limits them.
+    faults_in_each_bracketing!(
+        "qubits over an executor stating none",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(5, Features::new());
+            let a = Profiler::new(&counted, &log);
+            let e = Bits::new(&log).with_resources(Resources::new());
+        },
+        vec![],
+    );
 }
 
-/// An adapter that provides more than the part below it cannot raise it:
+/// A part of a user's holding an interleaver needing 3 qubits joined with
+/// a decoder limiting them to 10, between a program on 5 qubits and bits
+/// of 4: the program's qubits reach the bits through it, as they do
+/// through the two parts unheld; and one holding an ancilla's reservation
+/// joined with a profiler, under a program on 9 qubits, over bits of 8:
+/// the program's qubits stop at it, as they stop at the reservation
+/// unheld. A joined part keeps its parts' reach when held.
+#[test]
+fn a_held_joined_part_keeps_the_reach_of_its_parts() {
+    fn held<A: Adapter>(part: A) -> Renamed<A> {
+        Renamed::new(part, "user's adapter")
+    }
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let interleaver = || Stating::requiring(qubits(3), &log);
+    let decoder = || Stating::restating(10, &log);
+    let users = PartId::new(1, "user's adapter");
+    assert_eq!(
+        faults(
+            program(5, Features::new())
+                .through(interleaver())
+                .through(decoder())
+                .on(bits_over(4, &log))
+        )
+        .faults(),
+        [fault(
+            part::<Program>(0),
+            part::<Bits>(3),
+            short_qubits(5, 4)
+        )],
+        "an interleaver and a decoder"
+    );
+    assert_eq!(
+        faults(
+            program(5, Features::new())
+                .through(held(interleaver().through(decoder())))
+                .on(bits_over(4, &log))
+        )
+        .faults(),
+        [fault(
+            part::<Program>(0),
+            part::<Bits>(2),
+            short_qubits(5, 4)
+        )],
+        "the two held"
+    );
+    let ancilla = || Stating::reserving_an_ancilla(9, &log);
+    let profiler = || Profiler::new(&counted, &log);
+    assert_eq!(
+        faults(
+            program(9, Features::new())
+                .through(ancilla())
+                .through(profiler())
+                .on(bits_over(8, &log))
+        )
+        .faults(),
+        [fault(
+            part::<Stating>(1),
+            part::<Bits>(3),
+            short_qubits(10, 8)
+        )],
+        "an ancilla's reservation and a profiler"
+    );
+    assert_eq!(
+        faults(
+            program(9, Features::new())
+                .through(held(ancilla().through(profiler())))
+                .on(bits_over(8, &log))
+        )
+        .faults(),
+        [fault(users, part::<Bits>(2), short_qubits(10, 8))],
+        "the two held"
+    );
+}
+
+/// A limit passes a requirement through, and cannot raise the limit below:
 /// a decoder restating 64 qubits, requiring none, over bits of 8, under a
 /// program on 9: the program's qubits are checked against the bits too,
 /// in each bracketing.
 #[test]
-fn a_provision_restated_above_cannot_raise_the_one_below() {
+fn a_limit_cannot_raise_the_limit_below() {
     faults_in_each_bracketing!(
         "a decoder restating its qubits",
         [d, a, e] from {
@@ -328,17 +529,17 @@ fn a_provision_restated_above_cannot_raise_the_one_below() {
     );
 }
 
-/// An adapter that states a feature both ways replaces it: what the part
-/// above requires of it is checked against it alone, and what it requires
-/// against the parts below. A lowering that cannot carry readout parities,
-/// over bits that resolve them, refuses a program using them; an adapter
-/// replaying its shots itself serves a debugger over bits whose shots are
-/// not replayable, but requires seeded runs; a sampler drawing a run's shots
-/// together, which requires no
-/// seeded runs below, and so no replay, provides no replay, and refuses a
-/// debugger over bits whose shots are not replayable. Bracketed either way.
+/// A feature's requirement stops at the part that serves it, and passes a
+/// part that limits it. A lowering that cannot carry readout parities, over
+/// bits that resolve them, refuses a program using them; an adapter
+/// replaying its shots itself serves a debugger replay over bits whose
+/// shots are not replayable, but the seeded runs that replay states pass
+/// it, as they pass its own requirement of them, to bits without them; a
+/// sampler drawing a run's shots together serves seeded runs, but limits
+/// replay to none, so a debugger's replay falls short there and at bits
+/// whose shots are not replayable. Bracketed either way.
 #[test]
-fn an_adapter_stating_a_feature_both_ways_replaces_it() {
+fn a_feature_requirement_stops_at_the_part_that_serves_it() {
     let replay = || Features::new().with_replay(true);
     faults_in_each_bracketing!(
         "a lowering without readout parities",
@@ -355,28 +556,36 @@ fn an_adapter_stating_a_feature_both_ways_replaces_it() {
         )],
     );
     let not_replayable = || Features::new().with_replay(false);
-    in_each_bracketing!(
+    faults_in_each_bracketing!(
+        "a replayer over shots not replayable",
         [d, a, e] from {
             let log = Log::default();
             let d = program(1, replay());
             let a = ReplaysItself::new(&log);
             let e = Bits::new(&log).with_features(not_replayable());
         },
-        |chain, brackets| assert!(chain.is_ok(), "not replayable below, {brackets}"),
+        vec![],
     );
     faults_in_each_bracketing!(
-        "no seeded runs below",
+        "no seeded runs below a replayer",
         [d, a, e] from {
             let log = Log::default();
             let d = program(1, replay());
             let a = ReplaysItself::new(&log);
             let e = Bits::new(&log).with_features(not_replayable().with_seeded_runs(false));
         },
-        vec![fault(
-            part::<ReplaysItself>(1),
-            part::<Bits>(2),
-            missing(Feature::SeededRuns),
-        )],
+        vec![
+            fault(
+                part::<Program>(0),
+                part::<Bits>(2),
+                missing(Feature::SeededRuns),
+            ),
+            fault(
+                part::<ReplaysItself>(1),
+                part::<Bits>(2),
+                missing(Feature::SeededRuns),
+            ),
+        ],
     );
     faults_in_each_bracketing!(
         "a sampler over shots not replayable",
@@ -386,11 +595,18 @@ fn an_adapter_stating_a_feature_both_ways_replaces_it() {
             let a = Stating::seeding_itself(&log);
             let e = Bits::new(&log).with_features(not_replayable());
         },
-        vec![fault(
-            part::<Program>(0),
-            part::<Stating>(1),
-            missing(Feature::Replay),
-        )],
+        vec![
+            fault(
+                part::<Program>(0),
+                part::<Stating>(1),
+                missing(Feature::Replay),
+            ),
+            fault(
+                part::<Program>(0),
+                part::<Bits>(2),
+                missing(Feature::Replay),
+            ),
+        ],
     );
 }
 
@@ -477,12 +693,13 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
 // ---------------------------------------------------------- the joined
 
 /// A joined part, as the chain above it reads it: it requires what its
-/// lowest part requires, and what its upper parts require that the lowest
-/// does not state; it provides what its top part provides, and what the
-/// parts below provide that the top one does not require, the stricter
-/// where both state it, and no replay where it provides no seeded runs.
+/// lowest part requires, and what its upper parts require that reaches
+/// past it, the larger where both state it; it provides its top part's
+/// provision over the parts below it, the smaller where both state it, down
+/// to the first part that serves it, and served if one of its parts
+/// serves it; and no replay where it provides no seeded runs.
 #[test]
-fn a_joined_part_requires_and_provides_what_its_parts_forward() {
+fn a_joined_part_states_what_its_parts_state_together() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
     let read = |capabilities: &Capabilities| {
@@ -493,7 +710,8 @@ fn a_joined_part_requires_and_provides_what_its_parts_forward() {
     };
     let no_parity = || Features::new().with_readout_parity(false);
     let rows = [
-        // The encoding's 14 qubits, and the program's readout parities.
+        // The encoding's 14 qubits, as it serves the program's 2, and the
+        // program's readout parities.
         (
             "a driver through an encoding",
             read(Driver::requires(
@@ -510,6 +728,15 @@ fn a_joined_part_requires_and_provides_what_its_parts_forward() {
             )),
             (qubits(14), Features::new()),
         ),
+        // The program's 5 qubits, larger than the interleaver's 3, which
+        // it passes through.
+        (
+            "a driver through an interleaver",
+            read(Driver::requires(
+                &program(5, Features::new()).through(Stating::requiring(qubits(3), &log)),
+            )),
+            (qubits(5), Features::new()),
+        ),
         // The queue's 4 shots, beside the bits' 8 qubits and their
         // parities, which the queue does not state.
         (
@@ -520,14 +747,28 @@ fn a_joined_part_requires_and_provides_what_its_parts_forward() {
             )),
             (qubits(8).with_shots(4), no_parity()),
         ),
-        // The ancilla's 9 qubits, not the bits' 64, which it requires
-        // again; and the bits' parities.
+        // The ancilla's 9 qubits, served, not the bits' 64; and the bits'
+        // parities.
         (
             "an ancilla's reservation on bits",
             read(Executor::provides(
                 &Stating::reserving_an_ancilla(9, &log).on(Bits::new(&log)),
             )),
-            (qubits(9), no_parity()),
+            (
+                qubits(9).serving(Resource::Blocks(BlockType::qubit())),
+                no_parity(),
+            ),
+        ),
+        // Any count of instructions a batch, served, not the bits' 1.
+        (
+            "a splitter on bits",
+            read(Executor::provides(&Splitter::default().on(
+                Bits::new(&log).with_resources(qubits(64).with_instructions_per_batch(1)),
+            ))),
+            (
+                qubits(64).serving(Resource::InstructionsPerBatch),
+                no_parity(),
+            ),
         ),
         // A decoder restating 64 qubits over a queue of 4 shots: the
         // decoder's qubits and the queue's shots.
@@ -538,15 +779,18 @@ fn a_joined_part_requires_and_provides_what_its_parts_forward() {
             )),
             (qubits(64).with_shots(4), Features::new()),
         ),
-        // A replayer, which provides replay and forwards seeded runs, on
-        // bits without seeded runs: neither, as a shot is replayed with its
-        // run's seed.
+        // A replayer, which serves replay and limits seeded runs, on bits
+        // without seeded runs: neither, as a shot is replayed with its
+        // run's seed; replay stays served, a stop.
         (
             "a replayer on bits without seeded runs",
             read(Executor::provides(&Stating::replaying(&log).on(
                 Bits::new(&log).with_features(Features::new().with_seeded_runs(false)),
             ))),
-            (qubits(64), Features::new().with_seeded_runs(false)),
+            (
+                qubits(64),
+                (Features::new().with_seeded_runs(false)).serving(Feature::Replay),
+            ),
         ),
     ];
     for (row, read, (resources, features)) in rows {

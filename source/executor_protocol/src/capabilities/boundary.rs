@@ -66,8 +66,8 @@ impl Boundary {
     }
 
     /// This boundary on a run, as it starts: with the resources and
-    /// features `required` states, once forwarded across the parts that do
-    /// not state them, and the instructions its fit matched.
+    /// features `required` states, the largest requirement that reaches
+    /// the boundary, and the instructions its fit matched.
     // Once per run: kept out of line, so that it does not grow the
     // per-call code of the run it would be inlined into.
     #[inline(never)]
@@ -76,8 +76,9 @@ impl Boundary {
     }
 
     /// This boundary on a run, at its first call: with the resources and
-    /// features `provided` states, once forwarded across the parts that do
-    /// not state them, and the instructions its fit matched; and the
+    /// features `provided` states, the provision of the parts below down
+    /// to the first that serves each, and the instructions its fit
+    /// matched; and the
     /// limits of each batch sent across, from what is required and
     /// provided.
     // Once per run: kept out of line, so that it does not grow the

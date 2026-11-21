@@ -54,8 +54,8 @@ fn coin_runner<E: Executor>(
     // `through` joins the driver and the adapter into one driver, and `on`
     // joins that driver and the executor into the runner. The `on` that
     // makes the runner checks that each part provides what the part above
-    // requires, the noise's own statement forwarding the coin's 2 qubits
-    // to the bits, and gives the runner or every fault of the chain.
+    // requires, the coin's 2 qubits reaching past the noise, which states
+    // none, to the bits, and gives the runner or every fault of the chain.
     let runner = coin.through(BitFlip::new(0.2)).on(bits);
     runner.expect("the parts compose: the bits provide what the coin requires")
 }

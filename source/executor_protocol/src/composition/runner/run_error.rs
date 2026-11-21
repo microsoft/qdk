@@ -40,15 +40,14 @@ impl Error for RunError {}
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RunRefusal {
-    /// The run requires what the parts below the driver do not provide
-    /// together, of a field the driver does not require: more shots than the
-    /// fewest of those down to the first adapter that requires shots again,
-    /// which serves them itself
+    /// The run requires what the driver and the parts below it do not
+    /// provide: more shots than the fewest stated down to the first part
+    /// that serves shots
     /// ([`Resources::with_shots`](crate::Resources::with_shots)), or a fixed
-    /// seed where seeded runs are not provided
+    /// seed where one of those parts states no seeded runs
     /// ([`Features::with_seeded_runs`](crate::Features::with_seeded_runs)). A
-    /// joined driver held by a part of the user's, whose parts the runner
-    /// cannot see, fails such a run instead
+    /// joined driver held by a part of the user's that does not forward
+    /// what it provides a run fails such a run instead
     /// ([`Failure::NotProvided`](crate::Failure::NotProvided)).
     NotProvided(CapabilitiesMismatch),
     /// A part's `ready` said it cannot take the run now.

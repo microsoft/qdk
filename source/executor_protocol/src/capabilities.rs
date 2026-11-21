@@ -8,17 +8,23 @@
 //!
 //! Each holds three kinds of statement: the instructions sent or accepted
 //! ([`InstructionSet`]), amounts ([`Resources`]) and yes-or-no features
-//! ([`Features`]). This file is the one place that lists the kinds: every
-//! other use of a kind goes through its own methods.
+//! ([`Features`]). The last two follow one rule of reach, which this
+//! folder alone applies: a requirement reaches each part below down to
+//! the first that serves it. This file is the one place that lists those
+//! kinds ([`Kinds`]): every other use of a kind goes through its own
+//! methods. What a driver provides a run states the same two kinds
+//! ([`RunProvision`]).
 
 mod boundary;
 mod features;
 mod resources;
+mod run_provision;
 mod statements;
 
 pub use boundary::{BatchFault, Boundary};
 pub use features::{Feature, FeatureMismatch, Features};
 pub use resources::{Resource, ResourceMismatch, Resources};
+pub use run_provision::RunProvision;
 pub use statements::{StatementMismatch, Statements};
 
 use std::error::Error;
@@ -36,18 +42,18 @@ use crate::{BoundaryCompatible, InstructionMismatch, InstructionSet};
 /// provides ([`Executor::provides`](crate::Executor::provides)), and an
 /// adapter both. The joins check, at each boundary, that what the part
 /// above requires [`fits`](BoundaryCompatible::fits) what the part below
-/// provides. A resource or a feature a part does not state is forwarded:
-/// across an adapter that does not state it, the requirement of the part
-/// above meets the provision of the part below, as the crate's
-/// `docs/capabilities.md` says.
+/// provides. A resource or a feature a part does not state, it neither
+/// needs nor limits; a requirement of one reaches every part below that
+/// states it, down to the first that serves it
+/// ([`Statements::serving`]), as the crate's `docs/capabilities.md` says.
 ///
 /// Built from [`new`](Self::new), with the builders below: a part that
-/// states no resource and no feature writes only its instruction set.
+/// states no resource and no feature writes only its instruction set, and
+/// composes with any part on them.
 #[derive(Clone, Debug)]
 pub struct Capabilities {
     instructions: Arc<InstructionSet>,
-    resources: Resources,
-    features: Features,
+    kinds: Kinds,
 }
 
 impl Capabilities {
@@ -57,22 +63,21 @@ impl Capabilities {
     pub fn new(instructions: InstructionSet) -> Self {
         Self {
             instructions: Arc::new(instructions),
-            resources: Resources::new(),
-            features: Features::new(),
+            kinds: Kinds::new(),
         }
     }
 
     /// These capabilities, with `resources` in place of their own.
     #[must_use]
     pub fn with_resources(mut self, resources: Resources) -> Self {
-        self.resources = resources;
+        self.kinds.resources = resources;
         self
     }
 
     /// These capabilities, with `features` in place of their own.
     #[must_use]
     pub fn with_features(mut self, features: Features) -> Self {
-        self.features = features;
+        self.kinds.features = features;
         self
     }
 
@@ -86,59 +91,57 @@ impl Capabilities {
     /// The amounts stated.
     #[must_use]
     pub fn resources(&self) -> &Resources {
-        &self.resources
+        &self.kinds.resources
     }
 
     /// The features stated.
     #[must_use]
     pub fn features(&self) -> &Features {
-        &self.features
+        &self.kinds.features
     }
 
     /// Every resource and feature `self`, a requirement, states above what
     /// `provided` states; the instructions are not compared.
     pub(crate) fn kinds_fit(&self, provided: &Self) -> Result<(), CapabilitiesMismatch> {
-        let short = CapabilitiesMismatch {
-            instructions: Vec::new(),
-            resources: self.resources.mismatches(&provided.resources),
-            features: self.features.mismatches(&provided.features),
-        };
-        if short.is_empty() { Ok(()) } else { Err(short) }
+        self.kinds.fit(&provided.kinds)
     }
 
-    /// Whether `self`, a provision, serves a run of `shots` shots, whose
-    /// seed is fixed when `seeded`: what a run states only as it starts.
+    /// What `self`, a part's provision, provides over `below`, the
+    /// provision of the parts below it, with `self`'s instructions.
     // Once per run: kept out of line, so that it does not grow the
     // per-call code of the run it would be inlined into.
     #[inline(never)]
-    pub(crate) fn admits_run(
-        &self,
-        shots: usize,
-        seeded: bool,
-    ) -> Result<(), CapabilitiesMismatch> {
-        // Saturates: no provision can state more than `u32::MAX` shots.
-        let shots = u32::try_from(shots).unwrap_or(u32::MAX);
-        let run = self.with_kinds(
-            Resources::new().with_shots(shots),
-            Features::new().with_seeded_runs(seeded),
-        );
-        run.kinds_fit(self)
+    pub(crate) fn over(&self, below: &Self) -> Self {
+        self.with_kinds(self.kinds.over(&below.kinds))
+    }
+
+    /// What reaches below a part that requires `requires` and provides
+    /// `provides`, when `self` is required of it: its own requirement,
+    /// with its instructions, and each field of `self` it does not serve,
+    /// the larger where both state it.
+    pub(crate) fn past(&self, requires: &Self, provides: &Self) -> Self {
+        let reaching = self.kinds.not_served_by(&provides.kinds);
+        requires.with_kinds(requires.kinds.larger(&reaching))
+    }
+
+    /// What of `self`, a requirement, reaches past `provision`: each field
+    /// it does not serve.
+    pub(crate) fn not_served_by(&self, provision: &Self) -> Self {
+        self.with_kinds(self.kinds.not_served_by(&provision.kinds))
     }
 
     /// These capabilities' instructions, with the resources and features
     /// `other` states: a boundary's statement of a run, whose instructions
     /// are those its fit matched.
     pub(crate) fn with_kinds_of(&self, other: &Self) -> Self {
-        self.with_kinds(other.resources.clone(), other.features.clone())
+        self.with_kinds(other.kinds.clone())
     }
 
-    /// These capabilities' instructions, never forwarded, with `resources`
-    /// and `features`.
-    fn with_kinds(&self, resources: Resources, features: Features) -> Self {
+    /// These capabilities' instructions, with `kinds`.
+    fn with_kinds(&self, kinds: Kinds) -> Self {
         Self {
             instructions: Arc::clone(&self.instructions),
-            resources,
-            features,
+            kinds,
         }
     }
 }
@@ -163,50 +166,60 @@ impl BoundaryCompatible for Capabilities {
     }
 }
 
-/// How a forwarded statement combines across parts: implemented by each
-/// kind that a part may leave unstated, and by [`Capabilities`], which
-/// combines each kind and keeps its own instructions, never forwarded.
-pub(crate) trait Forwarding {
-    /// `self`'s statement of each field, else `other`'s.
-    fn or(&self, other: &Self) -> Self;
-    /// `self`'s statement of each field `answered` does not state.
-    fn unanswered(&self, answered: &Self) -> Self;
-    /// The stricter of `self`'s and `other`'s provisions of each field,
-    /// where both state it, else the one that does.
-    fn stricter(&self, other: &Self) -> Self;
-
-    /// What `self`, a part's provision, provides together with `below`,
-    /// the provision of the parts below it: `self`'s, and the stricter of
-    /// it and `below`'s where `requires`, the part's requirement, does not
-    /// state it again.
-    // Once per run: kept out of line, so that it does not grow the
-    // per-call code of the run it would be inlined into.
-    #[inline(never)]
-    fn stricter_through(&self, requires: &Self, below: &Self) -> Self
-    where
-        Self: Sized,
-    {
-        self.stricter(&below.unanswered(requires))
-    }
+/// The resources and features a part states: the kinds that follow the
+/// rule of reach, as [`Statements`] says. Making a kind optional, or
+/// adding one, changes this type and its methods alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Kinds {
+    resources: Resources,
+    features: Features,
 }
 
-impl Forwarding for Capabilities {
-    fn or(&self, other: &Self) -> Self {
-        let resources = self.resources.or(&other.resources);
-        self.with_kinds(resources, self.features.or(&other.features))
+impl Kinds {
+    /// Nothing stated.
+    const fn new() -> Self {
+        Self {
+            resources: Resources::new(),
+            features: Features::new(),
+        }
     }
 
-    fn unanswered(&self, answered: &Self) -> Self {
-        let resources = self.resources.unanswered(&answered.resources);
-        self.with_kinds(resources, self.features.unanswered(&answered.features))
+    /// Every field `self`, a requirement, states above what `provided`
+    /// states.
+    fn fit(&self, provided: &Self) -> Result<(), CapabilitiesMismatch> {
+        let short = CapabilitiesMismatch {
+            instructions: Vec::new(),
+            resources: self.resources.mismatches(&provided.resources),
+            features: self.features.mismatches(&provided.features),
+        };
+        if short.is_empty() { Ok(()) } else { Err(short) }
     }
 
-    /// The stricter of each kind, with no replay where seeded runs are not
-    /// provided, as [`Features::with_replay`] keeps for one part.
-    fn stricter(&self, other: &Self) -> Self {
-        let resources = self.resources.stricter(&other.resources);
-        let features = self.features.stricter(&other.features);
-        self.with_kinds(resources, features.replay_only_if_seeded())
+    /// As [`Statements`]' `over`, of each kind, with no replay where
+    /// seeded runs are not provided, as [`Features::with_replay`] keeps
+    /// for one part.
+    fn over(&self, below: &Self) -> Self {
+        let features = self.features.over(&below.features);
+        Self {
+            resources: self.resources.over(&below.resources),
+            features: features.replay_only_if_seeded(),
+        }
+    }
+
+    /// As [`Statements`]' `not_served_by`, of each kind.
+    fn not_served_by(&self, provision: &Self) -> Self {
+        Self {
+            resources: self.resources.not_served_by(&provision.resources),
+            features: self.features.not_served_by(&provision.features),
+        }
+    }
+
+    /// As [`Statements`]' `larger`, of each kind.
+    fn larger(&self, other: &Self) -> Self {
+        Self {
+            resources: self.resources.larger(&other.resources),
+            features: self.features.larger(&other.features),
+        }
     }
 }
 

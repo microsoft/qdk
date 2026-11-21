@@ -9,8 +9,8 @@ use std::task::{Context, Poll};
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, OpcodeMap, Seed,
-    ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, OpcodeMap,
+    RunProvision, Seed, ShotSet,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
@@ -100,6 +100,10 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
 
     fn requires(&self) -> &Capabilities {
         self.part.requires()
+    }
+
+    fn provides(&self) -> &RunProvision {
+        self.part.provides()
     }
 
     fn bind(&mut self, below: OpcodeMap) {

@@ -445,7 +445,8 @@ fn a_sets_readout_slots_of_instructions_sum_each_ones_outcomes_and_flags() {
 
 /// Whoever writes a set fixes it in one pass: faults of the set and of
 /// several instructions come together, in declaration order, and an
-/// instruction's in the order `InstructionSet::new` lists them.
+/// instruction's in the order `InstructionSet::new` lists them, its flags
+/// and its readout slots both refused when both overflow.
 #[test]
 fn every_declaration_fault_is_reported_at_once() {
     let mut flags: Vec<String> = (0..64).map(|k| format!("f{k}")).collect();
@@ -456,7 +457,7 @@ fn every_declaration_fault_is_reported_at_once() {
         [
             InstructionDef::new("m").flags(["leak", "leak"]),
             InstructionDef::new("h").acts_on([carbon()]),
-            InstructionDef::new("m").flags(flags),
+            InstructionDef::new("m").outcomes(u32::MAX).flags(flags),
         ],
     )
     .expect_err("a faulty declaration");
@@ -479,6 +480,11 @@ fn every_declaration_fault_is_reported_at_once() {
             },
             DeclarationFault::TooManyFlags {
                 mnemonic: "m".into(),
+                flags: 65,
+            },
+            DeclarationFault::TooManyReadoutSlots {
+                mnemonic: "m".into(),
+                outcomes: u32::MAX,
                 flags: 65,
             },
             DeclarationFault::RepeatedFlag {

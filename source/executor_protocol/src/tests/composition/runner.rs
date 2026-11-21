@@ -20,14 +20,14 @@ use std::time::{Duration, Instant};
 use super::driver_joins::no_x;
 use crate::prelude::*;
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen,
-    Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow,
-    in_each_bracketing, qubits,
+    BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, HidesRunProvision, Later, Log,
+    Panics, PanicsWhen, Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap,
+    Values, YieldNow, in_each_bracketing, qubits,
 };
 use crate::{
     CapabilitiesMismatch, DriveError, Failure, Feature, FeatureMismatch, Features, ReadoutFailure,
-    ReadoutValue, Resource, ResourceMismatch, RunError, RunRefusal, Runner, ShotConditions, ShotId,
-    ShotSet,
+    ReadoutValue, Resource, ResourceMismatch, Resources, RunError, RunProvision, RunRefusal,
+    Runner, ShotConditions, ShotId, ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -879,12 +879,13 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     assert_eq!(records.len(), most as usize, "{row}: a record per shot");
 }
 
-/// A chain runs at most the fewest shots of the parts below its driver,
-/// down to the first adapter that requires shots again, which serves them
-/// itself. In every bracketing, a run of one more is refused before any part
-/// is asked or runs, and a run of that many runs (a joined driver checks the
-/// same rule as it drives). So an adapter may lower the most shots a run may
-/// have, and raise it only by requiring shots again.
+/// A run's shots reach each part below its driver that limits them, down
+/// to the first that serves them, so a chain runs at most the fewest of
+/// those. In every bracketing, a run of one more is refused before any part
+/// is asked or runs, and a run of that many runs, a joined driver held by
+/// a user's part included. So an adapter may lower the most shots a run
+/// may have, and raise it only by serving them; a driver that serves them,
+/// splitting a run into runs the parts below take, runs any.
 #[test]
 fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     let log = Log::default();
@@ -955,8 +956,8 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
         takes_at_most(&row, runner(chain), 100, &log);
     });
     // Bits running 1 shot at most, under a profiler, under a splitter
-    // taking runs of 4: the splitter's limit holds, though the part below
-    // it forwards a lower one.
+    // serving runs of 4: the splitter's provision holds, though the bits
+    // below the profiler limit runs to fewer.
     in_each_bracketing!([d, splitter, profiler, e] from {
         let d = CoinCopy::new();
         let splitter = Stating::splitting_runs(1, 4, &log);
@@ -966,6 +967,31 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
         let row = format!("a splitter over a profiler, {brackets}");
         takes_at_most(&row, runner(chain), 4, &log);
     });
+    // A driver joined through a queue of 4, or through a splitter taking
+    // runs of 4 over bits of 1, held by a part of the user's: the limit the
+    // joined driver's adapters provide together holds, as unheld.
+    let held = |driver| Renamed::new(driver, "user's driver");
+    let queue = runner(held(CoinCopy::new().through(Stating::queue(4, &log))).on(Bits::new(&log)));
+    takes_at_most("a held queue", queue, 4, &log);
+    let splitter = Stating::splitting_runs(1, 4, &log);
+    let splitter = runner(held(CoinCopy::new().through(splitter)).on(bits(1)));
+    takes_at_most("a held splitter over bits of 1", splitter, 4, &log);
+    // A program serving a run's shots, as a driver splitting a run into
+    // runs of the 4 it requires would, over bits of 4: a run of 10 runs,
+    // though the fake sends it through whole.
+    let serves_shots =
+        RunProvision::new().with_resources(Resources::new().serving(Resource::Shots));
+    let program = Program::new(&[("mz", 0)])
+        .with_resources(qubits(1).with_shots(4))
+        .serving_runs(serves_shots);
+    let records = runner(program.on(bits(4)))
+        .run(&ShotSet::ids(0..10), SEED)
+        .expect("a driver serving a run's shots runs any");
+    assert_eq!(
+        records.len(),
+        10,
+        "a driver serving shots: a record per shot"
+    );
 }
 
 /// Runs `shots` shots with a seed on `runner`, refused before any part is
@@ -994,12 +1020,11 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
         .unwrap_or_else(|error| panic!("{row}: a run with no seed: {error:?}"));
 }
 
-/// A chain provides seeded runs only if every part below its driver does,
-/// down to the first that requires seeded runs again, in every
-/// bracketing: a seeded run on one that does not is refused before any
-/// part is asked or runs, and a run with no seed runs. So an adapter may
-/// take seeded runs away from a chain, and provide them only by requiring
-/// seeded runs again, serving them itself.
+/// A seeded run reaches each part below its driver that states seeded runs,
+/// down to the first that serves them, in every bracketing: a seeded run
+/// on a chain where one of them states none is refused before any part is
+/// asked or runs, and a run with no seed runs. So an adapter may take
+/// seeded runs away from a chain, and provide them only by serving them.
 #[test]
 fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     let log = Log::default();
@@ -1053,9 +1078,8 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
             .unwrap_or_else(|error| panic!("a sampler, {brackets}: {error:?}"));
     });
     // The same, with a profiler between the sampler and the bits, which
-    // forwards their lack of seeded runs; or with the sampler joined with
-    // the driver, held by a part of the user's that forwards its
-    // requirement of no seeded runs below: a seeded run runs.
+    // passes their lack of seeded runs through; or with the sampler joined
+    // with the driver, held by a part of the user's: a seeded run runs.
     in_each_bracketing!([d, sampler, profiler, e] from {
         let d = CoinCopy::new();
         let sampler = Stating::seeding_itself(&log);
@@ -1071,6 +1095,13 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     );
     (runner(held.on(bits_without_seeded_runs())).run(&ShotSet::ids(0..2), SEED))
         .unwrap_or_else(|error| panic!("a held sampler: {error:?}"));
+    // A driver joined through a link without seeded runs, held by a part
+    // of the user's: the link's lack holds, as unheld.
+    let held = Renamed::new(
+        CoinCopy::new().through(Stating::without_seeded_runs(&log)),
+        "user's driver",
+    );
+    refuses_a_seed("a held link", runner(held.on(Bits::new(&log))), 2, &log);
 }
 
 /// Runs `shots` shots with `seed` on `runner`, which fails at its first
@@ -1107,19 +1138,17 @@ fn fails_unprovided<D: Driver<Output: std::fmt::Debug>, E: Executor>(
 
 /// A driver joined through a job queue of 4 shots at most, through a link
 /// without seeded runs, or through a splitter taking runs of 4 over a
-/// queue of 1 or over bits of 1, held by a part of the user's that
-/// forwards only its role's public methods, so that the `on` that made the
-/// runner cannot see the adapters: a run of 5 shots, or a seeded run,
-/// fails at its first shot with the mismatch of what the adapters provide
-/// together, in each bracketing, as the joined driver checks it, nothing
-/// running below and the executor's shots ended once, by the runner; a run
-/// the adapters provide runs, as on the same chain unwrapped, even where
-/// the parts below the held driver provide less, as the splitter requires
-/// shots again, serving them itself.
+/// queue of 1, held by a part of the user's that does not forward what the
+/// joined driver provides a run, so that the runner cannot see the
+/// adapters' limits: a run of 5 shots, or a seeded run, fails at its first
+/// shot with the mismatch of what the adapters provide together, in each
+/// bracketing, as the joined driver checks it, nothing running below and
+/// the executor's shots ended once, by the runner; a run the adapters
+/// provide runs, as on the same chain unwrapped.
 #[test]
 fn a_held_joined_driver_fails_a_run_its_adapters_do_not_provide() {
-    fn held<D: Driver>(driver: D) -> Renamed<D> {
-        Renamed::new(driver, "user's driver")
+    fn held<D: Driver>(driver: D) -> HidesRunProvision<D> {
+        HidesRunProvision(driver)
     }
     let log = Log::default();
     let five_shots = CapabilitiesMismatch {
@@ -1170,14 +1199,6 @@ fn a_held_joined_driver_fails_a_run_its_adapters_do_not_provide() {
         runner(
             held(CoinCopy::new().through(splitter().through(queue_of_one()))).on(Bits::new(&log)),
         ),
-        shots,
-        &five_shots,
-        &log,
-    );
-    let bits_of_one = Bits::new(&log).with_resources(qubits(64).with_shots(1));
-    fails_unprovided(
-        "through a splitter, over bits of 1",
-        runner(held(CoinCopy::new().through(splitter())).on(bits_of_one)),
         shots,
         &five_shots,
         &log,

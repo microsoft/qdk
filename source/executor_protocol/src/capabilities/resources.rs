@@ -13,9 +13,9 @@ use crate::BlockType;
 /// shots a run holds, and the most instructions a batch holds.
 ///
 /// Required, each is the most the part's shots, runs or batches reach;
-/// provided, the most the part serves. A provider that states none serves
-/// any. A checked batch, though, may use no block of a type its sender's
-/// requirement, as forwarded to that boundary, does not state.
+/// provided, the most the part takes. A part that states none neither
+/// needs nor limits it. A checked batch, though, may use no block of a
+/// type the requirement that reaches its boundary does not state.
 ///
 /// Built from [`new`](Statements::new), which states nothing, with the
 /// builders below.
