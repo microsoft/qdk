@@ -790,7 +790,9 @@ where
 /// reason; nothing runs, and no shot is ended on any part. Its halves'
 /// sets not fitting, it refuses every run; an executor whose lower part
 /// takes 3 shots a run, and a driver joined through a job queue of 3
-/// shots, refuse a run of 4; and an interleaver joined with a decoder
+/// shots, refuse a run of 4; one whose lower part takes 3 shots and no
+/// `x` refuses a run of 4 with both mismatches, as `on` lists them at a
+/// boundary it sees, not the instructions alone; and an interleaver joined with a decoder
 /// limiting qubits to 4, under a program on 5, refuses every run, as the
 /// program's 5 qubits pass through the interleaver to the decoder.
 #[test]
@@ -878,6 +880,29 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
                         .on(Bits::new(&log).with_resources(qubits(64).with_shots(3))),
                     "user's executor",
                 );
+                refused_twice(CoinCopy::new().on(held), &counted, &log)
+            },
+        ),
+        (
+            "an adapter on an executor of 3 shots and no `x`",
+            1,
+            "user's executor",
+            &BoundaryMismatch {
+                capabilities: CapabilitiesMismatch {
+                    resources: vec![ResourceMismatch {
+                        key: Resource::Shots,
+                        required: 4,
+                        provided: 3,
+                    }],
+                    ..CapabilitiesMismatch::default()
+                },
+                ..no_x_fault.clone()
+            },
+            {
+                let log = Log::default();
+                let bits = Bits::accepting(no_x(), &log).with_resources(qubits(64).with_shots(3));
+                let held =
+                    Renamed::new(profiler(CoinGates::set(), &log).on(bits), "user's executor");
                 refused_twice(CoinCopy::new().on(held), &counted, &log)
             },
         ),

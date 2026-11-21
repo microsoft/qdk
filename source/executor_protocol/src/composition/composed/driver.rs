@@ -96,10 +96,11 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         self.lower.declare(&required, parts)
     }
 
-    /// Refuses the run if the halves do not fit, or if what the driver
-    /// requires does not fit what the adapter provides; else the adapter
-    /// first, for what the driver requires, then the driver. A refusal
-    /// from the adapter names it, at its position, if `at` is known.
+    /// Refuses the run if the halves' instructions do not fit, or if what the
+    /// driver requires does not fit what the adapter provides, with every
+    /// mismatch of the two; else the adapter first, for what the driver
+    /// requires, then the driver. A refusal from the adapter names it, at its
+    /// position, if `at` is known.
     async fn ready_at(
         &mut self,
         run: &Capabilities,

@@ -41,10 +41,10 @@
 //! role's public methods: a panic or a refusal below it then passes up
 //! unnamed, and the boundary above names the part at its position. Such a
 //! part provides what its upper half provides, and the chain's checks see
-//! no further, so a `Composed` refuses the run at `ready` when its halves
-//! do not fit, with their mismatch, rather than running an unbound opcode,
-//! and when what arrives at its lower half does not fit what that half
-//! provides.
+//! no further, so a `Composed` refuses the run at `ready` when its halves'
+//! instructions do not fit, rather than running an unbound opcode, or
+//! when what arrives at its lower half does not fit what that half
+//! provides, with every mismatch of that boundary, as `on` lists them.
 
 mod adapter;
 mod driver;
@@ -56,7 +56,7 @@ use crate::PartId;
 use crate::part_id::ChainPosition;
 use crate::{
     Adapter, Batch, BatchReadouts, Boundary, BoundaryCompatible, Capabilities, ExecuteError,
-    Executor, InstructionSet, NotReady, Seed, ShotSet,
+    Executor, InstructionMismatch, InstructionSet, NotReady, Seed, ShotSet,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
@@ -74,9 +74,9 @@ pub struct Composed<U, L> {
     lower: L,
     /// The boundary between the halves, as the join's fit gave it, with
     /// what arrives at the lower half on each run; or, when the upper
-    /// half's instructions do not fit the lower half's, their mismatch,
-    /// with which every run refuses at `ready`.
-    fit: Result<Boundary, BoundaryMismatch>,
+    /// half's instructions do not fit the lower half's, what every run
+    /// refuses with at `ready`.
+    fit: Result<Boundary, UnfitHalves>,
     /// The parts the upper half holds, as it declares them: how far below
     /// this part's position the lower half's is.
     upper_parts: usize,
@@ -89,11 +89,7 @@ const READY_FIRST: &str = "each run gets a part ready before calling it, as its 
 impl<U, L> Composed<U, L> {
     /// `upper` calling `lower`, where they meet as `fit` says; the upper
     /// half declares `upper_parts` parts.
-    fn new(
-        (upper, upper_parts): (U, usize),
-        lower: L,
-        fit: Result<Boundary, BoundaryMismatch>,
-    ) -> Self {
+    fn new((upper, upper_parts): (U, usize), lower: L, fit: Result<Boundary, UnfitHalves>) -> Self {
         Self {
             upper,
             lower,
@@ -103,9 +99,9 @@ impl<U, L> Composed<U, L> {
     }
 
     /// Starts a run, at `ready`, of this part at `at`: refuses it if the
-    /// halves do not fit, or if what arrives at the lower half on this
-    /// run, `required` of the upper half, does not fit what the lower half
-    /// provides, with their mismatch. Gives the lower half, what arrives
+    /// halves' instructions do not fit, or if what arrives at the lower
+    /// half on this run, `required` of the upper half, does not fit what
+    /// the lower half provides, with every mismatch of the two. Gives the lower half, what arrives
     /// at it, its position, and the part a refusal from it names, the
     /// lower half as `on` named it, if that position is known.
     fn start_run<'p>(
@@ -119,9 +115,10 @@ impl<U, L> Composed<U, L> {
             fit,
             upper_parts,
         } = self;
-        let boundary = fit
-            .as_mut()
-            .map_err(|mismatch| NotReady::new(mismatch.clone()))?;
+        let boundary = match fit {
+            Ok(boundary) => boundary,
+            Err(unfit) => return Err(unfit.refusal(&required(upper))),
+        };
         boundary.require(required(upper));
         (boundary.required.fits(&boundary.provided)).map_err(|capabilities| {
             NotReady::new(BoundaryMismatch {
@@ -193,14 +190,37 @@ impl<A: Adapter, B: Executor> Executor for ChainBelow<'_, A, B> {
 }
 
 /// Where a part sending `sends` meets one that accepts `accepted` and
-/// provides `provided`, or the instructions that do not fit.
+/// provides `provided`, or the instructions that do not fit, with what is
+/// provided.
 fn boundary(
     sends: &InstructionSet,
     accepted: &InstructionSet,
     provided: &Capabilities,
-) -> Result<Boundary, BoundaryMismatch> {
-    (Boundary::fit(sends, accepted, provided)).map_err(|instructions| BoundaryMismatch {
+) -> Result<Boundary, UnfitHalves> {
+    (Boundary::fit(sends, accepted, provided)).map_err(|instructions| UnfitHalves {
         instructions,
-        ..BoundaryMismatch::default()
+        provided: provided.clone(),
     })
+}
+
+/// Halves whose instructions do not fit, as the join found them: each
+/// instruction of the upper half's that does not fit the lower half's,
+/// and what the lower half provides, as the join read it, which what
+/// arrives at it on each run is still checked against, so that a run's
+/// refusal holds every mismatch of the boundary.
+#[derive(Debug)]
+struct UnfitHalves {
+    instructions: Vec<InstructionMismatch>,
+    provided: Capabilities,
+}
+
+impl UnfitHalves {
+    /// The refusal of a run on which `required` arrives at the lower half.
+    #[cold]
+    fn refusal(&self, required: &Capabilities) -> NotReady {
+        NotReady::new(BoundaryMismatch {
+            instructions: self.instructions.clone(),
+            capabilities: required.fits(&self.provided).err().unwrap_or_default(),
+        })
+    }
 }

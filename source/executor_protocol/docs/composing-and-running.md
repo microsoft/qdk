@@ -48,9 +48,9 @@ turn, so what it passes below is checked as unheld, but its `provides`
 gives its top part's limits alone. So the joined part checks the rest
 itself at `ready`, on each run: its halves' instructions, and what
 arrives at its lower part against what that part provides. A fault
-there, it reports as a refusal at `ready`, with the mismatch, where the
-same parts unheld are refused by the `on`, or by the run's check: only
-when and how a fault is reported differs. A joined
+there, it reports as a refusal at `ready`, with every mismatch of that
+boundary, where the same parts unheld are refused by the `on`, or by the
+run's check: only when and how a fault is reported differs. A joined
 adapter or executor lent by `&mut` to another chain is checked again by
 that chain's `on`.
 
