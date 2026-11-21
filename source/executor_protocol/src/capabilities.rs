@@ -108,6 +108,9 @@ impl Capabilities {
 
     /// Whether `self`, a provision, serves a run of `shots` shots, whose
     /// seed is fixed when `seeded`: what a run states only as it starts.
+    // Once per run: kept out of line, so that it does not grow the
+    // per-call code of the run it would be inlined into.
+    #[inline(never)]
     pub(crate) fn admits_run(
         &self,
         shots: usize,
@@ -177,6 +180,9 @@ pub(crate) trait Forwarding {
     /// the provision of the parts below it: `self`'s, and the stricter of
     /// it and `below`'s where `requires`, the part's requirement, does not
     /// state it again.
+    // Once per run: kept out of line, so that it does not grow the
+    // per-call code of the run it would be inlined into.
+    #[inline(never)]
     fn stricter_through(&self, requires: &Self, below: &Self) -> Self
     where
         Self: Sized,

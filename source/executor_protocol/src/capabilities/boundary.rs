@@ -68,6 +68,9 @@ impl Boundary {
     /// This boundary on a run, as it starts: with the resources and
     /// features `required` states, once forwarded across the parts that do
     /// not state them, and the instructions its fit matched.
+    // Once per run: kept out of line, so that it does not grow the
+    // per-call code of the run it would be inlined into.
+    #[inline(never)]
     pub(crate) fn require(&mut self, required: &Capabilities) {
         self.required = self.required.with_kinds_of(required);
     }
@@ -77,6 +80,9 @@ impl Boundary {
     /// not state them, and the instructions its fit matched; and the
     /// limits of each batch sent across, from what is required and
     /// provided.
+    // Once per run: kept out of line, so that it does not grow the
+    // per-call code of the run it would be inlined into.
+    #[inline(never)]
     pub(crate) fn provide(&mut self, provided: &Capabilities) {
         self.provided = self.provided.with_kinds_of(provided);
         self.batch_limits = BatchLimits::new(&self.required, &self.provided);
