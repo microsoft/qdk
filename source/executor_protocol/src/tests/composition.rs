@@ -210,7 +210,7 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
         two_runs(d.through(a).through(b).through(c).on(e), &log)
     };
     let one_instruction = || qubits(64).with_instructions_per_batch(1);
-    let offer_rows = [
+    let provision_rows = [
         ("a driver through a splitter", {
             let [log, unwrapped_log] = [Log::default(), Log::default()];
             let held = Renamed::new(
@@ -301,7 +301,7 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
     for (row, held) in rows {
         assert_eq!(held, unwrapped, "{row}");
     }
-    for (row, (held, unwrapped)) in offer_rows {
+    for (row, (held, unwrapped)) in provision_rows {
         assert_eq!(held, unwrapped, "{row}");
     }
 }

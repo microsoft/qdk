@@ -106,9 +106,11 @@ with `?`, and a refusal from below then fails the run as
 `Failure::Refused`.
 
 A `Failure` is a part's own error (`Part`), such as a program's trap; a
-refusal once the run started (`Refused`); or a part's panic (`Panicked`),
-where a panic unwinds. A panic names the part whose call panicked, by its
-position and its name; the rustdoc of [`Failure`](../src/roles/failure.rs) lists
-the few that name instead the part above, whose call they unwound
-through, and that of [`Runner::run_async`](../src/composition/runner.rs) those raised
-again from the run, such as one in a part's `ready`.
+refusal once the run started (`Refused`); inside a part of the user's, a
+run a joined driver's adapters do not provide (`NotProvided`); or a part's
+panic (`Panicked`), where a panic unwinds. A panic names the part whose
+call panicked, by its position and its name; the rustdoc of
+[`Failure`](../src/roles/failure.rs) lists the few that name instead the
+part above, whose call they unwound through, and that of
+[`Runner::run_async`](../src/composition/runner.rs) those raised again from
+the run, such as one in a part's `ready`.

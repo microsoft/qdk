@@ -47,15 +47,17 @@ a part's hot path, as a struct literal with those opcodes
 ## The fit
 
 Each join checks that every instruction the part above sends is accepted
-by the part below it, with the same blocks, parameters and readouts: matched by what the
-two instructions declare they do, or, where neither declares it, by
-mnemonic between sets of one name, and refused otherwise; the rules, and
-their exceptions, are in [`fit.rs`](../src/instruction_set/fit.rs). When
-the sets fit, the sender gets, through its `bind`, the receiver's opcode
-for each instruction it sends ([`OpcodeMap`](../src/instruction_set/opcode_map.rs)),
-with the matches made by mnemonic alone listed, since what those
-instructions do is not checked; it sends its instructions in the
-receiver's opcodes. Otherwise the `on` that makes a runner reports each
-mismatch ([`InstructionMismatch`](../src/instruction_set/fit.rs)), with
-those of the resources and features, as
-[Capabilities and their fit](capabilities.md) says.
+by the part below it, with the same blocks, parameters and readouts:
+matched by what the two instructions declare they do, or, where neither
+declares it, by mnemonic between sets of one name, and refused otherwise;
+the rules, and their exceptions, are in
+[`fit.rs`](../src/instruction_set/fit.rs). When the sets fit, the sender
+gets, through its `bind`, the receiver's opcode for each instruction it
+sends ([`OpcodeMap`](../src/instruction_set/opcode_map.rs)), with the
+matches made by mnemonic alone listed, since what those instructions do is
+not checked; it sends its instructions in the receiver's opcodes.
+Otherwise the `on` that makes a runner reports each mismatch
+([`InstructionMismatch`](../src/instruction_set/fit.rs)), with those of the
+resources and features, as [Capabilities and their fit](capabilities.md)
+says; at a boundary inside a part of the user's, which the `on` cannot
+reach, every run is refused with them instead.

@@ -6,9 +6,8 @@
 //!
 //! Each of its methods answers from the half that faces the same way: what
 //! it provides from the upper half, what it requires from the lower, each
-//! with what the other half forwards. At run
-//! time, the upper part calls the lower one, with the rest of the chain
-//! below it, as one executor:
+//! with what the other half forwards. At run time, the upper part calls the
+//! lower one, with the rest of the chain below it, as one executor:
 //!
 //! ```text
 //! d.through(a).drive(shots, seed, below)
