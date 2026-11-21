@@ -17,12 +17,14 @@ use crate::bytecode::encoding::{
 };
 
 /// `word` as a signed integer: the same bits.
+#[inline]
 #[allow(clippy::cast_possible_wrap)]
 pub(super) fn signed(word: u64) -> i64 {
     word as i64
 }
 
 /// `value` as a word: the same bits.
+#[inline]
 #[allow(clippy::cast_sign_loss)]
 pub(super) fn unsigned(value: i64) -> u64 {
     value as u64
@@ -84,6 +86,7 @@ pub(super) fn unary(opcode: u8, a: u64) -> u64 {
 
 /// `a` and `b` compared by the predicate `predicate`, as signed or
 /// unsigned integers.
+#[inline]
 pub(super) fn int_compare(predicate: u8, a: u64, b: u64) -> bool {
     let (x, y) = (signed(a), signed(b));
     match predicate {
@@ -104,6 +107,7 @@ pub(super) fn int_compare(predicate: u8, a: u64, b: u64) -> bool {
 /// `a` and `b` compared by the predicate `predicate`, as LLVM's `fcmp`
 /// does: an ordered predicate is false, an unordered one true, when
 /// either is NaN; but for `one`, which is true then (below).
+#[inline]
 #[allow(clippy::float_cmp)]
 pub(super) fn float_compare(predicate: u8, a: f64, b: f64) -> bool {
     let unordered = a.is_nan() || b.is_nan();

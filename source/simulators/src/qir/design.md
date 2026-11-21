@@ -3,8 +3,9 @@
 The [README](README.md) gives the model: a program, a machine that runs
 its classical part, and resumers that run its quantum calls. Each file's
 header gives the rules of its part. This page adds what neither holds:
-one shot traced from QIR to its records, why the machine is pulled, and
-the choices that leave no trace in the code.
+one shot traced from QIR to its records, why the machine is pulled, why
+a batch is handed over whole or in pieces, and the choices that leave no
+trace in the code.
 
 ## One shot, from QIR to its records
 
@@ -83,8 +84,10 @@ The machine is pulled: the resumer asks it for the next batch, and the
 machine never calls out. A push machine would own the loop instead,
 `run(context, processor)`, calling the processor at each batch, so each
 shot's run would live inside the machine's call stack. Pull makes each
-need of the [README](README.md#why-this-design) a choice of the resumer,
-and none a change to the machine:
+need of the [README](README.md#why-this-design) a choice of the resumer.
+Those below take no change to the machine; streaming takes one the
+machine offers, [a batch in pieces](#a-batch-whole-or-in-pieces), which
+the resumer still chooses:
 
 | Need                                     | With pull                                                                                   | With push                                                                             |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -96,6 +99,69 @@ and none a change to the machine:
 
 Push is built on pull in a few lines (each resumer's loop is one), and
 not the other way round ([no push helper](#choices-that-leave-no-trace-in-the-code)).
+
+## A batch whole or in pieces
+
+A batch ends only where a shot needs one of its outcomes, or writes
+again a result the batch writes, so a program that reads none until its
+end, and writes each result once, is one batch, which grows with the
+program: a Trotter evolution whose loop the compiler unrolls is one long
+line of gates, and a loop of gates that reads nothing adds every round
+to the batch. A resumer that streams the
+calls to its target needs them sooner: a target with a bounded queue is
+never sent more than it holds, and a target runs a long batch's first
+part while the machine walks the rest. Only the machine can bound what a
+context holds; a resumer can split further what it receives on its own.
+
+So the machine hands a batch over whole ([`WholeBatches`](machine/batch_split/whole_batches.rs),
+the default), or in pieces of at most `n` calls
+([`SplitBatches`](machine/batch_split/split_batches.rs)): each piece but
+the last is a `QirStop::Split`, the last a `QirStop::Batch`, and the
+pieces of a batch that ends, in order, are the batch: the same calls in
+the same order, its outcomes asked once, at its end. A batch is cut
+inside a run of prebuilt calls too, since one run can hold thousands of
+calls (an unrolled Trotter step).
+
+A batch whose walk traps has no end, and the two choices differ there.
+Whole, none of its calls is handed over: none was sent yet, so no call of
+the failed shot's last batch runs. Split, every call walked before the trap is
+handed over, the last ones as a `QirStop::Split`, and the next resume
+gives the trap: a resumer that streams may have sent the batch's first
+pieces already, so it is given the rest too, and its target has received
+every call the shot made before it failed, as a device that runs calls as
+they come would have run them, rather than a stream cut at a piece's
+edge.
+
+The resumer chooses once, when it takes the machine (`with_split`), and
+the choice is a type parameter of the machine and of its stops:
+
+| Option                                                     | For                                                                                                                   | Against                                                                                                                   |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| A type parameter (built)                                   | one `resume`; a resumer of whole batches has no `Split` arm and is never given a split; each choice is compiled alone | a generic on `QirMachine` and `QirStop`; a resumer that chooses at run time writes its loop generic over the split choice |
+| `WholeBatches` as `SplitBatches` with no limit             | one type fewer                                                                                                        | `Split` exists for every resumer, so each `match` needs its arm; the default pays a check per quantum call                |
+| Two methods, `resume` and one that splits                  | `resume` untouched                                                                                                    | a method and a stop type per choice                                                                                       |
+| A field of the machine read at run time, and one stop type | no generics                                                                                                           | every resumer matches a variant it never gets; a branch per quantum call on the default path                              |
+| An argument of `resume`                                    | explicit at each call                                                                                                 | the choice can change in the middle of a batch, which no case needs                                                       |
+
+Under `WholeBatches`, `Split` holds a type with no value, so a resumer's
+`match` has no arm for it, and the walk is compiled with no count of
+calls, so on the default path the walk pays nothing for the choice; a
+resume checks once for a trap held by a split, and a context holds room
+for one.
+
+Planned, each kept out until a case needs it:
+
+- **Pieces cut by rule**, `SplitBatches::when(rule)`, cutting where a rule
+  on the calls so far and the next call says, `at_most(n)` being one
+  rule: to hand a stream over at a meaningful point sooner (the end of a
+  Trotter step, before a non-Clifford gate), or within a byte budget.
+  `SplitBatches`' fields are private, so adding it breaks nothing.
+- **Fed-forward calls** (`FeedForwardCalls`), a second choice beside the
+  split choice: a gate in a batch that runs only where results of the
+  batch take given values, so that the batch need not end at the read that
+  decides it. A GPU applies such a gate in the same kernel round, a
+  Pauli-frame sampler as a frame update, and a device with real-time
+  feed-forward as a classically controlled gate.
 
 ## Choices that leave no trace in the code
 

@@ -29,6 +29,15 @@
 //! wherever it likes (a simulator, a device, a debugger)
 //! and resumes the context with the outcomes ([`QirOutcome`]).
 //!
+//! A batch is handed over whole ([`WholeBatches`], the default), or, for a
+//! resumer that streams the calls to its target, in pieces of at most `n`
+//! calls ([`SplitBatches`]): each piece but the last is a
+//! [`QirStop::Split`], resumed with no outcomes, and the batch's outcomes
+//! are asked once, at its end, as for a whole batch. The resumer chooses
+//! once, when it takes the machine ([`with_split`](QirMachine::with_split)),
+//! so a resumer of whole batches has no arm for a split
+//! (`machine/batch_split.rs`).
+//!
 //! The machine knows no resumer and calls nothing: a resumer drives it,
 //! resuming each context once it has the outcomes. So a resumer may hold
 //! many contexts and resume them in any order (to run several shots'
@@ -73,16 +82,19 @@
 //!
 //! The walk is in `machine/walk.rs`; the shot's context, and what the walk
 //! asks of it, in `machine/shot_context.rs`; what the classical
-//! instructions compute, in `machine/classical_ops.rs`.
+//! instructions compute, in `machine/classical_ops.rs`; whether a batch is
+//! split, in `machine/batch_split.rs`.
 //!
 //! The model: `README.md`; why the machine is pulled rather than pushing
 //! its batches, one shot traced from QIR to its records, and the design's
 //! other notes: `design.md`.
 
+mod batch_split;
 mod classical_ops;
 mod shot_context;
 mod walk;
 
+pub use batch_split::{QirBatchSplit, SplitBatches, WholeBatches};
 pub use shot_context::QirShotContext;
 
 #[cfg(doc)]
@@ -98,8 +110,9 @@ use walk::Stop;
 /// and its quantum ones are collected into a batch, as calls of its QIR
 /// instructions ([`QirCall`]).
 ///
-/// A context stops only where it uses an outcome it does not have, and at
-/// the program's end:
+/// A context stops only where it uses an outcome it does not have, at the
+/// program's end, and, where its batches are split ([`SplitBatches`]),
+/// where a piece is full:
 ///
 /// - a measurement does not stop it: the call joins the batch;
 /// - it stops before an instruction that reads or writes a result a call
@@ -111,10 +124,17 @@ use walk::Stop;
 ///   it stops there even when that write or call would trap, since a valid
 ///   one would end the batch there too: the trap comes on the next resume,
 ///   once the batch has run, as `run_shot` measures before it panics; any
-///   other trap comes at once, the calls of its batch not yielded;
+///   other trap ends the batch's walk: under [`WholeBatches`] it comes at
+///   once, no call of the batch yielded, and under [`SplitBatches`] the
+///   calls walked since the last stop, if any, come first, as a split, and
+///   the trap on the next resume;
 /// - a read of a result whose outcome it already has does not stop it;
 /// - at the program's return, while its batch holds calls, it yields the
-///   batch, and ends on the next resume.
+///   batch, and ends on the next resume;
+/// - under [`SplitBatches`], it stops before a call that would be the
+///   (`n` + 1)-th since its last stop, yielding the `n` before it
+///   ([`QirStop::Split`]); where the batch ends there anyway, it yields
+///   the batch ([`QirStop::Batch`]) instead.
 ///
 /// A measurement into, a write of, a read of, a loss check of or a record
 /// of a result past the program's traps ([`QirTrap::NoSuchResult`]; a
@@ -138,13 +158,15 @@ use walk::Stop;
 /// ([`QirTrap::LoadPastMemory`]).
 ///
 /// The machine holds only the program, which it lends to a resumer
-/// ([`program`](Self::program)). It draws nothing: a context's randomness is
-/// its resumer's, through the outcomes. It does not cap the instructions a
-/// context runs, nor the quantum calls a batch holds (a limit is planned). A
-/// loop that makes no quantum call, or that stops each round (reading a result
-/// its batch writes, say), runs forever if it never ends; a loop of quantum
-/// calls that never stops adds each call to one batch, which grows until
-/// memory runs out.
+/// ([`program`](Self::program)), and its split choice. It draws nothing: a
+/// context's randomness is its resumer's, through the outcomes. It does not
+/// cap the instructions a context runs, nor the quantum calls a batch holds:
+/// [`SplitBatches`] caps those a context holds at once. A loop that makes
+/// no quantum call, or that stops each round (reading a result its batch
+/// writes, say), runs forever if it never ends; a loop of quantum
+/// calls that never ends its batch adds each call to one batch, which,
+/// handed over whole, grows until memory runs out, and, split, comes in
+/// pieces without end.
 /// Nor does it cap a context's memory or the function calls under way: an
 /// `ALLOCA` of a huge number of words grows the memory by that many, and an
 /// allocation too large panics or aborts the process. An end past the last
@@ -156,7 +178,7 @@ use walk::Stop;
 ///
 /// [`QirError::NoSuchResult`]: super::QirError::NoSuchResult
 #[derive(Clone, Copy, Debug)]
-pub struct QirMachine<'p> {
+pub struct QirMachine<'p, S: QirBatchSplit = WholeBatches> {
     /// The program it runs ([`Self::program`]).
     program: &'p QirProgram,
     /// The program's bytecode, which the machine walks; held apart from the
@@ -167,16 +189,28 @@ pub struct QirMachine<'p> {
     /// the walk reaches, its prebuilt calls, which the machine appends to
     /// the batch as they are, or the operands it builds its call from.
     prepared_quantum_calls: &'p PreparedQuantumCalls,
+    /// Whether it splits a batch, and where ([`Self::with_split`]).
+    split: S,
 }
 
 /// Where [`QirMachine::resume`] stopped a context, lent from the context
-/// until it is resumed.
+/// until it is resumed. Its [`Split`](Self::Split) comes only from a
+/// machine that splits its batches ([`SplitBatches`]); under the default,
+/// [`WholeBatches`], it holds a type with no value, so a `match` has no
+/// arm for it.
 #[derive(Debug, PartialEq)]
-pub enum QirStop<'c> {
-    /// The quantum calls to run next, in order, on the program's qubits;
-    /// the next resume takes the outcome of each that writes a result
-    /// ([`QirCall::result`]), by that result.
+pub enum QirStop<'c, S: QirBatchSplit = WholeBatches> {
+    /// The quantum calls to run next, in order, on the program's qubits:
+    /// the batch's, or its last ones after its splits. The next resume
+    /// takes the outcome of each call of the batch that writes a result
+    /// ([`QirCall::result`]), by that result, its splits' calls included.
     Batch(&'c [QirCall]),
+    /// The batch's next piece: its next quantum calls, in order, up to
+    /// where the batch is cut. The batch goes on, so the next resume takes
+    /// no outcomes, and the calls after them come at the next stop. Or,
+    /// where the walk trapped, the calls walked since the last stop, and
+    /// the next resume gives the trap.
+    Split(S::Split<&'c [QirCall]>),
     /// The program returned: the context's records. When the program
     /// records nothing (no `RECORD_OUTPUT`), they are every result, in the
     /// order of their ids, as `Result` records; a result with no value
@@ -186,13 +220,30 @@ pub enum QirStop<'c> {
 }
 
 impl<'p> QirMachine<'p> {
-    /// The machine running `program`'s contexts.
+    /// The machine running `program`'s contexts, handing each batch over
+    /// whole ([`WholeBatches`]).
     #[must_use]
     pub fn new(program: &'p QirProgram) -> Self {
         Self {
             program,
             bytecode: program.bytecode(),
             prepared_quantum_calls: program.prepared_quantum_calls(),
+            split: WholeBatches,
+        }
+    }
+}
+
+impl<'p, S: QirBatchSplit> QirMachine<'p, S> {
+    /// This machine, handing its batches over as `split` says: whole
+    /// ([`WholeBatches`]), or in pieces ([`SplitBatches`]). Its contexts
+    /// are those of any machine of the program, whatever its split choice.
+    #[must_use]
+    pub fn with_split<T: QirBatchSplit>(self, split: T) -> QirMachine<'p, T> {
+        QirMachine {
+            program: self.program,
+            bytecode: self.bytecode,
+            prepared_quantum_calls: self.prepared_quantum_calls,
+            split,
         }
     }
 
@@ -220,6 +271,8 @@ impl<'p> QirMachine<'p> {
             pending: Vec::new(),
             batch: Vec::new(),
             batch_results: Vec::new(),
+            after_split: false,
+            held_trap: None,
             records: Vec::new(),
         };
         self.restart_shot(&mut context);
@@ -247,31 +300,40 @@ impl<'p> QirMachine<'p> {
         context.pending.resize(results, false);
         context.batch.clear();
         context.batch_results.clear();
+        context.after_split = false;
+        context.held_trap = None;
         context.records.clear();
     }
 
     /// Takes the outcomes of the context's last batch, one per call that
-    /// writes a result, in any order (empty on the first resume), and runs
-    /// the context to its next stop.
+    /// writes a result, in any order (empty on the first resume, and after
+    /// a [`QirStop::Split`], whose batch goes on), and runs the context to
+    /// its next stop.
     ///
     /// `context` is a context of this machine's [`QirProgram`]: one that
     /// any machine of it gave ([`start_shot`](Self::start_shot),
-    /// [`restart_shot`](Self::restart_shot)), so a shot may move between
-    /// machines of one program; what a resume of another program's
-    /// context does is unspecified, and it may panic.
+    /// [`restart_shot`](Self::restart_shot)), whatever its split choice, so a
+    /// shot may move between machines of one program; what a resume of
+    /// another program's context does is unspecified, and it may panic.
     ///
     /// # Errors
     ///
     /// When the outcomes do not answer the last batch (one missing, or given
-    /// for no call of it, or twice), or when the context reaches a value that
+    /// for no call of it, or twice, or any given after a split), or when the
+    /// context reaches a value that
     /// building the program could not check: a qubit or a result past the
     /// program's, a division by zero, a value other than 0 and 1 where a bit is
     /// read, a load or a store past the context's memory, call arguments of
     /// correlated noise past the program's or naming no register of it, a use
     /// of a result with no value ([`QirTrap`]). An instruction or call that
     /// would trap, where the context stops before it, traps on the next resume,
-    /// after its batch is yielded. Any other trap comes at once: the calls of
-    /// its batch are not yielded. An `ALLOCA` of a huge number of words or a
+    /// after its batch is yielded. Any other trap ends the batch's walk:
+    /// under [`WholeBatches`] it comes at once, and no call of the batch is
+    /// yielded; under [`SplitBatches`], the calls walked since the last stop,
+    /// if any, come first, as a [`QirStop::Split`], and the trap on the next
+    /// resume, which, as after any split, takes no outcomes (one given is
+    /// [`QirTrap::UnexpectedOutcome`], the resumer's fault, reported before
+    /// the program's). An `ALLOCA` of a huge number of words or a
     /// recursion without end is no trap: the machine caps neither memory nor
     /// function calls (see [`QirMachine`]). A context that traps is not to be
     /// resumed again: what a later resume does is unspecified;
@@ -280,10 +342,29 @@ impl<'p> QirMachine<'p> {
         &self,
         context: &'c mut QirShotContext,
         outcomes: &[QirOutcome],
-    ) -> Result<QirStop<'c>, QirTrap> {
+    ) -> Result<QirStop<'c, S>, QirTrap> {
         context.take_outcomes(outcomes)?;
-        Ok(match self.walk(context)? {
+        if let Some(trap) = context.held_trap.take() {
+            return Err(trap);
+        }
+        let stop = match self.walk(context) {
+            Ok(stop) => stop,
+            // `room` is `None` where batches are never split: whole batches
+            // give the trap at once.
+            Err(trap)
+                if self.split.room(context.batch.len()).is_some() && !context.batch.is_empty() =>
+            {
+                context.held_trap = Some(trap);
+                Stop::Split
+            }
+            Err(trap) => return Err(trap),
+        };
+        Ok(match stop {
             Stop::Batch => QirStop::Batch(&context.batch),
+            Stop::Split => {
+                context.after_split = true;
+                QirStop::Split(S::split(context.batch.as_slice()))
+            }
             Stop::Ended => QirStop::Ended(&context.records),
         })
     }

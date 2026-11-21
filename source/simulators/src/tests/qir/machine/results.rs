@@ -212,8 +212,11 @@ fn a_use_of_a_result_with_no_value_is_a_trap() {
 /// Qubits 0 and 1 measured into results 0 and 1, a read of result 1 that
 /// yields them, result 0's readout with no value, then qubit 2 measured
 /// into result 2 and a read or a loss check of result 0. The context does
-/// not stop before that use, so its trap comes at once, the measurement of
-/// qubit 2 not yielded.
+/// not stop before that use, so, its batches whole, its trap comes at
+/// once, the measurement of qubit 2 not yielded. Split, the same calls
+/// come before the trap at every size, which [`run`](super::run) checks;
+/// that this trap comes after the very calls walked before it is checked
+/// by `batch_split::a_trap_comes_after_every_call_walked_before_it`.
 #[test]
 fn a_use_of_a_result_with_no_value_traps_before_the_batch_is_yielded() {
     for (name, op) in [("read_result", OP_READ_RESULT), ("read_loss", OP_READ_LOSS)] {

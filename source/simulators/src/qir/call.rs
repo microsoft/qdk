@@ -151,9 +151,12 @@ impl QirCall {
         }
     }
 
-    /// The result it writes, whose outcome the next resume takes; `None`
-    /// for a call that writes none.
+    /// The result it writes, whose outcome the resume after its batch's end
+    /// takes: the next resume, or, where the batch is split, the one after
+    /// the batch's last piece ([`QirStop::Batch`](super::QirStop::Batch));
+    /// `None` for a call that writes none.
     #[must_use]
+    #[inline]
     pub fn result(&self) -> Option<u32> {
         match self {
             Self::Measure { result, .. }

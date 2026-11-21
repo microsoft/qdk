@@ -30,7 +30,9 @@
 //! caller at each batch of quantum calls: a shot's state is held in a
 //! [`QirShotContext`], which [`QirMachine::resume`] runs to its next stop
 //! ([`QirStop`]): a batch of calls, whose outcomes ([`QirOutcome`]) the
-//! next resume takes, or the program's records. A context traps
+//! next resume takes, or the program's records. A machine taken
+//! [`with_split`](QirMachine::with_split) with [`SplitBatches`] hands each
+//! batch over in pieces instead. A context traps
 //! ([`QirTrap`]) on outcomes that do not answer its batch, on a value that
 //! building the program could not check, or where it uses a result whose
 //! readout came back with no value, for a reason other than a loss
@@ -60,7 +62,7 @@ mod trap;
 pub use call::{QirCall, QirInstruction, QirOutcome, QirQubits, QirReadout};
 pub use fault::{QirError, QirFault, QirFaultSite, QirFaults, SideTable};
 pub use gate::QirGate;
-pub use machine::{QirMachine, QirShotContext, QirStop};
+pub use machine::{QirBatchSplit, QirMachine, QirShotContext, QirStop, SplitBatches, WholeBatches};
 pub use operator_matrix::OperatorMatrix;
 pub use program::{MeasuredQubit, QirProgram, TwoQubitGate};
 #[cfg(test)]

@@ -7,13 +7,26 @@
 //! the comparisons compute is in `classical_ops.rs`), and appends each
 //! quantum instruction's quantum calls to the context's batch: its
 //! prebuilt calls, or the call the context builds from its registers
-//! (`shot_context.rs`). Function calls push and pop the context's frames.
+//! (`shot_context.rs`), up to a cut where the machine's split choice
+//! leaves no room for the next (`batch_split.rs`). Function calls push and
+//! pop the context's frames.
+//!
+//! The walk is generic over the split choice, so it is compiled in the
+//! crate that resumes a context, not in this one. So that it is inlined
+//! there as it would be here, every function it calls per instruction is
+//! `#[inline]` (those of this file, of the context, of `classical_ops.rs`,
+//! of the prepared calls and of a call), except the bytecode's opcode
+//! accessors, a bit mask each, which rustc inlines across crates on its
+//! own.
+//! Without it, a call of correlated noise took up to 1.8 times as long
+//! (the crate's `qir_machine` benchmark).
 
 use super::super::program::prepared_quantum_calls::CallSource;
 #[cfg(doc)]
 use super::super::program::prepared_quantum_calls::PreparedQuantumCalls;
 use super::super::quantum_instruction_encoding::Register;
 use super::super::{QirReadout, QirTrap};
+use super::batch_split::QirBatchSplit;
 use super::classical_ops::{binary, bit, float_compare, int_compare, signed, unary, unsigned};
 use super::shot_context::{Frame, program_result};
 use super::{QirMachine, QirShotContext, block_start};
@@ -30,15 +43,22 @@ use crate::{MeasurementResult, OutputRecord};
 
 /// Where a walk stopped.
 pub(super) enum Stop {
+    /// At the batch's end.
     Batch,
+    /// Where the batch is cut: the batch goes on.
+    Split,
+    /// At the program's end.
     Ended,
 }
 
-impl QirMachine<'_> {
-    /// Runs `context` from its position to its next batch or its end,
+impl<S: QirBatchSplit> QirMachine<'_, S> {
+    /// Runs `context` from its position to its next batch, split or end,
     /// reading each bytecode instruction as it runs it: its opcode, and
     /// the immediate flag of each operand it reads. A quantum instruction
-    /// appends its prepared calls ([`PreparedQuantumCalls`]).
+    /// appends its prepared calls ([`PreparedQuantumCalls`]), as many as
+    /// the split choice leaves room for. On a trap, the context's batch
+    /// holds the calls walked since the last stop, every one before the
+    /// trap, which `resume` hands over where batches are split.
     // The bytecode's words index its tables and registers: the check
     // refused every index past them, so none is truncated.
     #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
@@ -125,16 +145,26 @@ impl QirMachine<'_> {
                         CallSource::Prebuilt { first, end, result } => {
                             let calls = self.prepared_quantum_calls.prebuilt(pc, *first, *end);
                             let (end, result) = (*end as usize, *result);
+                            // The last call writes a result a call of the
+                            // batch writes: it starts the next batch.
+                            let ends_batch =
+                                result.is_some_and(|result| context.pending[result as usize]);
+                            let joining = calls.len() - usize::from(ends_batch);
+                            if let Some(room) = self.split.room(context.batch.len())
+                                && joining > room
+                            {
+                                // The batch is cut inside the run, before its
+                                // call at `room`, which the walk runs on from.
+                                context.batch.extend_from_slice(&calls[..room]);
+                                pc += room;
+                                break Stop::Split;
+                            }
+                            if ends_batch {
+                                context.batch.extend_from_slice(&calls[..joining]);
+                                pc = end - 1;
+                                break Stop::Batch;
+                            }
                             if let Some(result) = result {
-                                if context.pending[result as usize] {
-                                    // The last call writes a result a call
-                                    // of the batch writes: it starts the
-                                    // next batch.
-                                    let (before, _) = calls.split_at(calls.len() - 1);
-                                    context.batch.extend_from_slice(before);
-                                    pc = end - 1;
-                                    break Stop::Batch;
-                                }
                                 context.pending[result as usize] = true;
                                 context.batch_results.push(result);
                             }
@@ -158,10 +188,18 @@ impl QirMachine<'_> {
                                 }
                                 Err(trap) => return Err(trap),
                             };
-                            if let Some(result) = call.result() {
-                                if context.pending[result as usize] {
-                                    break Stop::Batch;
-                                }
+                            let result = call.result();
+                            if let Some(result) = result
+                                && context.pending[result as usize]
+                            {
+                                break Stop::Batch;
+                            }
+                            // Built again on the next resume, which runs on
+                            // from it.
+                            if self.split.room(context.batch.len()) == Some(0) {
+                                break Stop::Split;
+                            }
+                            if let Some(result) = result {
                                 context.pending[result as usize] = true;
                                 context.batch_results.push(result);
                             }
@@ -175,6 +213,9 @@ impl QirMachine<'_> {
                                 context.aux1(instruction),
                                 context.aux2(instruction),
                             )?;
+                            if self.split.room(context.batch.len()) == Some(0) {
+                                break Stop::Split;
+                            }
                             context.batch.push(call);
                         }
                     }
@@ -380,6 +421,7 @@ impl QirMachine<'_> {
 }
 
 /// The instruction after `pc`.
+#[inline]
 fn next(pc: usize) -> u32 {
     u32::try_from(pc + 1).expect("a program holds fewer than 2^32 instructions")
 }

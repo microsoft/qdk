@@ -166,6 +166,7 @@ impl PreparedQuantumCalls {
         }
     }
 
+    #[inline]
     fn index(&self, pc: usize) -> Option<usize> {
         let index = self.at[pc];
         (index != NONE).then_some(index as usize)

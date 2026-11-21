@@ -42,9 +42,12 @@ Three parts, which meet at a batch of quantum calls and its outcomes:
   what a shot needs: qubits, results, instructions.
 - A [`QirMachine`](machine.rs) runs the program's classical part. Rather
   than call a simulator, it returns to its caller at each batch of quantum
-  calls. A shot's state lives in its own
-  [`QirShotContext`](machine/shot_context.rs), so one machine, which
-  holds only the program, serves any number of shots, on any thread.
+  calls, whole or, for a resumer that streams them to its target, in
+  pieces of at most `n` calls
+  ([`SplitBatches`](machine/batch_split/split_batches.rs)). A shot's
+  state lives in its own [`QirShotContext`](machine/shot_context.rs), so
+  one machine, which holds only the program and that choice, serves any
+  number of shots, on any thread.
 - A [`QirResumer`](resumer.rs) holds each shot's quantum state. It
   resumes a shot's context, gets the batch of quantum calls
   ([`QirCall`](call.rs)) at which it stops, runs them on that state, and
@@ -55,7 +58,7 @@ flowchart TD
     B["the QDK's bytecode"] -- "checked and decoded once,<br/>or refused with every fault" --> P[QirProgram]
     P -- "runs its classical part" --> M["QirMachine<br/>(returns at each batch)"]
     R["QirResumer:<br/>runs each batch on<br/>the shot's quantum state"] -- "resume a shot's QirShotContext<br/>(one per shot)<br/>with the outcomes (QirOutcome)" --> M
-    M -- "QirStop: a batch of QirCalls,<br/>or the shot's records;<br/>or a QirTrap" --> R
+    M -- "QirStop: a batch of QirCalls,<br/>whole or in pieces,<br/>or the shot's records;<br/>or a QirTrap" --> R
 ```
 
 Step by step, for a run of shots:
@@ -71,9 +74,12 @@ sequenceDiagram
         M-->>R: a QirShotContext, the shot's state between stops
         loop until the shot ends
             R->>M: resume(context, outcomes), empty the first time
-            alt QirStop::Batch
-                M-->>R: a batch of quantum calls
-                Note over R: runs the calls in order on the shot's quantum state, and takes one outcome per call that writes a result
+            alt QirStop::Split, only where batches are split
+                M-->>R: the batch's next piece: its calls up to a cut or a trap
+                Note over R: runs or sends the calls in order; the next resume takes no outcomes
+            else QirStop::Batch
+                M-->>R: a batch of quantum calls, or its last ones after its splits
+                Note over R: runs the calls in order on the shot's quantum state, and takes one outcome per call of the batch that writes a result
             else QirStop::Ended
                 M-->>R: the shot's records
             else QirTrap
@@ -104,6 +110,40 @@ loop {
 }
 ```
 
+A resumer that streams each batch to its target takes the machine with
+[`SplitBatches`](machine/batch_split/split_batches.rs), whose
+`at_most(n)` takes `n` as a `NonZeroUsize`. Its loop has one arm more,
+`QirStop::Split(calls)`, which sends the calls to the target (`send`) and
+resumes with no outcomes; the batch's outcomes are given once, after its
+last calls are sent (`receive`):
+
+```rust
+let machine = QirMachine::new(program).with_split(SplitBatches::at_most(
+    NonZeroUsize::new(1024).expect("1024 is not zero"),
+));
+machine.restart_shot(context);
+let mut outcomes = Vec::new();
+loop {
+    match machine.resume(context, &outcomes)? {
+        QirStop::Split(calls) => {
+            outcomes.clear();
+            send(calls);
+        }
+        QirStop::Batch(calls) => {
+            outcomes.clear();
+            send(calls);
+            receive(&mut outcomes);
+        }
+        QirStop::Ended(records) => return Ok(records.to_vec()),
+    }
+}
+```
+
+A shot that traps first hands over, as a split, the calls it walked since
+the last stop, if any, and the next resume gives the trap, so the target
+has received every call the shot made before it failed
+([why](design.md#a-batch-whole-or-in-pieces)).
+
 A resumer implements [`QirResumer`](resumer.rs), whose `run` states the
 rules it keeps.
 
@@ -124,15 +164,16 @@ encoding.
 
 ## Which type for what
 
-| Type                                                                               | A caller uses it to                                                                |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| [`QirProgram`, `TwoQubitGate`, `MeasuredQubit`](program.rs)                        | build a program once, and learn what its shots need                                |
-| [`QirMachine`, `QirStop`](machine.rs), [`QirShotContext`](machine/shot_context.rs) | run the classical part: start a context, then resume it with outcomes at each stop |
-| [`QirResumer`, `QirShotId`, `QirResumeError`](resumer.rs)                          | run shots on a quantum state of one's own, and learn which shot failed first       |
-| [`QirCall`, `QirInstruction`, `QirQubits`, `QirOutcome`, `QirReadout`](call.rs)    | read a batch's calls, and answer each call that writes a result                    |
-| [`QirGate`](gate.rs)                                                               | take a gate call's matrix, at its angle                                            |
-| [`QirFaults`, `QirFault`, `QirFaultSite`, `QirError`, `SideTable`](fault.rs)       | learn every fault building found in the bytecode, where it is and what it is       |
-| [`QirTrap`](trap.rs)                                                               | learn why a context stopped on a fault found while it runs                         |
+| Type                                                                                                                                                      | A caller uses it to                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [`QirProgram`, `TwoQubitGate`, `MeasuredQubit`](program.rs)                                                                                               | build a program once, and learn what its shots need                                   |
+| [`QirMachine`, `QirStop`](machine.rs), [`QirShotContext`](machine/shot_context.rs)                                                                        | run the classical part: start a context, then resume it with outcomes at each stop    |
+| [`QirBatchSplit`](machine/batch_split.rs), [`WholeBatches`](machine/batch_split/whole_batches.rs), [`SplitBatches`](machine/batch_split/split_batches.rs) | choose whether the machine hands a batch over whole or in pieces of at most `n` calls |
+| [`QirResumer`, `QirShotId`, `QirResumeError`](resumer.rs)                                                                                                 | run shots on a quantum state of one's own, and learn which shot failed first          |
+| [`QirCall`, `QirInstruction`, `QirQubits`, `QirOutcome`, `QirReadout`](call.rs)                                                                           | read a batch's calls, and answer each call that writes a result                       |
+| [`QirGate`](gate.rs)                                                                                                                                      | take a gate call's matrix, at its angle                                               |
+| [`QirFaults`, `QirFault`, `QirFaultSite`, `QirError`, `SideTable`](fault.rs)                                                                              | learn every fault building found in the bytecode, where it is and what it is          |
+| [`QirTrap`](trap.rs)                                                                                                                                      | learn why a context stopped on a fault found while it runs                            |
 
 Each file's header gives the rules of its part.
 
@@ -156,19 +197,22 @@ the classical part and hand batches of quantum calls to the target.
   asynchronous, one shot or many, stepping or not
   ([why pull](design.md#why-a-pull-machine)).
 
-The parts were found from concrete needs, each a choice of the resumer
-and none a change to the machine:
+The parts were found from concrete needs, each a choice of the resumer.
+Most take no change to the machine; streaming took one, a batch handed
+over in pieces, since only the machine can bound what a context holds
+([a batch whole or in pieces](design.md#a-batch-whole-or-in-pieces)):
 
-| Need                | Case                                                   | Status                                                                                                                                   |
-| ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| A new target        | a matrix-product-state simulator, a device             | the resumer contract: built                                                                                                              |
-| Efficiency          | the CPU simulators, as fast as `run_shot`              | the machine: built; [a benchmark][bench] times it against `run_shot` on quantum calls, classical instructions, rounds and function calls |
-| Many shots per call | a GPU, a device                                        | the machine: built; a grouping resumer: planned                                                                                          |
-| Concurrency         | a device that answers later                            | the async trait: built; a device: planned                                                                                                |
-| Threads             | shots run on several threads                           | the machine: built; a resumer on threads: planned                                                                                        |
-| Composability       | Qodec's and QEP's codes, noise, an observer in between | planned                                                                                                                                  |
-| Stepping, copying   | a debugger; shots that share a prefix                  | a context can be left or cloned; a debugger: planned                                                                                     |
-| One runtime for all | the GPU simulator, with an interpreter in its shader   | planned: a GPU resumer on the shader's kernels                                                                                           |
+| Need                | Case                                                                                          | Status                                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| A new target        | a matrix-product-state simulator, a device                                                    | the resumer contract: built                                                                                                              |
+| Efficiency          | the CPU simulators, as fast as `run_shot`                                                     | the machine: built; [a benchmark][bench] times it against `run_shot` on quantum calls, classical instructions, rounds and function calls |
+| Many shots per call | a GPU, a device                                                                               | the machine: built; a grouping resumer: planned                                                                                          |
+| Concurrency         | a device that answers later                                                                   | the async trait: built; a device: planned                                                                                                |
+| Streaming           | a target with a bounded queue; a long batch's first part run while the machine walks the rest | the machine's pieces: built; a streaming resumer: planned                                                                                |
+| Threads             | shots run on several threads                                                                  | the machine: built; a resumer on threads: planned                                                                                        |
+| Composability       | Qodec's and QEP's codes, noise, an observer in between                                        | planned                                                                                                                                  |
+| Stepping, copying   | a debugger; shots that share a prefix                                                         | a context can be left or cloned; a debugger: planned                                                                                     |
+| One runtime for all | the GPU simulator, with an interpreter in its shader                                          | planned: a GPU resumer on the shader's kernels                                                                                           |
 
 [bench]: ../../benches/qir_machine/main.rs
 
@@ -193,21 +237,12 @@ None changes what a shot records; each waits for the case that needs it.
   analysis of the bytecode, which must be conservative so that its "no"
   can be trusted. The analysis and the sampled form were written and
   tested, then removed until their first user: they return with it.
-- **A limit on a batch's size.** A batch ends only where a shot needs
-  one of its outcomes, so a program that reads none until its end, and
-  writes each result once, is one batch, which grows with the program: a
-  Trotter evolution whose loop the compiler unrolls is one long line of
-  gates, and a loop of gates that reads nothing adds every round to the
-  batch. `resume` could take a
-  maximum number of calls and yield early, so that a target runs a long
-  batch's first part while the machine walks the rest, and a target with
-  a bounded queue is never sent more than it holds. No case needs it yet;
-  it is to be decided with the targets' back-pressure, measured on H₂.
-- **Resumers' optimizations** need no change to the machine: see the
-  table of [Why this design](#why-this-design).
+- **Resumers' optimizations** (grouping shots, threads) need no change
+  to the machine: see the table of [Why this design](#why-this-design).
 
 ## Further reading
 
 [The design notes](design.md): one shot traced from QIR to its records,
-why the machine is pulled, and the choices that leave no trace in the
-code.
+why the machine is pulled,
+[why a batch is handed over whole or in pieces](design.md#a-batch-whole-or-in-pieces),
+and the choices that leave no trace in the code.

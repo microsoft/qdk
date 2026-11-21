@@ -88,11 +88,13 @@ pub enum QirTrap {
         words: usize,
     },
     /// The outcomes given lack the outcome of a call of the batch that
-    /// writes a result: of the first such call, in the batch's order, by
-    /// the result it writes.
+    /// writes a result: of the first such call, in the batch's order, its
+    /// splits' calls first, by the result it writes.
     MissingOutcome { result: u32 },
     /// An outcome given for a result that no call of the batch writes, or
-    /// given twice.
+    /// given twice; or any outcome given after a split
+    /// ([`QirStop::Split`](super::QirStop::Split)), before the batch's end,
+    /// by the result of the first.
     UnexpectedOutcome { result: u32 },
 }
 
@@ -238,7 +240,7 @@ impl fmt::Display for QirTrap {
             QirTrap::UnexpectedOutcome { result } => write!(
                 f,
                 "an outcome was given for result {result}, which the batch does not write, or \
-                 twice"
+                 twice, or after a split, before the batch's end"
             ),
         }
     }

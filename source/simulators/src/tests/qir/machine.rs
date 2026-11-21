@@ -8,6 +8,7 @@
 //! The tests are filed by behaviour, one file each; this file holds the
 //! helpers they share.
 
+mod batch_split;
 mod batches;
 mod classical_ops;
 mod contexts;
@@ -75,17 +76,23 @@ fn run_on(
     }
 }
 
-/// What a new context of `bytecode` gives, as [`run_on`] gives it.
+/// What a new context of `bytecode` gives, as [`run_on`] gives it. Its
+/// batches split give the same, and, where it traps, the same calls in
+/// the splits after its last batch at every size
+/// ([`batch_split::assert_split_alike`]), so that every test of where a
+/// context stops checks its splits too.
 fn run(
     bytecode: &AdaptiveProgram<u64>,
     answer: impl Fn(u32) -> QirReadout,
 ) -> (Vec<String>, Result<Vec<OutputRecord>, QirTrap>) {
     let program = built(bytecode);
-    run_on(
+    let whole = run_on(
         &program,
         &mut QirMachine::new(&program).start_shot(),
-        answer,
-    )
+        &answer,
+    );
+    batch_split::assert_split_alike(bytecode, &whole, &answer);
+    whole
 }
 
 /// The batches a context of `bytecode` yields, each result `One`, when it

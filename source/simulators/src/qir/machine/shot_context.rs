@@ -13,7 +13,7 @@ use super::super::quantum_instruction_encoding::{self, CallOperand, Register};
 use super::super::{QirCall, QirOutcome, QirReadout, QirTrap};
 use super::block_start;
 #[cfg(doc)]
-use super::{QirMachine, QirStop};
+use super::{QirMachine, QirStop, SplitBatches};
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM,
 };
@@ -50,13 +50,23 @@ pub struct QirShotContext {
     /// Each result, as the outcomes and `WRITE_RESULT` gave it; `Zero`
     /// before any.
     pub(super) results: Vec<QirReadout>,
-    /// Whether a quantum call of the batch writes each result.
+    /// Whether a quantum call of the batch writes each result: of the whole
+    /// batch, its splits' calls included.
     pub(super) pending: Vec<bool>,
-    /// The quantum calls of the batch, which [`QirStop::Batch`] lends;
-    /// cleared once their outcomes are taken.
+    /// The quantum calls of the batch since its last stop, which
+    /// [`QirStop::Batch`] or [`QirStop::Split`] lends; cleared at the next
+    /// resume.
     pub(super) batch: Vec<QirCall>,
-    /// The results the batch's quantum calls write, in their order.
+    /// The results the batch's quantum calls write, in their order, its
+    /// splits' calls included.
     pub(super) batch_results: Vec<u32>,
+    /// Whether the last stop was a [`QirStop::Split`]: the batch goes on,
+    /// so the next resume takes no outcomes.
+    pub(super) after_split: bool,
+    /// The trap the walk reached while the context held calls not yet
+    /// yielded, under [`SplitBatches`]: those calls came as a
+    /// [`QirStop::Split`], and the next resume gives the trap.
+    pub(super) held_trap: Option<QirTrap>,
     /// What the shot recorded, which [`QirStop::Ended`] lends; at the end,
     /// every result when the program records nothing.
     pub(super) records: Vec<OutputRecord>,
@@ -80,6 +90,7 @@ pub(super) struct Frame {
 }
 
 impl QirShotContext {
+    #[inline]
     pub(super) fn get(&self, register: Register) -> u64 {
         self.registers[register as usize]
     }
@@ -121,11 +132,13 @@ impl QirShotContext {
         self.operand(instruction, FLAG_AUX2_IMM, instruction.aux2)
     }
 
+    #[inline]
     pub(super) fn set(&mut self, register: Register, value: u64) {
         self.registers[register as usize] = value;
     }
 
     /// Whether a call of the batch writes `result`.
+    #[inline]
     pub(super) fn is_pending(&self, result: u64) -> bool {
         usize::try_from(result)
             .ok()
@@ -136,6 +149,7 @@ impl QirShotContext {
     /// The value of `result`, for the instruction at `pc` that reads it,
     /// checks it for loss or records it, or its trap: past the program's
     /// results, or with no value.
+    #[inline]
     pub(super) fn result(
         &self,
         bytecode: &AdaptiveProgram<u64>,
@@ -146,8 +160,20 @@ impl QirShotContext {
         held(self.results[index], pc, index)
     }
 
-    /// Takes the outcomes of the batch, which then ends.
+    /// Takes the outcomes of the batch, which then ends; after a split,
+    /// takes none, and the batch goes on.
+    #[inline]
     pub(super) fn take_outcomes(&mut self, outcomes: &[QirOutcome]) -> Result<(), QirTrap> {
+        if self.after_split {
+            if let Some(outcome) = outcomes.first() {
+                return Err(QirTrap::UnexpectedOutcome {
+                    result: outcome.result,
+                });
+            }
+            self.after_split = false;
+            self.batch.clear();
+            return Ok(());
+        }
         for outcome in outcomes {
             let result = outcome.result;
             let pending = self
@@ -172,6 +198,7 @@ impl QirShotContext {
 
     /// Goes to `block` from the block it runs in, and gives the
     /// block's first instruction: its `PHI`s run as instructions.
+    #[inline]
     pub(super) fn enter(&mut self, bytecode: &AdaptiveProgram<u64>, block: u64) -> usize {
         self.previous_block = self.block;
         self.block = block;
@@ -180,6 +207,7 @@ impl QirShotContext {
 
     /// The result the call of `operands` writes, its register read, if it
     /// writes one.
+    #[inline]
     pub(super) fn written(&self, operands: &RegisterOperands) -> Option<u64> {
         Some(match operands.operands.result? {
             CallOperand::Known(result) => u64::from(result),
@@ -227,6 +255,7 @@ impl QirShotContext {
     /// The call of correlated noise from the noise table `table`, at the
     /// instruction `pc`: on the qubits held in the registers that its
     /// `count` call arguments from `offset` name.
+    #[inline]
     pub(super) fn correlated_noise_call(
         &self,
         bytecode: &AdaptiveProgram<u64>,
@@ -260,6 +289,7 @@ impl QirShotContext {
 
     /// Grows the memory to at least `end` words, new ones zero; an `end`
     /// that is no `usize` asks for every address, which panics.
+    #[inline]
     pub(super) fn grow_memory(&mut self, end: u64) {
         let end = usize::try_from(end).unwrap_or(usize::MAX);
         if end > self.memory.len() {

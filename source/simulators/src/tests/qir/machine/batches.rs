@@ -206,8 +206,11 @@ fn a_context_yields_its_batch_before_a_second_writing_quantum_call_that_traps() 
 /// program's into result 1, a write to, a measurement into and a read of
 /// result 2^32 + 1, which is the pending result 1 cut to 32 bits, and a
 /// load and a store past the context's memory. The context does not stop
-/// before any of them, so the trap comes at once, the measurement not
-/// yielded.
+/// before any of them, so, its batches whole, the trap comes at once, the
+/// measurement not yielded. Split, the same calls come before the trap at
+/// every size, which [`run`](super::run) checks; that a trap of each kind
+/// comes after the very calls walked before it is checked by
+/// `batch_split::a_trap_comes_after_every_call_walked_before_it`.
 #[test]
 #[allow(clippy::too_many_lines)]
 fn a_trap_at_an_instruction_the_context_does_not_stop_before_comes_at_once() {
