@@ -57,7 +57,6 @@ use crate::{
 pub fn check_and_transform(program: &mut Program) {
     simplify_control_flow(program);
     remap_block_ids(program);
-    prune_unneeded_stores(program);
 
     // These checks are used to validate the structure of the RIR during development.
     #[cfg(debug_assertions)]
@@ -65,6 +64,8 @@ pub fn check_and_transform(program: &mut Program) {
         check_unreachable_code(program);
         check_types(program);
     }
+
+    prune_unneeded_stores(program);
 
     let uses_non_ssa_pipeline = program.config.capabilities >= Profile::Adaptive.into();
     if uses_non_ssa_pipeline {
