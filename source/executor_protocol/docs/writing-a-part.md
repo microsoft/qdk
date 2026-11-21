@@ -165,4 +165,7 @@ of a driver that runs a shot again alone, as
 [Capabilities and their fit](capabilities.md#forwarding) says.
 For example, a tensor-network sampler draws a run's shots from one
 stream, to draw them in one call rather than one call per shot: a shot
-run again alone draws other readouts.
+run again alone draws other readouts. It provides replay `false` even when
+it requires no seeded runs below, as such a sampler may: that requirement
+states replay `false` too, so no requirement of replay from above reaches
+the parts below it, and only what it provides answers one.

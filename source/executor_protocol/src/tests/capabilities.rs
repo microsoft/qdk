@@ -2,7 +2,9 @@
 // Licensed under the MIT License.
 
 //! What a part requires against what the part below provides, at one
-//! boundary: every mismatch of each kind, at once.
+//! boundary: every mismatch of each kind, at once. The one rule of
+//! `statements.rs`, which every kind follows, is pinned per kind, in
+//! `features.rs` and `resources.rs`.
 
 mod features;
 mod resources;

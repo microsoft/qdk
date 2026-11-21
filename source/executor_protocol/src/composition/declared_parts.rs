@@ -68,10 +68,11 @@ impl<'a> DeclaredParts<'a> {
                 continue;
             };
             for (below, provider) in self.parts.iter().enumerate().skip(at + 1) {
-                let fit = match provider.provides {
-                    Some(provided) if below == at + 1 => forwarded.fits(provided).map(drop),
-                    Some(provided) => forwarded.kinds_fit(provided),
-                    None => Ok(()),
+                let provided = (provider.provides).expect("each part below the driver provides");
+                let fit = if below == at + 1 {
+                    forwarded.fits(provided).map(drop)
+                } else {
+                    forwarded.kinds_fit(provided)
                 };
                 if let Err(mismatch) = fit {
                     faults.push(CompositionFault {
@@ -84,9 +85,6 @@ impl<'a> DeclaredParts<'a> {
                     break;
                 };
                 forwarded = forwarded.unanswered(answered);
-                if forwarded.states_nothing() {
-                    break;
-                }
             }
         }
         faults

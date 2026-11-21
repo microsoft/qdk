@@ -43,8 +43,11 @@ pub enum RunRefusal {
     /// The run requires what the parts below the driver do not provide
     /// together: more shots than the fewest any provides
     /// ([`Resources::with_shots`](crate::Resources::with_shots)), or a
-    /// fixed seed where one is not seedable
+    /// fixed seed where seeded runs are not provided
     /// ([`Features::with_seeded_runs`](crate::Features::with_seeded_runs)).
+    /// A joined driver held by a part of the user's, whose adapters the
+    /// runner cannot see, fails such a run instead
+    /// ([`Failure::NotProvided`](crate::Failure::NotProvided)).
     NotProvided(CapabilitiesMismatch),
     /// A part's `ready` said it cannot take the run now.
     PartNotReady {

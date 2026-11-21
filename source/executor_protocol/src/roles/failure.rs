@@ -7,7 +7,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::{ExecuteRefusal, PartId};
+use crate::{CapabilitiesMismatch, ExecuteRefusal, PartId};
 
 /// Why a shot's work broke once its run had started.
 ///
@@ -16,7 +16,8 @@ use crate::{ExecuteRefusal, PartId};
 /// failed: of the batch, for a refusal; of the first batch, for a panic in
 /// an `execute`, which includes a panic in an `end_shots` an adapter calls
 /// in `adapt`; of the run, for the driver's panic, which includes a panic
-/// in an `end_shots` the driver calls on the chain below.
+/// in an `end_shots` the driver calls on the chain below, and for a run a
+/// joined driver's adapters do not provide.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Failure {
@@ -49,6 +50,12 @@ pub enum Failure {
     },
     /// An `execute` was refused once the run had started.
     Refused(ExecuteRefusal),
+    /// The run requires what a joined driver's adapters do not provide,
+    /// as [`RunRefusal::NotProvided`](crate::RunRefusal::NotProvided)
+    /// says, where the runner could not refuse it: inside a part of the
+    /// user's, which the runner cannot see into, the joined driver checks
+    /// it as it drives, before its driver runs any shot.
+    NotProvided(CapabilitiesMismatch),
 }
 
 impl fmt::Display for Failure {
@@ -64,6 +71,10 @@ impl fmt::Display for Failure {
                 message: None,
             } => write!(f, "{part} panicked"),
             Failure::Refused(refusal) => write!(f, "an execute was refused: {refusal}"),
+            Failure::NotProvided(mismatch) => write!(
+                f,
+                "the run requires what a joined driver's adapters do not provide: {mismatch}"
+            ),
         }
     }
 }

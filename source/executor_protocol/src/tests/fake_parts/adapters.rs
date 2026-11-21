@@ -485,14 +485,16 @@ impl Stating {
         Self::new(log, shots(below), shots(above))
     }
 
-    /// A toy sampler that says it draws its shots' readouts with its run's
-    /// seed, from counts it takes below: it requires no seeded runs below,
-    /// and provides them above.
+    /// A toy sampler that says it draws its shots' readouts together with
+    /// its run's seed, from counts it takes below: it requires no seeded
+    /// runs below, and provides them above, with no replay.
     pub(crate) fn seeding_itself(log: &Log) -> Self {
-        let seeded = |yes| {
-            Capabilities::new(CoinGates::set()).with_features(Features::new().with_seeded_runs(yes))
-        };
-        Self::new(log, seeded(false), seeded(true))
+        let stating = |features| Capabilities::new(CoinGates::set()).with_features(features);
+        Self::new(
+            log,
+            stating(Features::new().with_seeded_runs(false)),
+            stating(Features::new().with_seeded_runs(true).with_replay(false)),
+        )
     }
 
     /// A toy decoder that provides `qubits` qubits, as it states them
@@ -513,7 +515,7 @@ impl Stating {
     }
 
     /// A toy link to a device whose measurements cannot be seeded.
-    pub(crate) fn unseedable(log: &Log) -> Self {
+    pub(crate) fn without_seeded_runs(log: &Log) -> Self {
         Self::providing(
             log,
             Resources::new(),

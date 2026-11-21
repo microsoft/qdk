@@ -317,8 +317,10 @@ fn a_provision_restated_above_cannot_raise_the_one_below() {
 /// against the parts below. A lowering that cannot carry readout parities,
 /// over bits that resolve them, refuses a program using them; an adapter
 /// replaying its shots itself serves a debugger over bits whose shots are
-/// not replayable, but needs them seedable, and forwards the qubits it does
-/// not state. Bracketed either way.
+/// not replayable, but requires seeded runs, and forwards the qubits it does
+/// not state; a sampler drawing a run's shots together, which requires no
+/// seeded runs below, and so no replay, provides no replay, and refuses a
+/// debugger over bits whose shots are not replayable. Bracketed either way.
 #[test]
 fn an_adapter_stating_a_feature_both_ways_replaces_it() {
     let replay = || Features::new().with_replay(true);
@@ -347,7 +349,7 @@ fn an_adapter_stating_a_feature_both_ways_replaces_it() {
         |chain, brackets| assert!(chain.is_ok(), "not replayable below, {brackets}"),
     );
     faults_in_each_bracketing!(
-        "not seedable below",
+        "no seeded runs below",
         [d, a, e] from {
             let log = Log::default();
             let d = program(1, replay());
@@ -369,6 +371,20 @@ fn an_adapter_stating_a_feature_both_ways_replaces_it() {
             let e = Bits::new(&log).with_resources(qubits(0));
         },
         vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(1, 0))],
+    );
+    faults_in_each_bracketing!(
+        "a sampler over shots not replayable",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(1, replay());
+            let a = Stating::seeding_itself(&log);
+            let e = Bits::new(&log).with_features(not_replayable());
+        },
+        vec![fault(
+            part::<Program>(0),
+            part::<Stating>(1),
+            missing(Feature::Replay),
+        )],
     );
 }
 

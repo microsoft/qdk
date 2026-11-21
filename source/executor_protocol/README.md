@@ -259,13 +259,14 @@ sequenceDiagram
 
 Each contract is checked once, as early as what it reads is known:
 
-| Contract                                                                       | Checked                                              |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| A part's role; a joined part's type cannot be named                            | by the compiler                                      |
-| Each requirement against each provision it reaches; every fault of the chain   | by the `on` that makes a runner, when it joins       |
-| The same, inside a part of the user's, which the `on` cannot reach             | by the joined part's `ready`, which refuses each run |
-| A run's shots and seed against what the chain provides                         | at the run's start, before any part is asked         |
-| A batch's count of instructions; a checked batch's blocks, parity and readouts | at each boundary, on each call                       |
+| Contract                                                                       | Checked                                                |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| A part's role; a joined part's type cannot be named                            | by the compiler                                        |
+| Each requirement against each provision it reaches; every fault of the chain   | by the `on` that makes a runner, when it joins         |
+| The same, inside a part of the user's, which the `on` cannot reach             | by the joined part's `ready`, which refuses each run   |
+| A run's shots and seed against what the chain provides                         | at the run's start, before any part is asked           |
+| The same, against a joined driver's adapters inside a part of the user's       | by the joined driver as it drives, which fails the run |
+| A batch's count of instructions; a checked batch's blocks, parity and readouts | at each boundary, on each call                         |
 
 How each join's role follows from its two ends, what a run asks of each
 part, what is checked where and when, and how a run fails are in

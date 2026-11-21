@@ -121,10 +121,13 @@ pub trait Driver {
     // method: the protocol's joined parts (`Composed`, in
     // `src/composition/composed/`) override them, to declare each inner
     // part, so that a composition fault names the inner part that is
-    // short, and to name an inner part's refusal by its position.
-    // Correctness does not depend on them: a joined part they do not
-    // reach, such as one inside a part of the user's that forwards only
-    // the public methods, runs the same.
+    // short, and a run is refused before any part is asked when an inner
+    // part does not provide it; and to name an inner part's refusal by
+    // its position. Correctness does not depend on them: a joined part
+    // they do not reach, such as one inside a part of the user's that
+    // forwards only the public methods, checks its inner parts itself
+    // (its halves' fit at `ready`, a joined driver's run as it drives),
+    // and gives the same outputs; only how a fault is reported differs.
 
     /// Adds this part, its name and what it requires, to `parts`. Only the
     /// crate overrides it, to add each part it holds, top to bottom. The

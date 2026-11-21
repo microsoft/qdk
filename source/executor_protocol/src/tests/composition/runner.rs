@@ -26,7 +26,7 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     CapabilitiesMismatch, DriveError, Failure, Feature, FeatureMismatch, Features, ReadoutFailure,
-    ReadoutValue, Resource, ResourceMismatch, RunError, RunRefusal, Runner, ShotConditions,
+    ReadoutValue, Resource, ResourceMismatch, RunError, RunRefusal, Runner, ShotConditions, ShotId,
     ShotSet,
 };
 
@@ -979,60 +979,128 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
         .unwrap_or_else(|error| panic!("{row}: a run with no seed: {error:?}"));
 }
 
-/// A chain is seedable only if every part below its driver is, down to
-/// the first that requires seeded runs again, in every bracketing: a
-/// seeded run on one that is not is refused before any part is asked or
-/// runs, and a run with no seed runs. So an adapter may make a chain not
-/// seedable, and make it seedable only by requiring seeded runs again,
-/// serving them itself.
+/// A chain provides seeded runs only if every part below its driver does,
+/// down to the first that requires seeded runs again, in every
+/// bracketing: a seeded run on one that does not is refused before any
+/// part is asked or runs, and a run with no seed runs. So an adapter may
+/// take seeded runs away from a chain, and provide them only by requiring
+/// seeded runs again, serving them itself.
 #[test]
 fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
-    let unseedable_bits = || Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
-    // An executor that cannot be seeded.
-    let alone = runner(CoinCopy::new().on(unseedable_bits()));
+    let bits_without_seeded_runs =
+        || Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
+    // An executor without seeded runs.
+    let alone = runner(CoinCopy::new().on(bits_without_seeded_runs()));
     refuses_a_seed("the executor alone", alone, 4, &log);
-    // Bits that cannot be seeded, under a decoder that restates what it
+    // Bits without seeded runs, under a decoder that restates what it
     // provides, stating no seeded runs: the bits' still holds.
     in_each_bracketing!([d, decoder, e] from {
         let d = CoinCopy::new();
         let decoder = Stating::restating(64, &log);
-        let e = unseedable_bits();
+        let e = bits_without_seeded_runs();
     }, |chain, brackets| {
         let row = format!("a decoder over bits, {brackets}");
         refuses_a_seed(&row, runner(chain), 1, &log);
     });
-    // Seedable bits under a link that cannot be seeded, under a profiler.
+    // Bits providing seeded runs under a link without them, under a
+    // profiler.
     in_each_bracketing!([d, profiler, link, e] from {
         let d = CoinCopy::new();
         let profiler = Profiler::new(&counted, &log);
-        let link = Stating::unseedable(&log);
+        let link = Stating::without_seeded_runs(&log);
         let e = Bits::new(&log);
     }, |chain, brackets| {
         let row = format!("a link under a profiler, {brackets}");
         refuses_a_seed(&row, runner(chain), 2, &log);
     });
-    // Seedable bits under a link that cannot be seeded, under a decoder:
+    // Bits providing seeded runs under a link without them, under a decoder:
     // the link's, though neither the executor's nor the one the driver
     // meets, holds.
     in_each_bracketing!([d, decoder, link, e] from {
         let d = CoinCopy::new();
         let decoder = Stating::restating(64, &log);
-        let link = Stating::unseedable(&log);
+        let link = Stating::without_seeded_runs(&log);
         let e = Bits::new(&log);
     }, |chain, brackets| {
         let row = format!("a link under a decoder, {brackets}");
         refuses_a_seed(&row, runner(chain), 2, &log);
     });
-    // Bits that cannot be seeded, under a sampler that seeds its own
+    // Bits without seeded runs, under a sampler that seeds its own
     // draws: a seeded run runs.
     in_each_bracketing!([d, sampler, e] from {
         let d = CoinCopy::new();
         let sampler = Stating::seeding_itself(&log);
-        let e = unseedable_bits();
+        let e = bits_without_seeded_runs();
     }, |chain, brackets| {
         (runner(chain).run(&ShotSet::ids(0..2), SEED))
             .unwrap_or_else(|error| panic!("a sampler, {brackets}: {error:?}"));
     });
+}
+
+/// A driver joined through a job queue of 4 shots at most, or through a
+/// link without seeded runs, held by a part of the user's that forwards
+/// only its role's public methods, so that the `on` that made the runner
+/// cannot see the queue or the link: a run of 5 shots, or a seeded run,
+/// fails at its first shot with the adapter's mismatch, as the joined
+/// driver checks it, nothing running below and the executor's shots ended
+/// once, by the runner; a run the adapter provides runs.
+#[test]
+fn a_held_joined_driver_fails_a_run_its_adapters_do_not_provide() {
+    let log = Log::default();
+    let held = |adapter| {
+        runner(Renamed::new(CoinCopy::new().through(adapter), "user's driver").on(Bits::new(&log)))
+    };
+    let rows = [
+        (
+            "through a queue of 4 shots",
+            Stating::queue(4, &log),
+            (5, Some(SEED)),
+            (4, Some(SEED)),
+            CapabilitiesMismatch {
+                resources: vec![ResourceMismatch {
+                    key: Resource::Shots,
+                    required: 5,
+                    provided: 4,
+                }],
+                ..CapabilitiesMismatch::default()
+            },
+        ),
+        (
+            "through a link without seeded runs",
+            Stating::without_seeded_runs(&log),
+            (2, Some(SEED)),
+            (2, None),
+            CapabilitiesMismatch {
+                features: vec![FeatureMismatch {
+                    key: Feature::SeededRuns,
+                    required: true,
+                    provided: false,
+                }],
+                ..CapabilitiesMismatch::default()
+            },
+        ),
+    ];
+    for (row, adapter, (shots, seed), (taken, taken_seed), mismatch) in rows {
+        let mut runner = held(adapter);
+        let ran = log.count("Bits execute");
+        let ends = ended(&log).len();
+        let error = failed(runner.run(&ShotSet::ids(0..shots), seed));
+        assert_eq!(error.shot, ShotId::new(0), "{row}: the run's first shot");
+        assert!(
+            matches!(&error.failure, Failure::NotProvided(why) if *why == mismatch),
+            "{row}: {error:?}"
+        );
+        assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran below");
+        assert_eq!(
+            ended(&log)[ends..],
+            ["Bits end_shots, holding 0"],
+            "{row}: ended once"
+        );
+        let records = runner
+            .run(&ShotSet::ids(0..taken), taken_seed)
+            .unwrap_or_else(|error| panic!("{row}: a run it provides: {error:?}"));
+        assert_eq!(records.len(), taken as usize, "{row}: a record per shot");
+    }
 }

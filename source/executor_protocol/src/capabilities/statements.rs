@@ -85,10 +85,6 @@ impl<K: Ord + Clone, V: Ord + Copy> Forwarding for Statements<K, V> {
         }
         Self(stricter)
     }
-
-    fn states_nothing(&self) -> bool {
-        self.0.is_empty()
-    }
 }
 
 /// A value required above the one provided: of a resource, more than is

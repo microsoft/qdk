@@ -62,7 +62,7 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_serve_it() {
             Ok(()),
         ),
         (
-            "seeded runs, not seedable",
+            "seeded runs, not provided",
             seeded(true),
             seeded(false),
             Err(vec![missing(Feature::SeededRuns)]),
@@ -93,19 +93,19 @@ fn replay_requires_seeded_runs() {
     let replay = || Features::new().with_replay(true);
     for (row, required, provided, expected) in [
         (
-            "replay over unseedable runs",
+            "replay over runs without seeded runs",
             replay(),
             Features::new().with_seeded_runs(false),
             Err(vec![missing(Feature::Replay), missing(Feature::SeededRuns)]),
         ),
         (
-            "replay, then unseedable runs, stated by a provider",
+            "replay, then no seeded runs, stated by a provider",
             replay(),
             replay().with_seeded_runs(false),
             Err(vec![missing(Feature::Replay), missing(Feature::SeededRuns)]),
         ),
         (
-            "unseedable runs, then replay, stated by a provider",
+            "no seeded runs, then replay, stated by a provider",
             replay(),
             Features::new().with_seeded_runs(false).with_replay(true),
             Ok(()),

@@ -38,33 +38,33 @@ pub trait DriverJoins: Driver + Sized {
     /// fewest shots, so that an adapter may lower a bound, and raise it
     /// only by requiring it again, serving it itself. What each part
     /// requires and provides is read at the joins and at this `on`, for
-    /// the checks, and again as each run starts, for its boundaries.
+    /// the checks and the runner's boundary; a joined part reads its
+    /// halves' resources and features again on each run, for the boundary
+    /// between them, whose instructions stay those of its join.
     ///
     /// # Errors
     ///
     /// [`CompositionFaults`] when a part's requirement is not provided.
     fn on<E: Executor>(mut self, executor: E) -> Result<Runner<Self, E>, CompositionFaults> {
-        let fit = self.requires().fits(executor.provides());
         let mut parts = DeclaredParts::new();
         self.declare(&mut parts);
         let executor_at = parts.len();
         executor.declare(&mut parts);
+        let faults = parts.faults();
+        if !faults.is_empty() {
+            return Err(CompositionFaults { faults });
+        }
         let (driver_part, executor_part) = (parts.id(0), parts.id(executor_at));
-        let (faults, provision) = (parts.faults(), parts.provision());
-        let mut boundary = match fit {
-            Ok(boundary) if faults.is_empty() => boundary,
-            // The whole chain's fit finds no fault the part-by-part check
-            // misses: the joined driver requires its lowest part's
-            // requirement, else the one above, key by key, and the joined
-            // executor provides its top part's provision, the stricter of
-            // it and the one below where the top part does not require it
-            // again, which are what that check compares; and both check
-            // the instructions between adjacent parts.
-            fit => {
-                debug_assert!(!faults.is_empty(), "the chain's fit: {fit:?}");
-                return Err(CompositionFaults { faults });
-            }
-        };
+        let provision = parts.provision();
+        // The whole chain's fit finds no fault the part-by-part check
+        // misses: the joined driver requires its lowest part's
+        // requirement, else the one above, key by key, and the joined
+        // executor provides its top part's provision, the stricter of it
+        // and the one below where the top part does not require it again,
+        // which are what that check compares; and both check the
+        // instructions between adjacent parts.
+        let mut boundary = (self.requires().fits(executor.provides()))
+            .expect("the chain fits where each part fits what it reaches");
         self.bind(boundary.opcode_map().clone());
         boundary.part = Some(executor_part);
         Ok(Runner {

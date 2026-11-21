@@ -12,8 +12,8 @@ use crate::composition::part_panics::{PanicEndingShots, await_part, catch_panic}
 use crate::composition::unended_shots::UnendedShots;
 use crate::composition::{ChainPosition, DeclaredParts};
 use crate::{
-    Adapter, BoundaryCompatible, Capabilities, DriveError, Driver, Executor, NotReady, OpcodeMap,
-    Seed, ShotSet,
+    Adapter, BoundaryCompatible, Capabilities, DriveError, Driver, Executor, Failure, NotReady,
+    OpcodeMap, Seed, ShotSet,
 };
 
 impl<U: Driver, L: Adapter> Composed<U, L> {
@@ -57,11 +57,16 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
     }
 
     /// The driver's `drive`, on the adapter and the chain below as one
-    /// executor; then ends the run's shots on the adapter, whatever that
-    /// `drive` gave, so that a joined driver ends the shots its adapters
-    /// hold, as the runner ends the executor's, whoever calls it. A panic
-    /// ending them is raised again from the run, through any joined driver
-    /// above, as one in the runner's end is.
+    /// executor, if the run's shots, and its seed if fixed, fit what the
+    /// adapter provides on this run, as the runner checks of the parts
+    /// below the driver; else the run's first shot fails with
+    /// [`Failure::NotProvided`], and the driver runs nothing. The runner's
+    /// check comes first and covers this one, unless a part of the user's
+    /// holds this driver. Then ends the run's shots on the adapter, whatever
+    /// that `drive` gave, so that a joined driver ends the shots its
+    /// adapters hold, as the runner ends the executor's, whoever calls it.
+    /// A panic ending them is raised again from the run, through any
+    /// joined driver above, as one in the runner's end is.
     async fn drive(
         &mut self,
         shots: &ShotSet,
@@ -79,8 +84,16 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
             shots,
             |rest, shots| rest.adapter.end_shots(shots),
         );
-        let mut rest = BoundaryCrossing::new(&mut unended.part, boundary);
-        let drove = catch_panic(|| upper.drive(shots, seed, &mut rest)).await;
+        let drove = match boundary.provided.admits_run(shots.len(), seed.is_fixed()) {
+            Ok(()) => {
+                let mut rest = BoundaryCrossing::new(&mut unended.part, boundary);
+                catch_panic(|| upper.drive(shots, seed, &mut rest)).await
+            }
+            Err(mismatch) => Ok(Err(DriveError {
+                shot: shots.iter().next().expect("a shot set is never empty"),
+                failure: Failure::NotProvided(mismatch),
+            })),
+        };
         match (drove, unended.end()) {
             (Err(payload), _) if payload.is::<PanicEndingShots>() => resume_unwind(payload),
             (_, Err(payload)) => resume_unwind(Box::new(PanicEndingShots(payload))),

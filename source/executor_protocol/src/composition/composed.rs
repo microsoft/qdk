@@ -37,12 +37,14 @@
 //! the chain below provides.
 //!
 //! A `Composed` keeps its role's contract through its public methods
-//! alone, so it runs the same when the chain's check did not reach it,
-//! such as inside a part of the user's that forwards only the role's
-//! public methods: a panic or a refusal below it then passes up unnamed,
-//! and the boundary above names the part at its position; and a
+//! alone, so it gives the same outputs when the chain's check did not
+//! reach it, such as inside a part of the user's that forwards only the
+//! role's public methods: a panic or a refusal below it then passes up
+//! unnamed, and the boundary above names the part at its position; a
 //! `Composed` whose halves do not fit refuses the run at `ready`, with
-//! their mismatch, rather than running an unbound opcode.
+//! their mismatch, rather than running an unbound opcode; and a joined
+//! driver fails a run its adapters do not provide before its driver runs
+//! anything, where the runner would have refused it.
 
 mod adapter;
 mod driver;

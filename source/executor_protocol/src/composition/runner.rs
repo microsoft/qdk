@@ -86,10 +86,13 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     ///
     /// A run is refused, and nothing of it runs, when the parts below the
     /// driver do not provide it together: more shots than the fewest any
-    /// provides, or a fixed seed where one is not seedable, before any part
+    /// provides, or a fixed seed where seeded runs are not provided, before any part
     /// is asked; or when a part's `ready` refuses it: each part gets ready
     /// for what is required of it, in turn, the executor first, up to the
-    /// first that refuses.
+    /// first that refuses. The parts inside a part of the user's are out of
+    /// the runner's sight: a joined driver there checks a run against its
+    /// own adapters as it drives, and fails one they do not provide
+    /// ([`Failure::NotProvided`]).
     /// Then the driver runs the shots, and a
     /// failure ends the run with the shot it names, a part's panic
     /// included, as the Panics section says.
@@ -168,7 +171,7 @@ impl<D: Driver, E: Executor> Runner<D, E> {
                 .map_err(|not_ready| {
                     RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.driver_part))
                 })?;
-            let seed = Seed::new(seed.unwrap_or_else(drawn_seed));
+            let seed = Seed::new(seed.unwrap_or_else(drawn_seed), seed.is_some());
             let unended = UnendedShots::new(&mut self.executor, shots, |executor, shots| {
                 executor.end_shots(shots);
             });

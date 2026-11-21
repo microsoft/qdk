@@ -173,8 +173,6 @@ pub(crate) trait Forwarding {
     /// The stricter of `self`'s and `other`'s provisions of each field,
     /// where both state it, else the one that does.
     fn stricter(&self, other: &Self) -> Self;
-    /// Whether no field is stated.
-    fn states_nothing(&self) -> bool;
 
     /// What `self`, a part's provision, provides together with `below`,
     /// the provision of the parts below it: `self`'s, and the stricter of
@@ -205,10 +203,6 @@ impl Forwarding for Capabilities {
     fn stricter(&self, other: &Self) -> Self {
         let resources = self.resources.stricter(&other.resources);
         self.with_kinds(resources, self.features.stricter(&other.features))
-    }
-
-    fn states_nothing(&self) -> bool {
-        self.resources.states_nothing() && self.features.states_nothing()
     }
 }
 

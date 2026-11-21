@@ -9,7 +9,8 @@
 
 use crate::prelude::*;
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Trap, coin_capabilities, qubits,
+    Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Stating, Trap, coin_capabilities,
+    qubits,
 };
 use crate::{
     Batch, BatchReadouts, Capabilities, ExecuteError, ExecuteRefusal, Failure, Features, Seed,
@@ -91,7 +92,8 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
     let shots = ShotSet::ids(0..8);
     let coin = || CoinCopy::new();
     let limited = Bits::new(&log).with_resources(qubits(64).with_shots(4));
-    let unseedable = Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
+    let without_seeded_runs =
+        Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
     for (row, error, said) in [
         (
             "too many shots",
@@ -100,7 +102,9 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
         ),
         (
             "a seed the chain cannot take",
-            runner(coin().on(unseedable)).run(&shots, SEED).map(drop),
+            runner(coin().on(without_seeded_runs))
+                .run(&shots, SEED)
+                .map(drop),
             &["run refused", "seeded runs", "not provided"],
         ),
         (
@@ -116,6 +120,22 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
                 .run(&shots, SEED)
                 .map(drop),
             &["run failed", "shot 5", "the program trapped"],
+        ),
+        (
+            "too many shots for a held joined driver's adapter",
+            runner(
+                Renamed::new(coin().through(Stating::queue(4, &log)), "user's driver")
+                    .on(Bits::new(&log)),
+            )
+            .run(&shots, SEED)
+            .map(drop),
+            &[
+                "run failed",
+                "shot 0",
+                "adapters",
+                "8 required",
+                "4 provided",
+            ],
         ),
         (
             "a part panicking",

@@ -70,17 +70,18 @@ pub trait Executor {
     /// requires must fit it, and so must what each part further above
     /// requires that no adapter between them states again, as
     /// [`Capabilities`] says. Each checked batch it receives is checked
-    /// against its instructions as read when its run started. Its most shots
+    /// against its instructions as read by the `on` that made the runner,
+    /// or by the join that made the joined part it is in. Its most shots
     /// and whether a run may fix its seed bound every run of the chain,
     /// unless an adapter above requires them again, serving them itself.
     fn provides(&self) -> &Capabilities;
 
     /// Gets this part ready for a run, before anything of the run runs, for
     /// `required`, what the part above requires of it, with what parts
-    /// further above require that no adapter between states again: the
-    /// blocks of each type a shot holds at once, whether its instructions
-    /// use readout parities, and whether a shot is run again alone, as far
-    /// as they state them. It takes what it needs to run, such as a
+    /// further above require that no adapter between states again: each
+    /// [`Resource`](crate::Resource) and [`Feature`](crate::Feature) they
+    /// state, such as the blocks of each type a shot holds at once, the
+    /// most shots of a run, or whether a shot is run again alone. It takes what it needs to run, such as a
     /// device, or a layout of its blocks; or, when it cannot take a run
     /// now, such as when its device is busy or its resources are not
     /// available, answers [`NotReady`], which refuses the run

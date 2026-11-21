@@ -40,10 +40,15 @@ Held inside a part of the user's that forwards only those methods, it gives
 the same outputs, gets ready for the same requirement and has its shots
 ended alike; a panic or a refusal inside it is named by the user's part,
 at its position. The `on` that makes a runner cannot reach the parts
-inside a part of the user's, so a joined part there whose own parts do not
-fit refuses every run at `ready`, with their mismatch, rather than
-running. A joined adapter or executor lent by `&mut` to another chain is
-checked again by that chain's `on`.
+inside a part of the user's, so the joined part checks them itself, and
+only how a fault is reported differs. A joined part there whose own parts
+do not fit refuses every run at `ready`, with their mismatch. A joined
+driver there checks each run's shots, and a fixed seed, against what its
+adapters provide, as the runner does for the parts below the driver, but
+as it drives: a run they do not provide fails at its first shot with
+[`Failure::NotProvided`](../src/roles/failure.rs), before its driver runs
+anything, rather than being refused. A joined adapter or executor lent by
+`&mut` to another chain is checked again by that chain's `on`.
 
 ## Running shots
 
@@ -81,6 +86,7 @@ check, are in
 | Each part's requirement against each provision it reaches: the instructions across each boundary, each resource and feature down to the first part that requires it again ([Capabilities](capabilities.md)) | the `on` that makes a runner                                               | when the parts are joined                                                       | every fault of the chain, [`CompositionFaults`](../src/composition/composition_faults.rs)                                   |
 | The same, inside a part of the user's, which the `on` cannot reach                                                                                                                                          | the joined part's `ready`                                                  | each run                                                                        | [`RunRefusal::PartNotReady`](../src/composition/runner/run_error.rs), with the mismatch                                     |
 | A run's shots, and a fixed seed, against what the parts below the driver provide                                                                                                                            | [`Runner::run_async`](../src/composition/runner.rs), which `run` waits for | each run, before any part is asked                                              | [`RunRefusal::NotProvided`](../src/composition/runner/run_error.rs)                                                         |
+| The same, against a joined driver's adapters, inside a part of the user's                                                                                                                                   | the joined driver's `drive`                                                | each run, before its driver runs anything                                       | [`Failure::NotProvided`](../src/roles/failure.rs), at the run's first shot                                                  |
 | Whether each part can take a run now                                                                                                                                                                        | each part's `ready`, bottom to top                                         | each run, before the driver starts                                              | [`NotReady`](../src/roles/not_ready.rs), as `RunRefusal::PartNotReady`, naming the part                                     |
 | A batch's count of instructions against the instructions per batch provided                                                                                                                                 | every boundary                                                             | each batch, checked or not, before the receiver runs any batch of the `execute` | [`BatchFault::TooManyInstructions`](../src/capabilities/boundary/batch_limits.rs)                                           |
 | A batch's instructions against the receiver's set and what its sender requires, and its [readout slots](batches-and-readouts.md#readout-slots): countable in a `u32`, and equal to those stated             | every boundary                                                             | each checked batch, before the receiver runs any batch of the `execute`         | [`BatchFault`](../src/capabilities/boundary/batch_limits.rs): `Instruction`, `TooManyReadoutSlots`, `ReadoutSlotsMisstated` |

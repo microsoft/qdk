@@ -47,9 +47,12 @@ pub trait Adapter {
 
     /// What it provides the part above: the instructions it receives, and
     /// each resource and feature it serves itself. A resource or a feature
-    /// it does not state is what the part below provides, forwarded, as
-    /// [`Capabilities`] says: an adapter states only what it changes, such
-    /// as a decoder's most logical qubits, or replay it does itself.
+    /// it states in neither its provision nor its requirement is what the
+    /// part below provides, forwarded, as [`Capabilities`] says; one it
+    /// requires is not forwarded, as the adapter serves it itself: the
+    /// part above is checked against its provision of it alone, or nothing.
+    /// An adapter states only what it changes, such as a decoder's most
+    /// logical qubits, or replay it does itself.
     fn provides(&self) -> &Capabilities;
 
     /// What it requires of the part below: the instructions it sends, and
