@@ -78,9 +78,10 @@ pub trait Adapter {
     /// qubits, and does not say so, lets `on` accept a chain whose
     /// executor cannot hold them, which then fails as it runs.
     ///
-    /// It is deterministic, and monotone: given a smaller `above`, one
-    /// that fits a larger, it requires no more. The checks rely on both,
-    /// and the protocol does not check them.
+    /// It is deterministic, and monotone: given an `above` that requires
+    /// no more than another, as [`Capabilities`] defines it, it requires
+    /// no more than given the other. The checks rely on both, and the
+    /// protocol does not check them.
     fn requires(&self, above: &Capabilities) -> Capabilities {
         above.clone()
     }

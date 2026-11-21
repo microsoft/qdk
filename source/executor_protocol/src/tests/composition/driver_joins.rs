@@ -670,42 +670,6 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
 
 // ---------------------------------------------------------- the joined
 
-/// A chain's faults as a user reads them: a part whose instruction the
-/// part below does not accept sends what that part does not accept, and
-/// a part whose requirement arrives at one that does not provide it
-/// requires what that part does not provide; each names both parts and
-/// what falls short.
-#[test]
-fn a_chains_fault_says_what_falls_short_and_names_both_parts() {
-    let log = Log::default();
-    for (row, message, said) in [
-        (
-            "an instruction",
-            faults(CoinCopy::new().on(Bits::accepting(no_x(), &log))).to_string(),
-            &[
-                "CoinCopy` (part 0) sends",
-                "Bits` (part 1) does not accept",
-                "`x`",
-            ][..],
-        ),
-        (
-            "qubits",
-            faults(program(9, Features::unconstrained()).on(bits_over(8, &log))).to_string(),
-            &[
-                "Program` (part 0) requires",
-                "Bits` (part 1) does not provide",
-                "9 required",
-            ],
-        ),
-    ] {
-        for part in said {
-            assert!(message.contains(part), "{row}: {message:?} says {part:?}");
-        }
-    }
-}
-
-// ---------------------------------------------------------- the joined
-
 /// A joined part, as its public methods state it: it requires what its
 /// lower part requires of what its upper part requires of what arrives;
 /// and it provides what its top part provides, as the inputs its parts
@@ -788,7 +752,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
 
 /// An interleaver of 3 joined with a decoder limiting qubits to 10,
 /// between a program on 5 qubits and bits of 4, in every bracketing: the
-/// program's qubits reach the bits through both, as through the two parts
+/// program's qubits arrive at the bits through both, as through the two parts
 /// unjoined. Wrapped by a part of a user's that forwards only its role's
 /// public methods, the joined part still passes them, as its `requires`
 /// composes its parts'; but its decoder's limit of 4, under the program's
@@ -849,39 +813,71 @@ fn a_joined_part_is_checked_part_by_part_in_every_bracketing() {
 
 // ----------------------------------------------------------- the message
 
-/// The shortages of different kinds, with each part named as one built at
-/// run time is, by what it was built from: each fault names its parts by
+/// Faults of each kind, an instruction's and a resource's at one pair
+/// included, with parts named by their types, or, as a part built at run
+/// time is, by what it was built from: each fault names its parts by
 /// those names, in its fields and in its message, beside every mismatch.
 #[test]
 fn a_composition_fault_names_its_parts_and_every_mismatch() {
     let log = Log::default();
-    let composed = Renamed::new(program(9, parity()), "h2 program")
-        .through(Renamed::new(
-            Stating::lowering_without_parity(&log),
-            "parity-free lowering",
-        ))
-        .on(Renamed::new(bits_over(8, &log), "qodec runtime"));
-    let faults = faults(composed);
     let named = |position, name| PartId::new(position, name);
-    let parts: Vec<_> = (faults.faults().iter())
-        .map(|fault| (fault.requirer.clone(), fault.provider.clone()))
-        .collect();
-    assert_eq!(
-        parts,
-        [
-            (named(0, "h2 program"), named(1, "parity-free lowering")),
-            (named(0, "h2 program"), named(2, "qodec runtime")),
-        ]
-    );
-    let message = faults.to_string();
-    for said in [
-        "`h2 program` (part 0)",
-        "`parity-free lowering` (part 1)",
-        "`qodec runtime` (part 2)",
-        &missing(Feature::ReadoutParity).capabilities.features[0].to_string(),
-        &short_qubits(9, 8).capabilities.resources[0].to_string(),
-    ] {
-        assert!(message.contains(said), "{said}: {message}");
+    let x = instructions(&CoinGates::set(), &no_x()).instructions[0].to_string();
+    let nine_qubits = short_qubits(9, 8).capabilities.resources[0].to_string();
+    let unresolved = missing(Feature::ReadoutParity).capabilities.features[0].to_string();
+    let rows = [
+        (
+            "an instruction",
+            faults(CoinCopy::new().on(Bits::accepting(no_x(), &log))),
+            vec![(part::<CoinCopy>(0), part::<Bits>(1))],
+            vec![&x],
+        ),
+        (
+            "qubits",
+            faults(program(9, Features::unconstrained()).on(bits_over(8, &log))),
+            vec![(part::<Program>(0), part::<Bits>(1))],
+            vec![&nine_qubits],
+        ),
+        (
+            "an instruction and qubits at one pair",
+            faults(
+                program(9, Features::unconstrained())
+                    .on(Bits::accepting(no_x(), &log).with_resources(qubits(8))),
+            ),
+            vec![(part::<Program>(0), part::<Bits>(1))],
+            vec![&x, &nine_qubits],
+        ),
+        (
+            "parts built at run time",
+            faults(
+                Renamed::new(program(9, parity()), "h2 program")
+                    .through(Renamed::new(
+                        Stating::lowering_without_parity(&log),
+                        "parity-free lowering",
+                    ))
+                    .on(Renamed::new(bits_over(8, &log), "qodec runtime")),
+            ),
+            vec![
+                (named(0, "h2 program"), named(1, "parity-free lowering")),
+                (named(0, "h2 program"), named(2, "qodec runtime")),
+            ],
+            vec![&unresolved, &nine_qubits],
+        ),
+    ];
+    for (row, faults, parts, mismatches) in rows {
+        let named: Vec<_> = (faults.faults().iter())
+            .map(|fault| (fault.requirer.clone(), fault.provider.clone()))
+            .collect();
+        assert_eq!(named, parts, "{row}");
+        let message = faults.to_string();
+        let parts = parts
+            .iter()
+            .flat_map(|(requirer, provider)| [requirer, provider]);
+        for said in parts
+            .map(ToString::to_string)
+            .chain(mismatches.into_iter().cloned())
+        {
+            assert!(message.contains(&said), "{row}: {said} in {message}");
+        }
     }
 }
 

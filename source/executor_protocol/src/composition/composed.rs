@@ -36,8 +36,8 @@
 //! from what the upper half requires.
 //!
 //! A `Composed` keeps its role's contract through its public methods
-//! alone, so it gives the same outputs when the chain's check did not
-//! reach it, such as inside a part of the user's that forwards only the
+//! alone, so it gives the same outputs when the chain's check does not
+//! see into it, such as inside a part of the user's that forwards only the
 //! role's public methods: a panic or a refusal below it then passes up
 //! unnamed, and the boundary above names the part at its position. Such a
 //! part provides what its upper half provides, and the chain's checks see

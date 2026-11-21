@@ -634,8 +634,8 @@ fn calibrating(refusal: &RunRefusal) -> Option<(usize, &str)> {
 /// run refuses it, named by its position and name, with its reason; the
 /// parts below it are asked, those above it are not, and nothing runs: no
 /// shot is ended on any part, as no drive started. A part refusing inside
-/// a joined part held by a part of a user's, which the chain's check
-/// cannot reach, is named by the user's part, with its own reason.
+/// a joined part held by a part of a user's, which the chain's check does
+/// not see into, is named by the user's part, with its own reason.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -783,14 +783,15 @@ where
 
 /// A part of each role joined from two parts, wrapped by a part of a
 /// user's that forwards only its role's public methods, where the chain's
-/// check cannot reach its inner boundary: the chain composes, as its outer
+/// check does not see its inner boundary: the chain composes, as its outer
 /// boundaries fit, but the joined part refuses each run its inner boundary
 /// does not take, at `ready`, as a part that cannot take it, named by the
 /// user's part's position and name, with the boundary's mismatch as its
 /// reason; nothing runs, and no shot is ended on any part. Its halves'
-/// sets not fitting, it refuses every run; a driver joined through a job
-/// queue of 3 shots refuses a run of 4, and one joined through a link
-/// without seeded runs a seeded run.
+/// sets not fitting, it refuses every run; an executor whose lower part
+/// takes 3 shots a run, and a driver joined through a job queue of 3
+/// shots, refuse a run of 4, and a driver joined through a link without
+/// seeded runs refuses a seeded run.
 #[test]
 #[expect(clippy::too_many_lines, reason = "one row per role and boundary")]
 fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
@@ -852,6 +853,28 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
                 let log = Log::default();
                 let held = Renamed::new(
                     profiler(CoinGates::set(), &log).on(Bits::accepting(no_x(), &log)),
+                    "user's executor",
+                );
+                refused_twice(CoinCopy::new().on(held), &counted, &log)
+            },
+        ),
+        (
+            "an adapter on an executor of 3 shots",
+            1,
+            "user's executor",
+            &capabilities(
+                vec![ResourceMismatch {
+                    key: Resource::Shots,
+                    required: 4,
+                    provided: 3,
+                }],
+                vec![],
+            ),
+            {
+                let log = Log::default();
+                let held = Renamed::new(
+                    profiler(CoinGates::set(), &log)
+                        .on(Bits::new(&log).with_resources(qubits(64).with_shots(3))),
                     "user's executor",
                 );
                 refused_twice(CoinCopy::new().on(held), &counted, &log)

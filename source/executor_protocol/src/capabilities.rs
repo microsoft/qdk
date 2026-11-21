@@ -41,6 +41,14 @@ use crate::BoundaryCompatible;
 /// What arrives at a part must [`fit`](BoundaryCompatible::fits) what it
 /// provides, as the crate's `docs/capabilities.md` says.
 ///
+/// One requirement *requires no more than* another when, for each field
+/// it states, the other's value needs at least as much: an amount no
+/// smaller, a feature used where it is used; a field left unstated
+/// requires nothing, and so does a feature stated `false`. It compares
+/// two requirements, unlike [`fits`](BoundaryCompatible::fits), which
+/// compares a requirement with limits, and reads a field left unstated
+/// in the limits as no limit.
+///
 /// Built by [`new`](Self::new), or from
 /// [`UNCONSTRAINED`](Self::UNCONSTRAINED), which states nothing, with
 /// [`map_resources`](Self::map_resources) and

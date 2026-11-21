@@ -67,9 +67,10 @@ unchanged, the part that first required it, so a logger inserted between
 them moves only the positions the fault names. Each part then gets ready,
 on every run, for what arrives at it.
 
-A `requires` is deterministic, and monotone: given less, one that fits
-more, it requires no more. The checks rely on both, and the protocol does
-not check them.
+A `requires` is deterministic, and monotone: given what arrives requiring
+no more than another, as [`Capabilities`](../src/capabilities.rs) defines
+it, it requires no more than given the other. The checks rely on both, and
+the protocol does not check them.
 
 For instance, the example's driver requires the run on 2 qubits, and its
 executor provides 64 qubits, at most 1000 shots a run, and no readout

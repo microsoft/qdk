@@ -71,9 +71,10 @@ pub trait Driver {
     /// as one that splits each run into runs of the shots the parts below
     /// take, states what it passes below instead.
     ///
-    /// It is deterministic, and monotone: given a smaller `run`, one that
-    /// fits a larger, it requires no more. The checks rely on both, and
-    /// the protocol does not check them.
+    /// It is deterministic, and monotone: given a `run` that requires no
+    /// more than another, as [`Capabilities`] defines it, it requires no
+    /// more than given the other. The checks rely on both, and the
+    /// protocol does not check them.
     fn requires(&self, run: &Capabilities) -> Capabilities {
         run.clone()
     }

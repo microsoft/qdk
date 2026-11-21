@@ -127,9 +127,12 @@ The protocol does not check these; the rustdoc of each role, and of
 
 - what it accepts, sends and provides does not change once it is joined,
   since the fits rely on those statements staying the same;
-- its `requires` gives the same for the same input, and no more for a
-  smaller one ([The rule](capabilities.md#the-rule)), since the fits rely
-  on both, as does the requirement each part gets ready for on every run;
+- its `requires` gives the same for the same input, and, given an input
+  requiring no more than another, as
+  [`Capabilities`](../src/capabilities.rs) defines it, requires no more
+  than given the other ([The rule](capabilities.md#the-rule)), since the
+  fits rely on both, as does the requirement each part gets ready for on
+  every run;
 - a part that calls `execute` puts a shot in at most one of its batches,
   and only shots it was given: the run's, for a driver, those of the
   batches it got, for an adapter;

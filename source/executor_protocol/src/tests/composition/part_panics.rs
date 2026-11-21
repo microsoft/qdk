@@ -388,7 +388,7 @@ fn names_the_panic<T: Debug>(
 /// A driver and an executor that panic, each named as a part built at
 /// run time is, by what it was built from: the failure names the part by
 /// that name, at its position. A joined part held by a part of a user's,
-/// which the chain's check cannot reach, with a part inside it that
+/// which the chain's check does not see into, with a part inside it that
 /// panics: the failure names the user's part, at its position. An
 /// executor, or an adapter, that panics and answers another name once
 /// ready, in each bracketing: the failure of each run names it by the name
