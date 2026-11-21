@@ -194,7 +194,7 @@ impl<D: Driver, E: Executor> Runner<D, E> {
                         resume_unwind(ending.0)
                     }
                     Err(payload) => DriveError {
-                        shot: shots.iter().next().expect("a shot set is never empty"),
+                        shot: shots.first(),
                         failure: Failure::Panicked {
                             part: self.parts[0].clone(),
                             message: panic_message(payload),

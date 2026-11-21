@@ -94,7 +94,7 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
                 catch_panic(|| upper.drive(shots, seed, &mut rest)).await
             }
             Err(mismatch) => Ok(Err(DriveError {
-                shot: shots.iter().next().expect("a shot set is never empty"),
+                shot: shots.first(),
                 failure: Failure::NotProvided(mismatch),
             })),
         };

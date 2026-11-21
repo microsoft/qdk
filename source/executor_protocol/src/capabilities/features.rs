@@ -78,7 +78,10 @@ impl Features {
     /// These features, provided, with no replay where they state no seeded
     /// runs: a shot is replayed with its run's seed, so a provision that
     /// combines a part's replay with a lack of seeded runs below it serves
-    /// neither. It never states seeded runs that are not stated.
+    /// neither. It never states seeded runs that are not stated. No check
+    /// needs it, since every replay requirement states seeded runs too: it
+    /// keeps the provision a part above reads, and the mismatches it meets,
+    /// free of a replay that cannot be served.
     pub(crate) fn replay_only_if_seeded(self) -> Self {
         if self.get(&Feature::SeededRuns) == Some(false) {
             self.with(Feature::Replay, false)

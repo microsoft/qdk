@@ -5,7 +5,9 @@
 //! at one boundary: which fit.
 
 use super::coin;
-use crate::{BoundaryCompatible, Feature, FeatureMismatch, Features, Resources};
+use crate::prelude::*;
+use crate::tests::fake_parts::{Bits, Log, Stating};
+use crate::{BoundaryCompatible, Executor, Feature, FeatureMismatch, Features, Resources};
 
 /// Each feature `required` uses that `provided` states it does not serve,
 /// as [`Capabilities`](crate::Capabilities)' fit lists them.
@@ -87,10 +89,18 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_serve_it() {
 /// A shot run again alone runs with its run's seed: a part that states
 /// replay states seeded runs, and one that states runs that cannot be
 /// seeded states no replay, whichever it states last; so replay is not
-/// served over runs that cannot be seeded.
+/// served over runs that cannot be seeded, nor by a part that replays its
+/// shots joined over them.
 #[test]
 fn replay_requires_seeded_runs() {
+    let log = Log::default();
     let replay = || Features::new().with_replay(true);
+    let replayer_over_unseeded = Executor::provides(
+        &Stating::replaying(&log)
+            .on(Bits::new(&log).with_features(Features::new().with_seeded_runs(false))),
+    )
+    .features()
+    .clone();
     for (row, required, provided, expected) in [
         (
             "replay over runs without seeded runs",
@@ -109,6 +119,12 @@ fn replay_requires_seeded_runs() {
             replay(),
             Features::new().with_seeded_runs(false).with_replay(true),
             Ok(()),
+        ),
+        (
+            "replay over a replayer joined on runs without seeded runs",
+            replay(),
+            replayer_over_unseeded,
+            Err(vec![missing(Feature::Replay), missing(Feature::SeededRuns)]),
         ),
     ] {
         assert_eq!(fit(required, &provided), expected, "{row}");

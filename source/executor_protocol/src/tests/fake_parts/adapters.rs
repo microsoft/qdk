@@ -737,7 +737,7 @@ impl Adapter for FailsOnce {
         if self.adapts == 2 {
             assert!(!self.panics, "the adapter broke once");
             return Err(ExecuteError::Failed {
-                shot: batches[0].shots.iter().next().expect("a shot"),
+                shot: batches[0].shots.first(),
                 failure: Failure::Part("the adapter failed once".into()),
             });
         }

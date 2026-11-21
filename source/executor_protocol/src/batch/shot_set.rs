@@ -87,6 +87,12 @@ impl ShotSet {
         self.0.iter().copied()
     }
 
+    /// The first shot, in the caller's order, which a set always has: the
+    /// shot a refusal or a failure of the whole set names.
+    pub(crate) fn first(&self) -> ShotId {
+        self.0[0]
+    }
+
     /// The shots at `positions` in this set, in the order of `positions`,
     /// or `None` when `positions` is empty, since a set is never empty. A
     /// driver splits a batch's shots by their readouts this way; the part is

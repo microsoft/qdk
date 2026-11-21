@@ -29,7 +29,7 @@ use std::panic::resume_unwind;
 use super::part_panics::{catch_panic, panic_message};
 use crate::{
     Batch, BatchFault, BatchReadouts, Boundary, Capabilities, ExecuteError, ExecuteRefusal,
-    Executor, Failure, Seed, ShotId, ShotSet,
+    Executor, Failure, Seed, ShotSet,
 };
 
 /// A call across a boundary to `inner`, its receiver, with the boundary
@@ -112,7 +112,7 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
             Ok(ran) => ran,
             Err(payload) => match &self.boundary.part {
                 Some(part) => Err(ExecuteError::Failed {
-                    shot: first_shot(first.shots),
+                    shot: first.shots.first(),
                     failure: Failure::Panicked {
                         part: part.clone(),
                         message: panic_message(payload),
@@ -135,13 +135,8 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
 #[inline(never)]
 fn refused(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteError {
     ExecuteError::Refused(ExecuteRefusal::Batch {
-        shot: first_shot(batch.shots),
+        shot: batch.shots.first(),
         batch: index,
         fault,
     })
-}
-
-/// The first of `shots`, in its order.
-fn first_shot(shots: &ShotSet) -> ShotId {
-    shots.iter().next().expect("a shot set is never empty")
 }

@@ -229,8 +229,9 @@ fn a_requirement_not_provided_is_a_fault_naming_both_parts() {
 /// What an adapter does not state, it forwards: the requirement of the
 /// part above it is checked against the parts below it, down to the first
 /// that states it again, which is checked in its place, in each
-/// bracketing. A profiler states nothing; a pool states the qubits it
-/// draws; an ancilla's reservation states the qubits it needs.
+/// bracketing. A profiler states nothing; an adapter replaying its shots
+/// itself states features, not qubits; a pool states the qubits it draws;
+/// an ancilla's reservation states the qubits it needs.
 #[test]
 fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() {
     let counted = Rc::new(Cell::new(0));
@@ -260,6 +261,18 @@ fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() 
             part::<Bits>(2),
             missing(Feature::ReadoutParity),
         )],
+    );
+    // A debugger on 1 qubit, through an adapter replaying its shots
+    // itself, over bits of none.
+    faults_in_each_bracketing!(
+        "qubits through a replayer",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(1, Features::new().with_replay(true));
+            let a = ReplaysItself::new(&log);
+            let e = Bits::new(&log).with_resources(qubits(0));
+        },
+        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(1, 0))],
     );
     // A program on 9 qubits, through a part reserving an ancilla, which
     // requires 10, over bits providing 9: the part is named, not the
@@ -317,8 +330,8 @@ fn a_provision_restated_above_cannot_raise_the_one_below() {
 /// against the parts below. A lowering that cannot carry readout parities,
 /// over bits that resolve them, refuses a program using them; an adapter
 /// replaying its shots itself serves a debugger over bits whose shots are
-/// not replayable, but requires seeded runs, and forwards the qubits it does
-/// not state; a sampler drawing a run's shots together, which requires no
+/// not replayable, but requires seeded runs; a sampler drawing a run's shots
+/// together, which requires no
 /// seeded runs below, and so no replay, provides no replay, and refuses a
 /// debugger over bits whose shots are not replayable. Bracketed either way.
 #[test]
@@ -361,16 +374,6 @@ fn an_adapter_stating_a_feature_both_ways_replaces_it() {
             part::<Bits>(2),
             missing(Feature::SeededRuns),
         )],
-    );
-    faults_in_each_bracketing!(
-        "no qubit below",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = program(1, replay());
-            let a = ReplaysItself::new(&log);
-            let e = Bits::new(&log).with_resources(qubits(0));
-        },
-        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(1, 0))],
     );
     faults_in_each_bracketing!(
         "a sampler over shots not replayable",

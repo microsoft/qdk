@@ -881,10 +881,10 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
 
 /// A chain runs at most the fewest shots of the parts below its driver,
 /// down to the first adapter that requires shots again, which serves them
-/// itself, in every bracketing, whose joined drivers check the same rule: a run
-/// of one more is refused before any part is asked or runs, and a run of that
-/// many runs. So an adapter may lower the most shots a run may have, and raise
-/// it only by requiring shots again.
+/// itself. In every bracketing, a run of one more is refused before any part
+/// is asked or runs, and a run of that many runs (a joined driver checks the
+/// same rule as it drives). So an adapter may lower the most shots a run may
+/// have, and raise it only by requiring shots again.
 #[test]
 fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     let log = Log::default();
