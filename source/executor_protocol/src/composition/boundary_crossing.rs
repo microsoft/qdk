@@ -28,8 +28,8 @@ use std::panic::resume_unwind;
 
 use super::part_panics::{catch_panic, panic_message};
 use crate::{
-    Batch, BatchReadouts, Boundary, Capabilities, ExecuteError, ExecuteRefusal, Executor, Failure,
-    Seed, ShotId, ShotSet,
+    Batch, BatchFault, BatchReadouts, Boundary, Capabilities, ExecuteError, ExecuteRefusal,
+    Executor, Failure, Seed, ShotId, ShotSet,
 };
 
 /// A call across a boundary to `inner`, its receiver, with the boundary
@@ -91,14 +91,7 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
         };
         for (index, (batch, batch_readouts)) in batches.iter().zip(readouts.iter_mut()).enumerate()
         {
-            let refused = |fault| {
-                let shot = first_shot(batch.shots);
-                ExecuteError::Refused(ExecuteRefusal::Batch {
-                    shot,
-                    batch: index,
-                    fault,
-                })
-            };
+            let refused = |fault| refused(index, batch, fault);
             self.boundary
                 .batch_limits
                 .check_count(batch.instructions)
@@ -133,6 +126,19 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
     fn end_shots(&mut self, shots: &ShotSet) {
         self.inner.end_shots(shots);
     }
+}
+
+/// The refusal of `batches[index]`, `batch`, for `fault`. Out of line
+/// and cold, so that the loop over the batches stays as small as when no
+/// batch is refused.
+#[cold]
+#[inline(never)]
+fn refused(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteError {
+    ExecuteError::Refused(ExecuteRefusal::Batch {
+        shot: first_shot(batch.shots),
+        batch: index,
+        fault,
+    })
 }
 
 /// The first of `shots`, in its order.
