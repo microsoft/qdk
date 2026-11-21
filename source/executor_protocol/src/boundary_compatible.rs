@@ -10,11 +10,10 @@
 /// checks the first against the second.
 ///
 /// Every check between parts is this one relation: an instruction set's
-/// ([`InstructionSet`](crate::InstructionSet)), the resources'
-/// ([`Resources`](crate::Resources)), the features'
-/// ([`Features`](crate::Features)), and the three at once
+/// ([`InstructionSet`](crate::InstructionSet)), and the capabilities'
 /// ([`Capabilities`](crate::Capabilities)), which the joins check at each
-/// boundary of a chain.
+/// boundary of a chain, and whose fit compares their
+/// [`Resources`](crate::Resources) and [`Features`](crate::Features) too.
 pub trait BoundaryCompatible {
     /// What the check gives when `provided` serves `self`.
     type Fit;

@@ -64,9 +64,9 @@ Today the protocol holds:
 - **Capabilities:** what a part requires of the part below it, or
   provides the part above it, is one type,
   [`Capabilities`](src/capabilities.rs), checked by one relation,
-  [`BoundaryCompatible`](src/boundary_compatible.rs): its instruction set,
-  its [`Resources`](src/capabilities/resources.rs), such as qubits and
-  shots, and its [`Features`](src/capabilities/features.rs), such as
+  [`BoundaryCompatible`](src/boundary_compatible.rs). It holds an
+  instruction set, [`Resources`](src/capabilities/resources.rs), such as
+  qubits and shots, and [`Features`](src/capabilities/features.rs), such as
   whether a run may fix its seed and whether a shot replays. A driver
   states what it requires, an executor what it provides, and an adapter
   both, stating only what it changes: what it leaves unstated is forwarded
@@ -108,7 +108,7 @@ Today the protocol holds:
   fault at once
   ([`CompositionFaults`](src/composition/composition_faults.rs)), each
   naming the requiring part and the part that falls short
-  ([`PartId`](src/composition/part_id.rs)), before any shot runs.
+  ([`PartId`](src/part_id.rs)), before any shot runs.
 - **Guarantees at run time:** the `Runner` checks each run's shots and
   seed against what the chain provides, and carries each call down the
   chain, checking each batch (its count always, its instructions when its
@@ -257,16 +257,16 @@ sequenceDiagram
   R-->>C: the outputs
 ```
 
-Each contract is checked once, as early as what it reads is known:
+Each contract is checked as early as what it reads is known:
 
-| Contract                                                                       | Checked                                                |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------ |
-| A part's role; a joined part's type cannot be named                            | by the compiler                                        |
-| Each requirement against each provision it reaches; every fault of the chain   | by the `on` that makes a runner, when it joins         |
-| The same, inside a part of the user's, which the `on` cannot reach             | by the joined part's `ready`, which refuses each run   |
-| A run's shots and seed against what the chain provides                         | at the run's start, before any part is asked           |
-| The same, against a joined driver's adapters inside a part of the user's       | by the joined driver as it drives, which fails the run |
-| A batch's count of instructions; a checked batch's blocks, parity and readouts | at each boundary, on each call                         |
+| Contract                                                                                                     | Checked                                                |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| A part's role; a joined part's type cannot be named                                                          | by the compiler                                        |
+| Each requirement against each provision it reaches; every fault of the chain                                 | by the `on` that makes a runner, when it joins         |
+| Each requirement against each provision it reaches, inside a part of the user's, which the `on` cannot reach | by the joined part's `ready`, which refuses each run   |
+| A run's shots and seed against what the chain provides                                                       | at the run's start, before any part is asked           |
+| A run's shots and seed against what a joined driver's adapters provide, inside a part of the user's          | by the joined driver as it drives, which fails the run |
+| A batch's count of instructions; a checked batch's blocks, parity and readouts                               | at each boundary, on each call                         |
 
 How each join's role follows from its two ends, what a run asks of each
 part, what is checked where and when, and how a run fails are in

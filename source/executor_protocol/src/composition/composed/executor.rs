@@ -5,9 +5,10 @@
 
 use super::{Composed, DECLARED};
 use crate::capabilities::Forwarding;
+use crate::composition::DeclaredParts;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
-use crate::composition::{ChainPosition, DeclaredParts};
+use crate::part_id::ChainPosition;
 use crate::{
     Adapter, Batch, BatchReadouts, BoundaryCompatible, Capabilities, ExecuteError, Executor,
     NotReady, Seed, ShotSet,

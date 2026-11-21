@@ -24,10 +24,10 @@ pub(crate) mod wait;
 
 use std::panic::resume_unwind;
 
-use super::ChainPosition;
 use super::boundary_crossing::BoundaryCrossing;
 use super::part_panics::{PanicEndingShots, await_part, catch_panic, panic_message};
 use super::unended_shots::UnendedShots;
+use crate::part_id::ChainPosition;
 use crate::{Boundary, Capabilities, DriveError, Driver, Executor, Failure, PartId, Seed, ShotSet};
 
 pub use run_error::{RunError, RunRefusal};
@@ -85,17 +85,17 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// own seed.
     ///
     /// A run is refused, and nothing of it runs, when the parts below the
-    /// driver do not provide it together: more shots than the fewest any
-    /// provides, or a fixed seed where seeded runs are not provided, before any part
-    /// is asked; or when a part's `ready` refuses it: each part gets ready
-    /// for what is required of it, in turn, the executor first, up to the
-    /// first that refuses. The parts inside a part of the user's are out of
-    /// the runner's sight: a joined driver there checks a run against its
-    /// own adapters as it drives, and fails one they do not provide
-    /// ([`Failure::NotProvided`]).
-    /// Then the driver runs the shots, and a
-    /// failure ends the run with the shot it names, a part's panic
-    /// included, as the Panics section says.
+    /// driver do not provide it together: more shots than the fewest of
+    /// those down to the first adapter that requires shots again, which
+    /// serves them itself, or a fixed seed where seeded runs are not
+    /// provided, before any part is asked; or when a part's `ready` refuses
+    /// it: each part gets ready for what is required of it, in turn, the
+    /// executor first, up to the first that refuses. The parts inside a
+    /// part of the user's are out of the runner's sight: a joined driver
+    /// there checks a run against its own adapters as it drives, and fails
+    /// one they do not provide ([`Failure::NotProvided`]). Then the driver
+    /// runs the shots, and a failure ends the run with the shot it names, a
+    /// part's panic included, as the Panics section says.
     ///
     /// Once `drive` returns, fails or panics, or the future is dropped
     /// before it ends, the run's shots are ended on every part, every

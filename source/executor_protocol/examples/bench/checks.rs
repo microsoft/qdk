@@ -15,13 +15,13 @@ use crate::parts::{MixGates, Profile, slots_per_batch};
 use crate::timing::{best, per, per_call};
 use crate::workload::{Draw, build_one};
 
-/// What a batch's checks cost, and a boundary without them, by
-/// difference, since they run inside the protocol; building an instruction
-/// by name, which checks it too; and the count of a batch's instructions
-/// against a most provided. A boundary without the checks costs per call
-/// (shaping the readouts, the catch of a panic, one `BoundaryCrossing`
-/// call), which the chains bench's ≫P at batch 1 shows; its row here, at a large batch,
-/// shows that it makes no pass per instruction.
+/// What a batch's checks cost, and a boundary without them, by difference,
+/// since they run inside the protocol; building an instruction by name, which
+/// checks it too; and the count of a batch's instructions against a most
+/// provided. A boundary without the checks costs per call (shaping the
+/// readouts, the catch of a panic, one `BoundaryCrossing` call), which the
+/// chains bench's ≫P at batch 1 shows; its row here, at a large batch, shows
+/// that it makes no pass per instruction.
 pub(crate) fn bench(size: &Size, draws: &[Draw], program: &[Instruction]) {
     println!("\nchecks: a batch's checks, ns/instr (per call, where given)");
     let time = |batch, chain, checked| {

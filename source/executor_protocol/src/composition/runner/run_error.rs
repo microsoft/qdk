@@ -41,7 +41,8 @@ impl Error for RunError {}
 #[non_exhaustive]
 pub enum RunRefusal {
     /// The run requires what the parts below the driver do not provide
-    /// together: more shots than the fewest any provides
+    /// together: more shots than the fewest of those down to the first
+    /// adapter that requires shots again, which serves them itself
     /// ([`Resources::with_shots`](crate::Resources::with_shots)), or a
     /// fixed seed where seeded runs are not provided
     /// ([`Features::with_seeded_runs`](crate::Features::with_seeded_runs)).

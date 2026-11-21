@@ -21,8 +21,8 @@ compares them:
   instructions it accepts, and the resources and features it serves.
 - **Fit**: the check that a requirement is served by a provision,
   [`BoundaryCompatible::fits`](../src/boundary_compatible.rs), one relation
-  for the instructions, the resources, the features, and the three at
-  once.
+  for the instructions, and for the capabilities, whose fit compares their
+  resources and features too.
 - **Forwarded**: a resource or a feature a part does not state. Its
   statement is then the one of the part next to it, as
   [Forwarding](#forwarding) says.
@@ -84,7 +84,8 @@ that it does not use seeded runs, and so no replay, answers both for the
 parts above it. A run's limits follow, with no rule of their own: a run's
 shots, and a fixed seed, are checked against what the parts below the
 driver provide, forwarded this way, such as the fewest shots of those
-that state them; inside a part of the user's, which the runner cannot see
+that state them, down to the first adapter that requires shots again;
+inside a part of the user's, which the runner cannot see
 into, a joined driver checks a run against its own adapters' provisions,
 as
 [Composing and running](composing-and-running.md#joining-parts-with-through-and-on)

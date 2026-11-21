@@ -4,7 +4,8 @@
 //! The adapter's role, [`Adapter`]: a part between a driver and an
 //! executor.
 
-use crate::composition::{ChainPosition, DeclaredParts};
+use crate::composition::DeclaredParts;
+use crate::part_id::ChainPosition;
 use crate::{
     Batch, BatchReadouts, Capabilities, ExecuteError, Executor, NotReady, OpcodeMap, Seed, ShotSet,
 };

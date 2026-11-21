@@ -7,7 +7,8 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::composition::{ChainPosition, DeclaredParts};
+use crate::composition::DeclaredParts;
+use crate::part_id::ChainPosition;
 use crate::{
     Capabilities, ExecuteError, Executor, Failure, NotReady, OpcodeMap, Seed, ShotId, ShotSet,
 };
@@ -81,11 +82,11 @@ pub trait Driver {
     /// `From<ExecuteError>`. The runner returns the outputs as given: it
     /// does not check their count or order.
     ///
-    /// Each batch it sends below holds only shots of `shots`: a rule the
-    /// driver keeps, which the protocol does not check. A shot outside them
-    /// is not counted against the most shots a run may have
-    /// ([`Resources::with_shots`](crate::Resources::with_shots)), and the runner
-    /// does not end it, so a part may carry its state into a later run,
+    /// Each batch it sends below holds only shots of `shots`: a rule the driver
+    /// keeps, which the protocol does not check. A shot outside them is not
+    /// counted against the most shots a run may have
+    /// ([`Resources::with_shots`](crate::Resources::with_shots)), and the
+    /// runner does not end it, so a part may carry its state into a later run,
     /// which then does not repeat with its seed.
     ///
     /// It decides whether each batch it sends is checked before it runs, as
@@ -114,20 +115,19 @@ pub trait Driver {
         below: &mut impl Executor,
     ) -> impl Future<Output = Result<Vec<Self::Output>, DriveError>>;
 
-    // Protocol hooks: sealed and hidden. Their parameter types,
-    // `DeclaredParts` and `ChainPosition` (`src/composition/`), cannot be
-    // named outside this crate, so no other crate can call or override
-    // them. They are in the trait because Rust cannot specialise a default
-    // method: the protocol's joined parts (`Composed`, in
-    // `src/composition/composed/`) override them, to declare each inner
-    // part, so that a composition fault names the inner part that is
-    // short, and a run is refused before any part is asked when an inner
-    // part does not provide it; and to name an inner part's refusal by
-    // its position. Correctness does not depend on them: a joined part
-    // they do not reach, such as one inside a part of the user's that
-    // forwards only the public methods, checks its inner parts itself
-    // (its halves' fit at `ready`, a joined driver's run as it drives),
-    // and gives the same outputs; only how a fault is reported differs.
+    // Protocol hooks: sealed and hidden. Their parameter types, `DeclaredParts`
+    // (`src/composition/`) and `ChainPosition` (`src/part_id/`), cannot be
+    // named outside this crate, so no other crate can call or override them.
+    // They are in the trait because Rust cannot specialise a default method:
+    // the protocol's joined parts (`Composed`, in `src/composition/composed/`)
+    // override them, to declare each inner part, so that a composition fault
+    // names the inner part that is short, and a run is refused before any part
+    // is asked when an inner part does not provide it; and to name an inner
+    // part's refusal by its position. Correctness does not depend on them: a
+    // joined part they do not reach, such as one inside a part of the user's
+    // that forwards only the public methods, checks its inner parts itself (its
+    // halves' fit at `ready`, a joined driver's run as it drives), and gives
+    // the same outputs; only how a fault is reported differs.
 
     /// Adds this part, its name and what it requires, to `parts`. Only the
     /// crate overrides it, to add each part it holds, top to bottom. The

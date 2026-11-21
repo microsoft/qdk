@@ -8,7 +8,8 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::composition::{ChainPosition, DeclaredParts};
+use crate::composition::DeclaredParts;
+use crate::part_id::ChainPosition;
 use crate::{
     Batch, BatchFault, BatchReadouts, Capabilities, Failure, NotReady, Seed, ShotId, ShotSet,
 };
@@ -77,17 +78,17 @@ pub trait Executor {
     fn provides(&self) -> &Capabilities;
 
     /// Gets this part ready for a run, before anything of the run runs, for
-    /// `required`, what the part above requires of it, with what parts
-    /// further above require that no adapter between states again: each
+    /// `required`, what the part above requires of it, with what parts further
+    /// above require that no adapter between states again: each
     /// [`Resource`](crate::Resource) and [`Feature`](crate::Feature) they
-    /// state, such as the blocks of each type a shot holds at once, the
-    /// most shots of a run, or whether a shot is run again alone. It takes what it needs to run, such as a
-    /// device, or a layout of its blocks; or, when it cannot take a run
-    /// now, such as when its device is busy or its resources are not
-    /// available, answers [`NotReady`], which refuses the run
+    /// state, such as the blocks of each type a shot holds at once, the most
+    /// shots of a run, or whether a shot is run again alone. It takes what it
+    /// needs to run, such as a device, or a layout of its blocks; or, when it
+    /// cannot take a run now, such as when its device is busy or its resources
+    /// are not available, answers [`NotReady`], which refuses the run
     /// ([`RunRefusal::PartNotReady`](crate::RunRefusal::PartNotReady)). By
-    /// default `Ok`. `required` is the same on every run of one runner, so
-    /// work that depends only on it may be done once and kept.
+    /// default `Ok`. `required` is the same on every run of one runner, so work
+    /// that depends only on it may be done once and kept.
     ///
     /// The runner asks the parts in turn, each at most once per run, the
     /// part below first, before the driver starts, and stops at the first

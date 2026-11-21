@@ -12,6 +12,7 @@ mod boundary_compatible;
 mod capabilities;
 mod composition;
 mod instruction_set;
+mod part_id;
 pub mod prelude;
 mod roles;
 mod seed;
@@ -35,8 +36,7 @@ pub use capabilities::{
     Resource, ResourceMismatch, Resources, StatementMismatch, Statements,
 };
 pub use composition::{
-    AdapterJoins, CompositionFault, CompositionFaults, DriverJoins, PartId, RunError, RunRefusal,
-    Runner,
+    AdapterJoins, CompositionFault, CompositionFaults, DriverJoins, RunError, RunRefusal, Runner,
 };
 pub use instruction_set::{
     Angle, Argument, Arguments, Bit, BlockOperand, BlockType, Blocks, DeclarationFault, Guard,
@@ -44,6 +44,7 @@ pub use instruction_set::{
     MeaningFault, Observable, Opcode, OpcodeMap, Parameter, ParameterKind, Pauli, ReadoutParity,
     SelectPattern,
 };
+pub use part_id::PartId;
 pub use roles::{
     Adapter, DriveError, Driver, ExecuteError, ExecuteRefusal, Executor, Failure, NotReady,
 };

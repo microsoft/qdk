@@ -7,10 +7,11 @@ use std::panic::resume_unwind;
 
 use super::{ChainBelow, Composed, DECLARED};
 use crate::capabilities::Forwarding;
+use crate::composition::DeclaredParts;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{PanicEndingShots, await_part, catch_panic};
 use crate::composition::unended_shots::UnendedShots;
-use crate::composition::{ChainPosition, DeclaredParts};
+use crate::part_id::ChainPosition;
 use crate::{
     Adapter, BoundaryCompatible, Capabilities, DriveError, Driver, Executor, Failure, NotReady,
     OpcodeMap, Seed, ShotSet,

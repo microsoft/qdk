@@ -23,17 +23,17 @@
 //! [`instruction_set!`](crate::instruction_set), a set known only at run
 //! time resolves them once with [`InstructionSet::opcode`].
 //!
-//! A set is checked once, when it is built ([`InstructionSet::new`]),
-//! which refuses every fault of its declaration at once
-//! ([`DeclarationFault`]), and derives what each instruction's check
-//! compares. Its submodules hold the rest of the vocabulary: an
-//! instruction's declaration (`instruction_def`) and its place in the set
-//! (`opcode`), the kinds of blocks (`block_type`) and an
-//! instruction's operands of them (`block_operand`), its classical inputs (`parameter`), Pauli operators
-//! (`pauli`), what an instruction does (`meaning`), what each
-//! instruction's check compares (`layout`), the instructions a batch holds
-//! and their checks (`instruction`), the fit of one set to another
-//! (`fit`), and the translation of opcodes it gives (`opcode_map`).
+//! A set is checked once, when it is built ([`InstructionSet::new`]), which
+//! refuses every fault of its declaration at once ([`DeclarationFault`]), and
+//! derives what each instruction's check compares. Its submodules hold the rest
+//! of the vocabulary: an instruction's declaration (`instruction_def`) and its
+//! place in the set (`opcode`), the kinds of blocks (`block_type`) and an
+//! instruction's operands of them (`block_operand`), its classical inputs
+//! (`parameter`), Pauli operators (`pauli`), what an instruction does
+//! (`meaning`), what each instruction's check compares (`layout`), the
+//! instructions a batch holds and their checks (`instruction`), the fit of one
+//! set to another (`fit`), and the translation of opcodes it gives
+//! (`opcode_map`).
 //!
 //! The crate's `docs/instruction-sets.md` gives how a part declares its
 //! sets, and when two sets fit.

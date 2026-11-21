@@ -2,9 +2,14 @@
 // Licensed under the MIT License.
 
 //! Which part of a chain a message is about: its [`PartId`]; and the
-//! position the roles' hidden `ready_at` is given, [`ChainPosition`].
+//! position the roles' hidden `ready_at` is given, [`ChainPosition`],
+//! which builds one.
+
+mod chain_position;
 
 use std::fmt;
+
+pub use chain_position::ChainPosition;
 
 /// Which part of a chain a message is about, in a composition fault, a
 /// refusal or a panic's failure: its position in the chain, and its name.
@@ -41,36 +46,5 @@ impl PartId {
 impl fmt::Display for PartId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "`{}` (part {})", self.name, self.position)
-    }
-}
-
-/// A part's position in its chain, as [`PartId::position`] counts it, if
-/// known, given to the roles' hidden `ready_at`, so that a joined part
-/// names a refusal of a part it holds by that part's position. A joined
-/// part readied by its role's `ready`, inside a part of the user's, does
-/// not know it: its refusals pass up unnamed, for the part above to name.
-///
-/// It is public, because the roles' hidden hook names it, but no public
-/// path reaches it, so that no other crate can call or override the hook.
-#[derive(Clone, Copy, Debug)]
-pub struct ChainPosition(Option<usize>);
-
-impl ChainPosition {
-    /// A position not known.
-    pub(crate) const UNKNOWN: Self = Self(None);
-
-    /// The position `position`.
-    pub(crate) fn at(position: usize) -> Self {
-        Self(Some(position))
-    }
-
-    /// The position `parts` parts below this one.
-    pub(crate) fn below(self, parts: usize) -> Self {
-        Self(self.0.map(|position| position + parts))
-    }
-
-    /// The part at this position, named `name`, if the position is known.
-    pub(crate) fn part(self, name: &str) -> Option<PartId> {
-        self.0.map(|position| PartId::new(position, name))
     }
 }

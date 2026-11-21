@@ -5,7 +5,8 @@
 //! ([`DeclaredParts`]): what the [`on`](crate::DriverJoins::on) that makes
 //! a runner checks the whole chain with, and what bounds each run.
 
-use super::{CompositionFault, PartId};
+use super::CompositionFault;
+use crate::PartId;
 use crate::capabilities::Forwarding;
 use crate::{BoundaryCompatible, Capabilities};
 

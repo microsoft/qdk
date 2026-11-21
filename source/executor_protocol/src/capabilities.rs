@@ -116,6 +116,7 @@ impl Capabilities {
         shots: usize,
         seeded: bool,
     ) -> Result<(), CapabilitiesMismatch> {
+        // Saturates: no provision can state more than `u32::MAX` shots.
         let shots = u32::try_from(shots).unwrap_or(u32::MAX);
         let run = self.with_kinds(
             Resources::new().with_shots(shots),

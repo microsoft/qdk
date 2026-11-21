@@ -29,17 +29,17 @@ pub trait DriverJoins: Driver + Sized {
     /// chain.
     ///
     /// Checks the whole chain, part by part, whatever the brackets of the
-    /// joins: what each part requires against what the part below it
-    /// provides, and each resource and feature the part below does not
-    /// require again, which it forwards, against each part further below,
-    /// until a part requires it again. On any fault, every fault of the
-    /// chain, top to bottom. Otherwise the runner, which bounds each run by
-    /// what the parts below the driver provide together, such as their
-    /// fewest shots, so that an adapter may lower a bound, and raise it
-    /// only by requiring it again, serving it itself. What each part
-    /// requires and provides is read at the joins and at this `on`, for
-    /// the checks and the runner's boundary; a joined part reads its
-    /// halves' resources and features again on each run, for the boundary
+    /// joins: what each part requires against what the part below it provides,
+    /// and each resource and feature the part below does not require again,
+    /// which it forwards, against each part further below, until a part
+    /// requires it again. On any fault, every fault of the chain, top to
+    /// bottom. Otherwise the runner, which bounds each run by what the parts
+    /// below the driver provide together, such as the fewest shots of those
+    /// down to the first adapter that requires shots again, so that an adapter
+    /// may lower a bound, and raise it only by requiring it again, serving it
+    /// itself. What each part requires and provides is read at the joins and at
+    /// this `on`, for the checks and the runner's boundary; a joined part reads
+    /// its halves' resources and features again on each run, for the boundary
     /// between them, whose instructions stay those of its join.
     ///
     /// # Errors

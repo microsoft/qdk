@@ -51,7 +51,8 @@ mod driver;
 mod executor;
 
 use super::part_panics::end_both;
-use super::{ChainPosition, PartId};
+use crate::PartId;
+use crate::part_id::ChainPosition;
 use crate::{
     Adapter, Batch, BatchReadouts, Boundary, Capabilities, CapabilitiesMismatch, ExecuteError,
     Executor, NotReady, Seed, ShotSet,
