@@ -23,7 +23,8 @@
 //! qubits, angles and results), so their calls are the same on every shot:
 //! they are built once, here. And since a block's quantum instructions
 //! often follow one another, the machine appends a run of such calls as
-//! one slice.
+//! one slice. The crate's `qir_machine` benchmark times a prebuilt call
+//! against one built from registers (`benches/qir_machine/quantum_calls.rs`).
 //!
 //! Each quantum instruction has a [`CallSource`], found by its position:
 //! its calls are prebuilt, with those of the prebuilt instructions after
