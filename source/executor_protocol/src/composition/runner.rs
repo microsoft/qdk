@@ -98,8 +98,9 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// ([`RunRefusal::NotProvided`]). Or when a part's `ready` refuses it:
     /// each part gets ready for what arrives at it, in turn, the executor
     /// first, up to the first that refuses; a joined part inside a part of
-    /// the user's, which the runner cannot see into, refuses then a run
-    /// whose requirement one of its parts does not provide. Then the driver
+    /// the user's, which the runner cannot see into, refuses then a run at
+    /// a boundary inside it that does not fit, in its instructions or in
+    /// what arrives there. Then the driver
     /// runs the shots, and a failure ends the run with the shot it names, a
     /// part's panic included, as the Panics section says.
     ///

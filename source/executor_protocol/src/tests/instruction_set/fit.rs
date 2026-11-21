@@ -400,19 +400,22 @@ fn shape_mismatch_is_reported_before_a_one_sided_meaning() {
 
 /// A mismatch's message names what is at fault, for whoever builds the
 /// chain and must change a part: the instruction, by its mnemonic, which
-/// nothing else in the message says, with, for readouts, both sides'
-/// counts; and, for one mnemonic, each kind says something of its own, so
-/// the message tells what differs. A formatter that drops the mnemonic or
-/// a count, or says the same for two kinds, fails.
+/// nothing else in the message says, with, for readouts, the sent counts
+/// before the word "accept" and the accepted ones after it, so a reader
+/// tells which side has which; and, for one mnemonic, each kind says
+/// something of its own, so the message tells what differs. A formatter
+/// that drops the mnemonic or a count, swaps the sides, or says the same
+/// for two kinds, fails.
 #[test]
 fn a_mismatch_names_its_instruction_and_what_differs() {
     let cz = || "cz".to_owned();
     let rows = [
-        (missing("cz"), vec!["cz"]),
-        (blocks("cz"), vec!["cz"]),
+        (missing("cz"), vec!["cz"], vec![]),
+        (blocks("cz"), vec!["cz"], vec![]),
         (
             InstructionMismatch::Parameters { mnemonic: cz() },
             vec!["cz"],
+            vec![],
         ),
         (
             InstructionMismatch::Readouts {
@@ -420,20 +423,32 @@ fn a_mismatch_names_its_instruction_and_what_differs() {
                 sent: (3, 5),
                 accepted: (7, 9),
             },
-            vec!["cz", "3", "5", "7", "9"],
+            vec!["cz", "3", "5"],
+            vec!["7", "9"],
         ),
-        (InstructionMismatch::Meaning { mnemonic: cz() }, vec!["cz"]),
-        (InstructionMismatch::OtherSet, vec![]),
+        (
+            InstructionMismatch::Meaning { mnemonic: cz() },
+            vec!["cz"],
+            vec![],
+        ),
+        (InstructionMismatch::OtherSet, vec![], vec![]),
     ];
     let messages: Vec<String> = rows
         .iter()
-        .map(|(mismatch, _)| mismatch.to_string())
+        .map(|(mismatch, ..)| mismatch.to_string())
         .collect();
-    for ((mismatch, named), message) in rows.iter().zip(&messages) {
-        for word in named {
+    for ((mismatch, sent, accepted), message) in rows.iter().zip(&messages) {
+        let (before, after) = message.split_once("accept").unwrap_or((message, ""));
+        for word in sent {
             assert!(
-                message.contains(word),
-                "{mismatch:?} names {word}: {message}"
+                before.contains(word),
+                "{mismatch:?} names {word} first: {message}"
+            );
+        }
+        for word in accepted {
+            assert!(
+                after.contains(word),
+                "{mismatch:?} names {word} as accepted: {message}"
             );
         }
     }

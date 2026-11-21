@@ -4,10 +4,8 @@
 //! The three roles a part takes in a chain, one trait each, which an
 //! implementer writes: [`Driver`], [`Adapter`] and [`Executor`]. Each
 //! trait's methods come in two groups: its declarations, which the joins
-//! read before any run and which must not change once it is joined (what
-//! it requires being a deterministic function of what arrives, asked
-//! again on each run), with what it is handed back, once, before any run;
-//! and what the chain calls on every run. And the errors the run's
+//! read before any run, with what it is handed back, once, before any
+//! run; and what the chain calls on every run. And the errors the run's
 //! methods return, with the [`Failure`] an `execute` and a `drive` share.
 //!
 //! A chain is a driver, any number of adapters, and an executor. The driver
@@ -25,7 +23,8 @@
 //! refusal from below once a run started is a failure of the run.
 //!
 //! The crate's `docs/writing-a-part.md` gives each role's methods, phase
-//! by phase, and the rules a part keeps that the protocol does not check.
+//! by phase, and the rules a part keeps that the protocol does not check;
+//! its `docs/capabilities.md` gives the two rules a `requires` keeps.
 
 mod adapter;
 mod driver;

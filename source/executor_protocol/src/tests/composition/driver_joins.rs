@@ -448,7 +448,12 @@ fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
 /// under one part; one ordering by provider first lists the decoder's
 /// fault first. Last, an ancilla's reservation of 9 qubits, sending `x`,
 /// over bits of 8 qubits accepting no `x`: one fault for the pair,
-/// holding both the instruction's and the qubits' mismatches.
+/// holding both the instruction's and the qubits' mismatches. And a
+/// program of 9 qubits, through a profiler, over bits of 8 qubits
+/// accepting no `x`: the qubits are the program's, the instructions the
+/// profiler's, so the bits fall short of each in its own fault; one walk
+/// filing the bits' qubits under the part sending them instructions lists
+/// one fault.
 #[test]
 fn every_fault_is_listed_by_requirer_then_by_provider() {
     faults_in_each_bracketing!(
@@ -503,6 +508,24 @@ fn every_fault_is_listed_by_requirer_then_by_provider() {
                 ..instructions(&CoinGates::set(), &no_x())
             },
         )],
+    );
+    faults_in_each_bracketing!(
+        "instructions and qubits from different parts at one provider",
+        [d, p, e] from {
+            let log = Log::default();
+            let counted = Rc::new(Cell::new(0));
+            let d = program(9, Features::unconstrained());
+            let p = Profiler::new(&counted, &log);
+            let e = Bits::accepting(no_x(), &log).with_resources(qubits(8));
+        },
+        vec![
+            fault(part::<Program>(0), part::<Bits>(2), short_qubits(9, 8)),
+            fault(
+                part::<Profiler>(1),
+                part::<Bits>(2),
+                instructions(&CoinGates::set(), &no_x()),
+            ),
+        ],
     );
 }
 
@@ -664,7 +687,7 @@ fn a_wrapped_joined_part_requires_what_its_parts_require() {
 /// included, with parts named by their types, or, as a part built at run
 /// time is, by what it was built from: each fault names its parts by
 /// those names, in its fields and in its message, beside each mismatch's
-/// own message (what each says is its kind's rule, pinned with it).
+/// own message, whose wording is pinned by its own type's tests.
 #[test]
 fn a_composition_fault_names_its_parts_and_every_mismatch() {
     let log = Log::default();

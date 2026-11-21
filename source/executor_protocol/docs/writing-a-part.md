@@ -18,10 +18,9 @@ parts (the first phase below); and its run methods, which the runner and
 the part above call on each run (the last three). What a part sends,
 accepts and provides must not change once it is joined: the fits and
 `bind`'s map are made once, from them, and each batch sent to a part is
-checked against what the join read. What it requires is a deterministic
-function of what arrives: the `on` that makes a runner checks it with
-nothing arriving, and each run's start calls it again, for what arrives
-on that run.
+checked against what the join read. What it requires is a function of
+what arrives, asked again on each run, which keeps
+[the rule's two properties](capabilities.md#the-rule) the checks rely on.
 Each method is called at one phase of a chain's life:
 
 | Phase                                       | [`Driver`](../src/roles/driver.rs)                                                                    | [`Adapter`](../src/roles/adapter.rs)                                                                                                        | [`Executor`](../src/roles/executor.rs)                                                             |
