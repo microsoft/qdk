@@ -100,10 +100,9 @@ impl<'a> DeclaredParts<'a> {
         let (bottom, adapters) = (self.parts[1..].split_last()).expect(CHAIN);
         let below = bottom.provides.expect(CHAIN).clone();
         adapters.iter().rev().fold(below, |below, adapter| {
-            match (adapter.provides, adapter.requires) {
-                (Some(provided), Some(required)) => provided.stricter_through(required, &below),
-                _ => below,
-            }
+            let declared = adapter.provides.zip(adapter.requires);
+            let (provided, required) = declared.expect("an adapter declares both sides");
+            provided.stricter_through(required, &below)
         })
     }
 

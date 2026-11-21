@@ -8,7 +8,6 @@
 use std::collections::BTreeMap;
 
 use super::Forwarding;
-use crate::BoundaryCompatible;
 
 /// A value per key a part states, such as an amount per
 /// [`Resource`](super::Resource) or a yes-or-no per
@@ -60,18 +59,6 @@ impl<K: Ord + Clone, V: Ord + Copy> Statements<K, V> {
 impl<K: Ord + Clone, V: Ord + Copy> Default for Statements<K, V> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl<K: Ord + Clone, V: Ord + Copy> BoundaryCompatible for Statements<K, V> {
-    type Fit = ();
-    type Mismatch = Vec<StatementMismatch<K, V>>;
-
-    /// Every key `self` requires a larger value of than `provided` states,
-    /// in the keys' order.
-    fn fits(&self, provided: &Self) -> Result<(), Self::Mismatch> {
-        let short = self.mismatches(provided);
-        if short.is_empty() { Ok(()) } else { Err(short) }
     }
 }
 

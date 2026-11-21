@@ -6,7 +6,7 @@
 //! gives a runner.
 
 use super::composed::Composed;
-use super::{CompositionFault, CompositionFaults, DeclaredParts};
+use super::{CompositionFaults, DeclaredParts};
 use crate::{Adapter, BoundaryCompatible, Driver, Executor, Runner};
 
 /// The joins of a driver with the part below it: [`through`](Self::through)
@@ -35,8 +35,10 @@ pub trait DriverJoins: Driver + Sized {
     /// until a part requires it again. On any fault, every fault of the
     /// chain, top to bottom. Otherwise the runner, which bounds each run by
     /// what the parts below the driver provide together, such as their
-    /// fewest shots, so that an adapter may lower a bound but never raise
-    /// it. What each part requires and provides is read once.
+    /// fewest shots, so that an adapter may lower a bound, and raise it
+    /// only by requiring it again, serving it itself. What each part
+    /// requires and provides is read at the joins and at this `on`, for
+    /// the checks, and again as each run starts, for its boundaries.
     ///
     /// # Errors
     ///
@@ -51,17 +53,17 @@ pub trait DriverJoins: Driver + Sized {
         let (faults, provision) = (parts.faults(), parts.provision());
         let mut boundary = match fit {
             Ok(boundary) if faults.is_empty() => boundary,
-            // The whole chain's fit holds what a part-by-part check reads:
-            // a fault it alone finds is still reported.
-            Err(mismatch) if faults.is_empty() => {
-                let faults = vec![CompositionFault {
-                    requirer: driver_part,
-                    provider: executor_part,
-                    mismatch,
-                }];
+            // The whole chain's fit finds no fault the part-by-part check
+            // misses: the joined driver requires its lowest part's
+            // requirement, else the one above, key by key, and the joined
+            // executor provides its top part's provision, the stricter of
+            // it and the one below where the top part does not require it
+            // again, which are what that check compares; and both check
+            // the instructions between adjacent parts.
+            fit => {
+                debug_assert!(!faults.is_empty(), "the chain's fit: {fit:?}");
                 return Err(CompositionFaults { faults });
             }
-            _ => return Err(CompositionFaults { faults }),
         };
         self.bind(boundary.opcode_map().clone());
         boundary.part = Some(executor_part);

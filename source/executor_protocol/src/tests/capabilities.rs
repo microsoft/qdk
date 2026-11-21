@@ -7,31 +7,80 @@
 mod features;
 mod resources;
 
+/// The boundary a run's batches cross.
+mod boundary {
+    mod batch_limits;
+}
+
 use crate::tests::fake_parts::{CoinGates, ParityGates};
 use crate::{
-    BoundaryCompatible, Capabilities, CapabilitiesMismatch, Feature, FeatureMismatch, Features,
-    InstructionMismatch, Resource, ResourceMismatch, Resources,
+    BlockType, BoundaryCompatible, Capabilities, CapabilitiesMismatch, Feature, FeatureMismatch,
+    Features, InstructionMismatch, Resource, ResourceMismatch, Resources,
 };
 
-/// A driver sending [`ParityGates`] on 9 qubits, with readout parities,
-/// over an executor accepting [`CoinGates`] on 8, resolving none.
-fn parity_driver_over_coin_bits() -> (Capabilities, Capabilities) {
+fn carbon() -> BlockType {
+    BlockType::new("carbon")
+}
+
+/// Capabilities of [`CoinGates`] stating `resources` and `features`.
+fn coin(resources: Resources, features: Features) -> Capabilities {
+    Capabilities::new(CoinGates::set())
+        .with_resources(resources)
+        .with_features(features)
+}
+
+/// A driver sending [`ParityGates`] on 9 qubits, 3 carbon blocks, runs of
+/// 10 shots and batches of 4, using every feature, over an executor
+/// accepting [`CoinGates`] on 8 qubits and 2 carbon blocks, runs of 5 and
+/// batches of 1, serving no feature.
+fn every_kind_short() -> (Capabilities, Capabilities) {
     let required = Capabilities::new(ParityGates::set())
-        .with_resources(Resources::new().with_qubits(9))
-        .with_features(Features::new().with_readout_parity(true));
-    let provided = Capabilities::new(CoinGates::set())
-        .with_resources(Resources::new().with_qubits(8))
-        .with_features(Features::new().with_readout_parity(false));
+        .with_resources(
+            Resources::new()
+                .with_qubits(9)
+                .with_blocks(carbon(), 3)
+                .with_shots(10)
+                .with_instructions_per_batch(4),
+        )
+        .with_features(
+            Features::new()
+                .with_seeded_runs(true)
+                .with_replay(true)
+                .with_readout_parity(true),
+        );
+    let provided = coin(
+        Resources::new()
+            .with_qubits(8)
+            .with_blocks(carbon(), 2)
+            .with_shots(5)
+            .with_instructions_per_batch(1),
+        Features::new()
+            .with_readout_parity(false)
+            .with_replay(false)
+            .with_seeded_runs(false),
+    );
     (required, provided)
 }
 
 /// Whoever builds the chain fixes every mismatch at once: the instructions
-/// that do not fit, the resources provided short and the features not
-/// served are all listed, each as its kind's own fit lists them.
+/// that do not fit, as the instruction set's fit lists them, then each
+/// short amount, the blocks by type, the shots, the instructions per
+/// batch, then each feature not served, readout parity, replay, seeded
+/// runs.
 #[test]
-fn every_mismatch_of_each_kind_is_listed_at_once() {
-    let (required, provided) = parity_driver_over_coin_bits();
+fn every_mismatch_of_each_kind_is_listed_at_once_in_order() {
+    let (required, provided) = every_kind_short();
     let mismatch = required.fits(&provided).expect_err("nothing fits");
+    let short = |key, required, provided| ResourceMismatch {
+        key,
+        required,
+        provided,
+    };
+    let missing = |key| FeatureMismatch {
+        key,
+        required: true,
+        provided: false,
+    };
     let expected = CapabilitiesMismatch {
         instructions: vec![
             InstructionMismatch::OtherSet,
@@ -39,16 +88,17 @@ fn every_mismatch_of_each_kind_is_listed_at_once() {
                 mnemonic: "x_if".into(),
             },
         ],
-        resources: vec![ResourceMismatch {
-            key: Resource::Blocks(crate::BlockType::qubit()),
-            required: 9,
-            provided: 8,
-        }],
-        features: vec![FeatureMismatch {
-            key: Feature::ReadoutParity,
-            required: true,
-            provided: false,
-        }],
+        resources: vec![
+            short(Resource::Blocks(carbon()), 3, 2),
+            short(Resource::Blocks(BlockType::qubit()), 9, 8),
+            short(Resource::Shots, 10, 5),
+            short(Resource::InstructionsPerBatch, 4, 1),
+        ],
+        features: vec![
+            missing(Feature::ReadoutParity),
+            missing(Feature::Replay),
+            missing(Feature::SeededRuns),
+        ],
     };
     assert_eq!(mismatch, expected);
 }
@@ -70,14 +120,29 @@ fn capabilities_fit_only_when_every_kind_fits() {
     );
 }
 
-/// A mismatch's message names every mismatch of every kind, for a user
-/// who fixes them all at once.
+/// A mismatch's message names what is at fault, for a user who reads which
+/// requirement to lower, or which part to change: each of its mismatches,
+/// a short amount with both amounts.
 #[test]
-fn a_mismatch_names_each_of_its_mismatches() {
-    let (required, provided) = parity_driver_over_coin_bits();
-    let mismatch = required.fits(&provided).expect_err("nothing fits");
-    let message = mismatch.to_string();
-    for word in ["x_if", "qubit", "readout parit"] {
-        assert!(message.contains(word), "names {word}: {message}");
+fn a_mismatch_names_what_is_at_fault() {
+    let (required, provided) = every_kind_short();
+    let message = required
+        .fits(&provided)
+        .expect_err("nothing fits")
+        .to_string();
+    for named in [
+        &["x_if"][..],
+        &["carbon", "3", "2"],
+        &["qubit", "9", "8"],
+        &["shots", "10", "5"],
+        &["instructions per batch", "4", "1"],
+        &["readout parit"],
+        &["replay"],
+        &["seed"],
+    ] {
+        let piece = message
+            .split("; ")
+            .find(|piece| named.iter().all(|word| piece.contains(word)));
+        assert!(piece.is_some(), "one mismatch names {named:?}: {message}");
     }
 }

@@ -4,7 +4,15 @@
 //! The features a part requires against those the part below provides,
 //! at one boundary: which fit.
 
-use crate::{BoundaryCompatible, Feature, FeatureMismatch, Features};
+use super::coin;
+use crate::{BoundaryCompatible, Feature, FeatureMismatch, Features, Resources};
+
+/// Each feature `required` uses that `provided` states it does not serve,
+/// as [`Capabilities`](crate::Capabilities)' fit lists them.
+fn fit(required: Features, provided: &Features) -> Result<(), Vec<FeatureMismatch>> {
+    let fit = coin(Resources::new(), required).fits(&coin(Resources::new(), provided.clone()));
+    fit.map(drop).map_err(|mismatch| mismatch.features)
+}
 
 /// The mismatch of `feature`, required and not provided.
 fn missing(feature: Feature) -> FeatureMismatch {
@@ -22,7 +30,7 @@ fn missing(feature: Feature) -> FeatureMismatch {
 fn a_required_feature_fits_unless_the_provider_states_it_does_not_serve_it() {
     let parity = |yes| Features::new().with_readout_parity(yes);
     let seeded = |yes| Features::new().with_seeded_runs(yes);
-    for (row, required, provided, fit) in [
+    for (row, required, provided, expected) in [
         (
             "readout parities used, not resolved",
             parity(true),
@@ -72,58 +80,37 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_serve_it() {
             Ok(()),
         ),
     ] {
-        assert_eq!(required.fits(&provided), fit, "{row}");
+        assert_eq!(fit(required, &provided), expected, "{row}");
     }
 }
 
-/// A shot run again alone runs with its run's seed: replay required also
-/// requires seeded runs, so a provider that replays its shots, but whose
-/// runs cannot be seeded, does not serve it.
+/// A shot run again alone runs with its run's seed: a part that states
+/// replay states seeded runs, and one that states runs that cannot be
+/// seeded states no replay, whichever it states last; so replay is not
+/// served over runs that cannot be seeded.
 #[test]
 fn replay_requires_seeded_runs() {
-    let required = Features::new().with_replay(true);
-    let provided = Features::new().with_replay(true).with_seeded_runs(false);
-    assert_eq!(
-        required.fits(&provided),
-        Err(vec![missing(Feature::SeededRuns)])
-    );
-}
-
-/// Every feature not served is listed at once, in the order readout
-/// parity, replay, seeded runs.
-#[test]
-fn every_feature_not_served_is_listed_in_order() {
-    let required = Features::new()
-        .with_seeded_runs(true)
-        .with_replay(true)
-        .with_readout_parity(true);
-    let provided = Features::new()
-        .with_readout_parity(false)
-        .with_replay(false)
-        .with_seeded_runs(false);
-    assert_eq!(
-        required.fits(&provided),
-        Err(vec![
-            missing(Feature::ReadoutParity),
-            missing(Feature::Replay),
-            missing(Feature::SeededRuns),
-        ])
-    );
-}
-
-/// A feature's message names it, for a user who reads which feature to
-/// drop or which part to change.
-#[test]
-fn a_feature_not_served_names_the_feature() {
-    for (missing, named) in [
-        (missing(Feature::ReadoutParity), "readout parit"),
-        (missing(Feature::Replay), "replay"),
-        (missing(Feature::SeededRuns), "seed"),
+    let replay = || Features::new().with_replay(true);
+    for (row, required, provided, expected) in [
+        (
+            "replay over unseedable runs",
+            replay(),
+            Features::new().with_seeded_runs(false),
+            Err(vec![missing(Feature::Replay), missing(Feature::SeededRuns)]),
+        ),
+        (
+            "replay, then unseedable runs, stated by a provider",
+            replay(),
+            replay().with_seeded_runs(false),
+            Err(vec![missing(Feature::Replay), missing(Feature::SeededRuns)]),
+        ),
+        (
+            "unseedable runs, then replay, stated by a provider",
+            replay(),
+            Features::new().with_seeded_runs(false).with_replay(true),
+            Ok(()),
+        ),
     ] {
-        let message = missing.to_string();
-        assert!(
-            message.contains(named),
-            "{missing:?} names {named}: {message}"
-        );
+        assert_eq!(fit(required, &provided), expected, "{row}");
     }
 }

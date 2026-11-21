@@ -70,9 +70,9 @@ pub trait Executor {
     /// requires must fit it, and so must what each part further above
     /// requires that no adapter between them states again, as
     /// [`Capabilities`] says. Each checked batch it receives is checked
-    /// against its instructions as read once, by the join. Its most shots
-    /// and whether a run may fix its seed bound every run of the chain: no
-    /// adapter above can raise them.
+    /// against its instructions as read when its run started. Its most shots
+    /// and whether a run may fix its seed bound every run of the chain,
+    /// unless an adapter above requires them again, serving them itself.
     fn provides(&self) -> &Capabilities;
 
     /// Gets this part ready for a run, before anything of the run runs, for

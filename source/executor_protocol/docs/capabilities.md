@@ -52,10 +52,14 @@ Self {
 | Features     | readout parity, replay, seeded runs                                            | the feature is not required, or the provider does not say it lacks it             | [`FeatureMismatch`](../src/capabilities/features.rs)                      |
 
 A replayed shot runs again with its run's seed, so a part that requires
-replay, or provides it, states seeded runs too (`Features::with_replay`).
+replay, or provides it, states seeded runs too, and one that states no
+seeded runs states no replay (`Features::with_replay`,
+`Features::with_seeded_runs`).
 
-An executor that cannot host a type of block states 0 of it: an amount it
-does not state is not checked.
+An executor that cannot host a type of block states 0 of it: an amount a
+provider does not state is not checked. A checked batch, though, may use
+only the blocks of the types its sender's requirement, as forwarded to
+that boundary, states: a type it does not state, it uses none of.
 
 ## Forwarding
 
@@ -66,21 +70,23 @@ requirement it does not state is the requirement of the part above it,
 and a provision it does not state that of the part below it, so each
 part's statement meets the statements it reaches:
 
-| What an adapter states of a field | For instance                                                  | The part above it is checked against | The part below it gets ready for |
-| --------------------------------- | ------------------------------------------------------------- | ------------------------------------ | -------------------------------- |
-| neither side                      | a noise model, a profiler                                     | the provisions below it              | the requirements above it        |
-| a provision alone                 | a job queue's most shots                                      | its provision, and those below it    | the requirements above it        |
-| a requirement alone               | a debugger that requires replay                               | the provisions below it              | its requirement                  |
-| both sides                        | a lowering's qubits; an adapter that replays its shots itself | its provision alone                  | its requirement alone            |
+| What an adapter states of a field | For instance                                                  | The part above it is checked against  | The part below it gets ready for |
+| --------------------------------- | ------------------------------------------------------------- | ------------------------------------- | -------------------------------- |
+| neither side                      | a noise model, a profiler                                     | the provisions below it               | the requirements above it        |
+| a provision alone                 | a job queue's most shots                                      | its provision, and those below it     | the requirements above it        |
+| a requirement alone               | a splitter's instructions per batch                           | nothing, for that field: it serves it | its requirement alone            |
+| both sides                        | a lowering's qubits; an adapter that replays its shots itself | its provision alone                   | its requirement alone            |
 
 So a requirement is checked against every provision below it, down to the
-first part that requires the field again. A run's limits follow, with no
-rule of their own: a run's shots, and a fixed seed, are checked against
-what the parts below the driver provide, forwarded this way, such as the
-fewest shots of those that state them. An adapter may lower a provision
-but never raise it, unless it requires the field too, saying that it
-serves the field itself: an adapter that replays its shots provides
-replay, and requires none below.
+first part that requires the field again, which serves the field itself.
+A feature required `false` is a requirement too: an adapter that states
+that it does not use seeded runs, and so no replay, answers both for the
+parts above it. A run's limits follow, with no rule of their own: a run's
+shots, and a fixed seed, are checked against what the parts below the
+driver provide, forwarded this way, such as the fewest shots of those
+that state them. An adapter may lower a provision but never raise it,
+unless it requires the field too: an adapter that replays its shots
+provides replay, and requires none below.
 
 The faults, and the parts they name, do not depend on how the joins are
 bracketed: each requirement is checked against the same provisions, and a

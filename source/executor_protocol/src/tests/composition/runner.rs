@@ -17,7 +17,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::joins::no_x;
+use super::driver_joins::no_x;
 use crate::prelude::*;
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen,
@@ -882,7 +882,8 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
 /// A chain runs at most the fewest shots any part below its driver
 /// provides, in every bracketing: a run of one more is refused before any
 /// part is asked or runs, and a run of that many runs. So an adapter may
-/// lower the most shots a run may have, but not raise it.
+/// lower the most shots a run may have, and raise it only by requiring
+/// shots again, serving them itself.
 #[test]
 fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     let log = Log::default();
@@ -940,11 +941,22 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
         let row = format!("a queue under a decoder, {brackets}");
         takes_at_most(&row, runner(chain), 4, &log);
     });
+    // Bits running 4 shots at most, under a splitter sending them runs of
+    // 4 and taking runs of 100: the splitter's limit holds.
+    in_each_bracketing!([d, splitter, e] from {
+        let d = CoinCopy::new();
+        let splitter = Stating::splitting_runs(4, 100, &log);
+        let e = bits(4);
+    }, |chain, brackets| {
+        let row = format!("a splitter, {brackets}");
+        takes_at_most(&row, runner(chain), 100, &log);
+    });
 }
 
 /// Runs `shots` shots with a seed on `runner`, refused before any part is
 /// asked or runs, then with no seed: a row of
-/// [`a_seeded_run_is_refused_unless_every_part_is_seedable`], named `row`.
+/// [`a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs`], named
+/// `row`.
 fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     row: &str,
     mut runner: Runner<D, E>,
@@ -967,13 +979,14 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
         .unwrap_or_else(|error| panic!("{row}: a run with no seed: {error:?}"));
 }
 
-/// A chain is seedable only if every part below its driver is, in every
-/// bracketing: a seeded run on one that is not is refused before any part
-/// is asked or runs, and a run with no seed runs. So an adapter may make a
-/// chain not seedable, but cannot make a chain that is not seedable
-/// seedable.
+/// A chain is seedable only if every part below its driver is, down to
+/// the first that requires seeded runs again, in every bracketing: a
+/// seeded run on one that is not is refused before any part is asked or
+/// runs, and a run with no seed runs. So an adapter may make a chain not
+/// seedable, and make it seedable only by requiring seeded runs again,
+/// serving them itself.
 #[test]
-fn a_seeded_run_is_refused_unless_every_part_is_seedable() {
+fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
     let unseedable_bits = || Bits::new(&log).with_features(Features::new().with_seeded_runs(false));
@@ -1011,5 +1024,15 @@ fn a_seeded_run_is_refused_unless_every_part_is_seedable() {
     }, |chain, brackets| {
         let row = format!("a link under a decoder, {brackets}");
         refuses_a_seed(&row, runner(chain), 2, &log);
+    });
+    // Bits that cannot be seeded, under a sampler that seeds its own
+    // draws: a seeded run runs.
+    in_each_bracketing!([d, sampler, e] from {
+        let d = CoinCopy::new();
+        let sampler = Stating::seeding_itself(&log);
+        let e = unseedable_bits();
+    }, |chain, brackets| {
+        (runner(chain).run(&ShotSet::ids(0..2), SEED))
+            .unwrap_or_else(|error| panic!("a sampler, {brackets}: {error:?}"));
     });
 }

@@ -628,8 +628,8 @@ fn an_instruction_its_set_does_not_take_is_refused() {
 
 /// Each block an instruction names is below the shots' blocks of its
 /// type: for one type, for its own type among several, for a type the
-/// shots need none of, for both types of a block that changes type, and
-/// for each block of a variadic operand.
+/// shots need none of or do not state, for both types of a block that
+/// changes type, and for each block of a variadic operand.
 #[test]
 fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
     let set = device();
@@ -674,6 +674,12 @@ fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
             on("prepare", &[0]),
             shots_of(1, 0),
             beyond("prepare", 0, 0),
+        ),
+        (
+            "`h` on qubit 0, of shots stating no qubits",
+            on("h", &[0]),
+            (Resources::new(), Features::new()),
+            beyond("h", 0, 0),
         ),
         (
             "`encode` turning qubit 1 into block 1, of 4 qubits and 2 blocks",

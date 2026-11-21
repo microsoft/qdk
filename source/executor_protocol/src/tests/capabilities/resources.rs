@@ -4,10 +4,14 @@
 //! The resources a part requires against those the part below provides,
 //! at one boundary: which amounts fit.
 
-use crate::{BlockType, BoundaryCompatible, Resource, ResourceMismatch, Resources};
+use super::{carbon, coin};
+use crate::{BlockType, BoundaryCompatible, Features, Resource, ResourceMismatch, Resources};
 
-fn carbon() -> BlockType {
-    BlockType::new("carbon")
+/// Each amount `required` states above what `provided` states, as
+/// [`Capabilities`](crate::Capabilities)' fit lists them.
+fn fit(required: Resources, provided: &Resources) -> Result<(), Vec<ResourceMismatch>> {
+    let fit = coin(required, Features::new()).fits(&coin(provided.clone(), Features::new()));
+    fit.map(drop).map_err(|mismatch| mismatch.resources)
 }
 
 fn short_blocks(block_type: BlockType, required: u32, provided: u32) -> ResourceMismatch {
@@ -24,7 +28,7 @@ fn short_blocks(block_type: BlockType, required: u32, provided: u32) -> Resource
 #[test]
 fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
     let eight = Resources::new().with_qubits(8);
-    for (row, required, provided, fit) in [
+    for (row, required, provided, expected) in [
         // A program on 9 qubits, on an executor of 8: the qubits are
         // short, with both counts.
         (
@@ -97,70 +101,6 @@ fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
             }]),
         ),
     ] {
-        assert_eq!(required.fits(provided), fit, "{row}");
-    }
-}
-
-/// Every short amount is listed at once, the blocks by type, then the
-/// shots, then the instructions per batch, so that whoever builds the
-/// chain fixes them all at once.
-#[test]
-fn every_short_amount_is_listed_in_order() {
-    let required = Resources::new()
-        .with_qubits(9)
-        .with_blocks(carbon(), 3)
-        .with_shots(10)
-        .with_instructions_per_batch(4);
-    let provided = Resources::new()
-        .with_qubits(8)
-        .with_blocks(carbon(), 2)
-        .with_shots(5)
-        .with_instructions_per_batch(1);
-    assert_eq!(
-        required.fits(&provided),
-        Err(vec![
-            short_blocks(carbon(), 3, 2),
-            short_blocks(BlockType::qubit(), 9, 8),
-            ResourceMismatch {
-                key: Resource::Shots,
-                required: 10,
-                provided: 5
-            },
-            ResourceMismatch {
-                key: Resource::InstructionsPerBatch,
-                required: 4,
-                provided: 1
-            },
-        ])
-    );
-}
-
-/// A short amount's message, for a user who reads which amount to lower
-/// or which part to change: it names what is short, with both counts.
-#[test]
-fn a_short_amount_says_what_is_required_and_what_is_provided() {
-    for (short, named) in [
-        (short_blocks(carbon(), 3, 2), &["carbon", "3", "2"][..]),
-        (
-            ResourceMismatch {
-                key: Resource::Shots,
-                required: 10,
-                provided: 5,
-            },
-            &["shots", "10", "5"],
-        ),
-        (
-            ResourceMismatch {
-                key: Resource::InstructionsPerBatch,
-                required: 4,
-                provided: 1,
-            },
-            &["instructions per batch", "4", "1"],
-        ),
-    ] {
-        let message = short.to_string();
-        for word in named {
-            assert!(message.contains(word), "{short:?} names {word}: {message}");
-        }
+        assert_eq!(fit(required, provided), expected, "{row}");
     }
 }

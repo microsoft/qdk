@@ -475,6 +475,26 @@ impl Stating {
         Self::providing(log, Resources::new().with_shots(most), Features::new())
     }
 
+    /// A toy job splitter that says it takes runs of up to `above` shots,
+    /// sending them below in runs of up to `below`: it requires the shots
+    /// again, serving them itself.
+    pub(crate) fn splitting_runs(below: u32, above: u32, log: &Log) -> Self {
+        let shots = |most| {
+            Capabilities::new(CoinGates::set()).with_resources(Resources::new().with_shots(most))
+        };
+        Self::new(log, shots(below), shots(above))
+    }
+
+    /// A toy sampler that says it draws its shots' readouts with its run's
+    /// seed, from counts it takes below: it requires no seeded runs below,
+    /// and provides them above.
+    pub(crate) fn seeding_itself(log: &Log) -> Self {
+        let seeded = |yes| {
+            Capabilities::new(CoinGates::set()).with_features(Features::new().with_seeded_runs(yes))
+        };
+        Self::new(log, seeded(false), seeded(true))
+    }
+
     /// A toy decoder that provides `qubits` qubits, as it states them
     /// afresh; it requires no qubits of its own, so that the qubits below
     /// still bound what it provides.

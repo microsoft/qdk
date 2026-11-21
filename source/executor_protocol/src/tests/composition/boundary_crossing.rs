@@ -13,9 +13,7 @@
 //! failure; a panic in the caller's `execute`, once polled, when they are
 //! not one per batch; and, of unchecked batches, into readouts that held
 //! readouts as large, no allocation. The checks of one batch are in
-//! `batch_limits.rs`.
-
-mod batch_limits;
+//! `capabilities/boundary/batch_limits.rs`.
 
 use std::any::type_name;
 use std::cell::{Cell, RefCell};
@@ -156,7 +154,8 @@ fn flip_on_a_parity() -> Program {
 /// driver, to the executor or to an adapter, or an adapter, in both
 /// bracketings. A row per sender, and one where an adapter's requirement
 /// differs from the driver's, as the requirement its batches are checked
-/// against; the faults a batch may hold are in `batch_limits.rs`.
+/// against; the faults a batch may hold are in
+/// `capabilities/boundary/batch_limits.rs`.
 #[test]
 fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
     let beyond_the_required = |shot, at, block, required| ExecuteRefusal::Batch {
