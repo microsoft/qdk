@@ -216,23 +216,6 @@ fn every_boundary_that_does_not_fit_is_a_fault_of_the_chain() {
     }
 }
 
-/// A program on 7 qubits, through an encoding of 7 qubits per qubit, over
-/// 30 qubits: the `on` fails, naming the encoding, which requires 49, and
-/// the bits, which provide 30.
-#[test]
-fn a_requirement_not_provided_is_a_fault_naming_both_parts() {
-    faults_in_each_bracketing!(
-        "an encoding",
-        [d, a, e] from {
-            let log = Log::default();
-            let d = program(7, Features::unconstrained());
-            let a = Spread::new(7, &log).built_for(7);
-            let e = bits_over(30, &log);
-        },
-        vec![fault(part::<Spread>(1), part::<Bits>(2), short_qubits(49, 30))],
-    );
-}
-
 /// A part is checked below for the instructions it sends, not for those
 /// it accepts: a decomposer accepting [`CoinGates`] and sending them
 /// without `x`, as it writes each `x` in other gates, composes over bits

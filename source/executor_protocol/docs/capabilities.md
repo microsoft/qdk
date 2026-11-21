@@ -69,8 +69,17 @@ on every run, for what arrives at it.
 
 A `requires` is deterministic, and monotone: given what arrives requiring
 no more than another, as [`Capabilities`](../src/capabilities.rs) defines
-it, it requires no more than given the other. The checks rely on both, and
-the protocol does not check them.
+it, it requires no more than given the other. The protocol does not check
+either, and the checks rely on both:
+
+- monotone, because the `on`, and each join, checks a chain with nothing
+  arriving at its top, which requires no more than any run: a part short
+  then is short on every run, so the chain is refused once, before any run;
+- deterministic, because a joined part, at `ready`, calls its upper
+  half's `requires` again for what arrives at its lower half, which it
+  checks and gets its lower half ready for, and a refused run walks its
+  chain again to list the faults: each must find what the run's start
+  checked.
 
 For instance, the example's driver requires the run on 2 qubits, and its
 executor provides 64 qubits, at most 1000 shots a run, and no readout
@@ -141,10 +150,10 @@ Other cases, each in the same tests:
 | a decomposer accepting the program's set and sending another, over bits accepting it | composes: a part is checked below for what it sends      |
 
 A run's shots, and seeded runs if its seed is fixed, arrive at the
-driver's `requires`, and from it at each part, as the `Runner` checks when each run starts. A job
-splitter requiring runs of 100 shots below, whatever run arrives, runs
-1000 shots over bits that take 100, and the same run is refused without it
-(from
+driver's `requires`, and from it at each part, as the `Runner` checks when
+each run starts. A job splitter requiring runs of 100 shots below,
+whatever run arrives, runs 1000 shots over bits that take 100, and the
+same run is refused without it (from
 [`src/tests/composition/runner.rs`](../src/tests/composition/runner.rs)):
 
 ```rust

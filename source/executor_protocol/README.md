@@ -278,13 +278,13 @@ sequenceDiagram
 
 Each contract is checked as early as what it reads is known:
 
-| Contract                                                                                                                                             | Checked                                              |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| A part's role; a joined part's type cannot be named                                                                                                  | by the compiler                                      |
-| The instructions each part sends against those the part below accepts, and what arrives at each part against its provision; every fault of the chain | by the `on` that makes a runner, when it joins       |
-| The same, inside a joined part held by a part of the user's, which the `on` cannot see into                                                          | by the joined part's `ready`, which refuses each run |
-| What a run's shots, and seeded runs if its seed is fixed, make arrive at each part, against its provision                                            | at the run's start, before any part is asked         |
-| A batch's count of instructions; a checked batch's blocks, parity and readouts                                                                       | at each boundary, on each call                       |
+| Contract                                                                                                                                             | Checked                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| A part's role; a joined part's type cannot be named                                                                                                  | by the compiler                                                                                     |
+| The instructions each part sends against those the part below accepts, and what arrives at each part against its provision; every fault of the chain | by the `on` that makes a runner, when it joins                                                      |
+| A joined part's halves' instructions, and what arrives at its lower half, inside a part of the user's the `on` cannot see into                       | by the joined part's `ready`, which refuses each run that boundary does not take, with its mismatch |
+| What a run's shots, and seeded runs if its seed is fixed, make arrive at each part, against its provision                                            | at the run's start, before any part is asked                                                        |
+| A batch's count of instructions; a checked batch's blocks, parity and readouts                                                                       | at each boundary, on each call                                                                      |
 
 How each join's role follows from its two ends, what a run asks of each
 part, what is checked where and when, and how a run fails are in

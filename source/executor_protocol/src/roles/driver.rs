@@ -73,8 +73,11 @@ pub trait Driver {
     ///
     /// It is deterministic, and monotone: given a `run` that requires no
     /// more than another, as [`Capabilities`] defines it, it requires no
-    /// more than given the other. The checks rely on both, and the
-    /// protocol does not check them.
+    /// more than given the other. The protocol does not check either, and
+    /// relies on both: `on` checks a chain with nothing arriving at its
+    /// top, so a part short then is short on every run; and a joined part
+    /// calls `requires` again at `ready`, for what its run's start checked
+    /// (`docs/capabilities.md`, The rule).
     fn requires(&self, run: &Capabilities) -> Capabilities {
         run.clone()
     }

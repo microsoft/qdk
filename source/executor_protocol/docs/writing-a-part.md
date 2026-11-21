@@ -130,9 +130,8 @@ The protocol does not check these; the rustdoc of each role, and of
 - its `requires` gives the same for the same input, and, given an input
   requiring no more than another, as
   [`Capabilities`](../src/capabilities.rs) defines it, requires no more
-  than given the other ([The rule](capabilities.md#the-rule)), since the
-  fits rely on both, as does the requirement each part gets ready for on
-  every run;
+  than given the other, since the checks rely on both, as
+  [The rule](capabilities.md#the-rule) says;
 - a part that calls `execute` puts a shot in at most one of its batches,
   and only shots it was given: the run's, for a driver, those of the
   batches it got, for an adapter;
