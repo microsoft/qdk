@@ -123,8 +123,10 @@ impl Driver for ProgramInBatches<'_> {
         &self.sends
     }
 
-    /// Its qubits and readout parities, whatever the run: the bench's runs
-    /// are of one shot, unseeded, which every executor takes.
+    /// Its qubits and readout parities, whatever the run: it does not pass
+    /// the run's one shot and fixed seed below, which every executor of
+    /// the bench takes, so the timings that include a run's start leave
+    /// out checking them.
     fn requires(&self, _run: &Capabilities) -> Capabilities {
         self.requires.clone()
     }

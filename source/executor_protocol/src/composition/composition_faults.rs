@@ -91,7 +91,8 @@ impl fmt::Display for CompositionFault {
 
 /// Every way what one part sends or requires falls short at a part below
 /// it: the instructions the part below does not accept, and the resources
-/// and features it does not provide. At least one list is not empty.
+/// and features it does not provide. In a mismatch a failed check
+/// returns, at least one list is not empty.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct BoundaryMismatch {

@@ -4,10 +4,11 @@
 //! The three roles a part takes in a chain, one trait each, which an
 //! implementer writes: [`Driver`], [`Adapter`] and [`Executor`]. Each
 //! trait's methods come in two groups: its declarations, which the joins
-//! read before any run and which must not change once it is joined, and
-//! what it is handed back, once, before any run; and what the chain calls
-//! on every run. And the errors the run's methods return, with
-//! the [`Failure`] an `execute` and a `drive` share.
+//! read before any run and which must not change once it is joined, but
+//! for what it requires, a function of what arrives that each run calls
+//! again, and what it is handed back, once, before any run; and what the
+//! chain calls on every run. And the errors the run's methods return,
+//! with the [`Failure`] an `execute` and a `drive` share.
 //!
 //! A chain is a driver, any number of adapters, and an executor. The driver
 //! sends batches of instructions down; each adapter answers each batch it
