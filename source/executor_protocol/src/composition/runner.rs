@@ -41,42 +41,23 @@ pub use run_error::{RunError, RunRefusal};
 /// A joined part's type cannot be named, so code that keeps the runner of
 /// a chain with adapters is generic over its type.
 pub struct Runner<D: Driver, E: Executor> {
-    driver: D,
-    executor: E,
+    pub(super) driver: D,
+    pub(super) executor: E,
     /// The driver's top part, as the chain's check named it: what its panic
     /// and its refusal name.
-    driver_part: PartId,
+    pub(super) driver_part: PartId,
     /// The boundary between the driver and the executor, as the joins' fit
     /// found it: what the executor gets ready for on every run, what the
     /// driver's `below.provides()` answers, the limits of the batches the
     /// driver sends, and the executor's top part, which its panic in an
     /// `execute` and its refusal name.
-    boundary: Boundary,
+    pub(super) boundary: Boundary,
     /// What the parts below the driver provide together, which each run's
     /// shots and seed are checked against.
-    provision: Capabilities,
+    pub(super) provision: Capabilities,
 }
 
 impl<D: Driver, E: Executor> Runner<D, E> {
-    /// The runner of `driver`, with its top part as the chain's check
-    /// named it, and `executor`, with `boundary`, the boundary between
-    /// them, and `provision`, what the parts below the driver provide
-    /// together.
-    pub(crate) fn new(
-        (driver, driver_part): (D, PartId),
-        executor: E,
-        boundary: Boundary,
-        provision: Capabilities,
-    ) -> Self {
-        Self {
-            driver,
-            executor,
-            driver_part,
-            boundary,
-            provision,
-        }
-    }
-
     /// Runs `shots` with `seed`, and blocks until the run ends: the driver's
     /// outputs, as [`run_async`](Self::run_async) gives them. It is
     /// `run_async`'s future, waited for on this thread with no async
@@ -177,14 +158,11 @@ impl<D: Driver, E: Executor> Runner<D, E> {
                 .as_ref()
                 .expect("the driver's `on` names the part below the boundary");
             let executor_at = ChainPosition::at(executor_part.position);
-            await_part(
-                self.executor
-                    .ready_at(self.boundary.required(), executor_at),
-            )
-            .await
-            .map_err(|not_ready| {
-                RunError::Refused(RunRefusal::part_not_ready(not_ready, executor_part))
-            })?;
+            await_part(self.executor.ready_at(&self.boundary.required, executor_at))
+                .await
+                .map_err(|not_ready| {
+                    RunError::Refused(RunRefusal::part_not_ready(not_ready, executor_part))
+                })?;
             await_part(self.driver.ready_at(ChainPosition::at(0)))
                 .await
                 .map_err(|not_ready| {

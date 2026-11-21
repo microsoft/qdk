@@ -14,18 +14,18 @@
 mod boundary;
 mod features;
 mod resources;
+mod statements;
 
-pub(crate) use boundary::BatchFault;
-pub use boundary::Boundary;
-pub use features::{FeatureMismatch, Features};
-pub use resources::{ResourceMismatch, Resources};
+pub use boundary::{BatchFault, Boundary};
+pub use features::{Feature, FeatureMismatch, Features};
+pub use resources::{Resource, ResourceMismatch, Resources};
+pub use statements::{StatementMismatch, Statements};
 
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
 use crate::{BoundaryCompatible, InstructionMismatch, InstructionSet};
-use boundary::BatchLimits;
 
 /// What a part requires of the part below it, or provides the part above
 /// it: the instructions it sends or accepts, amounts, and yes-or-no
@@ -98,24 +98,12 @@ impl Capabilities {
     /// Every resource and feature `self`, a requirement, states above what
     /// `provided` states; the instructions are not compared.
     pub(crate) fn kinds_fit(&self, provided: &Self) -> Result<(), CapabilitiesMismatch> {
-        let mismatch = CapabilitiesMismatch {
+        let short = CapabilitiesMismatch {
             instructions: Vec::new(),
-            resources: self
-                .resources
-                .fits(&provided.resources)
-                .err()
-                .unwrap_or_default(),
-            features: self
-                .features
-                .fits(&provided.features)
-                .err()
-                .unwrap_or_default(),
+            resources: self.resources.mismatches(&provided.resources),
+            features: self.features.mismatches(&provided.features),
         };
-        if mismatch.is_empty() {
-            Ok(())
-        } else {
-            Err(mismatch)
-        }
+        if short.is_empty() { Ok(()) } else { Err(short) }
     }
 
     /// Whether `self`, a provision, serves a run of `shots` shots, whose
@@ -125,11 +113,11 @@ impl Capabilities {
         shots: usize,
         seeded: bool,
     ) -> Result<(), CapabilitiesMismatch> {
-        let run = Self {
-            instructions: Arc::clone(&self.instructions),
-            resources: Resources::new().with_shots(u32::try_from(shots).unwrap_or(u32::MAX)),
-            features: Features::new().with_seeded_runs(seeded),
-        };
+        let shots = u32::try_from(shots).unwrap_or(u32::MAX);
+        let run = self.with_kinds(
+            Resources::new().with_shots(shots),
+            Features::new().with_seeded_runs(seeded),
+        );
         run.kinds_fit(self)
     }
 
@@ -137,21 +125,17 @@ impl Capabilities {
     /// `other` states: a boundary's statement of a run, whose instructions
     /// are those its fit matched.
     pub(crate) fn with_kinds_of(&self, other: &Self) -> Self {
-        Self {
-            instructions: Arc::clone(&self.instructions),
-            resources: other.resources.clone(),
-            features: other.features.clone(),
-        }
+        self.with_kinds(other.resources.clone(), other.features.clone())
     }
 
-    /// The limits of each batch sent across a boundary where `self` is
-    /// required and `provided` provided.
-    pub(crate) fn batch_limits(&self, provided: &Self) -> BatchLimits {
-        BatchLimits::new(
-            provided.resources.instructions_per_batch(),
-            self.resources.blocks_of(&provided.instructions),
-            self.features.readout_parity() == Some(true),
-        )
+    /// These capabilities' instructions, never forwarded, with `resources`
+    /// and `features`.
+    fn with_kinds(&self, resources: Resources, features: Features) -> Self {
+        Self {
+            instructions: Arc::clone(&self.instructions),
+            resources,
+            features,
+        }
     }
 }
 
@@ -188,31 +172,33 @@ pub(crate) trait Forwarding {
     fn stricter(&self, other: &Self) -> Self;
     /// Whether no field is stated.
     fn states_nothing(&self) -> bool;
+
+    /// What `self`, a part's provision, provides together with `below`,
+    /// the provision of the parts below it: `self`'s, and the stricter of
+    /// it and `below`'s where `requires`, the part's requirement, does not
+    /// state it again.
+    fn stricter_through(&self, requires: &Self, below: &Self) -> Self
+    where
+        Self: Sized,
+    {
+        self.stricter(&below.unanswered(requires))
+    }
 }
 
 impl Forwarding for Capabilities {
     fn or(&self, other: &Self) -> Self {
-        Self {
-            instructions: Arc::clone(&self.instructions),
-            resources: self.resources.or(&other.resources),
-            features: self.features.or(&other.features),
-        }
+        let resources = self.resources.or(&other.resources);
+        self.with_kinds(resources, self.features.or(&other.features))
     }
 
     fn unanswered(&self, answered: &Self) -> Self {
-        Self {
-            instructions: Arc::clone(&self.instructions),
-            resources: self.resources.unanswered(&answered.resources),
-            features: self.features.unanswered(&answered.features),
-        }
+        let resources = self.resources.unanswered(&answered.resources);
+        self.with_kinds(resources, self.features.unanswered(&answered.features))
     }
 
     fn stricter(&self, other: &Self) -> Self {
-        Self {
-            instructions: Arc::clone(&self.instructions),
-            resources: self.resources.stricter(&other.resources),
-            features: self.features.stricter(&other.features),
-        }
+        let resources = self.resources.stricter(&other.resources);
+        self.with_kinds(resources, self.features.stricter(&other.features))
     }
 
     fn states_nothing(&self) -> bool {

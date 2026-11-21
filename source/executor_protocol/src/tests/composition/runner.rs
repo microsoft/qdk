@@ -25,8 +25,9 @@ use crate::tests::fake_parts::{
     in_each_bracketing, qubits,
 };
 use crate::{
-    CapabilitiesMismatch, DriveError, Failure, FeatureMismatch, Features, ReadoutFailure,
-    ReadoutValue, ResourceMismatch, RunError, RunRefusal, Runner, ShotConditions, ShotSet,
+    CapabilitiesMismatch, DriveError, Failure, Feature, FeatureMismatch, Features, ReadoutFailure,
+    ReadoutValue, Resource, ResourceMismatch, RunError, RunRefusal, Runner, ShotConditions,
+    ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -861,7 +862,8 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     let asked = bits_asked(log);
     let ran = log.count("Bits execute");
     let refusal = refused(runner.run(&ShotSet::ids(0..=most), SEED));
-    let short = ResourceMismatch::Shots {
+    let short = ResourceMismatch {
+        key: Resource::Shots,
         required: most + 1,
         provided: most,
     };
@@ -955,7 +957,7 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     let refusal = refused(runner.run(&shots, SEED));
     assert!(
         matches!(&refusal, RunRefusal::NotProvided(mismatch)
-            if mismatch.features == [FeatureMismatch::SeededRuns]),
+            if mismatch.features == [FeatureMismatch { key: Feature::SeededRuns, required: true, provided: false }]),
         "{row}: {refusal:?}"
     );
     assert_eq!(bits_asked(log), asked, "{row}: no part asked");

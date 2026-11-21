@@ -10,7 +10,7 @@ use std::fmt;
 
 use crate::composition::{ChainPosition, DeclaredParts};
 use crate::{
-    Batch, BatchReadouts, Capabilities, Failure, InstructionFault, NotReady, Seed, ShotId, ShotSet,
+    Batch, BatchFault, BatchReadouts, Capabilities, Failure, NotReady, Seed, ShotId, ShotSet,
 };
 
 /// Runs batches of the instructions it accepts on their shots' states.
@@ -282,13 +282,10 @@ impl Error for ExecuteError {}
 
 /// Why an `execute` was refused: nothing of it ran.
 ///
-/// Two makers share it. The protocol makes the batch refusals, at the
-/// boundary of the part that would receive the batch, before that part
-/// runs any batch of the `execute`, so the part does not check them
-/// itself: [`Instruction`](Self::Instruction),
-/// [`TooManyInstructions`](Self::TooManyInstructions),
-/// [`TooManyReadoutSlots`](Self::TooManyReadoutSlots) and
-/// [`ReadoutSlotsMisstated`](Self::ReadoutSlotsMisstated). The part makes
+/// Two makers share it. The protocol makes the batch refusals
+/// ([`Batch`](Self::Batch)), at the boundary of the part that would
+/// receive the batch, before that part runs any batch of the `execute`,
+/// so the part does not check them itself. The part makes
 /// the shot refusals, since only it knows which shots it holds:
 /// [`ShotNotHeld`](Self::ShotNotHeld) and
 /// [`EarlierFailure`](Self::EarlierFailure). They share one type because
@@ -297,62 +294,15 @@ impl Error for ExecuteError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ExecuteRefusal {
-    /// The instruction `batches[batch].instructions[at]` is not one the
-    /// receiver accepts, for `fault`; `shot` is that batch's first, in its
-    /// set's order. Checked for a [`checked`](crate::Batch::checked) batch
-    /// only.
-    Instruction {
+    /// `batches[batch]` is refused, for `fault`; `shot` is that batch's
+    /// first, in its set's order.
+    Batch {
         /// The batch's first shot.
         shot: ShotId,
         /// The batch's position in the `execute`.
         batch: usize,
-        /// The instruction's position in its batch.
-        at: usize,
         /// Why it is refused.
-        fault: InstructionFault,
-    },
-    /// `batches[batch]` holds more instructions than the receiver's most
-    /// ([`Resources::instructions_per_batch`](crate::Resources::instructions_per_batch));
-    /// `shot`
-    /// is its first. Checked for every batch,
-    /// [`checked`](crate::Batch::checked) or not.
-    TooManyInstructions {
-        /// The batch's first shot.
-        shot: ShotId,
-        /// The batch's position in the `execute`.
-        batch: usize,
-        /// The most instructions a batch may hold.
-        max: u32,
-        /// The batch's instructions.
-        got: usize,
-    },
-    /// `batches[batch]`'s instructions together read more readout slots
-    /// than a `u32` counts, from the instruction at `at` on, so no batch's
-    /// readouts could hold them; `shot` is its first. Checked for a
-    /// [`checked`](crate::Batch::checked) batch only.
-    TooManyReadoutSlots {
-        /// The batch's first shot.
-        shot: ShotId,
-        /// The batch's position in the `execute`.
-        batch: usize,
-        /// The position, in its batch, of the instruction whose slots no
-        /// longer fit.
-        at: usize,
-    },
-    /// `batches[batch]`'s instructions read `counted` readout slots, and
-    /// its sender stated `stated`
-    /// ([`Batch::readout_slots`](crate::Batch::readout_slots)), which its
-    /// readouts would have been shaped with; `shot` is its first.
-    /// Checked for a [`checked`](crate::Batch::checked) batch only.
-    ReadoutSlotsMisstated {
-        /// The batch's first shot.
-        shot: ShotId,
-        /// The batch's position in the `execute`.
-        batch: usize,
-        /// The readout slots its sender stated.
-        stated: u32,
-        /// The readout slots of its instructions.
-        counted: u32,
+        fault: BatchFault,
     },
     /// The shot ended, or never started, at the part that refuses: a bug of
     /// the part that sent it.
@@ -368,10 +318,7 @@ impl ExecuteRefusal {
     #[must_use]
     pub fn shot(&self) -> ShotId {
         match self {
-            ExecuteRefusal::Instruction { shot, .. }
-            | ExecuteRefusal::TooManyInstructions { shot, .. }
-            | ExecuteRefusal::TooManyReadoutSlots { shot, .. }
-            | ExecuteRefusal::ReadoutSlotsMisstated { shot, .. }
+            ExecuteRefusal::Batch { shot, .. }
             | ExecuteRefusal::ShotNotHeld(shot)
             | ExecuteRefusal::EarlierFailure(shot) => *shot,
         }
@@ -381,39 +328,9 @@ impl ExecuteRefusal {
 impl fmt::Display for ExecuteRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ExecuteRefusal::Instruction {
-                shot,
-                batch,
-                at,
-                fault,
-            } => write!(
-                f,
-                "instruction {at} of batch {batch} (first shot {shot}): {fault}"
-            ),
-            ExecuteRefusal::TooManyInstructions {
-                shot,
-                batch,
-                max,
-                got,
-            } => write!(
-                f,
-                "batch {batch} (first shot {shot}) holds {got} instructions, and at most {max} are accepted"
-            ),
-            ExecuteRefusal::TooManyReadoutSlots { shot, batch, at } => write!(
-                f,
-                "batch {batch} (first shot {shot}) reads more readout slots than a `u32` \
-                 counts, from instruction {at} on"
-            ),
-            ExecuteRefusal::ReadoutSlotsMisstated {
-                shot,
-                batch,
-                stated,
-                counted,
-            } => write!(
-                f,
-                "batch {batch} (first shot {shot}) states {stated} readout slots, and its \
-                 instructions read {counted}"
-            ),
+            ExecuteRefusal::Batch { shot, batch, fault } => {
+                write!(f, "batch {batch} (first shot {shot}) is refused: {fault}")
+            }
             ExecuteRefusal::ShotNotHeld(shot) => {
                 write!(f, "shot {shot} is not held: it ended, or never started")
             }

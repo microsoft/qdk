@@ -468,7 +468,7 @@ impl Stream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use executor_protocol::{ResourceMismatch, RunError, RunRefusal};
+    use executor_protocol::{Resource, ResourceMismatch, RunError, RunRefusal};
 
     /// A user who runs a few shots of a run again, with its seed, to look
     /// at them: each gets the values it had in the first run, the noise's
@@ -499,7 +499,8 @@ mod tests {
         };
         assert_eq!(
             mismatch.resources,
-            [ResourceMismatch::Shots {
+            [ResourceMismatch {
+                key: Resource::Shots,
                 required: 2000,
                 provided: 1000
             }]

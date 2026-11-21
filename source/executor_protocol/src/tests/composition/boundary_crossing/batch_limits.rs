@@ -10,10 +10,10 @@
 
 use crate::prelude::*;
 use crate::{
-    Argument, Batch, BatchReadouts, Bit, BlockOperand, BlockType, Capabilities, DriveError,
-    ExecuteError, ExecuteRefusal, Failure, Features, Instruction, InstructionDef, InstructionFault,
-    InstructionSet, Opcode, OpcodeMap, ParameterKind, ReadoutValue, Readouts, Resources, RunError,
-    Seed, ShotId, ShotSet,
+    Argument, Batch, BatchFault, BatchReadouts, Bit, BlockOperand, BlockType, Capabilities,
+    DriveError, ExecuteError, ExecuteRefusal, Failure, Features, Instruction, InstructionDef,
+    InstructionFault, InstructionSet, Opcode, OpcodeMap, ParameterKind, ReadoutValue, Readouts,
+    Resources, RunError, Seed, ShotId, ShotSet,
 };
 use smallvec::smallvec;
 
@@ -257,14 +257,18 @@ fn literal(set: &InstructionSet, mnemonic: &str, blocks: &[u32]) -> Instruction 
     }
 }
 
-/// The refusal of the batch, naming the instruction at `at` and `fault`.
-fn refused_at(at: usize, fault: InstructionFault) -> Result<u32, ExecuteRefusal> {
-    Err(ExecuteRefusal::Instruction {
+/// The refusal of the batch, for `fault`.
+fn refused(fault: BatchFault) -> Result<u32, ExecuteRefusal> {
+    Err(ExecuteRefusal::Batch {
         shot: ShotId::new(0),
         batch: 0,
-        at,
         fault,
     })
+}
+
+/// The refusal of the batch, naming the instruction at `at` and `fault`.
+fn refused_at(at: usize, fault: InstructionFault) -> Result<u32, ExecuteRefusal> {
+    refused(BatchFault::Instruction { at, fault })
 }
 
 /// A row of a table: a scene, its batch of `device()`, what its shots
@@ -297,12 +301,7 @@ fn check_rows(rows: Vec<Row>) {
 fn a_batch_of_more_than_the_receivers_most_instructions_is_refused() {
     let set = device();
     let h = |count| vec![literal(&set, "h", &[0]); count];
-    let too_many = Err(ExecuteRefusal::TooManyInstructions {
-        shot: ShotId::new(0),
-        batch: 0,
-        max: 2,
-        got: 3,
-    });
+    let too_many = refused(BatchFault::TooManyInstructions { max: 2, got: 3 });
     for (most, count, sent_checked, expected) in [
         (Some(2), 2, true, Ok(0)),
         (Some(2), 2, false, Ok(0)),
@@ -411,11 +410,7 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
     ] {
         assert_eq!(
             checked(&set, batch, shots_of(1, 0), None, true),
-            Err(ExecuteRefusal::TooManyReadoutSlots {
-                shot: ShotId::new(0),
-                batch: 0,
-                at,
-            }),
+            refused(BatchFault::TooManyReadoutSlots { at }),
             "{scene}"
         );
     }
@@ -429,14 +424,7 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
 fn a_checked_batch_stating_other_readout_slots_is_refused() {
     let set = device();
     let batch = vec![literal(&set, "m", &[0]), literal(&set, "mpp", &[0, 1])];
-    let misstated = |stated| {
-        Err(ExecuteRefusal::ReadoutSlotsMisstated {
-            shot: ShotId::new(0),
-            batch: 0,
-            stated,
-            counted: 4,
-        })
-    };
+    let misstated = |stated| refused(BatchFault::ReadoutSlotsMisstated { stated, counted: 4 });
     let mark_checked: Mark = |batch| batch.checked();
     for (stated, expected) in [(4, Ok(4)), (3, misstated(3)), (5, misstated(5))] {
         let run = run_marked(

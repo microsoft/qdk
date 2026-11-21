@@ -4,7 +4,16 @@
 //! The features a part requires against those the part below provides,
 //! at one boundary: which fit.
 
-use crate::{BoundaryCompatible, FeatureMismatch, Features};
+use crate::{BoundaryCompatible, Feature, FeatureMismatch, Features};
+
+/// The mismatch of `feature`, required and not provided.
+fn missing(feature: Feature) -> FeatureMismatch {
+    FeatureMismatch {
+        key: feature,
+        required: true,
+        provided: false,
+    }
+}
 
 /// What a part's shots and runs use against what the part below serves:
 /// a feature fits unless it is used and the provider states it does not
@@ -18,7 +27,7 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_serve_it() {
             "readout parities used, not resolved",
             parity(true),
             parity(false),
-            Err(vec![FeatureMismatch::ReadoutParity]),
+            Err(vec![missing(Feature::ReadoutParity)]),
         ),
         (
             "readout parities used, resolved",
@@ -48,13 +57,13 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_serve_it() {
             "seeded runs, not seedable",
             seeded(true),
             seeded(false),
-            Err(vec![FeatureMismatch::SeededRuns]),
+            Err(vec![missing(Feature::SeededRuns)]),
         ),
         (
             "replay, not replayable",
             Features::new().with_replay(true),
             Features::new().with_replay(false),
-            Err(vec![FeatureMismatch::Replay]),
+            Err(vec![missing(Feature::Replay)]),
         ),
         (
             "no replay, not replayable",
@@ -76,7 +85,7 @@ fn replay_requires_seeded_runs() {
     let provided = Features::new().with_replay(true).with_seeded_runs(false);
     assert_eq!(
         required.fits(&provided),
-        Err(vec![FeatureMismatch::SeededRuns])
+        Err(vec![missing(Feature::SeededRuns)])
     );
 }
 
@@ -95,9 +104,9 @@ fn every_feature_not_served_is_listed_in_order() {
     assert_eq!(
         required.fits(&provided),
         Err(vec![
-            FeatureMismatch::ReadoutParity,
-            FeatureMismatch::Replay,
-            FeatureMismatch::SeededRuns,
+            missing(Feature::ReadoutParity),
+            missing(Feature::Replay),
+            missing(Feature::SeededRuns),
         ])
     );
 }
@@ -107,9 +116,9 @@ fn every_feature_not_served_is_listed_in_order() {
 #[test]
 fn a_feature_not_served_names_the_feature() {
     for (missing, named) in [
-        (FeatureMismatch::ReadoutParity, "readout parit"),
-        (FeatureMismatch::Replay, "replay"),
-        (FeatureMismatch::SeededRuns, "seed"),
+        (missing(Feature::ReadoutParity), "readout parit"),
+        (missing(Feature::Replay), "replay"),
+        (missing(Feature::SeededRuns), "seed"),
     ] {
         let message = missing.to_string();
         assert!(

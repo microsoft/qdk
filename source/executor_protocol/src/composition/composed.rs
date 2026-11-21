@@ -146,7 +146,7 @@ impl<U, L> Composed<U, L> {
         boundary.require(&required(upper));
         boundary.part = below.part(name(lower));
         *provided_on_run = false;
-        Ok((lower, boundary.required(), below, boundary.part.as_ref()))
+        Ok((lower, &boundary.required, below, boundary.part.as_ref()))
     }
 
     /// The halves, and their boundary on this run, given at the run's

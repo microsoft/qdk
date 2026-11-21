@@ -7,7 +7,8 @@
 
 mod batch_limits;
 
-pub(crate) use batch_limits::{BatchFault, BatchLimits};
+pub use batch_limits::BatchFault;
+pub(crate) use batch_limits::BatchLimits;
 
 use crate::{Capabilities, OpcodeMap, PartId};
 
@@ -23,8 +24,12 @@ use crate::{Capabilities, OpcodeMap, PartId};
 #[derive(Clone, Debug)]
 pub struct Boundary {
     opcode_map: OpcodeMap,
-    required: Capabilities,
-    provided: Capabilities,
+    /// The capabilities required across: what the part below gets ready
+    /// for.
+    pub(crate) required: Capabilities,
+    /// The capabilities provided across: what the part above is answered
+    /// when it asks the part below.
+    pub(crate) provided: Capabilities,
     /// The limits of each batch sent across, from `required` and
     /// `provided`: compiled once per run, compared per batch.
     pub(crate) batch_limits: BatchLimits,
@@ -47,7 +52,7 @@ impl Boundary {
     ) -> Self {
         Self {
             opcode_map,
-            batch_limits: required.batch_limits(provided),
+            batch_limits: BatchLimits::new(required, provided),
             required: required.clone(),
             provided: provided.clone(),
             part: None,
@@ -58,20 +63,6 @@ impl Boundary {
     #[must_use]
     pub fn opcode_map(&self) -> &OpcodeMap {
         &self.opcode_map
-    }
-
-    /// The capabilities required across: what the part below gets ready
-    /// for.
-    #[must_use]
-    pub fn required(&self) -> &Capabilities {
-        &self.required
-    }
-
-    /// The capabilities provided across: what the part above is answered
-    /// when it asks the part below.
-    #[must_use]
-    pub fn provided(&self) -> &Capabilities {
-        &self.provided
     }
 
     /// This boundary on a run, as it starts: with the resources and
@@ -88,6 +79,6 @@ impl Boundary {
     /// provided.
     pub(crate) fn provide(&mut self, provided: &Capabilities) {
         self.provided = self.provided.with_kinds_of(provided);
-        self.batch_limits = self.required.batch_limits(&self.provided);
+        self.batch_limits = BatchLimits::new(&self.required, &self.provided);
     }
 }

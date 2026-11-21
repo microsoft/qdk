@@ -11,7 +11,7 @@
 //! [`Boundary`] the joins' fit found there, as the run resolved it. It
 //! takes the batches in order, and for each, refuses it if it holds more
 //! instructions than the receiver takes
-//! ([`ExecuteRefusal::TooManyInstructions`]), checked or not, or, for a
+//! ([`BatchFault::TooManyInstructions`]), checked or not, or, for a
 //! batch its sender marked [`checked`](Batch::checked), makes the
 //! refusals [`Batch::checked`] lists; then shapes its readouts from it, a
 //! row per shot of a value per readout slot its sender stated, so that the
@@ -27,7 +27,6 @@
 use std::panic::resume_unwind;
 
 use super::part_panics::{catch_panic, panic_message};
-use crate::capabilities::BatchFault;
 use crate::{
     Batch, BatchReadouts, Boundary, Capabilities, ExecuteError, ExecuteRefusal, Executor, Failure,
     Seed, ShotId, ShotSet,
@@ -64,7 +63,7 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
     /// whose set changes later gets checked batches checked against the
     /// set read at composition.
     fn provides(&self) -> &Capabilities {
-        self.boundary.provided()
+        &self.boundary.provided
     }
 
     /// Takes `batches` in order: refuses a batch that holds more
@@ -92,7 +91,14 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
         };
         for (index, (batch, batch_readouts)) in batches.iter().zip(readouts.iter_mut()).enumerate()
         {
-            let refused = |fault| ExecuteError::Refused(refusal(index, batch, fault));
+            let refused = |fault| {
+                let shot = first_shot(batch.shots);
+                ExecuteError::Refused(ExecuteRefusal::Batch {
+                    shot,
+                    batch: index,
+                    fault,
+                })
+            };
             self.boundary
                 .batch_limits
                 .check_count(batch.instructions)
@@ -101,7 +107,7 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
                 self.boundary
                     .batch_limits
                     .check(
-                        self.boundary.provided().instructions(),
+                        self.boundary.provided.instructions(),
                         batch.instructions,
                         batch.readout_slots(),
                     )
@@ -126,39 +132,6 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
 
     fn end_shots(&mut self, shots: &ShotSet) {
         self.inner.end_shots(shots);
-    }
-}
-
-/// The refusal of `batches[index]`, `batch`, for `fault`, named by its
-/// first shot.
-fn refusal(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteRefusal {
-    let shot = first_shot(batch.shots);
-    match fault {
-        BatchFault::TooManyInstructions { max, got } => ExecuteRefusal::TooManyInstructions {
-            shot,
-            batch: index,
-            max,
-            got,
-        },
-        BatchFault::Instruction { at, fault } => ExecuteRefusal::Instruction {
-            shot,
-            batch: index,
-            at,
-            fault,
-        },
-        BatchFault::TooManyReadoutSlots { at } => ExecuteRefusal::TooManyReadoutSlots {
-            shot,
-            batch: index,
-            at,
-        },
-        BatchFault::ReadoutSlotsMisstated { stated, counted } => {
-            ExecuteRefusal::ReadoutSlotsMisstated {
-                shot,
-                batch: index,
-                stated,
-                counted,
-            }
-        }
     }
 }
 

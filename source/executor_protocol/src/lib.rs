@@ -31,8 +31,8 @@ pub use batch::{
 };
 pub use boundary_compatible::BoundaryCompatible;
 pub use capabilities::{
-    Boundary, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, ResourceMismatch,
-    Resources,
+    BatchFault, Boundary, Capabilities, CapabilitiesMismatch, Feature, FeatureMismatch, Features,
+    Resource, ResourceMismatch, Resources, StatementMismatch, Statements,
 };
 pub use composition::{
     AdapterJoins, CompositionFault, CompositionFaults, DriverJoins, PartId, RunError, RunRefusal,

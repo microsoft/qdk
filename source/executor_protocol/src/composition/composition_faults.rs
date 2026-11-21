@@ -16,15 +16,11 @@ use crate::{CapabilitiesMismatch, PartId};
 /// top to bottom.
 #[derive(Clone, Debug)]
 pub struct CompositionFaults {
-    faults: Vec<CompositionFault>,
+    /// At least one.
+    pub(super) faults: Vec<CompositionFault>,
 }
 
 impl CompositionFaults {
-    /// The faults `faults`, at least one.
-    pub(super) fn new(faults: Vec<CompositionFault>) -> Self {
-        Self { faults }
-    }
-
     /// Each fault, by its requirer top to bottom, then by its provider.
     #[must_use]
     pub fn faults(&self) -> &[CompositionFault] {

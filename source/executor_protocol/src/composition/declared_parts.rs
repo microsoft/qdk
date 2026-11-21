@@ -18,6 +18,10 @@ pub struct DeclaredParts<'a> {
     parts: Vec<DeclaredPart<'a>>,
 }
 
+/// Why a chain's provision is found: the `on` that asks for it joins a
+/// driver with an executor at the bottom.
+const CHAIN: &str = "a chain has a driver above an executor";
+
 /// One part, as it declares itself: a driver requires, an executor
 /// provides, and an adapter does both.
 struct DeclaredPart<'a> {
@@ -60,64 +64,47 @@ impl<'a> DeclaredParts<'a> {
     pub(crate) fn faults(&self) -> Vec<CompositionFault> {
         let mut faults = Vec::new();
         for (at, requirer) in self.parts.iter().enumerate() {
-            let Some(required) = requirer.requires else {
+            let Some(mut forwarded) = requirer.requires.cloned() else {
                 continue;
             };
-            let fault = |provider: usize, mismatch| CompositionFault {
-                requirer: self.id(at),
-                provider: self.id(provider),
-                mismatch,
-            };
-            let mut below = self.parts.iter().enumerate().skip(at + 1);
-            let Some((next, provider)) = below.next() else {
-                continue;
-            };
-            if let Some(provided) = provider.provides
-                && let Err(mismatch) = required.fits(provided)
-            {
-                faults.push(fault(next, mismatch));
-            }
-            let Some(answered) = provider.requires else {
-                continue;
-            };
-            let mut forwarded = required.unanswered(answered);
-            for (further, provider) in below {
-                if forwarded.states_nothing() {
-                    break;
-                }
-                if let Some(provided) = provider.provides
-                    && let Err(mismatch) = forwarded.kinds_fit(provided)
-                {
-                    faults.push(fault(further, mismatch));
+            for (below, provider) in self.parts.iter().enumerate().skip(at + 1) {
+                let fit = match provider.provides {
+                    Some(provided) if below == at + 1 => forwarded.fits(provided).map(drop),
+                    Some(provided) => forwarded.kinds_fit(provided),
+                    None => Ok(()),
+                };
+                if let Err(mismatch) = fit {
+                    faults.push(CompositionFault {
+                        requirer: self.id(at),
+                        provider: self.id(below),
+                        mismatch,
+                    });
                 }
                 let Some(answered) = provider.requires else {
                     break;
                 };
                 forwarded = forwarded.unanswered(answered);
+                if forwarded.states_nothing() {
+                    break;
+                }
             }
         }
         faults
     }
 
     /// What the parts below the top one provide together, as each run is
-    /// bounded by: each part's provision, the stricter where two state a
-    /// resource or a feature, through each part that does not require it
-    /// again; `None` for a chain of one part.
-    pub(crate) fn provision(&self) -> Option<Capabilities> {
-        self.parts
-            .iter()
-            .skip(1)
-            .rev()
-            .fold(None, |below: Option<Capabilities>, part| {
-                let Some(provided) = part.provides else {
-                    return below;
-                };
-                Some(match (below, part.requires) {
-                    (Some(below), Some(required)) => provided.stricter(&below.unanswered(required)),
-                    (Some(below), None) => provided.stricter(&below),
-                    (None, _) => provided.clone(),
-                })
-            })
+    /// bounded by: the bottom part's provision, then each adapter's above
+    /// it, the stricter where two state a resource or a feature, through
+    /// each adapter that does not require it again.
+    pub(crate) fn provision(&self) -> Capabilities {
+        let (bottom, adapters) = (self.parts[1..].split_last()).expect(CHAIN);
+        let below = bottom.provides.expect(CHAIN).clone();
+        adapters.iter().rev().fold(below, |below, adapter| {
+            match (adapter.provides, adapter.requires) {
+                (Some(provided), Some(required)) => provided.stricter_through(required, &below),
+                _ => below,
+            }
+        })
     }
 
     /// The part at `at`, by its position and name.

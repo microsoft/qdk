@@ -17,8 +17,8 @@ use crate::tests::fake_parts::{
     Stating, in_each_bracketing, qubits,
 };
 use crate::{
-    BlockType, Capabilities, CapabilitiesMismatch, CompositionFault, FeatureMismatch, Features,
-    InstructionDef, InstructionSet, PartId, ResourceMismatch, ShotSet,
+    BlockType, Capabilities, CapabilitiesMismatch, CompositionFault, Feature, FeatureMismatch,
+    Features, InstructionDef, InstructionSet, PartId, Resource, ResourceMismatch, ShotSet,
 };
 
 /// The instructions of [`CoinGates`] but `missing`, as the set `name`.
@@ -75,8 +75,8 @@ fn instructions(sent: &InstructionSet, accepted: &InstructionSet) -> Capabilitie
 /// The mismatch of `required` qubits against `provided`.
 fn short_qubits(required: u32, provided: u32) -> CapabilitiesMismatch {
     CapabilitiesMismatch {
-        resources: vec![ResourceMismatch::Blocks {
-            block_type: BlockType::qubit(),
+        resources: vec![ResourceMismatch {
+            key: Resource::Blocks(BlockType::qubit()),
             required,
             provided,
         }],
@@ -85,9 +85,13 @@ fn short_qubits(required: u32, provided: u32) -> CapabilitiesMismatch {
 }
 
 /// The mismatch of `feature`, required and not provided.
-fn missing(feature: FeatureMismatch) -> CapabilitiesMismatch {
+fn missing(feature: Feature) -> CapabilitiesMismatch {
     CapabilitiesMismatch {
-        features: vec![feature],
+        features: vec![FeatureMismatch {
+            key: feature,
+            required: true,
+            provided: false,
+        }],
         ..CapabilitiesMismatch::default()
     }
 }
@@ -254,7 +258,7 @@ fn a_requirement_an_adapter_does_not_state_is_checked_against_the_parts_below() 
         vec![fault(
             part::<Program>(0),
             part::<Bits>(2),
-            missing(FeatureMismatch::ReadoutParity),
+            missing(Feature::ReadoutParity),
         )],
     );
     // A program on 9 qubits, through a part reserving an ancilla, which
@@ -329,7 +333,7 @@ fn an_adapter_stating_a_feature_both_ways_replaces_it() {
         vec![fault(
             part::<Program>(0),
             part::<Stating>(1),
-            missing(FeatureMismatch::ReadoutParity),
+            missing(Feature::ReadoutParity),
         )],
     );
     let not_replayable = || Features::new().with_replay(false);
@@ -353,7 +357,7 @@ fn an_adapter_stating_a_feature_both_ways_replaces_it() {
         vec![fault(
             part::<ReplaysItself>(1),
             part::<Bits>(2),
-            missing(FeatureMismatch::SeededRuns),
+            missing(Feature::SeededRuns),
         )],
     );
     faults_in_each_bracketing!(
@@ -388,7 +392,7 @@ fn every_fault_is_listed_by_requirer_then_by_provider() {
             fault(
                 part::<Program>(0),
                 part::<Stating>(1),
-                missing(FeatureMismatch::ReadoutParity),
+                missing(Feature::ReadoutParity),
             ),
             fault(part::<Program>(0), part::<Bits>(2), short_qubits(9, 8)),
         ],
@@ -549,7 +553,7 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
         "`h2 program` (part 0)",
         "`parity-free lowering` (part 1)",
         "`qodec runtime` (part 2)",
-        &FeatureMismatch::ReadoutParity.to_string(),
+        &missing(Feature::ReadoutParity).features[0].to_string(),
         &short_qubits(9, 8).resources[0].to_string(),
     ] {
         assert!(message.contains(said), "{said}: {message}");

@@ -34,9 +34,9 @@ use crate::tests::fake_parts::{
     Program, Renamed, coin_capabilities, coin_gate, coin_gates, in_each_bracketing, qubits,
 };
 use crate::{
-    Argument, Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
-    ExecuteRefusal, Failure, Features, Instruction, InstructionFault, NotReady, OpcodeMap, PartId,
-    ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
+    Argument, Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError,
+    ExecuteError, ExecuteRefusal, Failure, Features, Instruction, InstructionFault, NotReady,
+    OpcodeMap, PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId, ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -159,23 +159,27 @@ fn flip_on_a_parity() -> Program {
 /// against; the faults a batch may hold are in `batch_limits.rs`.
 #[test]
 fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
-    let beyond_the_required = |shot, at, block, required| ExecuteRefusal::Instruction {
+    let beyond_the_required = |shot, at, block, required| ExecuteRefusal::Batch {
         shot: ShotId::new(shot),
         batch: 0,
-        at,
-        fault: InstructionFault::BlockBeyondRequired {
-            mnemonic: "x".to_owned(),
-            block,
-            required,
+        fault: BatchFault::Instruction {
+            at,
+            fault: InstructionFault::BlockBeyondRequired {
+                mnemonic: "x".to_owned(),
+                block,
+                required,
+            },
         },
     };
-    let parity_refused = ExecuteRefusal::Instruction {
+    let parity_refused = ExecuteRefusal::Batch {
         shot: ShotId::new(5),
         batch: 0,
-        at: 1,
-        fault: InstructionFault::ParityNotRequired {
-            mnemonic: "x_if".to_owned(),
-            parameter: "c".to_owned(),
+        fault: BatchFault::Instruction {
+            at: 1,
+            fault: InstructionFault::ParityNotRequired {
+                mnemonic: "x_if".to_owned(),
+                parameter: "c".to_owned(),
+            },
         },
     };
     let rows: [(&str, Vec<Failed>, ExecuteRefusal); 4] = [
@@ -467,8 +471,11 @@ fn each_boundary_checks_its_batch<D: Driver<Output: std::fmt::Debug>, E: Executo
         assert!(
             matches!(
                 error.failure,
-                Failure::Refused(ExecuteRefusal::Instruction {
-                    fault: InstructionFault::BlockBeyondRequired { .. },
+                Failure::Refused(ExecuteRefusal::Batch {
+                    fault: BatchFault::Instruction {
+                        fault: InstructionFault::BlockBeyondRequired { .. },
+                        ..
+                    },
                     ..
                 })
             ),
@@ -544,11 +551,13 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     assert!(
         matches!(
             error.failure,
-            Failure::Refused(ExecuteRefusal::Instruction {
+            Failure::Refused(ExecuteRefusal::Batch {
                 shot,
                 batch: 1,
-                at: 0,
-                fault: InstructionFault::BlockBeyondRequired { .. },
+                fault: BatchFault::Instruction {
+                    at: 0,
+                    fault: InstructionFault::BlockBeyondRequired { .. },
+                },
             }) if shot == ShotId::new(9)
         ),
         "the checked second batch: {error:?}"

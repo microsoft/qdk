@@ -17,8 +17,11 @@
 //! and provided across it. The checks compare integers only, and stop at
 //! the first fault: they run on the hot path.
 
+use std::error::Error;
+use std::fmt;
+
 use crate::instruction_set::ReceiverRequirement;
-use crate::{Instruction, InstructionFault, InstructionSet};
+use crate::{Capabilities, Feature, Instruction, InstructionFault, InstructionSet, Resource};
 
 /// The limits a batch is checked against, per boundary: built once per
 /// run, not per batch.
@@ -32,20 +35,20 @@ pub(crate) struct BatchLimits {
 }
 
 impl BatchLimits {
-    /// The limits of the batches sent to a receiver that provides for
-    /// `max_instructions` per batch, by a part whose shots require
-    /// `blocks_of` each of the receiver's block types, in its set's order,
-    /// and use readout parities when `readout_parity`.
-    pub(crate) fn new(
-        max_instructions: Option<u32>,
-        blocks_of: Vec<u32>,
-        readout_parity: bool,
-    ) -> Self {
+    /// The limits of the batches sent across a boundary where `required`
+    /// meets `provided`: the most instructions per batch provided; the
+    /// blocks required of each block type provided, in its set's order;
+    /// and whether readout parities are required.
+    pub(crate) fn new(required: &Capabilities, provided: &Capabilities) -> Self {
+        let blocks_of = (provided.instructions().block_types())
+            .map(|block_type| required.resources().blocks(block_type).unwrap_or(0))
+            .collect();
+        let readout_parity = required.features().get(&Feature::ReadoutParity);
         Self {
-            max_instructions,
+            max_instructions: provided.resources().get(&Resource::InstructionsPerBatch),
             required: ReceiverRequirement {
                 blocks_of,
-                readout_parity,
+                readout_parity: readout_parity == Some(true),
             },
         }
     }
@@ -100,14 +103,69 @@ impl BatchLimits {
     }
 }
 
-/// Why a batch is refused: too many instructions, the first refused
-/// instruction, at its position in the batch, more readout slots than a
-/// `u32` counts, from the instruction at `at` on, or readout slots other
-/// than its sender stated.
+/// Why a boundary refused a batch, in an
+/// [`ExecuteRefusal::Batch`](crate::ExecuteRefusal::Batch).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum BatchFault {
-    TooManyInstructions { max: u32, got: usize },
-    Instruction { at: usize, fault: InstructionFault },
-    TooManyReadoutSlots { at: usize },
-    ReadoutSlotsMisstated { stated: u32, counted: u32 },
+#[non_exhaustive]
+pub enum BatchFault {
+    /// The batch holds more instructions than the receiver's most
+    /// ([`Resource::InstructionsPerBatch`]). Checked for every batch,
+    /// [`checked`](crate::Batch::checked) or not.
+    TooManyInstructions {
+        /// The most instructions a batch may hold.
+        max: u32,
+        /// The batch's instructions.
+        got: usize,
+    },
+    /// The batch's instruction at `at` is not one the receiver accepts,
+    /// for `fault`. Checked for a [`checked`](crate::Batch::checked) batch
+    /// only, as are the faults below.
+    Instruction {
+        /// The instruction's position in its batch.
+        at: usize,
+        /// Why it is refused.
+        fault: InstructionFault,
+    },
+    /// The batch's instructions together read more readout slots than a
+    /// `u32` counts, from the instruction at `at` on, so no batch's
+    /// readouts could hold them.
+    TooManyReadoutSlots {
+        /// The position, in its batch, of the instruction whose slots no
+        /// longer fit.
+        at: usize,
+    },
+    /// The batch's instructions read `counted` readout slots, and its
+    /// sender stated `stated`
+    /// ([`Batch::readout_slots`](crate::Batch::readout_slots)), which its
+    /// readouts would have been shaped with.
+    ReadoutSlotsMisstated {
+        /// The readout slots its sender stated.
+        stated: u32,
+        /// The readout slots of its instructions.
+        counted: u32,
+    },
 }
+
+impl fmt::Display for BatchFault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BatchFault::TooManyInstructions { max, got } => {
+                write!(
+                    f,
+                    "it holds {got} instructions, and at most {max} are accepted"
+                )
+            }
+            BatchFault::Instruction { at, fault } => write!(f, "instruction {at}: {fault}"),
+            BatchFault::TooManyReadoutSlots { at } => write!(
+                f,
+                "it reads more readout slots than a `u32` counts, from instruction {at} on"
+            ),
+            BatchFault::ReadoutSlotsMisstated { stated, counted } => write!(
+                f,
+                "it states {stated} readout slots, and its instructions read {counted}"
+            ),
+        }
+    }
+}
+
+impl Error for BatchFault {}

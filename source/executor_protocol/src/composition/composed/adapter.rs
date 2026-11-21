@@ -22,9 +22,7 @@ impl<U: Adapter, L: Adapter> Composed<U, L> {
             upper.bind(boundary.opcode_map().clone());
         }
         let requires = lower.requires().or(upper.requires());
-        let provides = upper
-            .provides()
-            .stricter(&lower.provides().unanswered(upper.requires()));
+        let provides = (upper.provides()).stricter_through(upper.requires(), lower.provides());
         let mut parts = DeclaredParts::new();
         upper.declare(&mut parts);
         let upper_parts = parts.len();
@@ -74,9 +72,7 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let (upper, lower, boundary) = self.run_boundary(|lower| {
-            lower
-                .provides()
-                .stricter(&below.provides().unanswered(lower.requires()))
+            (lower.provides()).stricter_through(lower.requires(), below.provides())
         });
         let mut rest = ChainBelow {
             adapter: lower,

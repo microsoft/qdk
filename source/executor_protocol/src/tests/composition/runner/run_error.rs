@@ -96,12 +96,12 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
         (
             "too many shots",
             runner(coin().on(limited)).run(&shots, SEED).map(drop),
-            &["run refused", "8 shots", "4 are provided"][..],
+            &["run refused", "shots", "8 required", "4 provided"][..],
         ),
         (
             "a seed the chain cannot take",
             runner(coin().on(unseedable)).run(&shots, SEED).map(drop),
-            &["run refused", "seed", "cannot be fixed"],
+            &["run refused", "seeded runs", "not provided"],
         ),
         (
             "a part not ready",

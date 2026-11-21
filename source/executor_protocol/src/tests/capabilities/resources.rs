@@ -4,15 +4,15 @@
 //! The resources a part requires against those the part below provides,
 //! at one boundary: which amounts fit.
 
-use crate::{BlockType, BoundaryCompatible, ResourceMismatch, Resources};
+use crate::{BlockType, BoundaryCompatible, Resource, ResourceMismatch, Resources};
 
 fn carbon() -> BlockType {
     BlockType::new("carbon")
 }
 
 fn short_blocks(block_type: BlockType, required: u32, provided: u32) -> ResourceMismatch {
-    ResourceMismatch::Blocks {
-        block_type,
+    ResourceMismatch {
+        key: Resource::Blocks(block_type),
         required,
         provided,
     }
@@ -74,7 +74,8 @@ fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
             "more shots than provided",
             Resources::new().with_shots(5),
             &Resources::new().with_shots(4),
-            Err(vec![ResourceMismatch::Shots {
+            Err(vec![ResourceMismatch {
+                key: Resource::Shots,
                 required: 5,
                 provided: 4,
             }]),
@@ -89,7 +90,8 @@ fn a_required_amount_fits_exactly_when_the_provided_one_covers_it() {
             "more instructions per batch than provided",
             Resources::new().with_instructions_per_batch(3),
             &Resources::new().with_instructions_per_batch(2),
-            Err(vec![ResourceMismatch::InstructionsPerBatch {
+            Err(vec![ResourceMismatch {
+                key: Resource::InstructionsPerBatch,
                 required: 3,
                 provided: 2,
             }]),
@@ -119,11 +121,13 @@ fn every_short_amount_is_listed_in_order() {
         Err(vec![
             short_blocks(carbon(), 3, 2),
             short_blocks(BlockType::qubit(), 9, 8),
-            ResourceMismatch::Shots {
+            ResourceMismatch {
+                key: Resource::Shots,
                 required: 10,
                 provided: 5
             },
-            ResourceMismatch::InstructionsPerBatch {
+            ResourceMismatch {
+                key: Resource::InstructionsPerBatch,
                 required: 4,
                 provided: 1
             },
@@ -138,14 +142,16 @@ fn a_short_amount_says_what_is_required_and_what_is_provided() {
     for (short, named) in [
         (short_blocks(carbon(), 3, 2), &["carbon", "3", "2"][..]),
         (
-            ResourceMismatch::Shots {
+            ResourceMismatch {
+                key: Resource::Shots,
                 required: 10,
                 provided: 5,
             },
             &["shots", "10", "5"],
         ),
         (
-            ResourceMismatch::InstructionsPerBatch {
+            ResourceMismatch {
+                key: Resource::InstructionsPerBatch,
                 required: 4,
                 provided: 1,
             },

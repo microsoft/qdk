@@ -69,9 +69,7 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         below: &mut impl Executor,
     ) -> Result<Vec<U::Output>, DriveError> {
         let (upper, lower, boundary) = self.run_boundary(|lower| {
-            lower
-                .provides()
-                .stricter(&below.provides().unanswered(lower.requires()))
+            (lower.provides()).stricter_through(lower.requires(), below.provides())
         });
         let mut unended = UnendedShots::new(
             ChainBelow {

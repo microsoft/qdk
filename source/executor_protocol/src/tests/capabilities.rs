@@ -9,8 +9,8 @@ mod resources;
 
 use crate::tests::fake_parts::{CoinGates, ParityGates};
 use crate::{
-    BoundaryCompatible, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features,
-    InstructionMismatch, ResourceMismatch, Resources,
+    BoundaryCompatible, Capabilities, CapabilitiesMismatch, Feature, FeatureMismatch, Features,
+    InstructionMismatch, Resource, ResourceMismatch, Resources,
 };
 
 /// A driver sending [`ParityGates`] on 9 qubits, with readout parities,
@@ -39,12 +39,16 @@ fn every_mismatch_of_each_kind_is_listed_at_once() {
                 mnemonic: "x_if".into(),
             },
         ],
-        resources: vec![ResourceMismatch::Blocks {
-            block_type: crate::BlockType::qubit(),
+        resources: vec![ResourceMismatch {
+            key: Resource::Blocks(crate::BlockType::qubit()),
             required: 9,
             provided: 8,
         }],
-        features: vec![FeatureMismatch::ReadoutParity],
+        features: vec![FeatureMismatch {
+            key: Feature::ReadoutParity,
+            required: true,
+            provided: false,
+        }],
     };
     assert_eq!(mismatch, expected);
 }

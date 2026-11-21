@@ -92,8 +92,8 @@ joined part requires and provides what its parts forward.
 | -------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | each part's requirement against each provision it reaches                        | the `on` that makes a runner          | [`CompositionFaults`](../src/composition/composition_faults.rs): each requiring part and the part that falls short, by position and name |
 | a run's shots, and a fixed seed, against what the parts below the driver provide | each run, before any part is asked    | [`RunRefusal::NotProvided`](../src/composition/runner/run_error.rs), with the mismatch                                                   |
-| a batch's count of instructions against the instructions per batch provided      | each batch, at every boundary         | [`ExecuteRefusal::TooManyInstructions`](../src/roles/executor.rs)                                                                        |
-| a checked batch's blocks and readout parities against what its sender requires   | each checked batch, at every boundary | [`ExecuteRefusal::Instruction`](../src/roles/executor.rs)                                                                                |
+| a batch's count of instructions against the instructions per batch provided      | each batch, at every boundary         | [`BatchFault::TooManyInstructions`](../src/capabilities/boundary/batch_limits.rs)                                                        |
+| a checked batch's blocks and readout parities against what its sender requires   | each checked batch, at every boundary | [`BatchFault::Instruction`](../src/capabilities/boundary/batch_limits.rs)                                                                |
 
 Each part gets ready, on every run, for the requirement that reaches it
 (`ready`): an executor, for instance, holds the qubits the parts above

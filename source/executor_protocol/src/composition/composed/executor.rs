@@ -21,9 +21,7 @@ impl<U: Adapter, L: Executor> Composed<U, L> {
         if let Ok(boundary) = &fit {
             upper.bind(boundary.opcode_map().clone());
         }
-        let provides = upper
-            .provides()
-            .stricter(&lower.provides().unanswered(upper.requires()));
+        let provides = (upper.provides()).stricter_through(upper.requires(), lower.provides());
         let mut parts = DeclaredParts::new();
         upper.declare(&mut parts);
         let upper_parts = parts.len();

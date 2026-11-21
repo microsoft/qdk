@@ -43,43 +43,35 @@ pub trait DriverJoins: Driver + Sized {
     /// [`CompositionFaults`] when a part's requirement is not provided.
     fn on<E: Executor>(mut self, executor: E) -> Result<Runner<Self, E>, CompositionFaults> {
         let fit = self.requires().fits(executor.provides());
-        let (faults, driver_part, executor_part, provision) = {
-            let mut parts = DeclaredParts::new();
-            self.declare(&mut parts);
-            let executor_at = parts.len();
-            executor.declare(&mut parts);
-            let mut faults = parts.faults();
-            if faults.is_empty()
-                && let Err(mismatch) = &fit
-            {
-                // The whole chain's fit holds what a part-by-part check
-                // reads: a fault it alone finds is still reported.
-                faults.push(CompositionFault {
-                    requirer: parts.id(0),
-                    provider: parts.id(executor_at),
-                    mismatch: mismatch.clone(),
-                });
-            }
-            (
-                faults,
-                parts.id(0),
-                parts.id(executor_at),
-                parts.provision(),
-            )
-        };
+        let mut parts = DeclaredParts::new();
+        self.declare(&mut parts);
+        let executor_at = parts.len();
+        executor.declare(&mut parts);
+        let (driver_part, executor_part) = (parts.id(0), parts.id(executor_at));
+        let (faults, provision) = (parts.faults(), parts.provision());
         let mut boundary = match fit {
             Ok(boundary) if faults.is_empty() => boundary,
-            _ => return Err(CompositionFaults::new(faults)),
+            // The whole chain's fit holds what a part-by-part check reads:
+            // a fault it alone finds is still reported.
+            Err(mismatch) if faults.is_empty() => {
+                let faults = vec![CompositionFault {
+                    requirer: driver_part,
+                    provider: executor_part,
+                    mismatch,
+                }];
+                return Err(CompositionFaults { faults });
+            }
+            _ => return Err(CompositionFaults { faults }),
         };
         self.bind(boundary.opcode_map().clone());
         boundary.part = Some(executor_part);
-        let provision = provision.expect("a chain has a part below its driver");
-        Ok(Runner::new(
-            (self, driver_part),
+        Ok(Runner {
+            driver: self,
             executor,
+            driver_part,
             boundary,
             provision,
-        ))
+        })
     }
 }
 
