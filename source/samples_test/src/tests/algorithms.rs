@@ -288,6 +288,6 @@ pub const THREEQUBITREPETITIONCODE_EXPECT_DEBUG: Expect = expect!["(true, 0)"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_CIRCUIT: Expect =
     expect!["generated circuit of length 42618"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_QIR_ADAPTIVE_RIF: Expect =
-    expect!["generated QIR of length 18292"];
+    expect!["generated QIR of length 18283"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_QIR_ADAPTIVE: Expect =
     expect!["generated QIR of length 7685"];

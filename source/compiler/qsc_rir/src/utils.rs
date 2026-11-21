@@ -194,6 +194,15 @@ pub(crate) fn map_variable_use_in_block(
                     continue;
                 }
             }
+            Instruction::Load(src, dst) => {
+                update_variable_mapping(
+                    var_map,
+                    &mut reverse_deep_map,
+                    &Operand::Variable(*src),
+                    dst,
+                );
+                continue;
+            }
             Instruction::StoreArray(operand, var) => {
                 if var_stor_to_keep.contains(&var.variable_id) {
                     // Only keep stores to variables that are in the set to keep.
@@ -255,8 +264,8 @@ pub(crate) fn map_variable_use_in_block(
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
 
-            Instruction::Alloca(..) | Instruction::Load(..) => {
-                panic!("alloca/load not supported in ssa transformation")
+            Instruction::Alloca(..) => {
+                panic!("alloca not supported in variable mapping pass")
             }
         }
         block.0.push(instr);

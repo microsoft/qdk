@@ -30,12 +30,12 @@ block_1:
 block_2:
   br label %block_3
 block_3:
-  %var_23 = phi i1 [false, %block_1], [true, %block_2]
+  %var_18 = phi i1 [false, %block_1], [true, %block_2]
   call void @__quantum__rt__tuple_record_output(i64 4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   call void @__quantum__rt__bool_record_output(i1 zeroext %var_1, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
   call void @__quantum__rt__bool_record_output(i1 zeroext %var_5, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
   call void @__quantum__rt__bool_record_output(i1 zeroext %var_9, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_23, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_18, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
   ret i64 0
 }
 

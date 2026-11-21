@@ -65,9 +65,10 @@ pub fn check_and_transform(program: &mut Program) {
         check_types(program);
     }
 
+    prune_unneeded_stores(program);
+
     let uses_non_ssa_pipeline = program.config.capabilities >= Profile::Adaptive.into();
     if uses_non_ssa_pipeline {
-        prune_unneeded_stores(program);
         insert_alloca_load_instrs(program);
         transform_result_literals(program);
     } else {

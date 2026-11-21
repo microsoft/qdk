@@ -715,8 +715,8 @@ fn point_in_time_copy_of_mutable_variable_maintains_value_after_original_mutable
         block_1:
           br label %block_2
         block_2:
-          %var_6 = phi i64 [0, %block_0], [2, %block_1]
-          call void @__quantum__rt__int_record_output(i64 %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          %var_5 = phi i64 [0, %block_0], [2, %block_1]
+          call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
 
