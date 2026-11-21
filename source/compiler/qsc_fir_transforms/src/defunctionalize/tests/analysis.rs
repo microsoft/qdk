@@ -2686,8 +2686,8 @@ fn analysis_closure_through_multiple_levels() {
               param: callable_id=<item 5 in package 2>, path=[0], ty=(Qubit => Unit)
               param: callable_id=<item 6 in package 2>, path=[0], ty=(Qubit => Unit)
             call_sites: 2
-              site: hof=Outer<Empty>, arg=Global(H, Body)
-              site: hof=Inner<Empty>, arg=Dynamic"#]],
+              site: hof=Inner<Empty>, arg=Dynamic
+              site: hof=Outer<Empty>, arg=Global(H, Body)"#]],
     );
     check_rewrite(
         source,

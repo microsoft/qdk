@@ -596,11 +596,11 @@ fn nested_hof_controlled_forwarding() {
                 Outer_AdjCtl_(X, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation Outer_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                Inner_Ctl_(op, q);
-            }
             operation Inner_Ctl_(op : (Qubit => Unit is Ctl), q : Qubit) : Unit {
                 op(q);
+            }
+            operation Outer_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                Inner_Ctl_(op, q);
             }
             // entry
             Main()
@@ -617,11 +617,11 @@ fn nested_hof_controlled_forwarding() {
                 Outer_AdjCtl__X_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation Outer_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                Inner_Ctl_(op, q);
-            }
             operation Inner_Ctl_(op : (Qubit => Unit is Ctl), q : Qubit) : Unit {
                 op(q);
+            }
+            operation Outer_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                Inner_Ctl_(op, q);
             }
             operation Outer_AdjCtl__X_(q : Qubit) : Unit {
                 Inner_Ctl__X_(q);
@@ -1937,9 +1937,9 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
             operation _lambda_3(arg : Int, hole : Qubit) : Unit {
                 Repeat_AdjCtl__H_(arg, hole)
             }
-            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
                 if n > 0 {
-                    H(q);
+                    _lambda_3(__capture_0, q);
                     Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
@@ -1947,9 +1947,9 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
             operation _lambda_3(arg : Int, hole : Qubit) : Unit {
                 Repeat_AdjCtl__H_(arg, hole)
             }
-            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
                 if n > 0 {
-                    _lambda_3(__capture_0, q);
+                    H(q);
                     Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
