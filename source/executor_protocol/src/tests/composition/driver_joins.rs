@@ -12,17 +12,17 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::prelude::*;
-use crate::tests::composition::runner::refused;
+use crate::tests::composition::runner::{SEED, refused};
 use crate::tests::composition::{faults, plain, records};
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, CoinGates, Log, Pool, Profiler, Program, Renamed, Splitter, Spread, Stating,
-    in_each_bracketing, qubits,
+    Bits, CoinCopy, CoinGates, Log, Pool, Profiler, Program, Renamed, Splitter, Spread,
+    StatesNoLimits, Stating, in_each_bracketing, qubits,
 };
 use crate::{
     Batch, BatchReadouts, BlockType, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
     CompositionFault, CompositionFaults, ExecuteError, Feature, FeatureMismatch, Features,
     InstructionDef, InstructionSet, OpcodeMap, PartId, Resource, ResourceMismatch, Resources,
-    RunRefusal, Seed, ShotSet,
+    RunRefusal, Runner, Seed, ShotSet,
 };
 
 /// The instructions of [`CoinGates`] but `missing`, as the set `name`.
@@ -226,6 +226,83 @@ fn a_program_within_what_the_executor_provides_runs_unchanged() {
     let shots = ShotSet::ids(0..32);
     let exact = CoinCopy::new().on(Bits::new(&log).with_resources(qubits(2)));
     assert_eq!(records(exact, &shots), plain(&shots));
+}
+
+/// A part keeping its role's default `provides` states no limit, so a
+/// writer who has not stated a part's limits yet can compose it into any
+/// chain: a program requiring an amount of any resource, or using any
+/// feature, composes and runs, on an executor keeping the default, and
+/// through an adapter keeping it. A default stating a limit, as a part's
+/// real limits do, fails the rows of that limit, as each row's comment
+/// says.
+#[test]
+fn a_part_keeping_the_default_provides_composes_with_any_requirement() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let shots = ShotSet::ids(0..10);
+    let none = Features::unconstrained;
+    let amount = Resources::unconstrained;
+    for (row, resources, features) in [
+        // A default with a most qubits, as a device's register has.
+        ("9 qubits", qubits(9), none()),
+        // A default with a most blocks of another type, as a pool has.
+        (
+            "3 carbon blocks",
+            amount().with_blocks(BlockType::new("carbon"), 3),
+            none(),
+        ),
+        // A default with a most shots in a run, as a job queue has.
+        ("runs of 10 shots", amount().with_shots(10), none()),
+        // A default with a most instructions in a batch, as a link has.
+        (
+            "batches of 4 instructions",
+            amount().with_instructions_per_batch(4),
+            none(),
+        ),
+        // A default stating a feature not provided, as a part providing
+        // none states each.
+        (
+            "readout parities",
+            amount(),
+            none().with_readout_parity(true),
+        ),
+        ("replay", amount(), none().with_replay(true)),
+        ("seeded runs", amount(), none().with_seeded_runs(true)),
+    ] {
+        let program = || {
+            Program::new(&[("mz", 0)])
+                .with_resources(resources.clone())
+                .with_features(features.clone())
+        };
+        // `Executor::provides`' default.
+        composes_and_runs(
+            &format!("{row}, on an executor"),
+            program().on(StatesNoLimits(Bits::new(&log))),
+            &shots,
+        );
+        // `Adapter::provides`' default, which the profiler keeps, over the
+        // same executor.
+        composes_and_runs(
+            &format!("{row}, through an adapter"),
+            program()
+                .through(Profiler::new(&counted, &log))
+                .on(StatesNoLimits(Bits::new(&log))),
+            &shots,
+        );
+    }
+}
+
+/// Runs `shots` with a seed on the chain `composed` makes, as the row
+/// `row`: the chain composes, and the run succeeds.
+fn composes_and_runs<D: Driver, E: Executor>(
+    row: &str,
+    composed: Result<Runner<D, E>, CompositionFaults>,
+    shots: &ShotSet,
+) {
+    let mut runner = composed.unwrap_or_else(|faults| panic!("{row}: {faults:?}"));
+    runner
+        .run(shots, SEED)
+        .unwrap_or_else(|error| panic!("{row}: a run: {error:?}"));
 }
 
 /// A program on 7 qubits, through an encoding of 7 qubits per qubit, over

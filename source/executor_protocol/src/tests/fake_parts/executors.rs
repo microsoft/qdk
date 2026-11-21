@@ -219,6 +219,33 @@ impl<E: Executor> Executor for Later<E> {
     }
 }
 
+/// An executor running as the one it holds, but keeping the default
+/// `provides`: it states no limit.
+pub(crate) struct StatesNoLimits<E>(pub(crate) E);
+
+impl<E: Executor> Executor for StatesNoLimits<E> {
+    fn accepts(&self) -> &InstructionSet {
+        self.0.accepts()
+    }
+
+    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
+        self.0.ready(required).await
+    }
+
+    async fn execute(
+        &mut self,
+        batches: &[Batch<'_>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        self.0.execute(batches, seed, readouts).await
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        self.0.end_shots(shots);
+    }
+}
+
 /// An executor whose answer a worker thread hands over, after `delay`, and
 /// at the first `execute` only once `gate` opens: the run's waker is woken
 /// from that thread.

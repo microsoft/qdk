@@ -10,8 +10,9 @@
 //!   [`CoinGates`] or another set, such as [`ParityGates`], requiring the
 //!   run's shots, and seeded runs if its seed is fixed; [`PassesTheRun`],
 //!   which keeps the default `requires`.
-//! - Executors: [`Bits`], and executors that answer later ([`Later`]) or
-//!   from a thread ([`FromThread`]).
+//! - Executors: [`Bits`]; executors that answer later ([`Later`]) or
+//!   from a thread ([`FromThread`]); and [`StatesNoLimits`], which keeps
+//!   the default `provides`.
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
 //!   [`NamesBelow`], which logs the names of the part below and its set;

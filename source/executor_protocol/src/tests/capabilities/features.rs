@@ -31,8 +31,14 @@ fn missing(feature: Feature) -> FeatureMismatch {
 /// a feature fits unless it is used and the provider states it does not
 /// provide it; a provider that does not state a feature does not limit it,
 /// and a feature stated not used requires nothing, even of a provider that
-/// provides it. A fit refusing any feature both sides state differently
-/// fails the rows of a feature not used over one provided.
+/// provides it. Each feature has a row of each side of the rule. A fit
+/// refusing any feature both sides state differently fails the rows of a
+/// feature not used over one provided; one reading a provider that states
+/// nothing as one stating `false` fails the rows of a feature used over a
+/// provider stating nothing; one refusing every provision stating `false`
+/// fails the rows of a feature not used over one not provided; and one
+/// refusing a feature both sides state used fails the rows of a feature
+/// used over one provided.
 #[test]
 fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
     let parity = |yes| Features::unconstrained().with_readout_parity(yes);
@@ -80,11 +86,42 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
             seeded(false),
             Err(vec![missing(Feature::SeededRuns)]),
         ),
+        ("seeded runs, provided", seeded(true), seeded(true), Ok(())),
+        (
+            "seeded runs, not stated below",
+            seeded(true),
+            Features::unconstrained(),
+            Ok(()),
+        ),
+        (
+            "no seeded runs, provided",
+            seeded(false),
+            seeded(true),
+            Ok(()),
+        ),
+        (
+            "no seeded runs, not provided",
+            seeded(false),
+            seeded(false),
+            Ok(()),
+        ),
         (
             "replay, not replayable",
             Features::unconstrained().with_replay(true),
             Features::unconstrained().with_replay(false),
             Err(vec![missing(Feature::Replay)]),
+        ),
+        (
+            "replay, replayable",
+            Features::unconstrained().with_replay(true),
+            Features::unconstrained().with_replay(true),
+            Ok(()),
+        ),
+        (
+            "replay, not stated below",
+            Features::unconstrained().with_replay(true),
+            Features::unconstrained(),
+            Ok(()),
         ),
         (
             "no replay, not replayable",
