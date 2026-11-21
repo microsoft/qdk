@@ -436,11 +436,19 @@ fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
 }
 
 /// A chain whose parts fall short in several places: every fault, by its
-/// requirer top to bottom, then by its provider. 9 qubits and readout
-/// parities, through a lowering without parities, over bits of 8 qubits:
-/// the parities at the lowering and the qubits at the bits, both the
-/// program's; then an encoding built for 1 qubit, whose 9 qubits pass one
-/// built for 9 unchanged to bits of 8.
+/// requirer top to bottom, then by its provider, each mismatch named by
+/// the part its own value comes from. 9 qubits and readout parities,
+/// through a lowering without parities, over bits of 8 qubits: the
+/// parities at the lowering and the qubits at the bits, both the
+/// program's. Then 8 qubits and 12 shots, through an ancilla's reservation
+/// raising the qubits to 9 and a decoder's limit of 8 qubits, over bits of
+/// 8 qubits and 10 shots: the program's shots at the bits, then the
+/// ancilla's qubits at the decoder and at the bits. A walk naming one
+/// requirer for all a part falls short of lists the bits' two mismatches
+/// under one part; one ordering by provider first lists the decoder's
+/// fault first. Last, an ancilla's reservation of 9 qubits, sending `x`,
+/// over bits of 8 qubits accepting no `x`: one fault for the pair,
+/// holding both the instruction's and the qubits' mismatches.
 #[test]
 fn every_fault_is_listed_by_requirer_then_by_provider() {
     faults_in_each_bracketing!(
@@ -461,18 +469,40 @@ fn every_fault_is_listed_by_requirer_then_by_provider() {
         ],
     );
     faults_in_each_bracketing!(
-        "two short parts",
-        [d, a, b, e] from {
+        "each value by its own requirer",
+        [d, a, c, e] from {
             let log = Log::default();
-            let d = program(3, Features::unconstrained());
-            let a = Spread::new(3, &log).built_for(1);
-            let b = Spread::new(1, &log).built_for(9);
-            let e = bits_over(8, &log);
+            let d = Program::new(&[("mz", 0)]).with_resources(qubits(8).with_shots(12));
+            let a = Stating::reserving_ancillas(1, &log);
+            let c = Stating::capping(8, &log);
+            let e = Bits::new(&log).with_resources(qubits(8).with_shots(10));
         },
         vec![
-            fault(part::<Program>(0), part::<Spread>(1), short_qubits(3, 1)),
-            fault(part::<Spread>(1), part::<Bits>(3), short_qubits(9, 8)),
+            fault(
+                part::<Program>(0),
+                part::<Bits>(3),
+                short(Resource::Shots, 12, 10),
+            ),
+            fault(part::<Stating>(1), part::<Stating>(2), short_qubits(9, 8)),
+            fault(part::<Stating>(1), part::<Bits>(3), short_qubits(9, 8)),
         ],
+    );
+    faults_in_each_bracketing!(
+        "an instruction and qubits at one pair",
+        [d, a, e] from {
+            let log = Log::default();
+            let d = program(8, Features::unconstrained());
+            let a = Stating::reserving_ancillas(1, &log);
+            let e = Bits::accepting(no_x(), &log).with_resources(qubits(8));
+        },
+        vec![fault(
+            part::<Stating>(1),
+            part::<Bits>(2),
+            BoundaryMismatch {
+                capabilities: short_qubits(9, 8).capabilities,
+                ..instructions(&CoinGates::set(), &no_x())
+            },
+        )],
     );
 }
 
@@ -633,20 +663,28 @@ fn a_wrapped_joined_part_requires_what_its_parts_require() {
 /// Faults of each kind, an instruction's and a resource's at one pair
 /// included, with parts named by their types, or, as a part built at run
 /// time is, by what it was built from: each fault names its parts by
-/// those names, in its fields and in its message, beside every mismatch.
+/// those names, in its fields and in its message, beside every mismatch:
+/// the mnemonic of an instruction not accepted, `toffoli`, which nothing
+/// else in the message says, and the amounts of a resource.
 #[test]
 fn a_composition_fault_names_its_parts_and_every_mismatch() {
     let log = Log::default();
     let named = |position, name| PartId::new(position, name);
-    let x = instructions(&CoinGates::set(), &no_x()).instructions[0].to_string();
+    let qubit = BlockType::qubit;
+    let toffoli = InstructionDef::new("toffoli").acts_on([qubit(), qubit(), qubit()]);
+    let toffolis = || {
+        let set = InstructionSet::new("Toffolis", [(qubit(), 1)], [toffoli.clone()]);
+        Program::sending(Vec::new(), set.expect("a valid set"))
+    };
+    let mnemonic = "toffoli".to_owned();
     let nine_qubits = short_qubits(9, 8).capabilities.resources[0].to_string();
     let nine_over_four = short_qubits(9, 4).capabilities.resources[0].to_string();
     let rows = [
         (
             "an instruction",
-            faults(CoinCopy::new().on(Bits::accepting(no_x(), &log))),
-            vec![(part::<CoinCopy>(0), part::<Bits>(1))],
-            vec![&x],
+            faults(toffolis().on(Bits::new(&log))),
+            vec![(part::<Program>(0), part::<Bits>(1))],
+            vec![&mnemonic],
         ),
         (
             "qubits",
@@ -657,11 +695,12 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
         (
             "an instruction and qubits at one pair",
             faults(
-                program(9, Features::unconstrained())
-                    .on(Bits::accepting(no_x(), &log).with_resources(qubits(8))),
+                toffolis()
+                    .with_resources(qubits(9))
+                    .on(Bits::new(&log).with_resources(qubits(8))),
             ),
             vec![(part::<Program>(0), part::<Bits>(1))],
-            vec![&x, &nine_qubits],
+            vec![&mnemonic, &nine_qubits],
         ),
         (
             "parts built at run time",
