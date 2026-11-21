@@ -38,14 +38,14 @@ for the part to get ready for on every run.
 
 [`Runner::run`](../src/composition/runner.rs) runs a
 [`ShotSet`](../src/batch/shot_set.rs) with a seed, a `u64` or `None`, blocking
-the calling thread, and [`Runner::run_async`](../src/composition/runner.rs) is the
-same run as a future; either gives the driver's outputs, one per shot by
-[`Driver::drive`](../src/roles/driver.rs)'s rule, which the runner does not check, or a
-[`RunError`](../src/composition/runner/run_error.rs), as
-[Failures and panics](#failures-and-panics) says. The rustdoc of
-[`Runner::run_async`](../src/composition/runner.rs) gives the order in which a run
-asks each part whether it is `ready` and ends its shots, and when the
-future is `Send`.
+the calling thread, and [`Runner::run_async`](../src/composition/runner.rs) is
+the same run as a future; either gives the driver's outputs, one per shot by
+[`Driver::drive`](../src/roles/driver.rs)'s rule, which the runner does not
+check, or a [`RunError`](../src/composition/runner/run_error.rs), as [Failures
+and panics](#failures-and-panics) says. The rustdoc of
+[`Runner::run_async`](../src/composition/runner.rs) gives the order in which a
+run asks each part whether it is `ready` and ends its shots, and when the future
+is `Send`.
 
 ## Seeds
 

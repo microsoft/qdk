@@ -43,12 +43,13 @@ chain and names it.
 
 ## The admission
 
-The `on` that makes a runner checks, at every boundary, the needs that
-reach it against the offer there, and refuses the chain when any falls
-short ([`UnmetNeed`](../src/needs.rs)). The refusal
-([`AdmissionFaults`](../src/composition/chain_check/admission.rs)) lists each part's needs and
-offer, and names the parts it finds short
-([`ShortOffer`](../src/composition/chain_check/admission.rs)), each by its position and its name
-([`PartId`](../src/composition/part_id.rs)); an adapter that only
-passes a shortage up, such as a profiler, is not named. Which parts a
-refusal names is in [`composition/chain_check/admission.rs`](../src/composition/chain_check/admission.rs).
+The `on` that makes a runner checks, at every boundary, the needs that reach it
+against the offer there, and refuses the chain when any falls short
+([`UnmetNeed`](../src/needs.rs)). The refusal
+([`AdmissionFaults`](../src/composition/chain_check/admission.rs)) lists each
+part's needs and offer, and names the parts it finds short
+([`ShortOffer`](../src/composition/chain_check/admission.rs)), each by its
+position and its name ([`PartId`](../src/composition/part_id.rs)); an adapter
+that only passes a shortage up, such as a profiler, is not named. Which parts a
+refusal names is in
+[`composition/chain_check/admission.rs`](../src/composition/chain_check/admission.rs).

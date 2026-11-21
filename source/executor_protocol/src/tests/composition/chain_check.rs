@@ -59,12 +59,21 @@ fn fit_faults(sent: &InstructionSet, accepted: &InstructionSet) -> FitFaults {
 
 /// A code level whose sets do not fit at any of its three boundaries, in
 /// each bracketing, so that each join meets a boundary that does not fit
-/// (a driver or an adapter through an adapter, either on an executor):
-/// the runner is never made, and the fault holds each boundary, top to
-/// bottom, with both sets named.
+/// (a driver or an adapter through an adapter, either on an executor),
+/// and with its joined lower parts lent by `&mut` to the `on` of two
+/// chains, as an executor or as an adapter: the runner is never made, and
+/// each chain's fault holds each boundary, top to bottom, with both sets
+/// named.
 #[test]
 fn every_boundary_that_does_not_fit_is_a_fault_of_the_chain() {
     let counted = Rc::new(Cell::new(0));
+    let expected = || {
+        [
+            fit_faults(&CoinGates::set(), &no_x()),
+            fit_faults(&no_x(), &no_mz()),
+            fit_faults(&no_mz(), &no_h()),
+        ]
+    };
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
@@ -73,16 +82,31 @@ fn every_boundary_that_does_not_fit_is_a_fault_of_the_chain() {
             let b = Profiler::on(no_mz(), &counted, &log);
             let e = Bits::accepting(no_h(), &log);
         },
-        |chain, brackets| assert_eq!(
-            faults(chain).fit(),
-            [
-                fit_faults(&CoinGates::set(), &no_x()),
-                fit_faults(&no_x(), &no_mz()),
-                fit_faults(&no_mz(), &no_h()),
-            ],
-            "{brackets}"
-        ),
+        |chain, brackets| assert_eq!(faults(chain).fit(), expected(), "{brackets}"),
     );
+    let log = Log::default();
+    let profiler = |set| Profiler::on(set, &counted, &log);
+    let mut lent_executor = profiler(no_x())
+        .through(profiler(no_mz()))
+        .on(Bits::accepting(no_h(), &log));
+    let mut lent_adapter = profiler(no_x()).through(profiler(no_mz()));
+    for chain in ["first", "second"] {
+        assert_eq!(
+            faults(CoinCopy::new().on(&mut lent_executor)).fit(),
+            expected(),
+            "a lent executor, {chain} chain"
+        );
+        assert_eq!(
+            faults(
+                CoinCopy::new()
+                    .through(&mut lent_adapter)
+                    .on(Bits::accepting(no_h(), &log))
+            )
+            .fit(),
+            expected(),
+            "a lent adapter, {chain} chain"
+        );
+    }
 }
 
 // --------------------------------------------------------- the faults together

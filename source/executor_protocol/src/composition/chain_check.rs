@@ -51,7 +51,7 @@ impl ChainCheck {
     /// added its facts; and what crosses that boundary.
     pub(crate) fn of(
         driver: &mut impl Driver,
-        mut fit_faults: Option<FitFaults>,
+        fit_faults: Option<&FitFaults>,
         executor: &mut impl Executor,
     ) -> (Self, Crossing) {
         let mut chain = Self::new();
@@ -59,12 +59,13 @@ impl ChainCheck {
         driver.check_chain(
             &mut |needs, chain| {
                 let receiver = executor.accepts().clone();
-                let crossed = chain.cross(fit_faults.take(), needs, receiver, |needs, chain| {
-                    executor.check_chain(needs, chain)
-                });
-                let offer = crossed.offer.clone();
-                crossing = Some(crossed);
-                offer
+                chain.cross(
+                    &mut crossing,
+                    fit_faults,
+                    needs,
+                    receiver,
+                    |needs, chain| executor.check_chain(needs, chain),
+                )
             },
             &mut chain,
         );
@@ -100,23 +101,28 @@ impl ChainCheck {
     /// Crosses the next boundary down, to a receiver of `receiver`'s
     /// instructions, whose join found `fit_faults`, if it does not fit:
     /// adds them, then has the chain below it add its facts for `needs`,
-    /// with `check_below`, which gives the offer that crosses the boundary
-    /// up. The check crosses the boundaries top to bottom, so the fit
-    /// faults are added in that order.
+    /// with `check_below`; keeps what crosses the boundary in `crossing`,
+    /// and gives the offer that crosses it up. The check crosses the
+    /// boundaries top to bottom, so the fit faults are added in that order.
+    /// They are copied, not moved out of the join that found them: a joined
+    /// part lent by `&mut` to the `on` of another chain is checked again,
+    /// and its boundaries' faults must be found again.
     pub(crate) fn cross(
         &mut self,
-        fit_faults: Option<FitFaults>,
+        crossing: &mut Option<Crossing>,
+        fit_faults: Option<&FitFaults>,
         needs: Needs,
         receiver: InstructionSet,
         check_below: impl FnOnce(Needs, &mut Self) -> Offer,
-    ) -> Crossing {
-        self.fit_faults.extend(fit_faults);
+    ) -> Offer {
+        self.fit_faults.extend(fit_faults.cloned());
         let offer = check_below(needs.clone(), self);
         let (part, _) = self
             .offers
             .last()
             .expect("the part below the boundary added its offer");
-        Crossing::new(part.clone(), needs, offer, receiver)
+        *crossing = Some(Crossing::new(part.clone(), needs, offer.clone(), receiver));
+        offer
     }
 
     /// Adds `needs` as those of the part `name`, the next one down: the

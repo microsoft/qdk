@@ -40,7 +40,7 @@ is the parity of the shot's earlier readouts, which the coin never sends;
 and only the example's test reads its counts of checked and unchecked
 batches, as an executor need not count them:
 
-````rust
+```rust
 impl Executor for Bits {
     fn accepts(&self) -> &InstructionSet {
         &self.set
@@ -102,7 +102,8 @@ impl Executor for Bits {
             self.shots.remove(&id);
         }
     }
-}```
+}
+```
 
 `Bits` never waits, yet writes `async fn execute`, so that its work runs
 when the future is polled ([the rules](#the-rules-a-part-keeps)).
@@ -164,4 +165,3 @@ as [Needs, offers and the admission](admission.md#needs-and-offers) says.
 For example, a tensor-network sampler draws a run's shots from one
 stream, to draw them in one call rather than one call per shot: a shot
 run again alone draws other readouts.
-````

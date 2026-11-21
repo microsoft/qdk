@@ -54,7 +54,7 @@ pub trait DriverJoins: Driver + Sized {
         let fit_faults = fit(self.sends(), executor.accepts())
             .map(|below| self.bind(below))
             .err();
-        let (chain, crossing) = ChainCheck::of(&mut self, fit_faults, &mut executor);
+        let (chain, crossing) = ChainCheck::of(&mut self, fit_faults.as_ref(), &mut executor);
         let driver_part = chain
             .first_needing()
             .expect("the driver added its needs first");

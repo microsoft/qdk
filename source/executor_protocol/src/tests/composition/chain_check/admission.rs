@@ -438,11 +438,59 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_short_offers() {
 /// 13 swapped. Each part the joins make of them, in each bracketing, offers
 /// what the admission reads at the boundary above it, whether it is an
 /// executor or an adapter over the bits: each adapter's offer applied to
-/// the offer below it, the lower adapter's first.
+/// the offer below it, the lower adapter's first. Likewise for needs, of
+/// 2 qubits and a carbon block through the encoding over a pool, whose
+/// needs do not commute (16 qubits in this order, 21 swapped): each part
+/// the joins make needs what the admission reads below it, whether it is
+/// a driver or an adapter under the program, the upper adapter's first.
 #[test]
-fn a_composed_part_offers_what_the_admission_reads_above_it() {
+fn a_composed_part_needs_and_offers_what_the_admission_reads_at_its_boundaries() {
     let log = Log::default();
+    let program_needs = Needs::qubits(2).blocks(Pool::carbon(), 1);
+    let program = || Program::new(&[("mz", 0)]).needing(program_needs.clone());
+    let pool = || Pool::new(&log);
     let encoding = || Spread::new(7, &log);
+    let read = admission(
+        program()
+            .through(encoding())
+            .through(pool())
+            .on(Bits::new(&log).offering(Offer::unlimited().max_qubits(15))),
+    )
+    .needs_by_part;
+    let [_, (_, below_the_encoding), (_, below_both)] = read.as_slice() else {
+        panic!("the needs of the program, the encoding and the pool: {read:?}");
+    };
+    assert_eq!(
+        below_both,
+        &Needs::qubits(16),
+        "the admission reads the encoding's needs first"
+    );
+    for (row, needed, read) in [
+        (
+            "program.through(encoding)",
+            program().through(encoding()).needs(),
+            below_the_encoding,
+        ),
+        (
+            "program.through(encoding).through(pool)",
+            program().through(encoding()).through(pool()).needs(),
+            below_both,
+        ),
+        (
+            "program.through(encoding.through(pool))",
+            program().through(encoding().through(pool())).needs(),
+            below_both,
+        ),
+        (
+            "encoding.through(pool), under the program",
+            encoding()
+                .through(pool())
+                .needs_below(program_needs.clone()),
+            below_both,
+        ),
+    ] {
+        assert_eq!(&needed, read, "{row}");
+    }
     let ancilla = || Offering::reserving_an_ancilla(&log);
     let bits = || Bits::new(&log).offering(Offer::unlimited().max_qubits(100));
     let read = admission(

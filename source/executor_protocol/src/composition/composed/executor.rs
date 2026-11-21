@@ -74,12 +74,13 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
             above,
             &mut |middle, chain| {
                 let receiver = lower.accepts().clone();
-                let crossed = chain.cross(fit_faults.take(), middle, receiver, |needs, chain| {
-                    lower.check_chain(needs, chain)
-                });
-                let offer = crossed.offer.clone();
-                *crossing = Some(crossed);
-                offer
+                chain.cross(
+                    crossing,
+                    fit_faults.as_ref(),
+                    middle,
+                    receiver,
+                    |needs, chain| lower.check_chain(needs, chain),
+                )
             },
             chain,
         )

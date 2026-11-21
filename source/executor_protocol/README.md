@@ -97,14 +97,14 @@ Today the protocol holds:
   [`ExecuteError`](src/roles/executor.rs),
   [`DriveError`](src/roles/driver.rs) and then
   [`RunError`](src/composition/runner/run_error.rs).
-- **Guarantees at composition:** each join checks that the instructions the
-  part above sends fit those the part below accepts
-  ([`FitFaults`](src/instruction_set/fit.rs)). The `on` that makes a
-  runner also checks that, at every boundary, the needs that reach it fit
-  the offer there ([`AdmissionFaults`](src/composition/chain_check/admission.rs)). A chain that
+- **Guarantees at composition:** each join checks that the instructions the part
+  above sends fit those the part below accepts
+  ([`FitFaults`](src/instruction_set/fit.rs)). The `on` that makes a runner also
+  checks that, at every boundary, the needs that reach it fit the offer there
+  ([`AdmissionFaults`](src/composition/chain_check/admission.rs)). A chain that
   fails either check is refused with every fault at once
-  ([`CompositionFaults`](src/composition/chain_check/composition_faults.rs)): a fit's
-  by the names of its instruction sets, the admission's by part
+  ([`CompositionFaults`](src/composition/chain_check/composition_faults.rs)): a
+  fit's by the names of its instruction sets, the admission's by part
   ([`PartId`](src/composition/part_id.rs)), before any shot runs.
 - **Guarantees at run time:** the `Runner` carries each call down the
   chain, checking each batch (its count always, its instructions when its
@@ -204,21 +204,20 @@ Users join the parts top to bottom, `through` each adapter and `on` the
 executor. A chain then has two times, each calling its own methods of
 each part's trait:
 
-- **Setup**, once, when the parts are joined: each join checks the fit of
-  the boundary it makes and, where it fits, binds the part above to the
-  opcodes of the part below (`bind`); the `on` that joins a driver with an
-  executor also checks the admission, and gives a
-  [`Runner`](src/composition/runner.rs), or every fault of the chain.
-  Setup only decides, from what the parts declare; what prepares a part to
-  run belongs to each run.
+- **Setup**, once, when the parts are joined: each join checks the fit of the
+  boundary it makes and, where it fits, binds the part above to the opcodes of
+  the part below (`bind`); the `on` that joins a driver with an executor also
+  checks the admission, and gives a [`Runner`](src/composition/runner.rs), or
+  every fault of the chain. Setup only decides, from what the parts declare;
+  what prepares a part to run belongs to each run.
 - **Each run**, each time [`Runner::run`](src/composition/runner.rs) runs a
   [`ShotSet`](src/batch/shot_set.rs) with a seed: the run checks its shots and
-  its seed against the parts' offers, gets each part `ready` for the
-  needs the admission checked, or is refused by the first that cannot
-  take a run now, lets the driver send its batches down the chain (`drive`, then
-  each `adapt`, then `execute`), and, once it ends, ends its shots on
-  every part. It gives the driver's outputs, one per shot by
-  `Driver::drive`'s rule, or a [`RunError`](src/composition/runner/run_error.rs).
+  its seed against the parts' offers, gets each part `ready` for the needs the
+  admission checked, or is refused by the first that cannot take a run now, lets
+  the driver send its batches down the chain (`drive`, then each `adapt`, then
+  `execute`), and, once it ends, ends its shots on every part. It gives the
+  driver's outputs, one per shot by `Driver::drive`'s rule, or a
+  [`RunError`](src/composition/runner/run_error.rs).
 
 A run's calls:
 
@@ -262,7 +261,7 @@ executor whose qubits are classical bits. Copied from
 writes the three parts and the helpers `SEED` and `text`; its tests run it.
 `BitFlip::new(0.2)` undoes each `x` with probability 0.2:
 
-````rust
+```rust
 /// The three parts, joined: `coin`, under 20% bit-flip noise, on `bits`
 /// (a [`Bits`], or a borrow of one, to read what it counted after a run).
 ///
@@ -313,7 +312,8 @@ fn main() {
         .run(&ShotSet::ids(0..2000), SEED)
         .expect_err("Bits runs at most 1000 shots");
     println!("\n2000 shots: {refused}");
-}```
+}
+```
 
 Run it with `cargo run -p executor_protocol --example compose_and_run`.
 
@@ -333,8 +333,8 @@ mechanics and edge cases.
 - [Needs, offers and the admission](docs/admission.md): what a part needs
   and offers, replay included, how an adapter adapts both, and what a
   refusal names.
-- [Composing and running a chain](docs/composing-and-running.md): the
-  joins and the role each gives, a run's steps, seeds, where and when each check runs, and
+- [Composing and running a chain](docs/composing-and-running.md): the joins and
+  the role each gives, a run's steps, seeds, where and when each check runs, and
   failures and panics.
 
 ## Planned extensions
@@ -360,7 +360,7 @@ against a driver that calls its executor directly.
 ```text
 cargo test -p executor_protocol
 cargo run --release -p executor_protocol --example bench
-````
+```
 
 ## Platforms
 

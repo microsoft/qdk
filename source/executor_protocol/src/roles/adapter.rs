@@ -212,6 +212,9 @@ pub trait Adapter {
     }
 }
 
+// A lent adapter is the adapter itself: every method forwards, and the
+// lint fails the build if a new one falls back to its default instead.
+#[deny(clippy::missing_trait_methods)]
 impl<A: Adapter + ?Sized> Adapter for &mut A {
     fn name(&self) -> &str {
         (**self).name()

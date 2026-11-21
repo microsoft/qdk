@@ -56,10 +56,12 @@ pub trait Executor {
     /// default's text is a module path, whose format the standard library
     /// does not guarantee. Two parts of one name are told apart by their
     /// position ([`PartId`](crate::PartId)). Parts joined by
-    /// [`through`](crate::AdapterJoins::through) or
-    /// [`on`](crate::AdapterJoins::on) answer the name of their top part,
-    /// the one that receives their calls. The protocol's messages use the
-    /// name read by the [`on`](crate::DriverJoins::on) that makes a runner.
+    /// [`DriverJoins::through`](crate::DriverJoins::through),
+    /// [`AdapterJoins::through`](crate::AdapterJoins::through) or
+    /// [`AdapterJoins::on`](crate::AdapterJoins::on) answer the name of
+    /// their top part, the one written first. The protocol's messages use
+    /// the name read by the [`on`](crate::DriverJoins::on) that makes a
+    /// runner.
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
@@ -207,6 +209,9 @@ pub trait Executor {
     }
 }
 
+// A lent executor is the executor itself: every method forwards, and the
+// lint fails the build if a new one falls back to its default instead.
+#[deny(clippy::missing_trait_methods)]
 impl<E: Executor + ?Sized> Executor for &mut E {
     fn name(&self) -> &str {
         (**self).name()

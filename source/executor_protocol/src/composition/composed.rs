@@ -56,9 +56,10 @@ pub struct Composed<U, L> {
     upper: U,
     lower: L,
     /// The faults of the boundary between the halves, when the upper half
-    /// does not fit the lower one, as the join found them: the
-    /// [`on`](crate::DriverJoins::on) that makes the runner reports them
-    /// with every other fault of the chain.
+    /// does not fit the lower one, as the join found them: every
+    /// [`on`](crate::DriverJoins::on) that makes a runner of a chain
+    /// holding this part, itself or lent by `&mut`, reports them with every
+    /// other fault of that chain.
     fit_faults: Option<FitFaults>,
     /// What crosses that boundary, kept when the
     /// [`on`](crate::DriverJoins::on) that makes the runner checks the

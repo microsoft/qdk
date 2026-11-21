@@ -15,6 +15,7 @@ mod chain_check;
 mod part_panics;
 mod runner;
 
+use std::any::type_name;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -151,6 +152,34 @@ fn where_the_brackets_go_changes_no_record() {
         },
         |chain, brackets| assert_eq!(records(chain, &shots), expected, "{brackets}"),
     );
+}
+
+/// Each role's part joined over another, as its users name it in their
+/// logs and reports: it answers the name of its top part, the one its
+/// caller wrote first.
+#[test]
+fn a_joined_part_is_named_for_its_top_part() {
+    let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    for (row, named, top) in [
+        (
+            "a driver through an adapter",
+            Driver::name(&CoinCopy::new().through(Spread::new(2, &log))).to_owned(),
+            type_name::<CoinCopy>(),
+        ),
+        (
+            "an adapter through an adapter",
+            Adapter::name(&Profiler::new(&counted, &log).through(Spread::new(2, &log))).to_owned(),
+            type_name::<Profiler>(),
+        ),
+        (
+            "an adapter on an executor",
+            Executor::name(&Spread::new(2, &log).on(Bits::new(&log))).to_owned(),
+            type_name::<Spread>(),
+        ),
+    ] {
+        assert_eq!(named, top, "{row}");
+    }
 }
 
 // ------------------------------------------------- what each run is told
