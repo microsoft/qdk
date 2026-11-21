@@ -70,7 +70,8 @@ Today the protocol holds:
   none, and composes with any part on them. A part that states some gives
   its fixed limits on what arrives at it (`provides`), and what it
   requires of the part below given what arrives (`requires`): what it
-  passes below unchanged is checked at every part below that limits it.
+  passes below unchanged arrives at each part below it, down to the first
+  that changes it, and is checked at each.
 - **Instruction sets:** each role states the instructions it sends
   (`sends`) or accepts (`accepts`) as an
   [`InstructionSet`](src/instruction_set.rs). Each

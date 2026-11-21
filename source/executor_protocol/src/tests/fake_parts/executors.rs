@@ -220,7 +220,7 @@ impl<E: Executor> Executor for Later<E> {
 }
 
 /// An executor running as the one it holds, but keeping the default
-/// `provides`: it states no limit.
+/// `provides`: it states nothing.
 pub(crate) struct StatesNoLimits<E>(pub(crate) E);
 
 impl<E: Executor> Executor for StatesNoLimits<E> {

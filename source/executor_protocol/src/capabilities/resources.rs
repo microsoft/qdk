@@ -13,8 +13,8 @@ use crate::BlockType;
 /// shots a run holds, and the most instructions a batch holds.
 ///
 /// Required, each is the most the part's shots, runs or batches reach;
-/// provided, the most the part takes. A part that states none neither
-/// needs nor limits it. A checked batch, though, may use no block of a
+/// provided, the most the part takes. A part that does not state one
+/// neither needs nor limits it. A checked batch, though, may use no block of a
 /// type the requirement arriving at its receiver does not state.
 ///
 /// Built from [`unconstrained`](Self::unconstrained), which states

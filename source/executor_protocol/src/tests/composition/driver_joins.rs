@@ -228,7 +228,7 @@ fn a_program_within_what_the_executor_provides_runs_unchanged() {
     assert_eq!(records(exact, &shots), plain(&shots));
 }
 
-/// A part keeping its role's default `provides` states no limit, so a
+/// A part keeping its role's default `provides` states nothing, so a
 /// writer who has not stated a part's limits yet can compose it into any
 /// chain: a program requiring an amount of any resource, or using any
 /// feature, composes and runs, on an executor keeping the default, and
@@ -520,7 +520,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
         )],
     );
     faults_in_each_bracketing!(
-        "qubits over an executor stating none",
+        "qubits over an executor not stating them",
         [d, a, e] from {
             let log = Log::default();
             let d = program(5, Features::unconstrained());

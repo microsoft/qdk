@@ -60,7 +60,7 @@ pub trait Adapter {
     /// most shots, or an encoding's most logical qubits: what arrives must
     /// fit them, as [`Capabilities`] says.
     ///
-    /// By default [`Capabilities::UNCONSTRAINED`]: it states no limit.
+    /// By default [`Capabilities::UNCONSTRAINED`]: it states nothing.
     /// Stating its real limits is the writer's job: an adapter that does
     /// not lets `on` accept a chain that sends it more than it can take,
     /// which then fails as it runs.

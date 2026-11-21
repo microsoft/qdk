@@ -7,7 +7,7 @@ each part, and where each statement is checked. The terms are those of the
 
 ## By default, nothing
 
-A part that states no capability composes with any part on them, so most
+A part that does not state a capability composes with any part on it, so most
 writers write only the instructions their part accepts and sends
 (`accepts`, `sends`, as [Instruction sets](instruction-sets.md) says). The
 three defaults:
@@ -134,7 +134,7 @@ Other cases, each in the same tests:
 | Chain                                                                                | Verdict                                                  |
 | ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
 | a program on 5 qubits, through a logger, over bits of 4                              | refused, naming the program and the bits                 |
-| the same, over bits stating no qubits                                                | composes                                                 |
+| the same, over bits not stating qubits                                               | composes                                                 |
 | a program on 5 qubits, through the interleaver, over bits of 4                       | refused, naming the program and the bits                 |
 | a program on 3 qubits, through a part reserving 2 ancillas, over bits of 4           | refused, naming the reserving part and the bits          |
 | a program on 5 qubits, through a decoder taking 4, over bits of 10                   | refused, naming the program and the decoder              |

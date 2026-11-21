@@ -243,7 +243,8 @@ impl<D: Driver, E: Executor> Runner<D, E> {
 /// What a run of `shots` shots requires: that many shots, and seeded runs
 /// if `seeded`, its seed being fixed.
 fn run_requirement(shots: usize, seeded: bool) -> Capabilities {
-    // A run of more shots than a `u32` counts cannot be provided anyway.
+    // A run of more shots than a `u32` counts is checked as `u32::MAX`
+    // shots, the most a part can state.
     let shots = u32::try_from(shots).unwrap_or(u32::MAX);
     let features = if seeded {
         Features::unconstrained().with_seeded_runs(true)

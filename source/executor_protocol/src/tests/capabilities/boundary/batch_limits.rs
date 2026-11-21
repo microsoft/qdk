@@ -686,7 +686,7 @@ fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
             beyond("prepare", 0, 0),
         ),
         (
-            "`h` on qubit 0, of shots stating no qubits",
+            "`h` on qubit 0, of shots not stating qubits",
             on("h", &[0]),
             (Resources::unconstrained(), Features::unconstrained()),
             beyond("h", 0, 0),

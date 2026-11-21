@@ -141,8 +141,8 @@ fn a_required_feature_fits_unless_the_provider_states_it_does_not_provide_it() {
 }
 
 /// A shot run again alone runs with its run's seed: a part that states
-/// replay states seeded runs, and one that states runs that cannot be
-/// seeded states no replay, whichever it states last; so replay is not
+/// replay states seeded runs, and one that states seeded runs `false`
+/// states replay `false`, whichever it states last; so replay is not
 /// provided over runs that cannot be seeded, nor through a part that
 /// replays its shots over them, which still requires the seeded runs.
 #[test]

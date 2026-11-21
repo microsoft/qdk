@@ -73,8 +73,8 @@ impl Features {
 
     /// These features, with seeded runs used, or taken, as `yes` says; a
     /// quantum computer's measurements cannot be seeded. A shot is replayed
-    /// with its run's seed, so `false` also states no replay: no builder
-    /// states replay without seeded runs.
+    /// with its run's seed, so `false` also states replay `false`: no
+    /// builder states replay without seeded runs.
     #[must_use]
     pub fn with_seeded_runs(self, yes: bool) -> Self {
         let seeded = self.with(Feature::SeededRuns, yes);

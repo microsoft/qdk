@@ -131,8 +131,8 @@ impl Profiler {
         Self::on(CoinGates::set(), instructions, log)
     }
 
-    /// A profiler accepting and sending `set`, stating no resource or
-    /// feature: it passes what arrives below.
+    /// A profiler accepting and sending `set`, not stating any resource
+    /// or feature: it passes what arrives below.
     pub(crate) fn on(set: InstructionSet, instructions: &Rc<Cell<usize>>, log: &Log) -> Self {
         Self {
             set,
@@ -193,7 +193,8 @@ impl Adapter for Profiler {
 /// part below in its own errors would read it, then the name of the set
 /// the part below accepts as `below accepts: <set>`, and the most
 /// instructions a batch it provides for as `below takes <most> a batch`
-/// (`None` when it states none). It states no resource or feature.
+/// (`None` when it does not state one). It does not state any resource
+/// or feature.
 pub(crate) struct NamesBelow {
     below: Option<OpcodeMap>,
     log: Log,
@@ -510,8 +511,9 @@ impl Stating {
     }
 
     /// A toy repetition, running each shot `times` times below: it
-    /// requires `times` as many shots below as arrive, and states none if
-    /// none arrive. A declaration fake: it passes each run below as it is.
+    /// requires `times` as many shots below as arrive, and does not state
+    /// shots if none arrive. A declaration fake: it passes each run below
+    /// as it is.
     pub(crate) fn repeating_shots(times: u32, log: &Log) -> Self {
         Self::new(log, Capabilities::UNCONSTRAINED, move |above| {
             match above.resources().get(&Resource::Shots) {

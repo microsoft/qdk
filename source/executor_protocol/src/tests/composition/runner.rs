@@ -1018,8 +1018,8 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
             takes_at_most(&row, runner(chain), most, &log);
         });
     }
-    // Bits running 1 shot at most, under a decoder that states no shot
-    // limit: the bits' limit still holds.
+    // Bits running 1 shot at most, under a decoder that does not state
+    // shots: the bits' limit still holds.
     in_each_bracketing!([d, decoder, e] from {
         let d = CoinCopy::new();
         let decoder = Stating::capping(64, &log);
@@ -1177,8 +1177,8 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
 /// A seeded run arrives at each part below its driver, passed unchanged
 /// by the driver by default, and by each part that does not require
 /// otherwise, in every bracketing: a seeded run on a chain where one of
-/// them states no seeded runs is refused before any part is asked or
-/// runs, and a run with no seed runs. So an adapter may take seeded runs
+/// them states seeded runs `false` is refused before any part is asked
+/// or runs, and a run with no seed runs. So an adapter may take seeded runs
 /// away from a chain, and provide them only by requiring none below, as a
 /// sampler seeding its own draws does.
 #[test]
@@ -1195,8 +1195,8 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
     // its features, runs a seeded run.
     let passed = runner(PassesTheRun(CoinCopy::new()).on(bits_without_seeded_runs()));
     refuses_a_seed("a driver passing the run", passed, 4, &log);
-    // Bits without seeded runs, under a decoder that states no seeded
-    // runs: the bits' still holds.
+    // Bits without seeded runs, under a decoder that does not state
+    // seeded runs: the bits' `false` still holds.
     in_each_bracketing!([d, decoder, e] from {
         let d = CoinCopy::new();
         let decoder = Stating::capping(64, &log);

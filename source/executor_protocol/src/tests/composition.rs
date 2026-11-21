@@ -369,7 +369,7 @@ fn logged_over_two_runs<D: Driver, E: Executor>(
 /// each part below it gets ready for the program's 1 qubit, which they
 /// pass. Through an interleaver running each shot on 3 qubits at least,
 /// the bits get ready for a program's 5 qubits, or for 3 under a program
-/// of 2; over bits that state no qubits, for the program's 5; and for 30
+/// of 2; over bits that do not state qubits, for the program's 5; and for 30
 /// through an encoding of 3 built for 10, under a program of 10.
 #[test]
 fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
@@ -444,7 +444,7 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
         |chain, brackets| assert_eq!(
             logged_over_two_runs(chain, &log, "Bits ready"),
             ready_for(5),
-            "over bits stating none, {brackets}"
+            "over bits not stating qubits, {brackets}"
         ),
     );
     in_each_bracketing!(
@@ -537,7 +537,7 @@ fn a_driver_gets_ready_for_its_run_however_it_is_joined_or_wrapped() {
 /// One device's stack, an encoding on bits, kept across programs: lent to
 /// a program of 1 qubit, then to one of 3, each run gets the bits ready
 /// for what that run's program requires, which passes the encoding, as it
-/// states no qubits.
+/// does not state qubits.
 #[test]
 fn a_joined_part_gets_ready_for_what_each_chain_it_is_lent_to_requires() {
     let log = Log::default();
@@ -558,7 +558,7 @@ fn a_joined_part_gets_ready_for_what_each_chain_it_is_lent_to_requires() {
 /// that take 2 instructions a batch, then to one over bits that take 1,
 /// each adapter reads, on each run, what the part directly below it
 /// provides: the lower one, that run's bits; the upper one, the lower
-/// adapter's own limits, which state no count, never the bits' through
+/// adapter's own limits, which do not state one, never the bits' through
 /// it.
 #[test]
 fn an_adapter_reads_what_the_part_directly_below_provides_in_each_chain_it_is_lent_to() {

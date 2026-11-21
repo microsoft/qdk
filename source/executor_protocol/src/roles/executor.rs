@@ -78,7 +78,7 @@ pub trait Executor {
     /// qubits, its most shots in a run, or whether a run may fix its seed:
     /// what arrives must fit them, as [`Capabilities`] says.
     ///
-    /// By default [`Capabilities::UNCONSTRAINED`]: it states no limit.
+    /// By default [`Capabilities::UNCONSTRAINED`]: it states nothing.
     /// Stating its real limits is the writer's job: an executor that does
     /// not lets `on` accept a chain it cannot run, which then fails as it
     /// runs.
