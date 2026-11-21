@@ -26,7 +26,7 @@ mod composition_faults;
 use std::sync::{Arc, Weak};
 
 use crate::composition::FitFaults;
-use crate::composition::boundary_crossing::Crossing;
+use crate::composition::boundary_crossing::Boundary;
 use crate::composition::runner::RunLimits;
 use crate::{Driver, Executor, InstructionSet, Needs, Offer, PartId};
 
@@ -47,22 +47,21 @@ pub struct ChainCheck {
     own_offers: Vec<Offer>,
     /// The fit faults of each boundary that has some, top to bottom.
     fit_faults: Vec<FitFaults>,
-    /// What crosses each boundary the check crossed, as it found it, held
-    /// for the runner it makes: a joined part holds a weak reference to
-    /// what crosses its own boundary, which it uses while that runner
-    /// lives.
-    crossings: Vec<Arc<Crossing>>,
+    /// Each boundary the check crossed, as it found it, held for the
+    /// runner it makes: a joined part holds a weak reference to its own
+    /// boundary, which it uses while that runner lives.
+    boundaries: Vec<Arc<Boundary>>,
 }
 
 impl ChainCheck {
     /// The check of the chain of `driver` on `executor`, whose boundary's
     /// join found `fit_faults`, if it does not fit, once every part has
-    /// added its facts; and what crosses that boundary.
+    /// added its facts; and that boundary.
     pub(crate) fn of(
         driver: &mut impl Driver,
         fit_faults: Option<&FitFaults>,
         executor: &mut impl Executor,
-    ) -> (Self, Arc<Crossing>) {
+    ) -> (Self, Arc<Boundary>) {
         let mut chain = Self::new();
         let mut found = Weak::new();
         driver.check_chain(
@@ -74,10 +73,10 @@ impl ChainCheck {
             },
             &mut chain,
         );
-        let crossing = found
+        let executor_boundary = found
             .upgrade()
             .expect("the driver's `check_chain` crosses to the executor");
-        (chain, crossing)
+        (chain, executor_boundary)
     }
 
     /// A check to which no part has added its facts yet.
@@ -87,20 +86,20 @@ impl ChainCheck {
             offers: Vec::new(),
             own_offers: Vec::new(),
             fit_faults: Vec::new(),
-            crossings: Vec::new(),
+            boundaries: Vec::new(),
         }
     }
 
     /// The run's limits, the most shots and the seedability every part's
-    /// offer meets, and what crosses each boundary, for the runner to
-    /// hold, once every part has added its facts; or, if a boundary does
-    /// not fit or an offer falls short at one, every fault of the chain:
-    /// the fit faults of each boundary, top to bottom, and the admission's.
-    pub(crate) fn conclude(self) -> Result<(RunLimits, Vec<Arc<Crossing>>), CompositionFaults> {
+    /// offer meets, and each boundary, for the runner to hold, once every
+    /// part has added its facts; or, if a boundary does not fit or an offer
+    /// falls short at one, every fault of the chain: the fit faults of each
+    /// boundary, top to bottom, and the admission's.
+    pub(crate) fn conclude(self) -> Result<(RunLimits, Vec<Arc<Boundary>>), CompositionFaults> {
         let run_limits = RunLimits::of(self.offers.iter().map(|(_, offer)| offer));
         let admission = AdmissionFaults::of(self.needs, self.offers, &self.own_offers);
         if self.fit_faults.is_empty() && admission.is_none() {
-            Ok((run_limits, self.crossings))
+            Ok((run_limits, self.boundaries))
         } else {
             Err(CompositionFaults::new(self.fit_faults, admission))
         }
@@ -109,15 +108,15 @@ impl ChainCheck {
     /// Crosses the next boundary down, to a receiver of `receiver`'s
     /// instructions, whose join found `fit_faults`, if it does not fit:
     /// adds them, then has the chain below it add its facts for `needs`,
-    /// with `check_below`; holds what crosses the boundary, pointed to by
-    /// `found`, and gives the offer that crosses it up. The check crosses
-    /// the boundaries top to bottom, so the fit faults are added in that
-    /// order. They are copied, not moved out of the join that found them:
-    /// a joined part lent by `&mut` to the `on` of another chain is checked
-    /// again, and its boundaries' faults must be found again.
+    /// with `check_below`; holds the boundary, pointed to by `found`, and
+    /// gives the offer that crosses it up. The check crosses the boundaries
+    /// top to bottom, so the fit faults are added in that order. They are
+    /// copied, not moved out of the join that found them: a joined part
+    /// lent by `&mut` to the `on` of another chain is checked again, and
+    /// its boundaries' faults must be found again.
     pub(crate) fn cross(
         &mut self,
-        found: &mut Weak<Crossing>,
+        found: &mut Weak<Boundary>,
         fit_faults: Option<&FitFaults>,
         needs: Needs,
         receiver: InstructionSet,
@@ -129,14 +128,14 @@ impl ChainCheck {
             .offers
             .last()
             .expect("the part below the boundary added its offer");
-        let crossing = Arc::new(Crossing::new(
+        let boundary = Arc::new(Boundary::new(
             Some(part.clone()),
             needs,
             offer.clone(),
             receiver,
         ));
-        *found = Arc::downgrade(&crossing);
-        self.crossings.push(crossing);
+        *found = Arc::downgrade(&boundary);
+        self.boundaries.push(boundary);
         offer
     }
 

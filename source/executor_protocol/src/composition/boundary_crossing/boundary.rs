@@ -1,24 +1,24 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What crosses one boundary of a chain ([`Crossing`]): as the chain's
-//! check found it, kept by the part that holds the boundary, a joined part
-//! or the runner, so that every call across it is checked, and every run
-//! gets the part below ready, with the values the admission checked; or,
-//! for a joined part the check did not reach, read from its halves on each
-//! run.
+//! One boundary of a chain ([`Boundary`]): the part below it and what
+//! crosses it, as the chain's check found it, kept by the part that holds
+//! the boundary, a joined part or the runner, so that every call across it
+//! is checked, and every run gets the part below ready, with the values the
+//! admission checked; or, for a joined part the check did not reach, read
+//! from its halves on each run.
 
 use super::BatchLimits;
 use crate::{InstructionSet, Needs, Offer, PartId};
 
-/// What crosses one boundary of a chain, and the limits of the batches
-/// sent across it.
-pub(crate) struct Crossing {
+/// One boundary of a chain: the part below it, what crosses it, and the
+/// limits of the batches sent across it.
+pub(crate) struct Boundary {
     /// The top part below the boundary, the one that receives its calls,
     /// at its position in the chain, when the chain's check found the
-    /// crossing: what a panic below the boundary names, and what a refusal
+    /// boundary: what a panic below the boundary names, and what a refusal
     /// to get ready names when no part below was named. `None` for a
-    /// crossing read on a run, whose part's position is not known: a panic
+    /// boundary read on a run, whose part's position is not known: a panic
     /// or a refusal then passes up unnamed, to the boundary above, which
     /// names the part at its position.
     pub(crate) part: Option<PartId>,
@@ -34,7 +34,7 @@ pub(crate) struct Crossing {
     pub(crate) batch_limits: BatchLimits,
 }
 
-impl Crossing {
+impl Boundary {
     /// `needs` crossing down to `part`, if known, a receiver of
     /// `receiver`'s instructions, and `offer` crossing up, with the limits
     /// of the batches sent it.

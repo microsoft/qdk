@@ -60,8 +60,8 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         seed: Seed,
         below: &mut impl Executor,
     ) -> Result<Vec<U::Output>, DriveError> {
-        let (upper, lower, crossing) = self
-            .run_crossing(|lower| (lower.offers_above(below.offers()), lower.accepts().clone()));
+        let (upper, lower, boundary) = self
+            .run_boundary(|lower| (lower.offers_above(below.offers()), lower.accepts().clone()));
         let mut unended = UnendedShots::new(
             ChainBelow {
                 adapter: lower,
@@ -70,7 +70,7 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
             shots,
             |rest, shots| rest.adapter.end_shots(shots),
         );
-        let mut rest = BoundaryCrossing::new(&mut unended.part, crossing);
+        let mut rest = BoundaryCrossing::new(&mut unended.part, boundary);
         let drove = catch_panic(|| upper.drive(shots, seed, &mut rest)).await;
         match (drove, unended.end()) {
             (Err(payload), _) if payload.is::<PanicEndingShots>() => resume_unwind(payload),
@@ -89,14 +89,14 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
             upper,
             lower,
             fit_faults,
-            checked,
+            checked_boundary,
             ..
         } = self;
         upper.check_chain(
             &mut |middle, chain| {
                 let receiver = lower.accepts().clone();
                 chain.cross(
-                    checked,
+                    checked_boundary,
                     fit_faults.as_ref(),
                     middle,
                     receiver,

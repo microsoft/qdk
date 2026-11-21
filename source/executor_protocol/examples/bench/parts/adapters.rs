@@ -147,6 +147,13 @@ impl Adapter for Repetition3 {
 }
 
 /// Appends `instruction`'s three physical instructions to `lowered`.
+/// Always inlined, so that the lowering section times the protocol, not
+/// whether LLVM inlines the workload into a given build.
+#[expect(
+    clippy::inline_always,
+    reason = "a bench's workload, timed alike in every build"
+)]
+#[inline(always)]
 pub(crate) fn lower(
     instruction: &Instruction,
     opcodes: [Opcode; 4],

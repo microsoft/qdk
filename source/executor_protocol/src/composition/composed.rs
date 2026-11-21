@@ -36,7 +36,7 @@
 //! A `Composed` keeps its role's contract through its public methods
 //! alone, so it runs the same when that check did not reach it, such as
 //! inside a part of the user's that forwards only the role's public
-//! methods: each run then reads what crosses its boundary from its halves
+//! methods: each run then reads its boundary from its halves
 //! as the run starts, the needs at `ready` and the offer at the first
 //! call; a panic or a refusal below it passes up unnamed, and the boundary
 //! above names the part at its position; and a `Composed` whose halves do
@@ -49,7 +49,7 @@ mod executor;
 
 use std::sync::{Arc, Weak};
 
-use super::boundary_crossing::Crossing;
+use super::boundary_crossing::Boundary;
 use super::part_panics::end_both;
 use crate::{
     Adapter, Batch, BatchReadouts, ExecuteError, Executor, FitFaults, InstructionSet, Needs,
@@ -74,15 +74,15 @@ pub struct Composed<U, L> {
     /// other fault of that chain; and every run refuses at `ready` with
     /// them, for a chain whose check did not reach this part.
     fit_faults: Option<FitFaults>,
-    /// What crosses that boundary, as the last chain's check that reached
-    /// this part found it, held by the runner that check made: alive as
-    /// long as that runner is.
-    checked: Weak<Crossing>,
-    /// What crosses that boundary on this run: the checked one, or one
-    /// read from the halves, once the run's first call reads its offer.
-    crossing: Option<Arc<Crossing>>,
+    /// That boundary, as the last chain's check that reached this part
+    /// found it, held by the runner that check made: alive as long as that
+    /// runner is.
+    checked_boundary: Weak<Boundary>,
+    /// That boundary on this run: the checked one, or one read from the
+    /// halves, once the run's first call reads its offer.
+    boundary: Option<Arc<Boundary>>,
     /// The needs read from the upper half at `ready`, for a run whose
-    /// crossing is read from the halves, until its first call reads it.
+    /// boundary is read from the halves, until its first call reads it.
     run_needs: Option<Needs>,
 }
 
@@ -97,17 +97,17 @@ impl<U, L> Composed<U, L> {
             upper,
             lower,
             fit_faults,
-            checked: Weak::new(),
-            crossing: None,
+            checked_boundary: Weak::new(),
+            boundary: None,
             run_needs: None,
         }
     }
 
     /// Starts a run, at `ready`: refuses it if the halves do not fit, with
-    /// their fit faults; otherwise takes what crosses their boundary as
-    /// the chain's check found it, while the runner it made lives, or else
-    /// the needs `needs_below` reads from the upper half, for a crossing
-    /// read on this run. Gives the lower half, the needs it gets ready
+    /// their fit faults; otherwise takes their boundary as the chain's
+    /// check found it, while the runner it made lives, or else the needs
+    /// `needs_below` reads from the upper half, for a boundary read on this
+    /// run. Gives the lower half, the needs it gets ready
     /// for, and its position in the chain, if the check found it, to name
     /// its refusal.
     fn start_run(
@@ -120,42 +120,42 @@ impl<U, L> Composed<U, L> {
         let Self {
             upper,
             lower,
-            checked,
-            crossing,
+            checked_boundary,
+            boundary,
             run_needs,
             ..
         } = self;
-        // Dropped first: the crossing of the last run, if it was checked,
+        // Dropped first: the boundary of the last run, if it was checked,
         // would otherwise keep alive the check of a runner since dropped.
-        *crossing = None;
-        *crossing = checked.upgrade();
-        Ok(match crossing {
-            Some(crossing) => (lower, &crossing.needs, crossing.part.as_ref()),
+        *boundary = None;
+        *boundary = checked_boundary.upgrade();
+        Ok(match boundary {
+            Some(boundary) => (lower, &boundary.needs, boundary.part.as_ref()),
             None => (lower, run_needs.insert(needs_below(upper)), None),
         })
     }
 
-    /// The halves, and what crosses their boundary on this run: as
+    /// The halves, and their boundary on this run: as
     /// [`start_run`](Self::start_run) took it, or else read now, at the
     /// run's first call, from the needs read there, and the offer and the
     /// receiver's set `read` gives from the lower half.
-    fn run_crossing(
+    fn run_boundary(
         &mut self,
         read: impl FnOnce(&L) -> (Offer, InstructionSet),
-    ) -> (&mut U, &mut L, &Crossing) {
+    ) -> (&mut U, &mut L, &Boundary) {
         let Self {
             upper,
             lower,
-            crossing,
+            boundary,
             run_needs,
             ..
         } = self;
-        let crossing = crossing.get_or_insert_with(|| {
+        let boundary = boundary.get_or_insert_with(|| {
             let (offer, receiver) = read(lower);
             let needs = run_needs.take().expect(READY_FIRST);
-            Arc::new(Crossing::new(None, needs, offer, receiver))
+            Arc::new(Boundary::new(None, needs, offer, receiver))
         });
-        (upper, lower, crossing)
+        (upper, lower, boundary)
     }
 }
 

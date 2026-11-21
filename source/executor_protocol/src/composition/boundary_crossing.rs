@@ -26,12 +26,12 @@
 //! reach it, its position is not known, so it lets the panic pass up to
 //! the boundary above, which names the part at its own position. What
 //! crosses the boundary, and the limits it checks batches against, are in
-//! `crossing` and `batch_limits`.
+//! `boundary` and `batch_limits`.
 
 mod batch_limits;
-mod crossing;
+mod boundary;
 
-pub(crate) use crossing::Crossing;
+pub(crate) use boundary::Boundary;
 
 use std::panic::resume_unwind;
 
@@ -50,16 +50,16 @@ use batch_limits::{BatchFault, BatchLimits};
 /// are shaped from the batch.
 pub(crate) struct BoundaryCrossing<'a, E> {
     inner: &'a mut E,
-    /// What crosses the boundary: the part that receives `inner`'s calls,
-    /// if known, which a panic of `inner` names, its offer and the batch
-    /// limits.
-    crossing: &'a Crossing,
+    /// The boundary: the part that receives `inner`'s calls, if known,
+    /// which a panic of `inner` names, the offer that crosses it and the
+    /// batch limits.
+    boundary: &'a Boundary,
 }
 
 impl<'a, E: Executor> BoundaryCrossing<'a, E> {
-    /// `inner`, with what `crossing` says crosses the boundary down to it.
-    pub(crate) fn new(inner: &'a mut E, crossing: &'a Crossing) -> Self {
-        Self { inner, crossing }
+    /// `inner`, below `boundary`.
+    pub(crate) fn new(inner: &'a mut E, boundary: &'a Boundary) -> Self {
+        Self { inner, boundary }
     }
 }
 
@@ -69,18 +69,18 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
         self.inner.name()
     }
 
-    /// The receiver's set as read with the crossing, which the batch
+    /// The receiver's set as read with the boundary, which the batch
     /// limits hold and every checked batch is checked against, not the
     /// receiver's answer now: a receiver whose set changes later gets
     /// checked batches checked against the set read then, not the new one.
     fn accepts(&self) -> &InstructionSet {
-        self.crossing.batch_limits.set()
+        self.boundary.batch_limits.set()
     }
 
-    /// The offer read with the crossing, which the admission checked when
+    /// The offer read with the boundary, which the admission checked when
     /// the chain's check found it, not the receiver's answer now.
     fn offers(&self) -> Offer {
-        self.crossing.offer.clone()
+        self.boundary.offer.clone()
     }
 
     /// Takes `batches` in order: refuses a batch that holds more
@@ -109,12 +109,12 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
         for (index, (batch, batch_readouts)) in batches.iter().zip(readouts.iter_mut()).enumerate()
         {
             let refused = |fault| ExecuteError::Refused(refusal(index, batch, fault));
-            self.crossing
+            self.boundary
                 .batch_limits
                 .check_count(batch.instructions)
                 .map_err(refused)?;
             if batch.is_checked() {
-                self.crossing
+                self.boundary
                     .batch_limits
                     .check(batch.instructions, batch.readout_slots())
                     .map_err(refused)?;
@@ -123,7 +123,7 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
         }
         match catch_panic(|| self.inner.execute(batches, seed, readouts)).await {
             Ok(ran) => ran,
-            Err(payload) => match &self.crossing.part {
+            Err(payload) => match &self.boundary.part {
                 Some(part) => Err(ExecuteError::Failed {
                     shot: first_shot(first.shots),
                     failure: Failure::Panicked {

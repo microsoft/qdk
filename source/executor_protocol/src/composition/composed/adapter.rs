@@ -59,8 +59,8 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
         below: &mut impl Executor,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        let (upper, lower, crossing) = self
-            .run_crossing(|lower| (lower.offers_above(below.offers()), lower.accepts().clone()));
+        let (upper, lower, boundary) = self
+            .run_boundary(|lower| (lower.offers_above(below.offers()), lower.accepts().clone()));
         let mut rest = ChainBelow {
             adapter: lower,
             below,
@@ -68,7 +68,7 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
         await_part(upper.adapt(
             batches,
             seed,
-            &mut BoundaryCrossing::new(&mut rest, crossing),
+            &mut BoundaryCrossing::new(&mut rest, boundary),
             readouts,
         ))
         .await
@@ -93,7 +93,7 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
             upper,
             lower,
             fit_faults,
-            checked,
+            checked_boundary,
             ..
         } = self;
         upper.check_chain(
@@ -101,7 +101,7 @@ impl<U: Adapter, L: Adapter> Adapter for Composed<U, L> {
             &mut |middle, chain| {
                 let receiver = lower.accepts().clone();
                 chain.cross(
-                    checked,
+                    checked_boundary,
                     fit_faults.as_ref(),
                     middle,
                     receiver,

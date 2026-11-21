@@ -28,7 +28,7 @@ pub(crate) mod wait;
 use std::panic::resume_unwind;
 use std::sync::Arc;
 
-use super::boundary_crossing::{BoundaryCrossing, Crossing};
+use super::boundary_crossing::{Boundary, BoundaryCrossing};
 use super::part_panics::{PanicEndingShots, await_part, catch_panic, panic_message};
 use super::unended_shots::UnendedShots;
 use crate::{DriveError, Driver, Executor, Failure, PartId, Seed, ShotSet};
@@ -49,17 +49,17 @@ pub struct Runner<D: Driver, E: Executor> {
     /// The driver's top part, as the chain's check added it: what its panic
     /// names.
     driver_part: PartId,
-    /// What crosses the boundary between the driver and the executor, as
-    /// the chain's check found it: the executor's top part, which its
+    /// The boundary between the driver and the executor, as the chain's
+    /// check found it: the executor's top part, which its
     /// panic in an `execute` names; the needs that reach it, which it gets
     /// ready for on every run; its offer, which the driver's
     /// `below.offers()` answers; and the limits of the batches the driver
     /// sends it.
-    crossing: Arc<Crossing>,
-    /// What crosses each boundary of the chain, as the chain's check found
-    /// it: held, never read, so that each joined part the check reached
-    /// uses what crosses its own boundary as long as the runner lives.
-    _crossings: Vec<Arc<Crossing>>,
+    executor_boundary: Arc<Boundary>,
+    /// Each boundary of the chain, as the chain's check found it: held,
+    /// never read, so that each joined part the check reached uses its own
+    /// boundary as long as the runner lives.
+    _boundaries: Vec<Arc<Boundary>>,
     /// The most shots and whether a seed may be fixed, by every part's
     /// offer, for each run.
     limits: RunLimits,
@@ -67,22 +67,21 @@ pub struct Runner<D: Driver, E: Executor> {
 
 impl<D: Driver, E: Executor> Runner<D, E> {
     /// The runner of `driver`, with its top part as the chain's check
-    /// added it, and `executor`, with what `crossing` says crosses the
-    /// boundary between them, what `crossings` say crosses each boundary
-    /// of the chain, and the run `limits` of every part's offer, as the
-    /// check concluded them.
+    /// added it, and `executor`, with `executor_boundary`, the boundary
+    /// between them, `boundaries`, each boundary of the chain, and the run
+    /// `limits` of every part's offer, as the check concluded them.
     pub(crate) fn new(
         (driver, driver_part): (D, PartId),
         executor: E,
-        (crossing, crossings): (Arc<Crossing>, Vec<Arc<Crossing>>),
+        (executor_boundary, boundaries): (Arc<Boundary>, Vec<Arc<Boundary>>),
         limits: RunLimits,
     ) -> Self {
         Self {
             driver,
             executor,
             driver_part,
-            crossing,
-            _crossings: crossings,
+            executor_boundary,
+            _boundaries: boundaries,
             limits,
         }
     }
@@ -188,13 +187,13 @@ impl<D: Driver, E: Executor> Runner<D, E> {
             if seed.is_some() && !self.limits.seedable {
                 return Err(RunError::Refused(RunRefusal::NotSeedable));
             }
-            let crossing = &self.crossing;
-            await_part(self.executor.ready(&crossing.needs))
+            let executor_boundary = &self.executor_boundary;
+            await_part(self.executor.ready(&executor_boundary.needs))
                 .await
                 .map_err(|not_ready| {
                     RunError::Refused(RunRefusal::part_not_ready(
                         not_ready,
-                        crossing
+                        executor_boundary
                             .part
                             .as_ref()
                             .expect("the chain's check names the part below each boundary"),
@@ -207,7 +206,7 @@ impl<D: Driver, E: Executor> Runner<D, E> {
             let unended = UnendedShots::new(&mut self.executor, shots, |executor, shots| {
                 executor.end_shots(shots);
             });
-            let mut below = BoundaryCrossing::new(&mut *unended.part, crossing);
+            let mut below = BoundaryCrossing::new(&mut *unended.part, executor_boundary);
             let driver = &mut self.driver;
             let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
                 Ok(Ok(outputs)) => {
