@@ -37,10 +37,13 @@ pub trait DriverJoins: Driver + Sized {
     /// below the driver provide together, such as the fewest shots of those
     /// down to the first adapter that requires shots again, so that an adapter
     /// may lower a bound, and raise it only by requiring it again, serving it
-    /// itself. What each part requires and provides is read at the joins and at
-    /// this `on`, for the checks and the runner's boundary; a joined part reads
-    /// its halves' resources and features again on each run, for the boundary
-    /// between them, whose instructions stay those of its join.
+    /// itself, as the driver serves a field it requires. What each part
+    /// requires and provides is read at the joins and at this `on`, for the
+    /// checks and the runner's boundary, and each part's name is read here,
+    /// for the refusals and panics that name it; a joined part reads its
+    /// parts' resources and features again on each run, for the boundary
+    /// between its halves, whose instructions stay those of its join, and a
+    /// joined driver for its check of the run.
     ///
     /// # Errors
     ///
@@ -48,14 +51,14 @@ pub trait DriverJoins: Driver + Sized {
     fn on<E: Executor>(mut self, executor: E) -> Result<Runner<Self, E>, CompositionFaults> {
         let mut parts = DeclaredParts::new();
         self.declare(&mut parts);
+        let provision = parts.run_provision(executor.provides());
         let executor_at = parts.len();
         executor.declare(&mut parts);
         let faults = parts.faults();
         if !faults.is_empty() {
             return Err(CompositionFaults { faults });
         }
-        let (driver_part, executor_part) = (parts.id(0), parts.id(executor_at));
-        let provision = parts.provision();
+        let parts = parts.ids();
         // The whole chain's fit finds no fault the part-by-part check
         // misses: the joined driver requires its lowest part's
         // requirement, else the one above, key by key, and the joined
@@ -66,11 +69,11 @@ pub trait DriverJoins: Driver + Sized {
         let mut boundary = (self.requires().fits(executor.provides()))
             .expect("the chain fits where each part fits what it reaches");
         self.bind(boundary.opcode_map().clone());
-        boundary.part = Some(executor_part);
+        boundary.part = Some(parts[executor_at].clone());
         Ok(Runner {
             driver: self,
             executor,
-            driver_part,
+            parts,
             boundary,
             provision,
         })

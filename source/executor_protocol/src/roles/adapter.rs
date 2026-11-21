@@ -24,7 +24,7 @@ use crate::{
 /// # Declarations
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins) and
-/// [`AdapterJoins`](crate::AdapterJoins)) read them once, before any run:
+/// [`AdapterJoins`](crate::AdapterJoins)) read them before any run:
 /// [`name`](Self::name), [`provides`](Self::provides) and
 /// [`requires`](Self::requires). The join to the part below hands back
 /// what it made of them: [`bind`](Self::bind) gets the fit's opcode map.
@@ -32,8 +32,10 @@ use crate::{
 /// to run belongs to each run.
 ///
 /// What it provides and requires must not change once it is joined: the
-/// fits and `bind`'s map are made once, from them, and each part gets
-/// ready, on every run, for the requirements read then.
+/// fits and `bind`'s map are made once, from them, each part gets ready,
+/// on every run, for the requirements read then, and a joined part reads
+/// their resources and features again on each run, for its boundaries
+/// and a joined driver's check of the run.
 ///
 /// # Run
 ///
@@ -149,7 +151,7 @@ pub trait Adapter {
     fn ready_at(
         &mut self,
         required: &Capabilities,
-        at: ChainPosition,
+        at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = at;
         self.ready(required)
@@ -201,7 +203,7 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
     fn ready_at(
         &mut self,
         required: &Capabilities,
-        at: ChainPosition,
+        at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         (**self).ready_at(required, at)
     }

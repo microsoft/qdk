@@ -8,15 +8,16 @@
 //! A runner holds a chain that joined: what each part requires is provided
 //! below it. Each run checks what only a run states: its shots and whether
 //! its seed is fixed, against what the parts below the driver provide
-//! together; then it gets every part ready for what is required of it, or
-//! is refused by the first that cannot take a run now. Then the driver
-//! runs the shots, calling the chain below it as one executor, the readouts
-//! of each of whose batches the protocol shapes from the batch, after
-//! checking every batch's count of instructions, and every batch its sender
-//! marked [`checked`](crate::Batch::checked). Once the run ends, whether it
-//! gave outputs, failed, or its future was dropped, its shots are ended
-//! on every part, so that none keeps them: each joined driver ends them on
-//! its adapters, and the runner on the executor.
+//! together, less what the driver requires, which it serves itself; then it
+//! gets every part ready for what is required of it, or is refused by the first
+//! that cannot take a run now. Then the driver runs the shots, calling the
+//! chain below it as one executor, the readouts of each of whose batches the
+//! protocol shapes from the batch, after checking every batch's count of
+//! instructions, and every batch its sender marked
+//! [`checked`](crate::Batch::checked). Once the run ends, whether it gave
+//! outputs, failed, or its future was dropped, its shots are ended on every
+//! part, so that none keeps them: each joined driver ends them on its adapters,
+//! and the runner on the executor.
 
 mod run_error;
 #[cfg(not(target_arch = "wasm32"))]
@@ -43,17 +44,18 @@ pub use run_error::{RunError, RunRefusal};
 pub struct Runner<D: Driver, E: Executor> {
     pub(super) driver: D,
     pub(super) executor: E,
-    /// The driver's top part, as the chain's check named it: what its panic
-    /// and its refusal name.
-    pub(super) driver_part: PartId,
+    /// Each part, top to bottom, by the name `on` read: what a refusal or a
+    /// panic names, the driver's top part first.
+    pub(super) parts: Vec<PartId>,
     /// The boundary between the driver and the executor, as the joins' fit
     /// found it: what the executor gets ready for on every run, what the
     /// driver's `below.provides()` answers, the limits of the batches the
     /// driver sends, and the executor's top part, which its panic in an
     /// `execute` and its refusal name.
     pub(super) boundary: Boundary,
-    /// What the parts below the driver provide together, which each run's
-    /// shots and seed are checked against.
+    /// What the parts below the driver provide together, less what the
+    /// driver requires, which each run's shots and seed are checked
+    /// against.
     pub(super) provision: Capabilities,
 }
 
@@ -88,12 +90,15 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// driver do not provide it together: more shots than the fewest of
     /// those down to the first adapter that requires shots again, which
     /// serves them itself, or a fixed seed where seeded runs are not
-    /// provided, before any part is asked; or when a part's `ready` refuses
-    /// it: each part gets ready for what is required of it, in turn, the
-    /// executor first, up to the first that refuses. The parts inside a
-    /// part of the user's are out of the runner's sight: a joined driver
-    /// there checks a run against its own adapters as it drives, and fails
-    /// one they do not provide ([`Failure::NotProvided`]). Then the driver
+    /// provided, before any part is asked; a field the driver requires, it
+    /// serves itself, as such an adapter does, so the run is not checked
+    /// against it. Or when a part's `ready` refuses it: each part gets
+    /// ready for what is required of it, in turn, the executor first, up to
+    /// the first that refuses. The parts inside a part of the user's are
+    /// out of the runner's sight: a joined driver checks each run against
+    /// its own parts by the same rule as it drives, so the verdict does not
+    /// depend on the brackets, and there fails one they do not provide
+    /// ([`Failure::NotProvided`]). Then the driver
     /// runs the shots, and a failure ends the run with the shot it names, a
     /// part's panic included, as the Panics section says.
     ///
@@ -160,16 +165,16 @@ impl<D: Driver, E: Executor> Runner<D, E> {
                 .part
                 .as_ref()
                 .expect("the driver's `on` names the part below the boundary");
-            let executor_at = ChainPosition::at(executor_part.position);
+            let executor_at = ChainPosition::at(executor_part.position, &self.parts);
             await_part(self.executor.ready_at(&self.boundary.required, executor_at))
                 .await
                 .map_err(|not_ready| {
                     RunError::Refused(RunRefusal::part_not_ready(not_ready, executor_part))
                 })?;
-            await_part(self.driver.ready_at(ChainPosition::at(0)))
+            await_part(self.driver.ready_at(ChainPosition::at(0, &self.parts)))
                 .await
                 .map_err(|not_ready| {
-                    RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.driver_part))
+                    RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.parts[0]))
                 })?;
             let seed = Seed::new(seed.unwrap_or_else(drawn_seed), seed.is_some());
             let unended = UnendedShots::new(&mut self.executor, shots, |executor, shots| {
@@ -191,7 +196,7 @@ impl<D: Driver, E: Executor> Runner<D, E> {
                     Err(payload) => DriveError {
                         shot: shots.iter().next().expect("a shot set is never empty"),
                         failure: Failure::Panicked {
-                            part: self.driver_part.clone(),
+                            part: self.parts[0].clone(),
                             message: panic_message(payload),
                         },
                     },

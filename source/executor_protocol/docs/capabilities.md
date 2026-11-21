@@ -84,10 +84,11 @@ that it does not use seeded runs, and so no replay, answers both for the
 parts above it. A run's limits follow, with no rule of their own: a run's
 shots, and a fixed seed, are checked against what the parts below the
 driver provide, forwarded this way, such as the fewest shots of those
-that state them, down to the first adapter that requires shots again;
-inside a part of the user's, which the runner cannot see
-into, a joined driver checks a run against its own adapters' provisions,
-as
+that state them, down to the first adapter that requires shots again; a
+field the driver requires, it serves itself, as such an adapter does. A
+joined driver checks a run against its own parts by the same rule, so the
+verdict does not depend on the brackets, and holds inside a part of the
+user's, which the runner cannot see into, as
 [Composing and running](composing-and-running.md#joining-parts-with-through-and-on)
 says. An adapter may lower a provision but never raise it, unless it
 requires the field too: an adapter that replays its shots provides
@@ -99,13 +100,13 @@ joined part requires and provides what its parts forward.
 
 ## Where each statement is checked
 
-| What                                                                             | When                                  | A fault gives                                                                                                                            |
-| -------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| each part's requirement against each provision it reaches                        | the `on` that makes a runner          | [`CompositionFaults`](../src/composition/composition_faults.rs): each requiring part and the part that falls short, by position and name |
-| a run's shots, and a fixed seed, against what the parts below the driver provide | each run, before any part is asked    | [`RunRefusal::NotProvided`](../src/composition/runner/run_error.rs), with the mismatch                                                   |
-| the same, against a joined driver's adapters, inside a part of the user's        | each run, as the joined driver drives | [`Failure::NotProvided`](../src/roles/failure.rs), with the mismatch, at the run's first shot                                            |
-| a batch's count of instructions against the instructions per batch provided      | each batch, at every boundary         | [`BatchFault::TooManyInstructions`](../src/capabilities/boundary/batch_limits.rs)                                                        |
-| a checked batch's blocks and readout parities against what its sender requires   | each checked batch, at every boundary | [`BatchFault::Instruction`](../src/capabilities/boundary/batch_limits.rs)                                                                |
+| What                                                                                                                        | When                                  | A fault gives                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| each part's requirement against each provision it reaches                                                                   | the `on` that makes a runner          | [`CompositionFaults`](../src/composition/composition_faults.rs): each requiring part and the part that falls short, by position and name |
+| a run's shots, and a fixed seed, against what the parts below the driver provide, of the fields the driver does not require | each run, before any part is asked    | [`RunRefusal::NotProvided`](../src/composition/runner/run_error.rs), with the mismatch                                                   |
+| the same, against a joined driver's own parts, inside a part of the user's                                                  | each run, as the joined driver drives | [`Failure::NotProvided`](../src/roles/failure.rs), with the mismatch, at the run's first shot                                            |
+| a batch's count of instructions against the instructions per batch provided                                                 | each batch, at every boundary         | [`BatchFault::TooManyInstructions`](../src/capabilities/boundary/batch_limits.rs)                                                        |
+| a checked batch's blocks and readout parities against what its sender requires                                              | each checked batch, at every boundary | [`BatchFault::Instruction`](../src/capabilities/boundary/batch_limits.rs)                                                                |
 
 Each part gets ready, on every run, for the requirement that reaches it
 (`ready`): an executor, for instance, holds the qubits the parts above

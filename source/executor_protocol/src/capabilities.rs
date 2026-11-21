@@ -201,15 +201,19 @@ impl Forwarding for Capabilities {
         self.with_kinds(resources, self.features.unanswered(&answered.features))
     }
 
+    /// The stricter of each kind, with no replay where seeded runs are not
+    /// provided, as [`Features::with_replay`] keeps for one part.
     fn stricter(&self, other: &Self) -> Self {
         let resources = self.resources.stricter(&other.resources);
-        self.with_kinds(resources, self.features.stricter(&other.features))
+        let features = self.features.stricter(&other.features);
+        self.with_kinds(resources, features.replay_only_if_seeded())
     }
 }
 
 /// Every way a provision falls short of a requirement: each instruction
 /// that does not fit, each resource provided short, and each feature
-/// required and not provided. At least one is not empty.
+/// required and not provided. In one a failed fit returns, at least one is
+/// not empty.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CapabilitiesMismatch {

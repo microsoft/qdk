@@ -58,15 +58,15 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
     }
 
     /// The driver's `drive`, on the adapter and the chain below as one
-    /// executor, if the run's shots, and its seed if fixed, fit what the
-    /// adapter provides on this run, as the runner checks of the parts
-    /// below the driver; else the run's first shot fails with
-    /// [`Failure::NotProvided`], and the driver runs nothing. The runner's
-    /// check comes first and covers this one, unless a part of the user's
-    /// holds this driver. Then ends the run's shots on the adapter, whatever
-    /// that `drive` gave, so that a joined driver ends the shots its
-    /// adapters hold, as the runner ends the executor's, whoever calls it.
-    /// A panic ending them is raised again from the run, through any
+    /// executor, if the run's shots, and its seed if fixed, fit what its
+    /// parts below its top driver provide over the chain below, by the
+    /// rule the runner checks a run with; else the run's first shot fails
+    /// with [`Failure::NotProvided`], and the driver runs nothing. The
+    /// runner's check comes first and gives the same verdict, unless a part
+    /// of the user's holds this driver. Then ends the run's shots on the
+    /// adapter, whatever that `drive` gave, so that a joined driver ends the
+    /// shots its adapters hold, as the runner ends the executor's, whoever
+    /// calls it. A panic ending them is raised again from the run, through any
     /// joined driver above, as one in the runner's end is.
     async fn drive(
         &mut self,
@@ -74,6 +74,9 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         seed: Seed,
         below: &mut impl Executor,
     ) -> Result<Vec<U::Output>, DriveError> {
+        let mut parts = DeclaredParts::new();
+        self.declare(&mut parts);
+        let provision = parts.run_provision(below.provides());
         let (upper, lower, boundary) = self.run_boundary(|lower| {
             (lower.provides()).stricter_through(lower.requires(), below.provides())
         });
@@ -85,7 +88,7 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
             shots,
             |rest, shots| rest.adapter.end_shots(shots),
         );
-        let drove = match boundary.provided.admits_run(shots.len(), seed.is_fixed()) {
+        let drove = match provision.admits_run(shots.len(), seed.is_fixed()) {
             Ok(()) => {
                 let mut rest = BoundaryCrossing::new(&mut unended.part, boundary);
                 catch_panic(|| upper.drive(shots, seed, &mut rest)).await
@@ -112,9 +115,9 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
     /// Refuses the run if the halves do not fit; else the adapter first,
     /// for the driver's requirement, then the driver. A refusal from the
     /// adapter names it, at its position, if `at` is known.
-    async fn ready_at(&mut self, at: ChainPosition) -> Result<(), NotReady> {
+    async fn ready_at(&mut self, at: ChainPosition<'_>) -> Result<(), NotReady> {
         let (lower, required, below, part) =
-            self.start_run(|upper| upper.requires().clone(), |lower| lower.name(), at)?;
+            self.start_run(|upper| upper.requires().clone(), at)?;
         await_part(lower.ready_at(required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;

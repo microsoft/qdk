@@ -31,7 +31,7 @@ use crate::{
 /// # Declarations
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins) and
-/// [`AdapterJoins`](crate::AdapterJoins)) read them once, before any run:
+/// [`AdapterJoins`](crate::AdapterJoins)) read them before any run:
 /// [`name`](Self::name) and [`provides`](Self::provides). It gets no
 /// hand-back: it sends nothing, so it gets no opcode map. A join only
 /// decides, from what the parts declare; what prepares a part to run
@@ -39,7 +39,9 @@ use crate::{
 /// what is required of it.
 ///
 /// What it provides must not change once it is joined: the fit is made
-/// once, from it.
+/// once, from it, and a joined part reads its resources and features
+/// again on each run, for its boundaries and a joined driver's check of
+/// the run.
 ///
 /// # Run
 ///
@@ -74,7 +76,8 @@ pub trait Executor {
     /// against its instructions as read by the `on` that made the runner,
     /// or by the join that made the joined part it is in. Its most shots
     /// and whether a run may fix its seed bound every run of the chain,
-    /// unless an adapter above requires them again, serving them itself.
+    /// unless a part above, an adapter or the driver, requires them again,
+    /// serving them itself.
     fn provides(&self) -> &Capabilities;
 
     /// Gets this part ready for a run, before anything of the run runs, for
@@ -201,7 +204,7 @@ pub trait Executor {
     fn ready_at(
         &mut self,
         required: &Capabilities,
-        at: ChainPosition,
+        at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = at;
         self.ready(required)
@@ -244,7 +247,7 @@ impl<E: Executor + ?Sized> Executor for &mut E {
     fn ready_at(
         &mut self,
         required: &Capabilities,
-        at: ChainPosition,
+        at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         (**self).ready_at(required, at)
     }

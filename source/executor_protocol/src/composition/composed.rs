@@ -27,7 +27,8 @@
 //! each batch its sender marked [`checked`](Batch::checked) against the
 //! receiver's instructions, what is required across and the readout slots
 //! the batch states. It names a panic below it by the part that receives
-//! the calls, at its position, when the run's `ready` gave it one.
+//! the calls, at its position and by the name the runner's `on` read, when
+//! the run's `ready` gave it one.
 //!
 //! What crosses the boundary is the [`Boundary`] the join's fit gave,
 //! resolved on each run with what the parts that do not state a resource
@@ -42,8 +43,9 @@
 //! unnamed, and the boundary above names the part at its position; a
 //! `Composed` whose halves do not fit refuses the run at `ready`, with
 //! their mismatch, rather than running an unbound opcode; and a joined
-//! driver fails a run its adapters do not provide before its driver runs
-//! anything, where the runner would have refused it.
+//! driver fails a run its own parts do not provide, by the runner's rule,
+//! before its driver runs anything, where the runner would have refused
+//! it.
 
 mod adapter;
 mod driver;
@@ -125,14 +127,13 @@ impl<U, L> Composed<U, L> {
     /// halves do not fit, with their mismatch; otherwise resolves the
     /// boundary with `required`, what the lower half is required on this
     /// run. Gives the lower half, what it gets ready for, its position,
-    /// and the part a refusal from it names, the lower half by `name`, if
-    /// that position is known.
-    fn start_run(
+    /// and the part a refusal from it names, the lower half as `on` named
+    /// it, if that position is known.
+    fn start_run<'p>(
         &mut self,
         required: impl FnOnce(&U) -> Capabilities,
-        name: impl FnOnce(&L) -> &str,
-        at: ChainPosition,
-    ) -> Result<(&mut L, &Capabilities, ChainPosition, Option<&PartId>), NotReady> {
+        at: ChainPosition<'p>,
+    ) -> Result<(&mut L, &Capabilities, ChainPosition<'p>, Option<&PartId>), NotReady> {
         let Self {
             upper,
             lower,
@@ -146,7 +147,7 @@ impl<U, L> Composed<U, L> {
             .map_err(|mismatch| NotReady::new(mismatch.clone()))?;
         let below = at.below(*upper_parts);
         boundary.require(&required(upper));
-        boundary.part = below.part(name(lower));
+        boundary.part = below.part().cloned();
         *provided_on_run = false;
         Ok((lower, &boundary.required, below, boundary.part.as_ref()))
     }

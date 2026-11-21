@@ -474,7 +474,7 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
 /// lowest part requires, and what its upper parts require that the lowest
 /// does not state; it provides what its top part provides, and what the
 /// parts below provide that the top one does not require, the stricter
-/// where both state it.
+/// where both state it, and no replay where it provides no seeded runs.
 #[test]
 fn a_joined_part_requires_and_provides_what_its_parts_forward() {
     let log = Log::default();
@@ -531,6 +531,16 @@ fn a_joined_part_requires_and_provides_what_its_parts_forward() {
                 &Stating::restating(64, &log).through(Stating::queue(4, &log)),
             )),
             (qubits(64).with_shots(4), Features::new()),
+        ),
+        // A replayer, which provides replay and forwards seeded runs, on
+        // bits without seeded runs: neither, as a shot is replayed with its
+        // run's seed.
+        (
+            "a replayer on bits without seeded runs",
+            read(Executor::provides(&Stating::replaying(&log).on(
+                Bits::new(&log).with_features(Features::new().with_seeded_runs(false)),
+            ))),
+            (qubits(64), Features::new().with_seeded_runs(false)),
         ),
     ];
     for (row, read, (resources, features)) in rows {

@@ -881,13 +881,14 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
 
 /// A chain runs at most the fewest shots of the parts below its driver,
 /// down to the first adapter that requires shots again, which serves them
-/// itself, in every bracketing: a run of one more is refused before any
-/// part is asked or runs, and a run of that many runs. So an adapter may
-/// lower the most shots a run may have, and raise it only by requiring
-/// shots again.
+/// itself, in every bracketing, whose joined drivers check the same rule: a run
+/// of one more is refused before any part is asked or runs, and a run of that
+/// many runs. So an adapter may lower the most shots a run may have, and raise
+/// it only by requiring shots again.
 #[test]
 fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
     let bits = |most| Bits::new(&log).with_resources(qubits(64).with_shots(most));
     // An executor running 4 shots at most.
     let alone = runner(CoinCopy::new().on(bits(4)));
@@ -942,8 +943,9 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
         let row = format!("a queue under a decoder, {brackets}");
         takes_at_most(&row, runner(chain), 4, &log);
     });
-    // Bits running 4 shots at most, under a splitter sending them runs of
-    // 4 and taking runs of 100: the splitter's limit holds.
+    // Bits running 4 shots at most, under a splitter's declaration fake,
+    // requiring runs of 4 and providing runs of 100: the splitter's limit
+    // is the one checked, though the fake sends each run through whole.
     in_each_bracketing!([d, splitter, e] from {
         let d = CoinCopy::new();
         let splitter = Stating::splitting_runs(4, 100, &log);
@@ -951,6 +953,18 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     }, |chain, brackets| {
         let row = format!("a splitter, {brackets}");
         takes_at_most(&row, runner(chain), 100, &log);
+    });
+    // Bits running 1 shot at most, under a profiler, under a splitter
+    // taking runs of 4: the splitter's limit holds, though the part below
+    // it forwards a lower one.
+    in_each_bracketing!([d, splitter, profiler, e] from {
+        let d = CoinCopy::new();
+        let splitter = Stating::splitting_runs(1, 4, &log);
+        let profiler = Profiler::new(&counted, &log);
+        let e = bits(1);
+    }, |chain, brackets| {
+        let row = format!("a splitter over a profiler, {brackets}");
+        takes_at_most(&row, runner(chain), 4, &log);
     });
 }
 
@@ -1038,70 +1052,134 @@ fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
         (runner(chain).run(&ShotSet::ids(0..2), SEED))
             .unwrap_or_else(|error| panic!("a sampler, {brackets}: {error:?}"));
     });
+    // The same, with a profiler between the sampler and the bits, which
+    // forwards their lack of seeded runs; or with the sampler joined with
+    // the driver, held by a part of the user's that forwards its
+    // requirement of no seeded runs below: a seeded run runs.
+    in_each_bracketing!([d, sampler, profiler, e] from {
+        let d = CoinCopy::new();
+        let sampler = Stating::seeding_itself(&log);
+        let profiler = Profiler::new(&counted, &log);
+        let e = bits_without_seeded_runs();
+    }, |chain, brackets| {
+        (runner(chain).run(&ShotSet::ids(0..2), SEED))
+            .unwrap_or_else(|error| panic!("a sampler over a profiler, {brackets}: {error:?}"));
+    });
+    let held = Renamed::new(
+        CoinCopy::new().through(Stating::seeding_itself(&log)),
+        "user's driver",
+    );
+    (runner(held.on(bits_without_seeded_runs())).run(&ShotSet::ids(0..2), SEED))
+        .unwrap_or_else(|error| panic!("a held sampler: {error:?}"));
 }
 
-/// A driver joined through a job queue of 4 shots at most, or through a
-/// link without seeded runs, held by a part of the user's that forwards
-/// only its role's public methods, so that the `on` that made the runner
-/// cannot see the queue or the link: a run of 5 shots, or a seeded run,
-/// fails at its first shot with the adapter's mismatch, as the joined
-/// driver checks it, nothing running below and the executor's shots ended
-/// once, by the runner; a run the adapter provides runs.
+/// Runs `shots` shots with `seed` on `runner`, which fails at its first
+/// shot with `mismatch`, nothing running below and the bits' shots ended
+/// once; then `taken` shots with `taken_seed`, which run: a row of
+/// [`a_held_joined_driver_fails_a_run_its_adapters_do_not_provide`],
+/// named `row`.
+fn fails_unprovided<D: Driver<Output: std::fmt::Debug>, E: Executor>(
+    row: &str,
+    mut runner: Runner<D, E>,
+    ((shots, seed), (taken, taken_seed)): ((u32, Option<u64>), (u32, Option<u64>)),
+    mismatch: &CapabilitiesMismatch,
+    log: &Log,
+) {
+    let ran = log.count("Bits execute");
+    let ends = ended(log).len();
+    let error = failed(runner.run(&ShotSet::ids(0..shots), seed));
+    assert_eq!(error.shot, ShotId::new(0), "{row}: the run's first shot");
+    assert!(
+        matches!(&error.failure, Failure::NotProvided(why) if why == mismatch),
+        "{row}: {error:?}"
+    );
+    assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran below");
+    assert_eq!(
+        ended(log)[ends..],
+        ["Bits end_shots, holding 0"],
+        "{row}: ended once"
+    );
+    let records = runner
+        .run(&ShotSet::ids(0..taken), taken_seed)
+        .unwrap_or_else(|error| panic!("{row}: a run it provides: {error:?}"));
+    assert_eq!(records.len(), taken as usize, "{row}: a record per shot");
+}
+
+/// A driver joined through a job queue of 4 shots at most, through a link
+/// without seeded runs, or through a splitter taking runs of 4 over a
+/// queue of 1 or over bits of 1, held by a part of the user's that
+/// forwards only its role's public methods, so that the `on` that made the
+/// runner cannot see the adapters: a run of 5 shots, or a seeded run,
+/// fails at its first shot with the mismatch of what the adapters provide
+/// together, in each bracketing, as the joined driver checks it, nothing
+/// running below and the executor's shots ended once, by the runner; a run
+/// the adapters provide runs, as on the same chain unwrapped, even where
+/// the parts below the held driver provide less, as the splitter requires
+/// shots again, serving them itself.
 #[test]
 fn a_held_joined_driver_fails_a_run_its_adapters_do_not_provide() {
-    let log = Log::default();
-    let held = |adapter| {
-        runner(Renamed::new(CoinCopy::new().through(adapter), "user's driver").on(Bits::new(&log)))
-    };
-    let rows = [
-        (
-            "through a queue of 4 shots",
-            Stating::queue(4, &log),
-            (5, Some(SEED)),
-            (4, Some(SEED)),
-            CapabilitiesMismatch {
-                resources: vec![ResourceMismatch {
-                    key: Resource::Shots,
-                    required: 5,
-                    provided: 4,
-                }],
-                ..CapabilitiesMismatch::default()
-            },
-        ),
-        (
-            "through a link without seeded runs",
-            Stating::without_seeded_runs(&log),
-            (2, Some(SEED)),
-            (2, None),
-            CapabilitiesMismatch {
-                features: vec![FeatureMismatch {
-                    key: Feature::SeededRuns,
-                    required: true,
-                    provided: false,
-                }],
-                ..CapabilitiesMismatch::default()
-            },
-        ),
-    ];
-    for (row, adapter, (shots, seed), (taken, taken_seed), mismatch) in rows {
-        let mut runner = held(adapter);
-        let ran = log.count("Bits execute");
-        let ends = ended(&log).len();
-        let error = failed(runner.run(&ShotSet::ids(0..shots), seed));
-        assert_eq!(error.shot, ShotId::new(0), "{row}: the run's first shot");
-        assert!(
-            matches!(&error.failure, Failure::NotProvided(why) if *why == mismatch),
-            "{row}: {error:?}"
-        );
-        assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran below");
-        assert_eq!(
-            ended(&log)[ends..],
-            ["Bits end_shots, holding 0"],
-            "{row}: ended once"
-        );
-        let records = runner
-            .run(&ShotSet::ids(0..taken), taken_seed)
-            .unwrap_or_else(|error| panic!("{row}: a run it provides: {error:?}"));
-        assert_eq!(records.len(), taken as usize, "{row}: a record per shot");
+    fn held<D: Driver>(driver: D) -> Renamed<D> {
+        Renamed::new(driver, "user's driver")
     }
+    let log = Log::default();
+    let five_shots = CapabilitiesMismatch {
+        resources: vec![ResourceMismatch {
+            key: Resource::Shots,
+            required: 5,
+            provided: 4,
+        }],
+        ..CapabilitiesMismatch::default()
+    };
+    let shots = ((5, Some(SEED)), (4, Some(SEED)));
+    fails_unprovided(
+        "through a queue of 4 shots",
+        runner(held(CoinCopy::new().through(Stating::queue(4, &log))).on(Bits::new(&log))),
+        shots,
+        &five_shots,
+        &log,
+    );
+    fails_unprovided(
+        "through a link without seeded runs",
+        runner(
+            held(CoinCopy::new().through(Stating::without_seeded_runs(&log))).on(Bits::new(&log)),
+        ),
+        ((2, Some(SEED)), (2, None)),
+        &CapabilitiesMismatch {
+            features: vec![FeatureMismatch {
+                key: Feature::SeededRuns,
+                required: true,
+                provided: false,
+            }],
+            ..CapabilitiesMismatch::default()
+        },
+        &log,
+    );
+    let splitter = || Stating::splitting_runs(1, 4, &log);
+    let queue_of_one = || Stating::queue(1, &log);
+    fails_unprovided(
+        "through a splitter, then a queue of 1",
+        runner(
+            held(CoinCopy::new().through(splitter()).through(queue_of_one())).on(Bits::new(&log)),
+        ),
+        shots,
+        &five_shots,
+        &log,
+    );
+    fails_unprovided(
+        "through a splitter over a queue of 1",
+        runner(
+            held(CoinCopy::new().through(splitter().through(queue_of_one()))).on(Bits::new(&log)),
+        ),
+        shots,
+        &five_shots,
+        &log,
+    );
+    let bits_of_one = Bits::new(&log).with_resources(qubits(64).with_shots(1));
+    fails_unprovided(
+        "through a splitter, over bits of 1",
+        runner(held(CoinCopy::new().through(splitter())).on(bits_of_one)),
+        shots,
+        &five_shots,
+        &log,
+    );
 }

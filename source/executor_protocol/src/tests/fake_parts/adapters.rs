@@ -475,9 +475,10 @@ impl Stating {
         Self::providing(log, Resources::new().with_shots(most), Features::new())
     }
 
-    /// A toy job splitter that says it takes runs of up to `above` shots,
-    /// sending them below in runs of up to `below`: it requires the shots
-    /// again, serving them itself.
+    /// A declaration fake of a job splitter: it requires runs of up to
+    /// `below` shots and provides runs of up to `above`, so it requires the
+    /// shots again, serving them itself, but it passes each run through
+    /// whole, splitting none.
     pub(crate) fn splitting_runs(below: u32, above: u32, log: &Log) -> Self {
         let shots = |most| {
             Capabilities::new(CoinGates::set()).with_resources(Resources::new().with_shots(most))
@@ -494,6 +495,19 @@ impl Stating {
             log,
             stating(Features::new().with_seeded_runs(false)),
             stating(Features::new().with_seeded_runs(true).with_replay(false)),
+        )
+    }
+
+    /// A toy replayer that runs a shot again by sending it below again,
+    /// with its run's seed: it requires no replay below, and provides
+    /// replay above, stating seeded runs, while it forwards whether the
+    /// parts below serve seeded runs, as it does not require them.
+    pub(crate) fn replaying(log: &Log) -> Self {
+        let stating = |features| Capabilities::new(CoinGates::set()).with_features(features);
+        Self::new(
+            log,
+            stating(Features::new().with_replay(false)),
+            stating(Features::new().with_replay(true)),
         )
     }
 

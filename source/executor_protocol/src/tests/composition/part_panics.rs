@@ -389,7 +389,10 @@ fn names_the_panic<T: Debug>(
 /// run time is, by what it was built from: the failure names the part by
 /// that name, at its position. A joined part held by a part of a user's,
 /// which the chain's check cannot reach, with a part inside it that
-/// panics: the failure names the user's part, at its position.
+/// panics: the failure names the user's part, at its position. An
+/// executor, or an adapter, that panics and answers another name once
+/// ready, in each bracketing: the failure of each run names it by the name
+/// the `on` that made the runner read.
 #[test]
 fn a_panic_names_the_part_by_its_name() {
     let log = Log::default();
@@ -438,6 +441,48 @@ fn a_panic_names_the_part_by_its_name() {
                 Failure::Panicked { part, .. } if *part == PartId::new(position, name)
             ),
             "{runner_name}: {error:?}"
+        );
+    }
+    in_each_bracketing!(
+        [d, a, e] from {
+            let counted = Rc::new(Cell::new(0));
+            let d = Program::new(&[("mz", 0)]);
+            let a = Profiler::new(&counted, &log);
+            let e = Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")
+                .renamed_once_ready("renamed runtime");
+        },
+        |chain, brackets| {
+            let row = format!("an executor renamed once ready, {brackets}");
+            named_as_read_at_on(&row, runner(chain), &PartId::new(2, "qodec runtime"));
+        }
+    );
+    in_each_bracketing!(
+        [d, a, e] from {
+            let d = Program::new(&[("mz", 0)]);
+            let a = Renamed::new(Misbehaving::new(Misbehaviour::PanicsWithAString), "decoder")
+                .renamed_once_ready("renamed decoder");
+            let e = Bits::new(&log);
+        },
+        |chain, brackets| {
+            let row = format!("an adapter renamed once ready, {brackets}");
+            named_as_read_at_on(&row, runner(chain), &PartId::new(1, "decoder"));
+        }
+    );
+}
+
+/// Checks that two runs of shots 3 and 1 on `runner` each fail naming
+/// shot 3 and `part`, a row of [`a_panic_names_the_part_by_its_name`].
+fn named_as_read_at_on<D: Driver<Output: Debug>, E: Executor>(
+    row: &str,
+    mut runner: Runner<D, E>,
+    part: &PartId,
+) {
+    for run in ["first run", "second run"] {
+        let error = failed(runner.run(&ShotSet::ids([3, 1]), SEED));
+        assert_eq!(error.shot, ShotId::new(3), "{row}, {run}");
+        assert!(
+            matches!(&error.failure, Failure::Panicked { part: named, .. } if named == part),
+            "{row}, {run}: {error:?}"
         );
     }
 }

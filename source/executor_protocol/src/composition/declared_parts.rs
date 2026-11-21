@@ -3,7 +3,8 @@
 
 //! The parts of a chain as they declare themselves, top to bottom
 //! ([`DeclaredParts`]): what the [`on`](crate::DriverJoins::on) that makes
-//! a runner checks the whole chain with, and what bounds each run.
+//! a runner checks the whole chain with, what bounds each run, and what
+//! names each part.
 
 use super::CompositionFault;
 use crate::PartId;
@@ -19,9 +20,9 @@ pub struct DeclaredParts<'a> {
     parts: Vec<DeclaredPart<'a>>,
 }
 
-/// Why a chain's provision is found: the `on` that asks for it joins a
-/// driver with an executor at the bottom.
-const CHAIN: &str = "a chain has a driver above an executor";
+/// Why a run's provision is found: the parts it is asked of start with a
+/// driver.
+const CHAIN: &str = "a run's parts start with a driver";
 
 /// One part, as it declares itself: a driver requires, an executor
 /// provides, and an adapter does both.
@@ -91,18 +92,27 @@ impl<'a> DeclaredParts<'a> {
         faults
     }
 
-    /// What the parts below the top one provide together, as each run is
-    /// bounded by: the bottom part's provision, then each adapter's above
-    /// it, the stricter where two state a resource or a feature, through
-    /// each adapter that does not require it again.
-    pub(crate) fn provision(&self) -> Capabilities {
-        let (bottom, adapters) = (self.parts[1..].split_last()).expect(CHAIN);
-        let below = bottom.provides.expect(CHAIN).clone();
-        adapters.iter().rev().fold(below, |below, adapter| {
+    /// What a run of these parts, a driver above its adapters, is
+    /// bounded by, over `below`, the provision of the parts below them:
+    /// `below`, then each adapter's provision above it, the stricter where
+    /// two state a resource or a feature, through each adapter that does
+    /// not require it again; less each field the driver requires, which it
+    /// serves itself, as an adapter does. The runner checks each run
+    /// against it, and so does a joined driver, against its own parts, so
+    /// that both give the same verdict.
+    pub(crate) fn run_provision(&self, below: &Capabilities) -> Capabilities {
+        let (driver, adapters) = self.parts.split_first().expect(CHAIN);
+        let provision = adapters.iter().rev().fold(below.clone(), |below, adapter| {
             let declared = adapter.provides.zip(adapter.requires);
             let (provided, required) = declared.expect("an adapter declares both sides");
             provided.stricter_through(required, &below)
-        })
+        });
+        provision.unanswered(driver.requires.expect("a driver requires"))
+    }
+
+    /// Each part, by its position and name, top to bottom.
+    pub(crate) fn ids(&self) -> Vec<PartId> {
+        (0..self.parts.len()).map(|at| self.id(at)).collect()
     }
 
     /// The part at `at`, by its position and name.

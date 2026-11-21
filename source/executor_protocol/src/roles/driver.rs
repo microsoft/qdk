@@ -27,16 +27,17 @@ use crate::{
 ///
 /// # Declarations
 ///
-/// The joins ([`DriverJoins`](crate::DriverJoins)) read them once, before
-/// any run: [`name`](Self::name) and [`requires`](Self::requires). The
+/// The joins ([`DriverJoins`](crate::DriverJoins)) read them before any
+/// run: [`name`](Self::name) and [`requires`](Self::requires). The
 /// join to the part below hands back what it made of them:
 /// [`bind`](Self::bind) gets the fit's opcode map. A join only decides,
 /// from what the parts declare; what prepares a part to run belongs to
 /// each run.
 ///
 /// What it requires must not change once it is joined: the fit and
-/// `bind`'s map are made once, from it, and each part below gets ready, on
-/// every run, for the requirement read then.
+/// `bind`'s map are made once, from it, each part below gets ready, on
+/// every run, for the requirement read then, and a joined driver reads it
+/// again on each run, to check the run.
 ///
 /// # Run
 ///
@@ -56,7 +57,9 @@ pub trait Driver {
     /// What it requires of the part below: the instructions it sends, and
     /// what its shots use, such as their qubits. The part below must
     /// provide it, and each part further below what no adapter between
-    /// them states again, as [`Capabilities`] says.
+    /// them states again, as [`Capabilities`] says. A field it states, it
+    /// serves itself, as an adapter that requires it does: a run's shots,
+    /// and a fixed seed, are not checked against what is provided of it.
     fn requires(&self) -> &Capabilities;
 
     /// Receives, once, the translation of its opcodes into the part
@@ -141,7 +144,7 @@ pub trait Driver {
     /// the crate overrides it, to name a refusal of a part it holds by
     /// that part's position.
     #[doc(hidden)]
-    fn ready_at(&mut self, at: ChainPosition) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready_at(&mut self, at: ChainPosition<'_>) -> impl Future<Output = Result<(), NotReady>> {
         let _ = at;
         self.ready()
     }

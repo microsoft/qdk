@@ -14,7 +14,8 @@ the [README](../README.md#terms).
 
 A part implements its role's trait, whose rustdoc lists its methods in
 two groups: its declarations, which the joins read when they join the
-parts (the first phase below), and its run methods, which the runner and
+parts (the first phase below), and which must not change after, as a
+joined part reads some of them again on each run, and its run methods, which the runner and
 the part above call on each run (the last three). Each method is
 called at one phase of a chain's life:
 

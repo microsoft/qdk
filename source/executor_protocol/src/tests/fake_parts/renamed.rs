@@ -15,11 +15,24 @@ use crate::{
 pub(crate) struct Renamed<P> {
     part: P,
     name: &'static str,
+    /// The name it answers once its role's `ready` is called.
+    name_once_ready: &'static str,
 }
 
 impl<P> Renamed<P> {
     pub(crate) fn new(part: P, name: &'static str) -> Self {
-        Self { part, name }
+        Self {
+            part,
+            name,
+            name_once_ready: name,
+        }
+    }
+
+    /// This part, named `name` once its role's `ready` is called: a part
+    /// that breaks the rule that its name does not change once composed.
+    pub(crate) fn renamed_once_ready(mut self, name: &'static str) -> Self {
+        self.name_once_ready = name;
+        self
     }
 }
 
@@ -39,6 +52,7 @@ impl<P: Driver> Driver for Renamed<P> {
     type Output = P::Output;
 
     fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+        self.name = self.name_once_ready;
         self.part.ready()
     }
 
@@ -70,6 +84,7 @@ impl<P: Adapter> Adapter for Renamed<P> {
     }
 
     fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        self.name = self.name_once_ready;
         self.part.ready(required)
     }
 
@@ -98,6 +113,7 @@ impl<P: Executor> Executor for Renamed<P> {
     }
 
     fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        self.name = self.name_once_ready;
         self.part.ready(required)
     }
 

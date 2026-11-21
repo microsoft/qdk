@@ -86,13 +86,10 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
     async fn ready_at(
         &mut self,
         required: &Capabilities,
-        at: ChainPosition,
+        at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
-        let (lower, below_required, below, part) = self.start_run(
-            |upper| upper.requires().or(required),
-            |lower| lower.name(),
-            at,
-        )?;
+        let (lower, below_required, below, part) =
+            self.start_run(|upper| upper.requires().or(required), at)?;
         await_part(lower.ready_at(below_required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
