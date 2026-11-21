@@ -1,26 +1,33 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What crosses one boundary of a chain ([`Crossing`]), as the chain's
-//! check found it: kept by the part that holds the boundary, a joined part
+//! What crosses one boundary of a chain ([`Crossing`]): as the chain's
+//! check found it, kept by the part that holds the boundary, a joined part
 //! or the runner, so that every call across it is checked, and every run
-//! gets the part below ready, with the values the admission checked.
+//! gets the part below ready, with the values the admission checked; or,
+//! for a joined part the check did not reach, read from its halves on each
+//! run.
 
 use super::BatchLimits;
 use crate::{InstructionSet, Needs, Offer, PartId};
 
-/// What crosses one boundary of a checked chain, and the limits of the
-/// batches sent across it.
+/// What crosses one boundary of a chain, and the limits of the batches
+/// sent across it.
 pub(crate) struct Crossing {
-    /// The top part below the boundary, the one that receives its calls:
-    /// what a panic below the boundary names, and what a refusal to get
-    /// ready names when no part below was named.
-    pub(crate) part: PartId,
+    /// The top part below the boundary, the one that receives its calls,
+    /// at its position in the chain, when the chain's check found the
+    /// crossing: what a panic below the boundary names, and what a refusal
+    /// to get ready names when no part below was named. `None` for a
+    /// crossing read on a run, whose part's position is not known: a panic
+    /// or a refusal then passes up unnamed, to the boundary above, which
+    /// names the part at its position.
+    pub(crate) part: Option<PartId>,
     /// The needs crossing the boundary down, as the admission checked
-    /// them: what the part below gets ready for on every run.
+    /// them, or as read on the run: what the part below gets ready for.
     pub(crate) needs: Needs,
-    /// The offer crossing the boundary up, as the admission checked it:
-    /// what the part above is answered when it asks the part below.
+    /// The offer crossing the boundary up, as the admission checked it, or
+    /// as read on the run: what the part above is answered when it asks
+    /// the part below.
     pub(crate) offer: Offer,
     /// The limits of the batches crossing the boundary, from the set the
     /// part below accepts, that offer and those needs.
@@ -28,10 +35,15 @@ pub(crate) struct Crossing {
 }
 
 impl Crossing {
-    /// `needs` crossing down to `part`, a receiver of `receiver`'s
-    /// instructions, and `offer` crossing up, with the limits of the
-    /// batches sent it.
-    pub(crate) fn new(part: PartId, needs: Needs, offer: Offer, receiver: InstructionSet) -> Self {
+    /// `needs` crossing down to `part`, if known, a receiver of
+    /// `receiver`'s instructions, and `offer` crossing up, with the limits
+    /// of the batches sent it.
+    pub(crate) fn new(
+        part: Option<PartId>,
+        needs: Needs,
+        offer: Offer,
+        receiver: InstructionSet,
+    ) -> Self {
         Self {
             batch_limits: BatchLimits::new(receiver, &offer, &needs),
             part,

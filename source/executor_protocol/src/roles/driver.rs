@@ -96,13 +96,13 @@ pub trait Driver {
     /// [`Batch::checked`](crate::Batch::checked) says.
     ///
     /// Once `drive` returns, fails or panics, or its run's future is
-    /// dropped, the runner ends every shot of `shots` on every part below
+    /// dropped, the protocol ends every shot of `shots` on every part below
     /// ([`Executor::end_shots`]), so a driver need not end them. It may end
     /// a shot below as soon as that shot ends, to free its state early; the
-    /// runner's second end of it does nothing. A part's panic in an end the
-    /// driver calls fails the run naming the driver (and in one an adapter
-    /// calls in `adapt`, naming that adapter), where the same panic in the
-    /// runner's end is raised again from the run
+    /// protocol's second end of it does nothing. A part's panic in an end
+    /// the driver calls fails the run naming the driver (and in one an
+    /// adapter calls in `adapt`, naming that adapter), where the same panic
+    /// in the protocol's end is raised again from the run
     /// ([`Runner::run_async`](crate::Runner::run_async)).
     ///
     /// A `drive` does its work, calling `below` included, when its future is
@@ -118,21 +118,21 @@ pub trait Driver {
         below: &mut impl Executor,
     ) -> impl Future<Output = Result<Vec<Self::Output>, DriveError>>;
 
-    // Protocol hooks: sealed and hidden. Their parameter types,
-    // `ChainCheck` (`src/composition/chain_check.rs`) and `EndedRun`,
-    // cannot be named outside this crate, so no other crate can call or
-    // override them. They are in the trait because Rust cannot specialise
-    // a default method: the protocol's joined parts (`Composed`, in
-    // `src/composition/composed/`) override them, `check_chain` to add
-    // each inner part's facts, so that a refusal names the inner part that
-    // was short, and to keep the needs and the offer that cross each inner
-    // boundary, and `end_run` to end each inner adapter's shots.
+    // Protocol hook: sealed and hidden. Its parameter type, `ChainCheck`
+    // (`src/composition/chain_check.rs`), cannot be named outside this
+    // crate, so no other crate can call or override it. It is in the trait
+    // because Rust cannot specialise a default method: the protocol's
+    // joined parts (`Composed`, in `src/composition/composed/`) override
+    // it to add each inner part's facts, so that a refusal names the inner
+    // part that was short, and the chain's runner names each inner part
+    // by its position. Correctness does not depend on it: a joined part
+    // the check does not reach, such as one inside a part of the user's
+    // that forwards only the public methods, runs the same.
 
     /// Adds its needs, as this part's, to `chain`, then has the chain
     /// `below` add its facts for them, and gives the offer that reaches it
     /// from below. Only the crate overrides it, to add each part it holds,
-    /// with the fit faults of each boundary it holds, top to bottom, and
-    /// to keep the needs and the offer that cross each of them. The
+    /// with the fit faults of each boundary it holds, top to bottom. The
     /// [`on`](crate::DriverJoins::on) that makes a runner calls it once.
     #[doc(hidden)]
     fn check_chain(
@@ -144,27 +144,6 @@ pub trait Driver {
         chain.add_needs(Driver::name(self), &needs);
         below(needs, chain)
     }
-
-    /// Ends the shots of `run`, which ended, on each adapter it holds, top
-    /// to bottom; by default it holds none. The runner calls it after every
-    /// run whose `drive` started, then the executor's `end_shots`; only the
-    /// crate overrides it.
-    #[doc(hidden)]
-    fn end_run(&mut self, run: EndedRun<'_>) {
-        let _ = run;
-    }
-}
-
-/// A run whose `drive` started and ended, as the runner tells
-/// [`Driver::end_run`]: its shots.
-///
-/// Code outside the crate cannot name it, because this module is private:
-/// so only the crate overrides that method, and every part a driver holds
-/// is told.
-#[derive(Clone, Copy)]
-pub struct EndedRun<'a> {
-    /// The run's shots.
-    pub(crate) shots: &'a ShotSet,
 }
 
 /// What a `drive` returns to the runner when it gives no outputs: the shot

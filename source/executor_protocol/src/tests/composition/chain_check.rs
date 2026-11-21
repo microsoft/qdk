@@ -29,7 +29,7 @@ fn coin_gates_without(name: &str, missing: &str) -> InstructionSet {
 }
 
 /// [`CoinGates`] without `x`.
-fn no_x() -> InstructionSet {
+pub(super) fn no_x() -> InstructionSet {
     coin_gates_without("NoX", "x")
 }
 
@@ -44,7 +44,7 @@ fn no_h() -> InstructionSet {
 }
 
 /// The fit faults of `sent` against `accepted`, as the fit finds them.
-fn fit_faults(sent: &InstructionSet, accepted: &InstructionSet) -> FitFaults {
+pub(super) fn fit_faults(sent: &InstructionSet, accepted: &InstructionSet) -> FitFaults {
     FitFaults {
         sent: sent.name().to_owned(),
         accepted: accepted.name().to_owned(),

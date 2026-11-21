@@ -53,7 +53,7 @@ use std::task::{Context, Poll};
 use pin_project_lite::pin_project;
 
 /// Makes a part's future with `make`, and awaits it: its output, or the
-/// message of the part's panic, when the message is text. `make` is called
+/// payload of the part's panic. `make` is called
 /// when this future is first polled, as an `async fn`'s body runs, so a
 /// future dropped before its first poll has called nothing of the part. A
 /// panic in the part's future's destructor is the part's too when the
@@ -73,7 +73,7 @@ use pin_project_lite::pin_project;
 ///
 /// `AssertUnwindSafe`, because a part may be left half-updated by its
 /// panic, and the protocol calls it again: the panic reaches the part
-/// above as a failure, the runner ends the run's shots on every part, the
+/// above as a failure, the protocol ends the run's shots on every part, the
 /// part that panicked included, and a later run calls it as before. So a
 /// part must tolerate being called after its panic, as after an error, as
 /// [`Failure::Panicked`](crate::Failure::Panicked) says.
@@ -107,19 +107,19 @@ where
     M: FnOnce() -> F,
     F: Future,
 {
-    type Output = Result<F::Output, Option<String>>;
+    type Output = Result<F::Output, Box<dyn Any + Send>>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         if let Some(make) = this.make.take() {
             match catch_unwind(AssertUnwindSafe(make)) {
                 Ok(future) => this.part.as_mut().start(future),
-                Err(payload) => return Poll::Ready(Err(panic_message(payload))),
+                Err(payload) => return Poll::Ready(Err(payload)),
             }
         }
         match this.part.poll_caught(context) {
             Ok(poll) => poll.map(Ok),
-            Err(payload) => Poll::Ready(Err(panic_message(payload))),
+            Err(payload) => Poll::Ready(Err(payload)),
         }
     }
 }
@@ -268,8 +268,17 @@ pub(crate) fn end_both(first: impl FnOnce(), second: impl FnOnce()) {
     }
 }
 
+/// The payload of a panic in an end of a run's shots that a joined driver
+/// makes, raised again from its `drive` around the part's own payload, so
+/// that every driver above it, and the runner, tell it from a panic of
+/// the driver's: they raise the part's own payload again, as the runner
+/// raises a panic in its own end of the executor's shots, rather than
+/// failing the run naming the driver. Code outside the crate cannot name
+/// it, so no part's panic is taken for one.
+pub(crate) struct PanicEndingShots(pub(crate) Box<dyn Any + Send>);
+
 /// The message of a panic whose payload is `payload`, when it is text.
-fn panic_message(payload: Box<dyn Any + Send>) -> Option<String> {
+pub(crate) fn panic_message(payload: Box<dyn Any + Send>) -> Option<String> {
     match payload.downcast::<String>() {
         Ok(message) => Some(*message),
         Err(payload) => payload

@@ -3,7 +3,7 @@
 
 //! An adapter on an executor: a [`Composed`] in the executor's role.
 
-use super::{Composed, KEPT};
+use super::Composed;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::chain_check::ChainCheck;
 use crate::composition::part_panics::{await_part, end_both};
@@ -27,14 +27,16 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
         self.upper.offers_above(self.lower.offers())
     }
 
-    /// The part below first, with the needs kept for it, then the adapter
-    /// with `needs`, as for an adapter; a refusal from below names the
-    /// part that answered it.
+    /// Refuses the run if the halves do not fit; else the part below
+    /// first, for the needs that cross to it, as the chain's check found
+    /// them, or as the adapter adapts `needs` now; then the adapter with
+    /// `needs`, as for an adapter. A refusal from below names the part
+    /// that answered it, at its position, if the check found it.
     async fn ready(&mut self, needs: &Needs) -> Result<(), NotReady> {
-        let crossing = self.crossing.as_ref().expect(KEPT);
-        await_part(self.lower.ready(&crossing.needs))
+        let (lower, below, part) = self.start_run(|upper| upper.needs_below(needs.clone()))?;
+        await_part(lower.ready(below))
             .await
-            .map_err(|not_ready| not_ready.answered_by(&crossing.part))?;
+            .map_err(|not_ready| not_ready.answered_by(part))?;
         await_part(self.upper.ready(needs)).await
     }
 
@@ -44,11 +46,12 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        let crossing = self.crossing.as_ref().expect(KEPT);
-        await_part(self.upper.adapt(
+        let (upper, lower, crossing) =
+            self.run_crossing(|lower| (lower.offers(), lower.accepts().clone()));
+        await_part(upper.adapt(
             batches,
             seed,
-            &mut BoundaryCrossing::new(&mut self.lower, crossing),
+            &mut BoundaryCrossing::new(lower, crossing),
             readouts,
         ))
         .await
@@ -68,14 +71,15 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
             upper,
             lower,
             fit_faults,
-            crossing,
+            checked,
+            ..
         } = self;
         upper.check_chain(
             above,
             &mut |middle, chain| {
                 let receiver = lower.accepts().clone();
                 chain.cross(
-                    crossing,
+                    checked,
                     fit_faults.as_ref(),
                     middle,
                     receiver,

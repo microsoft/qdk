@@ -21,10 +21,12 @@ use std::rc::Rc;
 
 use crate::prelude::*;
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Profiler, Program, Shifting,
-    Spread, Values, in_each_bracketing,
+    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, Profiler, Program, Renamed,
+    Shifting, Splitter, Spread, Trap, Values, in_each_bracketing,
 };
-use crate::{BlockType, CompositionFaults, InstructionDef, InstructionSet, Needs, Runner, ShotSet};
+use crate::{
+    BlockType, CompositionFaults, InstructionDef, InstructionSet, Needs, Offer, Runner, ShotSet,
+};
 
 const SEED: u64 = 7;
 
@@ -152,6 +154,162 @@ fn where_the_brackets_go_changes_no_record() {
         },
         |chain, brackets| assert_eq!(records(chain, &shots), expected, "{brackets}"),
     );
+}
+
+/// The results of two runs on the chain `composed` gave, which must
+/// compose, a run of shots 0 to 3 and one of shots 0 to 7, and all `log`
+/// saw.
+fn two_runs<D: Driver, E: Executor>(
+    composed: Result<Runner<D, E>, CompositionFaults>,
+    log: &Log,
+) -> (String, Vec<String>)
+where
+    D::Output: std::fmt::Debug,
+{
+    let Ok(mut runner) = composed else {
+        panic!("the chain composes");
+    };
+    let first = runner.run(&ShotSet::ids(0..4), SEED);
+    let second = runner.run(&ShotSet::ids(0..8), SEED);
+    (format!("{first:?}, then {second:?}"), log.entries())
+}
+
+/// Coin copies through two encodings, with a trap on shot 5 between them,
+/// over bits, each join's result held by a part of a user's that forwards
+/// only its role's public methods, as a user's wrapper does, at one depth
+/// or two, or lent by `&mut` to a chain since dropped first: over a run
+/// that succeeds and one the trap fails, the same results, the same needs
+/// each part gets ready for, and the same shots ended on each part, in the
+/// same order, as the same chain unwrapped. So too for the offer that
+/// crosses the boundary inside the held part: a splitter, which takes
+/// batches of any length, over bits that take one instruction a batch,
+/// under a driver or an adapter sending two; and the offer a part over
+/// bits is told.
+#[test]
+#[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
+fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
+    struct Parts {
+        log: Log,
+        d: CoinCopy,
+        a: Spread,
+        b: Trap,
+        c: Spread,
+        e: Bits,
+    }
+    let parts = || {
+        let log = Log::default();
+        Parts {
+            d: CoinCopy::new().logging(&log),
+            a: Spread::new(2, &log),
+            b: Trap::on(5).logging(&log),
+            c: Spread::new(3, &log),
+            e: Bits::new(&log),
+            log,
+        }
+    };
+    let unwrapped = {
+        let Parts { log, d, a, b, c, e } = parts();
+        two_runs(d.through(a).through(b).through(c).on(e), &log)
+    };
+    let one_instruction = || Offer::unlimited().max_qubits(64).max_instructions(1);
+    let offer_rows = [
+        ("a driver through a splitter", {
+            let [log, unwrapped_log] = [Log::default(), Log::default()];
+            let held = Renamed::new(
+                CoinCopy::new().through(Splitter::default()),
+                "user's driver",
+            );
+            let bits = Bits::new(&log).offering(one_instruction());
+            let unwrapped_bits = Bits::new(&unwrapped_log).offering(one_instruction());
+            (
+                two_runs(held.through(Spread::new(1, &log)).on(bits), &log),
+                two_runs(
+                    CoinCopy::new()
+                        .through(Splitter::default())
+                        .through(Spread::new(1, &unwrapped_log))
+                        .on(unwrapped_bits),
+                    &unwrapped_log,
+                ),
+            )
+        }),
+        ("an adapter through a splitter", {
+            let [log, unwrapped_log] = [Log::default(), Log::default()];
+            let held = Renamed::new(
+                Spread::new(1, &log).through(Splitter::default()),
+                "user's adapter",
+            );
+            let bits = Bits::new(&log).offering(one_instruction());
+            let unwrapped_bits = Bits::new(&unwrapped_log).offering(one_instruction());
+            (
+                two_runs(CoinCopy::new().through(held).on(bits), &log),
+                two_runs(
+                    CoinCopy::new()
+                        .through(Spread::new(1, &unwrapped_log))
+                        .through(Splitter::default())
+                        .on(unwrapped_bits),
+                    &unwrapped_log,
+                ),
+            )
+        }),
+        ("an adapter told the offer of bits", {
+            let [log, unwrapped_log] = [Log::default(), Log::default()];
+            let four = || Offer::unlimited().max_qubits(64).max_instructions(4);
+            let held = Renamed::new(
+                Shifting::new(&log).on(Bits::new(&log).offering(four())),
+                "user's executor",
+            );
+            (
+                two_runs(CoinCopy::new().on(held), &log),
+                two_runs(
+                    CoinCopy::new()
+                        .through(Shifting::new(&unwrapped_log))
+                        .on(Bits::new(&unwrapped_log).offering(four())),
+                    &unwrapped_log,
+                ),
+            )
+        }),
+    ];
+    let rows = [
+        ("a driver through an adapter", {
+            let Parts { log, d, a, b, c, e } = parts();
+            let held = Renamed::new(d.through(a), "user's driver");
+            two_runs(held.through(b).through(c).on(e), &log)
+        }),
+        ("an adapter through adapters", {
+            let Parts { log, d, a, b, c, e } = parts();
+            let held = Renamed::new(a.through(b).through(c), "user's adapter");
+            two_runs(d.through(held).on(e), &log)
+        }),
+        ("an adapter on an executor", {
+            let Parts { log, d, a, b, c, e } = parts();
+            let held = Renamed::new(c.on(e), "user's executor");
+            two_runs(d.through(a).through(b).on(held), &log)
+        }),
+        ("held at two depths", {
+            let Parts { log, d, a, b, c, e } = parts();
+            let inner = Renamed::new(d.through(a), "user's inner driver");
+            let held = Renamed::new(inner.through(b), "user's outer driver");
+            two_runs(held.through(c).on(e), &log)
+        }),
+        ("lent to a chain since dropped first", {
+            let Parts { log, d, a, b, c, e } = parts();
+            let mut lent = c.on(e);
+            records(
+                Program::new(&[("mz", 0)]).on(&mut lent),
+                &ShotSet::ids(0..1),
+            );
+            let earlier_entries = log.entries().len();
+            let held = Renamed::new(&mut lent, "user's executor");
+            let (results, entries) = two_runs(d.through(a).through(b).on(held), &log);
+            (results, entries[earlier_entries..].to_vec())
+        }),
+    ];
+    for (row, held) in rows {
+        assert_eq!(held, unwrapped, "{row}");
+    }
+    for (row, (held, unwrapped)) in offer_rows {
+        assert_eq!(held, unwrapped, "{row}");
+    }
 }
 
 /// Each role's part joined over another, as its users name it in their

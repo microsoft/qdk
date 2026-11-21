@@ -44,7 +44,7 @@ const SEED: u64 = 1;
 /// The three parts, joined: `coin`, under 20% bit-flip noise, on `bits`
 /// (a [`Bits`], or a borrow of one, to read what it counted after a run).
 ///
-/// After each run, the runner ends every shot of the run on every part, so
+/// After each run, the protocol ends every shot of the run on every part, so
 /// the parts free its state and a rerun with the same seed starts it
 /// afresh; the driver need not end them.
 fn coin_runner<E: Executor>(

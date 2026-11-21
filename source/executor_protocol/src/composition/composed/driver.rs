@@ -3,11 +3,13 @@
 
 //! A driver through an adapter: a [`Composed`] in the driver's role.
 
-use super::{ChainBelow, Composed, KEPT};
+use std::panic::resume_unwind;
+
+use super::{ChainBelow, Composed};
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::chain_check::ChainCheck;
-use crate::composition::part_panics::{await_part, end_both};
-use crate::roles::EndedRun;
+use crate::composition::part_panics::{PanicEndingShots, await_part, catch_panic};
+use crate::composition::unended_shots::UnendedShots;
 use crate::{
     Adapter, DriveError, Driver, Executor, InstructionSet, Needs, NotReady, Offer, OpcodeMap, Seed,
     ShotSet,
@@ -34,33 +36,48 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
         self.lower.bind(below);
     }
 
-    /// The part below first, with the needs kept for it: the driver's, as
-    /// the admission checked them; a refusal from below names the part
-    /// that answered it.
+    /// Refuses the run if the halves do not fit; else the part below
+    /// first, for the driver's needs, as the chain's check found them, or
+    /// as the driver states them now; a refusal from below names the part
+    /// that answered it, at its position, if the check found it.
     async fn ready(&mut self) -> Result<(), NotReady> {
-        let crossing = self.crossing.as_ref().expect(KEPT);
-        await_part(self.lower.ready(&crossing.needs))
+        let (lower, needs, part) = self.start_run(U::needs)?;
+        await_part(lower.ready(needs))
             .await
-            .map_err(|not_ready| not_ready.answered_by(&crossing.part))?;
+            .map_err(|not_ready| not_ready.answered_by(part))?;
         await_part(self.upper.ready()).await
     }
 
+    /// The driver's `drive`, on the adapter and the chain below as one
+    /// executor; then ends the run's shots on the adapter, whatever that
+    /// `drive` gave, so that a joined driver ends the shots its adapters
+    /// hold, as the runner ends the executor's, whoever calls it. A panic
+    /// ending them is raised again from the run, through any joined driver
+    /// above, as one in the runner's end is.
     async fn drive(
         &mut self,
         shots: &ShotSet,
         seed: Seed,
         below: &mut impl Executor,
     ) -> Result<Vec<U::Output>, DriveError> {
-        let crossing = self.crossing.as_ref().expect(KEPT);
-        let mut rest = ChainBelow {
-            adapter: &mut self.lower,
-            below,
-        };
-        await_part(
-            self.upper
-                .drive(shots, seed, &mut BoundaryCrossing::new(&mut rest, crossing)),
-        )
-        .await
+        let (upper, lower, crossing) = self
+            .run_crossing(|lower| (lower.offers_above(below.offers()), lower.accepts().clone()));
+        let mut unended = UnendedShots::new(
+            ChainBelow {
+                adapter: lower,
+                below,
+            },
+            shots,
+            |rest, shots| rest.adapter.end_shots(shots),
+        );
+        let mut rest = BoundaryCrossing::new(&mut unended.part, crossing);
+        let drove = catch_panic(|| upper.drive(shots, seed, &mut rest)).await;
+        match (drove, unended.end()) {
+            (Err(payload), _) if payload.is::<PanicEndingShots>() => resume_unwind(payload),
+            (_, Err(payload)) => resume_unwind(Box::new(PanicEndingShots(payload))),
+            (Err(payload), Ok(())) => resume_unwind(payload),
+            (Ok(drove), Ok(())) => drove,
+        }
     }
 
     fn check_chain(
@@ -72,13 +89,14 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
             upper,
             lower,
             fit_faults,
-            crossing,
+            checked,
+            ..
         } = self;
         upper.check_chain(
             &mut |middle, chain| {
                 let receiver = lower.accepts().clone();
                 chain.cross(
-                    crossing,
+                    checked,
                     fit_faults.as_ref(),
                     middle,
                     receiver,
@@ -87,14 +105,5 @@ impl<U: Driver, L: Adapter> Driver for Composed<U, L> {
             },
             chain,
         )
-    }
-
-    /// The driver's adapters, then this one, each ended even if one
-    /// before it panics.
-    fn end_run(&mut self, run: EndedRun<'_>) {
-        end_both(
-            || self.upper.end_run(run),
-            || self.lower.end_shots(run.shots),
-        );
     }
 }

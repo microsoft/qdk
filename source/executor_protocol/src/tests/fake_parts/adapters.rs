@@ -238,7 +238,8 @@ impl Adapter for NamesBelow {
 
 /// An adapter that sends each instruction of a batch as a batch of its
 /// own, one `execute` each, as a stepping debugger does, and joins their
-/// readouts into those of the batch it got.
+/// readouts into those of the batch it got; so it takes batches of any
+/// count of instructions, whatever the part below takes.
 #[derive(Default)]
 pub(crate) struct Splitter {
     below: Option<OpcodeMap>,
@@ -251,6 +252,12 @@ impl Adapter for Splitter {
 
     fn sends(&self) -> &InstructionSet {
         self.accepts()
+    }
+
+    fn offers_above(&self, below: Offer) -> Offer {
+        let mut above = below;
+        above.max_instructions = None;
+        above
     }
 
     fn bind(&mut self, below: OpcodeMap) {

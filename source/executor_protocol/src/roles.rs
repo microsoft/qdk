@@ -31,7 +31,6 @@ mod failure;
 mod not_ready;
 
 pub use adapter::Adapter;
-pub(crate) use driver::EndedRun;
 pub use driver::{DriveError, Driver};
 pub use executor::{ExecuteError, ExecuteRefusal, Executor};
 pub use failure::Failure;

@@ -39,9 +39,12 @@ impl NotReady {
 
     /// Names `part`, the top part of the half that answered it, as the
     /// part that did, unless a joined part inside that half already named
-    /// a part below its top.
-    pub(crate) fn answered_by(mut self, part: &PartId) -> Self {
-        self.part.get_or_insert_with(|| part.clone());
+    /// a part below its top; `None`, where the chain's check did not reach
+    /// the joined part, leaves it unnamed, for the part above to name.
+    pub(crate) fn answered_by(mut self, part: Option<&PartId>) -> Self {
+        if self.part.is_none() {
+            self.part = part.cloned();
+        }
         self
     }
 

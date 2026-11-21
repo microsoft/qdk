@@ -58,11 +58,11 @@ pub trait DriverJoins: Driver + Sized {
         let driver_part = chain
             .first_needing()
             .expect("the driver added its needs first");
-        let run_limits = chain.conclude()?;
+        let (run_limits, crossings) = chain.conclude()?;
         Ok(Runner::new(
             (self, driver_part),
             executor,
-            crossing,
+            (crossing, crossings),
             run_limits,
         ))
     }

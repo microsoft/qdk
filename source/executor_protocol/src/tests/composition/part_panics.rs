@@ -34,7 +34,7 @@ fn raised<D: Driver, E: Executor>(runner: &mut Runner<D, E>) -> Box<dyn Any + Se
 
 /// Coin copies under an adapter that panics in `end_shots`, over a noise,
 /// over bits, in a run with no other fault, in each bracketing: the
-/// driver's end of its shots fails the run, the runner ends them again on
+/// driver's end of its shots fails the run, the protocol ends them again on
 /// every part, each part beside the one that panics is ended both times,
 /// and `run` then raises the panic.
 #[test]
@@ -115,11 +115,11 @@ fn a_panic_ending_shots_is_named_as_the_part_that_ended_them() {
 
 /// A program that never ends its shots, over an adapter whose first
 /// `end_shots` panics, over a noise, over bits, in each bracketing: the
-/// runner's end is the only one, so the panic is raised again from `run`,
+/// protocol's end is the only one, so the panic is raised again from `run`,
 /// once the noise and the bits are ended, and the outputs are lost, where
 /// the same panic in the driver's end fails the run naming the driver.
 #[test]
-fn a_panic_ending_shots_the_runner_ends_is_raised_from_the_run() {
+fn a_panic_ending_shots_the_protocol_ends_is_raised_from_the_run() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();

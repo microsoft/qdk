@@ -18,13 +18,15 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use super::chain_check::{fit_faults, no_x};
 use crate::prelude::*;
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen, Profiler,
-    Program, SeesSeeds, Splitter, Spread, Trap, Values, YieldNow, in_each_bracketing,
+    BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen,
+    Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Trap, Values, YieldNow,
+    in_each_bracketing,
 };
 use crate::{
-    DriveError, Failure, ReadoutFailure, ReadoutValue, RunError, RunRefusal, Runner,
+    DriveError, Failure, FitFaults, ReadoutFailure, ReadoutValue, RunError, RunRefusal, Runner,
     ShotConditions, ShotSet,
 };
 
@@ -737,4 +739,86 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
         ["Bits ready for 1 qubits", "Profiler ready"],
         "the profiler with the bits"
     );
+}
+
+/// The refusals of two runs on the chain `composed` gave, which must
+/// compose, and whether anything ran: the instructions `counted` saw and
+/// the shots' ends `log` saw.
+fn refused_twice<D: Driver, E: Executor>(
+    composed: Result<Runner<D, E>, crate::CompositionFaults>,
+    counted: &Cell<usize>,
+    log: &Log,
+) -> ([RunRefusal; 2], usize, Vec<String>)
+where
+    D::Output: std::fmt::Debug,
+{
+    let mut runner = runner(composed);
+    let shots = ShotSet::ids(0..4);
+    let refusals = [(); 2].map(|()| refused(runner.run(&shots, SEED)));
+    (refusals, counted.get(), ended(log))
+}
+
+/// A part of each role joined from two whose sets do not fit, held by a
+/// part of a user's that forwards only its role's public methods, where
+/// the chain's check cannot reach its inner boundary: the chain composes,
+/// as its outer boundaries fit, but the joined part refuses every run, as
+/// a part that cannot take one, named by the user's part's position and
+/// name, with the boundary's fit faults as its reason; nothing runs, and no
+/// shot is ended on any part.
+#[test]
+fn a_joined_part_whose_parts_do_not_fit_refuses_every_run() {
+    let fault = fit_faults(&CoinGates::set(), &no_x());
+    let counted = Rc::new(Cell::new(0));
+    let profiler = |set, log: &Log| Profiler::on(set, &counted, log);
+    let rows = [
+        ("a driver through an adapter", 0, "user's driver", {
+            let log = Log::default();
+            let held = Renamed::new(
+                CoinCopy::new().through(profiler(no_x(), &log)),
+                "user's driver",
+            );
+            refused_twice(held.on(Bits::accepting(no_x(), &log)), &counted, &log)
+        }),
+        ("an adapter through an adapter", 1, "user's adapter", {
+            let log = Log::default();
+            let held = Renamed::new(
+                profiler(CoinGates::set(), &log).through(profiler(no_x(), &log)),
+                "user's adapter",
+            );
+            refused_twice(
+                CoinCopy::new()
+                    .through(held)
+                    .on(Bits::accepting(no_x(), &log)),
+                &counted,
+                &log,
+            )
+        }),
+        ("an adapter on an executor", 1, "user's executor", {
+            let log = Log::default();
+            let held = Renamed::new(
+                profiler(CoinGates::set(), &log).on(Bits::accepting(no_x(), &log)),
+                "user's executor",
+            );
+            refused_twice(CoinCopy::new().on(held), &counted, &log)
+        }),
+    ];
+    for (row, position, name, (refusals, ran, ended)) in rows {
+        for refusal in refusals {
+            let RunRefusal::PartNotReady { part, not_ready } = &refusal else {
+                panic!("{row}: a part's refusal, not {refusal:?}");
+            };
+            assert_eq!(
+                (part.position, part.name.as_str()),
+                (position, name),
+                "{row}"
+            );
+            assert_eq!(
+                not_ready.why().downcast_ref::<FitFaults>(),
+                Some(&fault),
+                "{row}: {refusal:?}"
+            );
+        }
+        assert_eq!(ran, 0, "{row}: no instruction ran");
+        assert_eq!(ended, [] as [String; 0], "{row}: no shot ended");
+    }
 }

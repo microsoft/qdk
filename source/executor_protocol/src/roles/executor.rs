@@ -148,7 +148,7 @@ pub trait Executor {
     ///
     /// Its future may be dropped before it answers: when its run's future
     /// is dropped, when a part above panics while it waits, or when a part
-    /// above stops waiting for it. The runner ends the run's shots
+    /// above stops waiting for it. The protocol ends the run's shots
     /// ([`end_shots`](Self::end_shots)) once the run ends, whether it gave
     /// outputs, failed, or its future was dropped; the driver may also end
     /// each shot earlier, as it ends.
@@ -171,7 +171,7 @@ pub trait Executor {
     /// Frees what it holds for shots that ended. The protocol calls it on
     /// every part, so a part never forwards it below; by default it does
     /// nothing. `shots` may hold shots it does not hold, or no longer
-    /// holds, such as when the runner ends every shot of a run, some of
+    /// holds, such as when the protocol ends every shot of a run, some of
     /// which the driver had already ended: it does nothing for those. It
     /// may also follow an `execute` dropped before it answered, such as
     /// when its run's future was dropped, a part above panicked while it
@@ -179,7 +179,7 @@ pub trait Executor {
     /// cancels the work that `execute` started for these shots, or ignores
     /// its readouts. A panic here, in an end a part above calls (the driver,
     /// or an adapter in `adapt`), fails the run naming that part; in the
-    /// runner's end, it is raised again from the run
+    /// protocol's end, it is raised again from the run
     /// ([`Runner::run_async`](crate::Runner::run_async)).
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
@@ -191,15 +191,17 @@ pub trait Executor {
     // because Rust cannot specialise a default method: the protocol's
     // joined parts (`Composed`, in `src/composition/composed/`) override it
     // to add each inner part's facts, so that a refusal names the inner
-    // part that was short, and to keep the needs and the offer that cross
-    // each inner boundary.
+    // part that was short, and the chain's runner names each inner part
+    // by its position. Correctness does not depend on it: a joined part
+    // the check does not reach, such as one inside a part of the user's
+    // that forwards only the public methods, runs the same.
 
     /// Adds and gives its offer, as this part's, to `chain`, given `above`,
     /// the needs that reach it, which an executor alone does not read.
     /// Only the crate overrides it, to add each part it holds, with the
-    /// fit faults of each boundary it holds, top to bottom, and to keep the
-    /// needs and the offer that cross each of them. The
-    /// [`on`](crate::DriverJoins::on) that makes a runner calls it once.
+    /// fit faults of each boundary it holds, top to bottom, and what
+    /// crosses each of them. The [`on`](crate::DriverJoins::on) that makes
+    /// a runner calls it once.
     #[doc(hidden)]
     fn check_chain(&mut self, above: Needs, chain: &mut ChainCheck) -> Offer {
         let _ = above;

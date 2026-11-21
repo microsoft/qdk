@@ -16,17 +16,21 @@
 //! of each of whose batches the protocol shapes from the batch, after
 //! checking every batch's count of instructions, and every batch its sender
 //! marked [`checked`](crate::Batch::checked). Once the run ends, whether it
-//! gave outputs, failed, or its future was dropped, the runner ends its
-//! shots on every part, so that none keeps them.
+//! gave outputs, failed, or its future was dropped, its shots are ended
+//! on every part, so that none keeps them: each joined driver ends them on
+//! its adapters, and the runner on the executor.
 
 mod run_error;
 mod run_limits;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod wait;
 
+use std::panic::resume_unwind;
+use std::sync::Arc;
+
 use super::boundary_crossing::{BoundaryCrossing, Crossing};
-use super::part_panics::{await_part, catch_panic, end_both};
-use crate::roles::EndedRun;
+use super::part_panics::{PanicEndingShots, await_part, catch_panic, panic_message};
+use super::unended_shots::UnendedShots;
 use crate::{DriveError, Driver, Executor, Failure, PartId, Seed, ShotSet};
 
 pub use run_error::{RunError, RunRefusal};
@@ -51,7 +55,11 @@ pub struct Runner<D: Driver, E: Executor> {
     /// ready for on every run; its offer, which the driver's
     /// `below.offers()` answers; and the limits of the batches the driver
     /// sends it.
-    crossing: Crossing,
+    crossing: Arc<Crossing>,
+    /// What crosses each boundary of the chain, as the chain's check found
+    /// it: held, never read, so that each joined part the check reached
+    /// uses what crosses its own boundary as long as the runner lives.
+    _crossings: Vec<Arc<Crossing>>,
     /// The most shots and whether a seed may be fixed, by every part's
     /// offer, for each run.
     limits: RunLimits,
@@ -60,12 +68,13 @@ pub struct Runner<D: Driver, E: Executor> {
 impl<D: Driver, E: Executor> Runner<D, E> {
     /// The runner of `driver`, with its top part as the chain's check
     /// added it, and `executor`, with what `crossing` says crosses the
-    /// boundary between them, and the run `limits` of every part's offer,
-    /// as the check concluded them.
+    /// boundary between them, what `crossings` say crosses each boundary
+    /// of the chain, and the run `limits` of every part's offer, as the
+    /// check concluded them.
     pub(crate) fn new(
         (driver, driver_part): (D, PartId),
         executor: E,
-        crossing: Crossing,
+        (crossing, crossings): (Arc<Crossing>, Vec<Arc<Crossing>>),
         limits: RunLimits,
     ) -> Self {
         Self {
@@ -73,6 +82,7 @@ impl<D: Driver, E: Executor> Runner<D, E> {
             executor,
             driver_part,
             crossing,
+            _crossings: crossings,
             limits,
         }
     }
@@ -136,7 +146,7 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// The run raises a part's panic again, instead of failing:
     /// - in a part's `ready`, which is not caught: the first one when the
     ///   future of that `ready` panics again as it is dropped;
-    /// - in the runner's end of the shots: the first such panic, top to
+    /// - in the protocol's end of the shots: the first such panic, top to
     ///   bottom, once every other part is ended, from the run, or from the
     ///   drop of its future, and the driver's outputs are lost. So a part
     ///   that panics each time it ends shots makes every run that started
@@ -150,7 +160,7 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     ///
     /// The protocol guards the futures it drops, not the values parts
     /// return, as std's containers do not: when a part's future panics as
-    /// it is dropped once ready, or the runner's end of the shots panics,
+    /// it is dropped once ready, or the protocol's end of the shots panics,
     /// the output or refusal then held is dropped as that panic unwinds,
     /// and if its own destructor panics too, the process aborts, as a
     /// second panic does anywhere in Rust.
@@ -158,8 +168,8 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// So a part's panic in `end_shots` leaves the run in one of two ways,
     /// by who ended the shots: in an end a part above calls (the driver in
     /// `drive`, or an adapter in `adapt`), it unwinds through that part's
-    /// call, and the run fails naming that part; in the runner's end, it is
-    /// raised again from the run.
+    /// call, and the run fails naming that part; in the protocol's end, it
+    /// is raised again from the run.
     pub fn run_async(
         &mut self,
         shots: &ShotSet,
@@ -178,60 +188,50 @@ impl<D: Driver, E: Executor> Runner<D, E> {
             if seed.is_some() && !self.limits.seedable {
                 return Err(RunError::Refused(RunRefusal::NotSeedable));
             }
-            await_part(self.executor.ready(&self.crossing.needs))
+            let crossing = &self.crossing;
+            await_part(self.executor.ready(&crossing.needs))
                 .await
                 .map_err(|not_ready| {
-                    RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.crossing.part))
+                    RunError::Refused(RunRefusal::part_not_ready(
+                        not_ready,
+                        crossing
+                            .part
+                            .as_ref()
+                            .expect("the chain's check names the part below each boundary"),
+                    ))
                 })?;
             await_part(self.driver.ready()).await.map_err(|not_ready| {
                 RunError::Refused(RunRefusal::part_not_ready(not_ready, &self.driver_part))
             })?;
             let seed = Seed::new(seed.unwrap_or_else(drawn_seed));
-            let unended = UnendedShots {
-                driver: &mut self.driver,
-                executor: &mut self.executor,
-                shots,
-            };
-            let mut below = BoundaryCrossing::new(&mut *unended.executor, &self.crossing);
-            let driver = &mut *unended.driver;
+            let unended = UnendedShots::new(&mut self.executor, shots, |executor, shots| {
+                executor.end_shots(shots);
+            });
+            let mut below = BoundaryCrossing::new(&mut *unended.part, crossing);
+            let driver = &mut self.driver;
             let failure = match catch_panic(|| driver.drive(shots, seed, &mut below)).await {
                 Ok(Ok(outputs)) => {
                     drop(unended);
                     return Ok(outputs);
                 }
                 Ok(Err(failure)) => failure,
-                Err(message) => DriveError {
-                    shot: shots.iter().next().expect("a shot set is never empty"),
-                    failure: Failure::Panicked {
-                        part: self.driver_part.clone(),
-                        message,
+                Err(payload) => match payload.downcast::<PanicEndingShots>() {
+                    Ok(ending) => {
+                        drop(unended.end());
+                        resume_unwind(ending.0)
+                    }
+                    Err(payload) => DriveError {
+                        shot: shots.iter().next().expect("a shot set is never empty"),
+                        failure: Failure::Panicked {
+                            part: self.driver_part.clone(),
+                            message: panic_message(payload),
+                        },
                     },
                 },
             };
             drop(unended);
             Err(RunError::Failed(failure))
         }
-    }
-}
-
-/// The shots of a run whose `drive` started, which any part may hold:
-/// dropped once the run ends, whether it gave outputs, failed, or its
-/// future was dropped, it ends them on every part, as [`Driver::end_run`]
-/// says, then on the executor. One end for the three, so that freeing a
-/// run's shots never depends on the driver.
-struct UnendedShots<'a, D: Driver, E: Executor> {
-    driver: &'a mut D,
-    executor: &'a mut E,
-    shots: &'a ShotSet,
-}
-
-impl<D: Driver, E: Executor> Drop for UnendedShots<'_, D, E> {
-    fn drop(&mut self) {
-        let shots = self.shots;
-        end_both(
-            || self.driver.end_run(EndedRun { shots }),
-            || self.executor.end_shots(shots),
-        );
     }
 }
 

@@ -16,7 +16,9 @@
 //! makes a runner, checking the whole chain (`chain_check`), reports every
 //! fault of the chain at once: each boundary's, and the admission's, at
 //! each boundary the needs of the part above against the offer of the part
-//! below ([`CompositionFaults`]). A
+//! below ([`CompositionFaults`]). A joined part that check cannot reach,
+//! inside a part of the user's that forwards only its role's public
+//! methods, refuses every run at `ready` with its faults instead. A
 //! chain that joins is then a runner, which gets every part ready for
 //! its needs on each run, and the protocol shapes the readouts crossing
 //! its boundaries, checks every batch's count of instructions, and each
@@ -37,6 +39,7 @@ mod driver_joins;
 mod part_id;
 mod part_panics;
 pub(crate) mod runner;
+mod unended_shots;
 
 use crate::{FitFaults, InstructionSet, OpcodeMap};
 

@@ -184,16 +184,18 @@ pub trait Adapter {
     // because Rust cannot specialise a default method: the protocol's
     // joined parts (`Composed`, in `src/composition/composed/`) override it
     // to add each inner part's facts, so that a refusal names the inner
-    // part that was short, and to keep the needs and the offer that cross
-    // each inner boundary.
+    // part that was short, and the chain's runner names each inner part
+    // by its position. Correctness does not depend on it: a joined part
+    // the check does not reach, such as one inside a part of the user's
+    // that forwards only the public methods, runs the same.
 
     /// Adds its needs below, given `above`, as this part's, to `chain`; has
     /// the chain `below` add its facts for them; and adds and gives its
     /// offer above, given the offer that comes back. Only the crate
     /// overrides it, to add each part it holds, with the fit faults of
-    /// each boundary it holds, top to bottom, and to keep the needs and the
-    /// offer that cross each of them. The [`on`](crate::DriverJoins::on)
-    /// that makes a runner calls it once.
+    /// each boundary it holds, top to bottom, and what crosses each of
+    /// them. The [`on`](crate::DriverJoins::on) that makes a runner calls
+    /// it once.
     #[doc(hidden)]
     fn check_chain(
         &mut self,
