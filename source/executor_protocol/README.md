@@ -114,11 +114,15 @@ Today the protocol holds:
   seed against what the chain provides, and carries each call down the
   chain, checking each batch (its count always, its instructions when its
   sender marks it checked) and shaping its readouts. It ends each run's
-  shots on every part. A part's panic becomes a failure of the run (on
-  every platform but wasm32, where a panic aborts). With a fixed seed, and
-  parts that draw on the protocol's seeds, a run gives the same outputs
-  each time; and where the chain's shots replay, a shot run again alone,
-  as a debugger does, gives back its readouts.
+  shots on every part. A part's panic in `drive`, `adapt` or `execute`
+  becomes a failure of the run (on every platform but wasm32, where a
+  panic aborts); one in a part's `ready`, in the protocol's end of the
+  shots, or in a part's future dropped with the run's before it is ready
+  is raised again from the run, as
+  [`Runner::run_async`](src/composition/runner.rs) says. With a fixed
+  seed, and parts that draw on the protocol's seeds, a run gives the
+  same outputs each time; and where the chain's shots replay, a shot run
+  again alone, as a debugger does, gives back its readouts.
 
 Users write the parts: any type that implements a role, written new or
 wrapping an existing interpreter, noise model or simulator.
