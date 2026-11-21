@@ -14,7 +14,7 @@ import pytest
 
 from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode, GATE_MAP
 from qdk._adaptive_bytecode import *
-from qdk.simulation._simulation import DecomposeMxMyPass
+from qdk.simulation._simulation import DecomposeMeasurementsPass
 
 _HAS_GLOBAL_VARIABLES = hasattr(
     pyqir.Module(pyqir.Context(), "probe"), "global_variables"
@@ -1660,7 +1660,7 @@ attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_
 def _mx_my_op_ids(decompose: bool):
     mod = pyqir.Module.from_ir(pyqir.Context(), MX_MY_QIR, "test.ll")
     if decompose:
-        DecomposeMxMyPass().run(mod)
+        DecomposeMeasurementsPass().run(mod)
     program = AdaptiveProfilePass(Bytecode.Bit32).run(mod)
     return [op.op_id for op in program.quantum_ops]
 
@@ -1676,7 +1676,7 @@ def test_decompose_mx_my_to_basis_change_and_m():
 
 def test_decompose_mx_my_keeps_result_ids_and_valid_ir():
     mod = pyqir.Module.from_ir(pyqir.Context(), MX_MY_QIR, "test.ll")
-    DecomposeMxMyPass().run(mod)
+    DecomposeMeasurementsPass().run(mod)
     assert mod.verify() is None
     program = AdaptiveProfilePass(Bytecode.Bit32).run(mod)
     measures = [i for i in program.instructions if _primary(i.opcode) == OP_MEASURE]

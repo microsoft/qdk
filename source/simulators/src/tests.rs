@@ -35,3 +35,30 @@ fn forced_loss_resets_only_the_target_and_is_idempotent() {
     check_forced_loss::<StabilizerSimulator>();
     check_forced_loss::<FullStateSimulator>();
 }
+
+fn check_forced_loss_on_joint_measurements<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>() {
+    let mut simulator = S::new(2, 3, 0, Arc::new(CumulativeNoiseConfig::default()));
+    simulator.x(0);
+    simulator.x(1);
+    simulator.apply_loss_noise(1.0, 1);
+    // A loss on either qubit makes the joint measurement report loss.
+    simulator.mzz(0, 1, 0);
+    // The lost qubit is reloaded in |0⟩, and the other qubit is left untouched.
+    simulator.mz(1, 1);
+    simulator.mz(0, 2);
+
+    assert_eq!(
+        simulator.measurements(),
+        &[
+            MeasurementResult::Loss,
+            MeasurementResult::Zero,
+            MeasurementResult::One,
+        ]
+    );
+}
+
+#[test]
+fn test_joint_measurement_reports_loss() {
+    check_forced_loss_on_joint_measurements::<StabilizerSimulator>();
+    check_forced_loss_on_joint_measurements::<FullStateSimulator>();
+}

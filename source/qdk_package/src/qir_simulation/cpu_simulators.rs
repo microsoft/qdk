@@ -278,9 +278,13 @@ fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) -> Vec<O
                     records.push(OutputRecord::Result(measurement));
                 }
             }
-            QirInstruction::ThreeQubitGate(..) => {
-                panic!("unsupported instruction: {qir_inst:?}")
-            }
+            QirInstruction::ThreeQubitGate(id, q1, q2, q3) => match id {
+                QirInstructionId::MXX => sim.mxx(*q1 as usize, *q2 as usize, *q3 as usize),
+                QirInstructionId::MYY => sim.myy(*q1 as usize, *q2 as usize, *q3 as usize),
+                QirInstructionId::MZZ => sim.mzz(*q1 as usize, *q2 as usize, *q3 as usize),
+                QirInstructionId::MZY => sim.mzy(*q1 as usize, *q2 as usize, *q3 as usize),
+                _ => panic!("unsupported three-qubit gate: {id:?}"),
+            },
             QirInstruction::ReadoutNoise(_id, p_zero_as_one, p_one_as_zero, result_id) => {
                 sim.apply_readout_noise(*p_zero_as_one, *p_one_as_zero, *result_id as usize);
             }

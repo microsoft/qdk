@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-mod tests;
-
 use crate::{
     MeasurementResult, QubitID, ResultID, Simulator,
     noise_config::{
@@ -14,7 +12,7 @@ use nalgebra::Complex;
 use noisy_simulator::{
     Instrument, NoisySimulator as _, Operation, StateVectorSimulator, operation,
 };
-use qsc_data_structures::measurement::MeasurementBasis;
+use qsc_data_structures::measurement::{JointMeasurementBasis, MeasurementBasis};
 use rand::{RngExt, SeedableRng as _, rngs::StdRng};
 use std::sync::{Arc, LazyLock};
 
@@ -148,6 +146,75 @@ static MZ: LazyLock<Instrument> = LazyLock::new(|| {
                           0., 1.;])
     .expect("operation should be valid");
     Instrument::new(vec![mz0, mz1]).expect("instrument should be valid")
+});
+
+static MXX: LazyLock<Instrument> = LazyLock::new(|| {
+    let mxx0 = operation!([
+        0.5, 0., 0., 0.5;
+        0., 0.5, 0.5, 0.;
+        0., 0.5, 0.5, 0.;
+        0.5, 0., 0., 0.5;])
+    .expect("Operation should be valid");
+    let mxx1 = operation!([
+        0.5, 0., 0., -0.5;
+        0., 0.5, -0.5, 0.;
+        0., -0.5, 0.5, 0.;
+        -0.5, 0., 0., 0.5;])
+    .expect("Operation should be valid");
+    Instrument::new(vec![mxx0, mxx1]).expect("instrument should be valid")
+});
+
+static MYY: LazyLock<Instrument> = LazyLock::new(|| {
+    let myy0 = operation!([
+        0.5, 0., 0., -0.5;
+        0., 0.5, 0.5, 0.;
+        0., 0.5, 0.5, 0.;
+        -0.5, 0., 0., 0.5;])
+    .expect("Operation should be valid");
+    let myy1 = operation!([
+        0.5, 0., 0., 0.5;
+        0., 0.5, -0.5, 0.;
+        0., -0.5, 0.5, 0.;
+        0.5, 0., 0., 0.5;])
+    .expect("Operation should be valid");
+    Instrument::new(vec![myy0, myy1]).expect("instrument should be valid")
+});
+
+static MZZ: LazyLock<Instrument> = LazyLock::new(|| {
+    let mzz0 = operation!([
+        1., 0., 0., 0.;
+        0., 0., 0., 0.;
+        0., 0., 0., 0.;
+        0., 0., 0., 1.;])
+    .expect("Operation should be valid");
+    let mzz1 = operation!([
+        0., 0., 0., 0.;
+        0., 1., 0., 0.;
+        0., 0., 1., 0.;
+        0., 0., 0., 0.;])
+    .expect("Operation should be valid");
+    Instrument::new(vec![mzz0, mzz1]).expect("instrument should be valid")
+});
+
+static MZY: LazyLock<Instrument> = LazyLock::new(|| {
+    // Qubits use little-endian ordering (`kernel.rs`), with q0 least significant. Thus,
+    // Z on q0 and Y on q1 correspond to Y ⊗ Z in tensor-product notation, giving the
+    // projectors (I ± Y ⊗ Z) / 2 below.
+    let i = Complex::I;
+    let f = 0.5;
+    let mzy0 = operation!([
+        f, 0., -i * f, 0.;
+        0., f, 0., i * f;
+        i * f, 0., f, 0.;
+        0., -i * f, 0., f;])
+    .expect("Operation should be valid");
+    let mzy1 = operation!([
+        f, 0., i * f, 0.;
+        0., f, 0., -i * f;
+        -i * f, 0., f, 0.;
+        0., i * f, 0., f;])
+    .expect("Operation should be valid");
+    Instrument::new(vec![mzy0, mzy1]).expect("instrument should be valid")
 });
 
 fn rx(angle: f64) -> Operation {
@@ -439,11 +506,28 @@ impl FullStateSimulator {
     }
 
     /// Records a measurement in the specified Pauli basis on the given `target`.
-    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: MeasurementBasis) {
-        let measurement = match pauli {
-            MeasurementBasis::X => self.m_pauli_impl(target, &MX),
-            MeasurementBasis::Y => self.m_pauli_impl(target, &MY),
-            MeasurementBasis::Z => self.m_pauli_impl(target, &MZ),
+    fn record_m_single(&mut self, target: QubitID, result_id: ResultID, basis: MeasurementBasis) {
+        let measurement = match basis {
+            MeasurementBasis::X => self.m_single_impl(target, &MX),
+            MeasurementBasis::Y => self.m_single_impl(target, &MY),
+            MeasurementBasis::Z => self.m_single_impl(target, &MZ),
+        };
+        self.measurements[result_id] = measurement;
+    }
+
+    /// Records a joint measurement on given `q0` and `q1` qubits in the `Pauli \otimes Pauli` basis.
+    fn record_m_joint(
+        &mut self,
+        q0: QubitID,
+        q1: QubitID,
+        result_id: ResultID,
+        basis: JointMeasurementBasis,
+    ) {
+        let measurement = match basis {
+            JointMeasurementBasis::XX => self.m_joint_impl(q0, q1, &MXX),
+            JointMeasurementBasis::YY => self.m_joint_impl(q0, q1, &MYY),
+            JointMeasurementBasis::ZZ => self.m_joint_impl(q0, q1, &MZZ),
+            JointMeasurementBasis::ZY => self.m_joint_impl(q0, q1, &MZY),
         };
         self.measurements[result_id] = measurement;
     }
@@ -456,7 +540,7 @@ impl FullStateSimulator {
 
     /// Measures the given observable on the given `target`.
     /// Used by the `Simulator::mx`, `Simulator::my`, and `Simulator::mz` methods.
-    fn m_pauli_impl(&mut self, target: QubitID, instrument: &Instrument) -> MeasurementResult {
+    fn m_single_impl(&mut self, target: QubitID, instrument: &Instrument) -> MeasurementResult {
         if self.loss[target] {
             self.loss[target] = false;
             return MeasurementResult::Loss;
@@ -503,6 +587,34 @@ impl FullStateSimulator {
         if !self.loss[target] {
             self.mresetz_impl(target);
             self.loss[target] = true;
+        }
+    }
+
+    fn m_joint_impl(
+        &mut self,
+        q0: QubitID,
+        q1: QubitID,
+        instrument: &Instrument,
+    ) -> MeasurementResult {
+        if self.loss[q0] {
+            self.loss[q0] = false;
+            return MeasurementResult::Loss;
+        }
+        if self.loss[q1] {
+            self.loss[q1] = false;
+            return MeasurementResult::Loss;
+        }
+
+        // Instrument on `q0` and `q1`.
+        let r = self
+            .state
+            .sample_instrument(instrument, &[q0, q1])
+            .expect("sample_instrument should succeed");
+
+        if r == 1 {
+            MeasurementResult::One
+        } else {
+            MeasurementResult::Zero
         }
     }
 }
@@ -653,23 +765,23 @@ impl Simulator for FullStateSimulator {
 
     fn mx(&mut self, target: QubitID, result_id: ResultID) {
         // The MX measurement currently uses `mz` noise.
-        // TODO(pranavijain): Change noise type when noise for MX is configured.
+        // TODO(pjain): Change noise type when noise for MX is configured.
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, MeasurementBasis::X);
+        self.record_m_single(target, result_id, MeasurementBasis::X);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn my(&mut self, target: QubitID, result_id: ResultID) {
         // The MY measurement currently uses `mz` noise.
-        // TODO(pranavijain): Change noise type when noise for MY is configured.
+        // TODO(pjain): Change noise type when noise for MY is configured.
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, MeasurementBasis::Y);
+        self.record_m_single(target, result_id, MeasurementBasis::Y);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn mz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, MeasurementBasis::Z);
+        self.record_m_single(target, result_id, MeasurementBasis::Z);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
@@ -677,6 +789,27 @@ impl Simulator for FullStateSimulator {
         self.apply_idle_noise(target);
         self.record_mresetz(target, result_id);
         self.apply_noise(|config| &config.mresetz, &[target]);
+    }
+
+    // TODO(pjain): Implement noise for all `mxx`, `myy`, `mzz`, `mzy` joint measurements
+    fn mxx(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID) {
+        // This measurement is currently noiseless.
+        self.record_m_joint(q1, q2, result_id, JointMeasurementBasis::XX);
+    }
+
+    fn myy(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID) {
+        // This measurement is currently noiseless.
+        self.record_m_joint(q1, q2, result_id, JointMeasurementBasis::YY);
+    }
+
+    fn mzz(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID) {
+        // This measurement is currently noiseless.
+        self.record_m_joint(q1, q2, result_id, JointMeasurementBasis::ZZ);
+    }
+
+    fn mzy(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID) {
+        // This measurement is currently noiseless.
+        self.record_m_joint(q1, q2, result_id, JointMeasurementBasis::ZY);
     }
 
     fn resetz(&mut self, target: QubitID) {

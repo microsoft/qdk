@@ -14,7 +14,9 @@ use qdk_simulators::{
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
     stabilizer_simulator::StabilizerSimulator,
 };
-use qsc_data_structures::{index_map::IndexMap, measurement::MeasurementBasis};
+use qsc_data_structures::{
+    index_map::IndexMap, measurement::JointMeasurementBasis, measurement::MeasurementBasis,
+};
 use qsc_fir::fir::PackageStoreLookup;
 use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
@@ -53,6 +55,18 @@ pub trait Backend {
     }
     fn mresetz(&mut self, _q: usize) -> Result<val::Result, String> {
         Err("mresetz operation not implemented".to_string())
+    }
+    fn mxx(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        Err("mxx operation not implemented".to_string())
+    }
+    fn myy(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        Err("myy operation not implemented".to_string())
+    }
+    fn mzz(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        Err("mzz operation not implemented".to_string())
+    }
+    fn mzy(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        Err("mzy operation not implemented".to_string())
     }
     fn reset(&mut self, _q: usize) -> Result<(), String> {
         Err("reset gate not implemented".to_string())
@@ -294,6 +308,54 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.measure(stack, "MResetZ", q, &r);
+        }
+        Ok(r)
+    }
+
+    pub fn mxx(&mut self, q0: usize, q1: usize, stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mxx(q0, q1)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "MXX", q0, &r);
+            tracer.measure(stack, "MXX", q1, &r);
+        }
+        Ok(r)
+    }
+
+    pub fn myy(&mut self, q0: usize, q1: usize, stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.myy(q0, q1)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "MYY", q0, &r);
+            tracer.measure(stack, "MYY", q1, &r);
+        }
+        Ok(r)
+    }
+
+    pub fn mzz(&mut self, q0: usize, q1: usize, stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mzz(q0, q1)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "MZZ", q0, &r);
+            tracer.measure(stack, "MZZ", q1, &r);
+        }
+        Ok(r)
+    }
+
+    pub fn mzy(&mut self, q0: usize, q1: usize, stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mzy(q0, q1)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "MZY", q0, &r);
+            tracer.measure(stack, "MZY", q1, &r);
         }
         Ok(r)
     }
@@ -840,7 +902,7 @@ impl Backend for SparseSim {
             self.lost_qubits.set_bit(q as u64, false);
             return Ok(val::Result::Loss);
         }
-        let res = self.sim.measure_single_pauli(q, MeasurementBasis::X);
+        let res = self.sim.measure_single_qubit(q, MeasurementBasis::X);
         Ok(val::Result::Val(res))
     }
 
@@ -850,7 +912,7 @@ impl Backend for SparseSim {
             self.lost_qubits.set_bit(q as u64, false);
             return Ok(val::Result::Loss);
         }
-        let res = self.sim.measure_single_pauli(q, MeasurementBasis::Y);
+        let res = self.sim.measure_single_qubit(q, MeasurementBasis::Y);
         Ok(val::Result::Val(res))
     }
 
@@ -880,6 +942,39 @@ impl Backend for SparseSim {
         if res {
             self.sim.x(q);
         }
+        Ok(val::Result::Val(res))
+    }
+
+    // TODO(pjain): Apply noise and check qubit loss for all mxx, myy, mzz, mzy joint measurements.
+    fn mxx(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        // This measurement is currently noiseless.
+        let res = self
+            .sim
+            .measure_joint_qubits(q0, q1, JointMeasurementBasis::XX);
+        Ok(val::Result::Val(res))
+    }
+
+    fn myy(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        // This measurement is currently noiseless.
+        let res = self
+            .sim
+            .measure_joint_qubits(q0, q1, JointMeasurementBasis::YY);
+        Ok(val::Result::Val(res))
+    }
+
+    fn mzz(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        // This measurement is currently noiseless.
+        let res = self
+            .sim
+            .measure_joint_qubits(q0, q1, JointMeasurementBasis::ZZ);
+        Ok(val::Result::Val(res))
+    }
+
+    fn mzy(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        // This measurement is currently noiseless.
+        let res = self
+            .sim
+            .measure_joint_qubits(q0, q1, JointMeasurementBasis::ZY);
         Ok(val::Result::Val(res))
     }
 
@@ -1354,6 +1449,66 @@ impl Backend for CliffordSim {
     fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
         let q_id = self.qubit_id_map[q];
         self.sim.mresetz(q_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
+
+    fn mxx(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        self.sim.mxx(q0_id, q1_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
+
+    fn myy(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        self.sim.myy(q0_id, q1_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
+
+    fn mzz(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        self.sim.mzz(q0_id, q1_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
+
+    fn mzy(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        self.sim.mzy(q0_id, q1_id, 0);
         let res = self
             .sim
             .measurements()

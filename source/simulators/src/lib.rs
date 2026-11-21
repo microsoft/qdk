@@ -117,6 +117,18 @@ pub trait Simulator {
     /// `MResetZ` operation.
     fn mresetz(&mut self, target: QubitID, result_id: ResultID);
 
+    /// Measures the X⊗X observable on two qubits.
+    fn mxx(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID);
+
+    /// Measures the Y⊗Y observable on two qubits.
+    fn myy(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID);
+
+    /// Measures the Z⊗Z observable on two qubits.
+    fn mzz(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID);
+
+    /// Measures the Z⊗Y observable on qubits |q1⟩⊗|q2⟩.
+    fn mzy(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID);
+
     /// `ResetZ` operation.
     fn resetz(&mut self, target: QubitID);
 
@@ -151,5 +163,7 @@ pub trait Simulator {
     fn write_result(&mut self, value: bool, result_id: ResultID);
 }
 
+#[cfg(test)]
+mod measurement_tests;
 #[cfg(test)]
 mod tests;

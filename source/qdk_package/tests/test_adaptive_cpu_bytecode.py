@@ -425,6 +425,63 @@ def test_mz_then_reset(sim_type):
     check_result(MZ_THEN_RESET_QIR, "110", num_results=3, sim_type=sim_type)
 
 
+MEASUREMENT_DECLS = """\
+declare void @__quantum__qis__mx__body(%Qubit*, %Qubit*, %Result*) #1
+declare void @__quantum__qis__my__body(%Qubit*, %Qubit*, %Result*) #1
+"""
+
+MX_MY_RESET_QIR = """
+entry:
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  ; After mx, qubit should still be |+⟩
+  call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__my__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  ; After reset, qubit should be |0⟩
+  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
+"""
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_mx_my_then_reset(sim_type):
+    "H → MX → S → MY → reset should give 000."
+    check_result(MX_MY_RESET_QIR, "000", extra_decls=MEASUREMENT_DECLS, num_results=3, sim_type=sim_type)
+
+
+JOINT_MEASUREMENT_DECLS = """\
+declare void @__quantum__qis__mxx__body(%Qubit*, %Qubit*, %Result*) #1
+declare void @__quantum__qis__myy__body(%Qubit*, %Qubit*, %Result*) #1
+declare void @__quantum__qis__mzz__body(%Qubit*, %Qubit*, %Result*) #1
+declare void @__quantum__qis__mzy__body(%Qubit*, %Qubit*, %Result*) #1
+"""
+
+JOINT_MEASUREMENTS_ON_BELL_PAIR_QIR = """
+entry:
+  ; Prepare |Φ+⟩ = (|00⟩ + |11⟩) / √2
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__cnot__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__mzz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__myy__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  call void @__quantum__qis__mxx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
+  ; Turn |Φ+⟩ into an eigenstate for ZY
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__mzy__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
+"""
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_joint_measurements_on_bell_pair(sim_type):
+    """Bell pairs are joint eigenstates of ZZ and XX, so every parity is deterministic."""
+    check_result(
+        JOINT_MEASUREMENTS_ON_BELL_PAIR_QIR,
+        "0100",
+        extra_decls=JOINT_MEASUREMENT_DECLS,
+        num_qubits=2,
+        num_results=4,
+        sim_type=sim_type,
+    )
+
+
 # =========================================================================
 # OP_RESET — qubit reset
 # =========================================================================

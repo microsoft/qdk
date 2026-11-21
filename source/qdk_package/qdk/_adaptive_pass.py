@@ -37,8 +37,8 @@ class Bytecode(Enum):
 
 # ---------------------------------------------------------------------------
 # Gate name → OpID mapping (must match shader_types.rs OpID enum, except
-# mx/my, which only the CPU/Clifford runtime handles natively; the GPU path
-# lowers them via ``DecomposeMxMyPass()``)
+# measurement gates other than MZ, which only the CPU/Stabilizer runtime handle
+# natively; the GPU path lowers them via ``DecomposeMeasurementsPass()``)
 # ---------------------------------------------------------------------------
 
 GATE_MAP: Dict[str, int] = {
@@ -71,10 +71,15 @@ GATE_MAP: Dict[str, int] = {
     "mresetz": 22,
     "swap": 24,
     "move": 28,
+    "mxx": 32,
+    "myy": 33,
+    "mzz": 34,
+    "mzy": 35,
 }
 
 # Gates that take a result ID as a second argument
-MEASURE_GATES = {"m", "mx", "my", "mz", "mresetz"}
+SINGLE_MEASURE_GATES = {"m", "mx", "my", "mz", "mresetz"}
+JOINT_MEASURE_GATES = {"mxx", "myy", "mzz", "mzy"}
 
 # Gates that reset a qubit (single qubit argument, no result)
 RESET_GATES = {"reset"}
@@ -1041,7 +1046,7 @@ class AdaptiveProfilePass:
         callee_name = call.callee.name
         gate_name = callee_name.replace("__quantum__qis__", "").replace("__body", "")
         op_id = GATE_MAP[gate_name]
-        if gate_name in MEASURE_GATES:
+        if gate_name in SINGLE_MEASURE_GATES:
             q = self._resolve_qubit_operand(call.args[0])
             r = self._resolve_result_operand(call.args[1])
             qop_idx = self._emit_quantum_op(op_id, q.val, r.val)
@@ -1050,6 +1055,18 @@ class AdaptiveProfilePass:
                 aux0=qop_idx,
                 aux1=q,
                 aux2=r,
+            )
+            return
+        if gate_name in JOINT_MEASURE_GATES:
+            q1, q2, _ = self._resolve_qubit_operands(call.args[:2])
+            r = self._resolve_result_operand(call.args[2])
+            qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, r.val)
+            self._emit(
+                OP_MEASURE,
+                aux0=qop_idx,
+                aux1=q1,
+                aux2=q2,
+                aux3=r,
             )
             return
         if gate_name in RESET_GATES:
