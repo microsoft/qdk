@@ -9,7 +9,7 @@ from pathlib import Path, PureWindowsPath
 import re
 import sys
 
-from .common import LauncherError, run
+from .common import LauncherError, run, sanitize_diagnostic
 
 MACHINE = "qdk-sandbox"
 MINIMUM_VERSION = (4, 9)
@@ -54,6 +54,7 @@ def _machine_hint() -> str:
 
 
 def check_podman() -> Engine:
+    print("Checking Podman host configuration...", flush=True)
     result = run(podman("info", "--format", "json"), check=False)
     if result.returncode:
         raise LauncherError(
@@ -87,24 +88,51 @@ def check_podman() -> Engine:
     return Engine(architecture, network)
 
 
+_CHECK_WINDOWS_INTEROP = r"""
+import configparser
+from pathlib import Path
+
+configuration = configparser.ConfigParser(interpolation=None)
+with Path("/etc/wsl.conf").open() as stream:
+    configuration.read_file(stream)
+configured_off = all(
+    configuration.get("interop", option, fallback="").strip() == "false"
+    for option in ("enabled", "appendWindowsPath")
+)
+print("interop-configured-off" if configured_off else "interop-unverified")
+"""
+
+
 def _check_windows_interop() -> None:
-    # WSL lets Linux processes start Windows programs; a container escape must not inherit that.
+    # WSL reads wsl.conf at distro startup. Later edits can make this check pass
+    # while interop is still enabled, exposing Windows execution after a container escape.
+    print("Checking Windows interop configuration...", flush=True)
     result = run(
         [
-            "podman",
-            "machine",
-            "ssh",
-            MACHINE,
-            "if /mnt/c/Windows/System32/whoami.exe >/dev/null 2>&1; "
-            "then echo interop-enabled; else echo interop-disabled; fi",
+            "wsl",
+            "--distribution",
+            f"podman-{MACHINE}",
+            "--exec",
+            "python3",
+            "-I",
+            "-c",
+            _CHECK_WINDOWS_INTEROP,
         ],
         check=False,
     )
-    if result.stdout.strip().splitlines()[-1:] != ["interop-disabled"]:
+    if result.returncode:
         raise LauncherError(
-            f"The {MACHINE} Podman machine can start Windows programs. "
-            "Run 'sandbox.py setup-machine' to turn that off."
+            f"Cannot read /etc/wsl.conf in WSL distribution podman-{MACHINE} "
+            f"(exit {result.returncode}).\n"
+            + sanitize_diagnostic(result.stderr or result.stdout)
         )
+    if result.stdout.strip() != "interop-configured-off":
+        raise LauncherError(
+            f"Cannot confirm Windows interop is configured off for {MACHINE}. "
+            "Both [interop] settings in /etc/wsl.conf must be false. "
+            "Run 'sandbox.py setup-machine'."
+        )
+    print("Windows interop is configured off.", flush=True)
 
 
 _DISABLE_INTEROP = r"""

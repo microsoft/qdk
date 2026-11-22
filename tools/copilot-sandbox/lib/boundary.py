@@ -408,15 +408,18 @@ def _inspect(name: str) -> dict:
 
 def verify_boundary(session: Session) -> str:
     # Confirm Podman's container configuration before running live probes.
+    print("Checking sandbox container configurations...", flush=True)
     agent = _inspect(session.agent)
     verify_container_config(agent, "agent", session)
     proxy = _inspect(session.proxy)
     verify_container_config(proxy, "proxy", session)
+    print("Reading host filesystem mounts...", flush=True)
     host_devices = host_filesystems()
     for role, container, mounts, tmpfs in (
         ("agent", agent["Id"], session.agent_mounts(), AGENT_TMPFS),
         ("proxy", proxy["Id"], session.proxy_mounts(), PROXY_TMPFS),
     ):
+        print(f"Checking {role} filesystem mounts and devices...", flush=True)
         verify_mount_table(
             run(
                 podman("exec", container, "/usr/bin/cat", "/proc/self/mountinfo")
@@ -431,6 +434,7 @@ def verify_boundary(session: Session) -> str:
             role,
         )
     # Confirm kernel restrictions and loopback-only listening in the proxy using fresh processes.
+    print("Checking proxy process restrictions and listeners...", flush=True)
     verify_process_status(
         run(podman("exec", session.proxy, "/usr/bin/cat", "/proc/self/status")).stdout
     )
@@ -446,6 +450,7 @@ def verify_boundary(session: Session) -> str:
         ).stdout
     )
     # Confirm the agent's restrictions using a host-supplied probe in isolated Python.
+    print("Checking agent isolation and proxy access restrictions...", flush=True)
     result = run(
         podman(
             "exec",
