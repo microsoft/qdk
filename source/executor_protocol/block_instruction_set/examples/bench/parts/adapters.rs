@@ -1,0 +1,311 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! The bench's adapters: one that forwards, and a toy lowering, which runs
+//! as an adapter through the protocol's `Lowered`.
+
+use block_instruction_set::{
+    Arguments, BlockCapabilities, BlockInstruction, BlockInstructionSet, BlockType, Opcode,
+    OpcodeMap, ReadoutValue, ShotConditions,
+};
+use executor_protocol_core::prelude::*;
+use executor_protocol_core::{
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, Resources, Seed,
+};
+
+use super::{LogicalGates, MixGates, PhysicalGates};
+
+/// An adapter that forwards every batch as it is: the cost of a boundary.
+/// It states only its instructions: it neither needs nor limits the rest.
+pub(crate) struct Forward {
+    set: BlockInstructionSet,
+    identity: OpcodeMap,
+}
+
+impl Forward {
+    pub(crate) fn new() -> Self {
+        let set = MixGates::set();
+        let identity = set.fits(&set).expect("a set fits itself");
+        Self { set, identity }
+    }
+}
+
+impl Adapter for Forward {
+    type Set = BlockInstructionSet;
+
+    fn accepts(&self) -> &BlockInstructionSet {
+        &self.set
+    }
+
+    fn sends(&self) -> &BlockInstructionSet {
+        &self.set
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        assert!(
+            below == self.identity,
+            "the receiver's set is the adapter's"
+        );
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_, BlockInstructionSet>],
+        seed: Seed,
+        below: &mut impl Executor<Accepts = BlockInstructionSet>,
+        readouts: &mut [BatchReadouts<BlockInstructionSet>],
+    ) -> Result<(), ExecuteError> {
+        below.execute(batches, seed, readouts).await
+    }
+}
+
+/// A toy lowering: the repetition code of three, each logical qubit `q` the
+/// physical qubits `3q`, `3q + 1` and `3q + 2`, each logical instruction the
+/// same physical one on each, and a logical readout the majority of three.
+/// Built for a count of logical qubits, it takes at most that many, and
+/// requires three physical qubits for each logical qubit that arrives.
+pub(crate) struct Repetition3 {
+    accepts: BlockInstructionSet,
+    sends: BlockInstructionSet,
+    provides: Capabilities<BlockInstructionSet>,
+    /// The physical opcodes, in the receiver's, from `bind`.
+    opcodes: [Opcode; 4],
+}
+
+impl Repetition3 {
+    /// The lowering of `logical_qubits` logical qubits.
+    pub(crate) fn new(logical_qubits: u32) -> Self {
+        Self {
+            accepts: LogicalGates::set(),
+            sends: PhysicalGates::set(),
+            provides: Capabilities::new(
+                Resources::unconstrained(),
+                Features::unconstrained(),
+                BlockCapabilities::NONE.with_qubits(logical_qubits),
+            ),
+            opcodes: [
+                PhysicalGates::RESET,
+                PhysicalGates::X,
+                PhysicalGates::CX,
+                PhysicalGates::MZ,
+            ],
+        }
+    }
+}
+
+impl Lowering for Repetition3 {
+    type From = BlockInstructionSet;
+    type To = BlockInstructionSet;
+
+    fn accepts(&self) -> &BlockInstructionSet {
+        &self.accepts
+    }
+
+    fn sends(&self) -> &BlockInstructionSet {
+        &self.sends
+    }
+
+    fn provides(&self) -> &Capabilities<BlockInstructionSet> {
+        &self.provides
+    }
+
+    /// What arrives, on three physical qubits for each logical one.
+    fn requires(
+        &self,
+        above: &Capabilities<BlockInstructionSet>,
+    ) -> Capabilities<BlockInstructionSet> {
+        let blocks = match above.set_capabilities().blocks(&BlockType::qubit()) {
+            Some(logical) => BlockCapabilities::NONE.with_qubits(3 * logical),
+            None => BlockCapabilities::NONE,
+        };
+        Capabilities::new(*above.resources(), *above.features(), blocks)
+    }
+
+    fn bind(&mut self, below: OpcodeMap) {
+        self.opcodes = self.opcodes.map(|opcode| below.map(opcode));
+    }
+
+    #[inline]
+    fn lower(&self, instruction: &BlockInstruction, into: &mut Vec<BlockInstruction>) {
+        lower(instruction, self.opcodes, into);
+    }
+
+    #[inline]
+    fn read(
+        &self,
+        _instruction: &BlockInstruction,
+        lowered: &[ReadoutValue],
+        into: &mut [ReadoutValue],
+    ) {
+        into[0] = majority(lowered);
+    }
+
+    #[inline]
+    fn read_conditions(&self, lowered: ShotConditions) -> ShotConditions {
+        lowered
+    }
+}
+
+/// Appends `instruction`'s three physical instructions to `lowered`.
+/// Always inlined, so that the lowering section times the protocol, not
+/// whether LLVM inlines the workload into a given build.
+#[expect(
+    clippy::inline_always,
+    reason = "a bench's workload, timed alike in every build"
+)]
+#[inline(always)]
+fn lower(
+    instruction: &BlockInstruction,
+    opcodes: [Opcode; 4],
+    lowered: &mut Vec<BlockInstruction>,
+) {
+    let [reset, x, cx, mz] = opcodes;
+    let opcode = match instruction.opcode {
+        LogicalGates::PREPARE_Z => reset,
+        LogicalGates::X => x,
+        LogicalGates::CX => cx,
+        LogicalGates::MEASURE_Z => mz,
+        _ => unreachable!("the driver sends only instructions of LogicalGates"),
+    };
+    for i in 0..3 {
+        lowered.push(BlockInstruction {
+            opcode,
+            blocks: instruction.blocks.iter().map(|q| 3 * q + i).collect(),
+            arguments: Arguments::new(),
+            select: None,
+        });
+    }
+}
+
+/// The majority of three readout values.
+pub(crate) fn majority(three: &[ReadoutValue]) -> ReadoutValue {
+    let ones = three.iter().filter(|&&v| v == ReadoutValue::One).count();
+    if 2 * ones > three.len() {
+        ReadoutValue::One
+    } else {
+        ReadoutValue::Zero
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use block_instruction_set::{
+        BlockInstruction, BlockInstructionSet, ReadoutValue, ShotConditions, instruction_set,
+    };
+    use executor_protocol_core::{BoundaryCompatible as _, Lowering};
+
+    use super::Repetition3;
+    use crate::parts::LogicalGates;
+
+    instruction_set! {
+        /// The physical gates as a receiver numbers them, in another
+        /// order than the lowering's: of the lowering's set's name, so
+        /// they fit by mnemonic.
+        PhysicalGates {
+            MZ = mz(qubit) -> 1 outcome,
+            CX = cx(qubit, qubit),
+            RESET = reset(qubit),
+            X = x(qubit),
+        }
+    }
+
+    /// A logical instruction of the code, given to a receiver whose
+    /// opcodes differ from the lowering's.
+    fn lowered(mnemonic: &str, qubits: &[u32]) -> Vec<BlockInstruction> {
+        let mut repetition = Repetition3::new(2);
+        let binding = repetition
+            .sends()
+            .fits(&PhysicalGates::set())
+            .expect("the physical gates fit the receiver's");
+        repetition.bind(binding);
+        let instruction = LogicalGates::set()
+            .instruction(mnemonic, qubits.iter().copied(), &[])
+            .expect("an instruction of LogicalGates");
+        let mut into = Vec::new();
+        repetition.lower(&instruction, &mut into);
+        into
+    }
+
+    /// The receiver runs `cx` on logical qubits 0 and 1 as three `cx`, one
+    /// on each pair of their physical qubits, in its own opcode.
+    #[test]
+    fn each_logical_instruction_is_three_physical_ones_on_its_qubits_blocks() {
+        let receiver: BlockInstructionSet = PhysicalGates::set();
+        for (mnemonic, physical, qubits, expected) in [
+            (
+                "prepare_z",
+                PhysicalGates::RESET,
+                vec![1],
+                vec![vec![3], vec![4], vec![5]],
+            ),
+            (
+                "x",
+                PhysicalGates::X,
+                vec![0],
+                vec![vec![0], vec![1], vec![2]],
+            ),
+            (
+                "cx",
+                PhysicalGates::CX,
+                vec![0, 1],
+                vec![vec![0, 3], vec![1, 4], vec![2, 5]],
+            ),
+            (
+                "measure_z",
+                PhysicalGates::MZ,
+                vec![1],
+                vec![vec![3], vec![4], vec![5]],
+            ),
+        ] {
+            let lowered = lowered(mnemonic, &qubits);
+            let blocks: Vec<Vec<u32>> = lowered.iter().map(|i| i.blocks.to_vec()).collect();
+            assert_eq!(blocks, expected, "{mnemonic}'s physical qubits");
+            assert!(
+                lowered.iter().all(|i| i.opcode == physical),
+                "{mnemonic} lowered to {:?}, in the receiver's opcodes",
+                lowered
+                    .iter()
+                    .map(|i| receiver.mnemonic(i.opcode))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    /// A logical measurement reads as the value at least two of its three
+    /// physical measurements gave.
+    #[test]
+    fn a_logical_readout_is_the_majority_of_its_three_physical_ones() {
+        use ReadoutValue::{One, Zero};
+        let repetition = Repetition3::new(1);
+        let measure = LogicalGates::set()
+            .instruction("measure_z", [0], &[])
+            .expect("an instruction of LogicalGates");
+        for (physical, logical) in [
+            ([Zero, Zero, Zero], Zero),
+            ([One, Zero, Zero], Zero),
+            ([Zero, One, One], One),
+            ([One, Zero, One], One),
+            ([One, One, One], One),
+        ] {
+            let mut into = [Zero];
+            if logical == Zero {
+                into = [One];
+            }
+            repetition.read(&measure, &physical, &mut into);
+            assert_eq!(into, [logical], "the majority of {physical:?}");
+        }
+    }
+
+    /// A shot rejected below, or with a value unresolved, is so above.
+    #[test]
+    fn a_shot_s_conditions_pass_up_unchanged() {
+        let repetition = Repetition3::new(1);
+        for conditions in [
+            ShotConditions::NONE,
+            ShotConditions::REJECTED,
+            ShotConditions::REJECTED | ShotConditions::UNRESOLVED,
+        ] {
+            assert_eq!(repetition.read_conditions(conditions), conditions);
+        }
+    }
+}

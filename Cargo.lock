@@ -254,6 +254,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "block_instruction_set"
+version = "0.0.0"
+dependencies = [
+ "executor_protocol_core",
+ "smallvec",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

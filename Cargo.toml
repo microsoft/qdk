@@ -24,6 +24,7 @@ members = [
     "source/compiler/qsc_passes",
     "source/compiler/qsc_project",
     "source/compiler/qsc_rir",
+    "source/executor_protocol/block_instruction_set",
     "source/executor_protocol/core",
     "source/fuzz",
     "source/index_map",

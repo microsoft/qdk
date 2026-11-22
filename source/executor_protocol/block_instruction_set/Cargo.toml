@@ -1,0 +1,23 @@
+[package]
+name = "block_instruction_set"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+executor_protocol_core = { path = "../core" }
+smallvec = { workspace = true, features = ["union"] }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+bench = false
+
+[[example]]
+name = "bench"
+test = true
