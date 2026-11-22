@@ -19,7 +19,9 @@ use std::any::type_name;
 
 use crate::prelude::*;
 use crate::tests::example_sets::{QubitLimited, Qubits, TooFewQubits};
-use crate::tests::fake_parts::{Log, QubitPassThrough, QubitProgram, QubitRegister};
+use crate::tests::fake_parts::{
+    Log, QubitPassThrough, QubitProgram, QubitRegister, in_each_bracketing,
+};
 use crate::{
     Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, PartId, ResourceMismatch,
     Resources, ShotSet,
@@ -157,47 +159,71 @@ fn a_mismatch_names_what_is_at_fault() {
 }
 
 /// The set's capabilities flow down the chain as its resources and
-/// features do: what the driver requires passes the adapter and is fit
+/// features do, in each bracketing of a program through two adapters on a
+/// register: what the driver requires passes both adapters and is fit
 /// against the executor's at `on`, which refuses a short one naming the
 /// driver and the executor, with the set's own mismatch; and a chain that
 /// fits gets each part ready for the qubits the driver requires. A
-/// default `requires` dropping the set's capabilities, or a fit not
-/// reading them, fails.
+/// default `requires` dropping the set's capabilities, a join passing
+/// them down unstated, or a fit not reading them, fails.
 #[test]
 fn the_sets_capabilities_flow_down_and_are_fit_at_on() {
-    let log = Log::default();
-    let faults = QubitProgram::new(&[0, 2], 3)
-        .through(QubitPassThrough::new(&log))
-        .on(QubitRegister::new(2, &log))
-        .err()
-        .expect("2 qubits are short of 3");
-    let [fault] = faults.faults() else {
-        panic!("one fault: {faults}");
-    };
-    assert_eq!(fault.requirer, PartId::new(0, type_name::<QubitProgram>()));
-    assert_eq!(fault.provider, PartId::new(2, type_name::<QubitRegister>()));
-    assert_eq!(
-        qubits_short(&fault.mismatch.capabilities),
-        Some(&TooFewQubits {
-            required: 3,
-            provided: 2
-        })
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = QubitProgram::new(&[0, 2], 3);
+            let a = QubitPassThrough::new(&log);
+            let b = QubitPassThrough::new(&log);
+            let e = QubitRegister::new(2, &log);
+        },
+        |chain, brackets| {
+            let faults = chain.err().expect(brackets);
+            let [fault] = faults.faults() else {
+                panic!("{brackets}: one fault: {faults}");
+            };
+            assert_eq!(
+                fault.requirer,
+                PartId::new(0, type_name::<QubitProgram>()),
+                "{brackets}"
+            );
+            assert_eq!(
+                fault.provider,
+                PartId::new(3, type_name::<QubitRegister>()),
+                "{brackets}"
+            );
+            assert_eq!(
+                qubits_short(&fault.mismatch.capabilities),
+                Some(&TooFewQubits {
+                    required: 3,
+                    provided: 2
+                }),
+                "{brackets}"
+            );
+        }
     );
-
-    let log = Log::default();
-    let Ok(mut runner) = QubitProgram::new(&[0, 2], 3)
-        .through(QubitPassThrough::new(&log))
-        .on(QubitRegister::new(4, &log))
-    else {
-        panic!("3 qubits of 4 compose");
-    };
-    runner.run(&ShotSet::ids([1]), 7).expect("3 qubits of 4");
-    assert_eq!(
-        log.entries(),
-        [
-            "QubitRegister ready for 3 qubits",
-            "QubitPassThrough ready for 3 qubits",
-            "QubitRegister execute",
-        ]
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = QubitProgram::new(&[0, 2], 3);
+            let a = QubitPassThrough::new(&log);
+            let b = QubitPassThrough::new(&log);
+            let e = QubitRegister::new(4, &log);
+        },
+        |chain, brackets| {
+            let Ok(mut runner) = chain else {
+                panic!("{brackets}: 3 qubits of 4 compose");
+            };
+            runner.run(&ShotSet::ids([1]), 7).expect(brackets);
+            assert_eq!(
+                log.entries(),
+                [
+                    "QubitRegister ready for 3 qubits",
+                    "QubitPassThrough ready for 3 qubits",
+                    "QubitPassThrough ready for 3 qubits",
+                    "QubitRegister execute",
+                ],
+                "{brackets}"
+            );
+        }
     );
 }

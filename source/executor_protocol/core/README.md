@@ -120,9 +120,10 @@ Today the protocol holds:
   its readouts. It ends each run's
   shots on every part. A part's panic in `drive`, `adapt` or `execute`
   becomes a failure of the run (on every platform but wasm32, where a
-  panic aborts); one in a part's `ready`, in the protocol's end of the
-  shots, or in a part's future dropped with the run's before it is ready
-  is raised again from the run, as
+  panic aborts); one in what a part states, read at the run's start, in a
+  part's `ready`, in the protocol's end of the shots, or in a part's
+  future dropped with the run's before it is ready is raised again from
+  the run, as
   [`Runner::run_async`](src/composition/runner.rs) says. With a fixed
   seed, and parts that draw on the protocol's seeds, a run gives the
   same outputs each time; and where the chain's shots replay, a shot run

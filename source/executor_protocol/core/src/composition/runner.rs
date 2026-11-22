@@ -126,6 +126,9 @@ impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// call the panic unwinds, as [`Failure::Panicked`] says.
     ///
     /// The run raises a part's panic again, instead of failing:
+    /// - in what a part states, read at the run's start before any part is
+    ///   asked (its `name`, and what it requires, accepts, sends or
+    ///   provides), which is not caught, as nothing of the run has started;
     /// - in a part's `ready`, which is not caught: the first one when the
     ///   future of that `ready` panics again as it is dropped;
     /// - in the protocol's end of the shots: the first such panic, top to
