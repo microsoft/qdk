@@ -55,12 +55,9 @@ impl Pauli {
         }
     }
 
-    /// Parses Qodec's sparse form: an optional sign (`-`, `+`), an
-    /// optional `i`, then factors `X_k`, `Y_k`, `Z_k` or `I_k` (the identity
-    /// on qubit `k`, which only names the qubit), or `I` (the identity),
-    /// separated by spaces, each qubit at most once: `-X_0 Z_2`, `i Y_1`,
-    /// `X_0 I_3`, `-I`, `i`. `None` for any other text, the empty one
-    /// included.
+    /// Parses Qodec's sparse form, in the forms
+    /// [`Argument::pauli`](crate::Argument::pauli) states it takes; `None`
+    /// for any other text, the empty one included.
     pub(crate) fn parse(text: &str) -> Option<Self> {
         let mut rest = text.trim();
         let mut phase = 0;

@@ -5,7 +5,7 @@
 //! below provides: block counts by type and readout parities, every
 //! mismatch at once.
 
-use crate::{BlockCapabilities, BlockCapabilitiesMismatch, BlockCountMismatch, BlockType};
+use crate::{BlockCapabilities, BlockCapabilitiesMismatch, BlockType};
 use executor_protocol_core::BoundaryCompatible;
 
 fn carbon() -> BlockType {
@@ -23,23 +23,44 @@ fn stating(blocks: &[(BlockType, u32)]) -> BlockCapabilities {
     })
 }
 
+/// A short count, as read through its accessors: its block type, and the
+/// counts required and provided.
+type Short = (BlockType, u32, u32);
+
 /// The mismatch of `block_type`'s count, `required` above `provided`.
-fn short(block_type: BlockType, required: u32, provided: u32) -> BlockCountMismatch {
-    BlockCountMismatch {
-        block_type,
-        required,
-        provided,
-    }
+fn short(block_type: BlockType, required: u32, provided: u32) -> Short {
+    (block_type, required, provided)
+}
+
+/// A mismatch, as read through its accessors: its short counts, and
+/// whether readout parities are required and not provided.
+fn listed(mismatch: &BlockCapabilitiesMismatch) -> (Vec<Short>, bool) {
+    let blocks = (mismatch.blocks().iter())
+        .map(|count| {
+            short(
+                count.block_type().clone(),
+                count.required(),
+                count.provided(),
+            )
+        })
+        .collect();
+    (blocks, mismatch.readout_parity())
+}
+
+/// Whether `required` fits `provided`, or the mismatch, as read through
+/// its accessors.
+fn fit(
+    required: &BlockCapabilities,
+    provided: &BlockCapabilities,
+) -> Result<(), (Vec<Short>, bool)> {
+    required
+        .fits(provided)
+        .map_err(|mismatch| listed(&mismatch))
 }
 
 /// The block counts `required` states above those `provided` states.
-fn short_counts(
-    required: &BlockCapabilities,
-    provided: &BlockCapabilities,
-) -> Vec<BlockCountMismatch> {
-    required
-        .fits(provided)
-        .map_or_else(|mismatch| mismatch.blocks, |()| vec![])
+fn short_counts(required: &BlockCapabilities, provided: &BlockCapabilities) -> Vec<Short> {
+    fit(required, provided).map_or_else(|(blocks, _)| blocks, |()| vec![])
 }
 
 /// A required count fits a provided one unless the provider states a
@@ -106,10 +127,7 @@ fn a_required_count_fits_unless_a_stated_provided_count_is_smaller() {
 #[test]
 fn readout_parities_required_fit_unless_the_provider_takes_none() {
     let parity = |yes| BlockCapabilities::NONE.with_readout_parity(yes);
-    let refused = Err(BlockCapabilitiesMismatch {
-        blocks: vec![],
-        readout_parity: true,
-    });
+    let refused = Err((vec![], true));
     for (row, required, provided, expected) in [
         ("`true` over `false`", parity(true), parity(false), refused),
         ("`false` over `true`", parity(false), parity(true), Ok(())),
@@ -127,7 +145,7 @@ fn readout_parities_required_fit_unless_the_provider_takes_none() {
             Ok(()),
         ),
     ] {
-        assert_eq!(required.fits(&provided), expected, "{row}");
+        assert_eq!(fit(&required, &provided), expected, "{row}");
     }
 }
 
@@ -182,11 +200,11 @@ fn every_kind_short() -> (BlockCapabilities, BlockCapabilities) {
 fn every_mismatch_is_listed_at_once_in_order() {
     let (required, provided) = every_kind_short();
     assert_eq!(
-        required.fits(&provided),
-        Err(BlockCapabilitiesMismatch {
-            blocks: vec![short(carbon(), 3, 2), short(BlockType::qubit(), 9, 8)],
-            readout_parity: true,
-        })
+        fit(&required, &provided),
+        Err((
+            vec![short(carbon(), 3, 2), short(BlockType::qubit(), 9, 8)],
+            true
+        ))
     );
 }
 

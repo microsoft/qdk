@@ -66,12 +66,16 @@ impl Argument {
     /// The Pauli of Qodec's text: an optional sign (`-`, `+`), an optional
     /// `i`, then factors `X_k`, `Y_k`, `Z_k` or `I_k` (the identity on qubit
     /// `k`, which only names the qubit), or `I`, separated by spaces, each
-    /// qubit at most once: `-X_0 Z_2`, `i Y_1`, `X_0 I_3`, `-I`.
+    /// qubit at most once: `-X_0 Z_2`, `i Y_1`, `X_0 I_3`, `-I`, `i`. It
+    /// also takes, as the same operator, any whitespace (tabs and line
+    /// breaks too) before and after the whole, after the sign (`- X_0`)
+    /// and between factors, a qubit with leading zeros (`X_01`, qubit 1),
+    /// and `I` repeated or beside other factors (`I I`, `X_0 I`).
     ///
     /// # Errors
     ///
     /// [`MalformedPauli`](InstructionFault::MalformedPauli) for any other
-    /// text.
+    /// text, the empty one included.
     pub fn pauli(text: &str) -> Result<Self, InstructionFault> {
         Pauli::parse(text)
             .map(|pauli| Argument::Pauli(Arc::new(pauli)))

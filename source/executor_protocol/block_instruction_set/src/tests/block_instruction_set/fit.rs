@@ -11,18 +11,22 @@ use crate::{
 use executor_protocol_core::BoundaryCompatible;
 
 /// The set `name` over qubits of `qubits` qubits each.
-fn set_of(name: &str, qubits: u32, instructions: Vec<InstructionDef>) -> BlockInstructionSet {
+pub(super) fn set_of(
+    name: &str,
+    qubits: u32,
+    instructions: Vec<InstructionDef>,
+) -> BlockInstructionSet {
     BlockInstructionSet::new(name, [(BlockType::qubit(), qubits)], instructions)
         .expect("a valid set")
 }
 
 /// The instruction `mnemonic` on one qubit, in place.
-fn gate(mnemonic: &str) -> InstructionDef {
+pub(super) fn gate(mnemonic: &str) -> InstructionDef {
     InstructionDef::new(mnemonic).acts_on([BlockType::qubit()])
 }
 
 /// Hadamard, as Qodec's `clifford: {X_0: Z_0, Z_0: X_0}`.
-fn hadamard() -> Meaning {
+pub(super) fn hadamard() -> Meaning {
     Meaning::declared().clifford([(Pauli::x(0), Pauli::z(0)), (Pauli::z(0), Pauli::x(0))])
 }
 
@@ -91,24 +95,6 @@ fn undeclared_instructions_match_by_mnemonic_between_sets_of_one_name() {
         let opcode = sent.opcode(mnemonic).expect("an instruction");
         assert_eq!(Some(map.map(opcode)), accepted.opcode(mnemonic));
     }
-}
-
-/// What a match by mnemonic rests on is reported; a match by meaning is
-/// checked, so not listed.
-#[test]
-fn matches_by_mnemonic_alone_are_listed() {
-    let sent = set_of(
-        "Gates",
-        1,
-        vec![gate("h").meaning(hadamard()), gate("y"), gate("z")],
-    );
-    let accepted = set_of(
-        "Gates",
-        1,
-        vec![gate("z"), gate("y"), gate("h").meaning(hadamard())],
-    );
-    let map = sent.fits(&accepted).expect("one set");
-    assert_eq!(map.by_mnemonic(), ["y", "z"]);
 }
 
 /// A mnemonic proves nothing between sets of other names: one mismatch
@@ -262,22 +248,6 @@ fn an_instruction_fits_only_one_of_the_same_shape() {
             "{row}"
         );
     }
-}
-
-/// A sender maps only its own opcodes: one beyond its set's last
-/// instruction, here an opcode of a larger set, panics.
-#[test]
-#[should_panic]
-#[expect(
-    clippy::should_panic_without_expect,
-    reason = "`OpcodeMap::map` promises a panic, not its message"
-)]
-fn mapping_an_opcode_beyond_the_sending_set_panics() {
-    let sent = set_of("Gates", 1, vec![gate("h")]);
-    let larger = set_of("Gates", 1, vec![gate("h"), gate("x")]);
-    let map = sent.fits(&larger).expect("`h` fits");
-    let beyond = larger.opcode("x").expect("`x` is in the larger set");
-    let _ = map.map(beyond);
 }
 
 /// Arguments and flags travel by position, as readouts do, so their

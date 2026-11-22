@@ -113,6 +113,9 @@ impl BlockInstructionSet {
     /// variadic operand out of place, more than 64 flags, more readout
     /// slots than a `u32` counts, a parameter or a flag named twice, and
     /// its meaning's faults ([`MeaningFault`]).
+    ///
+    /// Not checked: a meaning's Pauli on a qubit beyond the instruction's
+    /// qubits, a block type encoding 0 qubits, and an empty set name.
     pub fn new(
         name: impl Into<String>,
         block_types: impl IntoIterator<Item = (BlockType, u32)>,
@@ -272,6 +275,10 @@ impl executor_protocol_core::InstructionSet for BlockInstructionSet {
         self.readout_slots_at(instruction.opcode).unwrap_or(0)
     }
 
+    /// The block counts of `required` by this set's block types, in this
+    /// set's order, and whether it states readout parities `true`; what
+    /// this set's [`check`](executor_protocol_core::InstructionSet::check)
+    /// alone reads.
     fn requirement(&self, required: &BlockCapabilities) -> BlockRequirement {
         BlockRequirement {
             blocks_of: self
@@ -282,6 +289,12 @@ impl executor_protocol_core::InstructionSet for BlockInstructionSet {
         }
     }
 
+    /// Checks `instruction` against this set's declaration, and its blocks
+    /// and readout parities against `required`: its readout slots, or the
+    /// first fault. `required` is made by this set's
+    /// [`requirement`](executor_protocol_core::InstructionSet::requirement),
+    /// as the core's boundaries make it: one made by another set may read
+    /// another block type's count, or panic ([`BlockRequirement`]).
     #[inline]
     fn check(
         &self,

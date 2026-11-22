@@ -12,6 +12,7 @@ mod block_capabilities;
 mod block_instruction;
 mod fit;
 mod meaning;
+mod opcode_map;
 mod pauli;
 mod shot_conditions;
 

@@ -84,25 +84,56 @@ impl BlockCapabilities {
 /// once: block counts in their types' order, then readout parities.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockCapabilitiesMismatch {
-    /// The block counts required above those provided.
-    pub blocks: Vec<BlockCountMismatch>,
+    blocks: Vec<BlockCountMismatch>,
+    readout_parity: bool,
+}
+
+impl BlockCapabilitiesMismatch {
+    /// The block counts required above those provided, in their types'
+    /// order.
+    #[must_use]
+    pub fn blocks(&self) -> &[BlockCountMismatch] {
+        &self.blocks
+    }
+
     /// Whether readout parities are required and not provided.
-    pub readout_parity: bool,
+    #[must_use]
+    pub fn readout_parity(&self) -> bool {
+        self.readout_parity
+    }
 }
 
 /// A count of blocks of one type required above the one provided.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockCountMismatch {
-    /// The blocks' type.
-    pub block_type: BlockType,
-    /// The count required.
-    pub required: u32,
-    /// The count provided, less than `required`.
-    pub provided: u32,
+    block_type: BlockType,
+    required: u32,
+    provided: u32,
 }
 
-/// Each mismatch joined by `; `, as `` blocks of type `qubit`: 9 required,
-/// 8 provided; readout parity required, not provided ``.
+impl BlockCountMismatch {
+    /// The blocks' type.
+    #[must_use]
+    pub fn block_type(&self) -> &BlockType {
+        &self.block_type
+    }
+
+    /// The count required.
+    #[must_use]
+    pub fn required(&self) -> u32 {
+        self.required
+    }
+
+    /// The count provided, less than [`required`](Self::required).
+    #[must_use]
+    pub fn provided(&self) -> u32 {
+        self.provided
+    }
+}
+
+/// Each mismatch, joined by `; `: each short count with its block type and
+/// the counts required and provided, then readout parities, when required
+/// and not provided.
 impl fmt::Display for BlockCapabilitiesMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut separator = "";
