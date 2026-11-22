@@ -7,8 +7,8 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use executor_protocol::prelude::*;
-use executor_protocol::{
+use executor_protocol_core::prelude::*;
+use executor_protocol_core::{
     Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError, Features,
     Instruction, InstructionSet, OpcodeMap, ReadoutValue, Readouts, Resources, Runner, Seed,
     ShotSet,

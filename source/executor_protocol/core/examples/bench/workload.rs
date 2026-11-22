@@ -4,7 +4,7 @@
 //! The mix of gates `chains`, `checks` and `worker` send, and its programs, drawn from a fixed
 //! seed and built by name.
 
-use executor_protocol::{Argument, Instruction, InstructionSet, Opcode};
+use executor_protocol_core::{Argument, Instruction, InstructionSet, Opcode};
 
 use crate::parts::MixGates;
 

@@ -1,6 +1,6 @@
 # The executor protocol
 
-The executor protocol, the QDK crate `executor_protocol`, was designed to
+The executor protocol, the QDK crate `executor_protocol_core`, was designed to
 solve the problem of combining tools that act between a quantum program and
 the machine that runs it, such as noise models, error correction, profilers
 and debuggers, each written on its own. Without a shared protocol, the
@@ -353,7 +353,7 @@ fn main() {
 }
 ```
 
-Run it with `cargo run -p executor_protocol --example compose_and_run`.
+Run it with `cargo run -p executor_protocol_core --example compose_and_run`.
 
 ## Further reading
 
@@ -396,8 +396,8 @@ name), the tests compare a chain's bracketings. Both examples run as tests:
 against a driver that calls its executor directly.
 
 ```text
-cargo test -p executor_protocol
-cargo run --release -p executor_protocol --example bench
+cargo test -p executor_protocol_core
+cargo run --release -p executor_protocol_core --example bench
 ```
 
 ## Platforms

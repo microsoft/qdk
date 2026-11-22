@@ -7,8 +7,8 @@
 
 use std::hint::black_box;
 
-use executor_protocol::prelude::*;
-use executor_protocol::{Instruction, Resources};
+use executor_protocol_core::prelude::*;
+use executor_protocol_core::{Instruction, Resources};
 
 use crate::Size;
 use crate::parts::{
@@ -75,7 +75,7 @@ pub(crate) enum Chain {
 }
 
 /// Sends `program` down `chain`, `batch` instructions per `execute`, each
-/// [`checked`](executor_protocol::Batch::checked) if `checked`, to a
+/// [`checked`](executor_protocol_core::Batch::checked) if `checked`, to a
 /// profiler, and returns what it counted.
 pub(crate) fn run_chain(
     program: &[Instruction],

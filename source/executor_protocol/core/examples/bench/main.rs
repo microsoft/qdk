@@ -26,7 +26,7 @@
 //! the best of 7. `worker` has no untimed run, and keeps the best of up to
 //! 5 runs' median call. `chains`, `lowering` and `worker` send every batch
 //! unchecked, the default, or
-//! [`checked`](executor_protocol::Batch::checked) with `--checked`;
+//! [`checked`](executor_protocol_core::Batch::checked) with `--checked`;
 //! `checks` runs both. `chains`, `checks` and `worker` draw the common
 //! mix, or the parity-heavy one with `--parity-heavy`. Run it with
 //! `cargo run --release --example bench`, followed by at most one of
@@ -50,7 +50,7 @@ mod timing;
 mod worker;
 mod workload;
 
-use executor_protocol::Instruction;
+use executor_protocol_core::Instruction;
 
 use workload::{Mix, build, draws};
 
@@ -122,7 +122,7 @@ fn main() {
 }
 
 /// Runs the benches, or only the one named `only`, each batch
-/// [`checked`](executor_protocol::Batch::checked) if `checked` (`checks`
+/// [`checked`](executor_protocol_core::Batch::checked) if `checked` (`checks`
 /// runs both), `chains`, `checks` and `worker` on `mix`.
 fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix) {
     let wants = |bench: &str| only.is_none_or(|only| only == bench);

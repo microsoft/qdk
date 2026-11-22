@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::task::{Poll, Waker};
 use std::thread::{self, JoinHandle};
 
-use executor_protocol::prelude::*;
-use executor_protocol::{
+use executor_protocol_core::prelude::*;
+use executor_protocol_core::{
     Batch, BatchReadouts, Capabilities, ExecuteError, Features, Instruction, InstructionSet,
     Opcode, ReadoutValue, Resources, Seed, ShotSet,
 };

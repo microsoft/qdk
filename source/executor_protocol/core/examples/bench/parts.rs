@@ -19,7 +19,7 @@ pub(crate) use adapters::*;
 pub(crate) use drivers::*;
 pub(crate) use executors::*;
 
-use executor_protocol::instruction_set;
+use executor_protocol_core::instruction_set;
 
 instruction_set! {
     /// The gates of the mixes: QIR's, without measurements, whose draws

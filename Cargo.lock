@@ -602,7 +602,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "executor_protocol"
+name = "executor_protocol_core"
 version = "0.0.0"
 dependencies = [
  "pin-project-lite",

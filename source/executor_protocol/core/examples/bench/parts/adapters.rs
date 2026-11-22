@@ -3,8 +3,8 @@
 
 //! The bench's adapters: one that forwards, and a toy lowering.
 
-use executor_protocol::prelude::*;
-use executor_protocol::{
+use executor_protocol_core::prelude::*;
+use executor_protocol_core::{
     Arguments, Batch, BatchReadouts, BlockType, Capabilities, ExecuteError, Features, Instruction,
     InstructionSet, Opcode, OpcodeMap, ReadoutValue, Readouts, Resources, Seed,
 };

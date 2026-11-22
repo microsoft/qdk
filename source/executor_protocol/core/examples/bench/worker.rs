@@ -4,8 +4,8 @@
 //! An executor that answers from a worker thread: the time of a call,
 //! which includes copying its batches to the worker.
 
-use executor_protocol::prelude::*;
-use executor_protocol::{Instruction, Resources};
+use executor_protocol_core::prelude::*;
+use executor_protocol_core::{Instruction, Resources};
 
 use crate::Size;
 use crate::parts::{

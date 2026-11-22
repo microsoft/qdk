@@ -7,7 +7,7 @@
 
 use std::hint::black_box;
 
-use executor_protocol::Instruction;
+use executor_protocol_core::Instruction;
 
 use crate::Size;
 use crate::chains::{Chain, run_chain};

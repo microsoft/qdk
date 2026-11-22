@@ -1,5 +1,5 @@
 [package]
-name = "executor_protocol"
+name = "executor_protocol_core"
 
 version.workspace = true
 authors.workspace = true

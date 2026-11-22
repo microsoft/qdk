@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! The traits a part's writer and a chain's builder use, to import at
-//! once: `use executor_protocol::prelude::*;`.
+//! once: `use executor_protocol_core::prelude::*;`.
 //!
 //! The roles ([`Driver`], [`Adapter`], [`Executor`]) are what a part
 //! implements; the joins ([`DriverJoins`], [`AdapterJoins`]) give every

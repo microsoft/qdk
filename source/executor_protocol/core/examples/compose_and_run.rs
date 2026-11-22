@@ -24,8 +24,8 @@
 
 use std::collections::BTreeMap;
 
-use executor_protocol::prelude::*;
-use executor_protocol::{
+use executor_protocol_core::prelude::*;
+use executor_protocol_core::{
     Batch, BatchReadouts, BlockType, Capabilities, DriveError, ExecuteError, Features, Instruction,
     InstructionSet, NotReady, OpcodeMap, ReadoutValue, Readouts, Resources, Runner, Seed, ShotId,
     ShotSet, instruction_set,
@@ -481,7 +481,7 @@ impl Stream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use executor_protocol::{Resource, ResourceMismatch, RunError, RunRefusal};
+    use executor_protocol_core::{Resource, ResourceMismatch, RunError, RunRefusal};
 
     /// A user who runs a few shots of a run again, with its seed, to look
     /// at them: each gets the values it had in the first run, the noise's

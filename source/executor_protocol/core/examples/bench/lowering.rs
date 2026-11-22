@@ -8,8 +8,8 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use executor_protocol::prelude::*;
-use executor_protocol::{Instruction, ReadoutValue};
+use executor_protocol_core::prelude::*;
+use executor_protocol_core::{Instruction, ReadoutValue};
 
 use crate::Size;
 use crate::parts::{
@@ -143,7 +143,7 @@ fn compose_time<'p>(
 }
 
 /// The physical program sent straight to a sink, `batch` per `execute`,
-/// each [`checked`](executor_protocol::Batch::checked) if `checked`: the
+/// each [`checked`](executor_protocol_core::Batch::checked) if `checked`: the
 /// instructions the sink saw, the kinds of batches it got, and its
 /// readouts.
 fn sink_direct(
