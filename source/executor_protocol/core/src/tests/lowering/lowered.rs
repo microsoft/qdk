@@ -20,8 +20,8 @@ use crate::tests::example_sets::{
 };
 use crate::tests::fake_parts::{CliffordTRegister, Log, ReadThrice, ToffoliFree, ToffoliProgram};
 use crate::{
-    Batch, BatchReadouts, DriveError, ExecuteError, Lowered, PartId, ReadoutValue, Readouts, Seed,
-    ShotConditions, ShotSet,
+    Batch, BatchReadouts, DriveError, ExecuteError, Lowered, PartId, ReadoutValue, Readouts,
+    RunError, RunRefusal, Seed, ShotConditions, ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -163,6 +163,69 @@ fn what_a_lowering_requires_below_is_fit_at_on() {
         panic!("5 qubits of 5 compose");
     };
     runner.run(&ShotSet::ids([0]), 7).expect("5 qubits of 5");
+}
+
+/// A lowering limits what arrives from above as an adapter does, fit at
+/// `on`: a program of 3 qubits through a lowering taking at most 2 is
+/// refused, the lowering's adapter named as the provider, with the set's
+/// own mismatch; through one taking 3, it runs.
+#[test]
+fn what_a_lowering_provides_is_fit_at_on() {
+    let program = || ToffoliProgram::new(&[Ccz(0, 1, 2)], 3);
+    let log = Log::default();
+    let faults = program()
+        .through(Lowered::new(ToffoliFree::for_qubits(2)))
+        .on(CliffordTRegister::new(5, &[], &log))
+        .err()
+        .expect("3 qubits are more than 2");
+    let [fault] = faults.faults() else {
+        panic!("one fault: {faults}");
+    };
+    assert_eq!(
+        fault.provider,
+        PartId::new(1, type_name::<Lowered<ToffoliFree>>())
+    );
+    let mismatch = fault.mismatch.capabilities.set_capabilities.as_ref();
+    assert_eq!(
+        mismatch.and_then(|mismatch| mismatch.downcast_ref()),
+        Some(&TooFewQubits {
+            required: 3,
+            provided: 2
+        })
+    );
+    let Ok(mut runner) = program()
+        .through(Lowered::new(ToffoliFree::for_qubits(3)))
+        .on(CliffordTRegister::new(5, &[], &log))
+    else {
+        panic!("3 qubits of 3 compose");
+    };
+    runner.run(&ShotSet::ids([0]), 7).expect("3 qubits of 3");
+}
+
+/// A lowering gets ready on each run as an adapter does: one not ready,
+/// while calibrating, refuses the run, its adapter named, and nothing is
+/// sent below.
+#[test]
+fn a_lowering_not_ready_refuses_the_run() {
+    let log = Log::default();
+    let Ok(mut runner) = ToffoliProgram::new(&[Mz(0)], 3)
+        .through(Lowered::new(ToffoliFree::not_ready("calibrating")))
+        .on(CliffordTRegister::new(3, &[Zero], &log))
+    else {
+        panic!("the chain composes");
+    };
+    let Err(RunError::Refused(RunRefusal::PartNotReady { part, not_ready })) =
+        runner.run(&ShotSet::ids([0]), 7)
+    else {
+        panic!("a lowering not ready refuses the run");
+    };
+    assert_eq!(part, PartId::new(1, type_name::<Lowered<ToffoliFree>>()));
+    assert_eq!(not_ready.why().to_string(), "calibrating");
+    assert!(
+        log.entries().iter().all(|entry| !entry.starts_with("runs")),
+        "{:?}",
+        log.entries()
+    );
 }
 
 /// A driver sending a round at a time, a batch of `gates` per shot, in one

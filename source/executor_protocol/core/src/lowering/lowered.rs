@@ -16,12 +16,12 @@ use std::ops::Range;
 use super::Lowering;
 use crate::roles::lent_translating_adapter;
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet,
+    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
     ReadoutSlots, Readouts, Seed, TranslatingAdapter,
 };
 
 /// The adapter that runs the lowering `L`: it accepts `L::From`, sends
-/// `L::To`, requires below what `L` requires, and runs each batch as
+/// `L::To`, provides, requires below and gets ready as `L` does, and runs each batch as
 /// `L` lowers it, each sent checked if the batch it lowers arrived
 /// checked, as [`TranslatingAdapter::adapt`]'s rule asks.
 ///
@@ -61,8 +61,19 @@ impl<L: Lowering> TranslatingAdapter for Lowered<L> {
         self.lowering.sends()
     }
 
+    fn provides(&self) -> &Capabilities<L::From> {
+        self.lowering.provides()
+    }
+
     fn requires(&self, above: &Capabilities<L::From>) -> Capabilities<L::To> {
         self.lowering.requires(above)
+    }
+
+    fn ready(
+        &mut self,
+        above: &Capabilities<L::From>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        self.lowering.ready(above)
     }
 
     fn bind(&mut self, below: Binding<L::To>) {

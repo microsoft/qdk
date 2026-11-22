@@ -11,7 +11,7 @@ use super::Log;
 use crate::prelude::*;
 use crate::tests::example_sets::{CliffordT, Qubits, ToffoliGate, WithToffoli, WithoutToffoli};
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, ReadoutValue,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, ReadoutValue,
     Resources, RunRequirement, Seed, ShotConditions, ShotSet,
 };
 
@@ -145,19 +145,45 @@ impl Executor for CliffordTRegister {
 /// `ccz` rewritten as the standard decomposition of seven `t` and `tdg`
 /// and six `cx`, and every other gate as its namesake, requiring below
 /// what arrives and `ancillas` more qubits, as a decomposition using them
-/// would.
+/// would; it takes at most the qubits it provides, and is ready unless it
+/// is told why not.
 pub(crate) struct ToffoliFree {
     ancillas: u32,
+    provides: Capabilities<WithToffoli>,
+    not_ready: Option<&'static str>,
 }
 
 impl ToffoliFree {
     pub(crate) fn new() -> Self {
-        Self { ancillas: 0 }
+        Self {
+            ancillas: 0,
+            provides: WithToffoli::unconstrained().clone(),
+            not_ready: None,
+        }
     }
 
     /// This lowering, requiring `ancillas` more qubits below.
     pub(crate) fn with_ancillas(ancillas: u32) -> Self {
-        Self { ancillas }
+        Self {
+            ancillas,
+            ..Self::new()
+        }
+    }
+
+    /// This lowering, taking programs of at most `qubits` qubits.
+    pub(crate) fn for_qubits(qubits: u32) -> Self {
+        Self {
+            provides: on_qubits(qubits),
+            ..Self::new()
+        }
+    }
+
+    /// This lowering, not ready, for `why`.
+    pub(crate) fn not_ready(why: &'static str) -> Self {
+        Self {
+            not_ready: Some(why),
+            ..Self::new()
+        }
     }
 
     /// The decomposition of `ccz(a, b, c)`.
@@ -193,6 +219,10 @@ impl Lowering for ToffoliFree {
         &WithoutToffoli
     }
 
+    fn provides(&self) -> &Capabilities<WithToffoli> {
+        &self.provides
+    }
+
     fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
         let Qubits(qubits) = above.set_capabilities();
         Capabilities::new(
@@ -200,6 +230,13 @@ impl Lowering for ToffoliFree {
             *above.features(),
             Qubits(qubits + self.ancillas),
         )
+    }
+
+    async fn ready(&mut self, _above: &Capabilities<WithToffoli>) -> Result<(), NotReady> {
+        match self.not_ready {
+            Some(why) => Err(NotReady::new(why)),
+            None => Ok(()),
+        }
     }
 
     fn bind(&mut self, (): ()) {}

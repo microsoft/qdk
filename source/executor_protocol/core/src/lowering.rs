@@ -20,7 +20,7 @@ mod lowered;
 
 pub use lowered::Lowered;
 
-use crate::{Binding, Capabilities, InstructionSet, ReadoutValue};
+use crate::{Binding, Capabilities, InstructionSet, NotReady, ReadoutValue};
 
 /// Instructions of the set [`From`](Self::From) run as instructions of the
 /// set [`To`](Self::To), one instruction at a time, with their readouts
@@ -38,22 +38,40 @@ pub trait Lowering {
     type To: InstructionSet;
 
     /// The instructions it lowers: what the part above must send, as
-    /// [`Adapter::accepts`](crate::Adapter::accepts).
+    /// [`TranslatingAdapter::accepts`](crate::TranslatingAdapter::accepts).
     fn accepts(&self) -> &Self::From;
 
     /// The instructions it lowers them to: what the part below must
-    /// accept, as [`Adapter::sends`](crate::Adapter::sends).
+    /// accept, as [`TranslatingAdapter::sends`](crate::TranslatingAdapter::sends).
     fn sends(&self) -> &Self::To;
 
+    /// Its fixed limits on what arrives from above, as
+    /// [`TranslatingAdapter::provides`](crate::TranslatingAdapter::provides):
+    /// by default its `From` set's
+    /// [`unconstrained`](InstructionSet::unconstrained), no limits.
+    fn provides(&self) -> &Capabilities<Self::From> {
+        Self::From::unconstrained()
+    }
+
     /// What it requires below, given what arrives from above, `above`, as
-    /// [`Adapter::requires`](crate::Adapter::requires): the same
+    /// [`TranslatingAdapter::requires`](crate::TranslatingAdapter::requires): the same
     /// resources and features, and the set's own capabilities its
     /// rewriting needs, such as three physical qubits for each logical one.
     fn requires(&self, above: &Capabilities<Self::From>) -> Capabilities<Self::To>;
 
+    /// As [`TranslatingAdapter::ready`](crate::TranslatingAdapter::ready),
+    /// for `above`, what arrives from above: by default ready.
+    fn ready(
+        &mut self,
+        above: &Capabilities<Self::From>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = above;
+        async { Ok(()) }
+    }
+
     /// Keeps how its instructions are encoded in the receiver's set: the
     /// binding of the fit of [`sends`](Self::sends) into what the part
-    /// below accepts, as [`Adapter::bind`](crate::Adapter::bind), given
+    /// below accepts, as [`TranslatingAdapter::bind`](crate::TranslatingAdapter::bind), given
     /// before any `lower`.
     fn bind(&mut self, below: Binding<Self::To>);
 
