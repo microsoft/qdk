@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 import posixpath
 import re
@@ -176,7 +177,7 @@ def _require(condition: bool, message: str) -> None:
         raise LauncherError("Sandbox boundary verification failed: " + message)
 
 
-def _as_list(value: object) -> list:
+def _as_list(value: Iterable[object] | None) -> list:
     # Podman 4 reports a single-element Entrypoint as a string.
     if value is None:
         return []

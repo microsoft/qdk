@@ -12,7 +12,7 @@ import sys
 from .common import LauncherError, run, sanitize_diagnostic
 
 MACHINE = "qdk-sandbox"
-MINIMUM_VERSION = (4, 9)
+MINIMUM_VERSION: tuple[int, int] = (4, 9)
 INTERFACE_LABEL = "qdk.copilot-sandbox.interface"
 INTERFACE_VERSION = "2"
 # Docker's default seccomp profile (moby/profiles, Apache-2.0). Podman's own default lets a container
@@ -30,8 +30,8 @@ class Engine:
 
 def podman(*args: str | os.PathLike[str]) -> list[str]:
     if CONNECTION is None:
-        return ["podman", *map(os.fspath, args)]
-    return ["podman", "--connection", CONNECTION, *map(os.fspath, args)]
+        return ["podman", *[os.fspath(arg) for arg in args]]
+    return ["podman", "--connection", CONNECTION, *[os.fspath(arg) for arg in args]]
 
 
 def vm_path(path: str | os.PathLike[str]) -> str:
@@ -64,7 +64,7 @@ def check_podman() -> Engine:
         info = json.loads(result.stdout)
         host = info["host"]
         match = re.match(r"(\d+)\.(\d+)", info["version"]["Version"])
-        version = (int(match[1]), int(match[2])) if match else (0, 0)
+        version: tuple[int, int] = (int(match[1]), int(match[2])) if match else (0, 0)
         rootless = host["security"]["rootless"]
         seccomp = host["security"]["seccompEnabled"]
         operating_system = host["os"]
