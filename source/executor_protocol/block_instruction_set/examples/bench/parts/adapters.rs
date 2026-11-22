@@ -331,13 +331,15 @@ mod tests {
     /// Built for 2 logical qubits, the code takes at most 2, and the shots
     /// above it reaching 2 require 6 physical qubits below, and batches of
     /// 6 logical instructions batches of 18 physical ones, the shots per
-    /// run unchanged; shots stating no qubits, or batches stating no
-    /// count, require none, and more than a third of the most a count
-    /// holds requires the most.
+    /// run and the features (seeded runs) unchanged; shots stating no
+    /// qubits, or batches stating no count, require none, and more than a
+    /// third of the most a count holds requires the most.
     #[test]
     fn each_logical_qubit_and_instruction_requires_three_physical_ones() {
         let repetition = Repetition3::new(2);
         let none = Resources::unconstrained();
+        let unconstrained = Features::unconstrained();
+        let seeded = unconstrained.with_seeded_runs(true);
         assert_eq!(
             repetition.provides().set_capabilities(),
             &BlockCapabilities::NONE.with_qubits(2),
@@ -345,42 +347,46 @@ mod tests {
         );
         for (scene, above, below) in [
             (
-                "2 logical qubits, batches of 6, runs of 5 shots",
+                "2 logical qubits, batches of 6, runs of 5 seeded shots",
                 (
                     BlockCapabilities::NONE.with_qubits(2),
                     none.with_instructions_per_batch(6).with_shots(5),
+                    seeded,
                 ),
                 (
                     BlockCapabilities::NONE.with_qubits(6),
                     none.with_instructions_per_batch(18).with_shots(5),
+                    seeded,
                 ),
             ),
             (
                 "no qubits and no batch size stated",
-                (BlockCapabilities::NONE, none),
-                (BlockCapabilities::NONE, none),
+                (BlockCapabilities::NONE, none, unconstrained),
+                (BlockCapabilities::NONE, none, unconstrained),
             ),
             (
                 "more than a third of the most a count holds",
                 (
                     BlockCapabilities::NONE.with_qubits(u32::MAX / 3 + 1),
                     none.with_instructions_per_batch(u32::MAX / 3 + 1),
+                    unconstrained,
                 ),
                 (
                     BlockCapabilities::NONE.with_qubits(u32::MAX),
                     none.with_instructions_per_batch(u32::MAX),
+                    unconstrained,
                 ),
             ),
         ] {
-            let (blocks, resources) = above;
-            let required = repetition.requires(&Capabilities::new(
-                resources,
-                Features::unconstrained(),
-                blocks,
-            ));
+            let (blocks, resources, features) = above;
+            let required = repetition.requires(&Capabilities::new(resources, features, blocks));
             assert_eq!(
-                (required.set_capabilities(), required.resources()),
-                (&below.0, &below.1),
+                (
+                    required.set_capabilities(),
+                    required.resources(),
+                    required.features()
+                ),
+                (&below.0, &below.1, &below.2),
                 "{scene}"
             );
         }

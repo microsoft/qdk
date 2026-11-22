@@ -116,6 +116,11 @@ impl BlockInstructionSet {
     ///
     /// Not checked: a meaning's Pauli on a qubit beyond the instruction's
     /// qubits, a block type encoding 0 qubits, and an empty set name.
+    ///
+    /// # Panics
+    ///
+    /// With 2^32 instructions or block types or more, which opcodes and
+    /// block-type indices, `u32`s, cannot number.
     pub fn new(
         name: impl Into<String>,
         block_types: impl IntoIterator<Item = (BlockType, u32)>,
@@ -175,8 +180,7 @@ impl BlockInstructionSet {
     /// an instruction of one mnemonic the same meaning, declared or not. So
     /// the fit matches an instruction whose meaning neither set declares by
     /// its mnemonic, only between sets of one name; one whose meaning both
-    /// declare, by its meaning, whatever the names. It also names the set
-    /// in a fit's faults.
+    /// declare, by its meaning, whatever the names.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name

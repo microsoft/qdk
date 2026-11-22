@@ -275,7 +275,8 @@ pub enum InstructionFault {
         mnemonic: String,
     },
     /// At an `execute`: a readout parity for this parameter, sent across a
-    /// boundary whose required features do not state readout parities
+    /// boundary whose required capabilities do not say `true` for readout
+    /// parities
     /// ([`BlockCapabilities::with_readout_parity`](crate::BlockCapabilities::with_readout_parity)),
     /// so that no fit checked that the receiver resolves them.
     ParityNotRequired {

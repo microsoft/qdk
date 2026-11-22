@@ -80,8 +80,9 @@ impl BlockCapabilities {
     }
 }
 
-/// Each count and feature required beyond what is provided, every one at
-/// once: block counts in their types' order, then readout parities.
+/// Each block count required beyond the one provided, and readout parities
+/// required and not provided, every one at once: block counts in their
+/// types' order, then readout parities.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockCapabilitiesMismatch {
     blocks: Vec<BlockCountMismatch>,

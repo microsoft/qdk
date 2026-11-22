@@ -565,22 +565,37 @@ fn select_on_an_opcode_beyond_the_set_is_refused() {
 
 /// A Pauli argument is read into the canonical form, so equal operators
 /// written otherwise are equal arguments: a `+` sign and an `I_k` factor
-/// drop out, and a `Y` with its phase is the product it stands for.
+/// drop out, a `Y` with its phase is the product it stands for, and
+/// whitespace of any kind and length around the text, after the sign and
+/// between factors, a qubit's leading zeros, and a bare `I`, repeated or
+/// beside other factors, change nothing.
 #[test]
 fn pauli_argument_is_canonical() {
-    let canonical = |p: Pauli| Argument::Pauli(Arc::new(p));
-    assert_eq!(pauli("+X_0 I_3"), canonical(Pauli::x(0)));
-    assert_eq!(pauli("-i Y_1"), canonical(Pauli::x(1) * Pauli::z(1)));
+    let identity = Pauli::x(0) * Pauli::x(0);
+    for (text, expected) in [
+        ("+X_0 I_3", Pauli::x(0)),
+        ("-i Y_1", Pauli::x(1) * Pauli::z(1)),
+        (" \t-  X_01\nI ", -Pauli::x(1)),
+        ("I I", identity),
+        ("X_0 I", Pauli::x(0)),
+    ] {
+        assert_eq!(
+            Argument::pauli(text),
+            Ok(Argument::Pauli(Arc::new(expected))),
+            "{text:?}"
+        );
+    }
 }
 
-/// One text per rule broken: nothing, a sign alone, a factor without its
-/// qubit, a qubit twice (`I_k` included), a letter or an index outside the
-/// grammar, a signed index, `i` twice, a comma between factors.
+/// One text per rule broken: nothing (whitespace alone included), a sign
+/// alone, a factor without its qubit, a qubit twice (`I_k` included), a
+/// letter or an index outside the grammar, a signed index, `i` twice, a
+/// comma between factors.
 #[test]
 fn malformed_pauli_text_is_refused() {
     for text in [
-        "", "-", "Z", "X_0 Z_0", "I_0 X_0", "X_0 I_0", "I_1 I_1", "W_0", "X_a", "Z_", "X_+1",
-        "i i", "X_0,Z_1",
+        "", " \t\n", "-", "Z", "X_0 Z_0", "I_0 X_0", "X_0 I_0", "I_1 I_1", "W_0", "X_a", "Z_",
+        "X_+1", "i i", "X_0,Z_1",
     ] {
         assert_eq!(
             Argument::pauli(text),

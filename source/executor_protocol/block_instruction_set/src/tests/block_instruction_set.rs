@@ -755,6 +755,12 @@ fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
             beyond("encode", 2, 2),
         ),
         (
+            "`encode` turning qubit 4 into block 4, of 4 qubits and 5 blocks",
+            on("encode", &[4]),
+            shots_of(4, 5),
+            beyond("encode", 4, 4),
+        ),
+        (
             "`mpp` on qubits 0, 1 and 5 of 4",
             on("mpp", &[0, 1, 5]),
             shots_of(4, 0),
