@@ -6,10 +6,14 @@
 //! (`dense_tensor.rs`) and factored by `dense_linalg`'s SVD and QR. An SVD
 //! that fails its accuracy checks fails the gate split.
 //!
-//! It is as strict as cuTensorNet's documentation about what a call needs:
+//! It is as strict as cuTensorNet's documentation about what a call needs,
+//! whether or not cuTensorNet itself refuses the misuse (the tests of the
+//! fake say which cases a GPU run refuses):
 //!
-//! - a tensor descriptor has one extent per mode, every extent at least 1,
-//!   and no mode twice;
+//! - a tensor descriptor has one extent per mode, and every extent at
+//!   least 1;
+//! - a discarded-weight cutoff is in [0, 1), as cuTensorNet 2.13 refuses
+//!   a cutoff of 1;
 //! - every object (a descriptor, an SVD config or info, a network, an
 //!   optimizer info) belongs to the handle it was created with;
 //! - a gate split, a QR or a contraction runs only in a workspace last
@@ -22,7 +26,7 @@
 //! - a network is prepared only once optimized, in a workspace sized for
 //!   its path and lent at least the device scratch it asks for, and
 //!   contracted only once prepared, with at least the device scratch lent
-//!   at its preparation; it outlives its optimizer infos;
+//!   at its last preparation; it outlives its optimizer infos;
 //! - a gate split, a QR or a contraction runs on a live stream;
 //! - a gate split's shared extent does not exceed the smaller side of its
 //!   matrix θ, and a QR's equals the smaller side of its matrix;
@@ -47,6 +51,11 @@
 //! whole (`TensorCalls::optimize_contraction`), so a caller sees the same
 //! result either way. It ignores the path search's workspace limit, which
 //! cuTensorNet's optimizer takes as a constraint the path may exceed.
+//!
+//! Beyond the documentation, it refuses what its dense tensors cannot
+//! represent, which cuTensorNet 2.13 accepts when the descriptor or the
+//! network is created: a tensor that names one mode twice, and a network
+//! output label no input has, which has no extent to take.
 //!
 //! A gate split's report and outputs follow cuTensorNet's, for the settings
 //! `CudaAlgebra` makes, and only them: a discarded-weight cutoff, the kept
@@ -125,8 +134,8 @@ impl TensorCalls for FakeLibraries {
             SvdSetting::PartitionUs => config.partition = Some(Partition::Us),
             SvdSetting::PartitionSv => config.partition = Some(Partition::Sv),
             SvdSetting::DiscardedWeightCutoff(cutoff) => {
-                if !(0.0..=1.0).contains(&cutoff) {
-                    return Err(failed(OPERATION, "a cutoff outside [0, 1]"));
+                if !(0.0..1.0).contains(&cutoff) {
+                    return Err(failed(OPERATION, "a cutoff outside [0, 1)"));
                 }
                 config.cutoff = Some(cutoff);
             }
@@ -486,9 +495,8 @@ impl TensorCalls for FakeLibraries {
         if let Some(Object::OptimizerInfo { optimized, .. }) = inner.objects.get_mut(&id(info)) {
             *optimized = true;
         }
-        if let Some(Object::Network { path, prepared, .. }) = inner.objects.get_mut(&id(network)) {
+        if let Some(Object::Network { path, .. }) = inner.objects.get_mut(&id(network)) {
             *path = Some(id(info));
-            *prepared = None;
         }
         // The search may find another path, even into the same info, and
         // a workspace sized for the old one may not hold the new one's.
@@ -1060,8 +1068,8 @@ impl Inner {
     }
 
     /// The info whose path `network`, which must belong to `handle`, was
-    /// last optimized to, and, once prepared along it, the device scratch
-    /// bytes lent at the preparation.
+    /// last optimized to, and, once prepared, the device scratch bytes lent
+    /// at its last preparation.
     fn network(
         &self,
         handle: OpaqueHandle,

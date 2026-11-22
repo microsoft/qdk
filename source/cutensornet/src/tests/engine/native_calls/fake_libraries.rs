@@ -14,7 +14,8 @@
 //! fake here and on cuTensorNet in `on_the_gpu` (ignored, run by hand on a
 //! CUDA host), so that the fake is checked to refuse what the library
 //! refuses. The other cases run on the fake alone, each table saying why:
-//! on a GPU their misuse is undefined behaviour or goes undetected.
+//! on a GPU their misuse is undefined behaviour or goes undetected, or the
+//! fake refuses a tensor its dense tensors cannot represent.
 //!
 //! A table makes its objects through a `Device`, which releases them when
 //! dropped, so that a leak check of the GPU run reports none of the
@@ -34,24 +35,29 @@ use std::{cell::RefCell, ptr::NonNull, sync::Arc};
 
 /// cuTensorNet may ask for memory in any slot of a workspace (a device
 /// cache, host scratch), and runs a call only once each slot that asks is
-/// lent at least what it asks for. The zero-slot case runs on the fake
-/// alone: its rule is wider than the evidence (below).
+/// lent at least what it asks for. The one-byte-short cases run on the
+/// fake alone: cuTensorNet 2.13 on an A100 ran a QR whose slot was lent one
+/// byte short, though its documentation asks for at least the minimum, so
+/// only the fake holds the algebra to it. The zero-slot case runs on the
+/// fake alone too: its rule is wider than the evidence (below).
 #[test]
 fn a_workspace_slot_is_lent_what_it_asks() {
-    a_workspace_slot_is_lent_what_it_asks_on(&fake);
-    a_workspace_slot_is_lent_what_it_asks_on(&|| {
+    let with_other_slots = || {
         let libraries = FakeLibraries::new();
         libraries.set_other_workspace_slot_bytes(64);
         Device::new(libraries)
-    });
+    };
+    a_workspace_slot_is_lent_what_it_asks_on(&fake);
+    a_workspace_slot_is_lent_what_it_asks_on(&with_other_slots);
+    a_workspace_slot_lent_one_byte_short_is_refused(&fake);
+    a_workspace_slot_lent_one_byte_short_is_refused(&with_other_slots);
     a_tensor_call_needs_memory_in_every_slot_that_asks_for_it();
     a_workspace_slot_that_asks_for_nothing_is_lent_nothing();
 }
 
 /// The cases of [`a_workspace_slot_is_lent_what_it_asks`] that run on the
 /// devices `new` makes: a caller that leaves a slot that asks for memory
-/// unlent, or lends it one byte short (an old size, after the workspace
-/// was sized for a larger call), is refused, whichever slot it is.
+/// unlent is refused, whichever slot it is.
 fn a_workspace_slot_is_lent_what_it_asks_on<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     let mut asking = 0;
     for slot in WORKSPACE_SLOTS {
@@ -70,12 +76,34 @@ fn a_workspace_slot_is_lent_what_it_asks_on<C: TestedCalls>(new: &dyn Fn() -> De
             refused_for::<C>(&refused, FakeRule::NoMemoryLent),
             "{slot:?}: {refused}"
         );
+        device.lend(slot);
+        qr.run_on(device.stream)
+            .expect("every slot is lent in full");
+    }
+    assert!(asking > 0, "the QR asks for memory in some slot");
+}
+
+/// cuTensorNet's QR takes a workspace whose size is "the same as or larger
+/// than the minimum needed": a caller that lends a slot one byte short (an
+/// old size, after the workspace was sized for a larger call) is caught on
+/// the fake, whichever slot it is.
+fn a_workspace_slot_lent_one_byte_short_is_refused(new: &dyn Fn() -> Device) {
+    let mut asking = 0;
+    for slot in WORKSPACE_SLOTS {
+        let qr = TensorQr::sized(new(), 3);
+        let device = &qr.device;
+        let asked = device.asked(slot);
+        if asked <= 0 {
+            continue;
+        }
+        asking += 1;
+        device.lend_all_but(slot);
         device.lend_bytes(slot, asked - 1);
         let refused = qr
             .run_on(device.stream)
             .expect_err("one slot is one byte short");
         assert!(
-            refused_for::<C>(&refused, FakeRule::LessMemoryLent),
+            refused_for::<FakeLibraries>(&refused, FakeRule::LessMemoryLent),
             "{slot:?}: {refused}"
         );
         device.lend(slot);
@@ -86,13 +114,17 @@ fn a_workspace_slot_is_lent_what_it_asks_on<C: TestedCalls>(new: &dyn Fn() -> De
 }
 
 /// A tensor descriptor is checked when it is created: one extent per mode,
-/// each at least 1, each mode named once, and an element count a buffer
-/// could hold. The overflow case runs on the fake alone: no GPU has the
-/// memory to reach it.
+/// each at least 1, and an element count a buffer could hold. The overflow
+/// case runs on the fake alone: no GPU has the memory to reach it. So does
+/// the repeated-mode case: cuTensorNet 2.13 on an A100 creates a
+/// descriptor that names one mode twice, and its documentation says
+/// nothing of it, but the fake's dense tensors give each label one mode,
+/// so the fake refuses a tensor it would misread.
 #[test]
 fn a_malformed_descriptor_is_refused() {
     a_malformed_descriptor_is_refused_on(&fake);
     a_tensor_whose_element_count_overflows_is_refused();
+    a_tensor_descriptor_refuses_a_repeated_mode();
 }
 
 /// The cases of [`a_malformed_descriptor_is_refused`] that run on the
@@ -100,7 +132,6 @@ fn a_malformed_descriptor_is_refused() {
 fn a_malformed_descriptor_is_refused_on<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     a_tensor_descriptor_needs_one_extent_per_mode(new);
     a_tensor_descriptor_refuses_an_extent_below_one(new);
-    a_tensor_descriptor_refuses_a_repeated_mode(new);
 }
 
 /// The bond a factorization returns is at most the smaller side of its
@@ -133,16 +164,20 @@ fn a_gate_split_writes_only_live_buffers_of_its_descriptors_sizes() {
 
 /// A gate split contracts A, B and the gate along the labels they share,
 /// and keeps each other label on its side: A's in U, B's in V, the gate's
-/// on either.
+/// on either. The case of A's and B's bond labelled as U's and V's shared
+/// mode runs on the fake alone: cuTensorNet 2.13 on an A100 splits such a
+/// gate, but its documentation partitions the inputs' uncontracted modes
+/// onto U and V, which share one mode of their own, so the fake holds the
+/// algebra to a new label for it.
 #[test]
 fn a_gate_split_takes_only_its_topologys_labels() {
     a_gate_split_takes_only_its_topologys_labels_on(&fake);
+    a_gate_split_refuses_its_shared_mode_on_an_input();
 }
 
-/// The cases of [`a_gate_split_takes_only_its_topologys_labels`], on the
-/// devices `new` makes.
+/// The cases of [`a_gate_split_takes_only_its_topologys_labels`] that run
+/// on the devices `new` makes.
 fn a_gate_split_takes_only_its_topologys_labels_on<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
-    a_gate_split_refuses_its_shared_mode_on_an_input(new);
     a_gate_split_refuses_a_label_outside_its_topology(new);
     a_gate_split_needs_a_b_and_the_gate_pairwise_connected(new);
     a_gate_split_refuses_a_label_on_all_three_inputs(new);
@@ -175,8 +210,7 @@ fn an_object_is_used_only_with_its_owner() {
 }
 
 /// A contraction is optimized, sized, prepared with its device scratch
-/// lent, and contracted, in that order, and again from its optimization
-/// after a new path search.
+/// lent, and contracted, in that order.
 #[test]
 fn a_contraction_follows_its_steps_in_order() {
     a_contraction_follows_its_steps_in_order_on(&fake);
@@ -189,7 +223,7 @@ fn a_contraction_follows_its_steps_in_order_on<C: TestedCalls>(new: &dyn Fn() ->
     a_contraction_is_prepared_in_a_workspace_sized_for_its_path(new);
     a_contraction_is_prepared_with_its_device_scratch_lent(new);
     a_contraction_needs_at_least_the_scratch_lent_at_its_preparation(new);
-    a_contraction_needs_a_network_prepared_for_its_path(new);
+    a_contraction_needs_a_prepared_network(new);
 }
 
 /// A path search makes the sizings for its network's old path stale, in
@@ -203,17 +237,20 @@ fn a_path_search_invalidates_only_its_networks_sizings() {
     a_path_search_keeps_the_sizing_for_another_network();
 }
 
-/// A contraction's labels are consistent: each output label is an input
-/// label, and each label has one extent.
+/// A contraction's labels are consistent: each label has one extent. The
+/// case of an output label no input has runs on the fake alone:
+/// cuTensorNet 2.13 on an A100 creates such a network, and its
+/// documentation says nothing of it, but the fake takes each output
+/// extent from the inputs, so it refuses a network it has no extent for.
 #[test]
 fn a_contractions_labels_are_consistent() {
     a_contractions_labels_are_consistent_on(&fake);
+    a_contraction_output_label_must_be_an_input_label();
 }
 
-/// The cases of [`a_contractions_labels_are_consistent`], on the devices
-/// `new` makes.
+/// The cases of [`a_contractions_labels_are_consistent`] that run on the
+/// devices `new` makes.
 fn a_contractions_labels_are_consistent_on<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
-    a_contraction_output_label_must_be_an_input_label(new);
     a_contraction_label_has_one_extent(new);
 }
 
@@ -261,8 +298,9 @@ fn a_stream_is_used_only_while_live() {
     a_tensor_call_runs_on_a_live_stream();
 }
 
-/// A discarded-weight cutoff is a fraction of the total weight: a caller
-/// that passes one outside [0, 1] is refused.
+/// A discarded-weight cutoff is a fraction of the total weight below 1, as
+/// on cuTensorNet, which refuses a cutoff of 1: a caller that passes one
+/// outside [0, 1) is refused.
 #[test]
 fn an_svd_cutoff_outside_zero_to_one_is_refused() {
     an_svd_cutoff_outside_zero_to_one_is_refused_on(&fake);
@@ -291,10 +329,10 @@ fn a_tensor_descriptor_refuses_an_extent_below_one<C: TestedCalls>(new: &dyn Fn(
     create(&[2, 1]).expect("every extent is at least 1");
 }
 
-/// A label names one mode of a tensor: a caller that gives a tensor one
-/// label twice is caught when it creates the descriptor.
-fn a_tensor_descriptor_refuses_a_repeated_mode<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
-    let device = new();
+/// A label names one mode of a fake's tensor: a caller that gives a tensor
+/// one label twice is caught on the fake when it creates the descriptor.
+fn a_tensor_descriptor_refuses_a_repeated_mode() {
+    let device = fake();
     let create = |modes: &[i32]| {
         device.descriptor(TensorModes {
             extents: &[2, 2, 2],
@@ -352,11 +390,11 @@ fn a_qr_needs_the_shared_extent_to_be_the_smaller_side<C: TestedCalls>(
 
 /// A gate split's U and V share one mode, which no input carries: a caller
 /// that labels A's and B's bond as the shared mode, which the split would
-/// sum and keep at once, is refused.
-fn a_gate_split_refuses_its_shared_mode_on_an_input<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
+/// sum and keep at once, is caught on the fake.
+fn a_gate_split_refuses_its_shared_mode_on_an_input() {
     let theta = matrix([[3.0, 0.0], [0.0, 1.0]]);
     let with_bond = |bond| {
-        let mut split = GateSplit::on(new(), theta);
+        let mut split = GateSplit::on(fake(), theta);
         let device = &split.device;
         split.operands.a = device.operand(&[2, 2], &[P, bond], &values(4, 0.5));
         split.operands.b = device.operand(&[2, 2], &[bond, Q], &values(4, -0.25));
@@ -370,7 +408,7 @@ fn a_gate_split_refuses_its_shared_mode_on_an_input<C: TestedCalls>(new: &dyn Fn
         .split()
         .expect_err("A's and B's bond is labelled as U's and V's shared mode");
     assert!(
-        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
+        refused_for::<FakeLibraries>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
     with_bond(BOND)
@@ -744,14 +782,9 @@ fn a_contraction_needs_at_least_the_scratch_lent_at_its_preparation<C: TestedCal
         .expect("the device scratch is the preparation's");
 }
 
-/// cuTensorNet contracts a network as its last preparation set it up, for
-/// the path it had then: a caller that contracts an optimized network it
-/// never prepared, or did not prepare again after optimizing it again
-/// (sizing the workspace again, so that only the preparation is missing),
-/// is refused.
-fn a_contraction_needs_a_network_prepared_for_its_path<C: TestedCalls>(
-    new: &dyn Fn() -> Device<C>,
-) {
+/// cuTensorNet contracts a network once it is prepared: a caller that
+/// contracts an optimized network it never prepared is refused.
+fn a_contraction_needs_a_prepared_network<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     let ones = [Complex64::new(1.0, 0.0); 2];
     let contraction = Contraction::sized(
         new(),
@@ -772,34 +805,12 @@ fn a_contraction_needs_a_network_prepared_for_its_path<C: TestedCalls>(
         .prepare()
         .expect("the workspace is sized for the path");
     contraction.contract().expect("the network is prepared");
-    let network = contraction.network.descriptor;
-    device
-        .calls
-        .optimize_contraction(device.handle, network, 1 << 20, contraction.info)
-        .expect("the info is the network's");
-    device
-        .calls
-        .contraction_workspace_sizes(device.handle, network, contraction.info, device.workspace)
-        .expect("the path is optimized");
-    let refused = contraction
-        .contract()
-        .expect_err("the network is not prepared for its new path");
-    assert!(
-        refused_for::<C>(&refused, FakeRule::NetworkNotPrepared),
-        "{refused}"
-    );
-    contraction
-        .prepare()
-        .expect("the workspace is sized for the path");
-    contraction
-        .contract()
-        .expect("the network is prepared again");
 }
 
-/// cuTensorNet takes each output mode's extent from the inputs: a caller
-/// whose output names a label no input has is refused.
-fn a_contraction_output_label_must_be_an_input_label<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
-    let device = new();
+/// The fake takes each output mode's extent from the inputs: a caller
+/// whose output names a label no input has is caught on the fake.
+fn a_contraction_output_label_must_be_an_input_label() {
+    let device = fake();
     device
         .network(DOT_PRODUCT_INPUTS, &[2])
         .expect_err("no input has the label 2");
@@ -843,8 +854,9 @@ fn an_svd_cutoff_outside_zero_to_one_is_refused_on<C: TestedCalls>(new: &dyn Fn(
     };
     configure(-0.1).expect_err("the cutoff is below 0");
     configure(1.5).expect_err("the cutoff is above 1");
-    configure(0.0).expect("0 is a fraction");
-    configure(1.0).expect("1 is a fraction");
+    configure(1.0).expect_err("1 is outside [0, 1)");
+    configure(0.0).expect("0 is in range");
+    configure(f64::next_down(1.0)).expect("the largest f64 below 1 is in range");
 }
 
 /// A caller that lends device scratch alone is caught on the fake whether

@@ -160,8 +160,8 @@ enum Object {
     /// An SVD info, and what the last gate split given it truncated.
     SvdInfo(Option<super::tensor_calls::SvdTruncation>),
     /// A contraction network: the info whose path it was last optimized
-    /// to, and, once prepared along that path, the device scratch bytes
-    /// lent at the preparation.
+    /// to, and, once prepared, the device scratch bytes lent at its last
+    /// preparation.
     Network {
         inputs: [TensorShape; 2],
         output: TensorShape,
@@ -205,7 +205,7 @@ pub(crate) enum FakeRule {
     SharedExtentExceedsSmallerSide,
     /// A QR's shared extent is not its matrix's smaller side.
     SharedExtentNotSmallerSide,
-    /// A contraction ran on a network not prepared along its path.
+    /// A contraction ran on a network never prepared.
     NetworkNotPrepared,
 }
 
