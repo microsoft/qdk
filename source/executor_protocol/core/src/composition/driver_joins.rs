@@ -42,15 +42,15 @@ pub trait DriverJoins: Driver + Sized {
     /// accepts, and what arrives at each part against what it provides,
     /// starting from a run that requires nothing. What arrives at a part is
     /// what the part above requires given what arrived there
-    /// ([`Driver::requires`], [`TranslatingAdapter::requires`]). On any fault, every
-    /// such fault, top to bottom, with the same parts' positions and
-    /// mismatches in every bracketing, and the same names where each
-    /// part's name stays the same through composition, `bind` included.
-    /// Otherwise the runner, which walks the chain the same way on each
-    /// run, from what the run requires. What each part accepts, sends and
-    /// provides is read at the joins and at this `on`, and each part's
-    /// name is read here, for the refusals and panics that name it; what
-    /// each part requires is asked on each run.
+    /// ([`Driver::requires`], [`TranslatingAdapter::requires`]). On any
+    /// fault, every such fault, top to bottom, with the same parts'
+    /// positions and mismatches in every bracketing, and the same names
+    /// where each part's name stays the same through composition, `bind`
+    /// included. Otherwise the runner, which walks the chain the same way
+    /// on each run, from what the run requires. What each part accepts,
+    /// sends and provides is read at the joins and at this `on`, and each
+    /// part's name is read here, for the refusals and panics that name it;
+    /// what each part requires is asked on each run.
     ///
     /// # Errors
     ///

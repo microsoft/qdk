@@ -81,6 +81,7 @@ pub(crate) use renamed::Renamed;
 pub(crate) use sees_seeds::SeesSeeds;
 pub(crate) use toffoli::{
     CliffordTPassThrough, CliffordTRegister, ReadThrice, ToffoliFree, ToffoliProgram,
+    UsesUnstatedQubits,
 };
 
 /// `h`, `x` and `mz`: what every fake part accepts and sends, unless a

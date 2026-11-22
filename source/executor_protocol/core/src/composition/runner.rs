@@ -11,14 +11,13 @@
 //! seed is fixed, and checks again, down the chain, that each part provides
 //! what arrives at it; then it gets every part ready for what arrives at
 //! it, or is refused by the first that cannot take a run now. Then the
-//! driver runs the shots, calling the
-//! chain below it as one executor, the readouts of each of whose batches the
-//! protocol shapes from the batch, after checking every batch's count of
-//! instructions, and every batch its sender marked
-//! [`checked`](crate::Batch::checked). Once the run ends, whether it gave
-//! outputs, failed, or its future was dropped, its shots are ended on every
-//! part, so that none keeps them: each joined driver ends them on its adapters,
-//! and the runner on the executor.
+//! driver runs the shots, calling the chain below it as one executor, the
+//! readouts of each of whose batches the protocol shapes from the batch,
+//! after checking every batch's count of instructions, and every batch its
+//! sender marked [`checked`](crate::Batch::checked). Once the run ends,
+//! whether it gave outputs, failed, or its future was dropped, its shots
+//! are ended on every part, so that none keeps them: each joined driver
+//! ends them on its adapters, and the runner on the executor.
 
 mod run_error;
 #[cfg(not(target_arch = "wasm32"))]

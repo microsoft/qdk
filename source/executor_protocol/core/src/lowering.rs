@@ -79,8 +79,9 @@ pub trait Lowering {
 
     /// Keeps how its instructions are encoded in the receiver's set: the
     /// binding of the fit of [`sends`](Self::sends) into what the part
-    /// below accepts, as [`TranslatingAdapter::bind`](crate::TranslatingAdapter::bind), given
-    /// before any `lower`.
+    /// below accepts, as
+    /// [`TranslatingAdapter::bind`](crate::TranslatingAdapter::bind),
+    /// given before any `lower`.
     fn bind(&mut self, below: Binding<Self::To>);
 
     /// Appends to `into` the instructions that run `instruction` below, in

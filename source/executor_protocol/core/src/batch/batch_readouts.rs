@@ -3,27 +3,28 @@
 
 //! What comes back up for a batch: its [`BatchReadouts`], a row per shot,
 //! in its shot set's order, of one value per readout slot, with the
-//! shot's conditions, both of the set's types; a slot's position in a row, a
-//! [`ReadoutSlot`]; and the buffer a caller keeps them in, [`Readouts`].
+//! shot's conditions, both of the set's types; a slot's position in a row,
+//! a [`ReadoutSlot`]; and the buffer a caller keeps them in, [`Readouts`].
 //!
 //! A part that sends a batch must match each value it gets back to the
 //! readout it asked for, on each shot. Rows by position make that an index:
-//! the slots are each instruction's readouts in instruction order (its
-//! outcomes, then its flags), so slot k is the same readout on every shot
-//! of the batch; and a lost value is a value of the set, never left out. So the protocol shapes each batch's readouts before the receiver's
-//! `execute` runs, from the batch: a row per shot, of a value per readout
-//! slot of its instructions, as its sender stated them, each value
-//! the set's `UNWRITTEN_READOUT` and each shot clear of conditions. The
-//! executor fills them in place, with methods that keep their shape
-//! ([`row_mut`](BatchReadouts::row_mut),
+//! the slots are each instruction's readouts in instruction order, so slot
+//! k is the same readout on every shot of the batch; and a lost value is a
+//! value of the set, never left out. So the protocol shapes each batch's
+//! readouts before the receiver's `execute` runs, from the batch: a row
+//! per shot, of a value per readout slot of its instructions, as its
+//! sender stated them, each value the set's `UNWRITTEN_READOUT` and each
+//! shot clear of conditions. The executor fills them in place, with
+//! methods that keep their shape ([`row_mut`](BatchReadouts::row_mut),
 //! [`set_conditions`](BatchReadouts::set_conditions)), and the part above
 //! indexes them with no check of its own.
 //!
-//! The rows are dense: every value of the batch in one buffer, a byte or
-//! two each, so a shot's row is a slice; and the shots' conditions are kept
-//! only once a shot has any. Shaping keeps the memory of the readouts it
-//! shapes, so a caller that keeps its [`Readouts`] from one `execute` to
-//! the next allocates nothing once they have held readouts as large.
+//! The rows are dense: every value of the batch in one buffer, one
+//! `S::Readout` each, so a shot's row is a slice; and the shots' conditions
+//! are kept only once a shot has any. Shaping keeps the memory of the
+//! readouts it shapes, so a caller that keeps its [`Readouts`] from one
+//! `execute` to the next allocates nothing once they have held readouts as
+//! large.
 //!
 //! The crate's `docs/batches-and-readouts.md` gives the batches and their
 //! readouts as a part that sends or answers them sees them.
@@ -45,10 +46,11 @@ use crate::InstructionSet;
 /// as [`Executor::execute`](crate::Executor::execute) says.
 ///
 /// Every row has exactly one value per readout slot it was shaped with;
-/// slot k is the same readout on every shot; and a lost value is
-/// a value of the set. A value no part wrote is
-/// [`S::UNWRITTEN_READOUT`](InstructionSet::UNWRITTEN_READOUT). A shot is read by its position in the batch's shot
-/// set, as `row(i)`, and written as `row_mut(i)`.
+/// slot k is the same readout on every shot; and a lost value is a value
+/// of the set. A value no part wrote is
+/// [`S::UNWRITTEN_READOUT`](InstructionSet::UNWRITTEN_READOUT). A shot is
+/// read by its position in the batch's shot set, as `row(i)`, and written
+/// as `row_mut(i)`.
 #[derive(Clone)]
 pub struct BatchReadouts<S: InstructionSet> {
     /// The number of values in each row: its readout slots.
@@ -286,8 +288,9 @@ impl<S: InstructionSet> BatchReadouts<S> {
 }
 
 /// The rows, each its values and its shot's conditions, so a failing test
-/// shows them by shot: `BatchReadouts { readout_slots: 1, rows: [([One],
-/// NONE)] }`, with the set's `Debug` of each.
+/// shows them by shot, with the set's `Debug` of each: for instance, for a
+/// set whose readouts print `One` and whose clear conditions print `NONE`,
+/// `BatchReadouts { readout_slots: 1, rows: [([One], NONE)] }`.
 #[expect(
     clippy::missing_fields_in_debug,
     reason = "the rows show `values` and `conditions` by shot"

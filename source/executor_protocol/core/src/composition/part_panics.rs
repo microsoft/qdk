@@ -61,9 +61,10 @@ use pin_project_lite::pin_project;
 ///
 /// If this future is itself dropped before the part's is ready, the part's
 /// future is dropped with it, in a catch of its own: a panic in its
-/// destructor is raised again from the drop, as [`end_both`] raises a panic of
-/// `end_shots`, unless the thread is already unwinding, where a second
-/// panic would abort the process: then that panic's payload is dropped.
+/// destructor is raised again from the drop, as [`end_both`] raises a
+/// panic of `end_shots`, unless the thread is already unwinding, where a
+/// second panic would abort the process: then that panic's payload is
+/// dropped.
 /// Whose panic it then is depends on who dropped this future: a part above
 /// that stopped waiting for it, whose own boundary catches the panic in its
 /// call and names that part above; or the drop of a run's future, where no

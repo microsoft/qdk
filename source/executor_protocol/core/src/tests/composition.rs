@@ -3,8 +3,8 @@
 
 //! Joining parts with `through` and `on`: each sender writing as its
 //! binding to its receiver's set says, the laws of the brackets, and what
-//! each part gets ready for on every run. The joins' check of a chain, what each part
-//! requires against what the parts below provide, is in
+//! each part gets ready for on every run. The joins' check of a chain,
+//! what each part requires against what the parts below provide, is in
 //! `composition/driver_joins.rs`, running its shots in
 //! `composition/runner.rs`, the calls across its boundaries in
 //! `composition/boundary_crossing.rs`, and its parts' panics in

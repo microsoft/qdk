@@ -352,6 +352,46 @@ impl Lowering for ReadThrice {
     }
 }
 
+/// A faulty lowering: each `h` written 3 qubits higher, on a qubit it does
+/// not require below, and every other gate as [`ReadThrice`] lowers it,
+/// requiring below what [`ReadThrice`] does. A checked batch of its
+/// lowering is refused below.
+pub(crate) struct UsesUnstatedQubits;
+
+impl Lowering for UsesUnstatedQubits {
+    type From = WithToffoli;
+    type To = WithoutToffoli;
+
+    fn accepts(&self) -> &WithToffoli {
+        &WithToffoli
+    }
+
+    fn sends(&self) -> &WithoutToffoli {
+        &WithoutToffoli
+    }
+
+    fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
+        ReadThrice.requires(above)
+    }
+
+    fn bind(&mut self, (): ()) {}
+
+    fn lower(&self, gate: &ToffoliGate, into: &mut Vec<CliffordT>) {
+        match *gate {
+            ToffoliGate::H(q) => into.push(CliffordT::H(q + 3)),
+            other => ReadThrice.lower(&other, into),
+        }
+    }
+
+    fn read(&self, gate: &ToffoliGate, lowered: &[BitReadout], into: &mut [BitReadout]) {
+        ReadThrice.read(gate, lowered, into);
+    }
+
+    fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
+        lowered
+    }
+}
+
 /// `above`, with 13 instructions a batch for each one it states: a batch
 /// of the lowerings above, each instruction rewritten as at most 13.
 fn longest_rewriting_per_instruction(above: &Resources) -> Resources {

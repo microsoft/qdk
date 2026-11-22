@@ -3,8 +3,8 @@
 
 //! [`Lowered`]: a lowering run as an adapter, on a driver of `WithToffoli`
 //! over an executor of `WithoutToffoli`: what it sends below, the readouts
-//! and conditions it reads back, a checked batch it lowers, what it
-//! requires below, and the memory it reuses.
+//! and conditions it reads back, a checked batch it lowers, a refusal from
+//! below it passes up, what it requires below, and the memory it reuses.
 
 use std::any::type_name;
 use std::cell::Cell;
@@ -17,16 +17,16 @@ use crate::prelude::*;
 use crate::tests::allocations;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{
-    CliffordT, Qubits, ToffoliGate, TooFewQubits, WithToffoli, WithoutToffoli,
+    CliffordT, QubitBeyond, Qubits, ToffoliGate, TooFewQubits, WithToffoli, WithoutToffoli,
 };
 use crate::tests::fake_parts::{
     CliffordTPassThrough, CliffordTRegister, Log, ReadThrice, ToffoliFree, ToffoliProgram,
-    in_each_bracketing,
+    UsesUnstatedQubits, in_each_bracketing,
 };
 use crate::{
-    Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError, Lowered,
-    PartId, Readouts, ResourceMismatch, RunError, RunRefusal, RunRequirement, Runner, Seed,
-    ShotSet,
+    Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
+    ExecuteRefusal, Failure, Lowered, PartId, Readouts, ResourceMismatch, RunError, RunRefusal,
+    RunRequirement, Runner, Seed, ShotId, ShotSet,
 };
 
 use BitReadout::{One, Zero};
@@ -125,7 +125,7 @@ fn each_instruction_runs_below_as_its_lowering() {
 /// batches and instructions: a batch lowered in another's place, read
 /// from another's rows, or read at slots kept from the first round, fails.
 #[test]
-fn a_lowering_reads_each_instruction_s_readouts() {
+fn a_lowering_reads_each_instructions_readouts() {
     let copied = run(
         ToffoliProgram::new(&[Mz(0), Ccz(0, 1, 2), Mz(1)], 3),
         ToffoliFree::new(),
@@ -426,6 +426,47 @@ fn a_lowering_not_ready_refuses_the_run() {
         log.entries().iter().all(|entry| !entry.starts_with("runs")),
         "{:?}",
         log.entries()
+    );
+}
+
+/// A refusal from below reaches the driver unchanged, in the terms of the
+/// set below: a checked program of 3 qubits, an `mz` then an `h`, through
+/// a lowering reading `mz` three times and writing the `h` on qubit 4, a
+/// qubit it does not require, is refused below at position 3 of the
+/// lowered batch, where the `h` is at position 1 of the batch above, with
+/// the set below's fault, not as a failure.
+#[test]
+fn a_refusal_below_reaches_the_driver_unchanged() {
+    let log = Log::default();
+    let Ok(mut runner) = ToffoliProgram::new(&[Mz(0), H(1)], 3)
+        .checked_if(true)
+        .through(Lowered::new(UsesUnstatedQubits))
+        .on(CliffordTRegister::new(5, &[Zero], &log))
+    else {
+        panic!("the chain composes");
+    };
+    let error = runner
+        .run(&ShotSet::ids([0]), 7)
+        .expect_err("the lowered `h` is beyond the qubits required");
+    let RunError::Failed(DriveError {
+        failure:
+            Failure::Refused(ExecuteRefusal::Batch {
+                shot,
+                batch,
+                fault: BatchFault::Instruction { at, fault },
+            }),
+        ..
+    }) = error
+    else {
+        panic!("a batch refused below: {error:?}");
+    };
+    assert_eq!((shot, batch, at), (ShotId::new(0), 0, 3), "{fault}");
+    assert_eq!(
+        fault.downcast_ref::<QubitBeyond>(),
+        Some(&QubitBeyond {
+            qubit: 4,
+            qubits: 3
+        })
     );
 }
 
