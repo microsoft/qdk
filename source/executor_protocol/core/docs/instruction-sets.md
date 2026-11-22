@@ -26,8 +26,8 @@ the set the few things it checks:
   chain with them, as [Capabilities and their fit](capabilities.md) says.
 - **Requirement** and **fault**: what a checked batch's instructions are
   checked against on a run, prepared once per run from the set's
-  capabilities that arrive at the receiver; and why the set refuses an
-  instruction.
+  capabilities that arrive at the receiver (and once at each join, from
+  those that state nothing); and why the set refuses an instruction.
 
 ## What a set states, and when the protocol reads it
 
@@ -38,7 +38,7 @@ the set the few things it checks:
 | `Capabilities`, with its own `fits` | the set's own capabilities, required above and provided below                    | by the `on` that makes a runner, and at each run's start                                      |
 | `unconstrained`                     | the capabilities that state nothing                                              | by a part's default `provides`, and by a driver's default `requires` as its set's part        |
 | `readout_slots`                     | the readout slots one instruction writes                                         | by a sender, which sums them into a batch's stated slots; by a lowering, to find each readout |
-| `requirement`                       | what a checked batch's instructions are checked against                          | once per run, at each boundary whose receiver accepts the set                                 |
+| `requirement`                       | what a checked batch's instructions are checked against                          | by each join, from `unconstrained`'s; then once per run, at each boundary accepting the set   |
 | `check`                             | an instruction's readout slots, or the set's fault                               | for each instruction of a checked batch, before the batch runs                                |
 
 A set's mismatch and fault are its own typed errors; the protocol's shared

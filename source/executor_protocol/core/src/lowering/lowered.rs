@@ -5,14 +5,20 @@
 //!
 //! Each `adapt` lowers its batches, instruction by instruction, into
 //! batches of the set below, sends them below in one `execute`, and reads
-//! each instruction's readouts back from those of its lowering. So that a
-//! lowering's readouts are found without reading its instructions again,
-//! it notes, as it lowers, where each instruction's readout slots lie in
-//! the batch's rows above and below, summing the slots of its lowering
-//! ([`InstructionSet::readout_slots`]) for the slots it states below. It
-//! sums them as the receiver's set reads them, not as the lowering's
-//! [`sends`](Lowering::sends) does: its lowering is encoded as the
-//! binding to the receiver's set says, which may number the gates
+//! each instruction's readouts back from those of its lowering, in a batch
+//! whose lowered readout slots fit in a `u32`. Beyond that, a checked
+//! batch is refused below
+//! ([`TooManyReadoutSlots`](crate::BatchFault::TooManyReadoutSlots)), and
+//! an unchecked one is sent stating `u32::MAX` slots: an instruction whose
+//! lowering's slots lie past them reads fewer of them back, or none.
+//!
+//! So that a lowering's readouts are found without reading its
+//! instructions again, it notes, as it lowers, where each instruction's
+//! readout slots lie in the batch's rows above and below, summing the
+//! slots of its lowering ([`InstructionSet::readout_slots`]) for the slots
+//! it states below. It sums them as the receiver's set reads them, not as
+//! the lowering's [`sends`](Lowering::sends) does: its lowering is encoded
+//! as the binding to the receiver's set says, which may number the gates
 //! otherwise.
 
 use std::ops::Range;
@@ -34,7 +40,9 @@ use crate::{
 ///
 /// It keeps its lowered batches and their readouts from one `adapt` to the
 /// next, so that, once it has lowered batches as large, an `adapt`
-/// allocates only the list of the batches it sends.
+/// allocates, of its own memory, only the list of the batches it sends;
+/// what its lowering allocates, and what the instructions it lowers to
+/// hold, are the lowering's.
 pub struct Lowered<L: Lowering> {
     lowering: L,
     /// One per batch of the last `adapt`, then any kept, with their
@@ -171,32 +179,33 @@ impl<S: InstructionSet> LoweredBatch<S> {
         let above_set = lowering.accepts();
         self.instructions.clear();
         self.reads.clear();
-        let mut above = 0;
+        let mut above: usize = 0;
         let mut below: ReadoutSlots = 0;
         for (at, instruction) in instructions.iter().enumerate() {
             let start = self.instructions.len();
             lowering.lower(instruction, &mut self.instructions);
-            // Saturating: a sum beyond a `u32` is stated as `u32::MAX`, which
-            // the boundary below refuses in a checked batch, as it refuses a
-            // batch of that many slots sent unlowered. On 64-bit targets
-            // only: where a `usize` is 32 bits, the ranges' ends below
-            // overflow first, at about 4 billion readout slots in a row,
-            // which no batch nears; they are left unsaturated, as this runs
-            // on every instruction.
+            // Saturating, so that no sum overflows on any target: a sum
+            // beyond a `u32` is stated as `u32::MAX`, which the boundary
+            // below refuses in a checked batch, as it refuses a batch of
+            // that many slots sent unlowered; in an unchecked one, the
+            // ranges below end at `u32::MAX`. Above, a checked batch's
+            // slots fit in a `u32`, as the boundary above checked.
             let below_slots = self.instructions[start..]
                 .iter()
                 .map(|lowered| receiver.readout_slots(lowered))
                 .fold(0, u32::saturating_add);
+            let below_end = below.saturating_add(below_slots);
             let above_slots = above_set.readout_slots(instruction) as usize;
+            let above_end = above.saturating_add(above_slots);
             if above_slots > 0 {
                 self.reads.push(InstructionReadouts {
                     at,
-                    above: above..above + above_slots,
-                    below: below as usize..below as usize + below_slots as usize,
+                    above: above..above_end,
+                    below: below as usize..below_end as usize,
                 });
             }
-            above += above_slots;
-            below = below.saturating_add(below_slots);
+            above = above_end;
+            below = below_end;
         }
         self.readout_slots = below;
     }

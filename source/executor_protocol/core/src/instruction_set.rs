@@ -26,13 +26,18 @@ use crate::{BoundaryCompatible, Capabilities, ReadoutSlots};
 /// compare at composition ([`Capabilities`](Self::Capabilities), such as
 /// the qubits a shot holds), and what each batch's instructions are
 /// checked against on a run ([`Requirement`](Self::Requirement)), prepared
-/// from the first once per run so that the per-instruction check is cheap.
+/// from the first once per run so that the per-instruction check is cheap,
+/// and once at composition, from the capabilities that state nothing.
+///
+/// A set is a declaration that the parts and the runner share, so it is
+/// `Send` and `Sync`, as its instructions, readouts and capabilities are:
+/// a run's future then needs only its parts to be `Send` to be `Send`.
 ///
 /// A fit's mismatch and an instruction's fault are the set's own typed
 /// errors; the protocol's shared errors hold them boxed, so a caller reads
 /// them with `downcast_ref`.
 pub trait InstructionSet:
-    BoundaryCompatible<Mismatch: Error + Send + Sync + 'static> + Clone + 'static
+    BoundaryCompatible<Mismatch: Error + Send + Sync + 'static> + Clone + Send + Sync + 'static
 {
     /// One instruction of the set, as a batch holds it.
     type Instruction: Clone + Send + Sync + 'static;
@@ -52,7 +57,8 @@ pub trait InstructionSet:
         + 'static;
 
     /// What each instruction of a checked batch is checked against on a
-    /// run, prepared once per run by [`requirement`](Self::requirement).
+    /// run, prepared once per run by [`requirement`](Self::requirement),
+    /// and once at composition, for a boundary before any run.
     /// A set whose check reads its capabilities as they are may use
     /// [`Capabilities`](Self::Capabilities) itself.
     type Requirement: Send + Sync;
@@ -85,7 +91,10 @@ pub trait InstructionSet:
 
     /// What a checked batch's instructions are checked against, given
     /// `required`, the set's capabilities arriving at the receiver: built
-    /// once per run, at each boundary whose receiver accepts this set.
+    /// once per run, at each boundary whose receiver accepts this set, and
+    /// once when that boundary is joined, given the set's capabilities that
+    /// state nothing (those of [`unconstrained`](Self::unconstrained)),
+    /// before any run.
     fn requirement(&self, required: &Self::Capabilities) -> Self::Requirement;
 
     /// Checks `instruction` against this set, the receiver's, and against

@@ -94,8 +94,10 @@ pub trait Lowering {
 
     /// Writes `instruction`'s readouts, `into`, one value per readout slot
     /// of it in its set, from `lowered`, those of the instructions
-    /// [`lower`](Self::lower) gave it, in their order. Called for each shot
-    /// and each instruction with a readout slot.
+    /// [`lower`](Self::lower) gave it, in their order, as far as a batch's
+    /// lowered readout slots fit in a `u32` ([`Lowered`] says what is read
+    /// beyond). Called for each shot and each instruction with a readout
+    /// slot.
     ///
     /// Such as a logical readout read as the majority of three physical
     /// ones; a lowering whose readouts are its lowering's, one for one and

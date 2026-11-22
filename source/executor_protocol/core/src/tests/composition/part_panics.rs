@@ -223,7 +223,10 @@ fn a_run_dropped_by_a_panic_ends_its_shots_and_keeps_that_panic() {
 /// panics ending shots, over bits that answer later), or in the
 /// destructor of its pending future (coin copies over bits that answer
 /// later, whose futures panic once dropped). The run ends its shots on
-/// the bits, then raises the part's panic from the drop.
+/// the bits, then raises the part's panic from the drop. Dropped while
+/// the bits get ready (coin copies over bits still calibrating, whose
+/// future of `ready` panics once dropped), it raises that panic and ends
+/// no shot, as `drive` has not started.
 #[test]
 fn a_run_dropped_unfinished_raises_a_parts_panic_from_the_drop() {
     let ending = Log::default();
@@ -235,22 +238,34 @@ fn a_run_dropped_unfinished_raises_a_parts_panic_from_the_drop() {
     let dropping = Log::default();
     let mut panics_in_drop =
         runner(CoinCopy::new().on(PanicsInDrop::new(Later(Bits::new(&dropping)), true)));
-    for (row, panic, log, message) in [
+    let readying = Log::default();
+    let mut panics_getting_ready =
+        runner(CoinCopy::new().on(PanicsInDrop::pending_in_ready(Bits::new(&readying), true)));
+    for (row, panic, log, message, ended) in [
         (
             "a part panicking ending shots",
             dropped_unfinished(&mut panics_ending, false),
             &ending,
             "end_shots broke",
+            1,
         ),
         (
             "a part's future panicking in its destructor",
             dropped_unfinished(&mut panics_in_drop, false),
             &dropping,
             "the part's future broke when dropped",
+            1,
+        ),
+        (
+            "a part's future of `ready` panicking in its destructor",
+            dropped_unfinished(&mut panics_getting_ready, false),
+            &readying,
+            "the part's future broke when dropped",
+            0,
         ),
     ] {
         assert_eq!(panic.downcast_ref::<&str>(), Some(&message), "{row}");
-        assert_eq!(log.count("Bits end_shots, holding 0"), 1, "{row}");
+        assert_eq!(log.count("Bits end_shots, holding 0"), ended, "{row}");
     }
 }
 

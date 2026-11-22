@@ -8,17 +8,16 @@
 //! to an executor.
 
 use std::error::Error;
-use std::fmt;
 
 use crate::prelude::*;
-use crate::tests::example_sets::{BitReadout, ShotFlags};
+use crate::tests::example_sets::BitReadout;
 use crate::tests::example_sets::{
-    Gate, Measuring, OnQubit, QubitBeyond, QubitLimited, UnknownGate, on_qubits,
+    Gate, Measuring, OnQubit, QubitBeyond, QubitLimited, UnknownGate, Wide, on_qubits,
 };
 use crate::{
-    Batch, BatchFault, BatchReadouts, Binding, BoundaryCompatible, Capabilities, DriveError,
-    ExecuteError, ExecuteRefusal, Failure, Features, InstructionSet, ReadoutSlots, Readouts,
-    Resources, RunError, RunRequirement, Seed, ShotId, ShotSet,
+    Batch, BatchFault, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError,
+    ExecuteRefusal, Failure, InstructionSet, Readouts, Resources, RunError, RunRequirement, Seed,
+    ShotId, ShotSet,
 };
 
 /// How a sender marks a new batch before it sends it.
@@ -297,77 +296,6 @@ fn the_first_instruction_beyond_what_is_required_is_refused_at_its_position() {
         })
     );
 }
-
-/// A set whose each instruction reads the readout slots it holds.
-#[derive(Clone, Debug, PartialEq)]
-struct Wide;
-
-/// No capabilities of its own.
-#[derive(Clone, Debug, PartialEq)]
-struct Nothing;
-
-impl BoundaryCompatible for Nothing {
-    type Fit = ();
-    type Mismatch = std::convert::Infallible;
-
-    fn fits(&self, _provided: &Self) -> Result<(), Self::Mismatch> {
-        Ok(())
-    }
-}
-
-impl BoundaryCompatible for Wide {
-    type Fit = ();
-    type Mismatch = std::convert::Infallible;
-
-    fn fits(&self, _accepted: &Self) -> Result<(), Self::Mismatch> {
-        Ok(())
-    }
-}
-
-impl InstructionSet for Wide {
-    type Instruction = u32;
-    type Capabilities = Nothing;
-    type Requirement = ();
-    type Fault = Beyond;
-    type Readout = BitReadout;
-    type ShotConditions = ShotFlags;
-    const UNWRITTEN_READOUT: BitReadout = BitReadout::Unwritten;
-
-    fn unconstrained() -> &'static Capabilities<Self> {
-        static UNCONSTRAINED: Capabilities<Wide> = Capabilities::new(
-            Resources::unconstrained(),
-            Features::unconstrained(),
-            Nothing,
-        );
-        &UNCONSTRAINED
-    }
-
-    fn readout_slots(&self, slots: &u32) -> ReadoutSlots {
-        *slots
-    }
-
-    fn requirement(&self, _required: &Nothing) {}
-
-    fn check(&self, slots: &u32, (): &()) -> Result<ReadoutSlots, Beyond> {
-        if *slots == u32::MAX {
-            Err(Beyond)
-        } else {
-            Ok(*slots)
-        }
-    }
-}
-
-/// The instruction `u32::MAX`, which [`Wide`] refuses.
-#[derive(Debug)]
-struct Beyond;
-
-impl fmt::Display for Beyond {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("beyond the set")
-    }
-}
-
-impl Error for Beyond {}
 
 /// A batch's readout slots are a `u32`: a checked batch whose
 /// instructions' readout slots sum to more is refused, naming the

@@ -87,8 +87,9 @@ impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// own seed.
     ///
     /// A run requires its shots
-    /// ([`Resources::shots`](crate::Resources::shots)), and seeded runs
-    /// when its seed is fixed
+    /// ([`Resources::shots`](crate::Resources::shots)), or `u32::MAX`, the
+    /// most a part can state, for a run of more, and seeded runs when its
+    /// seed is fixed
     /// ([`Features::seeded_runs`](crate::Features::seeded_runs)), stating
     /// nothing of the set's capabilities:
     /// the driver's [`requires`](Driver::requires) gets that, and each part
@@ -104,11 +105,13 @@ impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// runs the shots, and a failure ends the run with the shot it names, a
     /// part's panic included, as the Panics section says.
     ///
-    /// Once `drive` returns, fails or panics, or the future is dropped
-    /// before it ends, the run's shots are ended on every part, every
-    /// adapter top to bottom, then the executor at the bottom, so that no
-    /// part carries them into the next run, whether or not the driver ended
-    /// them. Every part is ended even if one panics in `end_shots`.
+    /// Once `drive` has started, when it returns, fails or panics, or the
+    /// future is dropped before it ends, the run's shots are ended on every
+    /// part, every adapter top to bottom, then the executor at the bottom,
+    /// so that no part carries them into the next run, whether or not the
+    /// driver ended them. Every part is ended even if one panics in
+    /// `end_shots`. A run refused, or whose future is dropped while a part
+    /// gets ready, ends no shot: no part has been given them.
     ///
     /// The future is `Send` exactly when every part and every part's
     /// future is: no trait bounds the futures its parts return, and the

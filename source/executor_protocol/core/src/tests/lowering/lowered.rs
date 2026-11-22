@@ -15,7 +15,7 @@ use std::task::Poll;
 
 use crate::prelude::*;
 use crate::tests::allocations;
-use crate::tests::example_sets::{BitReadout, ShotFlags};
+use crate::tests::example_sets::{BitReadout, NoCapabilities, ShotFlags, Wide};
 use crate::tests::example_sets::{
     CliffordT, QubitBeyond, Qubits, ToffoliGate, TooFewQubits, WithToffoli, WithoutToffoli,
 };
@@ -434,7 +434,10 @@ fn a_lowering_not_ready_refuses_the_run() {
 /// a lowering reading `mz` three times and writing the `h` on qubit 4, a
 /// qubit it does not require, is refused below at position 3 of the
 /// lowered batch, where the `h` is at position 1 of the batch above, with
-/// the set below's fault, not as a failure.
+/// the set below's fault, not as a failure. So is a checked program of two
+/// `mz`, through a lowering writing each as one instruction of 2^31
+/// readout slots: refused below at the second, where their slots no longer
+/// fit in a `u32`, not by a panic of the lowering's adapter.
 #[test]
 fn a_refusal_below_reaches_the_driver_unchanged() {
     let log = Log::default();
@@ -468,6 +471,68 @@ fn a_refusal_below_reaches_the_driver_unchanged() {
             qubits: 3
         })
     );
+
+    let Ok(mut runner) = ToffoliProgram::new(&[Mz(0), Mz(1)], 3)
+        .checked_if(true)
+        .through(Lowered::new(MeasuresHalfOfAU32))
+        .on(Zeros(Wide))
+    else {
+        panic!("the chain composes");
+    };
+    let error = runner
+        .run(&ShotSet::ids([0]), 7)
+        .expect_err("2^31 readout slots twice do not fit in a `u32`");
+    let RunError::Failed(DriveError {
+        failure:
+            Failure::Refused(ExecuteRefusal::Batch {
+                shot,
+                batch,
+                fault: BatchFault::TooManyReadoutSlots { at },
+            }),
+        ..
+    }) = error
+    else {
+        panic!("a batch refused below for its readout slots: {error:?}");
+    };
+    assert_eq!((shot, batch, at), (ShotId::new(0), 0, 1));
+}
+
+/// Each `mz` written as one [`Wide`] instruction of 2^31 readout slots,
+/// every other gate as none: a lowering whose readout slots below pass a
+/// `u32` from a batch's second `mz`. It requires below what arrives.
+struct MeasuresHalfOfAU32;
+
+impl Lowering for MeasuresHalfOfAU32 {
+    type From = WithToffoli;
+    type To = Wide;
+
+    fn accepts(&self) -> &WithToffoli {
+        &WithToffoli
+    }
+
+    fn sends(&self) -> &Wide {
+        &Wide
+    }
+
+    fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<Wide> {
+        Capabilities::new(*above.resources(), *above.features(), NoCapabilities)
+    }
+
+    fn bind(&mut self, (): ()) {}
+
+    fn lower(&self, gate: &ToffoliGate, into: &mut Vec<u32>) {
+        if let Mz(_) = gate {
+            into.push(1 << 31);
+        }
+    }
+
+    fn read(&self, _gate: &ToffoliGate, _lowered: &[BitReadout], into: &mut [BitReadout]) {
+        into.fill(Zero);
+    }
+
+    fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
+        lowered
+    }
 }
 
 /// A driver sending a round at a time, a batch of `gates` per shot, in one
@@ -526,22 +591,22 @@ impl Driver for RoundsOfToffoli {
     }
 }
 
-/// An executor of [`WithoutToffoli`] writing `Zero` in every slot of
-/// every row, and allocating nothing.
-struct Zeros;
+/// An executor of the set it holds, writing `Zero` in every slot of every
+/// row, and allocating nothing.
+struct Zeros<S>(S);
 
-impl Executor for Zeros {
-    type Accepts = WithoutToffoli;
+impl<S: InstructionSet<Readout = BitReadout>> Executor for Zeros<S> {
+    type Accepts = S;
 
-    fn accepts(&self) -> &WithoutToffoli {
-        &WithoutToffoli
+    fn accepts(&self) -> &S {
+        &self.0
     }
 
     async fn execute(
         &mut self,
-        _batches: &[Batch<'_, WithoutToffoli>],
+        _batches: &[Batch<'_, S>],
         _seed: Seed,
-        readouts: &mut [BatchReadouts<WithoutToffoli>],
+        readouts: &mut [BatchReadouts<S>],
     ) -> Result<(), ExecuteError> {
         for batch_readouts in readouts {
             for position in 0..batch_readouts.shots() {
@@ -564,7 +629,7 @@ fn a_lowering_reuses_its_memory_from_one_round_to_the_next() {
         allocated: Rc::clone(&allocated),
     })
     .through(Lowered::new(ReadThrice))
-    .on(Zeros) else {
+    .on(Zeros(WithoutToffoli)) else {
         panic!("the chain composes");
     };
     runner.run(&ShotSet::ids(0..5), 7).expect("a run");

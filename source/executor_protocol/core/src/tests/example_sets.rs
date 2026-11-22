@@ -14,6 +14,8 @@
 //! - [`WithToffoli`] and [`WithoutToffoli`]: `h`, a three-qubit `ccz` and
 //!   `mz`, and Clifford+T (`h`, `cx`, `t`, `tdg` and `mz`), what a `ccz`
 //!   lowers to. What the tests of a lowering send.
+//! - [`Wide`]: each instruction the count of readout slots it writes. What
+//!   the tests of a batch's readout slots beyond a `u32` send.
 //!
 //! Each is built only from the crate's public items, as a user's set is,
 //! and all read back a [`BitReadout`] per readout slot and note
@@ -23,6 +25,7 @@ mod bit_readout;
 mod measuring;
 mod qubit_limited;
 mod shot_flags;
+mod wide;
 mod with_toffoli;
 mod without_toffoli;
 
@@ -33,5 +36,6 @@ pub(crate) use measuring::{Gate, Measuring, NoCapabilities, UnacceptedNames, Unk
 pub(crate) use qubit_limited::{
     OnQubit, QubitBeyond, QubitLimited, Qubits, TooFewQubits, on_qubits,
 };
+pub(crate) use wide::Wide;
 pub(crate) use with_toffoli::{ToffoliGate, WithToffoli};
 pub(crate) use without_toffoli::{CliffordT, WithoutToffoli};

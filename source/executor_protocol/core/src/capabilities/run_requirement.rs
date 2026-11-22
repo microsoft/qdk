@@ -7,7 +7,8 @@
 use crate::{Features, Resources};
 
 /// What a run requires of a chain, as the runner states it: its shots
-/// ([`Resources::shots`]), and seeded runs when its seed is fixed
+/// ([`Resources::shots`]), or `u32::MAX` for a run of more, and seeded
+/// runs when its seed is fixed
 /// ([`Features::seeded_runs`]). It names no instruction set, since a run
 /// states nothing of a set's capabilities: the driver at the top gets it
 /// ([`Driver::requires`](crate::Driver::requires)) and states what its

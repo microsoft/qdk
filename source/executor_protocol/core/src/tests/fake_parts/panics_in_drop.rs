@@ -17,65 +17,92 @@ use crate::{
 /// `execute` panic in their destructor when `armed`, once they have given
 /// `part`'s answer, or, when made with [`polled_too`](Self::polled_too),
 /// first when polled, before `part`'s future is; or, when made with
-/// [`in_ready`](Self::in_ready), whose future of `ready` does so instead.
-/// It does as `part` does otherwise, in each role `part` takes. So that a
-/// chain of such parts has one type whichever is armed.
+/// [`in_ready`](Self::in_ready), whose future of `ready` does so instead;
+/// or, when made with [`pending_in_ready`](Self::pending_in_ready), whose
+/// future of `ready` is pending at its first poll, and panics if dropped
+/// then. It does as `part` does otherwise, in each role `part` takes. So
+/// that a chain of such parts has one type whichever is armed.
 pub(crate) struct PanicsInDrop<P> {
     part: P,
-    armed: bool,
-    polled: bool,
-    in_ready: bool,
+    breaks: Breaks,
+}
+
+/// Which of a [`PanicsInDrop`]'s futures panic, and when.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Breaks {
+    Never,
+    /// Those of `drive`, `adapt` and `execute`, in their destructor.
+    WhenDropped,
+    /// Those of `drive`, `adapt` and `execute`, when polled and again in
+    /// their destructor.
+    WhenPolled,
+    /// That of `ready`, when polled and again in its destructor.
+    InReady,
+    /// That of `ready`, pending at its first poll, in its destructor.
+    PendingInReady,
 }
 
 impl<P> PanicsInDrop<P> {
     pub(crate) fn new(part: P, armed: bool) -> Self {
-        Self {
-            part,
-            armed,
-            polled: false,
-            in_ready: false,
-        }
+        Self::breaking(part, armed, Breaks::WhenDropped)
     }
 
     /// `part`, whose futures, when `armed`, panic when polled, and again
     /// when dropped.
     pub(crate) fn polled_too(part: P, armed: bool) -> Self {
-        Self {
-            part,
-            armed,
-            polled: armed,
-            in_ready: false,
-        }
+        Self::breaking(part, armed, Breaks::WhenPolled)
     }
 
     /// `part`, whose future of `ready`, when `armed`, panics when polled,
     /// and again when dropped; its other futures do not panic.
     pub(crate) fn in_ready(part: P, armed: bool) -> Self {
+        Self::breaking(part, armed, Breaks::InReady)
+    }
+
+    /// `part`, whose future of `ready`, when `armed`, is pending at its
+    /// first poll, as a device's still calibrating, and panics if dropped
+    /// then; its other futures do not panic.
+    pub(crate) fn pending_in_ready(part: P, armed: bool) -> Self {
+        Self::breaking(part, armed, Breaks::PendingInReady)
+    }
+
+    fn breaking(part: P, armed: bool, breaks: Breaks) -> Self {
         Self {
             part,
-            armed: false,
-            polled: false,
-            in_ready: armed,
+            breaks: if armed { breaks } else { Breaks::Never },
         }
     }
 
-    /// `future`, a future of `part`'s `ready`, which panics as `in_ready`
+    /// `future`, a future of `part`'s `ready`, which panics as `breaks`
     /// says.
-    fn readying<F>(in_ready: bool, future: F) -> Dropping<F> {
+    fn readying<F>(breaks: Breaks, future: F) -> Dropping<F> {
         Dropping {
             future: Box::pin(future),
-            armed: in_ready,
-            polled: in_ready,
+            armed: matches!(breaks, Breaks::InReady | Breaks::PendingInReady),
+            polled: breaks == Breaks::InReady,
+            pending: breaks == Breaks::PendingInReady,
+        }
+    }
+
+    /// `future`, a future of `part`'s `drive`, `adapt` or `execute`, which
+    /// panics as `breaks` says.
+    fn working<F>(breaks: Breaks, future: F) -> Dropping<F> {
+        Dropping {
+            future: Box::pin(future),
+            armed: matches!(breaks, Breaks::WhenDropped | Breaks::WhenPolled),
+            polled: breaks == Breaks::WhenPolled,
+            pending: false,
         }
     }
 }
 
-/// A part's future, which panics in its destructor when `armed`, and
-/// when polled if `polled`.
+/// A part's future, which panics in its destructor when `armed`, when
+/// polled if `polled`, and is pending at its first poll if `pending`.
 struct Dropping<F> {
     future: Pin<Box<F>>,
     armed: bool,
     polled: bool,
+    pending: bool,
 }
 
 impl<F: Future> Future for Dropping<F> {
@@ -83,6 +110,11 @@ impl<F: Future> Future for Dropping<F> {
 
     fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<F::Output> {
         assert!(!self.polled, "the part's future broke when polled");
+        if self.pending {
+            self.pending = false;
+            context.waker().wake_by_ref();
+            return Poll::Pending;
+        }
         self.future.as_mut().poll(context)
     }
 }
@@ -115,7 +147,7 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
     type Output = P::Output;
 
     fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.in_ready, self.part.ready(run))
+        Self::readying(self.breaks, self.part.ready(run))
     }
 
     fn drive(
@@ -125,11 +157,7 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
         below: &mut impl Executor<Accepts = P::Sends>,
     ) -> impl Future<Output = Result<Vec<P::Output>, DriveError>> {
         let future = self.part.drive(shots, seed, below);
-        Dropping {
-            future: Box::pin(future),
-            armed: self.armed,
-            polled: self.polled,
-        }
+        Self::working(self.breaks, future)
     }
 }
 
@@ -165,7 +193,7 @@ impl<P: TranslatingAdapter> TranslatingAdapter for PanicsInDrop<P> {
         &mut self,
         above: &Capabilities<P::Accepts>,
     ) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.in_ready, self.part.ready(above))
+        Self::readying(self.breaks, self.part.ready(above))
     }
 
     fn adapt(
@@ -176,11 +204,7 @@ impl<P: TranslatingAdapter> TranslatingAdapter for PanicsInDrop<P> {
         readouts: &mut [BatchReadouts<P::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         let future = self.part.adapt(batches, seed, below, readouts);
-        Dropping {
-            future: Box::pin(future),
-            armed: self.armed,
-            polled: self.polled,
-        }
+        Self::working(self.breaks, future)
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
@@ -207,7 +231,7 @@ impl<P: Executor> Executor for PanicsInDrop<P> {
         &mut self,
         above: &Capabilities<P::Accepts>,
     ) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.in_ready, self.part.ready(above))
+        Self::readying(self.breaks, self.part.ready(above))
     }
 
     fn execute(
@@ -217,11 +241,7 @@ impl<P: Executor> Executor for PanicsInDrop<P> {
         readouts: &mut [BatchReadouts<P::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         let future = self.part.execute(batches, seed, readouts);
-        Dropping {
-            future: Box::pin(future),
-            armed: self.armed,
-            polled: self.polled,
-        }
+        Self::working(self.breaks, future)
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
