@@ -21,8 +21,9 @@ use crate::{
 /// What arrives at a part is what the part above requires given what
 /// arrived there, starting from what the run requires. A value a part
 /// passes below unchanged is the requirement of the first part that
-/// required it, which a fault names; a lowering, whose set differs from
-/// the one above it, is the first to require what it sends.
+/// required it, which a fault names; a lowering that changes what it
+/// sends below is the first to require it, and one that passes a value
+/// unchanged is not.
 ///
 /// It is public, because the roles' hidden hook names it, but no public
 /// path reaches it, so that no other crate can call or override the hook.

@@ -10,21 +10,13 @@
 use super::Log;
 use crate::prelude::*;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
-use crate::tests::example_sets::{CliffordT, Qubits, ToffoliGate, WithToffoli, WithoutToffoli};
-use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, Resources,
-    RunRequirement, Seed, ShotSet,
+use crate::tests::example_sets::{
+    CliffordT, Qubits, ToffoliGate, WithToffoli, WithoutToffoli, on_qubits,
 };
-
-/// The capabilities of `S` on `qubits` qubits, and unconstrained
-/// otherwise.
-fn on_qubits<S: InstructionSet<Capabilities = Qubits>>(qubits: u32) -> Capabilities<S> {
-    Capabilities::new(
-        Resources::unconstrained(),
-        Features::unconstrained(),
-        Qubits(qubits),
-    )
-}
+use crate::{
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, RunRequirement, Seed,
+    ShotSet,
+};
 
 /// A driver sending `gates`, one batch of every shot, checked if
 /// `checked`, and requiring `qubits` qubits. Each shot's output is its
@@ -88,20 +80,31 @@ impl Driver for ToffoliProgram {
 }
 
 /// An executor of [`WithoutToffoli`] on `qubits` qubits, which runs
-/// nothing: it logs each batch it receives, and writes `reading` into
+/// nothing: it logs each batch it receives, and writes a reading into
 /// every row, as many of its values as the row has slots, and
-/// [`ShotFlags::REJECTED`] on every other shot, from the second.
+/// [`ShotFlags::REJECTED`] on every other shot of a batch, from the
+/// second.
 pub(crate) struct CliffordTRegister {
     provides: Capabilities<WithoutToffoli>,
-    reading: Vec<BitReadout>,
+    /// The reading of each batch of an `execute`, by its position, the
+    /// last repeated for the batches beyond.
+    readings: Vec<Vec<BitReadout>>,
     log: Log,
 }
 
 impl CliffordTRegister {
+    /// The register writing `reading` into every row.
     pub(crate) fn new(qubits: u32, reading: &[BitReadout], log: &Log) -> Self {
+        Self::with_readings(qubits, &[reading], log)
+    }
+
+    /// The register writing `readings[b]` into every row of the `b`-th
+    /// batch of each `execute`, and the last reading into the rows of the
+    /// batches beyond.
+    pub(crate) fn with_readings(qubits: u32, readings: &[&[BitReadout]], log: &Log) -> Self {
         Self {
             provides: on_qubits(qubits),
-            reading: reading.to_vec(),
+            readings: readings.iter().map(|reading| reading.to_vec()).collect(),
             log: log.clone(),
         }
     }
@@ -124,16 +127,17 @@ impl Executor for CliffordTRegister {
         _seed: Seed,
         readouts: &mut [BatchReadouts<WithoutToffoli>],
     ) -> Result<(), ExecuteError> {
-        for (batch, readouts) in batches.iter().zip(readouts) {
+        for (at, (batch, readouts)) in batches.iter().zip(readouts).enumerate() {
             self.log.push(format!(
                 "runs {:?}, checked: {}",
                 batch.instructions,
                 batch.is_checked()
             ));
+            let reading = &self.readings[at.min(self.readings.len() - 1)];
             for shot in 0..readouts.shots() {
                 let row = readouts.row_mut(shot);
                 let slots = row.len();
-                row.copy_from_slice(&self.reading[..slots]);
+                row.copy_from_slice(&reading[..slots]);
                 if shot % 2 == 1 {
                     readouts.set_conditions(shot, ShotFlags::REJECTED);
                 }

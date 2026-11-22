@@ -17,12 +17,12 @@ use crate::prelude::*;
 use crate::tests::allocations;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{
-    CliffordT, ToffoliGate, TooFewQubits, WithToffoli, WithoutToffoli,
+    CliffordT, Qubits, ToffoliGate, TooFewQubits, WithToffoli, WithoutToffoli,
 };
 use crate::tests::fake_parts::{CliffordTRegister, Log, ReadThrice, ToffoliFree, ToffoliProgram};
 use crate::{
-    Batch, BatchReadouts, DriveError, ExecuteError, Lowered, PartId, Readouts, RunError,
-    RunRefusal, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Lowered, PartId, Readouts,
+    RunError, RunRefusal, RunRequirement, Seed, ShotSet,
 };
 
 use BitReadout::{One, Zero};
@@ -62,10 +62,14 @@ fn each_instruction_runs_below_as_its_lowering() {
 }
 
 /// Each instruction's readouts are read back from those of its lowering,
-/// wherever they lie in the row below: copied one for one by default, for
-/// `mz` lowered as `mz`, past a `ccz` that reads none; and as the lowering
-/// reads them, for `mz` read three times, its readout their majority. A
-/// row copied unread, or read at another instruction's slots, fails.
+/// wherever they lie in the row below: copied one for one, for a lowering
+/// that copies them, `mz` lowered as `mz`, past a `ccz` that reads none;
+/// and as the lowering reads them, for `mz` read three times, its readout
+/// their majority. A row copied unread, or read at another instruction's
+/// slots, fails. So it is in each batch of an `execute` of several, of
+/// different shots and instructions, and in a second round of fewer
+/// batches and instructions: a batch lowered in another's place, read
+/// from another's rows, or read at slots kept from the first round, fails.
 #[test]
 fn a_lowering_reads_each_instruction_s_readouts() {
     let copied = run(
@@ -74,7 +78,7 @@ fn a_lowering_reads_each_instruction_s_readouts() {
         &[One, Zero],
         &ShotSet::ids([0]),
     );
-    assert_eq!(copied.0[0].0, [One, Zero], "copied by default");
+    assert_eq!(copied.0[0].0, [One, Zero], "copied");
     let majority = run(
         ToffoliProgram::new(&[Mz(0), H(1), Mz(1)], 3),
         ReadThrice,
@@ -82,6 +86,111 @@ fn a_lowering_reads_each_instruction_s_readouts() {
         &ShotSet::ids([0]),
     );
     assert_eq!(majority.0[0].0, [One, Zero], "the majority of each three");
+
+    let first_round = [
+        (vec![Mz(0), Mz(1)], vec![0, 2]),
+        (vec![H(0), Ccz(0, 1, 2), Mz(2)], vec![1, 3]),
+    ];
+    let second_round = [(vec![Mz(2)], vec![0, 1, 2, 3])];
+    let log = Log::default();
+    let Ok(mut runner) = ToffoliBatches(vec![first_round.to_vec(), second_round.to_vec()])
+        .through(Lowered::new(ReadThrice))
+        .on(CliffordTRegister::with_readings(
+            3,
+            &[&[One, One, Zero, Zero, Zero, One], &[Zero, Zero, One]],
+            &log,
+        ))
+    else {
+        panic!("the chain composes");
+    };
+    let outputs = runner.run(&ShotSet::ids(0..4), 7).expect("a run");
+    assert_eq!(
+        outputs,
+        [
+            vec![
+                (vec![One, Zero], ShotFlags::NONE),
+                (vec![One], ShotFlags::NONE)
+            ],
+            vec![
+                (vec![Zero], ShotFlags::NONE),
+                (vec![One], ShotFlags::REJECTED)
+            ],
+            vec![
+                (vec![One, Zero], ShotFlags::REJECTED),
+                (vec![One], ShotFlags::NONE)
+            ],
+            vec![
+                (vec![Zero], ShotFlags::REJECTED),
+                (vec![One], ShotFlags::REJECTED)
+            ],
+        ],
+        "each shot's readouts and conditions in each round"
+    );
+    let mut second = vec![CliffordT::H(0)];
+    second.extend(ToffoliFree::ccz(0, 1, 2));
+    second.extend([CliffordT::Mz(2); 3]);
+    let sent = [
+        [[CliffordT::Mz(0); 3], [CliffordT::Mz(1); 3]].concat(),
+        second,
+        vec![CliffordT::Mz(2); 3],
+    ];
+    assert_eq!(
+        log.entries(),
+        sent.map(|lowered| format!("runs {lowered:?}, checked: false"))
+    );
+}
+
+/// A driver of 3 qubits sending its rounds in turn, each in one `execute`
+/// of a batch per entry: its gates, to the shots at its positions in the
+/// run's. Each shot's output is its readouts and conditions in each round.
+struct ToffoliBatches(Vec<Vec<(Vec<ToffoliGate>, Vec<usize>)>>);
+
+impl Driver for ToffoliBatches {
+    type Sends = WithToffoli;
+    type Output = Vec<(Vec<BitReadout>, ShotFlags)>;
+
+    fn sends(&self) -> &WithToffoli {
+        &WithToffoli
+    }
+
+    fn requires(&self, run: &RunRequirement) -> Capabilities<WithToffoli> {
+        Capabilities::new(run.resources, run.features, Qubits(3))
+    }
+
+    fn bind(&mut self, (): ()) {}
+
+    async fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Executor<Accepts = WithToffoli>,
+    ) -> Result<Vec<Self::Output>, DriveError> {
+        let mut outputs = vec![Vec::new(); shots.len()];
+        let mut readouts = Readouts::new();
+        for round in &self.0 {
+            let selected = round
+                .iter()
+                .map(|(_, positions)| shots.select(positions).expect("shots of the run"))
+                .collect::<Vec<_>>();
+            let batches = round
+                .iter()
+                .zip(&selected)
+                .map(|((gates, _), selected)| {
+                    let readout_slots = gates.iter().map(|gate| WithToffoli.readout_slots(gate));
+                    Batch::new(selected, gates, readout_slots.sum())
+                })
+                .collect::<Vec<_>>();
+            let batch_readouts = readouts.readouts_for(&batches);
+            below.execute(&batches, seed, batch_readouts).await?;
+            for ((_, positions), batch) in round.iter().zip(batch_readouts.iter()) {
+                for (shot, &position) in positions.iter().enumerate() {
+                    let row = batch.row(shot).to_vec();
+                    outputs[position].push((row, batch.conditions(shot)));
+                }
+            }
+        }
+        Ok(outputs)
+    }
 }
 
 /// Each shot keeps the conditions the part below gave it once its

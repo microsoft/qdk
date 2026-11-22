@@ -89,7 +89,9 @@ pub trait InstructionSet:
     fn requirement(&self, required: &Self::Capabilities) -> Self::Requirement;
 
     /// Checks `instruction` against this set, the receiver's, and against
-    /// `required`: its readout slots, or why it is refused.
+    /// `required`: its readout slots, or why it is refused. The slots it
+    /// answers are [`readout_slots`](Self::readout_slots)`(instruction)`,
+    /// since a boundary checks a batch's stated slots against their sum.
     ///
     /// # Errors
     ///
