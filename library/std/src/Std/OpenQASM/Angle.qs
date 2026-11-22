@@ -117,7 +117,8 @@ function DoubleAsAngle(value : Double, size : Int) : Angle {
 
 
     let factor = tau / Std.Convert.IntAsDouble(1 <<< size);
-    let value = Std.Math.RoundHalfAwayFromZero(value / factor);
+    // Values within half a step of tau round up to `1 <<< size`, which is tau again.
+    let value = Std.Math.RoundHalfAwayFromZero(value / factor) % (1 <<< size);
     new Angle { Value = value, Size = size }
 }
 

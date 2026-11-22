@@ -33,6 +33,14 @@ fn tau_wraps_around() {
 }
 
 #[test]
+fn rounding_up_to_tau_wraps_around() {
+    let angle = Angle::from_f64_sized(TAU - 0.1, 4);
+    assert_eq!(angle.to_bitstring(), "0000");
+    let angle = Angle::from_f64_sized(-0.1, 4);
+    assert_eq!(angle.to_bitstring(), "0000");
+}
+
+#[test]
 fn angle_float_invariant() {
     let angle = Angle::from_f64_sized(PI, 4);
     assert_eq!(angle.to_bitstring(), "1000");

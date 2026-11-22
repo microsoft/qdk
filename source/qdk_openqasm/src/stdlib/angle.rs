@@ -77,7 +77,8 @@ impl Angle {
         #[allow(clippy::cast_possible_truncation)]
         #[allow(clippy::cast_sign_loss)]
         let value = (val / factor).round() as u64;
-        Angle::new(value, size)
+        // Values within half a step of TAU round up to `1 << size`, which is TAU again.
+        Angle::new(value % (1u64 << size), size)
     }
 
     /// This function handles the edge case when size > `f64::MANTISSA_DIGITS`.
